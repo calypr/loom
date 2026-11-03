@@ -4900,6 +4900,24 @@ const UnpivotEditor = (props: {
       ? 'Rows with missing values stay in the table.'
       : 'Rows with missing values are left out.'}`;
 
+  // ROW-SOURCE-06 audit: the source-level explanation is a property of the
+  // signed source state, not of any input row, so it renders (and is derived)
+  // independently of the selected input rows, including with zero inputs.
+  // Visibility-aware (ROUND-2 contract): the lane's sole binding is excluded
+  // while it renders in a row's picker, so a field bound by the only melt row
+  // stays selectable and unexplained instead of being falsely told to remove it.
+  const laneUnpivotBindings = props.form.unpivotSources ?? [];
+  const laneOnlyUnpivotBinding = laneUnpivotBindings.length === 1 ? laneUnpivotBindings[0] : undefined;
+  const unpivotSourceEmptiness = classifySourcePickerEmptiness(
+    props.sourceInput?.supported ? props.sourceInput.choices : [],
+    sourcePickerBoundSet({
+      bindings: laneUnpivotBindings,
+      isOwn: (binding) => laneOnlyUnpivotBinding !== undefined && binding.choiceId === laneOnlyUnpivotBinding.choiceId,
+      ownVisible: laneOnlyUnpivotBinding !== undefined
+        && props.form.inputs.some((row) => row.columnId === laneOnlyUnpivotBinding.columnId),
+    }),
+  );
+
   return (
     <section aria-label="Turn columns into rows" data-testid="construction-reshape-unpivot" className="grid content-start gap-3">
       {!props.supported ? <p role="status" className="rounded bg-amber-50 px-3 py-2 text-sm text-amber-950">{props.reason}</p> : null}
@@ -4980,21 +4998,12 @@ const UnpivotEditor = (props: {
                   </optgroup>
                 </select>
               </label>
-              {index === 0 && props.sourceInput?.supported ? (
-                <SourcePickerExplanation
-                  emptiness={classifySourcePickerEmptiness(
-                    props.sourceInput.choices,
-                    sourcePickerBoundSet({
-                      bindings: props.form.unpivotSources ?? [],
-                      isOwn: (binding) => binding.columnId === input.columnId,
-                      ownVisible: true,
-                    }),
-                  )}
-                />
-              ) : null}
               <ScalarKeyEditor input={input} disabled={props.disabled || !props.supported} onChange={(key) => updateInputKey(input.columnId, key)} />
             </div>;
           })}
+          {props.sourceInput?.supported ? (
+            <SourcePickerExplanation emptiness={unpivotSourceEmptiness} />
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <fieldset className="grid gap-2 rounded border border-slate-200 p-3">
               <legend className="px-1 text-sm font-semibold text-slate-800">New key column</legend>

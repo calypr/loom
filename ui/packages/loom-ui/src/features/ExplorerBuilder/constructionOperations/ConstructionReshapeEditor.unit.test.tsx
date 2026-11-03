@@ -3351,6 +3351,62 @@ describe('ConstructionReshapeEditor', () => {
     expect(screen.getAllByTestId('source-picker-explanation')).toHaveLength(1);
   });
 
+  it('explains unavailable dataset fields with zero selected inputs (ROW-SOURCE-06 audit)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'unpivot-choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: false, columnId: '' },
+            { choiceId: 'unpivot-choice-note', fieldPath: 'root.note.text', label: 'Note text', logicalType: 'string', isPopulated: false, columnId: '' },
+          ],
+        },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    const lastInputCheckbox = screen.getByLabelText('Unpivot Patient reference');
+    expect(lastInputCheckbox).toHaveProperty('checked', true);
+    fireEvent.click(lastInputCheckbox);
+    expect(screen.getByText('Choose at least one input column.')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('source-picker-explanation').textContent).toContain('No eligible dataset field contains values');
+    const items = within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item');
+    expect(items.map((item) => item.getAttribute('title'))).toEqual(['root.status', 'root.note.text']);
+  });
+
+  it('explains that the API listed no dataset fields without inventing a reason (unpivot lane, ROW-SOURCE-06 audit)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: { supported: true, stageId: 'source_projection', choices: [] },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('source-picker-explanation').textContent)
+      .toBe('Loom has not listed any dataset fields for this step.');
+    expect(screen.queryByTestId('source-picker-empty-list')).toBeNull();
+  });
 
   it('opens direct Unpivot entry with selected columns and proposes that metadata-driven form', () => {
     const unpivotStage = {

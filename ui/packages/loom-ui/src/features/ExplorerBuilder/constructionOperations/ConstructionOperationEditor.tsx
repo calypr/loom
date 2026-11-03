@@ -9,7 +9,7 @@ import type {
 } from '../../../types';
 import { constructionInputForStage } from '../constructionWorkspace/constructionStages';
 import { classifySourcePickerEmptiness, sourcePickerBoundSet, type SourcePickerEmptiness } from './sourcePickerExplanations';
-import { existingColumnForFieldPath } from './existingFieldReuse';
+import { existingColumnForFieldPath, type PublicFieldCarrier } from './existingFieldReuse';
 import { SourcePickerExplanation } from '../components/SourcePickerExplanation';
 
 type CandidateIntent = Pick<
@@ -943,11 +943,34 @@ const FilterValueInput = (props: {
   }
 };
 
+// An ordinary PUBLIC column carries its field as authored authoringv2
+// Column.Source.Field identity, compiled separately from construction.sourceProjections,
+// so the projection list alone cannot see it. Capabilities sign that same
+// identity into the scalar field choices: canonicalPath plus inputColumnId is
+// the server's own "this live stage column already carries this root field"
+// proof. Root-role scalar entries only, so a nested occurrence can never
+// impersonate a root dataset field.
+const publicFieldCarriersForStage = (
+  capabilities: ConstructionCapabilitiesResponse,
+): PublicFieldCarrier[] => {
+  const carriers: PublicFieldCarrier[] = [];
+  for (const choice of [...capabilities.groupFieldChoices ?? [], ...capabilities.groupRowValueChoices ?? []]) {
+    if (choice.kind !== 'FIELD_SOURCE') continue;
+    if (choice.valueKind !== 'SCALAR') continue;
+    if (choice.sourceRole !== 'ROOT' || choice.boundarySelector !== undefined) continue;
+    const columnId = choice.inputColumnId ?? '';
+    if (columnId.trim() === '') continue;
+    carriers.push({ columnId, fieldPath: choice.canonicalPath });
+  }
+  return carriers;
+};
+
 const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
   const { construction, capabilities, editingStep, selectedColumns = [], disabled } = props;
   const stage = capabilities.selectedStage;
   const sourceInput = capabilities.filterSourceInput;
   const sourceChoices = sourceInput?.choices ?? [];
+  const publicCarriers = publicFieldCarriersForStage(capabilities);
   const [stepId, setStepId] = useState(() => createOpaqueId('filter'));
   const [form, setForm] = useState(() => filterFormFromStep(editingStep, stage, selectedColumns, sourceChoices));
   const contextKey = editorContextKey(capabilities, editingStep);
@@ -974,6 +997,7 @@ const KeepRowsEditor = (props: ConstructionOperationEditorProps) => {
         sourceProjections: construction.sourceProjections,
         columns: stage.columns,
         fieldPath: choice.fieldPath,
+        publicCarriers,
       }) === undefined)
     : [];
   const columnOptionsAvailable = stage.columns.length > 0 || boundSourceVisible || sourceOptions.length > 0;

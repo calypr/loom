@@ -47,6 +47,7 @@ const renderEditor = (args: {
   readonly stageColumns: ConstructionStageDescriptor['columns'];
   readonly filterSourceInput?: ConstructionCapabilitiesResponse['filterSourceInput'];
   readonly deriveSourceInput?: ConstructionCapabilitiesResponse['deriveSourceInput'];
+  readonly editingStep?: ConstructionStep;
   readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
 }) => {
   const selectedStage = sourceStage(args.stageColumns);

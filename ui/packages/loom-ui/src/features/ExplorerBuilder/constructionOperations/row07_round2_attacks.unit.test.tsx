@@ -6,7 +6,9 @@ import {
   type Construction,
   type ConstructionCapabilitiesResponse,
   type ConstructionProposalRequest,
+  type ConstructionDeriveSourceSelection,
   type ConstructionStageDescriptor,
+  type ConstructionStep,
 } from '../../../types';
 import { ConstructionOperationEditor } from './ConstructionOperationEditor';
 import { ConstructionReshapeEditor, type ConstructionReshapeEditorProps } from './ConstructionReshapeEditor';
@@ -44,6 +46,7 @@ const renderEditor = (args: {
   readonly stageColumns: ConstructionStageDescriptor['columns'];
   readonly filterSourceInput?: ConstructionCapabilitiesResponse['filterSourceInput'];
   readonly deriveSourceInput?: ConstructionCapabilitiesResponse['deriveSourceInput'];
+  readonly editingStep?: ConstructionStep;
   readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
 }) => {
   const selectedStage = sourceStage(args.stageColumns);
@@ -379,8 +382,8 @@ describe('ATTACK 4 derive operand pair consistency', () => {
     const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const candidate = [...calls].reverse().find((entry) => entry !== undefined);
     const bindings = candidate?.deriveSources ?? [];
-    expect(bindings.map((binding) => binding.choiceId)).toEqual(['choice-b']);
-    expect(bindings.every((binding) => binding.columnId !== 'age-col')).toBe(true);
+    expect(bindings.map((binding: ConstructionDeriveSourceSelection) => binding.choiceId)).toEqual(['choice-b']);
+    expect(bindings.every((binding: ConstructionDeriveSourceSelection) => binding.columnId !== 'age-col')).toBe(true);
   });
 
   it('reverse: bind first via source, then the projection lands — pair stays consistent, selection not rewritten', () => {
@@ -435,7 +438,7 @@ describe('ATTACK 4 derive operand pair consistency', () => {
     fireEvent.change(operandKind('Second value'), { target: { value: 'column' } });
     const signedCalls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const signedCandidate = [...signedCalls].reverse().find((entry) => entry !== undefined);
-    expect((signedCandidate?.deriveSources ?? []).map((binding) => binding.choiceId)).toEqual(['choice-a']);
+    expect((signedCandidate?.deriveSources ?? []).map((binding: ConstructionDeriveSourceSelection) => binding.choiceId)).toEqual(['choice-a']);
     // Now make the column numeric: reuse fires → nothing numeric selectable + nothing offered.
     cleanup();
     const on2 = renderEditor({
@@ -561,7 +564,7 @@ describe('ATTACK 4c chooseSourceOperand kept-filter (REV4)', () => {
     const calls = (onCandidateChange as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0]);
     const candidate = [...calls].reverse().find((entry) => entry !== undefined);
     const bindings = candidate?.deriveSources ?? [];
-    expect(bindings.map((binding) => `${binding.choiceId}@${binding.columnId}`).sort())
+    expect(bindings.map((binding: ConstructionDeriveSourceSelection) => `${binding.choiceId}@${binding.columnId}`).sort())
       .toEqual(['choice-c1@x-col', 'choice-c2@y-col']);
   });
 });

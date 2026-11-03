@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { ConstructionReshapeEditor, type ConstructionReshapeEditorProps, type ConstructionReshapeStep } from './ConstructionReshapeEditor';
 import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema, constructionSchema } from '../../../types';
 
@@ -57,7 +57,7 @@ const renderEditor = (args: {
   readonly editingStep?: ConstructionReshapeStep;
   readonly onCandidateChange?: ConstructionReshapeEditorProps['onCandidateChange'];
 }) => {
-  const onCandidateChange = args.onCandidateChange ?? vi.fn();
+  const onCandidateChange = (args.onCandidateChange ?? vi.fn()) as Mock<ConstructionReshapeEditorProps['onCandidateChange']>;
   render(
     <ConstructionReshapeEditor
       construction={args.construction ?? { version: 1, steps: [] }}
@@ -66,6 +66,7 @@ const renderEditor = (args: {
       initialKind="expand"
       disabled={false}
       onCandidateChange={onCandidateChange}
+      onEditStep={vi.fn()}
     />,
   );
   return { onCandidateChange };
