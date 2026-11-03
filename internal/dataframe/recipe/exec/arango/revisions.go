@@ -91,7 +91,7 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 
 func (r *RevisionRegistry) currentDigest(ctx context.Context, project, name string) (string, error) {
 	var digest string
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name SORT doc.createdAt DESC LIMIT 1 RETURN doc.digest`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name}, func(row map[string]any) error {
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name SORT doc.createdAt DESC LIMIT 1 RETURN {digest: doc.digest}`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name}, func(row map[string]any) error {
 		digest = stringValue(row["digest"])
 		return nil
 	})

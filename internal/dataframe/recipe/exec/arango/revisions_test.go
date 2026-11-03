@@ -51,10 +51,9 @@ func (c *revisionClient) QueryRows(_ context.Context, query string, _ int, vars 
 			continue
 		}
 		if strings.Contains(query, "RETURN doc.digest") {
-			if err := visit(map[string]any{"digest": doc["digest"]}); err != nil {
-				return err
-			}
-			continue
+			// The driver cannot decode scalar AQL rows into map[string]any;
+			// a scalar projection must fail exactly like the real cursor.
+			return errors.New("read arango query cursor: json: cannot unmarshal string into Go value of type map[string]interface {}")
 		}
 		if err := visit(doc); err != nil {
 			return err
