@@ -238,6 +238,8 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options:

@@ -8,12 +8,14 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/gofiber/fiber/v3"
@@ -118,5 +120,59 @@ func TestBrowseSemanticInventoryThroughPublicAPI(t *testing.T) {
 	response = requestJSON(t, app, http.MethodPost, path, body)
 	if response.StatusCode != http.StatusForbidden || reads != 2 {
 		t.Fatalf("denied status=%d reads=%d body=%s", response.StatusCode, reads, response.Body)
+	}
+}
+
+// TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound pins that lifecycle
+// notFound classifications for output-scoped browsing reach the client as typed 404s.
+// Before the 404/422 response mappings existed, the adapter collapsed them into
+// 500 INTERNAL_ERROR ("browseExplorerSemanticInventory returned undocumented HTTP status 404").
+// Two branches are covered: EXPLORER_NOT_FOUND (no saved workspace) and
+// OUTPUT_NOT_FOUND (saved doc-less workspace, semantic_catalog.go findSemanticOutput).
+func TestBrowseSemanticInventoryOutputScopeReturnsTypedNotFound(t *testing.T) {
+	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}}
+	digest := sha256.Sum256([]byte(string(scope.Mode) + "\x00/allowed"))
+	snapshot := capability.Snapshot{
+		Token: "snapshot", Status: capability.StatusReady, Complete: true,
+		Identity: capability.SnapshotIdentity{Project: "project-a", Generation: "generation-a", AuthorizationScopeDigest: hex.EncodeToString(digest[:])},
+		Nodes:    []capability.Node{{ID: "observation", ResourceType: "Observation", RowRootEligible: true}},
+	}
+	store := newTestExplorerStore()
+	domain, err := explorer.NewService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := lifecycle.Config{
+		Capability: lifecycle.CapabilityResolver{ForCompilation: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) {
+			return lifecycle.AuthorizedCapability{Snapshot: snapshot, Scope: scope}, nil
+		}},
+		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
+			t.Fatal("output-scoped notFound must short-circuit before inventory reads")
+			return catalog.SemanticInventoryPage{}, nil
+		},
+	}
+	app := fiber.New()
+	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, config)
+	path := "/api/v1/projects/project-a/explorers/explorer/authoring/v2/semantic-inventory"
+	response := requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","rowRoot":"Observation","outputId":"out_000000000000000000000000"}`)
+	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "EXPLORER_NOT_FOUND") {
+		t.Fatalf("missing-workspace browse must be typed EXPLORER_NOT_FOUND 404: status=%d body=%s", response.StatusCode, response.Body)
+	}
+	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind}
+	workspace.Explorer.Title = "typed-not-found probe"
+	draft, err := workspace.CanonicalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftDigest, err := workspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.create(explorer.Explorer{Project: "project-a", ExplorerID: "explorer", Title: "typed-not-found probe", DraftConfig: draft, DraftVersion: 1, DraftDigest: draftDigest}); err != nil {
+		t.Fatal(err)
+	}
+	response = requestJSON(t, app, http.MethodPost, path, `{"snapshotToken":"snapshot","rowRoot":"Observation","outputId":"out_000000000000000000000000"}`)
+	if response.StatusCode != http.StatusNotFound || !strings.Contains(response.Body, "OUTPUT_NOT_FOUND") || strings.Contains(response.Body, "INTERNAL_ERROR") {
+		t.Fatalf("saved doc-less workspace must yield typed OUTPUT_NOT_FOUND 404: status=%d body=%s", response.StatusCode, response.Body)
 	}
 }
