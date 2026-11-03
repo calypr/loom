@@ -2241,3 +2241,26 @@ what actually ran (evidence paths retained on the same host):
   container /tmp (Nov 2, 0700) — staged-dir cleanup is defer-guarded and
   only process-death escapes it; container restart clears it. Recorded as
   environmental color, not a defect.
+
+## Round 82 — semantic-inventory cursor integrity: PREVENTED by identified code
+
+- `DecodeSemanticInventoryCursor` (`internal/catalog/semantic_inventory.go:
+  484-502`) rejects on base64/JSON shape, `Version != 1`, empty BindingID or
+  ConceptID, and — decisively — recomputes `SemanticInventoryPageDigest`
+  from the CURRENT request options (project, generation, server-resolved
+  buildID, effective unrestricted bool, resourceType, bindingID, query, the
+  CLAMPED limit, plus sorted-compacted auth paths), so a cursor captured or
+  crafted for any other request identity mismatches
+  (`ErrSemanticInventoryCursorMismatch`). The digest carries no secret —
+  assessed as sufficient because the cursor only sets a keyset SEEK position:
+  rows still flow through the current-scope WHERE (project/build/paths/
+  unrestricted), so forging a digest for one's own options adds zero
+  privilege, and cross-scope forgeries fail the digest anyway.
+- Limit-clamp symmetry checked: the digest binds the CLAMPED limit, so
+  cursor reuse across a limit change is rejected deterministically
+  (replayable only with identical effective options).
+- `compactStrings` (in-place sorted dedupe, relies on sorted input): single
+  call site (`:448-451`) clones, sorts, then compacts — contract honored;
+  duplicate-path option lists collapse to equivalent digests, matching
+  IN-filter semantics (harmless).
+- No defect candidate on this vertical.
