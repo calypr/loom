@@ -930,6 +930,18 @@
       "role": "NEW contract tests (4): live batch assertion + tampered-observation and proof-set self-validation controls.",
       "pin": "2f6e64ea",
       "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.test.mjs == on-disk"
+    },
+    "scripts/ci/vet.mjs": {
+      "sha256": "67440ca7581aa59a73b897dcc757141347f8d3326fb878e579bda41bdc22995d",
+      "role": "CI-62-01 boundary gate CLI (Round 67): full go vet + explicit copylocks passes over configurable package patterns; overlay-supported; analyzerArgs guard blocks -overlay injection through the analyzer channel. Executed durably by internal/ci TestNodeVetCliSmoke.",
+      "pin": "661de7b3",
+      "rederived": "SELF-RUN live sha256 == git show 661de7b3:scripts/ci/vet.mjs == on-disk"
+    },
+    "internal/ci/vet_gate_test.go": {
+      "sha256": "44b47d61f217ad2d82fe24a828e10becdb871da08a2ee0804527ca30afa33c08",
+      "role": "CI-62-01 durable falsification, Go-side (Round 67; lives in internal/ci because the CI node-unit job has no Go toolchain): repo-wide go vet exit-0 gate auto-enrolled in go-unit ./internal/... sweep; overlay-injected copylocks fault reddens vet naming copies lock + probe file; -copylocks=false class-identification control; disk purity; node CLI smoke.",
+      "pin": "661de7b3",
+      "rederived": "SELF-RUN live sha256 == git show 661de7b3:internal/ci/vet_gate_test.go == on-disk"
     }
   },
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
