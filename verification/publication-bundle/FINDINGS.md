@@ -1878,3 +1878,26 @@ Record integrity tail (Round 65, written last): record-writer's ledger files at 
   skip-gated for CI and remains the durable reproduction harness.
 - Evidence: probe output /tmp/opencode/jrev/fb25-live-run-r71.log; schema
   pattern + identity-set inclusion computed this round.
+
+## Round 72 — F-B17 sanctioned red re-verified live; manifest CAS read-back confirms the gap
+
+- Per the maintain rule (freshness, not re-discovery): re-ran the sanctioned
+  `TestGenerationActivationBlindlyFlipsSharedPointerAgainstArango` against the
+  owned dev-stack Arango in-container. Result VERBATIM-CURRENT: `--- FAIL`
+  (blind cross-generation flip reproduced; quoted shipped `activateAQL` shows
+  the same no-value-compare patch; `GAC_DATABASE_REMOVED` cleanup logged).
+  Log `/tmp/opencode/jrev/fb17-red-rerun-r72.log`.
+- Independent source read this round agrees with the ledger: `activateAQL`
+  (:318-337) filters only candidate validity + active existence/recordType/
+  project; no FILTER on the pointer's current dataset/manifestKey, no
+  expected-revision bind, and `ignoreRevs:false` conditions on a body-carrying
+  _rev only within the single statement — the Go read-then-act window
+  (:198-204 idempotency pre-check round trip) is unprotected. Fix-shape model
+  `GenerationActivationCas.tla` (expected-value CAS arm clean) stands as the
+  validated remedy; repair remains the operator's queued policy decision
+  (winner/demote semantics for concurrent activations) — no unilateral fix
+  without the promised-behavior decision (no-redefinition rule).
+- Class read of neighboring guards (not previously itemized): the release
+  path (`release_store.go` expected_revision) and janitor/reconcile (Round 70)
+  both DO carry value-compare CAS; generation activation is the sole
+  pointer-flip site lacking one — scope of the open defect precisely bounded.
