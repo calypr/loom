@@ -644,10 +644,10 @@
     "release_dangle_reconcile_e2e_test.go [arango pkg]": "F-B12 sanctioned-red artifact intact; 3rd reproduction f1ea7ac5 (/tmp/opencode/fb12-reconfirm.log), FAILED-ON-PURPOSE, authenticated residue 0",
     "release_dangle_reconcile_e2e_test.go [clickhouse pkg]": "F-B11 PREVENTED control artifact (parent PASS 278d34ac); ABSENT-GUARD fault control",
     "verification/publication-bundle/FINDINGS.md": {
-      "sha256": "b7f96066c4465981cbc836098f115707b5152e915e0e52aa207330ce0b6b26e9",
-      "role": "Ledger of discovery/repair rounds through Round 73 (bulk-load spillover repair record appended; rounds 68-76 discovery closures included).",
-      "pin": "d2ff3d03",
-      "rederived": "SELF-RUN live sha256 == git show d2ff3d03:verification/publication-bundle/FINDINGS.md == on-disk"
+      "sha256": "e10ca876747f8167b9c3f34a9a7a130580d3409108bc0a2af0eb3b06643bf0bd",
+      "role": "Ledger through Round 79: R78 fail-posture repair, R78b gofmt CI boundary + class completion, R79 F-B40 registration.",
+      "pin": "4e15704f",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:verification/publication-bundle/FINDINGS.md == on-disk"
     },
     "verification/publication-bundle/OPERATOR_REVIEW_DIGEST.md": {
       "md5": "0b0bf2613fcda2476f8f21f7d28e8e62",
@@ -669,8 +669,10 @@
     },
     "internal/api/bulk/load/cross_project_dataset_authorization_e2e_test.go": "84b3aa88351246c0b8b4325f5056b370",
     "internal/authscope/covers_execution_paths_control_test.go": {
-      "md5": "3f134a94fc06b201d1a469acdef53523",
-      "role": "REPAIR-19 / F-B20 F-2 durable covers-subset controls: 10-arm sole-discriminator control + 25-case truth table + per-subtest resolver-driven generation-bound control; mutant C kill witness /tmp/opencode/repair19/kill_run.log (19 FAIL lines = 13 unique scenario kills)"
+      "sha256": "9bf8b1662ec590e1c19e692959d3774b5a0128f74b19b9d318849370c91769a1",
+      "role": "Companion pin TestUnrestrictedRequiresExplicitUnrestrictedMode: bypass posture only for the explicit unrestricted enum (empty/garbage/wrong-case/trailing-space all false).",
+      "pin": "4e15704f",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/authscope/covers_execution_paths_control_test.go == on-disk"
     },
     "internal/authscope/all_generations_cache_key_test.go": {
       "md5": "c70b83bb1c61caf7335f85e6cb5595f6",
@@ -956,6 +958,42 @@
       "role": "Round 73 durable regression: TMPDIR-redirected orphan scan + loader-time staged integrity for the multipart spillover leak; FAILS pre-fix (orphaned multipart-* listings), PASSES post-fix; falsifiability re-derived by parent and reviewer ses_e606fc.",
       "pin": "d2ff3d03",
       "rederived": "SELF-RUN live sha256 == git show d2ff3d03:internal/api/bulk/load/form_spillover_test.go == on-disk"
+    },
+    "internal/api/recipe/discovery.go": {
+      "sha256": "03e1528ed6aa2d42b6e88eb11e6a9bfc17a3c4cff9ba4cb7efb32625dac52fc1",
+      "role": "R78 hardening: unknown/empty AuthScopeMode fails CLOSED at the catalog discovery bridge (explicit restricted), matching the pinned Covers posture; catalog legacy rule untouched.",
+      "pin": "adfff030",
+      "rederived": "SELF-RUN live sha256 == git show adfff030:internal/api/recipe/discovery.go == on-disk"
+    },
+    "internal/api/recipe/discovery_auth_mode_test.go": {
+      "sha256": "966446cd7ec55de1c8c6005cda498b9561cf3d0c434a1e4165380131a6b05e9d",
+      "role": "R78 durable regression: five-mode posture matrix + Effective() companions + Covers-agreement arm; pre-fix RED re-derived by parent and reviewer ses_e605e21f7ffe.",
+      "pin": "adfff030",
+      "rederived": "SELF-RUN live sha256 == git show adfff030:internal/api/recipe/discovery_auth_mode_test.go == on-disk"
+    },
+    "internal/ci/gofmt_gate_test.go": {
+      "sha256": "cf758c1f75568939e315c6f88af41f62dc5462299d6c49d628e599d449ac9733",
+      "role": "Durable gofmt canonical boundary: 4 arms (sensitivity, repo-zero over git-tracked, anti-vacuity, fatal-on-any-nonzero-exit covering the reviewer-found silent exit-2 shape); go-unit t.Fatal posture.",
+      "pin": "4e15704f",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:internal/ci/gofmt_gate_test.go == on-disk"
+    },
+    "conformance/compiler/benchmark_test.go": {
+      "sha256": "774308e9a2baac5238efe74326d0d15b788f55bcd0422305c779886a051c7727",
+      "role": "BS-67-1 class completion: gofmt-canonical repair (import sort/whitespace only), AST-identical with comments removed + imports normalized.",
+      "pin": "4e15704f",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/benchmark_test.go == on-disk"
+    },
+    "conformance/compiler/generated_semantics_coverage_test.go": {
+      "sha256": "6d37b4dfe7d255a8c3b6c10aa08d22a01301fde9b9555615b6ec790ad737a94d",
+      "role": "BS-67-1 class completion: gofmt-canonical repair (whitespace/alignment only), AST-identical proof as sibling.",
+      "pin": "4e15704f",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:conformance/compiler/generated_semantics_coverage_test.go == on-disk"
+    },
+    "generated/graphql/graph/executor/schema.generated.go": {
+      "sha256": "7bb95f32c94f384c18027ad2f35c9c4b19a2fed2813cc181dacb3a7d34b3149c",
+      "role": "BS-67-1 class completion: gofmt-canonical repair; reviewer ground truth: 1807 string literals byte-identical, only import-path literals permuted.",
+      "pin": "4e15704f",
+      "rederived": "SELF-RUN live sha256 == git show 4e15704f:generated/graphql/graph/executor/schema.generated.go == on-disk"
     }
   },
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
