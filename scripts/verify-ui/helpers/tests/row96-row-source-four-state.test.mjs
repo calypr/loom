@@ -14,7 +14,7 @@ const scenario = registry.find((entry) => entry.id === 'row96-row-source-four-st
 test('row96 four-state script passes its static self-validation via --dry-run', () => {
   const run = spawnSync(process.execPath, [join(REPO, SCRIPT), '--dry-run'], { encoding: 'utf8', cwd: REPO, timeout: 30000 });
   assert.equal(run.status, 0, `--dry-run exited ${run.status}: ${run.stdout}${run.stderr}`);
-  assert.match(run.stdout, /DRY_RUN_OK artifact=row96-four-state checks=9/);
+  assert.match(run.stdout, /DRY_RUN_OK artifact=row96-four-state checks=10/);
 });
 
 test('row96 registry requiredChecks are machine-identical to the script expectedChecks', () => {
@@ -49,6 +49,52 @@ test('row96 script keeps its identity, closed-set, and class-disjointness guards
   const re = new Function(`return ${emptyFamily}`)();
   assert.ok(!re.test('PIVOT_ROW_SOURCE_SOURCE_INVENTORY_UNAVAILABLE'), 'inventory class must never match the empty-data family regex');
   assert.ok(re.test('NO_OBSERVED_VALUES_GENDER_SOURCE_FIELDS'));
+});
+
+test('row96 matrix wire proof binds the applying commands echo with load-time body caching and canonical project decoding', () => {
+  const source = readFileSync(join(REPO, SCRIPT), 'utf8');
+  for (const probe of [
+    "url.includes('/authoring/v2/commands')",
+    'Network.loadingFinished',
+    'acceptedConstruction',
+    'matrixWireEntryBelongsToProject',
+    'decodeURIComponent(decodeURIComponent(',
+  ]) {
+    assert.ok(source.includes(probe), `matrix wire-proof wiring missing: ${probe}`);
+  }
+  assert.ok(!source.includes('const matrixRowSets ='), 'the retired proposals-based proof must not silently return');
+  // Pin the extractor's behavior inside its own definition: textual probes
+  // elsewhere (assert messages, listener registration) survive a body stub,
+  // so the proof surfaces are asserted on the brace-matched definition body.
+  const cmdDefAt = source.indexOf('const commandRowSets =');
+  assert.ok(cmdDefAt >= 0, 'commandRowSets definition missing');
+  const cmdDefOpen = source.indexOf('{', cmdDefAt);
+  let cmdDefDepth = 0;
+  let cmdDefEnd = cmdDefOpen;
+  while (cmdDefEnd < source.length) {
+    const ch = source[cmdDefEnd];
+    if (ch === '{') cmdDefDepth += 1;
+    else if (ch === '}') {
+      cmdDefDepth -= 1;
+      if (cmdDefDepth === 0) break;
+    }
+    cmdDefEnd += 1;
+  }
+  const commandRowSetsBody = source.slice(cmdDefOpen, cmdDefEnd + 1);
+  for (const probe of [
+    'if (entry.status !== 200) continue;',
+    'matrixWireEntryBelongsToProject(entry.url)',
+    'await matrixBody(entry)',
+    'acceptedConstruction?.preview?.rows',
+    'if (Array.isArray(rows)) sets.push(rows);',
+  ]) {
+    assert.ok(commandRowSetsBody.includes(probe), `commandRowSets definition lost a proof surface: ${probe}`);
+  }
+  // Each leg's server-multiset proof must read only captures from after its own
+  // leg-start watermark (project binding blocks the cross-project class; this
+  // blocks the cross-leg class).
+  assert.match(source, /const cmdBeforeExclude = matrixCmdWire\.length;[\s\S]*commandRowSets\(cmdBeforeExclude\)/, 'EXCLUDE proof is not leg-watermarked on the commands echo');
+  assert.match(source, /const cmdBeforePreserve = matrixCmdWire\.length;[\s\S]*commandRowSets\(cmdBeforePreserve\)/, 'PRESERVE proof is not leg-watermarked on the commands echo');
 });
 
 test('row96 refusal and reasonCode assertions never fall back to vacuous passes', () => {

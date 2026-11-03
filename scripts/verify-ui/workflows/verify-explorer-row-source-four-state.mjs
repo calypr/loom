@@ -39,7 +39,26 @@ const expectedChecks = [
   'row96-picker-empty-and-refused-explanations',
   'row96-existing-column-reuse',
   'row96-signed-expand-lane',
+  'row96-expand-policy-matrix',
 ];
+
+// ROW-SOURCE-08 policy matrix (docs/ROW_OPERATION_NEXT_BATCH.md §ROW-SOURCE-08): five
+// parents carrying [red, red, blue] + [green] + empty + missing + null arrays; the contract
+// row counts EXCLUDE=4 / PRESERVE_PARENT=7 and the ERROR wire code are asserted in-window.
+const matrixParents = [
+  { id: 'rs08m-red', values: ['red', 'red', 'blue'] },
+  { id: 'rs08m-green', values: ['green'] },
+  { id: 'rs08m-empty', values: [] },
+  { id: 'rs08m-missing' },
+  { id: 'rs08m-null', values: null },
+];
+const matrixExcludeMultiset = [['rs08m-red', 'red'], ['rs08m-red', 'red'], ['rs08m-red', 'blue'], ['rs08m-green', 'green']];
+const matrixKeptParentIds = ['rs08m-empty', 'rs08m-missing', 'rs08m-null'];
+// Wire-code authority: internal/dataframe/errors/errors.go:77 defines CodeConstructionExpansionEmpty
+// = CONSTRUCTION_EXPANSION_EMPTY; internal/dataframe/compiler/render/aql/construction_expand.go:33
+// ASSERTs it against LENGTH(items)==0 under EmptyPolicy ERROR; internal/server/
+// explorer_preview_response.go:65 + server.go:96 map it to the 422 preview failure body.
+const matrixErrorWireCode = 'CONSTRUCTION_EXPANSION_EMPTY';
 
 // Honest-absence family: row-choice verdicts (lane reason authority above) plus the
 // compiler capability gates emitted for an under-seeded table (dataframe/compiler/lower/
@@ -61,6 +80,15 @@ const staticValidate = () => {
   for (const helper of ['../../loom-dev.mjs', '../../browser/cdp.mjs', './builder-url.mjs']) {
     assert.ok(existsSync(resolve(REPO_ROOT, 'scripts/verify-ui/workflows', helper)), `missing dependency ${helper}`);
   }
+  assert.equal(expectedChecks.indexOf('row96-expand-policy-matrix'), expectedChecks.indexOf('row96-signed-expand-lane') + 1,
+    'the policy-matrix check must execute immediately after the signed-expand-lane check');
+  assert.ok(/^[A-Z][A-Z0-9_]*$/.test(matrixErrorWireCode), 'the ERROR policy wire code must be an upper server class, not prose');
+  assert.equal(matrixExcludeMultiset.length, 4, 'the EXCLUDE parent multiset must contain exactly the four contract rows (3 + 1 values expanded; empty/missing/null parents dropped)');
+  assert.equal(matrixExcludeMultiset.filter(([, value]) => value === 'red').length, 2, 'repeated red values are two separate contract rows');
+  const matrixExpanded = matrixParents.reduce((sum, parent) => sum + (Array.isArray(parent.values) ? parent.values.length : 0), 0);
+  assert.equal(matrixExpanded, matrixExcludeMultiset.length, 'the seeded parent arrays must flatten to exactly the EXCLUDE row count');
+  assert.equal(matrixExpanded + matrixKeptParentIds.length, 7, 'PRESERVE_PARENT must add exactly the empty/missing/null parent rows to reach seven');
+  assert.deepEqual(new Set(matrixKeptParentIds).size, 3, 'the empty, missing and null parents must be three distinct resources');
   console.log(`DRY_RUN_OK artifact=row96-four-state checks=${expectedChecks.length}`);
 };
 
@@ -111,6 +139,31 @@ const rs08FixtureDir = (() => {
   return dir;
 })();
 if (rs08FixtureDir) process.env.LOOM_DEV_FIXTURE_DIR = rs08FixtureDir;
+
+// ROW-SOURCE-08 policy matrix: the contract parents [red, red, blue] / [green] / empty /
+// missing / null must land in a row space the signed-expand-lane check's byte-stable
+// four-row Procedure preview never traverses, so the matrix gets its OWN per-run fresh
+// fixture project (createFreshVerificationFixture design) seeded from this second copy.
+// Same runner machinery as above; nothing on the shared stack is mutated.
+const rs08MatrixFixtureDir = (() => {
+  if (options.dryRun) return undefined;
+  const dir = mkdtempSync(join(tmpdir(), 'rs96-matrix-'));
+  let patientSubjectRef = 'Patient/dev-patient-001';
+  for (const name of readdirSync(join(REPO_ROOT, 'testdata/devloop-fixture')).filter((entry) => entry.endsWith('.ndjson'))) {
+    const contents = readFileSync(join(REPO_ROOT, 'testdata/devloop-fixture', name));
+    if (name === 'Patient.ndjson') {
+      const firstID = JSON.parse(String(contents).trim().split('\n')[0])?.id;
+      if (typeof firstID === 'string' && firstID) patientSubjectRef = `Patient/${firstID}`;
+    }
+    writeFileSync(join(dir, name), contents);
+  }
+  const procedures = matrixParents.map((parent) => ({
+    resourceType: 'Procedure', id: parent.id, status: 'completed', subject: { reference: patientSubjectRef },
+    ...(Object.prototype.hasOwnProperty.call(parent, 'values') ? { instantiatesUri: parent.values } : {}),
+  }));
+  writeFileSync(join(dir, 'Procedure.ndjson'), procedures.map((resource) => JSON.stringify(resource)).join('\n') + '\n');
+  return dir;
+})();
 
 const session = createDevSession(process.env, REPO_ROOT);
 const collectBuildIdentity = () => {
@@ -542,7 +595,7 @@ const main = async () => {
   });
   assert.equal(expandCaps0.status, 200, `signed-expand-lane capabilities failed (${expandCaps0.status}): ${JSON.stringify(expandCaps0.value).slice(0, 300)}`);
   const expandChannel = expandCaps0.value?.expandSourceInput;
-  assert.ok(expandChannel?.supported === true, `signed-expand-lane: expandSourceInput unsupported: ${JSON.stringify(expandChannel).slice(0, 300)}`);
+  assert.ok(expandChannel?.supported === true, `signed-expand-lane: expandSourceInput unsupported: ${JSON.stringify(expandChannel ?? null).slice(0, 300)}`);
   const expandChoice = (expandChannel.choices ?? []).find((choice) => choice.isPopulated
     && String(choice.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]');
   assert.ok(expandChoice, `signed-expand-lane: instantiatesUri[] not offered among populated signed choices (would be vacuous): ${JSON.stringify(expandChannel.choices ?? []).slice(0, 400)}`);
@@ -628,6 +681,409 @@ const main = async () => {
     preserveParentEmptyArrayRowKept: preserveParentKeptEmptyArrayRow,
   });
   markPhase('signed-expand-lane');
+
+  // ROW-SOURCE-08 policy/lifecycle evidence: EXCLUDE / PRESERVE_PARENT / ERROR plus the
+  // Cancel, Apply-persists, reload-restores, removal-cleans-sourceProjection legs, all
+  // in-window against a dedicated fresh fixture project carrying the contract parents
+  // ([red, red, blue], [green], empty, missing, null). The signed-expand-lane check's
+  // four-row PRESERVE_PARENT preview stays byte-stable because these rows live in the
+  // second project, never in this table's row space.
+  const matrixEvidence = { fieldPath: null, choiceId: null, uiDefaultEmptyPolicy: null, legs: {}, errorWire: { candidates: [], assertedCode: null }, disclosures: [] };
+  {
+    assert.ok(rs08MatrixFixtureDir, 'expand-policy-matrix: no per-run matrix fixture directory was seeded');
+    const matrixSession = createDevSession({ ...process.env, LOOM_DEV_FIXTURE_DIR: rs08MatrixFixtureDir }, REPO_ROOT);
+    const matrixFixture = await createFreshVerificationFixture(matrixSession, `${runStem}-b`, { populateBootstrap: false });
+    const matrixProject = matrixFixture.target.fixtureProject;
+    const matrixExplorer = matrixFixture.seed.bootstrapExplorerId;
+    report.matrixFixture = { project: matrixProject, explorer: matrixExplorer };
+    const apiB = async (path, body) => {
+      const base = `${apiOrigin}/api/v1/projects/${encodeURIComponent(matrixProject)}/explorers/${encodeURIComponent(matrixExplorer)}/authoring/v2`;
+      const response = await fetch(`${base}/${path}`, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+      return { status: response.status, value: await response.json().catch(() => ({})) };
+    };
+    const commandsB = (commandId, list, state) => apiB('commands', {
+      commandId: `${runStem}-${commandId}`, semanticsVersion: AUTHORING_SEMANTICS_VERSION,
+      snapshotToken: state.catalog.snapshotToken, expectedDraftVersion: state.draftVersion,
+      expectedDraftDigest: state.draftDigest, commands: list,
+    });
+    const laneBURL = () => browserURL({ uiUrl: session.uiUrl ?? `http://${session.host}:${session.uiPort}` }, matrixProject, matrixExplorer, 'builder');
+    const navigateToLaneB = async () => {
+      await send('Page.navigate', { url: laneBURL() });
+      await until(async () => (await mounted('[data-testid="construction-workspace"]'))
+        || Boolean(await evaluate(`(()=>{const a=document.querySelector('[role="alert"]');return a?a.textContent:null;})()`)), 'matrix lane settled', 18000);
+    };
+    const matrixDraft = async () => (await apiB('builder')).value?.draftVersion ?? 0;
+    const matrixCaps = async () => {
+      const state = (await apiB('builder')).value;
+      const payload = await apiB('construction-capabilities', {
+        outputId: matrixOutputId, stageId, snapshotToken: state.catalog.snapshotToken,
+        expectedDraftVersion: state.draftVersion, expectedDraftDigest: state.draftDigest,
+      });
+      assert.equal(payload.status, 200, `expand-policy-matrix: construction-capabilities failed (${payload.status}): ${JSON.stringify(payload.value).slice(0, 300)}`);
+      return { state, value: payload.value };
+    };
+
+    // In-window wire capture: the ERROR leg must assert the SERVER wire code, not a
+    // paraphrase; proposal/preview bodies also carry __loom_row_id, the row-identity
+    // authority that proves repeated values stay separate rows.
+    await send('Network.enable');
+    const matrixWire = [];
+    const matrixCmdWire = [];
+    // CDP response bodies are held in a bounded buffer and can be evicted long before
+    // a late query (root-caused 2026-11-03: identical parses succeeded in one read and
+    // returned null seconds later in the same tick's successor). Capture the body at
+    // loadingFinished instead and read synchronously later; the fallback re-fetch
+    // covers requests whose finish event does not arrive.
+    const matrixBody = async (entry) => {
+      if (typeof entry.body === 'string') return entry.body;
+      try {
+        const result = await send('Network.getResponseBody', { requestId: entry.requestId });
+        const body = result?.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : String(result?.body ?? '');
+        if (body) entry.body = body;
+        return body;
+      } catch { return null; }
+    };
+    client.on('Network.responseReceived', (event) => {
+      const url = event?.response?.url ?? '';
+      if (/(construction-proposals|receipts|\/preview)/.test(url)) matrixWire.push({ requestId: event.requestId, status: event.response?.status ?? 0, url });
+      if (url.includes('/authoring/v2/commands')) matrixCmdWire.push({ requestId: event.requestId, status: event.response?.status ?? 0, url });
+    });
+    client.on('Network.loadingFinished', (event) => {
+      const entry = [...matrixWire, ...matrixCmdWire].find((candidate) => candidate.requestId === event.requestId && typeof candidate.body !== 'string');
+      if (!entry) return;
+      void (async () => {
+        try {
+          const result = await send('Network.getResponseBody', { requestId: event.requestId });
+          entry.body = result?.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : String(result?.body ?? '');
+        } catch { /* keep the late re-fetch fallback */ }
+      })();
+    });
+    const wireShape = (body) => {
+      try {
+        const parsed = JSON.parse(body);
+        return { code: typeof parsed?.code === 'string' ? parsed.code : null, nestedCode: typeof parsed?.error?.code === 'string' ? parsed.error.code : null, message: String(parsed?.message ?? parsed?.error?.message ?? '').slice(0, 200) };
+      } catch { return { unparsedPrefix: body.slice(0, 120) }; }
+    };
+    // F1 fix (adversarial reviewer A) preserved through the commands-echo binding:
+    // the wire row-identity proof must bind to the matrix project AND to the current
+    // leg. Without both, a 4-row/7-row 200 captured for the PRELUDE project
+    // (signed-expand lane) or an earlier leg satisfies the distinctness asserts
+    // vacuously (proven: /tmp/reviewer-a/stale_wire_capture_probe.mjs).
+    // The wire project identity arrives in different encodings per surface (raw
+    // 'X-b', raw already carrying '%2F', page double-encoding the sub-scope '-' as
+    // '%252F'). Decoding both sides to canonical form keeps other projects (the
+    // signed-expand PRELUDE lane) out while staying encoding-independent; a strict
+    // encodeURIComponent compare matched nothing on the exact same four-row 200s.
+    const decodeWireSurface = (value) => {
+      try { return decodeURIComponent(decodeURIComponent(String(value))); } catch { return null; }
+    };
+    const matrixProjectWireForms = new Set([matrixProject, String(matrixProject).replace(/-/, '/'), decodeWireSurface(matrixProject)].filter((value) => typeof value === 'string' && value.length > 0));
+    const matrixWireEntryBelongsToProject = (url) => {
+      const match = /\/projects\/([^/]+)\//.exec(String(url));
+      if (!match) return false;
+      const decoded = decodeWireSurface(match[1]);
+      return decoded !== null && matrixProjectWireForms.has(decoded);
+    };
+    const commandRowSets = async (fromIndex) => {
+      const sets = [];
+      for (const entry of matrixCmdWire.slice(fromIndex ?? 0)) {
+        if (entry.status !== 200) continue;
+        if (!matrixWireEntryBelongsToProject(entry.url)) continue;
+        const body = await matrixBody(entry);
+        if (!body) continue;
+        try {
+          const parsed = JSON.parse(body);
+          const rows = parsed?.acceptedConstruction?.preview?.rows;
+          if (Array.isArray(rows)) sets.push(rows);
+        } catch { /* commands response without a preview echo */ }
+      }
+      return sets;
+    };
+    const rowIdentity = (row) => typeof row?.__loom_row_id === 'string' ? row.__loom_row_id : JSON.stringify(row?.__loom_row_id ?? null);
+
+    const builderB = await apiB('builder');
+    assert.equal(builderB.status, 200, `expand-policy-matrix: builder fetch failed (${builderB.status})`);
+    const matrixRoot = (builderB.value?.catalog?.nodes ?? []).find((node) => node.resourceType === 'Procedure' && node.rowRootEligible);
+    assert.ok(matrixRoot?.nodeId, 'expand-policy-matrix: matrix catalog exposes no eligible Procedure row root');
+    const matrixCreate = await commandsB('rs08m-table', [{ type: 'CREATE_TABLE', title: 'RS08 policy matrix', rootNodeId: matrixRoot.nodeId }], builderB.value);
+    assert.equal(matrixCreate.status, 200, `expand-policy-matrix: CREATE_TABLE failed (${matrixCreate.status}): ${JSON.stringify(matrixCreate.value).slice(0, 300)}`);
+    const matrixState0 = (await apiB('builder')).value;
+    const matrixOutputId = (matrixState0?.workspace?.documents ?? []).at(-1)?.output?.id;
+    assert.ok(matrixOutputId, 'expand-policy-matrix: matrix table has no output; every leg below would assert vacuously');
+    const matrixIdCandidate = (matrixState0?.catalog?.candidates ?? []).find((candidate) => candidate.nodeId === matrixRoot.nodeId
+      && String(candidate.fieldPath || '').replace(/^root\./, '') === 'id');
+    assert.ok(matrixIdCandidate?.candidateId, 'expand-policy-matrix: no Procedure id candidate for the public-column prerequisite');
+    const matrixIdAdded = await commandsB('rs08m-id', [{
+      type: 'ADD_COLUMN', outputId: matrixOutputId, occurrenceId: 'base',
+      candidateId: matrixIdCandidate.candidateId, projectionMode: matrixIdCandidate.defaultProjectionMode,
+      initialPresentation: 'TABLE', title: 'Procedure ID',
+    }], matrixState0);
+    assert.equal(matrixIdAdded.status, 200, `expand-policy-matrix: id ADD_COLUMN failed (${matrixIdAdded.status}): ${JSON.stringify(matrixIdAdded.value).slice(0, 300)}`);
+    const matrixCaps0 = await matrixCaps();
+    const matrixChannel = matrixCaps0.value?.expandSourceInput;
+    assert.ok(matrixChannel?.supported === true, `expand-policy-matrix: expandSourceInput unsupported: ${JSON.stringify(matrixChannel ?? null).slice(0, 300)}`);
+    const matrixChoice = (matrixChannel.choices ?? []).find((choice) => choice.isPopulated
+      && String(choice.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]');
+    assert.ok(matrixChoice, `expand-policy-matrix: the contract array field is not offered among populated signed choices: ${JSON.stringify(matrixChannel.choices ?? []).slice(0, 400)}`);
+    matrixEvidence.fieldPath = matrixChoice.fieldPath;
+    matrixEvidence.choiceId = matrixChoice.choiceId;
+
+    const repeatFieldSelect = '[data-testid="construction-reshape-expand"] select[aria-label="Repeated field"]';
+    const matrixPolicySelect = '[data-testid="construction-reshape-expand"] select[aria-label="Empty list policy"]';
+    const applySelector = '[data-testid="construction-apply-proposal"]';
+    const openMatrixAdvanced = async () => {
+      const state = await evaluate(`(()=>{const d=document.querySelector('[data-testid="construction-reshape-expand-advanced"]');return d?d.open:null;})()`);
+      if (state === false) await realClick('[data-testid="construction-reshape-expand-advanced"] summary');
+      assert.equal(await evaluate(`(()=>{const d=document.querySelector('[data-testid="construction-reshape-expand-advanced"]');return d?d.open:null;})()`), true,
+        'expand-policy-matrix: the Advanced options disclosure never opened; the Empty list policy control stays unreachable');
+    };
+    const setMatrixPolicy = async (policy) => {
+      await openMatrixAdvanced();
+      assert.equal(await setSelectValue(matrixPolicySelect, policy), policy, `expand-policy-matrix: Empty list policy select did not take ${policy}`);
+    };
+    const openMatrixCreateEditor = async () => {
+      await realClick(`[data-testid="construction-table-${matrixOutputId}"]`);
+      await realClick('[data-testid="construction-rows-settings-trigger"]');
+      await until(() => mounted('[data-testid="construction-row-intent-reshape"]'), 'matrix: row-definition dialog open', 20000);
+      await realClick('[data-testid="construction-row-intent-reshape"]');
+      await until(() => mounted('[data-testid="construction-action-expand-signed-rows"]'), 'matrix: reshape intent offers the signed expand card', 20000);
+      await realClick('[data-testid="construction-action-expand-signed-rows"]');
+      await until(() => mounted('[data-testid="construction-reshape-expand"]'), 'matrix: expand editor open', 20000);
+    };
+    const closeMatrixEditor = async () => {
+      if (await mounted('[data-testid="construction-close-operation-editor"]')) await realClick('[data-testid="construction-close-operation-editor"]');
+      await until(async () => !(await mounted('[data-testid="construction-reshape-expand"]')), 'matrix: expand editor closed', 15000);
+    };
+    const openMatrixStepEditor = async (stepId) => {
+      await until(() => mounted(`[data-testid="construction-history-step-${stepId}"]`), `matrix: EXPAND history step ${stepId} rendered`, 20000);
+      await realClick(`[data-testid="construction-history-step-${stepId}"]`);
+      // Live-frame truth (diagf probes): activation alone never mounts the row-definition
+      // panel from a clean frame; the panel (listing construction-row-edit-<step-id> ->
+      // editConstructionStep, RowDefinitionSettingsPanel.tsx:1059) opens through the
+      // table's rows-settings trigger. If a prior leg left it mounted, edit directly.
+      for (let i = 0; i < 50; i += 1) {
+        if (await mounted('[data-testid="construction-reshape-expand"]')) return;
+        if (await mounted(`[data-testid="construction-row-edit-${stepId}"]`)) break;
+        await wait(100);
+      }
+      if (!(await mounted(`[data-testid="construction-row-edit-${stepId}"]`))) {
+        if (await mounted('[data-testid="construction-rows-settings-trigger"]')) {
+          await realClick('[data-testid="construction-rows-settings-trigger"]');
+          await until(() => mounted(`[data-testid="construction-row-edit-${stepId}"]`), `matrix: rows-settings panel lists step ${stepId} for editing`, 20000);
+        }
+      }
+      if (await mounted(`[data-testid="construction-row-edit-${stepId}"]`)) {
+        await realClick(`[data-testid="construction-row-edit-${stepId}"]`);
+        await until(() => mounted('[data-testid="construction-reshape-expand"]'), `matrix: Edit opened the signed expand editor for ${stepId}`, 20000);
+        return;
+      }
+      // Fallback for alternative renderings: drive the dialog entries directly.
+      for (let i = 0; i < 150; i += 1) {
+        if (await mounted('[data-testid="construction-reshape-expand"]')) return;
+        if (await mounted('[data-testid="construction-row-intent-reshape"]')) { await realClick('[data-testid="construction-row-intent-reshape"]'); continue; }
+        if (await mounted('[data-testid="construction-action-expand-signed-rows"]')) { await realClick('[data-testid="construction-action-expand-signed-rows"]'); continue; }
+        await wait(100);
+      }
+      assert.fail('expand-policy-matrix: activating the EXPAND history step never revealed the signed expand editor');
+    };
+    const untilApplyReady = async (label, ms = 25000) => until(async () => evaluate(`(()=>{const b=document.querySelector(${JSON.stringify(applySelector)});return b && !b.disabled ? true : null;})()`), label, ms);
+    const untilMatrixPreview = async (predicate, label, ms = 60000) => {
+      const deadline = Date.now() + ms;
+      for (;;) {
+        const view = await readExpandPreview();
+        if (predicate(view)) return view;
+        if (Date.now() > deadline) assert.fail(`expand-policy-matrix: ${label}; last preview ${JSON.stringify(view).slice(0, 800)}`);
+        await wait(500);
+      }
+    };
+    const exactExclude = (cells) => JSON.stringify([...cells].sort()) === JSON.stringify([...matrixExcludeMultiset].sort());
+    const preserveShape = (cells) => cells.length === 7
+      && exactExclude(cells.filter((row) => !matrixKeptParentIds.includes(row[0])))
+      && matrixKeptParentIds.every((keptId) => cells.some((row) => row[0] === keptId && (row[1] === '' || row[1] === '—')));
+
+    await navigateToLaneB();
+    await until(datasetLoaded, 'matrix dataset loaded (construction-workspace mounted)', 60000);
+
+    // Leg 1: the shipped UI default stays PRESERVE_PARENT (contract: never a new default),
+    // and a fully-selected signed candidate CANCELs without leaving a step or draft bump.
+    const draftAtCancelBase = await matrixDraft();
+    await openMatrixCreateEditor();
+    matrixEvidence.uiDefaultEmptyPolicy = await evaluate(`document.querySelector(${JSON.stringify(matrixPolicySelect)})?.value ?? null`);
+    assert.equal(matrixEvidence.uiDefaultEmptyPolicy, 'PRESERVE_PARENT',
+      'the empty expand editor must render the shipped PRESERVE_PARENT default (ConstructionReshapeEditor.tsx:1566); the contract forbids introducing a new default');
+    await setSelectValue(repeatFieldSelect, `source:${matrixChoice.choiceId}`);
+    await untilApplyReady('matrix: apply present for the signed selection (pre-cancel)');
+    await realClick('[data-testid="construction-cancel-proposal"]');
+    // Reviewer A F4: pin CANCEL as an action, not "proposal happened to be pending":
+    // the shared proposal surface (Apply + Cancel) must be gone afterwards.
+    await until(async () => !(await mounted(applySelector)) && !(await mounted('[data-testid="construction-cancel-proposal"]')),
+      'matrix: CANCEL removed the pending proposal surface', 10000);
+    const afterCancel = await matrixCaps();
+    assert.equal((afterCancel.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'EXPAND').length, 0,
+      'expand-policy-matrix: Cancel left an EXPAND step in the construction');
+    assert.equal(afterCancel.state.draftVersion, draftAtCancelBase, 'expand-policy-matrix: Cancel advanced the draft');
+    matrixEvidence.legs.cancel = { draftUnchanged: true, expandStepsAfterCancel: 0 };
+    await screenshot('step3a-matrix-cancel');
+
+    // Leg 2: EXCLUDE — exactly the four expanded rows, no parent-kept rows.
+    // Watermark at LEG start: this leg's applying commands echo arrives after this
+    // line, and every earlier leg's traffic completed through its awaited round-trips.
+    const cmdBeforeExclude = matrixCmdWire.length;
+    if (!(await mounted('[data-testid="construction-reshape-expand"]'))) await openMatrixCreateEditor();
+    await setSelectValue(repeatFieldSelect, `source:${matrixChoice.choiceId}`);
+    await setMatrixPolicy('EXCLUDE');
+    await untilApplyReady('matrix: apply enabled for the EXCLUDE candidate');
+    const draftBeforeExclude = await matrixDraft();
+    await realClick(applySelector);
+    await until(async () => (await matrixDraft()) > draftBeforeExclude, 'matrix: draft advanced after EXCLUDE apply', 30000);
+    const excludePreview = await untilMatrixPreview((view) => view && view.rowCount === 4 && exactExclude(view.cells),
+      'the EXCLUDE preview never produced the four exact expanded rows with the kept-parent rows absent');
+    const excludeRowSets = (await commandRowSets(cmdBeforeExclude)).filter((rows) => rows.length === 4);
+    assert.ok(excludeRowSets.length >= 1, 'expand-policy-matrix: no 200 commands response carried an acceptedConstruction.preview with the four EXCLUDE rows; the row-identity proof would be unexercised');
+    const excludeIdentities = excludeRowSets[excludeRowSets.length - 1].map(rowIdentity);
+    assert.equal(new Set(excludeIdentities).size, 4, `EXCLUDE: all four preview rows need distinct __loom_row_id values, got ${JSON.stringify(excludeIdentities)}`);
+    matrixEvidence.legs.exclude = {
+      rowCount: excludePreview.rowCount, cells: excludePreview.cells, rowIdentities: excludeIdentities,
+      keptParentRowsAbsent: matrixKeptParentIds.every((keptId) => !excludePreview.cells.some((row) => row[0] === keptId)),
+    };
+    await screenshot('step3b-matrix-exclude');
+
+    const afterExclude = await matrixCaps();
+    const expandSteps = (afterExclude.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'EXPAND');
+    assert.equal(expandSteps.length, 1, `expand-policy-matrix: expected exactly one applied EXPAND step, got ${expandSteps.length}`);
+    const matrixStep = expandSteps[0];
+    const matrixSignedPayload = matrixStep.operation.expand?.expandedField;
+    assert.ok(matrixSignedPayload && String(matrixSignedPayload.path).replace(/^root\./, '') === 'instantiatesUri[]' && matrixSignedPayload.cardinality === 'many',
+      `expand-policy-matrix: the applied step lost its server signature: ${JSON.stringify(matrixStep.operation.expand ?? null).slice(0, 300)}`);
+    const matrixInputColumnId = matrixStep.operation.expand.inputColumnId;
+    assert.ok(matrixInputColumnId, 'expand-policy-matrix: the applied EXPAND step has no owned array input column');
+    matrixEvidence.expandStepId = matrixStep.id;
+    matrixEvidence.inputColumnId = matrixInputColumnId;
+    matrixEvidence.signedPayload = matrixSignedPayload;
+    await closeMatrixEditor();
+
+    // Leg 3: EDIT the applied step to PRESERVE_PARENT — seven rows: the same four
+    // expanded rows plus the empty/missing/null parents kept, red twice as two
+    // separately identified rows. Watermark at leg start (same rule as Leg 2).
+    const cmdBeforePreserve = matrixCmdWire.length;
+    await openMatrixStepEditor(matrixStep.id);
+    await setMatrixPolicy('PRESERVE_PARENT');
+    await untilApplyReady('matrix: apply enabled for the PRESERVE_PARENT edit');
+    const draftBeforePreserve = await matrixDraft();
+    await realClick(applySelector);
+    await until(async () => (await matrixDraft()) > draftBeforePreserve, 'matrix: draft advanced after PRESERVE_PARENT apply', 30000);
+    const preservePreview = await untilMatrixPreview((view) => view && view.rowCount === 7 && preserveShape(view.cells),
+      'the PRESERVE_PARENT preview never produced the seven contract rows (four expanded + empty/missing/null parents kept)');
+    const preserveRowSets = (await commandRowSets(cmdBeforePreserve)).filter((rows) => rows.length === 7);
+    assert.ok(preserveRowSets.length >= 1, 'expand-policy-matrix: no 200 commands response carried an acceptedConstruction.preview with the seven PRESERVE_PARENT rows');
+    const preserveIdentities = preserveRowSets[preserveRowSets.length - 1].map(rowIdentity);
+    assert.equal(new Set(preserveIdentities).size, 7, `PRESERVE_PARENT: all seven preview rows need distinct __loom_row_id values, got ${JSON.stringify(preserveIdentities)}`);
+    // Repeated-value proof on captured wire rows: __loom_row_id is the server's opaque
+    // identity, so the two red rows are located by their expanded cell value, then each
+    // must carry its own distinct __loom_row_id (repeated values stay separate rows).
+    const preserveLastRows = preserveRowSets[preserveRowSets.length - 1];
+    const redPreserveRows = preserveLastRows.filter((row) => Object.entries(row).some(([key, value]) => key !== '__loom_row_id' && value === 'red'));
+    assert.equal(redPreserveRows.length, 2, 'matrix: the repeated rs08m array must contribute two separate preview rows carrying value red');
+    const redPreserveIdentities = redPreserveRows.map(rowIdentity);
+    console.log('matrix-evidence:red-row-identities', JSON.stringify(redPreserveIdentities));
+    assert.equal(new Set(redPreserveIdentities).size, 2, `matrix: the two repeated red rows must carry distinct row identities, got ${JSON.stringify(redPreserveIdentities)}`);
+    matrixEvidence.legs.preserveParent = {
+      rowCount: preservePreview.rowCount, cells: preservePreview.cells, rowIdentities: preserveIdentities,
+      repeatedValueRowIdentities: redPreserveIdentities,
+      keptParentRows: matrixKeptParentIds.map((keptId) => ({ keptId, kept: preservePreview.cells.some((row) => row[0] === keptId && (row[1] === '' || row[1] === '—')) })),
+    };
+    await screenshot('step3c-matrix-preserve');
+
+    // Leg 4: ERROR — the named empty-parent failure must surface in the browser AND
+    // on the wire with the server reasonCode (authority: errors.go:77 +
+    // construction_expand.go:33 + explorer_preview_response.go:65; asserted, not guessed).
+    await closeMatrixEditor();
+    await openMatrixStepEditor(matrixStep.id);
+    await setMatrixPolicy('ERROR');
+    await until(async () => (await mounted('[data-testid="construction-proposal-error"]'))
+      || (await evaluate(`(()=>{const sec=document.querySelector('[data-testid="construction-preview"]');return sec?.getAttribute('data-preview-status')==='error' ? true : null;})()`))
+      || (await evaluate(`(()=>{const p=document.querySelector('[data-testid="preview-table-scroll"]');return p && /did not complete for this draft/i.test(p.textContent||'') ? true : null;})()`)),
+      'matrix: the ERROR policy never surfaced the empty-parent failure in the browser', 45000);
+    for (const entry of matrixWire.filter((candidate) => candidate.status >= 400)) {
+      const body = await matrixBody(entry);
+      if (body !== null) matrixEvidence.errorWire.candidates.push({ status: entry.status, url: entry.url.slice(0, 160), shape: wireShape(body) });
+    }
+    const namedFailure = matrixEvidence.errorWire.candidates.find((candidate) => candidate.shape?.code === matrixErrorWireCode || candidate.shape?.nestedCode === matrixErrorWireCode);
+    assert.ok(namedFailure, `expand-policy-matrix: no failing proposal/preview response carried the named ${matrixErrorWireCode} wire code; captured shapes: ${JSON.stringify(matrixEvidence.errorWire.candidates.slice(0, 5))}`);
+    matrixEvidence.errorWire.assertedCode = matrixErrorWireCode;
+    matrixEvidence.errorWire.failureSample = namedFailure;
+    assert.ok(!(await mounted(applySelector)), 'matrix: a failed ERROR-policy preview must not offer Apply');
+    matrixEvidence.legs.error = { browserFailureSurfaced: true, wireCode: matrixErrorWireCode, applyOfferedWhileFailing: false };
+    await screenshot('step3d-matrix-error');
+    if (await mounted('[data-testid="construction-cancel-proposal"]')) await realClick('[data-testid="construction-cancel-proposal"]');
+    await closeMatrixEditor();
+    const afterError = await matrixCaps();
+    const persistedStep = (afterError.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'EXPAND');
+    assert.equal(persistedStep.length, 1, `expand-policy-matrix: the failed ERROR edit must leave exactly one applied step, got ${JSON.stringify(persistedStep.map((step) => step.id))}`);
+    assert.equal(persistedStep[0]?.id, matrixStep.id, 'expand-policy-matrix: the failed ERROR edit replaced the applied step');
+    assert.equal(persistedStep[0].operation.expand.emptyPolicy, 'PRESERVE_PARENT', 'the cancelled ERROR edit must not have persisted the ERROR policy');
+    matrixEvidence.legs.error.persistedPolicyUnchanged = 'PRESERVE_PARENT';
+
+    // Leg 5: reload restores the persisted EXPAND step, its signature, its owned
+    // sourceProjection, and the seven-row rendering.
+    await send('Page.reload', {});
+    await until(datasetLoaded, 'matrix dataset restored after reload', 60000);
+    const afterReload = await matrixCaps();
+    const reloadSteps = (afterReload.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'EXPAND');
+    assert.equal(reloadSteps.length, 1, `expand-policy-matrix: reload did not restore exactly one applied EXPAND step (got ${JSON.stringify(reloadSteps.map((step) => step.id))})`);
+    assert.equal(reloadSteps[0]?.id, matrixStep.id, 'expand-policy-matrix: reload restored a different EXPAND step identity');
+    const reloadProjection = (afterReload.value?.baseConstruction?.sourceProjections ?? [])
+      .find((projectionEntry) => projectionEntry.columnId === matrixInputColumnId);
+    assert.ok(reloadProjection && reloadProjection.ownerStepId === matrixStep.id
+      && String(reloadProjection.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]',
+      `expand-policy-matrix: reload lost the EXPAND-owned sourceProjection: ${JSON.stringify(afterReload.value?.baseConstruction?.sourceProjections ?? null).slice(0, 300)}`);
+    let reloadPreview = null;
+    let reloadPreviewViaEditor = false;
+    try {
+      reloadPreview = await untilMatrixPreview((view) => view && view.rowCount === 7 && preserveShape(view.cells), 'workspace preview did not restore the seven rows', 20000);
+    } catch {
+      reloadPreviewViaEditor = true;
+      matrixEvidence.disclosures.push('after reload the workspace-level preview section did not settle on the seven rows within 20 s; the restore proof was taken through the reopened step editor proposal preview instead (same construction-preview authority as check #9)');
+      await openMatrixStepEditor(matrixStep.id);
+      reloadPreview = await untilMatrixPreview((view) => view && view.rowCount === 7 && preserveShape(view.cells), 'the reopened step editor did not restore the seven rows', 60000);
+    }
+    matrixEvidence.legs.reload = { stepRestored: true, projectionRestored: reloadProjection, rowCount: reloadPreview.rowCount, viaEditor: reloadPreviewViaEditor };
+    await screenshot('step3e-matrix-reload');
+
+    // Leg 6: removal yields source restoration — after removing the step the server
+    // must drop the step-owned array sourceProjection (mirrors the check #9 readback).
+    if (!(await mounted('[data-testid="construction-reshape-expand"]'))) await openMatrixStepEditor(matrixStep.id);
+    await until(() => mounted(`[data-testid="construction-remove-step-${matrixStep.id}"]`), 'matrix: Remove control for the EXPAND step', 20000);
+    const draftBeforeRemoval = await matrixDraft();
+    await realClick(`[data-testid="construction-remove-step-${matrixStep.id}"]`);
+    const removalDeadline = Date.now() + 20000;
+    for (;;) {
+      if (await mounted(applySelector)) { await realClick(applySelector); break; }
+      if ((await matrixDraft()) > draftBeforeRemoval) break;
+      if (Date.now() > removalDeadline) assert.fail('expand-policy-matrix: clicking Remove never produced a removal proposal or draft change');
+      await wait(200);
+    }
+    await until(async () => (await matrixDraft()) > draftBeforeRemoval, 'matrix: the removal was never applied', 30000);
+    const afterRemoval = await matrixCaps();
+    assert.equal((afterRemoval.value?.baseConstruction?.steps ?? []).filter((step) => step?.operation?.kind === 'EXPAND').length, 0,
+      'expand-policy-matrix: the EXPAND step survived removal');
+    const survivingProjection = (afterRemoval.value?.baseConstruction?.sourceProjections ?? [])
+      .find((projectionEntry) => projectionEntry.columnId === matrixInputColumnId
+        || (projectionEntry.ownerStepId === matrixStep.id && String(projectionEntry.fieldPath).replace(/^root\./, '') === 'instantiatesUri[]'));
+    assert.ok(!survivingProjection, `expand-policy-matrix: server-side source restoration failed, the EXPAND-owned array sourceProjection survived removal: ${JSON.stringify(survivingProjection ?? null).slice(0, 300)}`);
+    await closeMatrixEditor();
+    matrixEvidence.legs.removal = { stepRemoved: true, projectionCleaned: true, draftBumped: true };
+    report.matrixEvidence = matrixEvidence;
+    await screenshot('step3f-matrix-removal');
+
+    matrixEvidence.disclosures.push(
+      'stale-choice and invalid-type refusals (INVALID_EXPAND_SOURCE_CHOICE expand_source.go:302/308/320/324, STALE_EXPAND_SOURCE_SCHEMA :341, UNSUPPORTED_EXPAND_SOURCE_FIELD :328/348/351) are not cheaply derivable in-window from a healthy lane: they require mutating the choice identity or schema outside the user flow; the Go suites (internal/explorer/lifecycle/expand_source_test.go and the lower expand gate) remain the authority',
+      'null-array and missing-array parents exercise the same server-side no-items branch under each policy (construction_expand.go treats raw==null as []); the null literal survived fixture ingestion if this check passed with seven PRESERVE_PARENT rows',
+    );
+    record('row96-expand-policy-matrix', matrixEvidence);
+    try { rmSync(rs08MatrixFixtureDir, { recursive: true, force: true }); } catch { /* disposable tmp copy */ }
+  }
+  markPhase('expand-policy-matrix');
 
   const refusalRecords = laneCaps.flatMap((cap) => (Array.isArray(cap.candidates ?? cap.fields) ? cap.candidates ?? cap.fields : [])
     .filter((candidate) => candidate && candidate.supported === false && typeof candidate.reasonCode === 'string' && candidate.reasonCode)

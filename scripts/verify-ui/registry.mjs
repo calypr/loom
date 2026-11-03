@@ -4482,6 +4482,17 @@ const registryRows = [
     script: 'verify-explorer-unpivot-row-source.mjs',
     cases: {
       'row-source-journey': {
+        focusedChecks: [
+          {
+            id: 'explorer-unpivot-contracts-static',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/contracts/unpivot-contracts.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/contracts/unpivot-contracts.mjs',
+              'scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs',
+            ],
+          },
+        ],
         requiredChecks: [
           'step-0-behavior-capabilities',
           'discovery-hides-date-family',
@@ -9642,6 +9653,7 @@ const registryRows = [
           'row96-picker-empty-and-refused-explanations',
           'row96-existing-column-reuse',
           'row96-signed-expand-lane',
+          'row96-expand-policy-matrix',
         ],
         focusedChecks: [
           {
@@ -9651,6 +9663,7 @@ const registryRows = [
             sourceFiles: [
               'scripts/verify-ui/registry.mjs',
               'scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs',
+              'scripts/loom-dev.mjs',
               'internal/explorer/lifecycle/construction_pivot_source.go',
             ],
           },
