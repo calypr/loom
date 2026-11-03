@@ -2283,3 +2283,39 @@ what actually ran (evidence paths retained on the same host):
   clause limits filter count; raising it would need an operator product
   decision on public API limits.
 - No defect candidate on this vertical.
+
+## Round 84 — projectid identity normalization: PREVENTED (aliasing is by-design, one bucket per authz key); hardening notes recorded
+
+- Vertical first located: NO server-side session concept exists in `internal/`
+  (session vertical N/A — the previously "unexamined session surface" is not
+  a Go code path). Pivot: `internal/projectid` (51-line identity mapper)
+  feeding authz (`principal.go:59-61` canonical-vs-canonical), grant lookup
+  (`scope_resolver.go:275` `Legacy(Canonical(p))`), dataframe read keys
+  (`service.go:183-187`), and `cmd/loom-repository` URL builders.
+- Hypothesis (merge collision): canonical-distinct IDs sharing a legacy key,
+  e.g. `A-B/C` and `A/B-C` both → key `A-B-C`. FALSIFIED as a leak: the
+  WRITE path persists the RAW URL param verbatim into ingest options
+  (`service.go:69 opts.Project = req.Project`, rows keyed by raw param —
+  `ingest/backend.go` indexes on `project` string), so bucket contents are
+  injective per input string; the auth gate is computed on the SAME key as
+  the query bind, so a shared key = one logical bucket that cannot be
+  authorized-then-read-disjoint in any exploitable direction. Grant-to-one-
+  spelling authorizes only queries whose key equals the granted key — the
+  same bucket. Hyphen↔slash aliasing is the documented purpose of the
+  package ("callers can derive that storage alias"), so it is the promise,
+  not a violation.
+- Disclosed hardening note A (input-domain trap): the dataset create handler
+  passes the RAW undecoded path param; authz escapes (`PathUnescape` inside
+  Canonical) while storage does not. A caller sending `HTAN%2FABC` to the
+  dataset endpoint persists the literal `%2F` name; subsequent GraphQL reads
+  (JSON project string, unescaped) key to the hyphen form and miss → the
+  upload is a self-orphan (self-DoS only, no cross-tenant exposure; the
+  convention for dataset paths is the legacy hyphen form, which escapes to
+  itself). No named contract admits slash-bearing dataset path params;
+  recorded as hardening note, not registered.
+- Disclosed hardening note B: `Canonical` leaves single-component IDs with
+  lowercase programs untouched (`project-a` opaque) — matches the documented
+  "opaque single-component" intent; no collision path found within that arm.
+- Tooling slip (self-recorded): mixed BRE alternation `\|` into a ripgrep
+  call once this round → silent no-match; re-derived names with plain grep.
+- No defect candidate on this vertical.
