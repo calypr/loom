@@ -216,7 +216,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		outputProjections = append(outputProjections, reshapeOutputProjection(key, physical.OutputRowVariable, false))
 		outputSchema = append(outputSchema, column)
 	}
-	for _, category := range pivot.Categories {
+	for index, category := range pivot.Categories {
 		nullable := valueColumn.Nullable || pivot.MissingCellPolicy == recipe.PivotMissingCellNull
 		cardinality := string(expression.RequiredOne)
 		if nullable {
@@ -230,6 +230,23 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		column.Internal = false
 		column.Identity = false
 		column.Discovered = false
+		// Every category cloned from the shared value input must carry a
+		// distinct compiled column ID: the receipt compiled output schema
+		// rejects duplicate IDs, which failed every multi-category table-shape
+		// pivot proposal. The first category keeps the historical clone
+		// identity byte-for-byte because single-category pivot receipts saved
+		// with that identity are revalidated against fresh compiles at
+		// publication; receipts with two or more categories could never have
+		// persisted pre-fix (validation failed), so clearing the identity on
+		// later categories introduces no saved-artifact drift. A pivot-produced
+		// aggregate has no source producer of its own, matching the unpivot
+		// key/value outputs and the compiler-owned row identity.
+		if index > 0 {
+			column.ID = ""
+			column.SourceChild = nil
+			column.PresenceCompanionName = ""
+			column.RelatedRecordAnchor = nil
+		}
 		outputSchema = append(outputSchema, column)
 		outputProjections = append(outputProjections, reshapeOutputProjection(category.Output, physical.OutputRowVariable, false))
 	}
