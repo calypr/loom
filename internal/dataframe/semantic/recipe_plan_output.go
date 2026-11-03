@@ -9,22 +9,31 @@ import (
 	"fmt"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
+// structuralUserRejection classifies a rejected caller-supplied structural
+// identifier (grain, resource type, alias, group pairing). Internal-invariant
+// checks over already-derived structures deliberately keep raw errors so a
+// genuine compiler fault still surfaces as INTERNAL_ERROR instead of a 400.
+func structuralUserRejection(message string) error {
+	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, message, dataframeerrors.WithRetryable(false))
+}
+
 func buildRecipeOutput(output recipe.Output, bindings recipe.RuntimeBindings) (OutputPlan, error) {
 	if !fhirschema.HasResource(output.RootResourceType) {
-		return OutputPlan{}, fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType)
+		return OutputPlan{}, structuralUserRejection(fmt.Sprintf("root resource type %q is not represented by the active generated FHIR schema", output.RootResourceType))
 	}
 	grain := spec.RowGrain(output.RowGrain)
 	if grain == spec.RowGrainGroups && output.GroupRows == nil {
-		return OutputPlan{}, fmt.Errorf("groups row grain requires a pinned group revision")
+		return OutputPlan{}, structuralUserRejection("groups row grain requires a pinned group revision")
 	}
 	if output.GroupRows != nil && grain != spec.RowGrainGroups {
-		return OutputPlan{}, fmt.Errorf("group rows require the groups row grain")
+		return OutputPlan{}, structuralUserRejection("group rows require the groups row grain")
 	}
 	if err := spec.ValidateRootGrain(output.RootResourceType, grain); err != nil {
 		// Persisted recipes may introduce a product-specific grain when they
@@ -165,7 +174,7 @@ func indexRecipeTraversalOccurrences(items []recipe.Traversal, parent scopeFrame
 	for index, traversal := range items {
 		stepPath := fmt.Sprintf("%s[%d]", path, index)
 		if !fhirschema.HasResource(traversal.ToResourceType) {
-			return fmt.Errorf("%s: target resource type %q is not represented by the active generated FHIR schema", stepPath, traversal.ToResourceType)
+			return structuralUserRejection(fmt.Sprintf("%s: target resource type %q is not represented by the active generated FHIR schema", stepPath, traversal.ToResourceType))
 		}
 		alias := traversal.Alias
 		if strings.TrimSpace(alias) == "" {
@@ -173,6 +182,9 @@ func indexRecipeTraversalOccurrences(items []recipe.Traversal, parent scopeFrame
 		}
 		childScope, err := parent.child(alias, scopeBinding{ResourceType: traversal.ToResourceType})
 		if err != nil {
+			if userErr, ok := dataframeerrors.AsUserError(err); ok {
+				return structuralUserRejection(fmt.Sprintf("%s: %s", stepPath, userErr.Error()))
+			}
 			return fmt.Errorf("%s: %w", stepPath, err)
 		}
 		occurrence := SemanticOccurrence{OccurrenceID: traversal.OccurrenceID, Alias: alias, ResourceType: traversal.ToResourceType}
@@ -341,7 +353,7 @@ func finishRecipeOutput(plan OutputPlan, output recipe.Output, scope, projection
 
 func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string, expansion *SemanticRowExpansion) (SemanticNode, error) {
 	if !fhirschema.HasResource(input.ToResourceType) {
-		return SemanticNode{}, fmt.Errorf("%s: target resource type %q is not represented by the active generated FHIR schema", path, input.ToResourceType)
+		return SemanticNode{}, structuralUserRejection(fmt.Sprintf("%s: target resource type %q is not represented by the active generated FHIR schema", path, input.ToResourceType))
 	}
 	alias := input.Alias
 	if strings.TrimSpace(alias) == "" {
@@ -349,6 +361,9 @@ func buildRecipeTraversal(input recipe.Traversal, parent scopeFrame, path string
 	}
 	scope, err := parent.child(alias, scopeBinding{ResourceType: input.ToResourceType})
 	if err != nil {
+		if userErr, ok := dataframeerrors.AsUserError(err); ok {
+			return SemanticNode{}, structuralUserRejection(fmt.Sprintf("%s: %s", path, userErr.Error()))
+		}
 		return SemanticNode{}, fmt.Errorf("%s: %w", path, err)
 	}
 	if expansion != nil && expansion.Owner.OccurrenceID != "" && expansion.Owner.OccurrenceID == input.OccurrenceID {

@@ -27,7 +27,7 @@ func LowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Fil
 
 func lowerRecipeFiltersForAlias(resourceType, alias string, filters []recipe.Filter) ([]spec.TypedFilter, error) {
 	if !fhirschema.HasResource(resourceType) {
-		return nil, fmt.Errorf("filter resource type %q is not represented by the active generated FHIR schema", resourceType)
+		return nil, structuralUserRejection(fmt.Sprintf("filter resource type %q is not represented by the active generated FHIR schema", resourceType))
 	}
 	out := make([]spec.TypedFilter, 0, len(filters))
 	for index, input := range filters {
