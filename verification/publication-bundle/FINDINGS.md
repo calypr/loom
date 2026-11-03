@@ -1850,3 +1850,31 @@ Record integrity tail (Round 65, written last): record-writer's ledger files at 
 - Follow-up recorded as BS-67-1 next_action: permanent `gofmt -l` empty-output
   assertion belongs in the internal/ci CI-boundary suite (deferred to the next
   wave touching that package to keep unit commits coherent).
+
+## Round 71 — F-B25 sanitize-key collision hypothesis CLOSED: prevented by identified code
+
+- The carried F-B25 hypothesis (silent lost acknowledged writes via
+  non-injective `SanitizeKey` + `on_duplicate=replace` vertex upserts) had a
+  skip-gated live probe (`internal/ingest/keycollide_generated_e2e_test.go`)
+  never recorded in any ledger. Ran it for real against the owned dev-stack
+  Arango in-container (house recipe, `LOOM_TEST_ARANGO_URL=http://arangodb:8529`,
+  fresh `loom_verify_kcoll_*` dbs, LIFO drop cleanup): PASS both paths
+  (Generated 0.61s, Generic 0.24s), verdict line `PREVENTED by validation`,
+  probe premise (SanitizeKey non-injective) still asserted in-process, control
+  id persisted (acked == collected).
+- Mechanism proved by reading the actual repo schema
+  (`schemas/graph-fhir.json` `Patient.id` pattern `^[A-Za-z0-9\-.]+$`): the
+  validation charset is a strict subset of `validKeyPart`'s KEEP-set
+  (`[^A-Za-z0-9_\-:.@()+,=;$!*'%]`), so `SanitizeKey` is the IDENTITY map on
+  every schema-valid id → distinct valid ids cannot collide. The original
+  probe pair `coll/1` vs `coll_1` fails schema on both arms — correct
+  pre-write rejection, not accident (the probe's own classifier printed the
+  row_errors and only accepted the PREVENTED verdict on that evidence).
+- Residual disclosed: remaining `SanitizeKey` callers audited —
+  documents.go:57/:136 (schema-validated id + whitelist resourceType),
+  :97 edge key derived from BuildEdgesWithID over validated payloads (code
+  reading, not separately probe-adversarialized); generated_load.go:90 objectID
+  same fast-validated path. No product-code change required; probe test stays
+  skip-gated for CI and remains the durable reproduction harness.
+- Evidence: probe output /tmp/opencode/jrev/fb25-live-run-r71.log; schema
+  pattern + identity-set inclusion computed this round.
