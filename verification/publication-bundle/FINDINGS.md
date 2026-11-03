@@ -1975,3 +1975,30 @@ what actually ran (evidence paths retained on the same host):
   the load AND the FAILED-transition cleanup fail (Arango down mid-defer);
   no janitor exists for the lifecycle collection — accepted under the same
   no-deleter-by-design regime, recorded for completeness.
+
+## Round 76 — dataframe selector boundary pass: PREVENTED by identified code
+
+- Contract promise (`docs/loom-reliability-contract.md` GraphQL section): reads
+  require a *complete* selector; no `dataType`, materialization-ID, or default
+  recipe resolution accepted.
+- Verified enforcement: `schema.graphqls` `DataframeSelectorInput` is exactly
+  three `String!` fields (no bypass inputs); all five reader entrypoints
+  (rows x2, aggregates x2, export) route through the single `resolveSelector`
+  / `resolvePublishedSelector` pair (`graph/dataframe/rows.go:78-101`) ->
+  trim-then-`Valid()`, with `internal/dataset/dataframe_selector.go:16-31`
+  rejecting blank AND untrimmed components (`INVALID_SELECTOR` with field
+  path); `Key()` is length-prefixed (collision-safe per the F-B21 regime).
+  Boundary-discipline shape: validation concentrated at the parse edge, shared
+  by all consumers (publication, release activation, GraphQL, ETL per the
+  file's own header). No defect candidate.
+- Disclosed hardening note (NOT a registered defect): `convertFilters`
+  (`rows.go` :103+) skips nil filter-list items (`continue`) instead of
+  rejecting. Unreachable today — schema list is `[DataframeFilterInput!]`, so
+  the executor rejects `[null]` at validation; if a future schema edit dropped
+  the item non-null assertion, a dropped filter would silently WIDEN reads.
+  Candidate: fail closed on nil items; queued with the response-drift/hardening
+  notes, not implemented (no current promise violated).
+- Process note (recurring agent-hazard, recorded so future readers trust
+  quotes): this pass initially mis-rendered function names by passing
+  `rg -rn` (the `-r n` replaces match text); authoritative names were
+  re-derived with plain `rg -n` before any claim above.
