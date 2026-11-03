@@ -906,6 +906,30 @@
       "role": "R20B parity matrix @87ee09c7 (TestFR20bEtlFailureFieldsTwinParityMatrix -- inline matrix only, no golden): reviewer run \"R20B VERDICT | PASS | 64/64 comparisons MATCH the twin oracle\"; genuine-direction tests load-bearing (each killed by each suppress-all mutant M1/M2, reproduced independently, c2-review.md).",
       "pin": "87ee09c7",
       "rederived": "r65 SELF-RUN: live sha256 == git show 87ee09c7:internal/server/recipe_execution_etl_failure_fields_e2e_test.go == on-disk at parent HEAD 49d6999e (verified in detached worktree /tmp/opencode/wt-r65)"
+    },
+    "internal/explorer/authoringv2/construction_projection_replay_test.go": {
+      "sha256": "c09486b4442c6479be8e092b0402f92d23e38a0f1b80149ae6fab68632f13fc9",
+      "role": "NEW replay adapter (FORMAL-62-U1 replay closure, Round 66): 16 projection-owner-branch cases; smoke self-asserts, batch emits observations; accept side through public Construction.Validate, nil-payload/non-owner arms pin exact reject strings via direct validator entry (header-disclosed).",
+      "pin": "2f6e64ea",
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:internal/explorer/authoringv2/construction_projection_replay_test.go == on-disk"
+    },
+    "scripts/lib/formal-projection-replay.mjs": {
+      "sha256": "5422aece9e47903b3241f87e527024c6acd772c94eed4de8bb3dbf3ee179a590",
+      "role": "NEW lane: batch channel driver mirroring the expectation table; nine source-fault falsification pairs (pivot/filter/derive/unpivot arms, owner dispatch x2, carry modes x2), each fires its named branch with positive+negative+restored; chain-lane hash-set unaffected.",
+      "pin": "2f6e64ea",
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/lib/formal-projection-replay.mjs == on-disk"
+    },
+    "scripts/verify-ui/contracts/source-projection-contracts.mjs": {
+      "sha256": "77d5484c50db8af8192b43cc945bb91f1ba50fd2b0508cdfce17f0e25ed13fac",
+      "role": "NEW Node contract: reject-direction durable assertions for the U1 arms; fails naming the branch on renamed/removed/swapped reject strings; single expectation-table import.",
+      "pin": "2f6e64ea",
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.mjs == on-disk"
+    },
+    "scripts/verify-ui/contracts/source-projection-contracts.test.mjs": {
+      "sha256": "f4a6e702e46cf082028bb446c699b0fa85907db6528ed5ce154eadbf5172de79",
+      "role": "NEW contract tests (4): live batch assertion + tampered-observation and proof-set self-validation controls.",
+      "pin": "2f6e64ea",
+      "rederived": "SELF-RUN live sha256 == git show 2f6e64ea:scripts/verify-ui/contracts/source-projection-contracts.test.mjs == on-disk"
     }
   },
   "lastUpdated": "2026-11-02T22:45:18.002896+00:00",
