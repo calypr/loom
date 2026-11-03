@@ -2111,3 +2111,43 @@ what actually ran (evidence paths retained on the same host):
 - Adjacency insurance at parent (post-change, pre-commit):
   `internal/catalog` (107s), `internal/authscope`, `dataframe/recipe/schema`
   packages all ok.
+
+## Round 79 — document-key NUL cross-field collision (F-B22 family) registered candidate F-B40; primary-surface reachability disconfirmed
+
+- **Mechanism PROVEN (probe removed after run, report-style)**:
+  `documentKey(kind, project, generation)` in
+  `internal/dataset/arango/document_codec.go` is
+  `sha256(domain || NUL||kind || NUL||project || NUL||generation)` —
+  NUL-joined, NUL not escaped. Unit probe at parent:
+  `documentKey("manifest","a\x00b","c") ==
+  documentKey("manifest","a","b\x00c")` (key
+  `manifest_b0290ff0…6aa`) — same class as the parked F-B22 scopeDigest
+  collisions.
+- **Impact bounded by the read guards**: every manifest lifecycle AQL
+  re-checks the STORED `dataset.project`/`dataset.generation` against bind
+  vars, and `CreateManifest` rejects zero-row outcomes loudly with
+  `ErrManifestAlreadyExists` (:97-99) plus an identity-equality check on the
+  created row (:78-83). So the collision cannot impersonate, corrupt, or
+  silently drop — the harm shape is a FALSE "already exists" refusal for one
+  garbage name pair caused by a different garbage name pair loaded first.
+- **Reachability DISCONFIRMED on the primary surface (probe)**: fiber v3
+  `c.Params` delivers path segments UNDECODING-NOT-applied —
+  `/api/v1/datasets/a%00b/generations/c` yields literal `"a%00b"`
+  (`nulDelivered=false`), and `validateOpaqueIdentifier` has no charset, so
+  URL traffic can carry percent-literals but never real NUL. Repo-wide,
+  generation/project reach `documentKey` only from such path-derived refs
+  and internal writers (planner literals). Consistent with F-B22's "needs a
+  fixture that supplies NUL paths to be realistic".
+- **Class and disposition**: REGISTERED candidate **F-B40** (codec
+  ambiguity, drift-only exposure today). NOT repaired unilaterally:
+  repairing means changing the document-key algorithm, which orphans every
+  existing lifecycle document — a data-migration decision reserved to the
+  operator (no-redefinition rule). Fix shape if approved: length-prefixed
+  fields (the `DataframeSelector.Key()` / F-B21-`8c21eb64` proven pattern)
+  + dual-read/migration plan. Latent vector disclosed: any FUTURE API that
+  accepts project/generation from a JSON body (not URL params) would make
+  real NUL deliverable; the candidate re-arms at that moment.
+- Also recorded for future readers: fiber v3 params are raw-undecoded;
+  handler-side expectations must not assume percent-decoding (the
+  `%252F`-in-project fixtures in BUILDER_VERIFICATION are literals in this
+  regime).
