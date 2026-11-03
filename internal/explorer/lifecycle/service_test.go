@@ -55,6 +55,7 @@ type fakeStore struct {
 	published          bool
 	repositoryOwner    *explorer.Explorer
 	repositoryRevision *explorer.Revision
+	revisions          map[string]*explorer.Revision
 	activationErrors   []error
 	release            dataset.ProjectRelease
 	revision           int64
@@ -153,11 +154,18 @@ func (f *fakeStore) InsertCompilationReceipt(_ context.Context, value explorer.C
 }
 
 func (f *fakeStore) InsertRevision(_ context.Context, value explorer.Revision) (*explorer.Revision, error) {
-	if f.repositoryRevision != nil {
-		return f.repositoryRevision, nil
+	if f.revisions == nil {
+		f.revisions = map[string]*explorer.Revision{}
 	}
-	f.repositoryRevision = &value
-	return &value, nil
+	stored, ok := f.revisions[value.ID]
+	if !ok {
+		stored = &value
+		f.revisions[value.ID] = stored
+	}
+	if f.repositoryRevision == nil {
+		f.repositoryRevision = stored
+	}
+	return stored, nil
 }
 
 func (f *fakeStore) GetCompilationReceiptForExplorer(context.Context, string, string, string) (*explorer.CompilationReceipt, error) {
@@ -217,16 +225,20 @@ func (f *fakeStore) PublishAuthoring(_ context.Context, _ explorer.CompilationRe
 }
 
 func (f *fakeStore) FailRevision(_ context.Context, id string, diagnostics []explorer.Diagnostic) (*explorer.Revision, error) {
-	if f.repositoryRevision == nil || f.repositoryRevision.ID != id {
+	target := f.repositoryRevision
+	if target == nil || target.ID != id {
+		target = f.revisions[id]
+	}
+	if target == nil || target.ID != id {
 		return nil, explorer.ErrNotFound
 	}
-	f.repositoryRevision.Status = explorer.RevisionFailed
-	f.repositoryRevision.Diagnostics = append([]explorer.Diagnostic(nil), diagnostics...)
+	target.Status = explorer.RevisionFailed
+	target.Diagnostics = append([]explorer.Diagnostic(nil), diagnostics...)
 	failedAt := time.Now().UTC()
-	f.repositoryRevision.FailedAt = &failedAt
-	f.repositoryRevision.Publication.State = string(explorer.RevisionFailed)
-	f.repositoryRevision.Publication.UpdatedAt = time.Unix(0, 0).UTC()
-	return f.repositoryRevision, nil
+	target.FailedAt = &failedAt
+	target.Publication.State = string(explorer.RevisionFailed)
+	target.Publication.UpdatedAt = time.Unix(0, 0).UTC()
+	return target, nil
 }
 
 func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisionID string) error {
@@ -240,13 +252,17 @@ func (f *fakeStore) ActivateRepositoryGeneration(_ context.Context, _, _, revisi
 			return err
 		}
 	}
-	if f.repositoryRevision != nil && f.repositoryRevision.ID == revisionID {
-		f.repositoryRevision.Status = explorer.RevisionActive
-		f.repositoryRevision.Diagnostics = nil
-		f.repositoryRevision.FailedAt = nil
-		f.repositoryRevision.Publication.State = string(explorer.RevisionActive)
-		f.repositoryRevision.Publication.RevisionID = revisionID
-		f.repositoryRevision.Publication.UpdatedAt = time.Now().UTC()
+	target := f.repositoryRevision
+	if target == nil || target.ID != revisionID {
+		target = f.revisions[revisionID]
+	}
+	if target != nil && target.ID == revisionID {
+		target.Status = explorer.RevisionActive
+		target.Diagnostics = nil
+		target.FailedAt = nil
+		target.Publication.State = string(explorer.RevisionActive)
+		target.Publication.RevisionID = revisionID
+		target.Publication.UpdatedAt = time.Now().UTC()
 	}
 	if f.repositoryOwner != nil {
 		f.repositoryOwner.ActiveRevisionID = revisionID
@@ -754,8 +770,8 @@ func TestPublishRepositoryMarksActivationFailuresRetryable(t *testing.T) {
 			}
 			service := newTestService(t, store, config)
 			request := RepositoryPublishRequest{Project: "project-a", Generation: "generation-a", Workspace: workspace, Commit: "commit-a", Actor: "alice"}
-			if _, err := service.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), "RELEASE_ACTIVATION_FAILED") {
-				t.Fatalf("first publish error = %v, want RELEASE_ACTIVATION_FAILED", err)
+			if _, err := service.PublishRepository(context.Background(), request); err == nil || !strings.Contains(err.Error(), test.wantDiagnostic) {
+				t.Fatalf("first publish error = %v, want %s", err, test.wantDiagnostic)
 			}
 			if store.repositoryRevision == nil || store.repositoryRevision.Status != explorer.RevisionFailed || len(store.repositoryRevision.Diagnostics) != 1 || store.repositoryRevision.Diagnostics[0].Code != test.wantDiagnostic {
 				t.Fatalf("failed revision = %#v, want retryable diagnostic %s", store.repositoryRevision, test.wantDiagnostic)
