@@ -263,7 +263,7 @@ func New(cfg Config) (*Engine, error) {
 
 func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	var entry exec.Entry
 	var err error
@@ -298,7 +298,7 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 // intent.
 func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
@@ -314,7 +314,7 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 // Columns slice is an explicitly resolved, zero-column family and is valid.
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
@@ -372,7 +372,7 @@ func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bu
 
 func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	bundle := entry.Bundle
 	storedRecipeDigest, err := bundle.Digest()
@@ -393,7 +393,7 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 // callers to accidentally rediscover catalog fields during compilation.
 func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	if strings.TrimSpace(storedRecipeDigest) == "" {
 		var err error
