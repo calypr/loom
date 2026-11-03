@@ -2002,3 +2002,40 @@ what actually ran (evidence paths retained on the same host):
   quotes): this pass initially mis-rendered function names by passing
   `rg -rn` (the `-r n` replaces match text); authoritative names were
   re-derived with plain `rg -n` before any claim above.
+
+## Round 73 — bulk-load multipart spillover /tmp leak CONFIRMED and REPAIRED
+
+- **Defect**: `Handler.CreateDatasetGeneration` (`internal/api/bulk/load/
+  operations.go`) parsed the multipart request with `body.ReadForm(32<<20)`.
+  Go spools every byte past that budget to `os.TempDir` files, disposable only
+  via `Form.RemoveAll`; nothing repo-wide called it. Every authenticated
+  dataset-generation load over the budget permanently leaked whole-file
+  copies in /tmp — disk-exhaustion/availability harm under normal ETL use.
+- **Reproduction (durable regression, behavior-level)**:
+  `internal/api/bulk/load/form_spillover_test.go` — TMPDIR redirected to
+  `t.TempDir()`, two 20 MiB `.ndjson` files (40 MiB > 32 MiB budget) through
+  the real handler with a loader fake. PRE-FIX: both arms `--- FAIL` listing
+  the orphaned `multipart-*` entries; parent re-ran both arms verbatim.
+  Reviewer re-derived independently at its snapshot and empirically pinned
+  the orphan as Go's `multipart-<rand>` spillover at exactly part size
+  (`count=1 totalBytes=20971520` — budget keeps one part in memory).
+- **Repair**: single `defer form.RemoveAll()` registered immediately after the
+  successful `ReadForm`; covers all post-parse exits. Both pre-defer returns
+  are safe (nil body; ReadForm-error disposes its own spills — reviewer-proven
+  on both real post-spill error arms). Comment records the placement hazard
+  (`RemoveAll` on a nil `*multipart.Form` panics — parent-verified on
+  go1.26.5, both host and container toolchains) so future edits don't hoist
+  it above the error return.
+- **Same-root audit** (reviewer-run + parent grep): `ReadForm` appears only
+  at operations.go:41 repo-wide; zero `ParseMultipartForm`/`MultipartForm()`/
+  `httputil` form-parse sites; remaining `mime/multipart` uses are client-side
+  writers. Class closed.
+- **Adversarial review**: worker `ses_e6069ffc…` (general subagent) PASS at
+  exact snapshot (unit blobs hash-verified `e8013699`/`5d504a05`), all six
+  attack surfaces run; two informational accuracy notes accepted and fixed
+  pre-commit (orphan-count overstatement in the test header; nil-panic
+  placement hazard documented). Report
+  `/tmp/opencode/jrev/r73-bulkload-review-report.md`.
+- **After/restored**: `go test ./internal/api/bulk/load -count=1` ok
+  (pre-existing staging/authorization/error-mapping tests included),
+  `gofmt -l` empty for the package.
