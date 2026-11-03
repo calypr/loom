@@ -1941,3 +1941,37 @@ what actually ran (evidence paths retained on the same host):
   DeleteManifest/PruneGeneration API). `ResolveActive` wrapper
   (`active_resolver.go`) guard chain verified sentinel-preserving, project-
   mismatch and non-staged both fail closed. PREVENTED by identified code.
+
+## Round 75 — failed-generation-load residue (H-R75) CLOSED: prevented by identified code / designed immutability
+
+- Hypothesis: a generation load failing mid-way poisons `(project, generation)`
+  permanently — reuse gate refuses re-load (`runGeneration` :155-156 "already
+  exists in state X"), state machine allows no FAILED->... transition
+  (`manifest.go:44-51` Loading-only origin), `createManifestAQL` is
+  insert-if-absent, and repo-wide NO product-code deleter exists (Round 73
+  addendum), so the name could be neither retried nor reclaimed.
+- Rollback first: the loader's defer (`generation_orchestration.go:179-194`,
+  independent cleanup deadline) transitions a not-yet-staged manifest to
+  FAILED on every failure path, and the reliability contract's promised
+  invariant holds — "a failed generation load ... never changes the active
+  pointer" (`docs/loom-reliability-contract.md:43-44`): the pointer is written
+  only by Activate after STAGED, so half-loaded data is never served
+  (`readActiveAQL` requires the pointer + staged/ready state).
+- Promise establishment against contracts/docs/tests found NO retry-after-
+  failure promise for immutable generations; the contract instead names
+  immutability as the property (:19 "immutable FHIR generation") and
+  explicitly assigns the mutable iteration loop to the operator CLI (:76 "The
+  operator CLI retains both mutable local loading and immutable generation
+  loading"). FAILED-as-tombstone is the coherent reading: re-loading content
+  under the same immutable name would violate the recorded identity promise.
+  Classification: PREVENTED by identified code / by design — no defect.
+- Disclosed residual (hardening note, NOT registered as a defect — findings
+  are evidence, not authorization): the collision refusal from :155-156 is an
+  unmapped plain error, so clients see generic INTERNAL_ERROR with undefined
+  retryability for what is an input-domain conflict; a structured 409-class
+  mapping is a plausible UX improvement awaiting operator product decision
+  alongside the queued response-drift items. Residual-reachability risk
+  retained on record: a manifest stranded at LOADING is possible only if both
+  the load AND the FAILED-transition cleanup fail (Arango down mid-defer);
+  no janitor exists for the lifecycle collection — accepted under the same
+  no-deleter-by-design regime, recorded for completeness.
