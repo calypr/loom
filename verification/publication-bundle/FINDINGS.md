@@ -2319,3 +2319,45 @@ what actually ran (evidence paths retained on the same host):
 - Tooling slip (self-recorded): mixed BRE alternation `\|` into a ripgrep
   call once this round → silent no-match; re-derived names with plain grep.
 - No defect candidate on this vertical.
+
+## Batched investigation checkpoint — post-steer (R85 vertical + runtime recon), negatives batched per operator direction
+
+Per operator direction (2026-11-03): rejected hypotheses are batched into one
+record instead of per-finding commits; effort prioritizes unfinished
+authorized backlog and concrete reachable failures; blocking decisions are
+surfaced rather than substituted by further audit rounds.
+
+- **R85 — ClickHouse publication DDL construction: PREVENTED by identified
+  code.** `CreateOutput` (`internal/dataframe/publication/clickhouse/
+  bundle_store.go:488+`) validates output name (`bundleOutputRE`), rejects
+  duplicates, and gates every column through `validateBundleColumn`
+  (`:1007`): name vs `schemaIdentifierRE ^[A-Za-z_][A-Za-z0-9_]*$`, and the
+  raw user type string vs `supportedSchemaScalarRE` after literal
+  `Nullable(`/`Array(` prefix peeling. Soundness argument probed in-package
+  (7 payloads, report-style probe run then removed): `ENGINE=`/`MATERIALIZED`
+  /`URL(` suffix payloads and unbalanced-open variants ALL rejected — the
+  `DateTime64(\([^)]*\))?` group must END the anchored match, so `)` can only
+  occur as the single closing paren of the whole string; accepted strings
+  form a closed char-set `[A-Za-z0-9_(,) ]`-free-`'`-quote… (no quote, no
+  space outside parens, no second paren) — no escape from type position into
+  clause position. Peel can only DELETE literal `Nullable(`/`Array(` prefixes
+  (TrimPrefix arg equality ⇒ cannot smuggle), yielding parse-errors-at-server
+  at worst. Table name = store prefix + server execution ID (dashes stripped)
+  + validated output name (no user interpolation path for the ID). Driver:
+  official clickhouse-go/v2. Verdict: prevented; no hardening note needed.
+- **Runtime recon (this turn):** host port-forwards RESTORED same-day
+  (readyz/UI both HTTP 200 via 127.0.0.1:8182/3182) — digest item (j) closed.
+  NEW blocker identified instead: `docker loom status` tracks a host-side
+  sibling rootfs path at git_head `cc3a42aa…` (source_changed=true, state
+  failed, not present in the agent namespace) vs integration HEAD `13866eb7`
+  — acceptance begin/end would certify the tracked clone, not this program's
+  snapshot; recorded as digest item (k) needing an operator identity
+  reconciliation. Journey re-accept family therefore remains correctly
+  gated (identity, not ports).
+- **Backlog truth this turn:** approved rows sit at ROW-SOURCE-02
+  `awaiting-operator-decision` (items (a)-(d)), ROW-SOURCE-04
+  `proposal-delivered-awaiting-operator` (item (e)), plus F-B17/F-B40
+  semantics/migration vetoes and OPS-63-01/2-4 triage — all operator gates;
+  zero ready implementation rows (re-verified via status tabulation of all
+  108 rows). Decision list made durable at
+  `docs/verification/OPERATOR_DECISION_DIGEST.md`.
