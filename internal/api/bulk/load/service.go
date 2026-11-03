@@ -208,7 +208,11 @@ func (s *Service) activateGeneration(ctx context.Context, project, generation, e
 		return fail(fmt.Errorf("read generation release: %w", err))
 	}
 	if !manifest.IsStaged() {
-		return fail(fmt.Errorf("generation %s/%s is not READY", project, generation))
+		// Domain state signal: activate requires a staged manifest. The
+		// bulk-load boundary (normalizeError) classifies this sentinel as
+		// GENERATION_NOT_READY (409); a raw error here served an opaque 500
+		// on the documented 409 arm of the activate route.
+		return fail(fmt.Errorf("generation %s/%s is not READY (state %s): %w", project, generation, manifest.State, publication.ErrGenerationNotReady))
 	}
 	if err := s.generationActivator.Activate(ctx, manifest); err != nil {
 		return fail(fmt.Errorf("activate generation release: %w", err))

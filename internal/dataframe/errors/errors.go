@@ -51,6 +51,7 @@ const (
 	CodeExportLimitExceeded              ErrorCode = "EXPORT_LIMIT_EXCEEDED"
 	CodeIngestPreflightFailed            ErrorCode = "INGEST_PREFLIGHT_FAILED"
 	CodeGenerationLoadIncomplete         ErrorCode = "GENERATION_LOAD_INCOMPLETE"
+	CodeGenerationNotReady               ErrorCode = "GENERATION_NOT_READY"
 	CodeGenerationActivationUnknown      ErrorCode = "GENERATION_ACTIVATION_UNKNOWN"
 	CodeInvalidGenerationFile            ErrorCode = "INVALID_GENERATION_FILE"
 	CodeDuplicateGenerationFile          ErrorCode = "DUPLICATE_GENERATION_FILE"
@@ -354,6 +355,8 @@ func defaultMessage(code ErrorCode) string {
 		return "ingestion preflight failed"
 	case CodeGenerationLoadIncomplete:
 		return "dataset generation loading was incomplete"
+	case CodeGenerationNotReady:
+		return "dataset generation is not ready for activation"
 	case CodeGenerationActivationUnknown:
 		return "dataset generation activation status is unknown"
 	case CodeInvalidGenerationFile:
