@@ -77,6 +77,14 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		return RepositoryPublishResult{}, unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "release activation is not configured", nil)
 	}
 	if err := s.config.ActivateRelease(ctx, projectid.Legacy(request.Project), request.Generation, selectorsForBundle(receipt.Bundle)); err != nil {
+		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
+			// Deterministic lost compare-and-swap race, the same contract the
+			// authoring publish path types as PUBLICATION_ACTIVATION_CONFLICT:
+			// fixed conflict text, never the wrapped transport text, and no
+			// retry hint for a race the client cannot win by hammering.
+			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
+			return RepositoryPublishResult{}, conflict("repository_publish", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
+		}
 		var requirementsErr *dataset.ReleaseRequirementsError
 		if errors.As(err, &requirementsErr) {
 			// Deterministic release-contract miss: a 409 with an explicit
