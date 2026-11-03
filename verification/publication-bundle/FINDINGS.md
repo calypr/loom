@@ -1788,3 +1788,42 @@ Record integrity tail (Round 65, written last): record-writer's ledger files at 
 - U2 not part of this unit: the prepare-lane check-debt U2 was CLOSED by ConstructionPrepareLanes.tla @feb663a7 (Round 62); the standing falsification-pair discipline note for any new prepare check remains in force.
 - Evidence: `/tmp/opencode/jrev/projection-lane-dbg2/replay.json` — branches 16, accepted 5, rejected 11; 9/9 arms positive&&negative&&restored with firedBranch==branch. `go test ./internal/explorer/authoringv2` green (incl. all pre-existing projection tests), `go vet` clean, `node --test` contracts 4/4 + unpivot-contracts 8/8 + verification-runner 11/11. ConstructionChain lane hash-set provably unaffected (no edits under those inputs).
 - Records hygiene: compact parent-lane section appended after the Round-65 record-writer tails (tails unmodified); `reviewed-sources.json` untouched in this commit by design; operator-owned in-flight files (`scripts/verify-ui/run-checks.mjs`, `verification-plan.mjs`, contracts pair, workflow extraction) untouched.
+## Round 67 — CI-62-01 delivered: scripts/ci/vet.mjs boundary gate + internal/ci durable checks (authorized option)
+
+- Delivered: `scripts/ci/vet.mjs` runs the CI vet boundary (`go vet ./...` full
+  set + explicit `go vet -copylocks ./...`). Full-repo EXIT 0 at HEAD (the
+  copylocks class itself fixed earlier by `26bb172c`/`7e9d1449`). Proved by
+  run: plain full `go vet` (default set) already includes copylocks — the
+  shipped-green cause was that `go test` vets only its fixed subset and no
+  step anywhere ran the full vet (zero-vet-step census).
+- Self-audit found + fixed a real wiring defect BEFORE commit: the GitHub
+  `node-unit` job installs NO Go toolchain, so a node-side durable test
+  spawning `go vet` would fail CI while passing locally. Durable checks live
+  instead in `internal/ci/vet_gate_test.go`, auto-enrolled in the `go-unit`
+  job's `./internal/...` sweep (workflow lines confirmed read-only):
+  repo-wide exit-0 gate; overlay-injected copylocks fault reddens vet naming
+  `copies lock value` + probe file; `-copylocks=false` class-identification
+  control passes the same fault; disk purity (overlay virtual, zero repo
+  writes); node-CLI smoke of the gate script. `scripts/ci/vet.test.mjs` was
+  deliberately NOT kept (node shard toolchain gap).
+- Adversarial review ses_e6083f34 @f0b33137 (staged node-set): PASS; F1
+  LOW reproduced (`--packages=-all=false,.` printed VET-GATE PASS with zero
+  coverage) and fixed with a dash-guard on packagePatterns — now exit 1
+  fail-closed, with a black-box smoke arm asserting the escape is rejected;
+  F2 doc-precision (only the enable analyzer form substitutes defaults) fixed
+  in the vet.mjs header comment. Reviewer independently reproduced the
+  go-test-subset miss (`go test -run zzzNoSuchTest` exit 0 on a lock fault)
+  and caught the fault with a sync.WaitGroup variant of their own design.
+- NEW confirmed verification-hygiene defect this round (queued, not yet
+  repaired): repo-wide `gofmt -l` is RED on 9 files (e.g.
+  `internal/dataframe/semantic/recipe_plan_output.go` alignment drift;
+  full HEAD baseline /tmp/opencode/jrev/gofmt-head-f0b33137.txt = 9 entries; wave-scope repair list /tmp/opencode/jrev/gofmt-list.txt = 8) — drift accumulates because
+  no gate enforces formatting, same enforcement-gap shape as this row's vet
+  class. Unit's own replay test file was fixed to gofmt-clean in this wave.
+- Boundary kept honest: Makefile-prerequisite / tests-workflow options remain
+  operator-scope and untouched; row-13 acceptance (exit-0 gate wired +
+  deliberately-broken copy fails it) satisfied via the authorized
+  scripts/ci/vet.mjs option, now CI-enrolled through the go-unit sweep.
+- Evidence: `/tmp/opencode/jrev/vet-gate-evidence.log` plus the internal/ci
+  go-test run quoted below (per-test timings).
+

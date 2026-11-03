@@ -145,14 +145,14 @@ func projectionCaseConstruction(branch string) (*Construction, []Column, error) 
 	case "unpivot-accept":
 		addRoot("pivot_a")
 		return finish(ConstructionStep{ID: "owner", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "root_filter"}}, Operation: ConstructionOperation{Kind: ConstructionOperationUnpivot, Unpivot: &ConstructionUnpivot{
-			ConstructionID: "owner",
-			Inputs:         []ConstructionUnpivotInput{{ColumnID: "pivot_a", Key: stringScalar("A")}},
+			ConstructionID:    "owner",
+			Inputs:            []ConstructionUnpivotInput{{ColumnID: "pivot_a", Key: stringScalar("A")}},
 			KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: ConstructionUnpivotPreserve,
 		}}, Outputs: projectionColumns("group_id", "category_id", "value_id", "measure_key", "measure_value")})
 	case "unpivot-non-melt":
 		return finish(ConstructionStep{ID: "owner", Inputs: []ConstructionInputRef{{Kind: ConstructionInputStepOutput, StepID: "root_filter"}}, Operation: ConstructionOperation{Kind: ConstructionOperationUnpivot, Unpivot: &ConstructionUnpivot{
-			ConstructionID: "owner",
-			Inputs:         []ConstructionUnpivotInput{{ColumnID: "group_id", Key: stringScalar("A")}},
+			ConstructionID:    "owner",
+			Inputs:            []ConstructionUnpivotInput{{ColumnID: "group_id", Key: stringScalar("A")}},
 			KeyOutputColumnID: "measure_key", ValueOutputColumnID: "measure_value", NullRowPolicy: ConstructionUnpivotPreserve,
 		}}, Outputs: projectionColumns("group_id", "category_id", "value_id", "measure_key", "measure_value")})
 	case "unpivot-nil-payload":
@@ -190,7 +190,7 @@ func projectionCaseProjection(branch string) ConstructionSourceProjection {
 	}
 	column := map[string]string{
 		"pivot-accept": "proj_owned", "pivot-not-consumed": "proj_outside",
-		"group-accept": "proj_owned",
+		"group-accept":  "proj_owned",
 		"filter-accept": "proj_focused", "filter-wrong-column": "proj_focused", "filter-nil-payload": "proj_focused",
 		"derive-accept": "proj_operand", "derive-not-operand": "proj_operand",
 		"unpivot-accept": "pivot_a", "unpivot-non-melt": "proj_outside", "unpivot-nil-payload": "pivot_a",
@@ -234,10 +234,10 @@ func projectionBranchExpectation(branch string) (accepted bool, contains string)
 }
 
 var projectionDirectEntryBranches = map[string]bool{
-	"filter-nil-payload":   true,
-	"unpivot-nil-payload":  true,
-	"default-combine-owner":   true,
-	"owner-stepid-empty":   true,
+	"filter-nil-payload":    true,
+	"unpivot-nil-payload":   true,
+	"default-combine-owner": true,
+	"owner-stepid-empty":    true,
 }
 
 func runProjectionCase(branch string) (formalProjectionResult, error) {
@@ -296,8 +296,8 @@ func TestProjectionOwnerBranchReplay(t *testing.T) {
 		t.Fatal("formal projection input exceeds size limit or cannot be inspected")
 	}
 	var input struct {
-		SchemaVersion int                      `json:"schemaVersion"`
-		Cases         []formalProjectionCase   `json:"cases"`
+		SchemaVersion int                    `json:"schemaVersion"`
+		Cases         []formalProjectionCase `json:"cases"`
 	}
 	decoder := json.NewDecoder(io.LimitReader(file, 4<<20))
 	decoder.DisallowUnknownFields()
