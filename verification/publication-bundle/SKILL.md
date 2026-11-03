@@ -226,8 +226,10 @@ this model is the only check quantifying per-owner
 validate owner-kind branch. Properties: `KeepIffOwnerSurvived` — both
 directions of the kept rule (orphan-ship and legit-drop both fire);
 `ShippedRequiresConsumption` — nothing persisted survives validate with an
-unconsumed projection (the branch reject strings have zero Go assertions, so
-this is the reject-direction coverage).
+unconsumed projection. Since Round 66 the branch reject strings additionally
+have durable Go + Node contract assertions (projection-owner-branch replay
+lane below); the model remains the only check quantifying prune-and-validate
+jointly over the full 2^20 input product.
 
 Covered code (sync commit `29d2c5b0`; advance ONLY after re-reading these
 exact regions): owners registry + kept rule `pruneConstructionSourceProjections`
@@ -239,8 +241,9 @@ default :372-374, owner-exists :343-346). Bounds: owners
 {pivot,filter,derive,unpivot,sort}; "group" shares the pivot/group label and
 the unowned-legacy path is out of bound; one projection per owner, distinct
 columns; owner at step index 0 so the carry-prefix loop :378-393 is unmodeled
-(probed by TestPivotEditCanDropOwnedRootProjectionAcrossPrefix in Go); nil
-payloads subsume into a false consumed bit.
+(probed in Go by TestPivotEditCanDropOwnedRootProjectionAcrossPrefix and,
+since Round 66, by the replay-lane branches carry-cross-noncarrier and
+carry-missing-typed-output); nil payloads subsume into a false consumed bit.
 
 ```
 TLC_WORKERS=4 TLC_HEAP_MB=2048 /sandbox/.local/bin/tlc-run \
@@ -266,10 +269,39 @@ right-hand side does not branch under this build.
 
 Companion real-code lane (kept/drop directions):
 `go test -count=1 -run 'TestScalarGroupSourceProjectionRoundTripsAndPrunesOnRemoval|TestPivotOwnedInputsStayPrivateAndAreRemovedWithPivot|TestCompoundSourceGroupingOwnsAndPrunesItsInputs' ./internal/explorer/authoringv2/`
+
+### Projection-owner-branch replay lane (FORMAL-62-U1 replay closure, Round 66)
+
+Replay families for the owner-branch arms (unpivot melt-membership, nil
+payloads, filter/derive/pivot consumption, owner dispatch, both carry-prefix
+modes) that the model bounds excluded. Adapter
+`internal/explorer/authoringv2/construction_projection_replay_test.go`
+(16 branches; smoke channel self-asserts, batch channel emits observations);
+lane `scripts/lib/formal-projection-replay.mjs` drives the batch channel,
+mirrors the expectation table, and runs nine source-fault falsification pairs
+(each guard neutralized ⇒ its named branch diverges — flipped acceptance,
+lost reject string, or a crashing validator — with positive and restored runs
+green); consumer contract `scripts/verify-ui/contracts/source-projection-contracts.mjs`
+fails with the branch named when a reject string is renamed, removed, or
+swapped, and self-validates against tampered observations.
+
+```
+node scripts/lib/formal-projection-replay.mjs --generate /tmp/projection-lane-<run-id> --self-test
+```
+
+Expected: `branches 16, accepted 5, rejected 11`; nine `sourceControls`
+entries each `positive && negative && restored` with `firedBranch == branch`.
+Contract channel: `node --test scripts/verify-ui/contracts/source-projection-contracts.test.mjs`
+(4 tests). Boundary: accepts and unguarded rejects run the public
+Construction.Validate; nil-payload and non-owner-switch isolations pin exact
+strings through the direct validator entry because earlier structural
+validators fire first (disclosed in the adapter header). The chain lane
+(ConstructionChain) hash-set is unaffected by these files.
 Model counterexample classes map: f-orphan/f-drops ↔ those named tests
-(accept-side + removal-side assertions exist, RED-capable); the branch arms
-map to no Go test (zero assertions on the reject strings — reject direction
-is model-side only), and the used-only drop (owner alive, consumers gone)
-likewise has no standalone Go assertion. Not covered: legacy unowned
-group-source path, carry-prefix loop, cross-step same-column projections,
-multi-projection owners, HTTP/persist surfaces.
+(accept-side + removal-side assertions exist, RED-capable). Since Round 66
+the branch-arm reject strings carry durable Go + Node contract assertions and
+the two carry modes have lane fault proofs; the used-only drop (owner alive,
+consumers gone) still has no standalone Go assertion. Not model-covered:
+legacy unowned group-source path, carry-prefix loop (reject-direction replay
+cover exists via the carry-* fault arms, no model state), cross-step
+same-column projections, multi-projection owners, HTTP/persist surfaces.
