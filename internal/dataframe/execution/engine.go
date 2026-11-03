@@ -540,7 +540,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 	selected := selectedOutputNames(resolved.Semantic.SemanticPlan.Bindings.OutputNames, resolved.Compiled.Outputs)
 	for _, name := range resolved.Semantic.SemanticPlan.Bindings.OutputNames {
 		if !selected[name] {
-			return nil, fmt.Errorf("requested recipe output %q was not found", name)
+			return nil, dataframeerrors.Wrap(fmt.Errorf("requested recipe output %q was not found", name), dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithDetails(map[string]any{"output": name}))
 		}
 	}
 	for _, output := range resolved.Compiled.Outputs {
