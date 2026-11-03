@@ -71,6 +71,12 @@ type CellTraceResult struct {
 var errCellTraceFound = errors.New("cell trace row found")
 var errCellTraceWitnessLimit = errors.New("cell trace witness limit exceeded")
 
+// ErrCellTraceRowNotFound marks a client-supplied row ID that matched no
+// published row in an existing output; the authoring transport presents it as
+// a typed not-found, and only drift between bundle and compiled outputs can
+// keep it from being resolved upstream.
+var ErrCellTraceRowNotFound = errors.New("published cell trace row was not found")
+
 // CellTrace executes a diagnostic terminal compiled from the same resolved
 // output as publication. It locates a published row by its stable opaque ID;
 // callers never submit FHIR paths or expressions for interpretation here.
@@ -152,7 +158,7 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 		}
 		return CellTraceResult{}, fmt.Errorf("execute cell trace: %w", err)
 	}
-	return CellTraceResult{}, fmt.Errorf("published row %q was not found in output %q", rowID, request.Output)
+	return CellTraceResult{}, dataframeerrors.Wrap(ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest, fmt.Sprintf("published row %q was not found in output %q", rowID, request.Output), dataframeerrors.WithDetails(map[string]any{"rowId": rowID, "output": request.Output}))
 }
 
 func compileCellTraceOutput(resolved Resolved, request CellTraceRequest) (compiler.CompiledCellTraceQuery, error) {
