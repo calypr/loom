@@ -2210,3 +2210,34 @@ what actually ran (evidence paths retained on the same host):
   names reaching `quotedColumns` are dataset-derived, not attacker strings.
 - Verdict: the export default-skip (:41-44) is redundant belt-over-reader-
   gate, not the load-bearing guard; no defect candidate on this vertical.
+
+## Round 81 — live-stack runtime verification of the shipped ingest fixes (make acceptance-real bridge-blocked; targeted evidence captured)
+
+- `make acceptance-real` is environmentally blocked in this sandbox: the
+  scoped Docker bridge returns 403 for `docker compose` ("must target the
+  pinned Loom project") and rejects generated acceptance projects. Recorded
+  as the honest limit of full-acceptance evidence here; the full NCPI proof
+  remains the operator-side command.
+- Runtime state re-derived (stale notes corrected): the live
+  `loom-dev-stravinsky` api container's source snapshot (stamp
+  `438305f2…`) now carries BOTH shipped product fixes byte-identical —
+  `operations.go` sha256 prefix `50a0768a…` == parent, `discovery.go`
+  contains the Fail-closed default arm, and `internal/ci/gofmt_gate_test.go`
+  is present. The earlier ca1b52e6-era stamp record is superseded.
+- **Real HTTP-boundary evidence for the Round 73 spillover repair**: a
+  stdlib probe in the api container POSTed a genuine 40 MiB multipart
+  bundle (two 20 MiB `.ndjson` files, `defer_activation=true`) to
+  `POST /api/v1/datasets/loom_verify_spl73/generations/verify-spl73-*`.
+  It traversed the production codegen wrapper
+  (`generated/loomapi/api.gen.go:20214` reader-from-buffered-body) and the
+  handler: response 422 `INGEST_PREFLIGHT_FAILED` with per-file/row issue
+  details and requestId (expected — deliberately invalid NDJSON), and
+  **filesystem-wide `find / -name 'multipart-*'` showed ZERO spillover
+  orphans** (TMPDIR unset confirmed). Pre-fix RED for this mechanism stays
+  established at unit level plus the reviewer's independent replica runs;
+  a live pre-fix control would require mutating the frozen live source and
+  was declined.
+- Incidental, non-registered: one stale `loom-generation-*` staged dir in
+  container /tmp (Nov 2, 0700) — staged-dir cleanup is defer-guarded and
+  only process-death escapes it; container restart clears it. Recorded as
+  environmental color, not a defect.
