@@ -9662,9 +9662,78 @@ const registryRows = [
       {
         feature: 'Four-state dataset-field source evidence on signed-source lanes: healthy supported lane, catalog-path field labels, precise refusal reasonCodes consumed visibly, named inventory fault distinct from empty data',
         acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'fourState' },
-        status: 'untested',
-        reason: 'Six original checks passed live on the shipped stack 2026-11-03 (JOURNEY_OK checks=7 at 3b0a1ab2 including the ROW-SOURCE-06 picker control, acceptance boundary source_changed=false). Status stays untested until the eight-check journey (seven plus the ROW-SOURCE-07 existing-column-reuse check) completes one live JOURNEY_OK on the repaired component with pre/post stamp fail-closed comparison in the current acceptance window, together with the label WILL-FLIP re-assertions and the filter row-279 flip. The R92/R93 claim of a shipped row96-server-authoritative-refusal check was removed after re-derivation proved it never executed and targeted a non-existent endpoint; that sourceData-scope 403 coverage remains an open gap awaiting operator direction.',
+        status: 'implemented',
+        reason: 'Nine-check journey live-green in a clean acceptance window 2026-11-03: JOURNEY_OK checks=9 build 552e8749 (runningBinary 0647348db0d6, api_build_stamp_changed=false), /tmp/opencode/rs08/run18.log + journey.json; the ninth check row96-signed-expand-lane drives the ROW-SOURCE-08 signed EXPAND lane in the browser end to end (live offer from the repaired backing rule, server-minted ExpandedScope choice selected, apply persists the server-signed expandedField + EXPAND-step-owned sourceProjection, DTO-marshaled capabilities expose the signature, receipt preview shows the fixture-derived 4-row per-parent multiset under the shipped PRESERVE_PARENT default with parent-kept empty-array row). The R92/R93 claim of a shipped row96-server-authoritative-refusal check was removed after re-derivation proved it never executed and targeted a non-existent endpoint; that sourceData-scope 403 coverage remains an open gap awaiting operator direction. EXCLUDE/ERROR empty-policy variants are covered only by the reused selected-column renderer Go tests (single lowerConstructionExpand for both paths), disclosed.',
       },
+    ],
+  }),
+  Object.freeze({
+    id: 'pivot-keyword-names',
+    workflow: 'pivot-keyword-names-native-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-capabilities',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-category-discoveries',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-resolutions',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-proposals',
+    ],
+    requiredTransitions: [
+      'type reserved AQL keyword names (null, RETURN) into BOTH the Pivot output name and Pivot output label inputs (the grid renders labels), re-read them after React re-render, and apply through construction-apply-proposal',
+      'keyword columns render in the comparison grid (headers equal the typed keywords, non-zero numeric cells) under an asserted ready preview with a backing receipt',
+      'Cancel is byte-identical (draftVersion, draftDigest, tableShape unchanged); reload preserves the keyword grid values and retains a backing receipt',
+      'duplicate names never persist: whichever lane fires is proven — client gate (apply absent/disabled with the duplicate confirmed in the form), client block without a request, or a typed server 4xx whose code is read from the response body; any 5xx fails, a 2xx silent accept fails, and a valid rename must return apply enabled (positive control)',
+      'remove restores the exact seeded base grid headers and positive rows and clears the pivot columns and PIVOT step from the document',
+      'multi-category pivot resolves without the duplicate-column-ID 500 class repaired at a5639991 (the proposal/resolution legs assert 5xx-free end to end; browser-originated authoring 5xx also fails closed at the tail)',
+    ],
+    gateReasons: [
+      'requires the owned loom-dev stack at the current stamp-proven build identity; pre- and post-run stamp comparison is wired and fails closed (buildIdentity.before/after asserts: expectedSource==liveSource, recordedBinary==runningBinary, identity stable across the run)',
+      'live-green twice 2026-11-03 with committed script sha256 9f035a37f12b... (report.scriptIdentity.workflowSha256, identical both runs) at build a56399911dd8e / runningBinary 4079bc536fd9: JOURNEY_OK checks=14, exceptions=[] and browser-side 5xx/rejected-4xx=[] in /tmp/opencode/rs09/run-pkw26 and run-pkw27 (earlier pkw22-pkw25 superseded by these final-script greens)',
+      'the duplicate-name lane records which gate actually fired; green runs so far took lane ui-gate and the positive control (valid rename re-enables apply) passed, so the absence was never a permanently-absent apply control; the server-4xx lane has not fired live yet — the code path asserts typed 4xx classification when it does',
+      'uncaught browser exceptions and browser-originated 5xx on authoring endpoints fail the run at the tail (raw-CDP convention per verify-explorer-row-source-four-state.mjs:792)',
+    ],
+    script: 'verify-explorer-pivot-keyword-names.mjs',
+    cases: {
+      keywordNames: {
+        requiredChecks: [
+          'pk-seed-table',
+          'pk-editor-mounts',
+          'pk-fields-selected',
+          'pk-categories-discovered',
+          'pk-keyword-names-applied',
+          'pk-cancel-byte-stability',
+          'pk-comparison-proposal-available',
+          'pk-apply-success',
+          'pk-grid-values',
+          'pk-document-persistence',
+          'pk-reload-persistence',
+          'pk-duplicate-negative-blocked',
+          'pk-rename-recovers',
+          'pk-remove-restores',
+        ],
+        focusedChecks: [
+          {
+            id: 'pivot-keyword-names-static-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/pivot-keyword-names.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/verify-explorer-pivot-keyword-names.mjs',
+              'scripts/verify-ui/helpers/pivot-keyword-fixture-oracle.mjs',
+            ],
+          },
+        ],
+        reason: 'Backlog-dispositioned keyword-named Pivot UI slice (docs/EXPLORER_BACKLOG.md, pivot-500 wave 2026-11-03): the AQL-keyword class was fixed at compile/API level (nullpivot probes GREEN on the repaired lowerer); this journey is the remaining browser half — real name+label inputs, comparison grid keywords, persistence, duplicate gating with response-observed classification, undo. Selectors self-derived from the served source after the explore-worker report was discarded for citing a nonexistent path; authority files: components/RowDefinitionSettingsPanel.tsx (:983/:995/:1028/:1033/:1062) and constructionOperations/ConstructionReshapeEditor.tsx (:2440/:2535/:4586/:4620/:4628/:4660/:4809/:4813), plus construction-persistence ground truth doc.columns[].name / doc.construction PIVOT step (re-derived from the running server, not assumed).',
+      },
+    },
+    coverage: [
+      {
+        feature: 'Keyword-named pivot outputs end to end in the browser: typed, applied, rendered, persisted, reload-stable, duplicate-gated, removable',
+        acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'keywordNames' },
+        status: 'implemented',
+        reason: '14-check raw-CDP journey (count authority: the script expectedChecks, machine-verified by the static contract). Live-green twice 2026-11-03 with committed script sha256 9f035a37f12b... (report.scriptIdentity.workflowSha256 identical both runs) at build a56399911dd8e, with the script identity asserts (expectedSource==liveSource==recordedSource, recordedBinary==runningBinary before/after, stable across the run; /tmp/opencode/rs09/run-pkw26 and run-pkw27); exceptions=[] and browserRejectedRequests=[] both runs; the durable journey.json + run-log copies shipped at verification/publication-bundle/evidence/pivot-keyword-names/ (run-pkw26/27 .journey.json and .log). Review receipt: same-model (qwen3.8-flash-next) adversary pair; findings F-1..F-8 / PKW-R1..R8 accepted and repaired before this green (uncaught-exception + browser-5xx tail guards, post-render keyword re-read, observed-response duplicate classification, seeded-base-grid positive assertion, script sha identity, registry truthfulness — full record verification/publication-bundle/FINDINGS.md PWAVE).',
+      }
     ],
   }),
 ];

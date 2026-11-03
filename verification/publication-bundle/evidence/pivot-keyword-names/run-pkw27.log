@@ -1,0 +1,4 @@
+RUN_PROFILE path=/tmp/pkw-prof-1Mj5aJ
+RUN_TREE pgid=2998648
+JOURNEY_OK build=a56399911dd8e3ca2401505c529f5cb9616a02e6 runningBinary=4079bc536fd9060e7902feabcad4b42c0abdbcba7326cc1467f32aae0ce5e58d checks=14 screenshots=6 sideFindings=0
+PHASE_TIMINGS total=32560ms identity+fixture=3423ms cdp-connect=70ms seed=1281ms editor=4692ms names=2534ms server-probe=2143ms grid=5325ms reload=1711ms remove=10034ms identity-after=1252ms teardown=95ms
