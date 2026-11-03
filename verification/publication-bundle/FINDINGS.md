@@ -1901,3 +1901,43 @@ Record integrity tail (Round 65, written last): record-writer's ledger files at 
   path (`release_store.go` expected_revision) and janitor/reconcile (Round 70)
   both DO carry value-compare CAS; generation activation is the sole
   pointer-flip site lacking one — scope of the open defect precisely bounded.
+
+## Round 73 addendum — backfilled Round 69/70 discovery records (durability repair of the ledger itself)
+
+Discovery passes 69 and 70 were executed with their probe artifacts under
+`/tmp/opencode/jrev/` but only checkpointed to Goal state, not transcribed
+into this ledger. Backfilled verbatim in intent so the durable record matches
+what actually ran (evidence paths retained on the same host):
+
+- **Round 69 — persisted-failure retryability surface** (`retryability-audit-r69.md`).
+  Empirical probe matrix over persisted failure shapes (blank/whitespace/garbage
+  raw text, whitelist code + persisted `retryable=false`). Classifications:
+  blank-raw shape INCONCLUSIVE/hardening-candidate (no production writer can
+  produce it); whitelist-code echo PREVENTED by identified code (single
+  normalized persist site, 16+ producers use `WithRetryable(true)`, OR-guarded
+  readers, drift class closed under ARC-D11 completeness tests);
+  `errorOptions.retryable` plain-bool default convention-guarded only —
+  disclosed residual, no compile-time enforcement. No product bug; no code
+  changed.
+- **Round 70 — publication janitor / reconcile cleanup surface**
+  (`janitor-audit-r70.md`). Read-through of `reconcileExecution` janitor arm
+  (`bundle_store.go:1092-1223`) against claimed guarantees: pre-claim filters
+  (pointer-names-exec / active-binding skip, read-error veto, wiring-guarded
+  enumeration) and post-claim destruction gate (fresh pointer + fresh
+  active-release binding scan immediately before DropTable; every veto path
+  releases the lease; joined fail-close on partial DropTable failure) match
+  `ReconcileDangleTrust.tla` / `PointerOrphanLifecycle.tla` validated shapes.
+  Reconcile-failure marks pinned by durable tests. Verdict: no defect
+  candidate; coverage disclosure: concurrent multi-reconciler lease
+  interleavings rest on earlier TLA rounds + lease-expiry e2e, not re-run.
+- **Round 73 companion observation (manifest lifecycle read side).**
+  `ReadActiveManifest`/`readActiveAQL` (`manifest_lifecycle.go:159-181, 298-316`):
+  inner FOR is an inner join on the manifest doc with recordType/dataset/state
+  filters and a LIMIT-2 duplicate guard; a pointer whose manifest doc is gone
+  resolves to `ErrNoActiveGeneration` (fail-closed to no-data, never a stale
+  read, never a 500). The dangling-pointer state itself is unreachable by
+  identified code: repo-wide there is **no** manifest/active-document deleter
+  (no REMOVE/DocumentRemove capability in product code; no
+  DeleteManifest/PruneGeneration API). `ResolveActive` wrapper
+  (`active_resolver.go`) guard chain verified sentinel-preserving, project-
+  mismatch and non-staged both fail closed. PREVENTED by identified code.
