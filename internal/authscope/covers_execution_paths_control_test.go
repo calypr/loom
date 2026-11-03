@@ -145,3 +145,27 @@ func TestCoversExecutionPathsGenerationBoundControl(t *testing.T) {
 		})
 	}
 }
+
+// Companion pin to unknown-mode-direct-denies above: the OTHER consumer
+// posture. Unrestricted() must report true ONLY for the explicit
+// unrestricted enum; empty and garbage modes must not gain the bypass at
+// any consumer of a persisted scope (R78 fail-posture alignment: the
+// catalog discovery bridge now agrees with this table).
+func TestUnrestrictedRequiresExplicitUnrestrictedMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mode ReadScopeMode
+		want bool
+	}{
+		{"explicit-unrestricted", ReadScopeUnrestricted, true},
+		{"restricted", ReadScopeRestricted, false},
+		{"empty", ReadScopeMode(""), false},
+		{"garbage", ReadScopeMode("garbage"), false},
+		{"wrong-case-restricted", ReadScopeMode("RESTRICTED"), false},
+		{"simulated-bypass-string", ReadScopeMode("unrestricted "), false},
+	} {
+		if got := (ReadScope{Mode: tc.mode}).Unrestricted(); got != tc.want {
+			t.Fatalf("Unrestricted() for mode %q (%s) = %v, want %v", tc.mode, tc.name, got, tc.want)
+		}
+	}
+}

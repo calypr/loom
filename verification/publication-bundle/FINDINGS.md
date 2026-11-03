@@ -2151,3 +2151,38 @@ what actually ran (evidence paths retained on the same host):
   handler-side expectations must not assume percent-decoding (the
   `%252F`-in-project fixtures in BUILDER_VERIFICATION are literals in this
   regime).
+
+## Round 78b — durable gofmt CI boundary shipped; last 3 tracked drift files repaired (BS-67-1 class complete)
+
+- **Gate**: `internal/ci/TestGofmtGateTrackedFilesAreCanonical` — GOROOT gofmt
+  over `git ls-files '*.go'` (tracked-only keeps operator working copies out;
+  300-file batches), four arms: sensitivity (known-dirty flagged through the
+  same invocation), repo-zero baseline, canonical-input anti-vacuity, and
+  exit-code honesty. Negative controls re-run at parent: HEAD-state gate
+  FAILS listing the drift; repaired state ok. go-unit precedent posture
+  honored: environment blockers are `t.Fatal`, never skip.
+- **Reviewer `ses_e6056d6a9ffe` PASS** (spec-replica review — the worker was
+  permission-blocked from the untracked gate file; disclosed): token-
+  preservation ground truth on 3/3 files from parent `git diff` + own sorted
+  AST dump (1807 string literals byte-identical in `schema.generated.go`),
+  red/green re-derivation in `cp -a` replicas (EXIT 1/0, census 1207, batch
+  boundary 301 flags index 300), scope scan (no 4th dirty file), CI toolchain
+  equivalence (checkout@v4 + setup-go 1.26.5). **Finding[LOW]
+  reproduced by parent**: `gofmt -l` on an UNPARSEABLE file exits 2 with
+  stderr and lists nothing — the original `err!=nil && out==empty` shape
+  passed silently when the same batch listed another file; parent probe
+  (`broken.go:2:9: expected ')', found '{'`, EXIT=2, empty stdout) + repair
+  to fatal-on-any-nonzero + new arm 4 mixing dirty+broken expecting error.
+- **Class completion**: last three tracked gofmt-drift files (from program
+  commit `863e512f`) repaired — `conformance/compiler/benchmark_test.go`,
+  `generated_semantics_coverage_test.go`, `generated/graphql/graph/executor/
+  schema.generated.go`; AST-identity proven with comments removed and
+  imports normalized (the import-sort normalization was required because
+  gofmt sorts imports — plain print-order comparison false-DIVERGED on a
+  reorder-only diff; tool change disclosed). Tracked census now 1207, zero
+  dirty.
+- **Companion pin** (`internal/authscope/covers_execution_paths_control_test.
+  go`): `TestUnrestrictedRequiresExplicitUnrestrictedMode` — pins
+  `Unrestricted()` true ONLY for the explicit enum (empty/garbage/wrong-case/
+  trailing-space all false) at its home package, closing the reviewer-flagged
+  pin gap behind the R78 posture alignment.

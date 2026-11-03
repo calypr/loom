@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 func TestPublicCompilerAcceptsEveryGeneratedFHIRRoot(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 	"slices"
 	"testing"
 
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
 type compilerBenchmarkCase struct {
