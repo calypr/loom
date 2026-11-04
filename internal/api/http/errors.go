@@ -149,7 +149,7 @@ var httpCodePolicies = map[string]httpCodePolicy{
 	"INVALID_RESOURCE_TYPE": {http.StatusBadRequest}, "INVALID_LIMIT": {http.StatusBadRequest}, "NO_ACTIVE_GENERATION": {http.StatusNotFound}, "RESOURCE_DECODE_FAILED": {http.StatusBadRequest}, "REFERENCE_NOT_RESOLVED": {http.StatusBadRequest},
 	"QUERY_DEPTH_EXCEEDED": {http.StatusBadRequest}, "INVALID_REQUEST": {http.StatusBadRequest}, "INVALID_DATA": {http.StatusUnprocessableEntity}, "UNAUTHENTICATED": {http.StatusUnauthorized}, "FORBIDDEN": {http.StatusForbidden},
 	"RECIPE_NOT_FOUND": {http.StatusNotFound}, "RECIPE_RESOLUTION_FAILED": {http.StatusUnprocessableEntity}, "RECIPE_EXECUTION_NOT_FOUND": {http.StatusNotFound}, "EXPORT_LIMIT_EXCEEDED": {http.StatusRequestEntityTooLarge},
-	"INGEST_PREFLIGHT_FAILED": {http.StatusUnprocessableEntity}, "GENERATION_LOAD_INCOMPLETE": {http.StatusUnprocessableEntity}, "GENERATION_ACTIVATION_UNKNOWN": {http.StatusConflict}, "INVALID_GENERATION_FILE": {http.StatusBadRequest}, "DUPLICATE_GENERATION_FILE": {http.StatusBadRequest},
+	"INGEST_PREFLIGHT_FAILED": {http.StatusUnprocessableEntity}, "GENERATION_LOAD_INCOMPLETE": {http.StatusUnprocessableEntity}, "GENERATION_ACTIVATION_UNKNOWN": {http.StatusConflict}, "GENERATION_NOT_READY": {http.StatusConflict}, "INVALID_GENERATION_FILE": {http.StatusBadRequest}, "DUPLICATE_GENERATION_FILE": {http.StatusBadRequest},
 	"PUBLICATION_IN_PROGRESS": {http.StatusConflict}, "PUBLICATION_CONFLICT": {http.StatusConflict}, "PUBLICATION_LEASE_LOST": {http.StatusServiceUnavailable}, "PUBLICATION_FAILED": {http.StatusServiceUnavailable}, "OUTPUT_ENCODING_FAILED": {http.StatusInternalServerError},
 	"DYNAMIC_SCHEMA_DRIFT": {http.StatusConflict}, "RECIPE_CONTRACT_VIOLATION": {http.StatusConflict}, "INVALID_SELECTOR": {http.StatusBadRequest}, "RECEIPT_STORE_UNAVAILABLE": {http.StatusServiceUnavailable}, "PREVIEW_TIMEOUT": {http.StatusGatewayTimeout},
 	"PREVIEW_RESPONSE_TOO_LARGE": {http.StatusRequestEntityTooLarge}, "QUERY_MEMORY_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_RESOURCE_LIMIT_EXCEEDED": {http.StatusServiceUnavailable}, "QUERY_BACKEND_OUT_OF_MEMORY": {http.StatusServiceUnavailable},
@@ -173,6 +173,8 @@ func messageForCode(code string) string {
 		return "the backend is temporarily unavailable"
 	case "GENERATION_ACTIVATION_UNKNOWN":
 		return "generation activation status is unknown; inspect the active generation before retrying"
+	case "GENERATION_NOT_READY":
+		return "dataset generation is not ready for activation"
 	case "PUBLICATION_IN_PROGRESS":
 		return "an identical publication is already in progress"
 	case "PUBLICATION_CONFLICT":

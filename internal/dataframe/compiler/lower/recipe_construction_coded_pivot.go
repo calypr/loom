@@ -38,7 +38,7 @@ func lowerConstructionCodedPivot(
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("CODED_PIVOT requires 1..50 categories")
 	}
 
-	valueType, ok := tableReshapeScalarKind(pivot.Source.LogicalType)
+	valueType, ok := TableReshapeScalarKind(pivot.Source.LogicalType)
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("CODED_PIVOT source logical type %q is not a supported scalar", pivot.Source.LogicalType)
 	}

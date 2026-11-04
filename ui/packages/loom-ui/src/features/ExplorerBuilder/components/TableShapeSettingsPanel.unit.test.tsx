@@ -394,6 +394,32 @@ describe('TableShapeSettingsPanel receipt-driven controller', () => {
     expect(client.proposeTableShape.mock.calls.at(-1)?.[0]).not.toHaveProperty('reshapeResolutionId');
   });
 
+  it('refuses a single-column melt at submit, names the rule, and dispatches only with two columns', async () => {
+    const client = makeClient();
+    const { onApply } = renderPanel(client);
+    await open();
+    choose('Reshape mode', 'mode-unpivot');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Unpivot input columns: Measure' }));
+    choose('Unpivot null-row policy', 'null-drop');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
+
+    expect(vi.mocked(client.resolveTableShape).mock.calls
+      .map(([request]) => request.kind === 'UNPIVOT' ? request.unpivot.inputColumnChoiceIds : undefined)).toEqual([]);
+    expect(client.proposeTableShape).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Select at least two columns to melt');
+    expect((screen.getByRole('checkbox', { name: 'Unpivot input columns: Measure' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('combobox', { name: 'Unpivot null-row policy' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Unpivot input columns: Measure 2' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview table shape' }));
+    await screen.findByTestId('ui04-table-shape-comparison');
+    expect(client.resolveTableShape).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'UNPIVOT', unpivot: expect.objectContaining({ inputColumnChoiceIds: ['measure', 'measure-2'] }),
+    }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('keeps comparison value presence and source literals distinct, and cancel never applies', async () => {
     const onApply = vi.fn(async () => true);
     const client = makeClient();

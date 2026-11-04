@@ -391,6 +391,12 @@ type AuthResourcePathOptions struct {
 	Project           string
 	DatasetGeneration string
 	CursorBatch       int
+	// AllGenerations lists the project's recorded paths across every dataset
+	// generation. Existing callers keep generation-scoped semantics; this
+	// opt-in flag exists for project-level write authorization (F-B27),
+	// because an empty DatasetGeneration means "row has no generation", not
+	// "any generation".
+	AllGenerations bool
 }
 
 // Read-side reference discovery request and response types.

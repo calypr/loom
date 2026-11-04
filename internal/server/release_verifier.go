@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -21,6 +22,10 @@ func (s publicationVerificationStore) VerifyPublication(ctx context.Context, pro
 	}
 	execution, output, err := s.executions.FindExecutionBySelector(ctx, project, generation, selector)
 	if err != nil {
+		if errors.Is(err, publication.ErrBundleNotFound) {
+			// Deterministic absence: a contract miss, not a store fault.
+			return dataset.PublicationVerification{}, fmt.Errorf("%w: %w", dataset.ErrPublicationRecordMissing, err)
+		}
 		return dataset.PublicationVerification{}, err
 	}
 	verifiedAt := execution.UpdatedAt

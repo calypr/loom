@@ -41,8 +41,8 @@ func TestRewritePhysicalOperationVariablesRewritesUnnestOwnerAndExpression(t *te
 	op := ir.PhysicalOperation{
 		Kind: ir.PhysicalUnnestOp,
 		Unnest: &ir.PhysicalUnnest{
-			Owner:          ir.PhysicalUnnestOwner{ResourceType: "Patient", RootVariable: "target", OwnerVariable: "target"},
-			OutputVariable: "item",
+			Owner:           ir.PhysicalUnnestOwner{ResourceType: "Patient", RootVariable: "target", OwnerVariable: "target"},
+			OutputVariable:  "item",
 			HasItemVariable: "has_item",
 			Expression: ir.PhysicalExpression{
 				Kind:         ir.PhysicalValueExpression,
@@ -83,8 +83,8 @@ func optimizerBarrierPlan() ir.PhysicalPlan {
 			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
 			{Kind: ir.PhysicalSetOp, Set: optimizerBarrierSet("condition_set", "condition_label", "condition_type")},
 			{Kind: ir.PhysicalUnnestOp, Unnest: &ir.PhysicalUnnest{
-				Owner:          ir.PhysicalUnnestOwner{OccurrenceID: "root", ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
-				OutputVariable: "expanded",
+				Owner:           ir.PhysicalUnnestOwner{OccurrenceID: "root", ResourceType: "Patient", RootVariable: "root", OwnerVariable: "root"},
+				OutputVariable:  "expanded",
 				HasItemVariable: "has_expanded",
 				Expression: ir.PhysicalExpression{
 					Kind:         ir.PhysicalValueExpression,

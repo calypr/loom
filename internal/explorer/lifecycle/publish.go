@@ -86,6 +86,10 @@ func (s *Service) Publish(ctx context.Context, request PublishRequest) (PublishR
 	}
 	release, expectedReleaseRevision, err := s.config.PrepareRelease(ctx, projectid.Legacy(receipt.Project), receipt.SourceGeneration, selectorsForBundle(receipt.Bundle))
 	if err != nil {
+		var requirementsErr *dataset.ReleaseRequirementsError
+		if errors.As(err, &requirementsErr) {
+			return PublishResult{}, failureDetails(ClassUnprocessable, "activation", "RELEASE_REQUIREMENTS_UNMET", "release contract verification is unsatisfied; the prior Explorer revision was retained", map[string]any{"retryable": false}, err)
+		}
 		return PublishResult{}, unavailable("activation", "MATERIALIZATION_ACTIVATION_FAILED", "dataset release preparation failed; the prior Explorer revision was retained", err)
 	}
 	now := s.now()

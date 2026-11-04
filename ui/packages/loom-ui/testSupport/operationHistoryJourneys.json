@@ -1,0 +1,459 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "operation-history-count-to-mean-accepted-history-filter",
+      "initial": {
+        "tableId": "patients",
+        "workspaceContext": {
+          "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+          "project": "HTAN_INT/BForePC",
+          "explorerId": "builder",
+          "authResourcePath": "/programs/HTAN_INT/projects/BForePC",
+          "snapshotToken": "snapshot-operation-history",
+          "explorerTitle": "Operation history",
+          "outputId": "patients",
+          "outputTitle": "Patients",
+          "rootResourceType": "Patient",
+          "route": {
+            "occurrenceId": "base",
+            "resourceType": "Patient"
+          },
+          "rowKind": "RECORDS"
+        },
+        "sourceColumns": [
+          {
+            "role": "KEY_A",
+            "id": "gender-id",
+            "column": "gender",
+            "path": "gender",
+            "label": "Gender",
+            "type": "string"
+          },
+          {
+            "role": "NUMERIC",
+            "id": "multiple-birth-integer-id",
+            "column": "multiple_birth_integer",
+            "path": "multipleBirthInteger",
+            "label": "Multiple birth integer",
+            "type": "integer"
+          }
+        ],
+        "aggregate": "COUNT_ROWS",
+        "numericInputPresent": true,
+        "keyA": true,
+        "keyB": false,
+        "selectedKey": "A",
+        "keyOutputId": "group-key-A-1",
+        "aggregateOutputId": "aggregate-value",
+        "groupStepId": "group-step",
+        "downstream": [
+          {
+            "id": "filter-by-aggregate",
+            "kind": "FILTER",
+            "dependency": "aggregate",
+            "columnId": "aggregate-value",
+            "inputStepId": "group-step"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "kind": "editAggregate",
+          "aggregate": "MEAN"
+        },
+        {
+          "kind": "propose"
+        },
+        {
+          "kind": "apply"
+        },
+        {
+          "kind": "applyAck",
+          "result": "success"
+        }
+      ],
+      "expectations": [
+        {
+          "actionIndex": 0,
+          "proposalStatus": "UNPROPOSED",
+          "stepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "groupOutputTypes": {
+            "group-key-A-1": "string",
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "filter-by-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "group-step",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {},
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-aggregate": "group-step"
+          },
+          "candidateGroupKeyOutputId": "group-key-A-1",
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "SAME_AS_ACCEPTED",
+          "acceptedAggregate": "COUNT_ROWS",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": false,
+          "applyAck": "NOT_APPLICABLE",
+          "missingInputs": [],
+          "removedStepIds": []
+        },
+        {
+          "actionIndex": 1,
+          "candidateActionIndex": 0,
+          "requestFingerprint": "10012ef83bf5",
+          "proposalStatus": "READY",
+          "stepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "groupOutputTypes": {
+            "group-key-A-1": "string",
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "filter-by-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "group-step",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {},
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-aggregate": "group-step"
+          },
+          "candidateGroupKeyOutputId": "group-key-A-1",
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "SAME_AS_ACCEPTED",
+          "acceptedAggregate": "COUNT_ROWS",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": false,
+          "applyAck": "NOT_APPLICABLE",
+          "missingInputs": [],
+          "removedStepIds": []
+        },
+        {
+          "actionIndex": 2,
+          "proposalStatus": "APPLYING",
+          "stepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "groupOutputTypes": {
+            "group-key-A-1": "string",
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "filter-by-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "group-step",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {},
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-aggregate": "group-step"
+          },
+          "candidateGroupKeyOutputId": "group-key-A-1",
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "SAME_AS_ACCEPTED",
+          "acceptedAggregate": "COUNT_ROWS",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": false,
+          "applyAck": "NOT_APPLICABLE",
+          "missingInputs": [],
+          "removedStepIds": []
+        },
+        {
+          "actionIndex": 3,
+          "proposalStatus": "APPLIED",
+          "stepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "groupOutputTypes": {
+            "group-key-A-1": "string",
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "filter-by-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "group-step",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {},
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-aggregate": "group-step"
+          },
+          "candidateGroupKeyOutputId": "group-key-A-1",
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "SAME_AS_ACCEPTED",
+          "acceptedAggregate": "MEAN",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": true,
+          "applyAck": "SUCCESS",
+          "missingInputs": [],
+          "removedStepIds": []
+        }
+      ],
+      "traceKind": "lifecycle-witness"
+    },
+    {
+      "id": "operation-history-group-key-cascade-count-to-mean-ready-preserves-calculate",
+      "initial": {
+        "tableId": "patients",
+        "workspaceContext": {
+          "apiVersion": "loom.calypr.org/explorer-authoring/v2",
+          "project": "HTAN_INT/BForePC",
+          "explorerId": "builder",
+          "authResourcePath": "/programs/HTAN_INT/projects/BForePC",
+          "snapshotToken": "snapshot-operation-history",
+          "explorerTitle": "Operation history",
+          "outputId": "patients",
+          "outputTitle": "Patients",
+          "rootResourceType": "Patient",
+          "route": {
+            "occurrenceId": "base",
+            "resourceType": "Patient"
+          },
+          "rowKind": "RECORDS"
+        },
+        "sourceColumns": [
+          {
+            "role": "KEY_A",
+            "id": "gender-id",
+            "column": "gender",
+            "path": "gender",
+            "label": "Gender",
+            "type": "string"
+          },
+          {
+            "role": "KEY_B",
+            "id": "active-id",
+            "column": "active",
+            "path": "active",
+            "label": "Active",
+            "type": "boolean"
+          },
+          {
+            "role": "NUMERIC",
+            "id": "multiple-birth-integer-id",
+            "column": "multiple_birth_integer",
+            "path": "multipleBirthInteger",
+            "label": "Multiple birth integer",
+            "type": "integer"
+          }
+        ],
+        "aggregate": "COUNT_ROWS",
+        "numericInputPresent": true,
+        "keyA": true,
+        "keyB": true,
+        "selectedKey": "A",
+        "keyOutputId": "group-key-A-1",
+        "aggregateOutputId": "aggregate-value",
+        "groupStepId": "group-step",
+        "downstream": [
+          {
+            "id": "filter-by-group-key",
+            "kind": "FILTER",
+            "dependency": "group-key",
+            "columnId": "group-key-A-1",
+            "inputStepId": "group-step"
+          },
+          {
+            "id": "calculate-from-aggregate",
+            "kind": "CALCULATE",
+            "dependency": "aggregate",
+            "columnId": "aggregate-value",
+            "inputStepId": "filter-by-group-key",
+            "outputColumnId": "calculated-calculate-from-aggregate"
+          }
+        ]
+      },
+      "actions": [
+        {
+          "kind": "editAggregate",
+          "aggregate": "MEAN"
+        },
+        {
+          "kind": "editKey",
+          "key": "none"
+        },
+        {
+          "kind": "propose"
+        }
+      ],
+      "expectations": [
+        {
+          "actionIndex": 0,
+          "proposalStatus": "UNPROPOSED",
+          "stepIds": [
+            "group-step",
+            "filter-by-group-key",
+            "calculate-from-aggregate"
+          ],
+          "groupOutputTypes": {
+            "group-key-A-1": "string",
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "filter-by-group-key": {
+              "columnId": "group-key-A-1",
+              "inputStepId": "group-step",
+              "type": "string"
+            },
+            "calculate-from-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "filter-by-group-key",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {
+            "calculate-from-aggregate": {
+              "columnId": "calculated-calculate-from-aggregate",
+              "type": "decimal"
+            }
+          },
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-group-key",
+            "calculate-from-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-group-key": "group-step",
+            "calculate-from-aggregate": "filter-by-group-key"
+          },
+          "candidateGroupKeyOutputId": "group-key-A-1",
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "SAME_AS_ACCEPTED",
+          "acceptedAggregate": "COUNT_ROWS",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": false,
+          "applyAck": "NOT_APPLICABLE",
+          "missingInputs": [],
+          "removedStepIds": []
+        },
+        {
+          "actionIndex": 1,
+          "proposalStatus": "UNPROPOSED",
+          "stepIds": [
+            "group-step",
+            "filter-by-group-key",
+            "calculate-from-aggregate"
+          ],
+          "groupOutputTypes": {
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "filter-by-group-key": {
+              "columnId": "group-key-A-1",
+              "inputStepId": "group-step",
+              "type": "MISSING"
+            },
+            "calculate-from-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "filter-by-group-key",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {
+            "calculate-from-aggregate": {
+              "columnId": "calculated-calculate-from-aggregate",
+              "type": "decimal"
+            }
+          },
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-group-key",
+            "calculate-from-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-group-key": "group-step",
+            "calculate-from-aggregate": "filter-by-group-key"
+          },
+          "candidateGroupKeyOutputId": null,
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "ABSENT",
+          "acceptedAggregate": "COUNT_ROWS",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": false,
+          "applyAck": "NOT_APPLICABLE",
+          "missingInputs": [],
+          "removedStepIds": []
+        },
+        {
+          "actionIndex": 2,
+          "candidateActionIndex": 1,
+          "requestFingerprint": "fd6467e19427",
+          "proposalStatus": "READY",
+          "stepIds": [
+            "group-step",
+            "calculate-from-aggregate"
+          ],
+          "groupOutputTypes": {
+            "aggregate-value": "decimal"
+          },
+          "downstreamInputTypes": {
+            "calculate-from-aggregate": {
+              "columnId": "aggregate-value",
+              "inputStepId": "group-step",
+              "type": "decimal"
+            }
+          },
+          "downstreamOutputTypes": {
+            "calculate-from-aggregate": {
+              "columnId": "calculated-calculate-from-aggregate",
+              "type": "decimal"
+            }
+          },
+          "candidateStepIds": [
+            "group-step",
+            "filter-by-group-key",
+            "calculate-from-aggregate"
+          ],
+          "candidateInputStepIds": {
+            "filter-by-group-key": "group-step",
+            "calculate-from-aggregate": "filter-by-group-key"
+          },
+          "candidateGroupKeyOutputId": null,
+          "acceptedGroupKeyOutputId": "group-key-A-1",
+          "groupKeyOutputRelation": "ABSENT",
+          "acceptedAggregate": "COUNT_ROWS",
+          "candidateAggregate": "MEAN",
+          "acceptedChangesOnApply": false,
+          "applyAck": "NOT_APPLICABLE",
+          "missingInputs": [],
+          "removedStepIds": [
+            "filter-by-group-key"
+          ]
+        }
+      ],
+      "traceKind": "lifecycle-witness"
+    }
+  ]
+}

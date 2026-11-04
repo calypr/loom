@@ -6,13 +6,20 @@ import (
 )
 
 func TestKeysetCursorRoundTrip(t *testing.T) {
-	cursor := encodeBoundCursor("42", "alice", "binding")
+	cursor := encodeBoundCursor("42", "alice", false, "binding")
 	decoded, err := decodeCursor(cursor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.Version != 1 || decoded.Binding != "binding" || decoded.RowID != "42" || decoded.SortValue != "alice" {
+	if decoded.Version != 2 || decoded.Binding != "binding" || decoded.RowID != "42" || decoded.SortValue != "alice" || decoded.SortValueNull {
 		t.Fatalf("decoded cursor = %#v", decoded)
+	}
+	nullCursor, err := decodeCursor(encodeBoundCursor("43", nil, true, "binding"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nullCursor.Version != 2 || nullCursor.RowID != "43" || !nullCursor.SortValueNull || nullCursor.SortValue != nil {
+		t.Fatalf("decoded null-bucket cursor = %#v", nullCursor)
 	}
 }
 

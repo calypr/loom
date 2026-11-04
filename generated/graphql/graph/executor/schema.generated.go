@@ -3,10 +3,10 @@
 package executor
 
 import (
-	"io"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"strconv"
 	"sync/atomic"
@@ -15563,7 +15563,6 @@ func (ec *executionContext) unmarshalOFhirTraversalStepInput2ᚕᚖgithubᚗcom�
 }
 
 // endregion ***************************** type.gotpl *****************************
-
 
 // JSON scalar support is appended by cmd/gqlgenfix because gqlgen does not
 // emit helpers for the encoding/json.RawMessage model mapping.

@@ -208,24 +208,40 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 		returnScope, err := s.scopeResolver.ResolveReadScopeForGeneration(ctx, principal, project, datasetGeneration, requested)
 		return returnScope, queryBackend(err)
 	}
-	if len(requested) == 0 {
+	// F-B22 Tier-1: with no resolver wired, client- and IdP-supplied paths
+	// become \x00-joined scope digests downstream. Normalize at this boundary
+	// so control bytes, stray slashes, and duplicate spellings can never
+	// form a scope; an all-garbage non-empty request is refused, not widened.
+	normalizedRequested := authscope.NormalizeAuthResourcePaths(requested)
+	if len(requested) > 0 && len(normalizedRequested) == 0 {
+		return authscope.ReadScope{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
+	if len(normalizedRequested) == 0 {
 		if principal == nil || len(principal.AuthResourcePaths) == 0 {
 			return authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}, nil
 		}
+		principalPaths := authscope.NormalizeAuthResourcePaths(principal.AuthResourcePaths)
+		if len(principalPaths) == 0 {
+			return authscope.ReadScope{}, dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
+		}
 		return authscope.ReadScope{
-			AuthResourcePaths: append([]string(nil), principal.AuthResourcePaths...),
+			AuthResourcePaths: principalPaths,
 			Mode:              authscope.ReadScopeRestricted,
 		}, nil
 	}
 	if principal == nil || len(principal.AuthResourcePaths) == 0 {
 		return authscope.ReadScope{
-			AuthResourcePaths: append([]string(nil), requested...),
+			AuthResourcePaths: normalizedRequested,
 			Mode:              authscope.ReadScopeRestricted,
 		}, nil
 	}
-	for _, path := range requested {
+	principalPaths := authscope.NormalizeAuthResourcePaths(principal.AuthResourcePaths)
+	if len(principalPaths) == 0 {
+		return authscope.ReadScope{}, dataframeerrors.NewError(dataframeerrors.CodeForbidden, "")
+	}
+	for _, path := range normalizedRequested {
 		found := false
-		for _, candidate := range principal.AuthResourcePaths {
+		for _, candidate := range principalPaths {
 			if candidate == path {
 				found = true
 				break
@@ -236,7 +252,7 @@ func (s *Service) resolveReadScopeForGeneration(ctx context.Context, principal *
 		}
 	}
 	return authscope.ReadScope{
-		AuthResourcePaths: append([]string(nil), requested...),
+		AuthResourcePaths: normalizedRequested,
 		Mode:              authscope.ReadScopeRestricted,
 	}, nil
 }

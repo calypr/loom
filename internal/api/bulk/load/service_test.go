@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	httpapi "github.com/calypr/loom/internal/api/http"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframepublication "github.com/calypr/loom/internal/dataframe/publication"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -291,4 +293,59 @@ func activationManifest(t *testing.T, project, generation string) publication.Ma
 		t.Fatal(err)
 	}
 	return manifest
+}
+
+// Reviewer-proven defect: the documented 409 arm of
+// POST /datasets/{project}/generations/{generation}/activate served an opaque
+// 500. Activation of a not-yet-staged generation must be a typed
+// GENERATION_NOT_READY conflict end to end: service guard -> domain sentinel
+// -> normalizeError boundary -> MapDataframeError 409 non-retryable.
+func TestActivateGenerationLoadingManifestMapsTo409(t *testing.T) {
+	ref, err := publication.NewRef("project-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := publication.NewSchemaSnapshot("urn:test", "R5", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", []string{"Patient"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loading, err := publication.NewManifest(ref, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loading.IsStaged() {
+		t.Fatal("fixture must be non-staged")
+	}
+	execution := dataframepublication.BundleExecution{
+		ID: "release-1", BundleIdentity: dataframepublication.BundleIdentity{Project: "project-a", DatasetGeneration: "generation-a", Name: "all"},
+		State: dataframepublication.BundlePublished, UpdatedAt: time.Now().UTC(),
+		Outputs: []dataframepublication.BundleOutputRecord{{Name: "Patient", State: dataframepublication.BundlePublished}},
+	}
+	activator := &activationManifestStore{manifest: loading}
+	svc, err := NewService(ServiceConfig{
+		LoadGeneration:      activationGenerationRunner{}.RunGeneration,
+		GenerationActivator: activator,
+		DataframeReleases:   &activationReleaseStore{execution: execution, pointer: dataframepublication.BundlePointer{Name: execution.PointerName(), ExecutionID: execution.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = svc.activateGeneration(context.Background(), "project-a", "generation-a", execution.ID)
+	if err == nil {
+		t.Fatal("activating a loading generation must fail")
+	}
+	if !errors.Is(err, publication.ErrGenerationNotReady) {
+		t.Fatalf("not-ready activation lost its domain sentinel (route serves opaque 500): %v", err)
+	}
+	if activator.activateCalls != 0 {
+		t.Fatalf("Activate called for non-staged manifest: %d", activator.activateCalls)
+	}
+	userErr, ok := dataframeerrors.AsUserError(normalizeError(err))
+	if !ok || userErr.Code() != "GENERATION_NOT_READY" || userErr.Retryable() {
+		t.Fatalf("boundary classification failed: ok=%v err=%v", ok, err)
+	}
+	mapped := httpapi.MapDataframeError(normalizeError(err), "req")
+	if mapped.Status != 409 || mapped.Body.Error.Code != "GENERATION_NOT_READY" || mapped.Body.Error.Retryable {
+		t.Fatalf("served response = %d %s retryable=%v, want 409 GENERATION_NOT_READY non-retryable", mapped.Status, mapped.Body.Error.Code, mapped.Body.Error.Retryable)
+	}
 }

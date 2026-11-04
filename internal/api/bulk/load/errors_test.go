@@ -2,7 +2,10 @@ package load
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+
+	"github.com/calypr/loom/internal/dataset"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/ingest"
@@ -28,5 +31,20 @@ func TestNormalizeIngestionFailures(t *testing.T) {
 	userErr, ok = dataframeerrors.AsUserError(normalizeError(activation))
 	if !ok || userErr.Code() != "GENERATION_ACTIVATION_UNKNOWN" || userErr.Retryable() {
 		t.Fatalf("activation normalized = %#v", userErr)
+	}
+}
+
+func TestNormalizeNotReadyActivationStateConflict(t *testing.T) {
+	for _, wrapped := range []error{
+		fmt.Errorf("activate generation: %w: gen-a is loading", dataset.ErrGenerationNotReady),
+		fmt.Errorf("%w: gen-a is failed", dataset.ErrGenerationNotReady),
+	} {
+		userErr, ok := dataframeerrors.AsUserError(normalizeError(wrapped))
+		if !ok {
+			t.Fatalf("not-ready activation state conflict escaped untyped (route serves opaque 500 despite documented 409 arm): %v", wrapped)
+		}
+		if userErr.Code() != "GENERATION_NOT_READY" || userErr.Retryable() {
+			t.Fatalf("not-ready normalized = code %s retryable %v", userErr.Code(), userErr.Retryable())
+		}
 	}
 }

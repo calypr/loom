@@ -147,10 +147,10 @@ const LifecycleEditor = (props: {
         type="button"
         disabled={!lifecycle.canApply}
         onClick={() => {
-          const proposalId = lifecycle.beginApply();
-          if (proposalId) {
-            props.onApply(proposalId);
-            lifecycle.finishApply(true);
+          const apply = lifecycle.beginApply();
+          if (apply) {
+            props.onApply(apply.proposalId);
+            apply.finish(true);
           }
         }}
       >

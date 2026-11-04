@@ -2,6 +2,8 @@ package lower
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
@@ -86,6 +89,62 @@ func TestCompileResolvedRecipePlanRejectsInvalidOutputSelection(t *testing.T) {
 			}
 			if _, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCompileResolvedRecipePlanTypesOutputSelectionAsInvalidRequest(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	for _, tc := range []struct {
+		name        string
+		selects     []string
+		want        string
+		wantDetails map[string]any
+	}{
+		{"unknown", []string{"does-not-exist"}, "unknown output", map[string]any{"output": "does-not-exist"}},
+		{"duplicate", []string{"Patient", "Patient"}, "duplicate output", map[string]any{"output": "Patient"}},
+		{"blank", []string{"   "}, "output name is required", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", OutputNames: tc.selects})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+			if err == nil {
+				t.Fatal("expected rejection")
+			}
+			// The transport bulk wrappers (Engine.Materialize's ResolutionError,
+			// recipeGraphQLError) must keep the request defect classified after
+			// they add their own framing; assert traversal survives wrapping.
+			userErr, ok := dataframeerrors.AsUserError(fmt.Errorf("compile resolved bundle: %w", err))
+			if !ok {
+				t.Fatalf("selection fault escaped as untyped; transports publish retryable-free INTERNAL_ERROR 500 for a typo: %v", err)
+			}
+			var typed *dataframeerrors.Error
+			if !errors.As(err, &typed) {
+				t.Fatalf("selection fault is not a typed *dataframeerrors.Error: %T", err)
+			}
+			if userErr.Code() != string(dataframeerrors.CodeInvalidRequest) {
+				t.Fatalf("code=%s want %s", userErr.Code(), dataframeerrors.CodeInvalidRequest)
+			}
+			if userErr.Retryable() {
+				t.Fatal("mistyped output selection must be non-retryable")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+			if len(tc.wantDetails) > 0 {
+				if got := userErr.Details()["output"]; got != tc.wantDetails["output"] {
+					t.Fatalf("details=%v want echoing requested output %q", userErr.Details(), tc.wantDetails["output"])
+				}
+			} else if _, present := userErr.Details()["output"]; present {
+				t.Fatalf("details=%v must not echo a blank selection", userErr.Details())
 			}
 		})
 	}

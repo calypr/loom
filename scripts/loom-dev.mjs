@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, createReadStream, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,15 +8,46 @@ import { dirname, basename, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline';
 import { sanitizeBody, sanitizeText } from './verify-ui/helpers/playwright-browser.mjs';
-import { performAction } from './verify-ui/helpers/playwright-actions.mjs';
 import { captureApiBuildFreeze } from './verify-ui/helpers/api-build-freeze.mjs';
-import { captureNativeFailureEvidence } from './verify-ui/helpers/native-failure-evidence.mjs';
 import { sourceFingerprintChangedPaths, sourceFingerprintWithManifest } from './verify-ui/helpers/source-fingerprint.mjs';
-import { isMutationRequest } from './verify-ui/helpers/playwright-network-observer.mjs';
 import { dataframeOutputQuery } from '../ui/packages/loom-ui/src/dataframeOutputQuery.mjs';
 import { EXPLORER_AUTHORING_SEMANTICS_VERSION } from '../ui/packages/loom-ui/src/authoringSemanticsVersion.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+// Browser-only helpers are optional after the acceptance harness retirement.
+// Loading this module must not prevent development startup, shutdown or doctor.
+const optionalBrowserHelper = async (file, name) => {
+  const path = join(SCRIPT_DIR, 'verify-ui/helpers', file);
+  if (!existsSync(path)) throw new Error(`Browser verification is unavailable: ${file} was retired. Use the current verification skill to select an executable check.`);
+  const module = await import(pathToFileURL(path).href);
+  if (typeof module[name] !== 'function') throw new Error(`Browser helper ${name} is unavailable in ${file}`);
+  return module[name];
+};
+const performAction = async (...args) => (await optionalBrowserHelper('playwright-actions.mjs', 'performAction'))(...args);
+const captureNativeFailureEvidence = async (...args) => (await optionalBrowserHelper('native-failure-evidence.mjs', 'captureNativeFailureEvidence'))(...args);
+
+// These are read operations even though the public API represents them as POST.
+// Everything else, including unknown endpoints, remains a write for diagnostics.
+const readOnlyDevPostSuffixes = new Set([
+  'schema-fields', 'suggestions', 'semantic-inventory', 'frame-source-options',
+  'configured-column-context', 'construction-choices', 'related-expand-choices',
+  'related-field-choices', 'related-expand-contributors', 'construction-inputs',
+  'construction-category-discoveries', 'table-shape-capabilities',
+  'table-shape-category-discoveries', 'table-shape-resolutions', 'population-routes',
+  'column-source', 'row-change', 'row-lineage', 'interpretation-preview',
+  'population-mapping', 'preview', 'reconcile', 'construction-capabilities',
+  'construction-proposals', 'construction-choice-proposals', 'row-definition-proposals',
+  'row-definition-choices', 'table-shape-proposals', 'cell-trace',
+].map(suffix => `/authoring/v2/${suffix}`));
+const isMutationRequest = (method, pathOrURL) => {
+  const normalized = String(method ?? '').toUpperCase();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(normalized)) return false;
+  let pathname;
+  try { pathname = new URL(String(pathOrURL), 'http://diagnostic.invalid').pathname; } catch { return true; }
+  return normalized !== 'POST' || ![...readOnlyDevPostSuffixes].some(suffix => pathname.endsWith(suffix));
+};
+
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 const COMPOSE_FILE = join(REPO_ROOT, 'compose.dev.yaml');
 const FIXTURE_DIR = join(REPO_ROOT, 'testdata/devloop-fixture');
@@ -802,6 +833,48 @@ export const commandEnvironment = (target) => ({
   LOOM_DEV_EXPLORER: BOOTSTRAP_EXPLORER_NAME,
   LOOM_POPULATION_MAPPING_CURSOR_SECRET: target.populationMappingCursorSecret,
 });
+
+export const LOOM_DEV_BUILD_STAMP_SCRIPT = '/workspace/loom-dev-build-stamp.sh';
+export const LOOM_DEV_BUILD_RECORD_PATH = '/workspace/tmp/arango-fhir-server.build.json';
+
+export const parseBuildIdentity = ({ stampOutput, recordedOutput, gitHeadOutput }) => {
+  const parts = (stampOutput || '').trim().split(/\s+/).map((part) => part || null);
+  const [expectedSource, liveSource, runningBinary] = parts;
+  let recorded = {};
+  try { recorded = JSON.parse(recordedOutput); } catch { recorded = {}; }
+  return {
+    expectedSource: expectedSource ?? null,
+    liveSource: liveSource ?? null,
+    runningBinary: runningBinary ?? null,
+    recordedBinary: recorded?.binary ?? null,
+    recordedSource: recorded?.source ?? null,
+    gitHead: (gitHeadOutput || '').trim() || null,
+  };
+};
+
+// The scoped sandbox docker bridge (OpenShell) denies `docker compose exec`; only
+// ps/inspect/top/logs/exec are permitted and compose ps additionally requires the
+// host registration's own compose file. Resolve the API container via label filters
+// (scoped bridge) and probe it with docker exec, the same channel
+// scripts/verify-ui/helpers/cda-verification-identity.mjs uses for CDA captures.
+export const resolveOwnedApiContainer = (target, { env = commandEnvironment(target), psRunner } = {}) => {
+  const listed = (psRunner ?? ((args) => spawnSync('docker', args, { encoding: 'utf8', env, timeout: 15000 })))(
+    ['ps', '--filter', `label=com.docker.compose.project=${target.composeProject}`,
+      '--filter', 'label=com.docker.compose.service=loom-api', '--format', '{{.ID}}']);
+  const ids = (listed.stdout || '').trim().split(/\s+/).filter((id) => /^[a-f0-9]{12,64}$/.test(id || ''));
+  if (listed.status !== 0 || ids.length !== 1) return { container: null, error: ((listed.stderr || listed.stdout || '').trim().slice(0, 400)) || `expected exactly one loom-api container, got ${ids.length}` };
+  return { container: ids[0], error: null };
+};
+
+export const collectBuildIdentity = (target, { repoRoot = REPO_ROOT, runner, psRunner, env = commandEnvironment(target), stampScript = LOOM_DEV_BUILD_STAMP_SCRIPT } = {}) => {
+  const runCmd = runner ?? ((args) => spawnSync('docker', args, { encoding: 'utf8', env, timeout: 30000 }));
+  const { container, error } = resolveOwnedApiContainer(target, { env, psRunner });
+  if (!container) return { ...parseBuildIdentity({}), checkExit: 125, containerError: error };
+  const stamp = runCmd(['exec', container, stampScript, '--check']);
+  const recorded = runCmd(['exec', container, 'cat', LOOM_DEV_BUILD_RECORD_PATH]);
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' });
+  return { ...parseBuildIdentity({ stampOutput: stamp?.stdout, recordedOutput: recorded?.stdout, gitHeadOutput: head?.stdout }), checkExit: stamp?.status ?? 125 };
+};
 
 const run = (command, args, options = {}) => new Promise((resolvePromise, reject) => {
   const child = spawn(command, args, {
@@ -10214,6 +10287,12 @@ export const recordDevJourneyPreparationFailure = async (command, error, env = p
 
 export const dispatchNativeDevJourney = async (command) => {
   if (!DEV_JOURNEY_COMMANDS.has(command)) throw new Error(`unknown native dev journey: ${command}`);
+  const spec = join(SCRIPT_DIR, 'verify-ui/specs/dev-journeys.spec.mjs');
+  const packageFile = join(SCRIPT_DIR, 'package.json');
+  const browserScript = existsSync(packageFile) && JSON.parse(readFileSync(packageFile, 'utf8')).scripts?.['test:browser'];
+  if (!existsSync(spec) || !browserScript) {
+    throw new Error(`${command} is unavailable: its browser journey harness was retired. Use scripts/verify-builder-formal-core.mjs or the current live verification skill; this command did not run a check.`);
+  }
   const child = spawn('npm', [
     'run', 'test:browser', '--',
     'verify-ui/specs/dev-journeys.spec.mjs', '--grep', `@dev-journey:${command}`,
@@ -10227,8 +10306,14 @@ export const dispatchNativeDevJourney = async (command) => {
 
 const main = async (argv) => {
   const command = argv[0] ?? 'dev-doctor';
+  if (['--help', '-h', 'help'].includes(command)) {
+    console.log('Usage: node scripts/loom-dev.mjs dev | dev-rebuild | dev-doctor | dev-down [--purge]');
+    console.log('The retired verify-* browser journeys require a restored harness and cannot report a pass. See the current verification skill for executable checks.');
+    return;
+  }
   if (DEV_JOURNEY_COMMANDS.has(command)) {
-    await dispatchNativeDevJourney(command);
+    try { await dispatchNativeDevJourney(command); }
+    catch (error) { console.error(`LOOM_DEV_FAILED ${error.message}`); process.exitCode = 1; }
     return;
   }
 

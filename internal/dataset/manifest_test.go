@@ -40,3 +40,27 @@ func TestManifestTransitions(t *testing.T) {
 		t.Fatalf("LOADING -> LOADING = %v", err)
 	}
 }
+
+// TestManifestTerminalStatesRejectEveryOutgoingTransition closes the gap
+// finding 2026-11-04k (adversarial review, repair-27): TestManifestTransitions
+// only probes FAILED/READY -> LOADING. A widening of Transition's source guard
+// that admitted FAILED -> STAGED had no coverage anywhere in the repository,
+// and FAILED -> STAGED -> Activate is a second route to activating a failed
+// generation (activateAQL accepts any persisted STAGED document).
+func TestManifestTerminalStatesRejectEveryOutgoingTransition(t *testing.T) {
+	for _, terminal := range []State{StateFailed, StateReady} {
+		source, err := testManifest(t).Transition(terminal)
+		if err != nil {
+			t.Fatalf("setup Transition(%s): %v", terminal, err)
+		}
+		for _, next := range []State{StateLoading, StateStaged, StateReady, StateFailed} {
+			if _, err := source.Transition(next); !errors.Is(err, ErrInvalidTransition) {
+				t.Errorf("Transition(%s -> %s) = %v, want ErrInvalidTransition", terminal, next, err)
+			}
+		}
+	}
+	staged, err := testManifest(t).Transition(StateStaged)
+	if err != nil || staged.State != StateStaged {
+		t.Fatalf("LOADING -> STAGED = %#v, %v (positive path for activation)", staged, err)
+	}
+}

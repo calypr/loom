@@ -265,6 +265,11 @@ export const TableShapeSettingsPanel = (props: TableShapeSettingsPanelProps) => 
       updateEditing(session.id, (latest) => latest, 'There is no saved table shape to remove.');
       return;
     }
+    if (intent.kind === 'UNPIVOT' && intent.unpivot.inputColumns.length < 2) {
+      updateEditing(session.id, (latest) => latest,
+        'Select at least two columns to melt. One column is not a melt: Loom needs at least two to fold into key and value rows.');
+      return;
+    }
 
     const operation = epoch.current;
     setState({ kind: 'resolving', session, intent });

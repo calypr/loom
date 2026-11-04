@@ -90,5 +90,7 @@ export const matchesSavedPopulationRoute = (
     const candidate = saved[index];
     return candidate !== undefined &&
       step.toResourceType === candidate.resourceType &&
-      step.relationship === candidate.relationship;
+      step.relationship === candidate.relationship &&
+      (!candidate.catalogEdgeId || step.edgeId === candidate.catalogEdgeId) &&
+      (!candidate.storageDirection || step.storageDirection === candidate.storageDirection);
   });

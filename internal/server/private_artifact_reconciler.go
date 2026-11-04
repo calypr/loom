@@ -9,19 +9,48 @@ import (
 const (
 	privateArtifactReconcileInterval = 30 * time.Second
 	privateArtifactReconcileLimit    = 1000
+	artifactFSReconcileInterval      = 60 * time.Second
+	artifactFSReconcileLimit         = 1000
 )
 
 type privateArtifactReconcileTarget interface {
 	Reconcile(context.Context, time.Time, int) error
 }
 
+type artifactFSReconcileTarget interface {
+	Reconcile(context.Context, time.Time, int) (int, error)
+}
+
 func startPrivateArtifactReconciler(ctx context.Context, manager privateArtifactReconcileTarget, logger *slog.Logger) <-chan struct{} {
+	sweep := func(sweepCtx context.Context) error {
+		return manager.Reconcile(sweepCtx, time.Now().UTC(), privateArtifactReconcileLimit)
+	}
+	return startTickerReconciler(ctx, sweep, logger, privateArtifactReconcileInterval, "private ClickHouse artifact")
+}
+
+// startArtifactFSReconciler enforces the exported-archive expiry promise on
+// the filesystem artifact store, mirroring the ClickHouse artifact sweep so
+// committed archives do not outlive their advertised TTL on disk.
+func startArtifactFSReconciler(ctx context.Context, store artifactFSReconcileTarget, logger *slog.Logger) <-chan struct{} {
+	if store == nil {
+		done := make(chan struct{})
+		close(done)
+		return done
+	}
+	sweep := func(sweepCtx context.Context) error {
+		_, err := store.Reconcile(sweepCtx, time.Now().UTC(), artifactFSReconcileLimit)
+		return err
+	}
+	return startTickerReconciler(ctx, sweep, logger, artifactFSReconcileInterval, "filesystem artifact")
+}
+
+func startTickerReconciler(ctx context.Context, sweep func(context.Context) error, logger *slog.Logger, interval time.Duration, label string) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(privateArtifactReconcileInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		runPrivateArtifactReconciler(ctx, manager, ticker.C, logger)
+		runReconcilerLoop(ctx, sweep, ticker.C, logger, label)
 	}()
 	return done
 }
@@ -30,14 +59,24 @@ func startPrivateArtifactReconciler(ctx context.Context, manager privateArtifact
 // sweep per tick. It processes ticks serially so a slow cleanup cannot overlap
 // with the next pass.
 func runPrivateArtifactReconciler(ctx context.Context, manager privateArtifactReconcileTarget, ticks <-chan time.Time, logger *slog.Logger) {
-	if ctx == nil || manager == nil {
+	if manager == nil {
+		return
+	}
+	sweep := func(sweepCtx context.Context) error {
+		return manager.Reconcile(sweepCtx, time.Now().UTC(), privateArtifactReconcileLimit)
+	}
+	runReconcilerLoop(ctx, sweep, ticks, logger, "private ClickHouse artifact")
+}
+
+func runReconcilerLoop(ctx context.Context, sweep func(context.Context) error, ticks <-chan time.Time, logger *slog.Logger, label string) {
+	if ctx == nil || sweep == nil {
 		return
 	}
 	reconcile := func() {
 		sweepCtx, cancel := context.WithTimeout(ctx, cleanupTimeout)
 		defer cancel()
-		if err := manager.Reconcile(sweepCtx, time.Now().UTC(), privateArtifactReconcileLimit); err != nil && ctx.Err() == nil && logger != nil {
-			logger.Error("private ClickHouse artifact reconciliation failed", "error", err)
+		if err := sweep(sweepCtx); err != nil && ctx.Err() == nil && logger != nil {
+			logger.Error(label+" reconciliation failed", "error", err)
 		}
 	}
 	for {

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/calypr/loom/internal/catalog"
 )
 
 const backfillSignalChildEnv = "LOOM_C01_BACKFILL_SIGNAL_CHILD"
@@ -19,7 +24,7 @@ const backfillSignalReadyEnv = "LOOM_C01_BACKFILL_SIGNAL_READY"
 func TestBackfillSemanticInventorySignalCancelsProcessContext(t *testing.T) {
 	if os.Getenv(backfillSignalChildEnv) == "1" {
 		readyPath := os.Getenv(backfillSignalReadyEnv)
-		err := withBackfillSignalCancellation(context.Background(), func(ctx context.Context) error {
+		err := withSignalCancellation(context.Background(), func(ctx context.Context) error {
 			if err := os.WriteFile(readyPath, []byte("ready"), 0o600); err != nil {
 				return err
 			}
@@ -221,6 +226,24 @@ func TestParseBackfillSemanticInventoryRequiresScopedBoundedRequest(t *testing.T
 	}
 }
 
+func TestParseDiscoverPopulatedReferencesRejectsUnknownMode(t *testing.T) {
+	for _, mode := range []string{"bulder", "storagee", "STORAGE", ""} {
+		_, _, err := parseDiscoverPopulatedReferenceOptions([]string{"--mode", mode}, flag.ContinueOnError)
+		if mode == catalog.TraversalModeStorage || mode == catalog.TraversalModeBuilder {
+			if err != nil {
+				t.Fatalf("parseDiscoverPopulatedReferenceOptions(mode=%q) error = %v, want accepted", mode, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Fatalf("parseDiscoverPopulatedReferenceOptions(mode=%q) accepted invalid traversal mode", mode)
+		}
+		if !strings.Contains(err.Error(), catalog.TraversalModeStorage) || !strings.Contains(err.Error(), catalog.TraversalModeBuilder) {
+			t.Fatalf("parseDiscoverPopulatedReferenceOptions(mode=%q) error = %v, want it to name valid modes %q and %q", mode, err, catalog.TraversalModeStorage, catalog.TraversalModeBuilder)
+		}
+	}
+}
+
 func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 	fields, _, err := parseDiscoverPopulatedFieldOptions([]string{
 		"--project", "project-a",
@@ -251,4 +274,182 @@ func TestParseDiscoveryCommandsPassExplicitDatasetGeneration(t *testing.T) {
 	if got, want := references.FromType, "Specimen"; got != want {
 		t.Fatalf("reference discovery source type = %q, want %q", got, want)
 	}
+}
+
+// U1 (F-CLI2+M2): the documented `load` command must be dispatched to a mutable
+// loader rather than falling through to usage()+exit(2).
+func TestCommandRoutesDispatchesMutableLoad(t *testing.T) {
+	routes := commandRoutes()
+	handler, ok := routes["load"]
+	if !ok || handler == nil {
+		t.Fatal("`load` command is not dispatched; it must reach a mutable runner")
+	}
+	if _, ok := routes["load-generation"]; !ok {
+		t.Fatal("load-generation route lost while restoring the load dispatch")
+	}
+	if _, ok := routes["command-that-does-not-exist"]; ok {
+		t.Fatal("unknown command unexpectedly routed; unknown commands must reach usage()+exit(2)")
+	}
+}
+
+func TestParseLoadMutableWiresFlagsWithoutGeneration(t *testing.T) {
+	config, err := parseLoadMutableCommand([]string{
+		"--url", "http://127.0.0.1:8529",
+		"--database", "fhir_proto",
+		"--meta-dir", "META",
+		"--project", "ARANGODB_PROTO",
+		"--auth-resource-path", "EllrottLab-GDC_Data",
+	}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("parseLoadMutableCommand() error = %v", err)
+	}
+	if config.Options.Dataset != nil {
+		t.Fatalf("mutable load set dataset %#v, want nil so Load selects the mutable path", config.Options.Dataset)
+	}
+	if config.Options.URL != "http://127.0.0.1:8529" || config.Options.Database != "fhir_proto" ||
+		config.Options.MetaDir != "META" || config.Options.Project != "ARANGODB_PROTO" ||
+		config.Options.AuthResourcePath != "EllrottLab-GDC_Data" {
+		t.Fatalf("mutable load parsed options = %+v, want the QUICKSTART flags wired", config.Options)
+	}
+	// --generation belongs to the immutable loader only.
+	if _, err := parseLoadMutableCommand([]string{"--generation", "generation-a"}, flag.ContinueOnError); err == nil ||
+		!strings.Contains(err.Error(), "flag provided but not defined") {
+		t.Fatalf("parseLoadMutableCommand accepted --generation; the mutable load must not expose it")
+	}
+}
+
+// U3 (F-CLI3(i)): manifest-mutating commands must run under shared signal
+// cancellation; read/mutable-data commands must not.
+func TestManifestMutatingCommandsUseSignalCancellation(t *testing.T) {
+	guarded := signalGuardedCommands()
+	routes := commandRoutes()
+	for _, command := range []string{"load-generation", "repair-generation", "activate-generation", "backfill-semantic-inventory"} {
+		if !guarded[command] {
+			t.Fatalf("manifest-mutating command %q must route through signal cancellation", command)
+		}
+		if _, ok := routes[command]; !ok {
+			t.Fatalf("guarded command %q is not a registered route", command)
+		}
+	}
+	for _, command := range []string{"load", "discover-populated-references", "discover-populated-fields", "rebuild-relationship-catalog", "rebuild-resource-inventory", "audit-relationship-edges"} {
+		if guarded[command] {
+			t.Fatalf("command %q must not be wrapped in signal cancellation", command)
+		}
+	}
+}
+
+// U4 (F-CLI1): the CLI must refuse to create a missing database instead of
+// silently auto-creating it. Emulates the go-driver DatabaseExists request
+// (GET /_db/{db}/_api/database/current) with httptest; no real Arango is used.
+func TestRequireDatabaseExistsRefusesMissingDatabase(t *testing.T) {
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		if strings.HasSuffix(r.URL.Path, "/_api/database/current") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":true,"errorNum":1228,"code":404,"errorMessage":"database not found"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{}`)
+	}))
+	defer server.Close()
+
+	err := requireDatabaseExists(context.Background(), server.URL, "ghost_db")
+	if err == nil {
+		t.Fatal("requireDatabaseExists accepted a missing database")
+	}
+	if !strings.Contains(err.Error(), "refusing to create missing database") || !strings.Contains(err.Error(), "ghost_db") {
+		t.Fatalf("requireDatabaseExists error = %v, want a refusal naming the missing database", err)
+	}
+	// Verify empirically which request the driver issued for DatabaseExists.
+	if !containsSeen(seen, "/_db/ghost_db/_api/database/current") {
+		t.Fatalf("DatabaseExists did not issue the expected current-database request; saw %v", seen)
+	}
+}
+
+func TestRequireDatabaseExistsAllowsExistingDatabase(t *testing.T) {
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"result":{"name":"fhir_proto","id":"fhir_proto","isSystem":false,"type":11},"allowImplicit":false,"user":"root"}`)
+	}))
+	defer server.Close()
+
+	if err := requireDatabaseExists(context.Background(), server.URL, "fhir_proto"); err != nil {
+		t.Fatalf("requireDatabaseExists(existing) error = %v, want nil", err)
+	}
+	if !containsSeen(seen, "/_db/fhir_proto/_api/database/current") {
+		t.Fatalf("requireDatabaseExists did not probe the current-database endpoint; saw %v", seen)
+	}
+}
+
+func TestOpenClientRequiringDatabaseRefusesAndNeverAutoCreates(t *testing.T) {
+	var createRequests int
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/_api/database") {
+			createRequests++
+		}
+		if strings.HasSuffix(r.URL.Path, "/_api/database/current") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"error":true,"errorNum":1228,"code":404,"errorMessage":"database not found"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{}`)
+	}))
+	defer server.Close()
+
+	client, err := openClientRequiringDatabase(context.Background(), server.URL, "ghost_db")
+	if err == nil || !strings.Contains(err.Error(), "refusing to create missing database") {
+		t.Fatalf("openClientRequiringDatabase(missing) error = %v, want refusal", err)
+	}
+	if client != nil {
+		t.Fatal("openClientRequiringDatabase returned a client for a missing database")
+	}
+	if createRequests != 0 {
+		t.Fatalf("missing-database gate must not trigger a create-database request; saw requests %v", seen)
+	}
+}
+
+func TestOpenClientRequiringDatabaseOpensExistingWithoutAutoCreate(t *testing.T) {
+	var createRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/_api/database") {
+			createRequests++
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"result":{"name":"fhir_proto","id":"fhir_proto","isSystem":false,"type":11},"allowImplicit":false,"user":"root"}`)
+	}))
+	defer server.Close()
+
+	client, err := openClientRequiringDatabase(context.Background(), server.URL, "fhir_proto")
+	if err != nil {
+		t.Fatalf("openClientRequiringDatabase(existing) error = %v, want nil", err)
+	}
+	if client == nil {
+		t.Fatal("openClientRequiringDatabase(existing) returned a nil client")
+	}
+	defer func() { _ = client.Close(context.Background()) }()
+	if createRequests != 0 {
+		t.Fatalf("existing database must not trigger a create-database request")
+	}
+}
+
+func containsSeen(seen []string, suffix string) bool {
+	for _, entry := range seen {
+		if strings.HasSuffix(entry, suffix) {
+			return true
+		}
+	}
+	return false
 }

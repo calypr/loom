@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -34,6 +35,18 @@ func validateConstructionPivotSourceSelections(selections []ConstructionPivotSou
 	return nil
 }
 
+var pivotSourceReasons = rowSourceLaneReasons{
+	codeStem:        "PIVOT",
+	reachReason:     "the current construction prefix does not carry root scalar source fields to this stage, and no active related-record source field is offered either",
+	versionReason:   "every enumerated root field choice was issued for a previous dataset snapshot; reload the current Pivot source fields",
+	routeReason:     "every root scalar field enumerated at this stage is a reference, repeated, non-root, or metadata path that cannot be carried into Pivot",
+	typeReason:      "every root scalar field enumerated at this stage has a logical type that cannot be carried into Pivot",
+	observedReason:  "every root scalar field enumerated for Pivot at this stage has no observed values in the current dataset snapshot",
+	genericCode:     "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS",
+	genericReason:   "the selected stage has no authorized populated scalar FHIR fields that can be carried into Pivot",
+	inventoryReason: "the row-choice inventory backing root Pivot source fields is unavailable for the current dataset snapshot",
+}
+
 func (s *Service) constructionPivotSourceCapability(
 	ctx context.Context,
 	base constructionBase,
@@ -46,23 +59,35 @@ func (s *Service) constructionPivotSourceCapability(
 		result.Reason = "the selected stage is not present in the current compiled output"
 		return result, nil
 	}
-	if constructionRootProjectionCanReachStage(base.construction, stageID) && s.config.RowChoicePlanner != nil {
+	enumeration := rowSourceEnumeration{
+		rootReachable:     constructionRootProjectionCanReachStage(base.construction, stageID),
+		plannerConfigured: s.config.RowChoicePlanner != nil,
+	}
+	if enumeration.rootReachable && enumeration.plannerConfigured {
 		choices, err := s.config.RowChoicePlanner.ListRowChoices(ctx, base.snapshot.Clone(), base.document)
 		if err != nil {
-			return result, fmt.Errorf("list authorized root Pivot source choices for output %q: %w", outputID, err)
+			result.ReasonCode, result.Reason = rowSourceInventoryFailure(pivotSourceReasons)
+			return result, unavailable("construction-capabilities", result.ReasonCode, result.Reason,
+				fmt.Errorf("list authorized root Pivot source choices for output %q: %w", outputID, err))
 		}
 		for _, choice := range choices {
+			if rowSourceChoiceIsStaleVersion(choice, base.snapshot) {
+				enumeration.skip(rowSourceSkipVersion)
+				continue
+			}
 			if choice.Kind != capability.RowChoiceFieldGroupKey || choice.OccurrenceID != authoringv2.RootOccurrenceID || choice.Reference ||
 				choice.Cardinality != capability.RowChoiceOne || canonicalRowPath(choice.Path) == "resourceType" {
+				enumeration.skip(rowSourceSkipRoute)
 				continue
 			}
 			candidate, ok := constructionGroupSourceCandidate(base.snapshot, choice)
 			if !ok {
+				enumeration.skip(rowSourceCandidateSkipClass(base.snapshot, choice))
 				continue
 			}
 			result.Choices = append(result.Choices, ConstructionPivotSourceChoice{
 				ChoiceID: choice.ChoiceID, ColumnID: constructionOwnedRootProjectionColumnID(base.construction, stageID, choice.Path),
-				OccurrenceID: choice.OccurrenceID, FieldPath: choice.Path, Label: constructionFHIRPathLabel(base.document.RootResourceType, choice.Path),
+				OccurrenceID: choice.OccurrenceID, FieldPath: choice.Path, Label: constructionFieldDisplayLabel(base.document.RootResourceType, choice.Path, candidate.Label, choice.Label),
 				FHIRType: choice.FHIRType, LogicalType: candidate.LogicalType, ValueType: choice.ValueType,
 				IsIdentifier: fhirIdentifierPath(choice.Path), IsPopulated: candidate.Populated,
 			})
@@ -99,7 +124,7 @@ func (s *Service) constructionPivotSourceCapability(
 			result.Choices = append(result.Choices, ConstructionPivotSourceChoice{
 				ChoiceID: choice.ChoiceID, ColumnID: constructionOwnedRelatedFieldColumnID(base.construction, stageID, proved),
 				OccurrenceID: "activeRelatedRecord", FieldPath: proved.FieldPath,
-				Label:    constructionFHIRPathLabel(active.TargetResourceType, proved.FieldPath),
+				Label:    constructionFieldDisplayLabel(active.TargetResourceType, proved.FieldPath, proved.Label),
 				FHIRType: fhirType, LogicalType: proved.LogicalType, ValueType: proved.LogicalType,
 				IsIdentifier: fhirIdentifierPath(proved.FieldPath), IsPopulated: proved.Populated,
 			})
@@ -115,12 +140,155 @@ func (s *Service) constructionPivotSourceCapability(
 		return result.Choices[i].ChoiceID < result.Choices[j].ChoiceID
 	})
 	if len(result.Choices) == 0 {
-		result.ReasonCode = "NO_ELIGIBLE_POPULATED_PIVOT_SOURCE_FIELDS"
-		result.Reason = "the selected stage has no authorized populated scalar FHIR fields that can be carried into Pivot"
+		result.ReasonCode, result.Reason = enumeration.decision(pivotSourceReasons)
 		return result, nil
 	}
 	result.Supported = true
 	return result, nil
+}
+
+// rowSourceSkipClass categorizes one root field a signed source lane skipped
+// during its enumeration pass. When nothing is advertised after the full
+// assembly, the lane-level reasonCode names the class if, and only if, every
+// recorded skip shares one class; mixed or unmappable skips keep the existing
+// generic NO_ELIGIBLE_POPULATED_* verdict (ROW-SOURCE-03 clause: "precise
+// reasons for unsupported version, type, route, or stage" plus "distinguish
+// empty data ... inventory errors").
+type rowSourceSkipClass int
+
+const (
+	rowSourceSkipObserved rowSourceSkipClass = iota
+	rowSourceSkipType
+	rowSourceSkipRoute
+	rowSourceSkipVersion
+	rowSourceSkipInventory
+)
+
+// rowSourceEnumeration carries the gate facts each lane already holds at the
+// moment it silently continues, so an empty verdict can name its real cause.
+type rowSourceEnumeration struct {
+	rootReachable     bool
+	plannerConfigured bool
+	skips             map[rowSourceSkipClass]int
+}
+
+func (e *rowSourceEnumeration) skip(class rowSourceSkipClass) {
+	if e.skips == nil {
+		e.skips = make(map[rowSourceSkipClass]int)
+	}
+	e.skips[class]++
+}
+
+// rowSourceLaneReasons is the per-lane wording bundle; the code strings are
+// derived from the stable lane stem so the four signed lanes stay parallel.
+type rowSourceLaneReasons struct {
+	codeStem        string
+	inventoryReason string
+	reachReason     string
+	versionReason   string
+	routeReason     string
+	typeReason      string
+	observedReason  string
+	genericCode     string
+	genericReason   string
+}
+
+// rowSourceInventoryFailure names the payload-distinguishable inventory-error
+// verdict when a lane's row-choice enumeration aborts because the planner
+// itself failed — the S-B split of the "distinguish ... inventory errors"
+// clause, so an unavailable inventory is never confused with the healthy
+// empty-data verdicts (NO_OBSERVED_VALUES_*/NO_ELIGIBLE_POPULATED_*). The
+// advertised text is static: planner error strings can carry internal detail
+// and must not cross into the payload (sanitizer boundary at the API edge).
+// Fail-CLOSED is preserved — callers still receive a non-nil typed error that
+// wraps the real cause for server-side logs and consumers.
+func rowSourceInventoryFailure(reasons rowSourceLaneReasons) (string, string) {
+	return reasons.codeStem + "_SOURCE_INVENTORY_UNAVAILABLE", reasons.inventoryReason
+}
+
+func (e rowSourceEnumeration) decision(reasons rowSourceLaneReasons) (string, string) {
+	if !e.rootReachable {
+		return "ROOT_SOURCE_PROJECTION_UNAVAILABLE", reasons.reachReason
+	}
+	if !e.plannerConfigured {
+		return "ROW_CHOICE_UNAVAILABLE", "authorized scalar source choices are not configured"
+	}
+	if class, single := e.onlySkipClass(); single {
+		switch class {
+		case rowSourceSkipVersion:
+			return "STALE_" + reasons.codeStem + "_SOURCE_SNAPSHOT", reasons.versionReason
+		case rowSourceSkipRoute:
+			return "NO_ROUTE_ELIGIBLE_" + reasons.codeStem + "_SOURCE_FIELDS", reasons.routeReason
+		case rowSourceSkipType:
+			return "NO_TYPE_ELIGIBLE_" + reasons.codeStem + "_SOURCE_FIELDS", reasons.typeReason
+		case rowSourceSkipObserved:
+			return "NO_OBSERVED_VALUES_" + reasons.codeStem + "_SOURCE_FIELDS", reasons.observedReason
+		}
+	}
+	return reasons.genericCode, reasons.genericReason
+}
+
+// onlySkipClass reports the single reason class when every recorded skip
+// shares it. The inventory class (the planner advertised a choice whose
+// snapshot candidate is missing or duplicated) is intentionally not mapped to
+// a new code: per-lane inventory-error state is the separate S-B slice, and
+// mixed causes stay on the honest generic fallback.
+func (e rowSourceEnumeration) onlySkipClass() (rowSourceSkipClass, bool) {
+	if len(e.skips) != 1 {
+		return 0, false
+	}
+	for class, count := range e.skips {
+		if count == 0 || class == rowSourceSkipInventory {
+			return 0, false
+		}
+		return class, true
+	}
+	return 0, false
+}
+
+// rowSourceCandidateSkipClass mirrors the fused gates of
+// constructionGroupSourceCandidate for diagnosis only: the lane still decides
+// its advertised set with the fused helper, so this never changes which
+// fields are offered — only which reason an empty lane reports.
+func rowSourceCandidateSkipClass(snapshot capability.Snapshot, choice capability.RowChoice) rowSourceSkipClass {
+	var found *capability.Candidate
+	for index := range snapshot.Candidates {
+		current := &snapshot.Candidates[index]
+		if current.NodeID != choice.NodeID || current.ResourceType != choice.ResourceType || canonicalRowPath(current.FieldPath) != choice.Path {
+			continue
+		}
+		if found != nil {
+			return rowSourceSkipInventory
+		}
+		found = current
+	}
+	switch {
+	case found == nil:
+		return rowSourceSkipInventory
+	case !found.Populated:
+		return rowSourceSkipObserved
+	case len(found.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(found.Cardinality):
+		return rowSourceSkipRoute
+	case !containsSourceProjectionMode(found.ProjectionModes, capability.ProjectionScalar):
+		return rowSourceSkipInventory
+	case !capability.IsSupportedConstructionSourceType(found.LogicalType):
+		return rowSourceSkipType
+	default:
+		return rowSourceSkipInventory
+	}
+}
+
+// rowSourceChoiceIsStaleVersion reports a signed choice issued for a previous
+// dataset snapshot or schema digest. Undecodable ids are not flagged: the
+// advertised set must stay bit-identical to pre-S-A behavior for every other
+// input, and malformed ids remain refused at propose time by the
+// INVALID_{LANE}_SOURCE_CHOICE boundary.
+func rowSourceChoiceIsStaleVersion(choice capability.RowChoice, snapshot capability.Snapshot) bool {
+	identity, err := capability.DecodeRowChoiceID(choice.ChoiceID)
+	if err != nil {
+		return false
+	}
+	return identity.SnapshotToken != snapshot.Token || identity.SchemaDigest != snapshot.Identity.SchemaDigest
 }
 
 func constructionRootProjectionCanReachStage(construction authoringv2.Construction, stageID string) bool {
@@ -285,6 +453,35 @@ func constructionFHIRPathLabel(resourceType, path string) string {
 	return resourceType + "." + path
 }
 
+// constructionFieldDisplayLabel is the single construction-lane label builder
+// shared by every signed source lane (Filter, Derive, Unpivot, Pivot). It
+// returns the first non-blank TrimSpace'd display candidate — the authorized
+// snapshot candidate's schema-Title label first, then the row choice's
+// display label at advertise sites — and only then falls back to the legacy
+// 'ResourceType.path' form produced by constructionFHIRPathLabel. Display
+// candidates must come only from the authorized snapshot or the planner's
+// generated FHIR schema truth, never from client input; a candidate carrying
+// any Unicode control character (NUL, ESC, other C0/C1) is refused outright
+// and falls through to the next candidate — advertised labels flow verbatim
+// to the wire and into durable claims, so the refusal mirrors the reason-text
+// sanitizer family at the API edge (reviewer witness: a Title with NUL/ESC
+// bytes must never ride the label). The result is always trimmed and non-blank so the receipt contract's pre-trimmed label gates
+// hold. Every one of the twelve lane label sites must go through this
+// builder: the durable claim and the compiled artifact copy its exact bytes,
+// so an out-of-band label writer would break the
+// explorer_output_reconcile.go compiled-slot equality that anti-drift
+// reconcile depends on.
+func constructionFieldDisplayLabel(resourceType, path string, displayCandidates ...string) string {
+	for _, candidate := range displayCandidates {
+		label := strings.TrimSpace(candidate)
+		if label == "" || strings.IndexFunc(label, unicode.IsControl) >= 0 {
+			continue
+		}
+		return label
+	}
+	return constructionFHIRPathLabel(resourceType, path)
+}
+
 type resolvedConstructionPivotSource struct {
 	selection ConstructionPivotSourceSelection
 	root      *authoringv2.ConstructionSourceProjection
@@ -381,7 +578,8 @@ func (s *Service) constructionCandidateWithPivotSources(
 		}
 	}
 	for _, projection := range base.construction.SourceProjections {
-		if projection.OwnerStepID != "" && projection.OwnerStepID != pivotID && !hasPivotSourceProjection(projections, projection.ColumnID) {
+		if projection.OwnerStepID != "" && projection.OwnerStepID != pivotID && !hasPivotSourceProjection(projections, projection.ColumnID) &&
+			!constructionOwnerInputsClearedFromCandidate(base.construction, candidate, projection.OwnerStepID) {
 			projections = append(projections, projection)
 		}
 	}
@@ -513,7 +711,7 @@ func (s *Service) resolveConstructionPivotSource(
 			facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference || facts.FHIRType != identity.FHIRType {
 			return resolvedConstructionPivotSource{}, conflict("construction-proposal", "STALE_PIVOT_SOURCE_SCHEMA", "the selected field no longer matches generated scalar FHIR metadata", nil, err)
 		}
-		label := constructionFHIRPathLabel(base.document.RootResourceType, facts.CanonicalPath)
+		label := constructionFieldDisplayLabel(base.document.RootResourceType, facts.CanonicalPath, candidate.Label)
 		projection := authoringv2.ConstructionSourceProjection{
 			ColumnID: selection.ColumnID, OwnerStepID: request.ChangedStepID, OccurrenceID: resolved.OccurrenceID,
 			FieldPath: facts.CanonicalPath, FHIRType: facts.FHIRType, LogicalType: candidate.LogicalType, Label: label,
@@ -558,7 +756,7 @@ func (s *Service) resolveConstructionPivotSource(
 		ResourceType: proved.ResourceType, Path: proved.FieldPath, Cardinality: proved.Cardinality,
 		LogicalType: proved.LogicalType, RepeatedBoundaries: append([]capability.RepeatedBoundary(nil), proved.RepeatedBoundaries...),
 	}
-	label := constructionFHIRPathLabel(proved.ResourceType, proved.FieldPath)
+	label := constructionFieldDisplayLabel(proved.ResourceType, proved.FieldPath, proved.Label)
 	return resolvedConstructionPivotSource{selection: selection, related: related, choiceID: selection.ChoiceID, label: label}, nil
 }
 
@@ -569,6 +767,9 @@ func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate au
 	}
 	for baseIndex, owner := range base.Steps {
 		if owner.ID == skipOwnerID || owner.Operation.Kind != authoringv2.ConstructionOperationPivot || constructionStepIndex(candidate.Steps, owner.ID) < 0 {
+			continue
+		}
+		if constructionOwnerInputsClearedFromCandidate(base, candidate, owner.ID) {
 			continue
 		}
 		missing := make([]authoringv2.ConstructionStep, 0)
@@ -589,6 +790,110 @@ func preserveConstructionOwnedInputs(base authoringv2.Construction, candidate au
 		}
 	}
 	return candidate
+}
+
+// constructionOwnerInputsClearedFromCandidate reports whether the submitted
+// candidate intentionally removed every durable input the accepted base keeps
+// for ownerID. Under the shipped selection contract (nil never re-attaches,
+// [] clears), the candidate is a full replacement of the construction, so
+// dropping all of an owner's server-owned inputs in the proposal window is a
+// clear: no lane may re-import them from the base. A partial chain (the
+// client carried the helper but not its projection, or the reverse) is a
+// client omission of server-owned state, which preservation must still
+// repair.
+func constructionOwnerInputsClearedFromCandidate(base authoringv2.Construction, candidate authoringv2.Construction, ownerID string) bool {
+	baseInputs := 0
+	for _, step := range base.Steps {
+		if step.OwnerStepID == ownerID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+			baseInputs++
+		}
+	}
+	for _, projection := range base.SourceProjections {
+		if projection.OwnerStepID == ownerID {
+			baseInputs++
+		}
+	}
+	if baseInputs == 0 {
+		return false
+	}
+	for _, step := range candidate.Steps {
+		if step.OwnerStepID == ownerID && step.Operation.Kind == authoringv2.ConstructionOperationRelatedField {
+			return false
+		}
+	}
+	for _, projection := range candidate.SourceProjections {
+		if projection.OwnerStepID == ownerID {
+			return false
+		}
+	}
+	return true
+}
+
+// constructionRootFieldAlreadyProjected reports whether materializing this
+// signed slot column would collide, in the compiler's per-output duplicate
+// semantic-path pass (lower/recipe_schema.go:205-224 suffixes BOTH columns
+// with #<name>), with another public column that carries the same compiled
+// semantic path. The receipt contract guard compares strings.TrimSpace of the
+// compiled column's SemanticPath against the authored projection FieldPath
+// verbatim (explorer_output_reconcile.go:497-512), so it fires exactly when a
+// second public column shares the slot's verbatim path string. Carriers are
+// therefore precisely the columns whose compiled SemanticPath is an authored
+// bare field-path string on the root occurrence: user-authored SourceField
+// columns (compilation/semantic_compile.go:220 emits FieldRef verbatim, and
+// lower.recipeSemanticPath keeps a non-empty fieldRef verbatim) and every
+// merged construction source projection — base-persisted, candidate-carried,
+// or request-resolved (compilation/semantic_compile.go:522-529 emits
+// FieldRef=projection.FieldPath verbatim into the same root node). A
+// root.-prefixed authored path is verbatim-distinct and never collides; a
+// projection under the slot's own ColumnID is the slot's re-bind entry, not a
+// second carrier. Columns whose compiled name is internal (_key/__loom_*) are
+// excluded together with the duplicate counter that skips internal columns.
+// Only projections owned by a Derive, Filter, or Unpivot step are slot
+// carriers: those are the entries the receipt contract guard actually compares at
+// :1022/:1156, and shipped lifecycle contracts establish that a slot sharing
+// its field with a Pivot-owned source input is legitimate state.
+func constructionRootFieldAlreadyProjected(document authoringv2.Document, steps []authoringv2.ConstructionStep, projections []authoringv2.ConstructionSourceProjection, slotColumnID, fieldPath string) bool {
+	slot := strings.TrimSpace(fieldPath)
+	if slot == "" {
+		return false
+	}
+	for _, column := range document.Columns {
+		if column.ColumnID == "" || column.ColumnID == slotColumnID ||
+			column.OccurrenceID != authoringv2.RootOccurrenceID ||
+			column.Source.Kind != authoringv2.SourceField || column.Source.Field == nil {
+			continue
+		}
+		if column.Column == "_key" || strings.HasPrefix(column.Column, "__loom_") {
+			continue
+		}
+		if strings.TrimSpace(column.Source.Field.Path) == slot {
+			return true
+		}
+	}
+	for _, projection := range projections {
+		if projection.ColumnID == slotColumnID || !constructionStepCarriesSourceLane(steps, projection.OwnerStepID) {
+			continue
+		}
+		if strings.TrimSpace(projection.FieldPath) == slot {
+			return true
+		}
+	}
+	return false
+}
+
+func constructionStepCarriesSourceLane(steps []authoringv2.ConstructionStep, stepID string) bool {
+	if stepID == "" {
+		return false
+	}
+	for _, step := range steps {
+		if step.ID != stepID {
+			continue
+		}
+		return step.Operation.Kind == authoringv2.ConstructionOperationDerive ||
+			step.Operation.Kind == authoringv2.ConstructionOperationFilter ||
+			step.Operation.Kind == authoringv2.ConstructionOperationUnpivot
+	}
+	return false
 }
 
 func clearConstructionPivotInputs(base, candidate authoringv2.Construction, pivotID string) (authoringv2.Construction, error) {

@@ -1,5 +1,9 @@
 # Official Playwright Test migration
 
+Historical library/CDP checkpoints were retired with the old migration record;
+recover them at `ad531a0b6:docs/PLAYWRIGHT_MIGRATION.md`. This document is the
+single current Playwright migration record.
+
 ## October 5 static inventory at epoch 47
 
 The verified working tree has 26 registered cases, all with native spec
@@ -13,9 +17,11 @@ The related variants share the conditional registration at
 CDA-ID listing, using environment-specific titles and IDs. Session entries are
 not the registry acceptance-case count.
 
-The epoch 47 discovery snapshot binds those listings to the current spec and
-config hashes. Its status remains `discovery-only`; `--list` did not run any
-test bodies. The legacy-v9 case has a separate Epoch37 Basic-fixture lifecycle
+The epoch 47 discovery snapshot historically bound those listings to the spec
+and config hashes. That snapshot, the source-conversion ledger, and their
+supporting inventory files were retired after the live registry drifted beyond
+them; the historical files remain recoverable from Git at `ad531a0b6`. The
+legacy-v9 case has a separate Epoch37 Basic-fixture lifecycle
 recorded in the registry (12 required checks); Related/List Apply, Group
 edit/removal, and real-CDA follow-up remain unverified. The newly registered
 real-CDA Group-to-Group case is present in discovery but remains untested: Epoch46
@@ -31,13 +37,12 @@ LOOM_RELATED_ONE_ALL_MODE=basic LOOM_RELATED_ONE_ALL_FIELD=status ./scripts/node
 LOOM_RELATED_ONE_ALL_MODE=cda LOOM_RELATED_ONE_ALL_FIELD=status ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs scripts/verify-ui/specs/standalone-cda-rows.spec.mjs --list --reporter=list --grep 'preserves cda status behavior against raw related records'
 LOOM_RELATED_ONE_ALL_MODE=cda LOOM_RELATED_ONE_ALL_FIELD=specimen-reference ./scripts/node_modules/.bin/playwright test --config scripts/playwright.config.mjs scripts/verify-ui/specs/standalone-cda-rows.spec.mjs --list --reporter=list --grep 'preserves cda specimen-reference behavior against raw related records'
 node scripts/maintenance/playwright/check-native-playwright.mjs
-node scripts/maintenance/playwright/check-standalone-playwright-ledger.mjs
 ```
 
-The generated source-conversion ledger records 26 registry mappings, 162 main
-suite tests in 25 files, and runtime status `not-run`; it reports no pending
-mappings or orphan specs. The selected historical runtime reports below remain
-separate from this static inventory.
+The current mapping gate is `check-native-playwright.mjs`. The retired ledger
+recorded 26 registry mappings and 162 main-suite tests at epoch 47; those counts
+are historical. The selected historical runtime reports below remain separate
+from this static inventory.
 
 Selected historical native runtime reports:
 
@@ -468,3 +473,10 @@ checks, not passing browser lifecycles. The migration gate still names six
 paths: the two launcher libraries, `loom-dev.mjs`, compound coded grouping,
 upstream edits, and the package-local contributor-exists helper. Their ports
 and launcher cleanup precede the frozen-source runtime phase.
+
+## Retired chronological log
+
+The 2026-10-04 chronological decision log previously kept at `decisions.tsv` is
+retired. Its accepted results and corrections are represented in this record and
+the runtime reports; the raw bytes remain in Git at
+`ad531a0b6:decisions.tsv`.

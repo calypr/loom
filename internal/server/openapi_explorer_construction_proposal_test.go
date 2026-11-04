@@ -1697,7 +1697,7 @@ func TestAuthoredSemanticGroupOutputCanBeRemovedByDownstreamUnpivot(t *testing.T
 			{ID: "unpivot_semantic_key", Operation: "UNPIVOT"},
 		},
 	}
-	if err := authoredConstructionOutputsWithCombineInputs(document, map[string]authoredOutputColumn{}, compiled, nil); err != nil {
+	if err := authoredConstructionOutputsWithCombineInputs(document, map[string]authoredOutputColumn{}, compiled, nil, capability.Snapshot{}); err != nil {
 		t.Fatalf("reconcile semantic Group key removed by downstream UNPIVOT: %v", err)
 	}
 }

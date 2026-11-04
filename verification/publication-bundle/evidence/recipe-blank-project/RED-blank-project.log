@@ -1,0 +1,6 @@
+run-blank            500 INTERNAL_ERROR       an unexpected internal error occurred while processing the data request
+run-empty            400 PROJECT_REQUIRED     project is required
+preview-blank        500 INTERNAL_ERROR       an unexpected internal error occurred while processing the data request
+validate-blank       404 RECIPE_NOT_FOUND     the requested recipe was not found
+preflight-blank      500 INTERNAL_ERROR       an unexpected internal error occurred while processing the data request
+run-goodshape-ghost  404 RECIPE_NOT_FOUND     the requested recipe was not found

@@ -525,7 +525,9 @@ func pruneConstructionSourceProjections(projections []ConstructionSourceProjecti
 	used := make(map[string]bool)
 	owners := make(map[string]bool, len(steps))
 	for _, step := range steps {
-		owners[step.ID] = step.Operation.Kind == ConstructionOperationPivot || step.Operation.Kind == ConstructionOperationGroup
+		owners[step.ID] = step.Operation.Kind == ConstructionOperationPivot || step.Operation.Kind == ConstructionOperationGroup ||
+			step.Operation.Kind == ConstructionOperationFilter || step.Operation.Kind == ConstructionOperationDerive ||
+			step.Operation.Kind == ConstructionOperationUnpivot || step.Operation.Kind == ConstructionOperationExpand
 		for _, columnID := range step.inputColumnIDs() {
 			used[columnID] = true
 		}

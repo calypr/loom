@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
+if __package__:
+    from .normalize_ui_contract_inventory import load_inventory
+else:
+    from normalize_ui_contract_inventory import load_inventory
+
+
 SOURCE_COMMIT = "dc331783dde3f61e764bab3a421b66b28698c9d4"
 DEFAULT_MANIFEST = Path("docs/ui-contract-inventory/ui-supported-affordances.json")
 SOURCE_EXTENSIONS = {".ts", ".tsx", ".js", ".jsx", ".mjs"}
@@ -1015,8 +1021,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not manifest_path.is_absolute():
         manifest_path = root / manifest_path
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        manifest = load_inventory(root, manifest_path)
+    except (OSError, ValueError, KeyError, TypeError) as error:
         print("FAIL cannot read manifest %s: %s" % (manifest_path, error), file=sys.stderr)
         return 1
 

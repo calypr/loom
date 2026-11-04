@@ -352,7 +352,7 @@ const renderSettings = (overrides: {
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   rowOperationEditor?: ReactNode;
   onChooseRelatedRows?: () => void;
-  onChooseReshape?: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  onChooseReshape?: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => void;
   onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
   onCloseRowIntentSession?: () => void;
   onEditConstructionStep?: (stepId: string) => void;

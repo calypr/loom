@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -37,6 +38,12 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	}
 
 	project := "loom_cohort_filter_lineage_" + uuid.NewString()
+	// Production selection/group metadata uses canonical project identity;
+	// resource documents retain the legacy storage alias.
+	selectionProject := projectid.Canonical(project)
+	if selectionProject == project {
+		t.Fatal("fixture must exercise distinct selection and resource project identities")
+	}
 	generation := "cohort-filter-lineage-generation"
 	revisionID, selectionID := project+"_revision", project+"_selection"
 	owned := make(map[string][]string, len(collections))
@@ -74,27 +81,27 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	}
 
 	insert(revisionsCollection, map[string]any{
-		"_key": revisionID, "state": "COMPLETE", "project": project, "generation": generation,
+		"_key": revisionID, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "sourceSelectionRevisionId": selectionID,
 		"scopeDigest": "scope-current", "sourceMembershipDigest": "members-current",
 	})
 	insert(selectionsCollection, map[string]any{
-		"_key": selectionID, "complete": true, "project": project, "generation": generation,
+		"_key": selectionID, "complete": true, "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "scopeDigest": "scope-current", "membershipDigest": "members-current",
 	})
 	insert(definitionsCollection,
-		map[string]any{"_key": project + "_definition_cohort", "revisionId": revisionID, "project": project, "groupId": "cohort", "label": "Cohort", "ordinal": 0},
-		map[string]any{"_key": project + "_definition_filtered", "revisionId": revisionID, "project": project, "groupId": "filtered", "label": "Other", "ordinal": 1},
+		map[string]any{"_key": project + "_definition_cohort", "revisionId": revisionID, "project": selectionProject, "groupId": "cohort", "label": "Cohort", "ordinal": 0},
+		map[string]any{"_key": project + "_definition_filtered", "revisionId": revisionID, "project": selectionProject, "groupId": "filtered", "label": "Other", "ordinal": 1},
 	)
 	insert(selectionMembersCollection,
-		map[string]any{"_key": project + "_selected_allowed", "selectionId": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "id": "allowed-a"},
-		map[string]any{"_key": project + "_selected_revoked", "selectionId": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "id": "revoked-b"},
-		map[string]any{"_key": project + "_selected_other", "selectionId": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "id": "other-c"},
+		map[string]any{"_key": project + "_selected_allowed", "selectionId": selectionID, "project": selectionProject, "generation": generation, "resourceType": "Observation", "id": "allowed-a"},
+		map[string]any{"_key": project + "_selected_revoked", "selectionId": selectionID, "project": selectionProject, "generation": generation, "resourceType": "Observation", "id": "revoked-b"},
+		map[string]any{"_key": project + "_selected_other", "selectionId": selectionID, "project": selectionProject, "generation": generation, "resourceType": "Observation", "id": "other-c"},
 	)
 	insert(membershipsCollection,
-		groupRowsMembership(revisionID, project, generation, "cohort", "allowed-a"),
-		groupRowsMembership(revisionID, project, generation, "cohort", "revoked-b"),
-		groupRowsMembership(revisionID, project, generation, "filtered", "other-c"),
+		groupRowsMembership(revisionID, selectionProject, generation, "cohort", "allowed-a"),
+		groupRowsMembership(revisionID, selectionProject, generation, "cohort", "revoked-b"),
+		groupRowsMembership(revisionID, selectionProject, generation, "filtered", "other-c"),
 	)
 	insert("Observation",
 		map[string]any{"_key": project + "_allowed", "id": "allowed-a", "project": project, "project_id": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/allowed", "payload": map[string]any{"id": "allowed-a"}},
@@ -128,7 +135,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 		},
 	}
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	compiledOutput := lowerConstructionOutput(t, output, bindings)

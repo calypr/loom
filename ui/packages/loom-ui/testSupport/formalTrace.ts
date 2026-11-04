@@ -1,12 +1,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { expect } from 'vitest';
+import type { GetConstructionCapabilitiesArgs } from '../src/api';
 import type { useConstructionLifecycle } from '../src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle';
 
 type Lifecycle = ReturnType<typeof useConstructionLifecycle>;
 type LifecycleHandle = { readonly current: Lifecycle };
 
-export type FormalTraceModel = 'BuilderPreview' | 'ConstructionLifecycle' | 'ReconcileLifecycle';
+export type FormalTraceModel = 'BuilderLifecycle' | 'BuilderPreview' | 'ConstructionLifecycle' | 'ReconcileLifecycle';
 
 export type ProposalAttempt = 'P1' | 'P2';
 
@@ -17,6 +18,7 @@ export type FormalTraceOwner =
   | { readonly kind: 'discovery'; readonly attempt: 'D1' };
 
 type HookFormalObservation = {
+  readonly workspace: GetConstructionCapabilitiesArgs | null;
   readonly status: string;
   readonly tablePreviewStatus?: string;
   readonly proposalId: string | null;
@@ -60,6 +62,8 @@ export type ReconcileTraceSnapshot = {
     readonly explorerId: string;
   } | null;
   readonly receipt: {
+    readonly snapshotToken: string;
+    readonly outputIds: ReadonlyArray<string>;
     readonly modelKey: 'R1' | 'R2';
     readonly receiptId: string;
     readonly requestKey: 'A' | 'B';
@@ -92,6 +96,7 @@ type FormalTraceAction = {
   readonly note?: string;
   readonly owner?: FormalTraceOwner | null;
   readonly expectedProposal?: ProposalAttempt;
+  readonly completionAccepted?: boolean;
 };
 
 type FormalTraceUnmodeledEvent = {
@@ -126,6 +131,11 @@ const traceSourceProfile = (): TraceSourceProfile => {
 };
 
 let activeTrace: FormalTrace | undefined;
+let traceWorkspace: GetConstructionCapabilitiesArgs | null = null;
+
+export const setTraceWorkspace = (request: GetConstructionCapabilitiesArgs): void => {
+  traceWorkspace = { ...request };
+};
 const traces: FormalTrace[] = [];
 
 const observationFor = (lifecycle: LifecycleHandle): FormalObservation => {
@@ -135,6 +145,7 @@ const observationFor = (lifecycle: LifecycleHandle): FormalObservation => {
   const response = hasResponse ? proposal.response : undefined;
   const preview = hasPreview ? proposal.preview : undefined;
   return {
+    workspace: traceWorkspace,
     status: proposal.status,
     proposalId: response?.proposalId ?? null,
     proposalOutputId: response?.outputId ?? null,
@@ -156,7 +167,8 @@ const reconcileObservationFor = (snapshot: ReconcileTraceSnapshot): FormalObserv
   return { status, reconcile };
 };
 
-export const startTrace = (model: FormalTraceModel = 'BuilderPreview'): void => {
+export const startTrace = (model: FormalTraceModel = 'BuilderPreview', workspace?: GetConstructionCapabilitiesArgs): void => {
+  traceWorkspace = workspace ? { ...workspace } : null;
   const name = expect.getState().currentTestName ?? '';
   const testTitle = name.split(' > ').at(-1) ?? name;
   activeTrace = {
@@ -192,6 +204,7 @@ const traceActionWithObservation = (
   note?: string,
   owner?: FormalTraceOwner | null,
   expectedProposal?: ProposalAttempt,
+  completionAccepted?: boolean,
 ): void => {
   if (!activeTrace) return;
   activeTrace.actions.push({
@@ -201,6 +214,7 @@ const traceActionWithObservation = (
     ...(note ? { note } : {}),
     ...(owner !== undefined ? { owner } : {}),
     ...(expectedProposal ? { expectedProposal } : {}),
+    ...(completionAccepted !== undefined ? { completionAccepted } : {}),
   });
 };
 
@@ -213,6 +227,15 @@ export const traceAction = (
   expectedProposal?: ProposalAttempt,
 ): void => {
   traceActionWithObservation(label, event, observationFor(lifecycle), note, owner, expectedProposal);
+};
+
+export const traceApplyCompletion = (
+  lifecycle: LifecycleHandle,
+  owner: FormalTraceOwner,
+  completionAccepted: boolean,
+  note?: string,
+): void => {
+  traceActionWithObservation('ApplyAck', 'finish-apply', observationFor(lifecycle), note, owner, undefined, completionAccepted);
 };
 
 export const traceReconcileAction = (

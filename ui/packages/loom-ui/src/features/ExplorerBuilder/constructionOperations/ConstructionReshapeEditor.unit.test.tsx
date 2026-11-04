@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -8,7 +10,7 @@ import {
   type ConstructionReshapeStep,
 } from './ConstructionReshapeEditor';
 import { ConstructionHistory, type ConstructionHistorySelection } from '../constructionWorkspace/ConstructionWorkspace';
-import { constructionCapabilitiesResponseSchema, constructionSchema } from '../../../types';
+import { constructionCapabilitiesResponseSchema, constructionProposalRequestSchema, constructionSchema } from '../../../types';
 import { ConstructionReshapeEditor, createReshapeEditorEntry, publicScalarListColumnIds } from './ConstructionReshapeEditor';
 
 const sourceColumns: ConstructionReshapeEditorProps['capabilities']['selectedStage']['columns'] = [
@@ -3014,7 +3016,7 @@ describe('ConstructionReshapeEditor', () => {
     });
 
     const repeatedField = screen.getByLabelText('Repeated field');
-    expect(repeatedField.querySelectorAll('option')).toHaveLength(1);
+    expect([...repeatedField.querySelectorAll('option')].filter((option) => option.value !== '')).toHaveLength(1);
     expect(controlValue('Repeated field')).toBe('tags-id');
     expect(entry).toBeDefined();
     if (!entry || entry.form.kind !== 'expand') throw new Error('Expected an initialized expansion entry');
@@ -3259,6 +3261,151 @@ describe('ConstructionReshapeEditor', () => {
     fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
     expect(controlValue('Unpivot key value opaque-a')).toBe('Patient reference');
     expect(controlValue('Unpivot key value opaque-b')).toBe('Patient reference (2)');
+  });
+
+  it('explains unpopulated dataset fields in the signed unpivot input picker (ROW-SOURCE-06)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'unpivot-choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: false, columnId: '' },
+            { choiceId: 'unpivot-choice-note', fieldPath: 'root.note.text', label: 'Note text', logicalType: 'string', isPopulated: false, columnId: '' },
+          ],
+        },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('source-picker-explanation').textContent).toContain('contains values in this dataset yet');
+    const items = within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item');
+    expect(items.map((item) => item.getAttribute('title'))).toEqual(['root.status', 'root.note.text']);
+  });
+
+  it('keeps the unpivot lane refusal notice separate and renders no picker explanation when the source input is unsupported (ROW-SOURCE-06)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'UNPIVOT_SOURCE_REQUIRES_SCALAR_KIND',
+          reason: 'Unpivoting needs scalar fields.',
+          choices: [],
+        },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('construction-reshape-unpivot-source-unavailable').textContent)
+      .toContain('UNPIVOT_SOURCE_REQUIRES_SCALAR_KIND');
+    expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+  });
+
+  it('renders one shared source explanation across melted unpivot input rows (ROW-SOURCE-06)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Melt one', type: 'string', cardinality: 'required_one' as const },
+        { id: 'opaque-b', name: 'col_opaque_b', label: 'Melt two', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'unpivot-choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: false, columnId: '' },
+          ],
+        },
+      },
+      selectedColumns: ['opaque-a', 'opaque-b'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('construction-reshape-unpivot-input-1-column')).toBeTruthy();
+    expect(screen.getAllByTestId('source-picker-explanation')).toHaveLength(1);
+  });
+
+  it('explains unavailable dataset fields with zero selected inputs (ROW-SOURCE-06 audit)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'unpivot-choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: false, columnId: '' },
+            { choiceId: 'unpivot-choice-note', fieldPath: 'root.note.text', label: 'Note text', logicalType: 'string', isPopulated: false, columnId: '' },
+          ],
+        },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    const lastInputCheckbox = screen.getByLabelText('Unpivot Patient reference');
+    expect(lastInputCheckbox).toHaveProperty('checked', true);
+    fireEvent.click(lastInputCheckbox);
+    expect(screen.getByText('Choose at least one input column.')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('source-picker-explanation').textContent).toContain('No eligible dataset field contains values');
+    const items = within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item');
+    expect(items.map((item) => item.getAttribute('title'))).toEqual(['root.status', 'root.note.text']);
+  });
+
+  it('explains that the API listed no dataset fields without inventing a reason (unpivot lane, ROW-SOURCE-06 audit)', () => {
+    const unpivotStage = {
+      ...sourceStage,
+      columns: [
+        { id: 'opaque-a', name: 'col_opaque_a', label: 'Patient reference', type: 'string', cardinality: 'required_one' as const },
+      ],
+      capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+    } satisfies ConstructionReshapeEditorProps['capabilities']['selectedStage'];
+    renderEditor({
+      capabilities: {
+        ...capabilitiesFor([unpivotStage], unpivotStage),
+        unpivotSourceInput: { supported: true, stageId: 'source_projection', choices: [] },
+      },
+      selectedColumns: ['opaque-a'],
+      onCandidateChange: vi.fn(),
+    });
+    chooseReshapeOperation('reshape', 'unpivot');
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+    expect(screen.getByTestId('source-picker-explanation').textContent)
+      .toBe('Loom has not listed any dataset fields for this step.');
+    expect(screen.queryByTestId('source-picker-empty-list')).toBeNull();
   });
 
   it('opens direct Unpivot entry with selected columns and proposes that metadata-driven form', () => {
@@ -4292,5 +4439,200 @@ describe('ConstructionReshapeEditor', () => {
     const retainedOutputIds = new Set(selectedStep.operation.pivot.categories.slice(0, 2).map((category) => category.outputColumnId));
     expect(reselectedCategoryOutputs.filter((output) => retainedOutputIds.has(output.id))).toEqual(selectedCategoryOutputs.slice(0, 2));
     expect(screen.queryByText('Select every discovered category, or filter rows before pivoting.')).not.toBeInTheDocument();
+  });
+});
+
+const unpivotScalarStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+  ...sourceStage,
+  capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
+};
+
+const unpivotWireChoices = [
+  { choiceId: 'choice-birth', fieldPath: 'component.valueInteger', label: 'Birth count', logicalType: 'integer', isPopulated: true },
+  { choiceId: 'choice-hidden', fieldPath: 'note', label: 'Note', logicalType: 'string', isPopulated: false },
+];
+
+const unpivotCapabilities = (
+  channel: ConstructionReshapeEditorProps['capabilities']['unpivotSourceInput'],
+): ConstructionReshapeEditorProps['capabilities'] => ({
+  ...capabilitiesFor([unpivotScalarStage], unpivotScalarStage),
+  ...(channel ? { unpivotSourceInput: channel } : {}),
+});
+
+describe('unpivot signed unselected-field melt inputs', () => {
+  afterEach(() => cleanup());
+
+  it('melts a signed field and emits a request that passes the strict contract schemas', () => {
+    const capabilities = unpivotCapabilities({ supported: true, stageId: unpivotScalarStage.id, choices: unpivotWireChoices });
+    // Anti-masking (ROW-SOURCE-01 lesson): the fixture must be the exact
+    // server wire shape — the strict response schema rejects even an extra
+    // pivot-style field on a choice, so a zod-level mismatch cannot hide.
+    const parsed = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
+    expect(parsed.unpivotSourceInput?.choices).toHaveLength(2);
+    const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
+    renderEditor({ initialKind: 'unpivot', capabilities, onCandidateChange });
+
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    expect(screen.getByTestId('construction-reshape-unpivot-source-kind-note')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('construction-reshape-unpivot-add-source-field'));
+
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.unpivotSources).toHaveLength(1);
+    expect(intent?.unpivotSources?.[0]?.choiceId).toBe('choice-birth');
+    expect(intent?.unpivotSources?.[0]?.columnId).toMatch(/\S/);
+    constructionSchema.parse(intent?.candidateConstruction);
+    constructionProposalRequestSchema.parse({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-digest-1',
+      outputId: 'table-1', changedStepId: intent?.changedStepId,
+      candidateConstruction: intent?.candidateConstruction, unpivotSources: intent?.unpivotSources,
+    });
+    // Contract-twin replay evidence: the exact UI-emitted propose body is
+    // captured here (env opt-in, mirroring the BUILDER_CONTRACT_OUTPUT
+    // formal-test pattern) and fed to the server-owned fiber contract twin
+    // (internal/server/openapi_explorer_construction_unpivot_source_test.go),
+    // which POSTs this same wire shape through the live HTTP stack. The
+    // evidence run sets RS02_UNPIVOT_UI_CAPTURE; assertions above and below
+    // run unconditionally either way.
+    const capturePath = process.env.RS02_UNPIVOT_UI_CAPTURE;
+    if (capturePath) {
+      mkdirSync(dirname(capturePath), { recursive: true });
+      writeFileSync(capturePath, JSON.stringify({
+        snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-digest-1',
+        outputId: 'table-1', changedStepId: intent?.changedStepId,
+        candidateConstruction: intent?.candidateConstruction, unpivotSources: intent?.unpivotSources,
+      }));
+    }
+    const meltIds = (inputs: ReadonlyArray<{ readonly columnId: string }> | undefined): string[] => inputs?.map((input) => input.columnId) ?? [];
+    const melted = meltIds(intent?.candidateConstruction?.steps?.[0]?.operation?.kind === 'UNPIVOT'
+      ? (intent?.candidateConstruction?.steps?.[0]?.operation as { readonly unpivot?: { readonly inputs?: ReadonlyArray<{ readonly columnId: string }> } }).unpivot?.inputs
+      : undefined);
+    expect(melted).toContain(intent?.unpivotSources?.[0]?.columnId);
+    expect(melted).toContain('age-id');
+
+    const rowSelect = screen.getByTestId('construction-reshape-unpivot-input-0-column');
+    expect([...rowSelect.querySelectorAll('option')].map((option) => option.value)).not.toContain('source:choice-hidden');
+  });
+
+  // F-B durable: the server's canonical string-family spelling is
+  // 'date_time' (lower.TableReshapeScalarKind / unpivot_source.go). The
+  // editor's scalar gate must accept it, or a date_time melt row — public or
+  // signed — silently falls to the incomplete form (pre-fix proof
+  // /tmp/opencode/upsrc-run-3/FAIL-melt_proposal_ready.html).
+  it('melts a signed date_time field to a proposal-ready candidate and lists a public date_time column', () => {
+    const stage = {
+      ...unpivotScalarStage,
+      columns: [...unpivotScalarStage.columns,
+        { id: 'effective-col', name: 'effective', label: 'Effective time', type: 'date_time', cardinality: 'optional_one' as const },
+      ],
+    };
+    const capabilities: ConstructionReshapeEditorProps['capabilities'] = {
+      ...capabilitiesFor([stage], stage),
+      unpivotSourceInput: {
+        supported: true,
+        stageId: stage.id,
+        choices: [
+          { choiceId: 'choice-effective', fieldPath: 'effective', label: 'Effective', logicalType: 'date_time', isPopulated: true },
+        ],
+      },
+    };
+    const parsed = constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
+    expect(parsed.unpivotSourceInput?.choices?.[0]?.logicalType).toBe('date_time');
+    const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
+    renderEditor({ initialKind: 'unpivot', capabilities, onCandidateChange });
+
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    const rowSelect = screen.getByTestId('construction-reshape-unpivot-input-0-column');
+    expect([...rowSelect.querySelectorAll('option')].map((option) => option.value)).toContain('effective-col');
+
+    fireEvent.click(screen.getByTestId('construction-reshape-unpivot-add-source-field'));
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.unpivotSources).toEqual([{ choiceId: 'choice-effective', columnId: expect.stringMatching(/\S/) }]);
+    constructionSchema.parse(intent?.candidateConstruction);
+    constructionProposalRequestSchema.parse({
+      snapshotToken: 'snapshot-1', expectedDraftVersion: 1, expectedDraftDigest: 'draft-digest-1',
+      outputId: 'table-1', changedStepId: intent?.changedStepId,
+      candidateConstruction: intent?.candidateConstruction, unpivotSources: intent?.unpivotSources,
+    });
+    const meltIds = (inputs: ReadonlyArray<{ readonly columnId: string }> | undefined): string[] => inputs?.map((input) => input.columnId) ?? [];
+    const melted = meltIds(intent?.candidateConstruction?.steps?.[0]?.operation?.kind === 'UNPIVOT'
+      ? (intent?.candidateConstruction?.steps?.[0]?.operation as { readonly unpivot?: { readonly inputs?: ReadonlyArray<{ readonly columnId: string }> } }).unpivot?.inputs
+      : undefined);
+    expect(melted).toContain('age-id');
+    expect(melted).toContain(intent?.unpivotSources?.[0]?.columnId);
+  });
+
+  it('rebinds an existing public melt row to a signed field without dropping the other rows', () => {
+    const capabilities = unpivotCapabilities({ supported: true, stageId: unpivotScalarStage.id, choices: unpivotWireChoices });
+    const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
+    renderEditor({ initialKind: 'unpivot', capabilities, onCandidateChange });
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    fireEvent.click(screen.getByLabelText('Unpivot Site'));
+    fireEvent.click(screen.getByText('Advanced options: field names and missing values'));
+
+    fireEvent.change(screen.getByTestId('construction-reshape-unpivot-input-0-column'), { target: { value: 'source:choice-birth' } });
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.unpivotSources).toEqual([{ choiceId: 'choice-birth', columnId: expect.stringMatching(/\S/) }]);
+    const step = intent?.candidateConstruction?.steps?.[0];
+    const inputs = step?.operation?.kind === 'UNPIVOT'
+      ? ((step.operation as { readonly unpivot?: { readonly inputs?: ReadonlyArray<{ readonly columnId: string }> } }).unpivot?.inputs ?? []).map((input) => input.columnId)
+      : [];
+    expect(inputs).toHaveLength(2);
+    expect(inputs).toContain('site-id');
+    expect(inputs).toContain(intent?.unpivotSources?.[0]?.columnId);
+    expect(inputs).not.toContain('age-id');
+  });
+
+  it('restores the durable binding for a saved source-backed melt and keeps it in the emitted intent', () => {
+    const savedStep: ConstructionReshapeStep = {
+      id: 'saved-source-unpivot',
+      inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'UNPIVOT', unpivot: {
+        constructionId: 'saved-source-unpivot',
+        inputs: [{ columnId: 'age-id', key: { kind: 'STRING', string: 'age' } }, { columnId: 'durable-birth', key: { kind: 'STRING', string: 'birth' } }],
+        keyOutputColumnId: 'unpivot-key', valueOutputColumnId: 'unpivot-value', nullRowPolicy: 'PRESERVE',
+      } },
+      outputs: [
+        { id: 'tags-id', name: 'tags', label: 'Tags', type: 'string' },
+        { id: 'unpivot-key', name: 'variable', label: 'Variable', type: 'string' },
+        { id: 'unpivot-value', name: 'value', label: 'Value', type: 'integer' },
+      ],
+    };
+    const capabilities = unpivotCapabilities({
+      supported: true, stageId: unpivotScalarStage.id,
+      choices: [{ ...unpivotWireChoices[0], columnId: 'durable-birth' }],
+    });
+    constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
+    const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
+    renderEditor({
+      construction: { version: 1, steps: [savedStep] },
+      capabilities,
+      editingStep: savedStep,
+      onCandidateChange,
+    });
+    expect(controlChecked('Unpivot Birth count')).toBe(true);
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    const intent = onCandidateChange.mock.lastCall?.[0];
+    expect(intent?.unpivotSources).toEqual([{ choiceId: 'choice-birth', columnId: 'durable-birth' }]);
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    const settled = onCandidateChange.mock.lastCall?.[0];
+    expect(settled?.unpivotSources).toEqual([{ choiceId: 'choice-birth', columnId: 'durable-birth' }]);
+  });
+
+  it('surfaces the unsigned discovery reason and hides the signed add affordance', () => {
+    const capabilities = unpivotCapabilities({
+      supported: false, stageId: unpivotScalarStage.id,
+      reasonCode: 'NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS',
+      reason: 'the selected stage has no authorized populated string, integer, decimal, or boolean scalar FHIR fields that the Unpivot step can melt',
+      choices: [],
+    });
+    constructionCapabilitiesResponseSchema.parse(JSON.parse(JSON.stringify(capabilities)));
+    const onCandidateChange = vi.fn<NonNullable<ConstructionReshapeEditorProps['onCandidateChange']>>();
+    renderEditor({ initialKind: 'unpivot', capabilities, onCandidateChange });
+    fireEvent.click(screen.getByLabelText('Unpivot Age'));
+    const status = screen.getByTestId('construction-reshape-unpivot-source-unavailable');
+    expect(status.textContent).toContain('NO_ELIGIBLE_POPULATED_UNPIVOT_SOURCE_FIELDS');
+    expect(status.textContent).toContain('no authorized populated');
+    expect(screen.queryByTestId('construction-reshape-unpivot-add-source-field')).not.toBeInTheDocument();
+    expect(onCandidateChange).toHaveBeenCalled();
   });
 });

@@ -1,0 +1,488 @@
+{
+  "status": "passed",
+  "scriptIdentity": {
+    "workflowSha256": "9f035a37f12b7fedcfefd81aea62ed43350139c0054ff130420c24930484fcaa",
+    "oracleSha256": "2f3ae413bbff58d7b069a39583b585f880ebf3c64d4c4b95e22bce5c80b0c01b"
+  },
+  "schemaVersion": 1,
+  "mode": "raw-cdp-pivot-keyword-names-journey",
+  "builtAt": "2026-11-03T10:26:03.992Z",
+  "runStem": "pkw27",
+  "environment": {
+    "composeProject": "loom-dev-stravinsky",
+    "apiUrl": "http://127.0.0.1:8182",
+    "uiUrl": "http://127.0.0.1:3182"
+  },
+  "buildIdentity": {
+    "before": {
+      "expectedSource": "93391e7aaac280ff7f54aa7ce2723d402b96c62044bcf6ee9a05dc41e7ac79ce",
+      "liveSource": "93391e7aaac280ff7f54aa7ce2723d402b96c62044bcf6ee9a05dc41e7ac79ce",
+      "runningBinary": "4079bc536fd9060e7902feabcad4b42c0abdbcba7326cc1467f32aae0ce5e58d",
+      "recordedBinary": "4079bc536fd9060e7902feabcad4b42c0abdbcba7326cc1467f32aae0ce5e58d",
+      "recordedSource": "93391e7aaac280ff7f54aa7ce2723d402b96c62044bcf6ee9a05dc41e7ac79ce",
+      "gitHead": "a56399911dd8e3ca2401505c529f5cb9616a02e6",
+      "checkExit": 0
+    },
+    "after": {
+      "expectedSource": "93391e7aaac280ff7f54aa7ce2723d402b96c62044bcf6ee9a05dc41e7ac79ce",
+      "liveSource": "93391e7aaac280ff7f54aa7ce2723d402b96c62044bcf6ee9a05dc41e7ac79ce",
+      "runningBinary": "4079bc536fd9060e7902feabcad4b42c0abdbcba7326cc1467f32aae0ce5e58d",
+      "recordedBinary": "4079bc536fd9060e7902feabcad4b42c0abdbcba7326cc1467f32aae0ce5e58d",
+      "recordedSource": "93391e7aaac280ff7f54aa7ce2723d402b96c62044bcf6ee9a05dc41e7ac79ce",
+      "gitHead": "a56399911dd8e3ca2401505c529f5cb9616a02e6",
+      "checkExit": 0
+    },
+    "stampVerified": true
+  },
+  "fixture": {
+    "project": "loom_dev_verify_pkw27-a",
+    "explorer": "loom-dev-bootstrap"
+  },
+  "checks": [
+    {
+      "name": "pk-seed-table",
+      "status": "passed",
+      "evidence": {
+        "outputId": "out_e80ae0715a23cd775e299921",
+        "rootNode": "Observation",
+        "columns": [
+          "status",
+          "subject_reference",
+          "id",
+          "valueQuantity_value"
+        ]
+      }
+    },
+    {
+      "name": "pk-editor-mounts",
+      "status": "passed",
+      "evidence": {
+        "via": "construction-action-table-pivot-rows",
+        "editor": "construction-reshape-pivot"
+      }
+    },
+    {
+      "name": "pk-fields-selected",
+      "status": "passed",
+      "evidence": {
+        "category": "subject_reference",
+        "values": "valueQuantity_value (decimal)",
+        "groupKey": "Pivot group status"
+      }
+    },
+    {
+      "name": "pk-categories-discovered",
+      "status": "passed",
+      "evidence": {
+        "selectedCategories": 3,
+        "discovered": 3
+      }
+    },
+    {
+      "name": "pk-keyword-names-applied",
+      "status": "passed",
+      "evidence": {
+        "names": [
+          "null",
+          "RETURN"
+        ],
+        "inputs": [
+          [
+            {
+              "aria": "Pivot output name Missing value",
+              "value": "null"
+            },
+            {
+              "aria": "Pivot output label Missing value",
+              "value": "null"
+            }
+          ],
+          [
+            {
+              "aria": "Pivot output name Patient/dev-patient-001",
+              "value": "RETURN"
+            },
+            {
+              "aria": "Pivot output label Patient/dev-patient-001",
+              "value": "RETURN"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "name": "pk-cancel-byte-stability",
+      "status": "passed",
+      "evidence": {
+        "draftVersion": 2,
+        "draftDigest": "sha256:cfe039c3290a40fdb"
+      }
+    },
+    {
+      "name": "pk-comparison-proposal-available",
+      "status": "passed",
+      "evidence": {
+        "changedColumns": [
+          "RETURN",
+          "col_249dba3569f8fbf1c9a7e8f2",
+          "col_96b2459a91aaf3633087b9c8",
+          "col_bf3af74a4509a0d95bba8af6",
+          "col_c99e20c34dbd3eee5958f5be",
+          "null",
+          "null2"
+        ],
+        "categories": [
+          "tsch_c04da1693e622aad0a4cba77d92f8572",
+          "tsch_588080a962d6ab31f681302da5c990b9",
+          "tsch_590bc100eb3d5b053cd34baaf2824d59"
+        ],
+        "status": "AVAILABLE"
+      }
+    },
+    {
+      "name": "pk-apply-success",
+      "status": "passed",
+      "evidence": {
+        "persistedVia": "construction-step",
+        "persistedNames": [
+          "null",
+          "RETURN",
+          "patient_dev_patient_002"
+        ],
+        "draftVersion": 3
+      }
+    },
+    {
+      "name": "pk-grid-values",
+      "status": "passed",
+      "evidence": {
+        "headers": [
+          "status",
+          "null",
+          "RETURN",
+          "Patient/dev-patient-002"
+        ],
+        "numericCount": 1,
+        "sample": [
+          352.5
+        ],
+        "previewStatus": "ready",
+        "receipt": "receipt_2fac2416029eb44c9dfb307c65a8884bb0e79502b595fea91c90fcb03ae474dc"
+      }
+    },
+    {
+      "name": "pk-document-persistence",
+      "status": "passed",
+      "evidence": {
+        "outputs": [
+          "null",
+          "RETURN",
+          "patient_dev_patient_002"
+        ],
+        "persistedColumnCount": 3
+      }
+    },
+    {
+      "name": "pk-reload-persistence",
+      "status": "passed",
+      "evidence": {
+        "rowsEqual": true,
+        "receipt": "receipt_8832ea6c42706edca5f06abd892ae5f14f836008be0303e05bde5ad87a93ea39"
+      }
+    },
+    {
+      "name": "pk-duplicate-negative-blocked",
+      "status": "passed",
+      "evidence": {
+        "lane": "ui-gate",
+        "applyState": {
+          "present": false
+        },
+        "statusText": [
+          "One row per status. Each subject_reference value creates a column containing valueQuantity_value.",
+          "Selected 3 of 3 categories: Missing value, Patient/dev-patient-001, Patient/dev-patient-002",
+          "3 selected · Showing 3 of 3 category values",
+          "Duplicate values: be added together. Empty cells: stay empty. Unselected categories: stop the pivot with an error.",
+          "New pivots require every category present in the rows to be selected. Skipping unselected categories is unavailable.",
+          "Missing value",
+          "Patient/dev-patient-001",
+          "Patient/dev-patient-002"
+        ]
+      }
+    },
+    {
+      "name": "pk-rename-recovers",
+      "status": "passed",
+      "evidence": {
+        "from": "ui-gate",
+        "to": {
+          "apply": {
+            "present": true,
+            "disabled": false
+          },
+          "panel": {
+            "status": "ready",
+            "stats": []
+          }
+        }
+      }
+    },
+    {
+      "name": "pk-remove-restores",
+      "status": "passed",
+      "evidence": {
+        "removed": [
+          "construction-row-remove-pivot_c892d6dc-2e7d-4ba8-910b-740f9bba2aec"
+        ],
+        "headers": [
+          "status",
+          "subject_reference",
+          "id",
+          "valueQuantity_value"
+        ],
+        "rowCount": 20,
+        "seededHeaders": [
+          "status",
+          "subject_reference",
+          "id",
+          "valueQuantity_value"
+        ]
+      }
+    }
+  ],
+  "steps": [
+    {
+      "step": "apply-click",
+      "draftBeforeApply": 2,
+      "applyReqs": [
+        {
+          "method": "POST",
+          "tail": "commands",
+          "bodies": "{\"commandId\":\"dcdc416e-6501-4621-b232-1f83157e591e\",\"semanticsVersion\":10,\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":2,\"expectedDraftDigest\":\"sha256:cfe039c3290a40fdbd2e5"
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "configured-column-context",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "construction-capabilities",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\",\"fieldPresentation\":{\"expected"
+        },
+        {
+          "method": "GET",
+          "tail": "builder",
+          "bodies": ""
+        },
+        {
+          "method": "GET",
+          "tail": "capability",
+          "bodies": ""
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "configured-column-context",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "construction-capabilities",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "POST",
+          "tail": "reconcile",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"draftVersion\":3,\"draftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "preview",
+          "bodies": "{\"receiptId\":\"receipt_8832ea6c42706edca5f06abd892ae5f14f836008be0303e05bde5ad87a93ea39\",\"outputId\":\"out_e80ae0715a23cd775e299921\",\"limit\":25}"
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\",\"fieldPresentation\":{\"expected"
+        },
+        {
+          "method": "GET",
+          "tail": "row-definition-choices?outputId=out_e80ae0715a23cd775e299921&snapshotToken=sha256%3A2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66",
+          "bodies": ""
+        },
+        {
+          "method": "POST",
+          "tail": "construction-capabilities",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "POST",
+          "tail": "construction-proposals",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "construction-capabilities",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "GET",
+          "tail": "builder",
+          "bodies": ""
+        },
+        {
+          "method": "GET",
+          "tail": "capability",
+          "bodies": ""
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "configured-column-context",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "construction-capabilities",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "POST",
+          "tail": "reconcile",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"draftVersion\":3,\"draftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "preview",
+          "bodies": "{\"receiptId\":\"receipt_8832ea6c42706edca5f06abd892ae5f14f836008be0303e05bde5ad87a93ea39\",\"outputId\":\"out_e80ae0715a23cd775e299921\",\"limit\":25}"
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\",\"fieldPresentation\":{\"expected"
+        },
+        {
+          "method": "GET",
+          "tail": "row-definition-choices?outputId=out_e80ae0715a23cd775e299921&snapshotToken=sha256%3A2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66",
+          "bodies": ""
+        },
+        {
+          "method": "POST",
+          "tail": "construction-proposals",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79dbb0c01e7c994613d1362efc9596a14298546d09a19\",\"outputId\":\"out_e80ae0715a23"
+        },
+        {
+          "method": "POST",
+          "tail": "commands",
+          "bodies": "{\"commandId\":\"4ee4135b-6715-4104-be6a-86929d688dda\",\"semanticsVersion\":10,\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":3,\"expectedDraftDigest\":\"sha256:42648ca257a90d2f06b79"
+        },
+        {
+          "method": "POST",
+          "tail": "semantic-inventory",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"rowRoot\":\"Observation\",\"selectionMode\":\"SYSTEM_VERSION_CATEGORY\",\"limit\":50,\"outputId\":\"out_e80ae0715a23cd775e299921\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "configured-column-context",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":4,\"expectedDraftDigest\":\"sha256:416b054afcfede1a9e2a58b447c245f431fcf6c771fb7e43f8d19c6a84a2a61d\"}"
+        },
+        {
+          "method": "POST",
+          "tail": "construction-capabilities",
+          "bodies": "{\"snapshotToken\":\"sha256:2e18c0f22689fc409023c5ed01a49f73a65510190e9e16750c4fcee5519c0a66\",\"expectedDraftVersion\":4,\"expectedDraftDigest\":\"sha256:416b054afcfede1a9e2a58b447c245f431fcf6c771fb7e43f8d19c6a84a2a61d\",\"outputId\":\"out_e80ae0715a23"
+        }
+      ],
+      "postClickPanel": null
+    },
+    {
+      "step": "removal-confirmed",
+      "via": "construction-row-remove-pivot_c892d6dc-2e7d-4ba8-910b-740f9bba2aec",
+      "label": "Apply removal"
+    }
+  ],
+  "screenshots": [
+    "/tmp/opencode/rs09/run-pkw27/step1-editor-mounted.png",
+    "/tmp/opencode/rs09/run-pkw27/step2-before-apply.png",
+    "/tmp/opencode/rs09/run-pkw27/step3-keyword-grid.png",
+    "/tmp/opencode/rs09/run-pkw27/step4-reload.png",
+    "/tmp/opencode/rs09/run-pkw27/step5-duplicate-gate.png",
+    "/tmp/opencode/rs09/run-pkw27/step6-remove-restored.png"
+  ],
+  "sideFindings": [],
+  "exceptions": [],
+  "error": null,
+  "browserRejectedRequests": [],
+  "phaseTimings": {
+    "totalMs": 32560,
+    "phases": [
+      {
+        "phase": "identity+fixture",
+        "ms": 3423
+      },
+      {
+        "phase": "cdp-connect",
+        "ms": 70
+      },
+      {
+        "phase": "seed",
+        "ms": 1281
+      },
+      {
+        "phase": "editor",
+        "ms": 4692
+      },
+      {
+        "phase": "names",
+        "ms": 2534
+      },
+      {
+        "phase": "server-probe",
+        "ms": 2143
+      },
+      {
+        "phase": "grid",
+        "ms": 5325
+      },
+      {
+        "phase": "reload",
+        "ms": 1711
+      },
+      {
+        "phase": "remove",
+        "ms": 10034
+      },
+      {
+        "phase": "identity-after",
+        "ms": 1252
+      },
+      {
+        "phase": "teardown",
+        "ms": 95
+      }
+    ]
+  }
+}

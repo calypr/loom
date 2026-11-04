@@ -28,16 +28,16 @@ type RowDefinition struct {
 type RecordRows struct{}
 
 type GroupedRows struct {
-	Source      GroupSource                `json:"source"`
-	AfterStepID string                     `json:"afterStepId,omitempty"`
-	RowValues   []ExplicitGroupRowValue    `json:"rowValues,omitempty"`
+	Source      GroupSource             `json:"source"`
+	AfterStepID string                  `json:"afterStepId,omitempty"`
+	RowValues   []ExplicitGroupRowValue `json:"rowValues,omitempty"`
 }
 
 // ExplicitGroupRowValue retains a selected root FHIR field on each named
 // group row using values from that group's authorized members.
 type ExplicitGroupRowValue struct {
-	ColumnID string                        `json:"columnId"`
-	Policy   ConstructionRowValuePolicy    `json:"policy"`
+	ColumnID string                     `json:"columnId"`
+	Policy   ConstructionRowValuePolicy `json:"policy"`
 }
 
 type GroupSourceKind string

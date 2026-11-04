@@ -26,7 +26,7 @@ func (c Control) Validate(ctx context.Context, name string, bindings recipe.Runt
 	if c.Engine == nil {
 		return Validation{}, fmt.Errorf("recipe engine is required")
 	}
-	entry, err := c.Engine.registry.LoadRecipe(ctx, name)
+	entry, err := c.Engine.entry(ctx, name, bindings)
 	if err != nil {
 		return Validation{}, recipeControlBackend(err)
 	}
@@ -168,7 +168,7 @@ func recipeControlBackend(err error) error {
 	if _, ok := dataframeerrors.AsUserError(err); ok {
 		return err
 	}
-	if errors.Is(err, recipeexec.ErrRecipeNotFound) {
+	if errors.Is(err, recipeexec.ErrRecipeNotFound) || errors.Is(err, recipe.ErrRecipeRevisionNotFound) {
 		return err
 	}
 	if errors.Is(err, context.Canceled) {

@@ -93,6 +93,38 @@ func (h *explorerHTTPHandlers) proposeConstructionDirect(ctx context.Context, pr
 			})
 		}
 	}
+	if body.FilterSources != nil {
+		request.FilterSources = make([]lifecycle.ConstructionFilterSourceSelection, 0, len(*body.FilterSources))
+		for _, selection := range *body.FilterSources {
+			request.FilterSources = append(request.FilterSources, lifecycle.ConstructionFilterSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
+	if body.DeriveSources != nil {
+		request.DeriveSources = make([]lifecycle.ConstructionDeriveSourceSelection, 0, len(*body.DeriveSources))
+		for _, selection := range *body.DeriveSources {
+			request.DeriveSources = append(request.DeriveSources, lifecycle.ConstructionDeriveSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
+	if body.UnpivotSources != nil {
+		request.UnpivotSources = make([]lifecycle.ConstructionUnpivotSourceSelection, 0, len(*body.UnpivotSources))
+		for _, selection := range *body.UnpivotSources {
+			request.UnpivotSources = append(request.UnpivotSources, lifecycle.ConstructionUnpivotSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
+	if body.ExpandSources != nil {
+		request.ExpandSources = make([]lifecycle.ConstructionExpandSourceSelection, 0, len(*body.ExpandSources))
+		for _, selection := range *body.ExpandSources {
+			request.ExpandSources = append(request.ExpandSources, lifecycle.ConstructionExpandSourceSelection{
+				ChoiceID: selection.ChoiceId, ColumnID: selection.ColumnId,
+			})
+		}
+	}
 	if body.GroupSources != nil {
 		request.GroupSources = make([]lifecycle.ConstructionGroupSourceSelection, 0, len(*body.GroupSources))
 		for _, selection := range *body.GroupSources {

@@ -45,11 +45,22 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 		}
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
+	// ReadForm spools everything past its 32 MiB budget to temp files under
+	// os.TempDir; only Form.RemoveAll disposes of them. Disposal at return is
+	// safe: stageGenerationFiles has already copied the bundle into its own
+	// directory by the time the load runs, and this defer (registered first)
+	// runs after the stagedDir cleanup defer, after every consumer. It must
+	// stay below the ReadForm error return: RemoveAll on a nil *multipart.Form
+	// panics, and ReadForm disposes of its own spills when it errors.
+	defer form.RemoveAll()
 	project, generation = strings.TrimSpace(project), strings.TrimSpace(generation)
 	if project == "" || generation == "" || len(form.File["file"]) == 0 {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	authResourcePath := strings.TrimSpace(firstFormValue(form.Value, "auth_resource_path"))
+	if authResourcePath != "" && authscope.NormalizeAuthResourcePath(authResourcePath) == "" {
+		return nil, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+	}
 	deferActivation := false
 	if raw := strings.TrimSpace(firstFormValue(form.Value, "defer_activation")); raw != "" {
 		deferActivation, err = strconv.ParseBool(raw)

@@ -116,11 +116,11 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 	if err != nil {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("value column: %w", err)
 	}
-	categoryType, ok := tableReshapeScalarKind(categoryColumn.Kind)
+	categoryType, ok := TableReshapeScalarKind(categoryColumn.Kind)
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("category column %q has unsupported scalar type %q", pivot.CategoryColumn, categoryColumn.Kind)
 	}
-	valueType, ok := tableReshapeScalarKind(valueColumn.Kind)
+	valueType, ok := TableReshapeScalarKind(valueColumn.Kind)
 	if !ok {
 		return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("value column %q has unsupported scalar type %q", pivot.ValueColumn, valueColumn.Kind)
 	}
@@ -170,7 +170,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		if err != nil {
 			return ir.PhysicalGroupedPivot{}, nil, nil, fmt.Errorf("group key %q: %w", name, err)
 		}
-		kind, _ := tableReshapeScalarKind(column.Kind)
+		kind, _ := TableReshapeScalarKind(column.Kind)
 		physical.GroupKeys = append(physical.GroupKeys, ir.PhysicalGroupedPivotKey{Column: name, Variable: allocateRecipeReshapeVariable(usedVariables, "pivot_group"), Kind: kind})
 	}
 	for index, category := range pivot.Categories {
@@ -216,7 +216,7 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		outputProjections = append(outputProjections, reshapeOutputProjection(key, physical.OutputRowVariable, false))
 		outputSchema = append(outputSchema, column)
 	}
-	for _, category := range pivot.Categories {
+	for index, category := range pivot.Categories {
 		nullable := valueColumn.Nullable || pivot.MissingCellPolicy == recipe.PivotMissingCellNull
 		cardinality := string(expression.RequiredOne)
 		if nullable {
@@ -230,6 +230,23 @@ func lowerRecipeGroupedPivot(plan *ir.PhysicalPlan, pivot semantic.SemanticGroup
 		column.Internal = false
 		column.Identity = false
 		column.Discovered = false
+		// Every category cloned from the shared value input must carry a
+		// distinct compiled column ID: the receipt compiled output schema
+		// rejects duplicate IDs, which failed every multi-category table-shape
+		// pivot proposal. The first category keeps the historical clone
+		// identity byte-for-byte because single-category pivot receipts saved
+		// with that identity are revalidated against fresh compiles at
+		// publication; receipts with two or more categories could never have
+		// persisted pre-fix (validation failed), so clearing the identity on
+		// later categories introduces no saved-artifact drift. A pivot-produced
+		// aggregate has no source producer of its own, matching the unpivot
+		// key/value outputs and the compiler-owned row identity.
+		if index > 0 {
+			column.ID = ""
+			column.SourceChild = nil
+			column.PresenceCompanionName = ""
+			column.RelatedRecordAnchor = nil
+		}
 		outputSchema = append(outputSchema, column)
 		outputProjections = append(outputProjections, reshapeOutputProjection(category.Output, physical.OutputRowVariable, false))
 	}
@@ -269,7 +286,7 @@ func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot,
 		} else if keyKind != keyType {
 			return ir.PhysicalUnpivot{}, nil, nil, fmt.Errorf("unpivot input keys must have one canonical scalar type")
 		}
-		inputType, ok := tableReshapeScalarKind(column.Kind)
+		inputType, ok := TableReshapeScalarKind(column.Kind)
 		if !ok {
 			return ir.PhysicalUnpivot{}, nil, nil, fmt.Errorf("input %q has unsupported scalar type %q", input.Column, column.Kind)
 		}
@@ -325,7 +342,7 @@ func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot,
 		outputSchema = append(outputSchema, column)
 	}
 	outputSchema = append(outputSchema, CompiledOutputColumn{
-		Name: unpivot.KeyOutput, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":key",
+		Name: unpivot.KeyOutput, Label: unpivot.KeyLabel, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":key",
 		Kind: unpivotKeyLogicalKind(keyType), Cardinality: string(expression.RequiredOne), Nullable: false,
 	})
 	outputProjections = append(outputProjections, reshapeOutputProjection(unpivot.KeyOutput, physical.OutputRowVariable, false))
@@ -335,7 +352,7 @@ func lowerRecipeUnpivot(plan *ir.PhysicalPlan, unpivot semantic.SemanticUnpivot,
 		valueCardinality = string(expression.OptionalOne)
 	}
 	outputSchema = append(outputSchema, CompiledOutputColumn{
-		Name: unpivot.ValueOutput, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":value",
+		Name: unpivot.ValueOutput, Label: unpivot.ValueLabel, SemanticPath: "table_reshape:" + unpivot.ConstructionID + ":value",
 		Kind: unpivotValueLogicalKind(valueType), Cardinality: valueCardinality, Nullable: nullableValue,
 	})
 	outputProjections = append(outputProjections, reshapeOutputProjection(unpivot.ValueOutput, physical.OutputRowVariable, false))
@@ -356,13 +373,19 @@ func requireTableScalarColumn(name string, schema map[string]CompiledOutputColum
 	if column.Cardinality == string(expression.Many) {
 		return CompiledOutputColumn{}, fmt.Errorf("column %q is repeated", name)
 	}
-	if _, ok := tableReshapeScalarKind(column.Kind); !ok {
+	if _, ok := TableReshapeScalarKind(column.Kind); !ok {
 		return CompiledOutputColumn{}, fmt.Errorf("column %q has unsupported scalar type %q", name, column.Kind)
 	}
 	return column, nil
 }
 
-func tableReshapeScalarKind(kind string) (string, bool) {
+// TableReshapeScalarKind is the authoritative melt/reshape value-column gate:
+// it maps a logical column kind to its physical table scalar class and refuses
+// every kind the reshape lowerers cannot compile. Explorer source channels
+// (for example the UNPIVOT signed-input lane) admit kinds through this single
+// decision so an advertised channel can never drift from what the compiler
+// actually melts.
+func TableReshapeScalarKind(kind string) (string, bool) {
 	switch expression.ValueKind(strings.ToLower(strings.TrimSpace(kind))) {
 	case expression.KindString, expression.KindDate, expression.KindDateTime, expression.KindCode, expression.KindUUID:
 		return string(recipe.TableScalarString), true

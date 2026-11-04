@@ -74,7 +74,7 @@ func (l staticLease) Close(context.Context) error { return nil }
 
 type Config struct {
 	Target          Target
-	Fixture         Fetcher
+	Fixture         *Fetcher
 	Run             RunSpec
 	ArtifactDir     string
 	WorkspacePath   string
@@ -106,18 +106,36 @@ type Runner struct{ cfg Config }
 
 var databaseRE = regexp.MustCompile(`^loom_acceptance_[a-f0-9]{16}$`)
 
-func New(cfg Config) (*Runner, error) {
+var (
+	errTargetRequired        = errors.New("acceptance target is required")
+	errFixtureCacheRequired  = errors.New("fixture cache directory is required")
+	errWorkspacePathRequired = errors.New("workspace path is required")
+	errArtifactDirRequired   = errors.New("artifact directory is required")
+	errRunnerUninitialized   = errors.New("acceptance runner constructed without New")
+)
+
+// validateRequired holds the invariants New enforces at construction. Run
+// re-checks them at entry so a Runner built as a struct literal (bypassing
+// New) faults with a named error instead of dereferencing nil fields.
+func (cfg Config) validateRequired() error {
 	if cfg.Target == nil {
-		return nil, errors.New("acceptance target is required")
+		return errTargetRequired
 	}
-	if cfg.Fixture.CacheDir == "" {
-		return nil, errors.New("fixture cache directory is required")
+	if cfg.Fixture == nil || cfg.Fixture.CacheDir == "" {
+		return errFixtureCacheRequired
 	}
 	if strings.TrimSpace(cfg.WorkspacePath) == "" {
-		return nil, errors.New("workspace path is required")
+		return errWorkspacePathRequired
 	}
 	if strings.TrimSpace(cfg.ArtifactDir) == "" {
-		return nil, errors.New("artifact directory is required")
+		return errArtifactDirRequired
+	}
+	return nil
+}
+
+func New(cfg Config) (*Runner, error) {
+	if err := cfg.validateRequired(); err != nil {
+		return nil, err
 	}
 	if cfg.Run.Project == "" {
 		cfg.Run.Project = "NCPI_ACCEPTANCE"
@@ -170,6 +188,9 @@ func namespaceFromSpec(spec RunSpec) (Namespace, error) {
 }
 
 func (r *Runner) Run(ctx context.Context) (report Report, runErr error) {
+	if err := r.cfg.validateRequired(); err != nil {
+		return Report{}, fmt.Errorf("%w: %w", errRunnerUninitialized, err)
+	}
 	started := time.Now().UTC()
 	report.StartedAt = started
 	lease, err := r.cfg.Target.Acquire(ctx, r.cfg.Run)
@@ -184,7 +205,9 @@ func (r *Runner) Run(ctx context.Context) (report Report, runErr error) {
 	defer func() {
 		report.FinishedAt = time.Now().UTC()
 		if runErr != nil {
-			report.Status = "FAILED"
+			if report.Status == "" {
+				report.Status = "FAILED"
+			}
 		} else if report.Status == "" {
 			report.Status = "PASSED"
 		}
@@ -193,8 +216,14 @@ func (r *Runner) Run(ctx context.Context) (report Report, runErr error) {
 		}
 		if closeErr := lease.Close(context.WithoutCancel(ctx)); closeErr != nil {
 			runErr = errors.Join(runErr, closeErr)
-			report.Status = "FAILED"
-			report.Error = closeErr.Error()
+			if report.Status == "PASSED" {
+				report.Status = "FAILED"
+			}
+			if report.Error == "" {
+				report.Error = "lease close: " + closeErr.Error()
+			} else {
+				report.Error = report.Error + "; lease close: " + closeErr.Error()
+			}
 			_ = r.writeEvidence(report)
 		}
 	}()

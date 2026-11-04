@@ -174,7 +174,7 @@ func lowerConstructionGroup(
 			if err != nil {
 				return ir.PhysicalStageGroup{}, nil, nil, err
 			}
-			kind, scalar := tableReshapeScalarKind(inputColumn.Kind)
+			kind, scalar := TableReshapeScalarKind(inputColumn.Kind)
 			if !scalar {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("Group fieldSource %q is not a supported scalar", source.CanonicalPath)
 			}
@@ -202,7 +202,7 @@ func lowerConstructionGroup(
 		if inputColumn.SemanticValueKind == CompiledSemanticValueCodingIdentityDisplay {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key input column ID %q is a CODING_IDENTITY display label and cannot be reused as scalar identity", key.InputColumnID)
 		}
-		kind, scalar := tableReshapeScalarKind(inputColumn.Kind)
+		kind, scalar := TableReshapeScalarKind(inputColumn.Kind)
 		if !scalar || inputColumn.Cardinality == string(expression.Many) {
 			return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group key column %q must be a public scalar column", inputColumn.Name)
 		}
@@ -244,7 +244,7 @@ func lowerConstructionGroup(
 			if !ok || inputColumn.Internal {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate input column ID %q is not public", aggregate.InputColumnID)
 			}
-			inputKind, scalar := tableReshapeScalarKind(inputColumn.Kind)
+			inputKind, scalar := TableReshapeScalarKind(inputColumn.Kind)
 			if !scalar || inputColumn.Cardinality == string(expression.Many) {
 				return ir.PhysicalStageGroup{}, nil, nil, fmt.Errorf("group aggregate input column %q must be a public scalar column", inputColumn.Name)
 			}
@@ -411,7 +411,7 @@ type constructionGroupRowValueSourceContext struct {
 }
 
 func constructionRowValueKind(kind string) (string, bool) {
-	if scalar, ok := tableReshapeScalarKind(kind); ok {
+	if scalar, ok := TableReshapeScalarKind(kind); ok {
 		return scalar, true
 	}
 	if expression.ValueKind(kind) == expression.KindObject {
@@ -473,7 +473,7 @@ func lowerConstructionExpand(
 	if inputColumn.Cardinality != string(expression.Many) {
 		return ir.PhysicalStageExpand{}, nil, nil, fmt.Errorf("expand input column %q must be array-valued", inputColumn.Name)
 	}
-	inputKind, scalar := tableReshapeScalarKind(inputColumn.Kind)
+	inputKind, scalar := TableReshapeScalarKind(inputColumn.Kind)
 	if !scalar {
 		return ir.PhysicalStageExpand{}, nil, nil, fmt.Errorf("expand input column %q must contain scalar values", inputColumn.Name)
 	}

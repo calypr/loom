@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -62,10 +63,10 @@ func newRootScope(resourceType string) scopeFrame {
 func (s scopeFrame) child(alias string, binding scopeBinding) (scopeFrame, error) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
-		return scopeFrame{}, fmt.Errorf("alias is required")
+		return scopeFrame{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "alias is required", dataframeerrors.WithRetryable(false))
 	}
 	if _, exists := s.aliases[alias]; exists {
-		return scopeFrame{}, fmt.Errorf("alias %q shadows an existing lexical binding", alias)
+		return scopeFrame{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, fmt.Sprintf("alias %q shadows an existing lexical binding", alias), dataframeerrors.WithRetryable(false))
 	}
 	child := scopeFrame{aliases: make(map[string]scopeBinding, len(s.aliases)+1)}
 	for name, value := range s.aliases {

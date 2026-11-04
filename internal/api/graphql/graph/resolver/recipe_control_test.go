@@ -2,6 +2,8 @@ package resolver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
@@ -10,6 +12,7 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -160,6 +163,27 @@ func TestRecipeGraphQLAdaptersUseOperationAuthPolicy(t *testing.T) {
 	outageUserErr, ok := dataframeerrors.AsUserError(outageErr)
 	if !ok || outageUserErr.Code() != "BACKEND_UNAVAILABLE" || !outageUserErr.Retryable() {
 		t.Fatalf("recipe authorization outage = %#v, want retryable backend unavailable", outageErr)
+	}
+}
+
+func TestRecipeGraphQLErrorMapsNotFoundAndPreservesForeignFaults(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		err      error
+		wantCode string
+	}{
+		{name: "digest miss", err: recipe.ErrRecipeRevisionNotFound, wantCode: "RECIPE_NOT_FOUND"},
+		{name: "wrapped digest miss", err: fmt.Errorf("get revision: %w", recipe.ErrRecipeRevisionNotFound), wantCode: "RECIPE_NOT_FOUND"},
+		{name: "name miss", err: recipeexec.ErrRecipeNotFound, wantCode: "RECIPE_NOT_FOUND"},
+	} {
+		mapped, ok := dataframeerrors.AsUserError(recipeGraphQLError(tc.err))
+		if !ok || mapped.Code() != tc.wantCode || mapped.Retryable() {
+			t.Fatalf("%s: mapped=%#v ok=%v, want non-retryable %s", tc.name, mapped, ok, tc.wantCode)
+		}
+	}
+	foreign := errors.New("arango connection reset")
+	if mapped, ok := dataframeerrors.AsUserError(recipeGraphQLError(foreign)); ok {
+		t.Fatalf("foreign fault typed as %s; the untyped INTERNAL_ERROR fallback was lost", mapped.Code())
 	}
 }
 

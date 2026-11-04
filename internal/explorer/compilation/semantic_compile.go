@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
@@ -507,27 +508,66 @@ func compileSemanticDocument(ctx context.Context, project, explorerID string, do
 	if document.Construction != nil {
 		for index, projection := range document.Construction.SourceProjections {
 			path := strings.TrimPrefix(strings.TrimSpace(projection.FieldPath), "root.")
+			expanded := constructionExpandedFieldOwner(document.Construction, projection, path)
 			candidate, found := semanticFieldCandidate(snapshot, root.graph.ID, path)
 			if projection.OccurrenceID != authoringv2.RootOccurrenceID || !found ||
-				strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != path || candidate.LogicalType != projection.LogicalType ||
-				len(candidate.RepeatedBoundaries) != 0 || capability.IsRepeatedCardinality(candidate.Cardinality) ||
+				strings.TrimPrefix(strings.TrimSpace(candidate.FieldPath), "root.") != path || candidate.LogicalType != projection.LogicalType {
+				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized field on the root resource", map[string]any{"fieldPath": path}, nil)
+			}
+			if expanded != nil {
+				// Signed EXPAND inputs are backed by the direct-root repeated
+				// array itself: many cardinality, the ARRAY projection the
+				// builder mints for repeated fields, and only self-describing
+				// boundaries. The scalar VALUE backing rule below rejects this
+				// shape by design, so the lanes keep distinct checks.
+				if !capability.IsRepeatedCardinality(candidate.Cardinality) ||
+					!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionArray) ||
+					!semanticSelfRepeated(candidate, path) {
+					return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "signed expanded field no longer matches a direct-root repeated array candidate on the root resource", map[string]any{"fieldPath": path}, nil)
+				}
+			} else if len(candidate.RepeatedBoundaries) != 0 ||
 				!containsProjectionMode(candidate.ProjectionModes, capability.ProjectionScalar) {
-				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized scalar VALUE field on the root resource", map[string]any{"fieldPath": path}, nil)
+				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_FIELD", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches an authorized scalar VALUE field or authorized direct root array on the root resource", map[string]any{"fieldPath": path}, nil)
 			}
 			schemaIndex, err := fhirschema.GeneratedIndex()
 			if err != nil {
 				return Result{}, fail("capability", "FHIR_SCHEMA_UNAVAILABLE", "$.construction.sourceProjections", "generated FHIR field metadata is unavailable", nil, err)
 			}
 			facts, err := schemaIndex.ResolveRowPath(fhirschema.DefinitionName(root.graph.ResourceType), path)
-			if err != nil || facts.CanonicalPath != path || facts.FHIRType != projection.FHIRType ||
-				facts.Shape != fhirschema.RowPathScalar || facts.Cardinality != fhirschema.RowCardinalityOne || facts.Reference {
+			if err != nil || facts.CanonicalPath != path || facts.FHIRType != projection.FHIRType || facts.Reference {
+				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches generated FHIR metadata", map[string]any{"fieldPath": path}, err)
+			}
+			repeated := capability.IsRepeatedCardinality(candidate.Cardinality)
+			if expanded != nil {
+				// Signed EXPAND input: the owning step's server-derived payload
+				// authorizes a direct-root many-cardinality array. The schema
+				// facts, not the payload, decide the compiled cardinality: the
+				// semantic selector resolver derives Many from the generated
+				// schema when this root Field projects the array path.
+				if !repeated || facts.Shape != fhirschema.RowPathArray || facts.Cardinality != fhirschema.RowCardinalityMany ||
+					expanded.Path != path || expanded.Cardinality != authoringv2.ConstructionExpandedFieldCardinalityMany ||
+					expanded.LogicalType != projection.LogicalType || expanded.FHIRType != projection.FHIRType {
+					return Result{}, fail("capability", "STALE_EXPANDED_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "signed expanded field no longer names a direct-root many-cardinality non-reference array", map[string]any{"fieldPath": path}, err)
+				}
+				if _, ok := lower.TableReshapeScalarKind(candidate.LogicalType); !ok {
+					return Result{}, fail("capability", "UNSUPPORTED_EXPANDED_SOURCE_KIND", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "expanded array items are not a compiler-accepted scalar kind", map[string]any{"fieldPath": path, "logicalType": candidate.LogicalType}, nil)
+				}
+			} else if repeated || facts.Shape != fhirschema.RowPathScalar || facts.Cardinality != fhirschema.RowCardinalityOne {
 				return Result{}, fail("capability", "STALE_CONSTRUCTION_SOURCE_SCHEMA", fmt.Sprintf("$.construction.sourceProjections[%d]", index), "source projection no longer matches generated FHIR scalar metadata", map[string]any{"fieldPath": path}, err)
 			}
-			nodes[authoringv2.RootOccurrenceID].fields = append(nodes[authoringv2.RootOccurrenceID].fields, recipe.Field{
+			laneField := recipe.Field{
 				Name: authoringv2.ConstructionSourceProjectionName(projection.ColumnID), ColumnID: projection.ColumnID,
 				Label: projection.Label, FieldRef: projection.FieldPath,
 				Expr: recipe.Expression{Select: semanticAlias(authoringv2.RootOccurrenceID) + "." + path},
-			})
+			}
+			if expanded != nil {
+				// The item column carries one array element per row; the
+				// compiled column must stay the many-valued array itself. An
+				// auto/FIRST value mode would collapse it to optional_one and
+				// the physical EXPAND gate would refuse its own input column.
+				laneField.ValueMode = recipe.ValueModeAll
+			}
+			nodes[authoringv2.RootOccurrenceID].fields = append(nodes[authoringv2.RootOccurrenceID].fields, laneField)
 		}
 	}
 
@@ -783,6 +823,15 @@ func semanticAlias(occurrenceID string) string {
 	// authored public-column prefix even when an older client encoded route
 	// ancestry into the occurrence ID itself.
 	return safeName(occurrenceID)
+}
+
+func semanticSelfRepeated(candidate capability.Candidate, path string) bool {
+	for _, boundary := range candidate.RepeatedBoundaries {
+		if strings.TrimPrefix(strings.TrimSpace(boundary.Path), "root.") != path {
+			return false
+		}
+	}
+	return true
 }
 
 func semanticFieldCandidate(snapshot capability.Snapshot, nodeID, fieldPath string) (capability.Candidate, bool) {
@@ -1051,4 +1100,32 @@ func coalesceString(paths ...string) recipe.Expression {
 		args = append(args, recipe.Expression{Select: path})
 	}
 	return recipe.Expression{Call: "coalesce_string", Args: args}
+}
+
+// constructionExpandedFieldOwner returns the server-derived expanded-field
+// facts that authorize this projection as a signed EXPAND input, or nil when
+// the projection is an ordinary scalar source. Authorization requires ALL of:
+// the projection names an existing EXPAND step's input column, that step
+// carries an ExpandedField payload for exactly this path, the payload is
+// shape-valid, and the projection is owned by the step. The caller still
+// re-proves the array facts against the generated schema; the payload never
+// supplies cardinality directly.
+func constructionExpandedFieldOwner(construction *authoringv2.Construction, projection authoringv2.ConstructionSourceProjection, path string) *authoringv2.ConstructionExpandedFieldSource {
+	if projection.OwnerStepID == "" {
+		return nil
+	}
+	for _, step := range construction.Steps {
+		if step.ID != projection.OwnerStepID || step.Operation.Kind != authoringv2.ConstructionOperationExpand || step.Operation.Expand == nil {
+			continue
+		}
+		expanded := step.Operation.Expand
+		if expanded.ExpandedField == nil || expanded.InputColumnID != projection.ColumnID {
+			return nil
+		}
+		if err := authoringv2.ValidateConstructionExpandedFieldSource(expanded.ExpandedField); err != nil || expanded.ExpandedField.Path != path {
+			return nil
+		}
+		return expanded.ExpandedField
+	}
+	return nil
 }

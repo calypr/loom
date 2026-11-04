@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLoomClient } from '../../../react';
+import type { ExplorerAuthoringApiError } from '../../../api';
 import type {
   ExplorerBuilderCatalog,
   TableShapeCapabilities,
@@ -7,6 +8,7 @@ import type {
 import type { DraftTable } from '../authoring/model';
 import {
   catalogSourceOptions,
+  sanitizeReasonText,
   type CatalogChoiceIntent,
 } from '../catalogItems';
 import {
@@ -64,7 +66,7 @@ const unsupportedReason = (
   fallback: string,
 ): string => {
   const choice = capabilities.reshapeModes.find((candidate) => candidate.mode === mode);
-  if (choice?.availability.kind === 'unsupported') return choice.availability.reason;
+  if (choice?.availability.kind === 'unsupported') return sanitizeReasonText(choice.availability.reason);
   return fallback;
 }
 
@@ -83,7 +85,7 @@ const intentionsFor = (args: {
         capability.binaryOperators.some((choice) => choice.availability.kind === 'supported')
         ? supported()
         : unavailable(capability.derivedAvailability.kind === 'unsupported'
-          ? capability.derivedAvailability.reason
+          ? sanitizeReasonText(capability.derivedAvailability.reason)
           : 'Loom did not return a supported binary calculation for this table.')
       : unresolvedAvailability(shapeState);
   const pivotAvailability = constructionPresent
@@ -246,8 +248,27 @@ const intentionsFor = (args: {
   }
 };
 
-const requestFailureMessage = (): string =>
-  'Could not check operation choices. Reload the table and try again.';
+const requestFailureMessage = (error: unknown): string => {
+  const apiError = error as ExplorerAuthoringApiError | undefined;
+  const status = apiError?.status;
+  const serverMessage = typeof apiError?.message === 'string' &&
+    typeof status === 'number' &&
+    apiError.message.trim() !== '' &&
+    !/^Loom request failed \(\d+\)\.$/.test(apiError.message.trim())
+    ? sanitizeReasonText(apiError.message)
+    : undefined;
+  const statusCopy = status === 401
+    ? 'You are signed out, so Loom could not check the operation choices for this table. Sign in again and reload the table.'
+    : status === 403
+      ? 'You do not have permission to check the operation choices for this table. Ask the table owner for access.'
+      : typeof status === 'number' && status >= 500
+        ? 'Loom could not check the operation choices for this table right now. Try again in a moment.'
+        : status === 'FETCH_ERROR' || status === 'CUSTOM_ERROR'
+          ? 'Loom could not be reached to check the operation choices for this table. Check your connection and try again.'
+          : undefined;
+  if (!statusCopy) return 'Could not check operation choices. Reload the table and try again.';
+  return serverMessage ? `${statusCopy} Loom said: ${serverMessage}` : statusCopy;
+};
 
 const intentionKey = (intention: ConstructionOperationIntent): string =>
   `${intention.family}:${intention.intent}`;
@@ -316,12 +337,13 @@ export const ConstructionOperationsPanel = (props: ConstructionOperationsPanelPr
     }, controller.signal).then((capabilities) => {
       if (controller.signal.aborted) return;
       if (capabilities.outputId !== props.table.outputId) {
-        throw new Error('Loom returned operation choices for another table. Reload the Builder and try again.');
+        setShapeState({ kind: 'error', message: 'Loom returned operation choices for another table. Reload the Builder and try again.' });
+        return;
       }
       setShapeState({ kind: 'ready', capabilities });
-    }).catch(() => {
+    }).catch((error: unknown) => {
       if (controller.signal.aborted) return;
-      setShapeState({ kind: 'error', message: requestFailureMessage() });
+      setShapeState({ kind: 'error', message: requestFailureMessage(error) });
     });
     return () => controller.abort();
   }, [client, constructionPresent, props.authResourcePath, props.draftDigest, props.draftVersion, props.explorerId, props.family, props.project, props.snapshotToken, props.table.outputId]);

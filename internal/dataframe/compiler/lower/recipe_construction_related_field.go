@@ -30,7 +30,7 @@ func lowerConstructionRelatedField(
 	if source.Cardinality != string(expression.OptionalOne) && source.Cardinality != string(expression.RequiredOne) {
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field source must be scalar")
 	}
-	if _, scalar := tableReshapeScalarKind(source.LogicalType); !scalar {
+	if _, scalar := TableReshapeScalarKind(source.LogicalType); !scalar {
 		return ir.PhysicalStageRelatedField{}, nil, nil, fmt.Errorf("related field logical type %q is not a supported scalar", source.LogicalType)
 	}
 	path, err := relatedFieldPhysicalPath(source.ResourceType, source.Path)

@@ -14,6 +14,7 @@ import (
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/publication"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -37,6 +38,20 @@ type ClickHouseBundleStore struct {
 	leaseTTL           time.Duration
 	leaseRenewInterval time.Duration
 	reconcilePageSize  int
+	activeReleases     ActiveReleaseReader
+}
+
+// ActiveReleaseReader is the narrow read surface Reconcile consults before
+// dropping an execution's physical tables (Repair-1b, F-B12 drop-path). The
+// reconcile sweep's pointer guard is a one-shot read taken before the cleanup
+// claim; a release Created+Activated afterwards (or a legacy/non-lease-guarded
+// writer publishing behind the guard) still ends with DropTable + FAILED
+// demotion while the ACTIVE release binds the execution, which hard-fails the
+// whole CurrentProjectDatasets response (published/current.go:206-208). A
+// live binding therefore vetoes the drop, and any binding-read failure is
+// treated fail-closed as a veto.
+type ActiveReleaseReader interface {
+	ReadActiveRelease(context.Context, string) (dataset.ActiveRelease, error)
 }
 
 type bundleKeyLock struct {
@@ -65,6 +80,13 @@ func NewBundleStore(client BundleClickHouseStore, catalog publication.BundleCata
 		leaseRenewInterval: 30 * time.Second,
 		reconcilePageSize:  32,
 	}, nil
+}
+
+// SetActiveReleaseReader wires the drop-path binding veto used by Reconcile
+// (see ActiveReleaseReader). Without a reader the reconciler keeps its
+// historical pointer-only guard; production wiring supplies it (server.go).
+func (s *ClickHouseBundleStore) SetActiveReleaseReader(reader ActiveReleaseReader) {
+	s.activeReleases = reader
 }
 
 var _ publication.Target = (*ClickHouseBundleStore)(nil)
@@ -874,6 +896,32 @@ func (t *clickHouseBundleTx) Abort(ctx context.Context, cause error) error {
 		return errors.Join(claimErr, t.stopLease())
 	}
 	defer func() { _ = releaseCleanup() }()
+	// Same live veto as reconcileExecution (Repair-1b / F-B1 abort-drop arm):
+	// never DropTable a bundle the visibility pointer currently advertises or
+	// the ACTIVE release currently binds; read failures veto fail-closed.
+	if pointerNow, pointerNowErr := t.store.catalog.GetPointer(cleanupCtx, t.execution.PointerName()); pointerNowErr != nil {
+		if !errors.Is(pointerNowErr, publication.ErrBundleNotFound) {
+			t.closed = true
+			return errors.Join(pointerNowErr, releaseCleanup(), t.stopLease())
+		}
+	} else if pointerNow.ExecutionID == t.execution.ID {
+		return t.stopLease()
+	}
+	if t.store.activeReleases != nil {
+		active, activeErr := t.store.activeReleases.ReadActiveRelease(cleanupCtx, t.execution.Project)
+		if activeErr != nil {
+			if !errors.Is(activeErr, dataset.ErrNoActiveRelease) {
+				t.closed = true
+				return errors.Join(activeErr, releaseCleanup(), t.stopLease())
+			}
+		} else {
+			for _, binding := range active.Release.Publications {
+				if binding.ExecutionID == t.execution.ID {
+					return t.stopLease()
+				}
+			}
+		}
+	}
 	var cleanup error
 	for _, output := range t.execution.Outputs {
 		if err := t.store.clickHouse.DropTable(leaseCtx, output.PhysicalTable); err != nil {
@@ -1041,6 +1089,15 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 		return nil
 	}
 	states := []publication.BundleState{publication.BundleRunning, publication.BundleValidating, publication.BundleFailed}
+	// Repair-4 (F-B19): recurring PUBLISHED-superseded janitor arm. Enumerated
+	// ONLY when an ActiveReleaseReader is wired — a janitor that cannot re-check
+	// bindings is the m-po-janitor-blind shape (PointerOrphanLifecycle.tla
+	// NoBoundDeleted violated): it recreates the F-B12 bound-data loss. The
+	// destructive step still runs the full post-claim pointer+binding re-checks
+	// in reconcileExecution (m-po-fixed validated RecheckBeforeReclaim shape).
+	if s.activeReleases != nil {
+		states = append(states, publication.BundlePublished)
+	}
 	paged, ok := s.catalog.(publication.PagedBundleCatalog)
 	if !ok {
 		return fmt.Errorf("bundle catalog does not support paged reconciliation")
@@ -1054,6 +1111,36 @@ func (s *ClickHouseBundleStore) Reconcile(ctx context.Context, olderThan time.Ti
 }
 
 func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, execution publication.BundleExecution, reconcilerID string) error {
+	superseded := execution.State.Canonical() == publication.BundlePublished
+	if superseded {
+		// Repair-4 (F-B19) pre-claim janitor filter: a PUBLISHED execution that
+		// its pointer still names, or that the ACTIVE release binds, is live —
+		// skip it without claiming (no lease/_rev churn on healthy published
+		// rows). This filter is an optimization only: the post-claim pointer and
+		// binding re-checks below remain the destruction gate. Read failures
+		// other than "no pointer"/"no active release" veto fail-closed.
+		if s.activeReleases == nil {
+			return nil
+		}
+		pointer, pointerErr := s.catalog.GetPointer(ctx, execution.PointerName())
+		if pointerErr == nil {
+			if pointer.ExecutionID == execution.ID {
+				return nil
+			}
+		} else if !errors.Is(pointerErr, publication.ErrBundleNotFound) {
+			return pointerErr
+		}
+		active, activeErr := s.activeReleases.ReadActiveRelease(ctx, execution.Project)
+		if activeErr == nil {
+			for _, binding := range active.Release.Publications {
+				if binding.ExecutionID == execution.ID {
+					return nil
+				}
+			}
+		} else if !errors.Is(activeErr, dataset.ErrNoActiveRelease) {
+			return activeErr
+		}
+	}
 	expires := time.Now().UTC().Add(s.leaseTTL)
 	claimed, err := s.catalog.AcquireBundleLease(ctx, execution.Key, reconcilerID, expires)
 	if err != nil {
@@ -1078,6 +1165,37 @@ func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, executio
 		return errors.Join(claimErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
 	}
 	defer func() { _ = releaseCleanup() }()
+	// Repair-1b (F-B12 drop-path): the pointer guard above and the cleanup
+	// claim are both historical facts by now. Re-read the pointer AND the
+	// active-release bindings immediately before destruction: a pointer that
+	// now names this execution, or any binding of the ACTIVE release to it,
+	// vetoes the drop. Any read failure other than "no pointer" /
+	// "no active release" vetoes fail-closed. Skipping only defers the sweep
+	// for a genuinely abandoned execution; dropping a bound one destroys
+	// advertised data and aborts CurrentProjectDatasets
+	// (published/current.go:206-208, validated by ReconcileDangleTrust.tla
+	// m-dangle-atomic-recheck).
+	if pointerNow, pointerNowErr := s.catalog.GetPointer(cleanupCtx, execution.PointerName()); pointerNowErr != nil {
+		if !errors.Is(pointerNowErr, publication.ErrBundleNotFound) {
+			return errors.Join(pointerNowErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
+		}
+	} else if pointerNow.ExecutionID == execution.ID {
+		return s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+	}
+	if s.activeReleases != nil {
+		active, activeErr := s.activeReleases.ReadActiveRelease(cleanupCtx, execution.Project)
+		if activeErr != nil {
+			if !errors.Is(activeErr, dataset.ErrNoActiveRelease) {
+				return errors.Join(activeErr, s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID))
+			}
+		} else {
+			for _, binding := range active.Release.Publications {
+				if binding.ExecutionID == execution.ID {
+					return s.catalog.ReleaseBundleLease(cleanupCtx, execution.Key, reconcilerID)
+				}
+			}
+		}
+	}
 	var first error
 	remaining := make([]publication.BundleOutputRecord, 0, len(execution.Outputs))
 	for _, output := range execution.Outputs {
@@ -1088,6 +1206,9 @@ func (s *ClickHouseBundleStore) reconcileExecution(ctx context.Context, executio
 	}
 	execution.State = publication.BundleFailed
 	execution.Error = "stale execution reconciled"
+	if superseded {
+		execution.Error = "superseded execution reconciled (no pointer or active-release reference)"
+	}
 	execution.FailureCode = string(dataframeerrors.CodePublicationLeaseLost)
 	execution.FailureRetryable = true
 	execution.UpdatedAt = time.Now().UTC()

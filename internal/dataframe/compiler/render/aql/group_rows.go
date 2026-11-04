@@ -314,6 +314,8 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		fmt.Sprintf("      FILTER member.groupId == %s.groupId", definition),
 		fmt.Sprintf("      LET %s = FIRST(FOR resource IN @@%s", source, rows.ResourceCollectionBindKey),
 		fmt.Sprintf("        FILTER resource.id == member.ref.id AND resource.project == @%s AND resource.dataset_generation == member.ref.generation AND resource.resourceType == member.ref.resourceType", rows.ResourceProjectBindKey),
+		// Prefer a physical resource that survived the prefix when logical IDs repeat.
+		fmt.Sprintf("        SORT (resource._key IN %s) DESC, resource._key ASC", contributors),
 		"        RETURN resource)",
 		fmt.Sprintf("      FILTER %s", cohortMemberInputPredicate(source, contributors, cohort.PreserveMissingMembers)),
 		fmt.Sprintf("      FILTER %s", cohortMemberAuthorizationPredicate(source, rows, cohort.PreserveMissingMembers)),
@@ -326,6 +328,7 @@ func (r *physicalPlanRenderer) renderConstructionCohortGroupStage(stage ir.Physi
 		"  LET unassigned_records = (FOR selected IN unassigned",
 		"    LET source = FIRST(FOR resource IN @@"+rows.ResourceCollectionBindKey,
 		fmt.Sprintf("      FILTER resource.id == selected.id AND resource.project == @%s AND resource.dataset_generation == selected.generation AND resource.resourceType == selected.resourceType", rows.ResourceProjectBindKey),
+		fmt.Sprintf("      SORT (resource._key IN %s) DESC, resource._key ASC", contributors),
 		"      RETURN resource)",
 		fmt.Sprintf("    FILTER %s", cohortMemberInputPredicate("source", contributors, cohort.PreserveMissingMembers)),
 		fmt.Sprintf("    FILTER %s", cohortMemberAuthorizationPredicate("source", rows, cohort.PreserveMissingMembers)),

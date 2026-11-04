@@ -442,9 +442,10 @@ export const RowDefinitionSettingsPanel = ({
     }>;
     readonly pivotEntry?: 'pivot' | 'coded-pivot';
     readonly pivotAlternative?: 'pivot';
+    readonly expandSigned?: { readonly supported: boolean };
   };
   readonly onChooseRelatedRows: () => void;
-  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => void;
+  readonly onChooseReshape: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => void;
   readonly onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
   readonly onCloseRowIntentSession?: () => void;
   readonly sourceCollectionAction?: ReactNode;
@@ -776,7 +777,7 @@ export const RowDefinitionSettingsPanel = ({
     setRowChangeIntent('records');
     onChooseRelatedRows();
   };
-  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot') => {
+  const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => {
     cancelLocalRowProposals();
     setRowChangeIntent(kind === 'group' || kind === 'source-group' || kind === 'coded-group' ? 'group' : 'reshape');
     onChooseReshape(kind);
@@ -1007,6 +1008,15 @@ export const RowDefinitionSettingsPanel = ({
                     <span className="block text-sm font-semibold text-slate-900">Stack columns</span>
                     <span className="block text-xs text-slate-600">Move selected columns into field and value rows.</span>
                   </button>
+                  {reshapeRows.expandSigned?.supported ? (
+                    <button type="button" data-testid="construction-action-expand-signed-rows" disabled={disabled}
+                      onClick={() => chooseReshape('expand-signed')}
+                      title="Turn one repeated FHIR field into one row per value."
+                      className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      <span className="block text-sm font-semibold text-slate-900">Expand repeated field</span>
+                      <span className="block text-xs text-slate-600">One row per value of a repeated source field.</span>
+                    </button>
+                  ) : null}
                   <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-600">
                     Illustrative shape: <code>Patient | Jan | Feb</code> → <code>Patient | Month | Value</code>
                     <span className="block"><code>P1 | 8 | 3</code> → <code>P1 | Jan | 8; P1 | Feb | 3</code></span>

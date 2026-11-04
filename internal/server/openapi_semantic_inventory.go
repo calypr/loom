@@ -80,6 +80,10 @@ func (r *HTTPRoutes) BrowseExplorerSemanticInventory(ctx context.Context, reques
 		return loomapi.BrowseExplorerSemanticInventory403JSONResponse{AuthoringForbiddenJSONResponse: loomapi.AuthoringForbiddenJSONResponse(failure)}, nil
 	case http.StatusConflict:
 		return loomapi.BrowseExplorerSemanticInventory409JSONResponse{AuthoringConflictJSONResponse: loomapi.AuthoringConflictJSONResponse(failure)}, nil
+	case http.StatusNotFound:
+		return loomapi.BrowseExplorerSemanticInventory404JSONResponse{AuthoringNotFoundJSONResponse: loomapi.AuthoringNotFoundJSONResponse(failure)}, nil
+	case http.StatusUnprocessableEntity:
+		return loomapi.BrowseExplorerSemanticInventory422JSONResponse{AuthoringUnprocessableJSONResponse: loomapi.AuthoringUnprocessableJSONResponse(failure)}, nil
 	case http.StatusInternalServerError:
 		return loomapi.BrowseExplorerSemanticInventory500JSONResponse{AuthoringInternalErrorJSONResponse: loomapi.AuthoringInternalErrorJSONResponse(failure)}, nil
 	case http.StatusServiceUnavailable:

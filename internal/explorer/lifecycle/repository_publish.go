@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/projectid"
 )
@@ -76,12 +77,38 @@ func (s *Service) PublishRepository(ctx context.Context, request RepositoryPubli
 		return RepositoryPublishResult{}, unavailable("repository_publish", "PUBLICATION_UNAVAILABLE", "release activation is not configured", nil)
 	}
 	if err := s.config.ActivateRelease(ctx, projectid.Legacy(request.Project), request.Generation, selectorsForBundle(receipt.Bundle)); err != nil {
+		if errors.Is(err, dataset.ErrReleaseActivationConflict) {
+			// Deterministic lost compare-and-swap race, the same contract the
+			// authoring publish path types as PUBLICATION_ACTIVATION_CONFLICT:
+			// fixed conflict text, never the wrapped transport text, and no
+			// retry hint for a race the client cannot win by hammering.
+			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "PUBLICATION_ACTIVATION_CONFLICT", Message: err.Error(), Retryable: false}})
+			return RepositoryPublishResult{}, conflict("repository_publish", "PUBLICATION_ACTIVATION_CONFLICT", "another publication won activation; the prior Explorer revision was retained", nil, err)
+		}
+		var requirementsErr *dataset.ReleaseRequirementsError
+		if errors.As(err, &requirementsErr) {
+			// Deterministic release-contract miss: a 409 with an explicit
+			// non-retryable diagnostic, not a fault the client should retry.
+			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), map[string]any{"retryable": false}, err)
+		}
 		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "RELEASE_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
-		return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), nil, err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate published ExplorerConfigV2: %v", err), err)
 	}
 	if err := s.store.ActivateRepositoryGeneration(ctx, request.Project, request.Generation, revision.ID); err != nil {
+		// The visibility switch follows the sibling CAS contract above: the
+		// typed lost-race sentinel keeps a deterministic fixed-text conflict
+		// with no retry bait, and any other failure is a transport fault that
+		// must never surface as a conflict or echo wrapped store text. The
+		// sentinel marks losing the composite activation guard (read miss at
+		// activation.go, and its zero-replaced/zero-updated guards, all of
+		// which mean a concurrent Explorer update won the switch).
+		if errors.Is(err, explorer.ErrDraftConflict) {
+			_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: false}})
+			return RepositoryPublishResult{}, conflict("repository_publish", "GENERATION_ACTIVATION_FAILED", "generation activation lost a concurrent Explorer update; the prior Explorer revision was retained", nil, err)
+		}
 		_, _ = s.store.FailRevision(ctx, revision.ID, []explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED", Message: err.Error(), Retryable: true}})
-		return RepositoryPublishResult{}, conflict("repository_publish", "RELEASE_ACTIVATION_FAILED", fmt.Sprintf("activate ExplorerConfigV2: %v", err), nil, err)
+		return RepositoryPublishResult{}, unavailable("repository_publish", "GENERATION_ACTIVATION_FAILED", "activate ExplorerConfigV2 failed; the prior Explorer revision was retained", err)
 	}
 	publication.State, publication.RevisionID, publication.UpdatedAt = string(explorer.RevisionActive), revision.ID, s.now()
 	return RepositoryPublishResult{Receipt: receipt, Owner: owner, Revision: revision, Execution: execution, Materializations: materialized, Dataset: datasetMetadata, Publication: publication}, nil

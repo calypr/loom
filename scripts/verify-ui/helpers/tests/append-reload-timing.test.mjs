@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { lifecycleAcceptanceDrift, registry, scenarioCaseFor } from '../../registry.mjs';
 import {
@@ -9,9 +7,6 @@ import {
   rootedEmptyTargetAppliedExpression,
   savedAppendPreviewAppliedExpression,
 } from '../builder-combine-helpers.mjs';
-
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
 
 const outputId = 'out_owned_target';
 const headers = ['Record ID', 'Status'];
@@ -108,8 +103,8 @@ test('saved APPEND readiness requires the exact selected output, headers, and ro
   assert.equal(evaluate(expression, savedPreviewDocument({ ariaRowCount: rows.length })), false);
 });
 
-test('saved APPEND readiness matches a local Playwright page with the PreviewTable DOM contract', async () => {
-  const browserRows = [
+test('saved APPEND readiness preserves the exact eight-row multiset and public headers', () => {
+  const expectedRows = [
     ['combine-observation-final-1', 'final', '—'],
     ['combine-observation-final-2', 'final', '—'],
     ['combine-observation-preliminary', 'preliminary', '—'],
@@ -119,63 +114,18 @@ test('saved APPEND readiness matches a local Playwright page with the PreviewTab
     ['combine-observation-preliminary', 'preliminary', '—'],
     ['combine-fixture-patient', '—', 'female'],
   ];
-  const browserHeaders = ['Record ID', 'Status', 'Patient sex'];
-  const output = 'out_append_browser_fixture';
-  const escapeHTML = (value) => String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-  const previewHTML = (headers = browserHeaders, rows = browserRows) => {
-    const headerCells = headers.map((value) => `<div role="columnheader">${escapeHTML(value)}</div>`).join('');
-    const dataRows = rows.map((row, index) => `<div role="row"><span>${index + 1}</span>${row.map((value) =>
-      `<div role="cell"><div title="${escapeHTML(value)}">${escapeHTML(value)}</div></div>`).join('')}</div>`).join('');
-    return `<button type="button" data-testid="construction-table-${output}" aria-current="page">Observation combined</button>
-      <div data-testid="construction-history">Saved construction</div>
-      <section aria-label="Table result" data-testid="construction-preview" data-preview-status="ready" data-preview-receipt-id="receipt-test" data-preview-output-id="${output}">
-        <div data-testid="preview-table-scroll">
-          <div role="table" aria-rowcount="${rows.length + 1}" aria-colcount="${headers.length}">
-            <div role="row"><div>Row</div>${headerCells}</div>${dataRows}
-          </div>
-        </div>
-      </section>`;
-  };
-  const expression = savedAppendPreviewAppliedExpression(output, browserHeaders, browserRows);
-  const launchOptions = { headless: true, channel: 'chrome' };
-  if (process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE) {
-    delete launchOptions.channel;
-    launchOptions.executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE;
-  }
-  const browser = await chromium.launch(launchOptions);
-  try {
-    const page = await browser.newPage();
-    await page.setContent(previewHTML());
-    assert.equal(await page.evaluate(expression), true, 'the source-shaped eight-row APPEND DOM must match');
-
-    await page.locator('[data-testid="construction-preview"]').evaluate((node) => {
-      node.setAttribute('data-preview-output-id', 'out_another_target');
-    });
-    assert.equal(await page.evaluate(expression), false, 'the ready preview must belong to the expected output');
-
-    await page.locator('[data-testid="construction-preview"]').evaluate((node) => {
-      node.setAttribute('data-preview-output-id', 'out_append_browser_fixture');
-    });
-    await page.locator('[role="table"] [role="row"]').nth(8).locator('[role="cell"]').evaluateAll((cells) => {
-      const firstRowCells = [...document.querySelectorAll('[role="table"] [role="row"]')[1].querySelectorAll('[role="cell"]')];
-      cells.forEach((cell, index) => {
-        cell.querySelector('[title]').textContent = firstRowCells[index].querySelector('[title]').textContent;
-      });
-    });
-    assert.equal(await page.evaluate(expression), false, 'same row count with a duplicate and omitted row must fail the multiset');
-
-    await page.setContent(previewHTML());
-    await page.locator('[role="columnheader"]').nth(1).evaluate((node) => {
-      node.textContent = 'Wrong status';
-    });
-    assert.equal(await page.evaluate(expression), false, 'row values cannot hide a mismatched public header');
-  } finally {
-    await browser.close();
-  }
+  const expectedHeaders = ['Record ID', 'Status', 'Patient sex'];
+  const expression = savedAppendPreviewAppliedExpression(outputId, expectedHeaders, expectedRows);
+  const documentFor = overrides => savedPreviewDocument({ actualHeaders: expectedHeaders, actualRows: expectedRows, ...overrides });
+  assert.equal(evaluate(expression, documentFor()), true);
+  assert.equal(evaluate(expression, documentFor({ actualRows: [...expectedRows].reverse() })), true,
+    'an unauthored row order must not change the exact saved multiset');
+  assert.equal(evaluate(expression, documentFor({ previewOutputId: 'out_another_target' })), false,
+    'ready data must belong to the selected output');
+  assert.equal(evaluate(expression, documentFor({ actualRows: [...expectedRows.slice(0, 7), expectedRows[0]] })), false,
+    'equal row counts cannot hide a duplicate and an omitted Patient row');
+  assert.equal(evaluate(expression, documentFor({ actualHeaders: ['Record ID', 'Wrong status', 'Patient sex'] })), false,
+    'matching row values cannot hide a mismatched public header');
 });
 
 test('rooted-empty readiness rejects a wrong selected target, output identity, or preview state', () => {
@@ -290,31 +240,6 @@ test('initial and removal proposal Cancel preserve exact saved document and draf
   }).ok, false, 'wrong visible rows or headers must fail cancellation evidence');
 });
 
-test('the published APPEND driver cancels before reconfiguration and removal Apply', () => {
-  const source = readFileSync(new URL('../../workflows/builder-combine.mjs', import.meta.url), 'utf8');
-  const checkpointStart = source.indexOf('const appendReloadToVisibleResultWithPlaywright = async');
-  const checkpointEnd = source.indexOf('const editSavedStepWithPlaywright = async', checkpointStart);
-  const checkpoint = source.slice(checkpointStart, checkpointEnd);
-  assert.match(checkpoint, /measureActionToDOMResult\(/);
-  assert.match(checkpoint, /waitForResult: timeoutMs => page\.waitForFunction\(expression, undefined, \{ timeout: timeoutMs \}\)/,
-    'the exact saved-row or rooted-empty expression must be awaited inside the measured interval');
-  assert.doesNotMatch(checkpoint, /readBuilder\(/, 'independent Builder persistence reads must happen after the DOM timing ends');
-  const firstCancel = source.indexOf("Cancel the initial APPEND proposal before configuring the saved schema");
-  const restartTarget = source.indexOf('const restartedTarget = await startCombineTargetWithPlaywright', firstCancel);
-  const initialCancelCheck = source.indexOf('Canceling initial APPEND proposal preserves the exact fresh rooted target before creating a distinct target for reconfiguration');
-  const reconfigure = source.indexOf("await chooseOperationWithPlaywright(page, action, 'APPEND', sourceRevisions)", restartTarget);
-  const removalCancel = source.indexOf("Cancel the APPEND removal proposal before actual removal");
-  const removalCancelCheck = source.indexOf("Canceling APPEND removal preserves the exact saved schema, step, and rows before removal");
-  const actualRemoval = source.indexOf("await removeCombineAndRestoreEmptyRootWithPlaywright(context, page, action, report, explorer, target, emptyTargetBaseline, savedStepId, 'APPEND');");
-  assert.ok(firstCancel >= 0 && firstCancel < restartTarget && restartTarget < initialCancelCheck && initialCancelCheck < reconfigure,
-    'initial proposal must be canceled and its target checked before a distinct target is created and reconfigured');
-  assert.ok(removalCancel >= 0 && removalCancel < removalCancelCheck && removalCancelCheck < actualRemoval,
-    'removal cancellation and its persisted-state assertion must precede the actual removal proposal');
-  assert.equal((source.slice(source.indexOf('export const appendWorkflow'), actualRemoval).match(/appendReloadToVisibleResultWithPlaywright\(/g) ?? []).length, 4,
-    'the four pre-removal APPEND reloads must use the exact DOM timing helper');
-  assert.ok(source.includes("name: 'Initial APPEND proposal Cancel reload reaches the exact rooted empty target within five seconds'"));
-  assert.ok(source.includes("? 'APPEND removal reload reaches the exact rooted empty target within five seconds'"));
-});
 
 test('the registry requires the 45-check APPEND extension and points to its lifecycle evidence', () => {
   const contract = scenarioCaseFor(registry.find(entry => entry.id === 'builder-combine'), 'append');

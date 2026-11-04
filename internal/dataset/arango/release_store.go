@@ -132,8 +132,12 @@ func activeReleaseDocumentKey(project string) string { return documentKey("activ
 const saveReleaseAQL = `
 LET existing = DOCUMENT(@@lifecycle_collection, @key)
 LET activeRelease = DOCUMENT(@@lifecycle_collection, @active_release_key)
+// F-B15: re-saving a content-addressed release is a no-op ONLY when the
+// content matches; createdAt is the first-creation timestamp and is excluded
+// from the equality (a re-save keeps the ORIGINAL document untouched, so the
+// timestamp cannot drift). Any other field difference stays incompatible.
 LET compatible = existing != null AND existing.recordType == "project_release"
-  AND UNSET(existing, "_key", "_id", "_rev", "recordType") == UNSET(@candidate, "_key", "recordType")
+  AND UNSET(existing, "_key", "_id", "_rev", "recordType", "createdAt") == UNSET(@candidate, "_key", "recordType", "createdAt")
 FILTER existing == null OR compatible
 LET documents = APPEND(existing == null ? [@candidate] : [], activeRelease == null ? [@active_release_placeholder] : [])
 LET inserted = (FOR document IN documents INSERT document INTO @@lifecycle_collection RETURN NEW)
@@ -155,7 +159,7 @@ LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)
 LET releasePointer = DOCUMENT(@@lifecycle_collection, @active_release_key)
 LET storedRelease = DOCUMENT(@@lifecycle_collection, @release_key)
 LET currentRevision = releasePointer == null ? 0 : releasePointer.revision
-LET alreadyActive = releasePointer != null AND releasePointer.releaseId == @release_id AND currentRevision == @expected_revision + 1
+LET alreadyActive = releasePointer != null AND releasePointer.releaseId == @release_id
 LET selectedRevision = alreadyActive ? currentRevision : @next_revision
 FILTER storedRelease != null AND storedRelease.recordType == "project_release"
 FILTER storedRelease.project == @project AND storedRelease.id == @release_id AND storedRelease.generation == @generation
@@ -165,14 +169,18 @@ FILTER manifest.state IN [@staged_state, @ready_state]
 FILTER generationPointer != null AND generationPointer.recordType == "active_generation"
 FILTER releasePointer != null AND releasePointer.recordType == "active_project_release"
 FILTER currentRevision == @expected_revision OR alreadyActive
-LET updates = [
+// F-B15: with content-addressed release IDs an identical re-activation hits
+// alreadyActive and performs ZERO writes (no pointer re-patch, no revision
+// bump, not even an _rev churn), returning the current active release.
+LET updates = alreadyActive ? [] : [
   {document: releasePointer, patch: {releaseKey: @release_key, releaseId: @release_id, revision: selectedRevision}},
   {document: generationPointer, patch: {dataset: manifest.dataset, manifestKey: manifest._key, releaseId: @release_id, releaseRevision: selectedRevision}}
 ]
-FOR item IN updates
+LET patched = (FOR item IN updates
   UPDATE item.document WITH item.patch IN @@lifecycle_collection OPTIONS {ignoreRevs: false, mergeObjects: false}
-  FILTER item.document.recordType == "active_project_release"
-  RETURN {release: UNSET(storedRelease, "_key", "_id", "_rev", "recordType"), revision: selectedRevision}
+  RETURN 1)
+FILTER LENGTH(patched) == LENGTH(updates)
+RETURN {release: UNSET(storedRelease, "_key", "_id", "_rev", "recordType"), revision: selectedRevision}
 `
 
 var _ dataset.ReleaseRepository = (*Store)(nil)

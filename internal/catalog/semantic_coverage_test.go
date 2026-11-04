@@ -133,7 +133,6 @@ func TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover generated CodeableConcept templates: %v", err)
 	}
-	t.Logf("validated %d generated CodeableConcept templates", len(templates))
 	for _, template := range templates {
 		template := template
 		t.Run(template.ResourceType+"/"+template.CanonicalPath, func(t *testing.T) {
@@ -159,6 +158,7 @@ func TestSemanticCoverageGeneratedTemplatesHavePayloadWitnesses(t *testing.T) {
 			}
 		})
 	}
+	t.Logf("generated CodeableConcept witnesses: total=%d", len(templates))
 }
 
 func TestSemanticCoverageDiscoveryMatchesIndependentGeneratedDefinitionDenominator(t *testing.T) {

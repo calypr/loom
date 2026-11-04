@@ -345,8 +345,38 @@ func validatePivotSourceProjection(construction *Construction, projection Constr
 		return fmt.Errorf("source projection owner step %q does not exist", projection.OwnerStepID)
 	}
 	owner := construction.Steps[ownerIndex]
-	if (owner.Operation.Kind != ConstructionOperationPivot && owner.Operation.Kind != ConstructionOperationGroup) ||
-		!containsConstructionColumnID(owner.inputColumnIDs(), projection.ColumnID) {
+	switch owner.Operation.Kind {
+	case ConstructionOperationPivot, ConstructionOperationGroup:
+		if !containsConstructionColumnID(owner.inputColumnIDs(), projection.ColumnID) {
+			return fmt.Errorf("source projection must be consumed by its owner PIVOT step")
+		}
+	case ConstructionOperationFilter:
+		if owner.Operation.Filter == nil || owner.Operation.Filter.ColumnID != projection.ColumnID {
+			return fmt.Errorf("source projection columnId %q is not the column filtered by its owner FILTER step", projection.ColumnID)
+		}
+	case ConstructionOperationDerive:
+		if owner.Operation.Derive == nil || !containsConstructionColumnID(owner.inputColumnIDs(), projection.ColumnID) {
+			return fmt.Errorf("source projection columnId %q is not a COLUMN operand of its owner DERIVE step", projection.ColumnID)
+		}
+	case ConstructionOperationExpand:
+		if owner.Operation.Expand == nil || owner.Operation.Expand.InputColumnID != projection.ColumnID {
+			return fmt.Errorf("source projection columnId %q is not the array input of its owner EXPAND step", projection.ColumnID)
+		}
+	case ConstructionOperationUnpivot:
+		if owner.Operation.Unpivot == nil {
+			return fmt.Errorf("source projection owner step %q has no unpivot payload", projection.OwnerStepID)
+		}
+		melted := false
+		for _, input := range owner.Operation.Unpivot.Inputs {
+			if input.ColumnID == projection.ColumnID {
+				melted = true
+				break
+			}
+		}
+		if !melted {
+			return fmt.Errorf("source projection columnId %q is not a melt input of its owner UNPIVOT step", projection.ColumnID)
+		}
+	default:
 		return fmt.Errorf("source projection must be consumed by its owner PIVOT step")
 	}
 	for index := 0; index < ownerIndex; index++ {
@@ -1697,6 +1727,9 @@ func validateConstructionExpand(step ConstructionStep, input map[string]StageCol
 	}
 	if !oneOf(string(expand.EmptyPolicy), "", "ERROR", "EXCLUDE", "PRESERVE_PARENT") {
 		return fmt.Errorf("emptyPolicy must be ERROR, EXCLUDE, or PRESERVE_PARENT")
+	}
+	if err := ValidateConstructionExpandedFieldSource(expand.ExpandedField); err != nil {
+		return err
 	}
 	if expand.OrdinalColumnID != "" {
 		if !requiredID(expand.OrdinalColumnID) || expand.OrdinalColumnID == expand.OutputColumnID {

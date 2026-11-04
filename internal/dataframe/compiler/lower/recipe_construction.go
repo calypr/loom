@@ -1645,7 +1645,7 @@ func lowerConstructionRelatedSource(
 	if related.SourceOccurrenceID != related.Source.NodeID || len(related.Route) == 0 {
 		return nil, nil, fmt.Errorf("related source must persist its exact source occurrence and route")
 	}
-	if _, scalar := tableReshapeScalarKind(related.Source.LogicalType); !scalar {
+	if _, scalar := TableReshapeScalarKind(related.Source.LogicalType); !scalar {
 		return nil, nil, fmt.Errorf("related source logical type %q is not scalar", related.Source.LogicalType)
 	}
 	selectorPath := strings.TrimPrefix(related.Source.Path, related.Source.ResourceType+".")
@@ -1785,7 +1785,7 @@ func lowerConstructionRelatedSource(
 	matchingValues := ir.PhysicalExpression{Kind: ir.PhysicalSubplanExpression, Cardinality: ir.PhysicalArrayCardinality, NullBehavior: ir.PhysicalEmptyOnNull, Subplan: &subplan}
 	outputExpression := matchingValues
 	if rowValuePolicy == recipe.ConstructionRowValueOne {
-		kind, scalar := tableReshapeScalarKind(related.Source.LogicalType)
+		kind, scalar := TableReshapeScalarKind(related.Source.LogicalType)
 		if !scalar {
 			return nil, nil, fmt.Errorf("related source logical type %q is not a supported table scalar", related.Source.LogicalType)
 		}
@@ -2228,7 +2228,7 @@ func stageCapabilities(columns []CompiledOutputColumn, lazyRootContributorAvaila
 			arrays++
 			continue
 		}
-		if _, ok := tableReshapeScalarKind(column.Kind); ok {
+		if _, ok := TableReshapeScalarKind(column.Kind); ok {
 			scalar++
 		}
 		if column.Kind == string(expression.KindInteger) || column.Kind == string(expression.KindDecimal) {

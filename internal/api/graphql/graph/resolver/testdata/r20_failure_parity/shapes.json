@@ -1,0 +1,210 @@
+[
+  {
+    "name": "1_fail_retry_true",
+    "reachability": "REAL (bundle_store.go failPhase:985-993, retryable true)",
+    "id": "shape-1",
+    "name_": "recipe",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "FAILED",
+    "error": "clickhouse insert rejected",
+    "failureCode": "PUBLICATION_FAILED",
+    "failureRetryable": true,
+    "failurePhase": "PUBLICATION",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "failureCode": "PUBLICATION_FAILED",
+        "failureRetryable": true,
+        "failurePhase": "PUBLICATION"
+      }
+    ]
+  },
+  {
+    "name": "2_fail_retry_false",
+    "reachability": "REAL (failPhase with normalized non-retryable code, e.g. INVALID_FILTER-class faults)",
+    "id": "shape-2",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "FAILED",
+    "error": "clickhouse insert rejected",
+    "failureCode": "PUBLICATION_FAILED",
+    "failureRetryable": false,
+    "failurePhase": "PUBLICATION",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "failureCode": "PUBLICATION_FAILED",
+        "failureRetryable": false,
+        "failurePhase": "PUBLICATION"
+      }
+    ]
+  },
+  {
+    "name": "3_code_empty",
+    "reachability": "SYNTHETIC (user-requested edge: FailureCode==\"\" alone; failPhase always persists normalized.Code() non-empty, so durable writers cannot produce this)",
+    "id": "shape-3",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "FAILED",
+    "error": "raw driver text boom",
+    "failureCode": "",
+    "failureRetryable": true,
+    "failurePhase": "PUBLICATION",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "failureCode": "",
+        "failureRetryable": true,
+        "failurePhase": "PUBLICATION"
+      }
+    ]
+  },
+  {
+    "name": "4_phase_empty",
+    "reachability": "SYNTHETIC at exec level (user-requested edge: Phase==\"\" alone with failure present)",
+    "id": "shape-4",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "FAILED",
+    "error": "boom",
+    "failureCode": "BACKEND_UNAVAILABLE",
+    "failureRetryable": true,
+    "failurePhase": "",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0,
+        "failureCode": "BACKEND_UNAVAILABLE",
+        "failureRetryable": true,
+        "failurePhase": ""
+      }
+    ]
+  },
+  {
+    "name": "5_lease_lost",
+    "reachability": "REAL (bundle_store.go lease-lost reconciler :1207-1213: exec fields set, outputs untouched, no FailurePhase)",
+    "id": "shape-5",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "FAILED",
+    "error": "stale execution reconciled",
+    "failureCode": "PUBLICATION_LEASE_LOST",
+    "failureRetryable": true,
+    "failurePhase": "",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "READY",
+        "rowCount": 10
+      }
+    ]
+  },
+  {
+    "name": "6_output_fault_only",
+    "reachability": "SYNTHETIC (output-level gate in isolation; no shipped writer fails an output without failing the execution)",
+    "id": "shape-6",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "PUBLISHED",
+    "error": "",
+    "failureCode": "",
+    "failureRetryable": false,
+    "failurePhase": "",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "READY",
+        "rowCount": 7,
+        "failureCode": "PUBLICATION_FAILED",
+        "failureRetryable": false,
+        "failurePhase": "VALIDATING"
+      }
+    ]
+  },
+  {
+    "name": "7_success_nil",
+    "reachability": "REAL (healthy published execution)",
+    "id": "shape-7",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "PUBLISHED",
+    "error": "",
+    "failureCode": "",
+    "failureRetryable": false,
+    "failurePhase": "",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "READY",
+        "rowCount": 41
+      }
+    ]
+  },
+  {
+    "name": "8_whitespace_error",
+    "reachability": "SYNTHETIC gate probe (whitespace-only Error; exercises twin TrimSpace nil rule vs REST != \"\" gate)",
+    "id": "shape-8",
+    "project": "P",
+    "datasetGeneration": "gP",
+    "recipeDigest": "sha256-recipe",
+    "schemaDigest": "sha256-schema",
+    "authResourcePaths": [
+      "p1"
+    ],
+    "state": "FAILED",
+    "error": "   ",
+    "failureCode": "",
+    "failureRetryable": false,
+    "failurePhase": "",
+    "outputs": [
+      {
+        "name": "rows",
+        "state": "FAILED",
+        "rowCount": 0
+      }
+    ]
+  }
+]

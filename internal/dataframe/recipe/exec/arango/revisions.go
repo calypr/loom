@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -43,7 +44,7 @@ func revisionKey(project, name, digest string) string {
 
 func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle recipe.Bundle, parent string) (recipe.RecipeRevision, error) {
 	if strings.TrimSpace(project) == "" || strings.TrimSpace(bundle.Name) == "" {
-		return recipe.RecipeRevision{}, fmt.Errorf("project and recipe name are required")
+		return recipe.RecipeRevision{}, dataframeerrors.Wrap(errors.New("project and recipe name are required"), dataframeerrors.CodeInvalidRequest, "")
 	}
 	canonical, err := bundle.CanonicalBundle()
 	if err != nil {
@@ -58,11 +59,11 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 	switch {
 	case currentErr == nil:
 		if parent == "" || current != parent {
-			return recipe.RecipeRevision{}, fmt.Errorf("recipe revision parent %q is not current (current %q)", parent, current)
+			return recipe.RecipeRevision{}, dataframeerrors.Wrap(fmt.Errorf("recipe revision parent %q is not current (current %q)", parent, current), dataframeerrors.CodeStaleCursor, "")
 		}
 	case errors.Is(currentErr, exec.ErrRecipeNotFound):
 		if parent != "" {
-			return recipe.RecipeRevision{}, fmt.Errorf("recipe revision parent %q provided for first revision", parent)
+			return recipe.RecipeRevision{}, dataframeerrors.Wrap(fmt.Errorf("recipe revision parent %q provided for first revision", parent), dataframeerrors.CodeInvalidRequest, "")
 		}
 	default:
 		return recipe.RecipeRevision{}, currentErr
@@ -90,7 +91,7 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 
 func (r *RevisionRegistry) currentDigest(ctx context.Context, project, name string) (string, error) {
 	var digest string
-	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name SORT doc.createdAt DESC LIMIT 1 RETURN doc.digest`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name}, func(row map[string]any) error {
+	err := r.client.QueryRows(ctx, `FOR doc IN @@collection FILTER doc.project == @project AND doc.name == @name SORT doc.createdAt DESC LIMIT 1 RETURN {digest: doc.digest}`, r.batchSize, map[string]any{"@collection": RevisionCollection, "project": project, "name": name}, func(row map[string]any) error {
 		digest = stringValue(row["digest"])
 		return nil
 	})

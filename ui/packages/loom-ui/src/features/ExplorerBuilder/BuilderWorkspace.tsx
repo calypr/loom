@@ -1,3 +1,4 @@
+import { reconcileAcceptance } from './authoring/reconcileAcceptance';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAutomaticPreview, type AutomaticPreviewIdentity, type AutomaticPreviewRun } from './useAutomaticPreview';
@@ -102,14 +103,13 @@ import { shouldSyncServerDraft } from './authoring/serverDraftSync';
 import {
   isDraftDesynchronized,
   isStaleSnapshot,
-  reconcileReceiptMatchesRequest,
   reconcileRecoveryAction,
   reconcileResultIsCurrent,
 } from './authoring/reconcileRecovery';
 import { useDirtyBeforeUnload } from './hooks/useDirtyBeforeUnload';
 import { usePortalHost } from './hooks/usePortalHost';
 import { sameConstructionRoute } from './populationRoutes';
-import { catalogSourceOptions, type CatalogChoiceIntent } from './catalogItems';
+import { catalogSourceOptions, sanitizeReasonText, unavailableOperationReason, type CatalogChoiceIntent } from './catalogItems';
 
 import {
   ConstructionWorkspace,
@@ -298,6 +298,14 @@ type PreviewRequest = {
   readonly receiptRefreshes: number;
 };
 
+type PublicationAcknowledgementIdentity = {
+  readonly ownerKey: string;
+  readonly explorerId: string;
+  readonly draftDigest: string;
+  readonly intentFingerprint: string;
+  readonly snapshotToken: string;
+};
+
 type ConstructionApplyPreviewIdentity = {
   readonly ownerKey: string;
   readonly snapshotToken: string;
@@ -399,6 +407,16 @@ const builderOwnerKeyFor = (
   explorerId,
 ]);
 
+const populationBindingKey = (
+  table: BuilderAuthoringState['tables'][number] | undefined,
+  selectionRevisionId = table?.document.population?.selectionRevisionId,
+) => JSON.stringify([
+  selectionRevisionId ?? '',
+  (table?.document.population?.route ?? []).map((step) => [
+    step.resourceType, step.relationship, step.catalogEdgeId ?? '', step.storageDirection ?? '',
+  ]),
+]);
+
 const BuilderWorkspaceContent = ({
   organization,
   project,
@@ -440,6 +458,12 @@ const BuilderWorkspaceContent = ({
         explorers.data?.[0]?.explorerId ??
         '';
   const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId);
+  const workspaceAttached = useRef(false);
+  const workspaceHostRef = useCallback((node: HTMLElement | null) => {
+    workspaceAttached.current = node !== null;
+  }, []);
+  const publicationOwnerKeyRef = useRef(ownerKey);
+  publicationOwnerKeyRef.current = ownerKey;
   const selectedTableStorageKey = `loom.builder.selected-table:${ownerKey}`;
   const rememberedOutputId = useMemo(() => {
     try {
@@ -784,6 +808,7 @@ const BuilderWorkspaceContent = ({
       commands: ReadonlyArray<ExplorerBuilderCommand>,
       proposedCommandId?: string,
       constructionApplyIdentity?: ConstructionApplyPreviewIdentity,
+      admitCommand?: () => boolean,
     ) => {
       cancelAutomaticPreview();
       const applyPreviewEpoch = constructionApplyIdentity
@@ -799,6 +824,7 @@ const BuilderWorkspaceContent = ({
         let commandSucceeded = false;
         try {
           await queryOwner?.pauseAndDrain();
+          if (admitCommand && !admitCommand()) return undefined;
           const current = latestState.current;
           const commandId = proposedCommandId ?? window.crypto.randomUUID();
           const draftIdentity = commandDraftIdentity(current, serverDraft.current);
@@ -917,8 +943,11 @@ const BuilderWorkspaceContent = ({
     ],
   );
   const applyCommands = useCallback(
-    (commands: ReadonlyArray<ExplorerBuilderCommand>, proposedCommandId?: string) =>
-      applyCommandsWithResult(commands, proposedCommandId).then(Boolean),
+    (
+      commands: ReadonlyArray<ExplorerBuilderCommand>,
+      proposedCommandId?: string,
+      admitCommand?: () => boolean,
+    ) => applyCommandsWithResult(commands, proposedCommandId, undefined, admitCommand).then(Boolean),
     [applyCommandsWithResult],
   );
 
@@ -1374,6 +1403,14 @@ const BuilderWorkspaceContent = ({
   const activePopulationSelection = populationSelectionOverrideIsCurrent
     ? populationSelectionOverride.selection
     : populationSelection ?? populationSelectionQuery.data;
+  const populationExclusionContext = {
+    contextKey: populationSelectionContextKey,
+    client: loomClient,
+    baseSelectionID: activePopulationSelection?.id,
+    bindingKey: populationBindingKey(table),
+  };
+  const populationExclusionContextRef = useRef(populationExclusionContext);
+  populationExclusionContextRef.current = populationExclusionContext;
   const activePopulationSelectionLoading = populationSelectionLoading || (
     !populationSelection && populationSelectionQuery.isLoading
   );
@@ -1810,11 +1847,12 @@ const BuilderWorkspaceContent = ({
       if (fromColumnPicker) constructionLifecycle.cancel();
       return false;
     }
-    const proposalId = constructionLifecycle.beginApply(expectedProposal);
-    if (!proposalId || !table) {
+    const apply = constructionLifecycle.beginApply(expectedProposal);
+    if (!apply || !table) {
       if (fromColumnPicker) constructionLifecycle.cancel();
       return false;
     }
+    const { proposalId } = apply;
     appliedChoicePreview.current = undefined;
     const previewIdentity = automaticPreviewRequest.current;
     const constructionApplyIdentity = previewIdentity && previewIdentity.outputId === table.outputId
@@ -1826,8 +1864,8 @@ const BuilderWorkspaceContent = ({
       proposalId,
     }], undefined, constructionApplyIdentity);
     const applied = Boolean(appliedResult);
-    constructionLifecycle.finishApply(applied);
-    if (applied) {
+    const settledCurrentOwner = apply.finish(applied);
+    if (applied && settledCurrentOwner) {
       const closeEditor = !fromColumnPicker || activeConstructionFamily === 'ADD_COLUMNS';
       if (closeEditor) {
         cancelCombineCatalogRequest();
@@ -1835,7 +1873,7 @@ const BuilderWorkspaceContent = ({
         setConstructionHistorySelection({ kind: 'source' });
         setEditingConstructionStepId(undefined);
       }
-    } else if (fromColumnPicker) {
+    } else if (!applied && settledCurrentOwner && fromColumnPicker) {
       constructionLifecycle.cancel();
     }
     return applied;
@@ -1963,6 +2001,23 @@ const BuilderWorkspaceContent = ({
     const currentTable = selectedTable(current);
     const baseSelection = activePopulationSelection;
     if (!currentTable || !baseSelection) return;
+    const exclusionContext = populationExclusionContextRef.current;
+    const requestIsCurrent = () => {
+      const latestContext = populationExclusionContextRef.current;
+      const latest = latestState.current;
+      const latestTable = selectedTable(latest);
+      return workspaceAttached.current &&
+        latestContext.contextKey === exclusionContext.contextKey &&
+        latestContext.client === exclusionContext.client &&
+        latestContext.baseSelectionID === baseSelection.id &&
+        latestContext.bindingKey === exclusionContext.bindingKey &&
+        latestTable?.outputId === currentTable.outputId &&
+        latestTable.document.rootResourceType === currentTable.document.rootResourceType &&
+        populationBindingKey(latestTable) === exclusionContext.bindingKey &&
+        latest.draftVersion === serverDraft.current.version &&
+        latest.draftDigest === serverDraft.current.digest;
+    };
+    if (!requestIsCurrent()) return;
     setPopulationVariantPending(true);
     setPopulationVariantError(undefined);
     try {
@@ -1977,6 +2032,7 @@ const BuilderWorkspaceContent = ({
         exclusions: [ref],
         requestId: idempotencyKey,
       });
+      if (!requestIsCurrent()) return;
       let cursor: string | undefined;
       let routeChoiceId: string | undefined;
       do {
@@ -1991,6 +2047,7 @@ const BuilderWorkspaceContent = ({
           ...(cursor ? { cursor } : {}),
           requestId: `population-routes-${window.crypto.randomUUID()}`,
         });
+        if (!requestIsCurrent()) return;
         routeChoiceId = routes.choices.find((choice) =>
           sameConstructionRoute(choice.route, route),
         )?.routeChoiceId;
@@ -1999,19 +2056,33 @@ const BuilderWorkspaceContent = ({
       if (!routeChoiceId) {
         throw new Error('Loom could not preserve this table connection for the revised collection.');
       }
+      if (!requestIsCurrent()) return;
       const attached = await applyCommands([{
         type: 'SET_TABLE_POPULATION',
         outputId: currentTable.outputId,
         selectionRevisionId: variant.id,
         routeChoiceId,
-      }]);
-      if (!attached) throw new Error('Loom created the revised collection but could not attach it to this table.');
+      }], undefined, requestIsCurrent);
+      if (!attached) {
+        if (!requestIsCurrent()) return;
+        throw new Error('Loom created the revised collection but could not attach it to this table.');
+      }
+      const resultContext = populationExclusionContextRef.current;
+      const resultTable = selectedTable(latestState.current);
+      if (!workspaceAttached.current ||
+          resultContext.contextKey !== exclusionContext.contextKey ||
+          resultContext.client !== exclusionContext.client ||
+          (resultContext.baseSelectionID !== undefined && resultContext.baseSelectionID !== baseSelection.id && resultContext.baseSelectionID !== variant.id) ||
+          resultTable?.outputId !== currentTable.outputId ||
+          resultTable.document.rootResourceType !== currentTable.document.rootResourceType ||
+          populationBindingKey(resultTable) !== populationBindingKey(currentTable, variant.id)) return;
       setPopulationSelectionOverride({
         contextKey: populationSelectionContextKey,
         baseSelectionID: baseSelection.id,
         selection: variant,
       });
     } catch (error) {
+      if (!requestIsCurrent()) return;
       setPopulationVariantError({
         contextKey: populationSelectionContextKey,
         message: error instanceof Error ? error.message : 'Loom could not create the revised collection.',
@@ -2066,7 +2137,7 @@ const BuilderWorkspaceContent = ({
       setRootChangeState({ kind: 'assessing', selection, resolution, identity });
       const isCurrentAttempt = () => {
         const currentIdentity = getCurrentRootChangeIdentity();
-        return rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
+        return workspaceAttached.current && rowChangeRequestEpoch.current === epoch && currentIdentity !== undefined &&
           sameRootChangeRequestIdentity(identity, currentIdentity);
       };
       const request = assessRowChange({
@@ -2523,6 +2594,7 @@ const BuilderWorkspaceContent = ({
     owner?: AutomaticPreviewExecution,
     outputId?: string,
   ): Promise<ExplorerBuilderCompileResult | undefined> => {
+    if (!workspaceAttached.current) return undefined;
     const submitted = latestState.current;
     if (
       !submitted.catalog.snapshotToken ||
@@ -2534,6 +2606,14 @@ const BuilderWorkspaceContent = ({
     const submittedFingerprint = intentFingerprint(
       workspaceFromState(submitted),
     );
+    const requestIsCurrent = () => workspaceAttached.current && reconcileResultIsCurrent({
+      generation,
+      currentGeneration: compileGeneration.current,
+      submittedExplorerId: submitted.explorerId,
+      currentExplorerId: latestState.current.explorerId,
+      submittedFingerprint,
+      currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+    });
     let snapshotToken = submitted.catalog.snapshotToken;
     let draftVersion = submitted.draftVersion;
     let draftDigest = submitted.draftDigest;
@@ -2543,7 +2623,7 @@ const BuilderWorkspaceContent = ({
     const maxStaleRefreshes = 2;
     if (!owner) dispatch({ type: 'compiling' });
     for (;;) {
-      if (owner?.cancelled) return undefined;
+      if (owner?.cancelled || !requestIsCurrent()) return undefined;
       const request = reconcileBuilder({
         project: projectId,
         explorerId: submitted.explorerId,
@@ -2561,20 +2641,18 @@ const BuilderWorkspaceContent = ({
       }
       try {
         const value = await request.unwrap();
-        if (owner?.cancelled) return undefined;
+        if (owner?.cancelled || !requestIsCurrent()) return undefined;
         const current = latestState.current;
-        if (!reconcileResultIsCurrent({
+        const acceptance = reconcileAcceptance(value, {
           generation,
           currentGeneration: compileGeneration.current,
           submittedExplorerId: submitted.explorerId,
           currentExplorerId: current.explorerId,
           submittedFingerprint,
           currentFingerprint: intentFingerprint(workspaceFromState(current)),
-        })) return undefined;
-        if (!reconcileReceiptMatchesRequest(value, {
-          snapshotToken,
-          ...(outputId ? { outputId } : {}),
-        })) {
+        }, { snapshotToken, ...(outputId ? { outputId } : {}) });
+        if (acceptance === 'obsolete') return undefined;
+        if (acceptance === 'mismatch') {
           dispatch({
             type: 'repair',
             diagnostics: [{
@@ -2586,16 +2664,12 @@ const BuilderWorkspaceContent = ({
           return undefined;
         }
         dispatch({ type: 'compiled', value });
-        return value.diagnostics.some(
-          (diagnostic) => diagnostic.severity === 'error',
-        )
-          ? undefined
-          : value;
+        return acceptance === 'accepted' ? value : undefined;
       } catch (error) {
         const apiError = error as ExplorerAuthoringApiError;
         if (
           owner?.cancelled ||
-          generation !== compileGeneration.current ||
+          !requestIsCurrent() ||
           apiError.code === 'CLIENT_CANCELLED'
         )
           return undefined;
@@ -2607,7 +2681,7 @@ const BuilderWorkspaceContent = ({
         });
         if (recovery === 'refresh-and-stop') {
           const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled) return undefined;
+          if (owner?.cancelled || !requestIsCurrent()) return undefined;
           if (refreshed.data) {
             syncBuilderData(refreshed.data, 'hydrate');
             setMessage(undefined);
@@ -2621,7 +2695,7 @@ const BuilderWorkspaceContent = ({
         }
         if (recovery === 'refresh-and-retry') {
           const refreshed = await refetchBuilder({ reload: true });
-          if (owner?.cancelled || !refreshed.data) return undefined;
+          if (owner?.cancelled || !requestIsCurrent() || !refreshed.data) return undefined;
           syncBuilderData(refreshed.data, 'catalog');
           snapshotToken = refreshed.data.catalog.snapshotToken;
           draftVersion = refreshed.data.draftVersion;
@@ -3024,7 +3098,35 @@ const BuilderWorkspaceContent = ({
     async (receiptId: string) => {
       let activeReceiptId = receiptId;
       let refreshes = 0;
+      const publicationOwnerIsCurrent = () =>
+        workspaceAttached.current && publicationOwnerKeyRef.current === ownerKey;
       for (;;) {
+        if (!publicationOwnerIsCurrent()) return;
+        const submitted = latestState.current;
+        const generation = compileGeneration.current;
+        const submittedFingerprint = intentFingerprint(workspaceFromState(submitted));
+        const publicationIsCurrent = () => publicationOwnerIsCurrent() && reconcileResultIsCurrent({
+          generation,
+          currentGeneration: compileGeneration.current,
+          submittedExplorerId: submitted.explorerId,
+          currentExplorerId: latestState.current.explorerId,
+          submittedFingerprint,
+          currentFingerprint: intentFingerprint(workspaceFromState(latestState.current)),
+        });
+        const acknowledgementIdentity: PublicationAcknowledgementIdentity = {
+          ownerKey,
+          explorerId: submitted.explorerId,
+          draftDigest: submitted.draftDigest,
+          intentFingerprint: submittedFingerprint,
+          snapshotToken: submitted.catalog.snapshotToken,
+        };
+        const acknowledgementIsCurrent = () =>
+          publicationOwnerIsCurrent() &&
+          publicationOwnerKeyRef.current === acknowledgementIdentity.ownerKey &&
+          latestState.current.explorerId === acknowledgementIdentity.explorerId &&
+          latestState.current.draftDigest === acknowledgementIdentity.draftDigest &&
+          latestState.current.catalog.snapshotToken === acknowledgementIdentity.snapshotToken &&
+          intentFingerprint(workspaceFromState(latestState.current)) === acknowledgementIdentity.intentFingerprint;
         try {
           await publishBuilder({
             project: projectId,
@@ -3032,26 +3134,29 @@ const BuilderWorkspaceContent = ({
             authResourcePath,
             receiptId: activeReceiptId,
           }).unwrap();
+          if (!acknowledgementIsCurrent()) return;
           setLastPublished({
             ownerKey,
-            draftDigest: latestState.current.draftDigest,
+            draftDigest: submitted.draftDigest,
           });
           dispatch({ type: 'published' });
           setMessage(undefined);
           return;
         } catch (error) {
+          if (!publicationOwnerIsCurrent()) return;
           const apiError = error as ExplorerAuthoringApiError;
           if (isStaleSnapshot(apiError.code) && refreshes === 0) {
+            if (!publicationIsCurrent()) return;
             refreshes += 1;
             const refreshed = await refetchBuilder({ reload: true });
-            if (!refreshed.data) return;
+            if (!refreshed.data || !publicationIsCurrent()) return;
             latestState.current = builderAuthoringReducer(latestState.current, {
               type: 'catalogRefreshed',
               catalog: refreshed.data.catalog,
             });
             syncBuilderData(refreshed.data, 'catalog');
             const receipt = await reconcileCurrent();
-            if (!receipt) return;
+            if (!receipt || !publicationOwnerIsCurrent()) return;
             activeReceiptId = receipt.receiptId;
             continue;
           }
@@ -3116,14 +3221,14 @@ const BuilderWorkspaceContent = ({
     (explorerQueryEnabled && builder.isLoading)
   ) {
     return (
-      <main className="p-6" role="status">
+      <main ref={workspaceHostRef} className="p-6" role="status">
         Loading the selected Explorer configuration…
       </main>
     );
   }
   if (emptyExplorerProject) {
     return (
-      <main className="min-h-full p-6">
+      <main ref={workspaceHostRef} className="min-h-full p-6">
         <section
           aria-labelledby="empty-explorer-project-title"
           className="mx-auto max-w-xl rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
@@ -3158,7 +3263,7 @@ const BuilderWorkspaceContent = ({
   }
   if (shouldShowBuilderLoadError(Boolean(explorers.error), Boolean(builder.data))) {
     return (
-      <main className="p-6" role="alert">
+      <main ref={workspaceHostRef} className="p-6" role="alert">
         <p>Couldn’t load this dataset.</p>
         <button
           type="button"
@@ -3293,7 +3398,7 @@ const BuilderWorkspaceContent = ({
     setActiveConstructionFamily('RESHAPE');
   };
   const chooseReshapeRows = (
-    kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
+    kind: 'group' | 'source-group' | 'coded-group' | 'expand' | 'expand-signed' | 'categories' | 'pivot' | 'coded-pivot' | 'unpivot',
     preferredColumnIds?: ReadonlyArray<string>,
   ) => {
     if (kind === 'expand' && preferredColumnIds?.length !== 1) return;
@@ -3301,7 +3406,7 @@ const BuilderWorkspaceContent = ({
 
     let entry: ConstructionReshapeEditorEntry | undefined;
     let entryStageId: string | undefined;
-    if ((kind === 'expand' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
+    if ((kind === 'expand' || kind === 'expand-signed' || kind === 'group') && table && constructionLifecycle.capabilities.status === 'ready') {
       const response = constructionLifecycle.capabilities.response;
       const stage = response.selectedStage;
       const appendStageId = constructionAppendStageFor(response.baseConstruction, table.document.rows);
@@ -3319,6 +3424,14 @@ const BuilderWorkspaceContent = ({
         });
         if (!entry) return;
         entryStageId = stage.id;
+      } else if (kind === 'expand-signed') {
+        // No column-keyed entry: the signed picker is capability-driven and
+        // opens like the unpivot lane (empty form + capabilities choices),
+        // staying apply-disabled until a field resolves.
+        const signedSupported = stage.id === appendStageId
+          && (response.expandSourceInput?.supported ?? false)
+          && (response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
+        if (!signedSupported) return;
       } else if (supported) {
         entry = createReshapeEditorEntry({
           construction: construction ?? response.baseConstruction,
@@ -3328,7 +3441,7 @@ const BuilderWorkspaceContent = ({
         });
         entryStageId = stage.id;
       }
-    } else if (kind === 'expand') {
+    } else if (kind === 'expand' || kind === 'expand-signed') {
       return;
     }
 
@@ -3336,13 +3449,14 @@ const BuilderWorkspaceContent = ({
     cancelCombineCatalogRequest();
     setConstructionHistorySelection({ kind: 'source' });
     setEditingConstructionStepId(undefined);
-    setReshapeEntryKind(kind);
-    setReshapeFormKind(kind === 'categories' ? 'choose' : kind);
+    const editorKind = kind === 'expand-signed' ? 'expand' : kind;
+    setReshapeEntryKind(editorKind);
+    setReshapeFormKind(kind === 'categories' ? 'choose' : kind === 'expand-signed' ? 'expand' : kind);
     const nextEntry = reshapeEntry + 1;
     if (entry && entryStageId) {
       constructionLifecycle.onCandidateChange(entry.candidateIntent);
       setReshapeInitialEntry({
-        editorKey: reshapeEditorKeyFor(nextEntry, kind, entryStageId),
+        editorKey: reshapeEditorKeyFor(nextEntry, editorKind, entryStageId),
         entry,
       });
     } else {
@@ -3450,7 +3564,11 @@ const BuilderWorkspaceContent = ({
   const activeReshapeInitialEntry = reshapeInitialEntry && reshapeInitialEntry.editorKey === activeReshapeEditorKey
     ? reshapeInitialEntry.entry
     : undefined;
-  const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry
+  // The signed EXPAND flow opens the expand editor with no column-keyed entry
+  // (capability-driven, like the unpivot lane), so only a chooser-less
+  // non-signed expand demotes; demoting the signed kind made the signed card
+  // unopenable.
+  const activeReshapeInitialKind = reshapeEntryKind === 'expand' && !activeReshapeInitialEntry && reshapeFormKind !== 'expand'
     ? 'choose'
     : reshapeEntryKind;
   const hideGenericReshapeSelection = activeOperation?.family === 'RESHAPE' && (
@@ -3481,7 +3599,7 @@ const BuilderWorkspaceContent = ({
   const sourceAvailability = hasUnsupportedSavedSourceColumns
     ? { available: false, reason: 'Remove unsupported saved source fields before adding more fields.' }
     : constructionLifecycle.capabilities.status === 'error'
-    ? { available: false, reason: constructionLifecycle.capabilities.message }
+    ? { available: false, reason: sanitizeReasonText(constructionLifecycle.capabilities.message) }
     : sourceProjectionAvailability(sourceStageDescriptors, sourceProjectionSummary, selectedCapabilityStageId);
   const capabilityStage = constructionLifecycle.capabilities.status === 'ready'
     ? constructionLifecycle.capabilities.response.selectedStage
@@ -3495,29 +3613,35 @@ const BuilderWorkspaceContent = ({
   const relatedSourceReason = [
     relatedSourceCapability?.reasonCode,
     relatedSourceCapability?.reason,
-  ].filter((reason): reason is string => Boolean(reason?.trim())).join(': ');
+  ]
+    .map((part) => (part === undefined ? '' : sanitizeReasonText(part).trim()))
+    .filter((part) => part !== '')
+    .join(': ');
   const capabilityIsForAppendStage = constructionLifecycle.capabilities.status === 'ready' &&
     capabilityStage?.id === constructionAppendStageFor(
       constructionLifecycle.capabilities.response.baseConstruction,
       table?.document.rows,
     );
+  const capabilitiesErrorMessage = constructionLifecycle.capabilities.status === 'error'
+    ? constructionLifecycle.capabilities.message
+    : '';
   const reshapeAvailabilityFor = (kind: 'GROUP' | 'PIVOT' | 'CODED_PIVOT') => {
     const capability = capabilityStage?.capabilities.find((candidate) => candidate.kind === kind);
     return capabilityIsForAppendStage && capability?.supported
       ? { supported: true }
       : {
           supported: false,
-          reason: constructionLifecycle.capabilities.status === 'error'
-            ? constructionLifecycle.capabilities.message
-            : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
-              ? 'Checking this table’s available row operations…'
-              : capability?.reasonCode === 'NO_NUMERIC_COLUMN'
-                ? 'Add a numeric field before creating a calculated value.'
-                : capability?.reasonCode === 'INSUFFICIENT_SCALAR_COLUMNS'
-                  ? 'Pivot needs fields for the row, category, and value. Add or select those fields first.'
-                  : capability?.reasonCode === 'DIRECT_SOURCE_STAGE_REQUIRED'
-                    ? 'This coded row operation applies to the starting records before other row changes.'
-                    : 'This row operation is unavailable for the current table.',
+          reason: unavailableOperationReason({
+            stage: constructionLifecycle.capabilities.status === 'error'
+              ? 'error'
+              : constructionLifecycle.capabilities.status !== 'ready' || !capabilityIsForAppendStage
+                ? 'checking'
+                : 'ready',
+            errorMessage: capabilitiesErrorMessage,
+            checkingMessage: 'Checking this table’s available row operations…',
+            label: 'This row operation is unavailable for the current table.',
+            capability,
+          }),
         };
   };
   const codedGroupingAvailable = capabilityIsForAppendStage &&
@@ -3538,6 +3662,10 @@ const BuilderWorkspaceContent = ({
       ? publicScalarListColumnIds(capabilityStage)
       : [],
   );
+  const signedExpandAvailable = constructionLifecycle.capabilities.status === 'ready'
+    && previewIsCurrent && capabilityIsForAppendStage
+    && (constructionLifecycle.capabilities.response.expandSourceInput?.supported ?? false)
+    && (constructionLifecycle.capabilities.response.expandSourceInput?.choices ?? []).some((choice) => choice.isPopulated);
   const groupAlternatives = [
     ...(sourceGroupingAvailable ? [{ kind: 'source-group' as const, label: 'Source fields' }] : []),
     ...(codedGroupingAvailable ? [{ kind: 'coded-group' as const, label: 'Recorded code' }] : []),
@@ -3546,6 +3674,7 @@ const BuilderWorkspaceContent = ({
     group: ordinaryGroupAvailable ? { supported: true } : stageGroupingAvailability,
     groupEntry: 'group' as const,
     groupAlternatives,
+    expandSigned: signedExpandAvailable ? { supported: true as const } : undefined,
     pivot: codedPivotAvailability.supported ? codedPivotAvailability : tablePivotAvailability,
     pivotPending: Boolean(capabilitiesRequest) && constructionLifecycle.capabilities.status === 'loading',
     pivotEntry: codedPivotAvailability.supported ? 'coded-pivot' as const : 'pivot' as const,
@@ -3560,11 +3689,17 @@ const BuilderWorkspaceContent = ({
     ? { supported: true }
     : {
         supported: false,
-        reason: constructionLifecycle.capabilities.status === 'error'
-          ? constructionLifecycle.capabilities.message
-          : constructionLifecycle.capabilities.status !== 'ready'
-            ? 'Checking available related row paths…'
-            : relatedExpandCapability?.reason ?? 'This table has no executable related-record row path at the current stage.',
+        reason: unavailableOperationReason({
+          stage: constructionLifecycle.capabilities.status === 'error'
+            ? 'error'
+            : constructionLifecycle.capabilities.status !== 'ready'
+              ? 'checking'
+              : 'ready',
+          errorMessage: capabilitiesErrorMessage,
+          checkingMessage: 'Checking available related row paths…',
+          label: 'This table has no executable related-record row path at the current stage.',
+          capability: relatedExpandCapability,
+        }),
       };
   const relatedSourceUnavailableReason = hasUnsupportedSavedSourceColumns
     ? 'Remove unsupported saved source fields before adding related fields.'
@@ -3582,7 +3717,7 @@ const BuilderWorkspaceContent = ({
         supported: false,
         reason: relatedSourceUnavailableReason || relatedSourceReason || (
           constructionLifecycle.capabilities.status === 'error'
-            ? constructionLifecycle.capabilities.message
+            ? sanitizeReasonText(constructionLifecycle.capabilities.message)
             : constructionLifecycle.capabilities.status === 'ready'
               ? 'Loom has not proved that this stage retains a source row anchor.'
               : 'Loom is checking whether this stage supports related-source fields.'
@@ -3824,7 +3959,7 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'error' ? (
             <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {constructionLifecycle.capabilities.message}
+              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             activeOperation.family === 'KEEP_ROWS' ? (
@@ -3859,7 +3994,7 @@ const BuilderWorkspaceContent = ({
             </p>
           ) : constructionLifecycle.capabilities.status === 'error' ? (
             <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              {constructionLifecycle.capabilities.message}
+              {sanitizeReasonText(constructionLifecycle.capabilities.message)}
             </p>
           ) : constructionLifecycle.capabilities.status === 'ready' ? (
             <ConstructionReshapeEditor
@@ -3950,7 +4085,7 @@ const BuilderWorkspaceContent = ({
       {constructionLifecycle.capabilities.status === 'loading' ? (
         <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
       ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{constructionLifecycle.capabilities.message}</p>
+        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
       ) : constructionLifecycle.capabilities.status === 'ready' ? (
         <RelatedSourceStepEditor
           project={projectId}
@@ -3979,7 +4114,7 @@ const BuilderWorkspaceContent = ({
       {constructionLifecycle.capabilities.status === 'loading' ? (
         <p role="status" className="text-sm text-slate-700">Loading the saved step’s input stage…</p>
       ) : constructionLifecycle.capabilities.status === 'error' ? (
-        <p role="alert" className="text-sm text-red-800">{constructionLifecycle.capabilities.message}</p>
+        <p role="alert" className="text-sm text-red-800">{sanitizeReasonText(constructionLifecycle.capabilities.message)}</p>
       ) : constructionLifecycle.capabilities.status === 'ready' ? (
         <RelatedFieldEditor
           key={`${ownerKey}:${editingRelatedFieldStep.id}`}
@@ -4161,7 +4296,7 @@ const BuilderWorkspaceContent = ({
     sameRootChangeRequestIdentity(pendingRowChangePreview.identity, currentRootChangeIdentity);
 
   return (
-    <main className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
+    <main ref={workspaceHostRef} className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {reviewOpen ? (
         <DatasetReviewPanel

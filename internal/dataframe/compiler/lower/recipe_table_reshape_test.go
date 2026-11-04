@@ -11,7 +11,9 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/expression"
+	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
 func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *testing.T) {
@@ -74,6 +76,190 @@ func TestCompileGroupedTablePivotUsesFrozenTypedCategoriesAndOrderedOutputs(t *t
 		t.Fatalf("pivot identity is not the construction ID plus a typed group-key tuple: %s", rendered.Query)
 	}
 	assertUnlistedCategoryScope(t, rendered.Query, pivot)
+}
+
+func TestCompileGroupedTablePivotDoesNotDuplicateSourceColumnIDAcrossCategories(t *testing.T) {
+	// Authoring-compiled outputs carry stable source column IDs on recipe
+	// fields. Two categories materialized from one shared value input must
+	// not each claim the value's source producer identity: the receipt
+	// compiled output schema rejects duplicate column IDs, which surfaced as
+	// an HTTP 500 on every multi-category table-shape pivot proposal. The
+	// defect is type-agnostic; only the reducer policies require numerics.
+	for _, test := range []struct {
+		name          string
+		valueColumn   string
+		valueID       string
+		policy        recipe.PivotDuplicatePolicy
+		categories    []recipe.GroupedPivotCategory
+		categoryKinds []string
+	}{
+		{
+			name: "numeric sum", valueColumn: "value", valueID: "source_shared_value", policy: recipe.PivotDuplicateSum,
+			categories: []recipe.GroupedPivotCategory{
+				{Key: tableScalarInteger(0), Output: "birth_zero", Label: "Zero"},
+				{Key: tableScalarInteger(1), Output: "birth_one", Label: "One"},
+			},
+			categoryKinds: []string{string(expression.KindInteger), string(expression.KindInteger)},
+		},
+		{
+			// Saved receipts from single-category pivots were compiled with
+			// the clone identity and are revalidated at publication; that
+			// historical byte identity must not drift.
+			name: "single category keeps saved identity", valueColumn: "value", valueID: "source_shared_value", policy: recipe.PivotDuplicateSum,
+			categories: []recipe.GroupedPivotCategory{
+				{Key: tableScalarInteger(0), Output: "birth_zero", Label: "Zero"},
+			},
+			categoryKinds: []string{string(expression.KindInteger)},
+		},
+		{
+			name: "string error reducer", valueColumn: "keep", valueID: "source_shared_string", policy: recipe.PivotDuplicateError,
+			categories: []recipe.GroupedPivotCategory{
+				{Key: tableScalarInteger(0), Output: "keep_zero", Label: "Zero"},
+				{Key: tableScalarInteger(1), Output: "keep_one", Label: "One"},
+			},
+			categoryKinds: []string{string(expression.KindString), string(expression.KindString)},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := tableReshapeTestOutput(&recipe.TableReshape{
+				Kind: recipe.TableReshapeGroupedPivot,
+				GroupedPivot: &recipe.GroupedPivot{
+					ConstructionID: "shape_pivot_shared_source", GroupKeys: []string{"group"}, CategoryColumn: "category", ValueColumn: test.valueColumn,
+					Categories:             test.categories,
+					DuplicatePolicy:        test.policy,
+					MissingCellPolicy:      recipe.PivotMissingCellNull,
+					UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+				},
+			})
+			for index := range output.Fields {
+				switch output.Fields[index].Name {
+				case "group":
+					output.Fields[index].ColumnID = "source_group_col"
+				case "category":
+					output.Fields[index].ColumnID = "source_category_col"
+				case "value":
+					output.Fields[index].ColumnID = "source_shared_value"
+				case "keep":
+					output.Fields[index].ColumnID = test.valueID
+				}
+			}
+			compiled := compileDerivedTestOutput(t, output)
+			assertUniquePivotOutputSchemaIDs(t, compiled.OutputSchema)
+			for index, category := range test.categories {
+				column, ok := outputSchemaColumn(compiled.OutputSchema, category.Output)
+				if !ok {
+					t.Fatalf("category output %q missing from schema %#v", category.Output, compiledSchemaNames(compiled.OutputSchema))
+				}
+				if index == 0 {
+					// The first category preserves the historical clone
+					// identity so already-saved single-category pivot
+					// receipts keep recompiling byte-for-byte.
+					if column.ID != test.valueID {
+						t.Fatalf("first pivot category lost its historical clone identity: got %q want %q: %#v", column.ID, test.valueID, column)
+					}
+				} else if column.ID != "" {
+					t.Fatalf("pivot category output %q claims source producer identity %q: %#v", category.Output, column.ID, column)
+				}
+				if column.Kind != test.categoryKinds[index] {
+					t.Fatalf("pivot category output %q lost the resolved value type: %#v", category.Output, column)
+				}
+				if column.SemanticPath != "table_reshape:shape_pivot_shared_source:category:"+category.Output {
+					t.Fatalf("pivot category output %q lost its construction semantic path: %#v", category.Output, column)
+				}
+				if column.SourceChild != nil || column.PresenceCompanionName != "" {
+					t.Fatalf("pivot category output %q inherited source presence lineage it does not carry: %#v", category.Output, column)
+				}
+			}
+		})
+	}
+}
+
+func assertUniquePivotOutputSchemaIDs(t *testing.T, schema []CompiledOutputColumn) {
+	t.Helper()
+	seen := make(map[string]string, len(schema))
+	for _, column := range schema {
+		if column.ID == "" {
+			continue
+		}
+		if previous, exists := seen[column.ID]; exists {
+			t.Fatalf("output schema duplicates column ID %q across %q and %q: %#v", column.ID, previous, column.Name, schema)
+		}
+		seen[column.ID] = column.Name
+	}
+	if seen["source_group_col"] != "group" {
+		t.Fatalf("group key lost its source column identity: %#v", seen)
+	}
+	if rowID, exists := outputSchemaColumn(schema, "__loom_row_id"); !exists || rowID.ID != "" {
+		t.Fatalf("reshaped row identity must stay compiler-owned without a source ID: %#v", rowID)
+	}
+}
+
+func TestLowerRecipeGroupedPivotLaterCategoriesDropSourceIdentityFields(t *testing.T) {
+	// Construction-lane value columns (recipe_construction.go source-projection
+	// stage columns) can carry source identity: a producer column ID plus
+	// lineage fields the root-lane fixtures cannot produce. Later categories
+	// materialized from the same shared value input must drop every identity
+	// field; the first category keeps them for saved-receipt byte compatibility.
+	child := &lineage.SourceChild{
+		Kind: lineage.IndexedValueChild, ParentColumnIDs: []string{"source_root"},
+		OccurrenceID: "base", SourcePath: "valueQuantity.value",
+		Coordinates: []lineage.Coordinate{{BoundaryPath: "valueQuantity[]", Index: 0}},
+	}
+	anchor := &CompiledRelatedRecordAnchor{TargetNodeID: "related_node", TargetResourceType: "Observation"}
+	value := CompiledOutputColumn{
+		ID: "source_shared_value", Name: "value", Label: "Value", Kind: string(expression.KindInteger),
+		Cardinality: string(expression.OptionalOne), Nullable: true,
+		SourceChild: child, PresenceCompanionName: "__loom_value_present", RelatedRecordAnchor: anchor,
+	}
+	schema := map[string]CompiledOutputColumn{
+		"group":    {ID: "source_group_col", Name: "group", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne)},
+		"category": {ID: "source_category_col", Name: "category", Kind: string(expression.KindInteger), Cardinality: string(expression.OptionalOne), Nullable: true},
+		"value":    value,
+	}
+	projections := map[string]ir.PhysicalProjection{
+		"group":    {Name: "group", Value: ir.PhysicalValue{Variable: "root", Path: []string{"gender"}}},
+		"category": {Name: "category", Value: ir.PhysicalValue{Variable: "root", Path: []string{"multipleBirthInteger"}}},
+		"value":    {Name: "value", Value: ir.PhysicalValue{Variable: "root", Path: []string{"multipleBirthInteger"}}},
+	}
+	plan := ir.PhysicalPlan{
+		BindVars: map[string]any{},
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+				projections["group"], projections["category"], projections["value"],
+			}}},
+		},
+	}
+	pivot := semantic.SemanticGroupedPivot{
+		ConstructionID: "shape_pivot_identity", GroupKeys: []string{"group"},
+		CategoryColumn: "category", ValueColumn: "value",
+		Categories: []semantic.SemanticGroupedPivotCategory{
+			{Key: tableScalarInteger(0), Output: "bucket_a", Label: "A"},
+			{Key: tableScalarInteger(1), Output: "bucket_b", Label: "B"},
+		},
+		DuplicatePolicy: recipe.PivotDuplicateSum, MissingCellPolicy: recipe.PivotMissingCellNull,
+		UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+	}
+	_, _, outputSchema, err := lowerRecipeGroupedPivot(&plan, pivot, ir.ClonePhysicalOperation(plan.Operations[0]).Return.Projections, schema, projections, map[string]bool{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, ok := outputSchemaColumn(outputSchema, "bucket_a")
+	if !ok {
+		t.Fatalf("first category missing: %#v", compiledSchemaNames(outputSchema))
+	}
+	if first.ID != "source_shared_value" || first.SourceChild == nil || first.PresenceCompanionName != "__loom_value_present" || first.RelatedRecordAnchor == nil {
+		t.Fatalf("first category must keep the historical saved identity byte-for-byte: %#v", first)
+	}
+	second, ok := outputSchemaColumn(outputSchema, "bucket_b")
+	if !ok {
+		t.Fatalf("second category missing: %#v", compiledSchemaNames(outputSchema))
+	}
+	if second.ID != "" || second.SourceChild != nil || second.PresenceCompanionName != "" || second.RelatedRecordAnchor != nil {
+		t.Fatalf("second category inherited source producer identity fields: id=%q sourceChild=%#v presence=%q anchor=%#v", second.ID, second.SourceChild, second.PresenceCompanionName, second.RelatedRecordAnchor)
+	}
+	if second.Kind != string(expression.KindInteger) || second.SemanticPath != "table_reshape:shape_pivot_identity:category:bucket_b" {
+		t.Fatalf("second category lost value typing or semantic identity: %#v", second)
+	}
 }
 
 func TestGroupedPivotNonnumericReducerHasTypedError(t *testing.T) {

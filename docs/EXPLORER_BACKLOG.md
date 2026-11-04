@@ -468,7 +468,7 @@ Private artifact Arango catalog integrated after final cumulative review: dedica
 
 Private manifest catalog follow-up remains required before live acceptance: raw RFC3339Nano string comparisons can misorder leases with different fractional precision (whole-second versus fractional-second, or .1 versus .11). Root returned the integrated candidate for chronological timestamp comparison/extension/sorting corrections and explicit regressions. Existing unit/race checks do not prove this boundary case; production engine wiring remains staged.
 
-Verifier ownership helpers checked on integrated source: `node --test scripts/verify-ui/helpers/tests/verify-ui/helpers/tests/related-source-capture.test.mjs scripts/verify-ui/helpers/tests/saved-preview-binding.test.mjs scripts/verify-ui/helpers/tests/validation-wait-evidence.test.mjs` passes5checks. These reject stale preview receipts, classify exact operation-level ONE/ALL policies, and retain late validation timeout evidence without converting a timeout to a pass. Native lifecycle evidence remains separate.
+Verifier ownership helpers checked on integrated source: `node --test scripts/verify-ui/helpers/tests/related-source-capture.test.mjs scripts/verify-ui/helpers/tests/saved-preview-binding.test.mjs scripts/verify-ui/helpers/tests/validation-wait-evidence.test.mjs` passes. These reject stale preview receipts, classify exact operation-level ONE/ALL policies, and retain late validation timeout evidence without converting a timeout to a pass. Native lifecycle evidence remains separate.
 
 Integrated cross-package check passes: `go test ./internal/dataframe/recipe ./internal/dataframe/compiler/ir ./internal/dataframe/compiler/lower ./internal/dataframe/compiler/render/clickhouse ./internal/dataframe/execution/chartifact/... -count=1`, all six packages green. `git diff --check` passes. Opt-in Arango runtime cases remain skipped; lease timestamp correction still required before production acceptance.
 
@@ -476,7 +476,7 @@ Integrated AQL renderer package passes after the streaming Pivot change and scop
 
 Private lease timestamp correction integrated after cumulative review: all stored lease/create/update timestamps and AQL time binds now use fixed-width nanosecond UTC strings, preserving chronological indexed sorting and MAX extensions. Exact-second/fractional-second encoding and roundtrip regressions pass in worker unit/race checks; real-Arango cutoff/sort cases remain gated/unrun. Reviewed checkpoint9685d66d963a55c5b0426e1c6ac302174b3fbffc; correction194e368e7401a393c5c3ddec8b56e8e33e599a6a. No production deployment or native acceptance claimed.
 
-Integrated verifier checks pass15assertions across builder-combine helpers and coverage classification: `node --test scripts/verify-ui/tests/registry.test.mjs scripts/verify-ui/helpers/tests/coverage-status.test.mjs scripts/verify-ui/helpers/tests/builder-combine.test.mjs`. This is harness evidence only; native Join/Append lifecycle still open.
+Integrated verifier checks pass across builder-combine helpers and coverage classification: `node --test scripts/verify-ui/helpers/tests/coverage-status.test.mjs scripts/verify-ui/helpers/tests/builder-combine.test.mjs`. This is harness evidence only; native Join/Append lifecycle still open.
 
 Whole-relation proof review found two unsupported-shape restrictions requiring correction before integration: pure post-group filters retain authorized provenance and must remain usable; nested workspace Combine outputs need typed compositional evidence from exact ordered input proofs/captures rather than an AQL-only issuer. Workers are coordinating the constructor contract. No evidence patch has been integrated and no grouped/nested draft Combine pass is claimed.
 
@@ -639,3 +639,23 @@ The full-scope Patient → inbound Specimen `type.coding[]` `COUNT_ROWS` preview
 Separate baseline failure: `TestConstructionProposalCurrentCodingChoiceReconcilesAndPreviewsHTTP` still fails on pre-reconciliation base `d9b7253a2` because the CURRENT_ITEM Coding key requires exact source-projection expansion identity and compiler source-shape binding. The connected RELATED_OCCURRENCE lifecycle does not cover or claim to fix that path.
 
 UI follow-up: the applied screenshot shows both Patient.id and Specimen.id as “Logical id of this artifact.” Add a resource/route prefix so the two available identities are distinguishable. This is a label-clarity follow-up; it did not block or alter the passing lifecycle.
+
+## ROW-SOURCE-02 slice-2 UI review carry-over (2026-11-02)
+
+Zod↔openapi leniency on the construction capability choice shape is a family convention, not a
+slice-2 defect; deliberately NOT changed here (filter and derive lanes share it; a lane-consistent
+change should tighten all three together):
+
+- loom-ui `constructionUnpivotSourceChoiceSchema.columnId` is `z.string().optional()` while
+  openapi `ConstructionUnpivotSourceChoice` requires `columnId` (`openapi.yaml:4540-4549`; the same
+  optional pattern exists for the filter/derive choices at `openapi.yaml:4480/4510` and their zod
+  schemas in `ui/packages/loom-ui/src/types.ts`). A server regression omitting `columnId` would not
+  be caught client-side. Every consumer guards on a truthy `columnId`. Backlog: make these zod
+  fields required strings (min length 0 preserves the honest empty-string case) across filter,
+  derive, and unpivot choices in one lane-consistent change. Source:
+  `/tmp/opencode/rs02-slice2-ui-review.md` finding F-2.
+- `label: z.string().min(1)` in the UI capability schemas is stricter than openapi, which permits an
+  empty label; a contract-legal empty label would throw the client capability parse. Same
+  filter/derive family convention; server label builders are path-derived, so this has not been
+  observed. Backlog: either relax the zod to match the contract or tighten the contract, family-wide.
+  Source: same receipt, finding F-3.
