@@ -921,6 +921,20 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 		}()
 	}
+	if artifactStore != nil {
+		artifactReconcileCtx, cancelArtifactReconciler := context.WithCancel(ctx)
+		artifactReconcilerDone := startArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
+		defer func() {
+			cancelArtifactReconciler()
+			timer := time.NewTimer(cleanupTimeout)
+			defer timer.Stop()
+			select {
+			case <-artifactReconcilerDone:
+			case <-timer.C:
+				logger.Error("filesystem artifact reconciler did not stop before shutdown deadline")
+			}
+		}()
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "database", serverConfig.Server.Database, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
