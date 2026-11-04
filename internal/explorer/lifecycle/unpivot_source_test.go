@@ -1408,3 +1408,82 @@ func TestConstructionUnpivotSourceCapabilityNamesInventoryFailureDistinctly(t *t
 		t.Fatalf("inventory-error and empty-data verdicts collapsed: %#v", distinct)
 	}
 }
+
+// The unpivot lane's advertised offer label is produced by the shared lane
+// label builder (constructionFieldDisplayLabel, construction_pivot_source.go):
+// the authorized candidate's schema-Title label wins over the planner
+// row-choice display, a blank candidate falls through to the choice display,
+// and a candidate carrying a Unicode control byte is refused (skipped) so the
+// builder never returns control bytes for this lane. The builder's own
+// refusal is unit-pinned in construction_pivot_source_test.go and the
+// expand lane's candidate-wins ordering in expand_source_test.go; this is
+// the only check that the unpivot offer call site (unpivot_source.go)
+// routes candidate and choice displays through the builder, and the only
+// per-call-site pin of the blank and control-byte fall-through ordering.
+func TestConstructionUnpivotSourceAdvertisedLabelsFollowBuilderPrecedence(t *testing.T) {
+	baseCase := func(t *testing.T) (capability.Snapshot, string) {
+		t.Helper()
+		snapshot := unpivotSourceBSSnapshot("unpivot-label-precedence")
+		choice := deriveSourceRowChoice(t, snapshot, deriveSourceRootType, "active")
+		if strings.TrimSpace(choice.Label) == "" {
+			t.Fatalf("planner row-choice display label is blank; case premise broken: %#v", choice)
+		}
+		return snapshot, choice.Label
+	}
+	advertisedActiveLabel := func(t *testing.T, snapshot capability.Snapshot) string {
+		t.Helper()
+		service := deriveSourceService(t)
+		result, err := service.constructionUnpivotSourceCapability(context.Background(),
+			deriveSourceBase(snapshot, authoringv2.Construction{Version: authoringv2.ConstructionVersion}), deriveSourceOutput, recipe.ConstructionSourceProjectionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, offered := range result.Choices {
+			if offered.FieldPath == "active" {
+				return offered.Label
+			}
+		}
+		t.Fatalf("active scalar was not offered: %#v", result.Choices)
+		return ""
+	}
+	setActiveCandidateLabel := func(t *testing.T, snapshot capability.Snapshot, label string) {
+		t.Helper()
+		matched := 0
+		for i := range snapshot.Candidates {
+			if snapshot.Candidates[i].ResourceType == deriveSourceRootType && snapshot.Candidates[i].FieldPath == "active" {
+				snapshot.Candidates[i].Label = label
+				matched++
+			}
+		}
+		if matched == 0 {
+			t.Fatal("no active candidate to retarget")
+		}
+	}
+
+	snapshot, choiceLabel := baseCase(t)
+	setActiveCandidateLabel(t, snapshot, "Melt source title")
+	if got := advertisedActiveLabel(t, snapshot); got != "Melt source title" {
+		t.Fatalf("schema-Title candidate must win over choice display %q, got %q", choiceLabel, got)
+	}
+
+	snapshot, choiceLabel = baseCase(t)
+	setActiveCandidateLabel(t, snapshot, "   ")
+	if got := advertisedActiveLabel(t, snapshot); got != choiceLabel {
+		t.Fatalf("blank candidate must fall through to choice display %q, got %q", choiceLabel, got)
+	}
+
+	snapshot, choiceLabel = baseCase(t)
+	setActiveCandidateLabel(t, snapshot, "Evil\u0000title\u001b")
+	if got := advertisedActiveLabel(t, snapshot); got != choiceLabel {
+		t.Fatalf("control-byte candidate must be refused in favor of choice display %q, got %q", choiceLabel, got)
+	}
+	if strings.ContainsRune(advertisedActiveLabel(t, snapshot), 0) {
+		t.Fatal("a NUL byte reached the advertised unpivot lane label")
+	}
+
+	snapshot, choiceLabel = baseCase(t)
+	setActiveCandidateLabel(t, snapshot, "Evil\u001btitle")
+	if got := advertisedActiveLabel(t, snapshot); got != choiceLabel {
+		t.Fatalf("ESC-only candidate must be refused in favor of choice display %q, got %q", choiceLabel, got)
+	}
+}
