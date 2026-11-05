@@ -52,17 +52,10 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 			return nil, fiber.NewError(fiber.StatusUnsupportedMediaType)
 		}
 		var parseErr *multipartParseError
-		if errors.As(err, &parseErr) {
-			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
-		}
-		switch {
-		case errors.Is(err, os.ErrInvalid):
-			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidGenerationFile, "")
-		case errors.Is(err, os.ErrExist):
-			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeDuplicateGenerationFile, "")
-		default:
+		if !errors.As(err, &parseErr) {
 			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 		}
+		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidRequest, "")
 	}
 	project, generation = strings.TrimSpace(project), strings.TrimSpace(generation)
 	if project == "" || generation == "" || bundle.FileCount() == 0 {
@@ -81,6 +74,19 @@ func (h *Handler) CreateDatasetGeneration(ctx context.Context, project, generati
 	}
 	if err := h.authz.AuthorizeWrite(ctx, principal, project, authResourcePath); err != nil {
 		return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeForbidden, "")
+	}
+	// The file-part fault surfaces here, not during parsing: the replaced path
+	// ran ReadForm to completion and only then inspected names, so an invalid
+	// name never outranked a scalar fault or a denied request.
+	if err := bundle.ParseStagingError(); err != nil {
+		switch {
+		case errors.Is(err, os.ErrInvalid):
+			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInvalidGenerationFile, "")
+		case errors.Is(err, os.ErrExist):
+			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeDuplicateGenerationFile, "")
+		default:
+			return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+		}
 	}
 	authResourcePath = authscope.NormalizeAuthResourcePath(authResourcePath)
 	req := GenerationLoadRequest{Project: project, Generation: generation, AuthResourcePath: authResourcePath, StagedDir: bundle.StagedDir, DeferActivation: deferActivation}

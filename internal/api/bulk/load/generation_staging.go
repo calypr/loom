@@ -8,6 +8,8 @@ import (
 	"net/textproto"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -33,6 +35,54 @@ const (
 	generationFileField = "file"
 )
 
+// formLimits are the parse limits mime/multipart's readForm applies, including
+// the ones an operator can retune through GODEBUG. Reading them here keeps the
+// stager and the parser it replaces in lockstep when a deployment sets
+// multipartmaxparts or multipartmaxheaders.
+type formLimits struct {
+	maxFileMemoryBytes int64
+	maxMemoryBytes     int64
+	maxParts           int
+	maxHeaders         int64
+}
+
+func generationFormLimits() formLimits {
+	limits := formLimits{
+		maxFileMemoryBytes: generationFormMaxMemory,
+		maxMemoryBytes:     generationFormMaxMemory + formMemoryReserve,
+		maxParts:           formDefaultMaxParts,
+		maxHeaders:         formDefaultMaxHeaderValues,
+	}
+	// Same rule as readForm: an override only applies when it parses, so a
+	// malformed value keeps the default instead of tightening the limit to zero.
+	if value, err := strconv.Atoi(godebugValue("multipartmaxparts")); err == nil && value >= 0 {
+		limits.maxParts = value
+	}
+	if value, err := strconv.ParseInt(godebugValue("multipartmaxheaders"), 10, 64); err == nil && value >= 0 {
+		limits.maxHeaders = value
+	}
+	return limits
+}
+
+// godebugValue returns the last value assigned to name in $GODEBUG, mirroring
+// how internal/godebug (not importable) resolves a setting: comma-separated
+// pairs, later ones winning, with any "#pattern" bisect suffix stripped.
+func godebugValue(name string) string {
+	value, found := "", false
+	for _, setting := range strings.Split(os.Getenv("GODEBUG"), ",") {
+		key, arg, ok := strings.Cut(setting, "=")
+		if !ok || key != name {
+			continue
+		}
+		value, _, _ = strings.Cut(arg, "#")
+		found = true
+	}
+	if !found {
+		return ""
+	}
+	return value
+}
+
 // multipartParseError marks a failure raised while parsing the multipart
 // stream. mime/multipart returns unexported errors for these, and the handler
 // must classify them as invalid input rather than as a staging fault.
@@ -44,12 +94,29 @@ func (e *multipartParseError) Unwrap() error { return e.err }
 // generationBundle is a parsed generation upload: the scalar form values in
 // ReadForm's first-value-wins shape, plus the bundle already staged in the
 // directory the loader consumes.
+//
+// stagingErr carries the first file-part fault — an invalid name, a duplicate
+// name, or a failed staged write — and is reported only by ParseStagingError,
+// which the handler calls after scalar validation and authorization. That is
+// where the replaced path raised it: ReadForm parsed the entire body before
+// stageGenerationFiles ever inspected a name, so a denied or otherwise invalid
+// request reported its scalar-level or transport-level fault instead of the
+// file fault.
 type generationBundle struct {
 	Values    map[string][]string
 	StagedDir string
 
-	files   []string // staged names in arrival order
-	pending []pendingGenerationFile
+	fileParts  int // bundle-field file parts, in multipart order, valid or not
+	pending    []pendingGenerationFile
+	stagingErr error
+}
+
+// ParseStagingError returns the deferred file-part fault, or nil.
+func (b *generationBundle) ParseStagingError() error {
+	if b == nil {
+		return nil
+	}
+	return b.stagingErr
 }
 
 type pendingGenerationFile struct {
@@ -65,19 +132,29 @@ func (b *generationBundle) Cleanup() {
 		return
 	}
 	b.pending = nil
-	b.files = nil
 	if b.StagedDir != "" {
 		_ = os.RemoveAll(b.StagedDir)
 		b.StagedDir = ""
 	}
 }
 
-// FileCount is the number of file parts seen, in multipart order.
+// FileCount is the number of file parts under the bundle field, in multipart
+// order. It counts parts the stager later rejects by name, as
+// len(form.File["file"]) did.
 func (b *generationBundle) FileCount() int {
 	if b == nil {
 		return 0
 	}
-	return len(b.files)
+	return b.fileParts
+}
+
+// noteFault records the first file-part fault. Later faults are already
+// shadowed by it, as they were when stageGenerationFiles returned at the first
+// offending header.
+func (b *generationBundle) noteFault(err error) {
+	if b.stagingErr == nil {
+		b.stagingErr = err
+	}
 }
 
 // stageGenerationBundle parses a multipart generation upload in one pass and
@@ -88,30 +165,40 @@ func (b *generationBundle) FileCount() int {
 // readForm spooled to disk is streamed into the staged file instead of into a
 // multipart-* temporary file that a second copy then read back.
 //
-// Parts that stay in memory are written when the next scalar field arrives or
-// at the end of the stream, so a request rejected by a later part leaves
-// nothing on disk. A nil reader yields a nil bundle and a nil error, which is
-// how the handler saw an absent body.
+// A part that stays within the budget is buffered and written when the next
+// scalar field arrives or at the end of the stream, which is no later than the
+// point where the replaced path handed the same bytes to the stager. File-part
+// faults are deferred to ParseStagingError so the handler keeps the shipped
+// precedence: parse, scalar validation, authorization, then the file fault.
+// Whatever the failure, Cleanup leaves nothing behind. A nil reader yields a
+// nil bundle and a nil error, which is how the handler saw an absent body.
 func stageGenerationBundle(body *multipart.Reader) (*generationBundle, error) {
 	if body == nil {
 		return nil, nil
 	}
 	bundle := &generationBundle{Values: make(map[string][]string)}
-	maxFileMemoryBytes := generationFormMaxMemory
-	maxMemoryBytes := generationFormMaxMemory + formMemoryReserve
-	maxParts := formDefaultMaxParts
-	maxHeaders := int64(formDefaultMaxHeaderValues)
+	limits := generationFormLimits()
+	maxFileMemoryBytes := limits.maxFileMemoryBytes
+	maxMemoryBytes := limits.maxMemoryBytes
+	maxParts := limits.maxParts
+	maxHeaders := limits.maxHeaders
 	seen := make(map[string]struct{})
 	var copyBuf []byte
 
-	// Every failure disposes what has been staged so far, so a request
-	// rejected by any part leaves no temporary files behind.
-	fail := func(err error) (*generationBundle, error) {
-		bundle.Cleanup()
-		return nil, err
-	}
+	// A parse failure disposes of what has been staged so far. A file-part
+	// fault does not: it is reported after authorization, and the handler's
+	// cleanup covers the bundle either way.
 	failParse := func(err error) (*generationBundle, error) {
-		return fail(&multipartParseError{err})
+		bundle.Cleanup()
+		return nil, &multipartParseError{err}
+	}
+	// discard drains a part that will not be staged, keeping readForm's budget
+	// accounting for it intact. readForm returned a failed drain of an
+	// over-budget part as a parse error, so this does too.
+	discard := func(part *multipart.Part) error {
+		_, err := io.Copy(io.Discard, part)
+		part.Close()
+		return err
 	}
 
 	for {
@@ -155,9 +242,9 @@ func stageGenerationBundle(body *multipart.Reader) (*generationBundle, error) {
 			}
 			bundle.Values[name] = append(bundle.Values[name], value.String())
 			// A scalar field means every earlier file is fully visible to the
-			// handler, so writing them now reproduces what ReadForm staged.
+			// handler, so writing them now is no later than the replaced path.
 			if err := bundle.flush(); err != nil {
-				return fail(err)
+				bundle.noteFault(err)
 			}
 			continue
 		}
@@ -174,93 +261,110 @@ func stageGenerationBundle(body *multipart.Reader) (*generationBundle, error) {
 			part.Close()
 			return failParse(errors.New("multipart: message too large"))
 		}
+
 		// Only the "file" field is the bundle; file parts under any other name
 		// are charged against the budget, as ReadForm charged them, then
 		// discarded.
 		bundled := name == generationFileField
-		stagedName := ""
 		if bundled {
-			var err error
-			stagedName, err = stagedFileName(filename)
-			if err != nil {
-				part.Close()
-				return fail(err)
-			}
-			if _, ok := seen[stagedName]; ok {
-				part.Close()
-				return fail(os.ErrExist)
-			}
-			seen[stagedName] = struct{}{}
+			bundle.fileParts++
 		}
 
+		// readForm read and budgeted every part's content before any file name
+		// was inspected, so the charge applies to parts the bundle rejects:
+		// their size still decides whether a later part trips the limit.
 		var content bytes.Buffer
 		n, err := io.CopyN(&content, part, maxFileMemoryBytes+1)
 		if err != nil && err != io.EOF {
 			part.Close()
 			return failParse(err)
 		}
-		if n > maxFileMemoryBytes {
-			if !bundled {
-				_, _ = io.Copy(io.Discard, part)
-				part.Close()
-				continue
-			}
-			// Past the budget ReadForm kept on disk: stream the rest into the
-			// staged file, the only copy the loader will read. The part stays
-			// open until the remainder has been copied.
-			dst, err := bundle.create(stagedName)
+		oversized := n > maxFileMemoryBytes
+		if !oversized {
+			maxFileMemoryBytes -= n
+			maxMemoryBytes -= n
+		}
+
+		stagedName := ""
+		stage := bundled && bundle.stagingErr == nil
+		if bundled {
+			var err error
+			stagedName, err = stagedFileName(filename)
 			if err != nil {
-				part.Close()
-				return fail(err)
+				bundle.noteFault(err)
+				stage = false
+			} else if _, ok := seen[stagedName]; ok {
+				bundle.noteFault(os.ErrExist)
+				stage = false
+			} else {
+				seen[stagedName] = struct{}{}
 			}
-			if _, err := dst.Write(content.Bytes()); err != nil {
-				_ = dst.Close()
-				part.Close()
-				return fail(err)
+		}
+		if !stage {
+			// readForm still read this part's content, so a failing read is a
+			// parse failure here too rather than something to swallow.
+			if err := discard(part); err != nil {
+				return failParse(err)
 			}
-			if copyBuf == nil {
-				copyBuf = make([]byte, formCopyBufferSize)
-			}
-			// os.File.ReadFrom would allocate its own buffer; writerOnly keeps
-			// io.Copy on ours, as readForm does.
-			type writerOnly struct{ io.Writer }
-			_, copyErr := io.CopyBuffer(writerOnly{dst}, part, copyBuf)
+			continue
+		}
+		if !oversized {
 			part.Close()
-			closeErr := dst.Close()
-			if copyErr != nil {
-				return fail(copyErr)
-			}
-			if closeErr != nil {
-				return fail(closeErr)
-			}
+			bundle.pending = append(bundle.pending, pendingGenerationFile{name: stagedName, content: content.Bytes()})
 			continue
 		}
+		// Past the budget ReadForm kept on disk: stream the rest into the
+		// staged file, the only copy the loader will read. The part stays
+		// open until the remainder has been copied.
+		dst, err := bundle.create(stagedName)
+		if err != nil {
+			bundle.noteFault(err)
+			part.Close()
+			continue
+		}
+		if _, err := dst.Write(content.Bytes()); err != nil {
+			_ = dst.Close()
+			part.Close()
+			bundle.noteFault(err)
+			continue
+		}
+		if copyBuf == nil {
+			copyBuf = make([]byte, formCopyBufferSize)
+		}
+		// os.File.ReadFrom would allocate its own buffer; writerOnly keeps
+		// io.Copy on ours, as readForm does.
+		type writerOnly struct{ io.Writer }
+		_, copyErr := io.CopyBuffer(writerOnly{dst}, part, copyBuf)
 		part.Close()
-		maxFileMemoryBytes -= n
-		maxMemoryBytes -= n
-		if !bundled {
+		closeErr := dst.Close()
+		if copyErr != nil {
+			bundle.noteFault(copyErr)
 			continue
 		}
-		bundle.files = append(bundle.files, stagedName)
-		bundle.pending = append(bundle.pending, pendingGenerationFile{name: stagedName, content: content.Bytes()})
+		if closeErr != nil {
+			bundle.noteFault(closeErr)
+			continue
+		}
 	}
 	if err := bundle.flush(); err != nil {
-		return fail(err)
+		bundle.noteFault(err)
 	}
 	return bundle, nil
 }
 
+// create opens a staged file for a part too large to buffer.
 func (b *generationBundle) create(name string) (*os.File, error) {
 	if err := b.ensureDir(); err != nil {
 		return nil, err
 	}
-	b.files = append(b.files, name)
 	return os.Create(filepath.Join(b.StagedDir, name))
 }
 
-// flush writes the buffered in-memory parts to the staged directory.
+// flush writes the buffered in-memory parts to the staged directory. Once a
+// file-part fault is recorded the bundle cannot load, so nothing more is
+// written; Cleanup disposes of whatever reached disk beforehand.
 func (b *generationBundle) flush() error {
-	if len(b.pending) == 0 {
+	if len(b.pending) == 0 || b.stagingErr != nil {
 		return nil
 	}
 	if err := b.ensureDir(); err != nil {
