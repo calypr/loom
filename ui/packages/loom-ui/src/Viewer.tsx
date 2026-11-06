@@ -61,6 +61,26 @@ type DatasetDownloadState =
 const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
   [pages[0], ...pages.slice(1), page];
 
+type ResolvedActionTarget =
+  | { readonly kind: 'active' }
+  | { readonly kind: 'output'; readonly output: ExplorerRuntimeOutputV1 }
+  | { readonly kind: 'unresolved'; readonly target: string };
+
+// An action with no target exports the active output; an action that names one must resolve
+// to exactly one published output, never silently to another table. The target is matched
+// verbatim: trimming it would let ' patients ' export the 'patients' table, and a
+// whitespace-only target names no table even when one is published under that name.
+const resolveActionTarget = (runtime: ExplorerRuntimeV1, action: ViewerRuntimeAction): ResolvedActionTarget => {
+  if (action.output === undefined) return { kind: 'active' };
+  const named = action.output;
+  if (!named.trim()) return { kind: 'unresolved', target: named };
+  const byId = runtime.outputs.filter((candidate) => candidate.outputId === named);
+  const candidates = byId.length > 0 ? byId : runtime.outputs.filter((candidate) => candidate.name === named);
+  const [match, ...conflicts] = candidates;
+  if (match && conflicts.length === 0) return { kind: 'output', output: match };
+  return { kind: 'unresolved', target: named };
+};
+
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -144,16 +164,23 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
     setPendingAction(actionKey);
     setActionError(undefined);
     try {
+      // Resolve before dispatching to either path, so an embedder handler cannot export a
+      // table the action never named; a missing, blank, or ambiguous target fails visibly.
+      const target = resolveActionTarget(runtime, action);
+      if (target.kind === 'unresolved') {
+        throw new Error(`The action "${action.title}" targets the output "${target.target || '(blank)'}", which is not exactly one published output of this Explorer. No table was exported.`);
+      }
+      const targetOutput = target.kind === 'output' ? target.output : output;
+      const targetRequest = targetOutput.outputId === output.outputId
+        ? request
+        : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
+      const targetResult = targetOutput.outputId === output.outputId
+        ? result
+        : resultCache.current.get(targetOutput.outputId);
       const customAction = customActions?.[action.type];
       if (customAction) {
-        await customAction({ project, runtime, output, action, request, result }, new AbortController().signal);
+        await customAction({ project, runtime, output: targetOutput, action, request: targetRequest, result: targetResult }, new AbortController().signal);
       } else {
-        const targetOutput = action.output
-          ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output
-          : output;
-        const targetRequest = targetOutput.outputId === output.outputId
-          ? request
-          : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
         const exportRequest = {
           ...targetRequest,
           ...(action.columns ? { columns: action.columns } : {}),
