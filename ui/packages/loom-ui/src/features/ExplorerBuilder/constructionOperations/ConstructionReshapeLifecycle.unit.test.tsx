@@ -7,10 +7,14 @@ import {
   EXPLORER_AUTHORING_API_VERSION,
   type Construction,
   type ConstructionCapabilitiesResponse,
+  type ConstructionCategoryDiscoveryResponse,
   type ConstructionProposalResponse,
   type ExplorerBuilderPreviewResult,
 } from '../../../types';
-import { ConstructionReshapeEditor } from './ConstructionReshapeEditor';
+import {
+  ConstructionReshapeEditor,
+  type ConstructionReshapePivotCategory,
+} from './ConstructionReshapeEditor';
 import {
   useConstructionLifecycle,
   type ConstructionLifecycleClient,
@@ -252,3 +256,178 @@ describe('ConstructionReshapeEditor construction lifecycle', () => {
     expect(screen.queryByTestId('construction-reshape-choice-group')).not.toBeInTheDocument();
   });
 });
+
+const pivotStage: ConstructionCapabilitiesResponse['selectedStage'] = {
+  id: 'pivot-stage',
+  inputStageId: sourceStage.id,
+  operation: 'FILTER',
+  columns: [
+    { id: 'patient-id', name: 'patient_id', label: 'Patient ID', type: 'string', cardinality: 'required_one' },
+    { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' },
+    { id: 'score-id', name: 'score', label: 'Score', type: 'decimal', cardinality: 'optional_one' },
+  ],
+  capabilities: [
+    { kind: 'GROUP', supported: true },
+    { kind: 'EXPAND', supported: true },
+    { kind: 'PIVOT', supported: true },
+  ],
+};
+
+const pivotRequest: GetConstructionCapabilitiesArgs = { ...request, stageId: pivotStage.id };
+
+const pivotCapabilities: ConstructionCapabilitiesResponse = {
+  ...capabilities,
+  stageId: pivotStage.id,
+  stages: [sourceStage, pivotStage],
+  selectedStage: pivotStage,
+};
+
+type Deferred = {
+  readonly promise: Promise<unknown>;
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (reason: unknown) => void;
+};
+
+const deferred = (): Deferred => {
+  let resolve!: (value: unknown) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<unknown>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+};
+
+const discoveryResponse = (
+  args: { readonly categoryColumnId: string; readonly valueColumnId: string },
+  categories: ConstructionReshapePivotCategory[],
+): ConstructionCategoryDiscoveryResponse => ({
+  snapshotToken: pivotRequest.snapshotToken,
+  draftVersion: pivotRequest.expectedDraftVersion,
+  draftDigest: pivotRequest.expectedDraftDigest,
+  outputId: pivotRequest.outputId,
+  stageId: pivotStage.id,
+  categoryColumnId: args.categoryColumnId,
+  valueColumnId: args.valueColumnId,
+  outcome: 'COMPLETE',
+  complete: true,
+  proofFingerprint: 'proof-1',
+  categories,
+});
+
+const makePivotClient = () => {
+  const base = makeClient();
+  const gates: Deferred[] = [];
+  const categoriesByPair: Record<string, ConstructionReshapePivotCategory[]> = {
+    'sex-id': [
+      { key: { kind: 'STRING', string: 'female' }, label: 'Female' },
+      { key: { kind: 'STRING', string: 'male' }, label: 'Male' },
+    ],
+  };
+  const discoverConstructionCategories = vi.fn(async (args: {
+    readonly categoryColumnId: string;
+    readonly valueColumnId: string;
+  }): Promise<ConstructionCategoryDiscoveryResponse> => {
+    const gate = deferred();
+    gates.push(gate);
+    await gate.promise;
+    return discoveryResponse(args, [...(categoriesByPair[args.categoryColumnId] ?? [])]);
+  });
+  const client = {
+    getConstructionCapabilities: vi.fn(async () => pivotCapabilities),
+    discoverConstructionCategories,
+    proposeConstruction: base.proposeConstruction,
+    preview: base.preview,
+  } satisfies ConstructionLifecycleClient;
+  return { client, discoverConstructionCategories, gates };
+};
+
+const PivotLifecycleEditor = (props: {
+  readonly client: ConstructionLifecycleClient;
+  readonly onOutputNames: (names: ReadonlyArray<string>) => void;
+}) => {
+  const lifecycle = useConstructionLifecycle({ client: props.client, capabilitiesRequest: pivotRequest });
+  if (lifecycle.capabilities.status !== 'ready') return <p role="status">Loading stage capabilities</p>;
+  const response = lifecycle.capabilities.response;
+  return (
+    <ConstructionReshapeEditor
+      construction={response.baseConstruction}
+      capabilities={response}
+      initialKind="pivot"
+      selectedColumns={['patient-id']}
+      disabled={false}
+      onCandidateChange={(intent) => {
+        const outputs = intent?.candidateConstruction.steps.at(-1)?.outputs ?? [];
+        props.onOutputNames(outputs.map((column) => column.name));
+        lifecycle.onCandidateChange(intent);
+      }}
+      onEditStep={() => undefined}
+      pivotDiscovery={lifecycle.pivotDiscovery}
+      onDiscoverCategories={lifecycle.onDiscoverCategories}
+    />
+  );
+};
+
+const choosePivotFields = (categoryLabel: string, valueLabel: string) => {
+  fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: categoryLabel } });
+  fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: valueLabel } });
+};
+
+describe('ConstructionReshapeEditor pivot discovery lifecycle', () => {
+  it('shows loading then resolved categories from the real host discovery path', async () => {
+    const { client, discoverConstructionCategories, gates } = makePivotClient();
+    render(<PivotLifecycleEditor client={client} onOutputNames={() => undefined} />);
+    await screen.findByTestId('construction-reshape-pivot');
+
+    choosePivotFields('sex-id', 'score-id');
+
+    await waitFor(() => expect(discoverConstructionCategories).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status').textContent).toContain('Finding categories…');
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status').textContent).toContain('Sex');
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status').textContent).toContain('Score');
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+
+    gates[0]?.resolve(undefined);
+
+    await waitFor(() => expect(screen.getByTestId('construction-reshape-pivot-category-summary'))
+      .toHaveTextContent('Selected 2 of 2 categories: Female, Male'));
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+  });
+
+  it('shows loading then failure, and retrying the same current choice keeps unrelated editor edits', async () => {
+    const { client, discoverConstructionCategories, gates } = makePivotClient();
+    const outputNames: ReadonlyArray<string>[] = [];
+    render(<PivotLifecycleEditor client={client} onOutputNames={(names) => outputNames.push(names)} />);
+    await screen.findByTestId('construction-reshape-pivot');
+
+    choosePivotFields('sex-id', 'score-id');
+    await waitFor(() => expect(discoverConstructionCategories).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status')).toHaveAttribute('aria-busy', 'true');
+
+    gates[0]?.reject(new Error('Category discovery timed out listing the category values.'));
+
+    await waitFor(() => expect(screen.getByText('Category discovery timed out listing the category values.')).toBeInTheDocument());
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry finding categories' }));
+    await waitFor(() => expect(discoverConstructionCategories).toHaveBeenCalledTimes(2));
+    expect(discoverConstructionCategories.mock.calls[1]?.[0]).toMatchObject({
+      stageId: pivotStage.id,
+      categoryColumnId: 'sex-id',
+      valueColumnId: 'score-id',
+    });
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status')).toHaveAttribute('aria-busy', 'true');
+
+    gates[1]?.resolve(undefined);
+
+    await waitFor(() => expect(screen.getByTestId('construction-reshape-pivot-category-summary'))
+      .toHaveTextContent('Selected 2 of 2 categories: Female, Male'));
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.change(screen.getByLabelText('Pivot output name female'), { target: { value: 'female_score' } });
+    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
+
+    await waitFor(() => expect(outputNames.at(-1)).toContain('female_score'));
+    expect(screen.getByLabelText('Pivot output name female')).toHaveProperty('value', 'female_score');
+    expect(screen.getByLabelText('Pivot missing cell policy')).toHaveProperty('value', 'ERROR');
+  });
+});
+

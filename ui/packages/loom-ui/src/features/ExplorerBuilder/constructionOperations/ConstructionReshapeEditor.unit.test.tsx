@@ -4442,6 +4442,272 @@ describe('ConstructionReshapeEditor', () => {
   });
 });
 
+const pivotDiscoveryStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
+  ...sourceStage,
+  columns: [
+    ...sourceColumns,
+    { id: 'sex-id', name: 'sex', label: 'Sex', type: 'string', cardinality: 'required_one' },
+  ],
+  capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'PIVOT' })),
+};
+
+const discoveryStatus = (): HTMLElement => screen.getByTestId('construction-reshape-pivot-discovery-status');
+
+describe('pivot discovery availability state', () => {
+  const renderPivot = (
+    onDiscoverCategories: NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>,
+    extra: Partial<ConstructionReshapeEditorProps> = {},
+  ) => {
+    const props: ConstructionReshapeEditorProps = {
+      construction: { version: 1, steps: [] },
+      capabilities: capabilitiesFor([pivotDiscoveryStage], pivotDiscoveryStage),
+      initialKind: 'pivot',
+      disabled: false,
+      onCandidateChange: vi.fn<ConstructionReshapeEditorProps['onCandidateChange']>(),
+      onEditStep: vi.fn(),
+      onDiscoverCategories,
+      ...extra,
+    };
+    const view = render(<ConstructionReshapeEditor {...props} />);
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'site-id' } });
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'age-id' } });
+    return { props, view };
+  };
+
+  it('shows an accessible in-progress state for the current key while the request owner stays silent', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    renderPivot(onDiscoverCategories);
+
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+
+    const status = discoveryStatus();
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status.textContent).toContain('Finding categories…');
+    expect(status.textContent).toContain('Site');
+    expect(status.textContent).toContain('Age');
+    expect(screen.getByText('Finding categories…')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-category-status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry finding categories' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the in-progress state during the debounce window before the request is issued', () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    renderPivot(onDiscoverCategories);
+
+    expect(onDiscoverCategories).not.toHaveBeenCalled();
+    const status = discoveryStatus();
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status.textContent).toContain('Finding categories…');
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+  });
+
+  it('names the current key and hides the prior key’s categories and completion state', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const firstRequest = onDiscoverCategories.mock.calls[0]?.[0];
+    const firstComplete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!firstRequest || !firstComplete) throw new Error('Expected the first pair request and completion callback');
+    const firstDiscovery = completePivotDiscovery(firstRequest, [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ]);
+    act(() => firstComplete(firstDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={firstDiscovery} />);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories: Site A, Site B');
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Pivot category field'), { target: { value: 'sex-id' } });
+
+    const status = discoveryStatus();
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status.textContent).toContain('Sex');
+    expect(status.textContent).not.toContain('Site');
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-category-status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Site A/)).not.toBeInTheDocument();
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+    expect(onDiscoverCategories.mock.lastCall?.[0]).toEqual({
+      stageId: pivotDiscoveryStage.id,
+      categoryColumnId: 'sex-id',
+      valueColumnId: 'age-id',
+    });
+
+    const secondRequest = onDiscoverCategories.mock.lastCall?.[0];
+    const secondComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!secondRequest || !secondComplete) throw new Error('Expected the second pair request and completion callback');
+    const secondDiscovery = completePivotDiscovery(secondRequest, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }]);
+    act(() => secondComplete(secondDiscovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={secondDiscovery} />);
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Female');
+  });
+
+  it('ignores a late result for the superseded key', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const staleComplete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!staleComplete) throw new Error('Expected the first pair completion callback');
+
+    fireEvent.change(screen.getByLabelText('Pivot values field'), { target: { value: 'sex-id' } });
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(2));
+
+    act(() => staleComplete(completePivotDiscovery(onDiscoverCategories.mock.calls[0]![0], [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+    ])));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={{
+      ...onDiscoverCategories.mock.calls[0]![0], status: 'complete',
+      categories: [{ key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' }],
+    }} />);
+
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Site A')).not.toBeInTheDocument();
+    const status = discoveryStatus();
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status).toHaveAttribute('data-category-column-id', 'site-id');
+    expect(status).toHaveAttribute('data-value-column-id', 'sex-id');
+    expect(status.textContent).toContain('Site');
+    expect(status.textContent).toContain('Sex');
+  });
+
+  it('hides the in-progress state while the editor is disabled and restores it on re-enable', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status')).toHaveAttribute('aria-busy', 'true');
+
+    view.rerender(<ConstructionReshapeEditor {...props} disabled />);
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+
+    view.rerender(<ConstructionReshapeEditor {...props} />);
+    expect(screen.getByTestId('construction-reshape-pivot-discovery-status')).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('drops the prior stage’s categories and completion state when the stage changes', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.calls[0]?.[0];
+    const complete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!request || !complete) throw new Error('Expected the pair request and completion callback');
+    const discovery = completePivotDiscovery(request, [{ key: { kind: 'STRING', string: 'female' }, label: 'Female' }]);
+    act(() => complete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 1 of 1 categories: Female');
+
+    const nextStage = { ...pivotDiscoveryStage, id: 'later-stage', inputStageId: pivotDiscoveryStage.id };
+    view.rerender(
+      <ConstructionReshapeEditor
+        {...props}
+        capabilities={capabilitiesFor([nextStage], nextStage)}
+        pivotDiscovery={discovery}
+      />,
+    );
+
+    expect(screen.queryByTestId('construction-reshape-pivot-category-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Female')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-category-status')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+  });
+
+  it('keeps unrelated editor choices through a failed discovery and its retry', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.calls[0]?.[0];
+    const complete = onDiscoverCategories.mock.calls[0]?.[1];
+    if (!request || !complete) throw new Error('Expected the pair request and completion callback');
+    const discovery = completePivotDiscovery(request, [
+      { key: { kind: 'STRING', string: 'site-a' }, label: 'Site A' },
+      { key: { kind: 'STRING', string: 'site-b' }, label: 'Site B' },
+    ]);
+    act(() => complete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+
+    fireEvent.click(screen.getByText('Advanced settings'));
+    fireEvent.change(screen.getByLabelText('Pivot output name site-a'), { target: { value: 'first_site' } });
+    fireEvent.change(screen.getByLabelText('Pivot missing cell policy'), { target: { value: 'ERROR' } });
+
+    const failedDiscovery = { ...request, status: 'failed', reason: 'Loom could not find category values for this pair.' } satisfies ConstructionReshapeEditorProps['pivotDiscovery'];
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={failedDiscovery} />);
+
+    expect(screen.getByText('Loom could not find category values for this pair.')).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+    expect(controlValue('Pivot output name site-a')).toBe('first_site');
+    expect(controlValue('Pivot missing cell policy')).toBe('ERROR');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry finding categories' }));
+    expect(onDiscoverCategories).toHaveBeenCalledTimes(2);
+    expect(onDiscoverCategories.mock.lastCall?.[0]).toEqual(request);
+    const status = discoveryStatus();
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status.textContent).toContain('Finding categories…');
+
+    const retryComplete = onDiscoverCategories.mock.lastCall?.[1];
+    if (!retryComplete) throw new Error('Expected the retried request completion callback');
+    act(() => retryComplete(discovery));
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={discovery} />);
+
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-reshape-pivot-category-summary')).toHaveTextContent('Selected 2 of 2 categories');
+    expect(controlValue('Pivot output name site-a')).toBe('first_site');
+    expect(controlValue('Pivot missing cell policy')).toBe('ERROR');
+  });
+
+  it('surfaces a backend timeout from the host without inventing a retry promise', async () => {
+    const onDiscoverCategories = vi.fn<NonNullable<ConstructionReshapeEditorProps['onDiscoverCategories']>>();
+    const { props, view } = renderPivot(onDiscoverCategories);
+    await waitFor(() => expect(onDiscoverCategories).toHaveBeenCalledTimes(1));
+    const request = onDiscoverCategories.mock.calls[0]?.[0];
+    if (!request) throw new Error('Expected the pair request');
+
+    const timedOut = {
+      ...request,
+      status: 'failed',
+      reason: 'Observation category discovery timed out after 30s: 1,204,880 rows must be scanned completely.',
+    } satisfies ConstructionReshapeEditorProps['pivotDiscovery'];
+    view.rerender(<ConstructionReshapeEditor {...props} pivotDiscovery={timedOut} />);
+
+    expect(screen.getByText(/timed out after 30s/)).toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a scale limit as a limit, not a transient failure', () => {
+    const request = { stageId: pivotDiscoveryStage.id, categoryColumnId: 'site-id', valueColumnId: 'age-id' };
+    const initialEntry = {
+      form: {
+        kind: 'pivot',
+        stepId: 'new-pivot',
+        groupKeyIds: [],
+        categoryColumnId: 'site-id',
+        valueColumnId: 'age-id',
+        categories: [],
+        duplicatePolicy: 'ERROR',
+        missingCellPolicy: 'NULL',
+        unlistedCategoryPolicy: 'ERROR',
+      } satisfies Extract<NonNullable<ConstructionReshapeEditorProps['initialEntry']>['form'], { readonly kind: 'pivot' }>,
+      candidateIntent: { candidateConstruction: { version: 1, steps: [] }, changedStepId: 'new-pivot' },
+    } satisfies NonNullable<ConstructionReshapeEditorProps['initialEntry']>;
+    const limitExceeded = {
+      ...request,
+      status: 'limit-exceeded',
+      limit: 500,
+      reason: 'Category discovery timed out because the value population is too large to list completely.',
+    } satisfies ConstructionReshapeEditorProps['pivotDiscovery'];
+    renderPivot(vi.fn(), { initialEntry, pivotDiscovery: limitExceeded });
+
+    expect(screen.getByText(/Category discovery timed out because the value population is too large to list completely\./)).toBeInTheDocument();
+    expect(screen.getByText(/Maximum supported categories: 500/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry finding categories' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('construction-reshape-pivot-discovery-status')).not.toBeInTheDocument();
+  });
+});
+
+
 const unpivotScalarStage: ConstructionReshapeEditorProps['capabilities']['selectedStage'] = {
   ...sourceStage,
   capabilities: sourceStage.capabilities.map((capability) => ({ ...capability, supported: capability.kind === 'UNPIVOT' })),
