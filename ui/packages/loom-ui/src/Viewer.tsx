@@ -48,9 +48,19 @@ type TracePages = readonly [CellTraceResponse, ...CellTraceResponse[]];
 type CellExplanationState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'loading'; readonly coordinate: CellExplanationCoordinate }
-  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
-  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
+  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages; readonly moreError?: string }
+  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages; readonly moreError?: string }
   | { readonly kind: 'error'; readonly coordinate: CellExplanationCoordinate; readonly message: string };
+
+const tracePagesFor = (state: CellExplanationState): TracePages | undefined =>
+  state.kind === 'ready' || state.kind === 'loadingMore' ? state.pages : undefined;
+
+// Trace failures surface the upstream sentence verbatim, so a malformed message such as
+// "The cell trace could not not be loaded." would otherwise reach researchers as written.
+const explanationErrorCopy = (error: unknown, fallback: string): string => {
+  const message = error instanceof Error ? error.message.trim() : '';
+  return (message || fallback).replace(/\bnot(\s+not)+\b/gi, 'not');
+};
 
 type DatasetDownloadState =
   | { readonly kind: 'idle' }
@@ -92,6 +102,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const [datasetDownload, setDatasetDownload] = useState<DatasetDownloadState>({ kind: 'idle' });
   const datasetDownloadRequest = useRef(0);
   const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
+  const cellExplanationToken = useRef(0);
   const [traceCell] = useCellTraceMutation();
   const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
     ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
@@ -169,36 +180,53 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
     }
   };
   const overlay = state.overlay;
+  const qualityReportFor = (explainerOutputId: string) =>
+    runtime.qualityReports?.find((candidate) => candidate.output === explainerOutputId || candidate.output === output.name);
   const explainCell = async (coordinate: CellExplanationCoordinate) => {
-    const report = runtime.qualityReports?.find((candidate) => candidate.output === coordinate.outputId || candidate.output === output.name);
+    const report = qualityReportFor(coordinate.outputId);
     if (!report) {
       setCellExplanation({ kind: 'error', coordinate, message: 'This publication does not include receipt-bound quality evidence.' });
       return;
     }
+    const token = cellExplanationToken.current + 1;
+    cellExplanationToken.current = token;
     setCellExplanation({ kind: 'loading', coordinate });
     try {
       const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, limit: 25 }).unwrap();
+      if (cellExplanationToken.current !== token) return;
       setCellExplanation({ kind: 'ready', coordinate, pages: [response] });
     } catch (error) {
-      setCellExplanation({ kind: 'error', coordinate, message: error instanceof Error ? error.message : 'Loom could not explain this cell.' });
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'error', coordinate, message: explanationErrorCopy(error, 'Loom could not explain this cell.') });
     }
   };
   const loadMoreEvidence = async () => {
+    // A later-page failure stays 'ready' with its pages, so retry reuses the retained nextOffset.
     if (cellExplanation.kind !== 'ready') return;
-    const current = cellExplanation.pages[cellExplanation.pages.length - 1];
-    if (!current.trace.hasMore) return;
-    const report = runtime.qualityReports?.find((candidate) => candidate.output === cellExplanation.coordinate.outputId || candidate.output === output.name);
+    const coordinate = cellExplanation.coordinate;
+    const pages = cellExplanation.pages;
+    if (!pages[pages.length - 1].trace.hasMore) return;
+    const report = qualityReportFor(coordinate.outputId);
     if (!report) return;
-    const pending: CellExplanationState = { kind: 'loadingMore', coordinate: cellExplanation.coordinate, pages: cellExplanation.pages };
-    setCellExplanation(pending);
+    const offset = pages[pages.length - 1].trace.nextOffset;
+    const token = cellExplanationToken.current + 1;
+    cellExplanationToken.current = token;
+    setCellExplanation({ kind: 'loadingMore', coordinate, pages, moreError: cellExplanation.moreError });
     try {
-      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: cellExplanation.coordinate.outputId, rowId: cellExplanation.coordinate.rowId, column: cellExplanation.coordinate.column, offset: current.trace.nextOffset, limit: 25 }).unwrap();
-      setCellExplanation({ kind: 'ready', coordinate: cellExplanation.coordinate, pages: appendTracePage(cellExplanation.pages, response) });
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, offset, limit: 25 }).unwrap();
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'ready', coordinate, pages: appendTracePage(pages, response) });
     } catch (error) {
-      setCellExplanation({ kind: 'error', coordinate: cellExplanation.coordinate, message: error instanceof Error ? error.message : 'Loom could not load more source details.' });
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({
+        kind: 'ready',
+        coordinate,
+        pages,
+        moreError: explanationErrorCopy(error, 'Loom could not load more source details.'),
+      });
     }
   };
-  const tracePages = cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.pages : undefined;
+  const tracePages = tracePagesFor(cellExplanation);
   const currentTracePage = tracePages ? tracePages[tracePages.length - 1] : undefined;
   const currentTrace = currentTracePage?.trace;
   const traceContributions = tracePages?.flatMap((page) => page.trace.contributions);
@@ -337,7 +365,11 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         contributions={traceContributions}
         loading={cellExplanation.kind === 'loading' || cellExplanation.kind === 'loadingMore'}
         error={cellExplanation.kind === 'error' ? cellExplanation.message : undefined}
-        onClose={() => setCellExplanation({ kind: 'closed' })}
+        moreError={cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.moreError : undefined}
+        onClose={() => {
+          cellExplanationToken.current += 1;
+          setCellExplanation({ kind: 'closed' });
+        }}
         onLoadMore={() => { void loadMoreEvidence(); }}
         onRepair={onRepairFeature && currentTracePage ? (_coordinate, status) => onRepairFeature({
           outputId: currentTracePage.feature.outputId,

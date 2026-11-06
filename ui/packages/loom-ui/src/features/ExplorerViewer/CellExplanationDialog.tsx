@@ -61,6 +61,7 @@ export const CellExplanationDialog = ({
   contributions,
   loading,
   error,
+  moreError,
   onClose,
   onLoadMore,
   onRepair,
@@ -70,6 +71,7 @@ export const CellExplanationDialog = ({
   readonly contributions?: ReadonlyArray<CellTraceContribution>;
   readonly loading: boolean;
   readonly error?: string;
+  readonly moreError?: string;
   readonly onClose: () => void;
   readonly onLoadMore: () => void;
   readonly onRepair?: (coordinate: CellExplanationCoordinate, status: CellTrace['status']) => void;
@@ -98,6 +100,14 @@ export const CellExplanationDialog = ({
                 {trace.status.replaceAll('_', ' ').toLowerCase()}
               </Badge>
             </Group>
+            {moreError ? (
+              <Alert color="yellow" title="Some source details are unavailable">
+                <Stack gap="xs">
+                  <Text size="sm">{moreError}</Text>
+                  <Text size="xs" c="dimmed">The source records already loaded are still shown below.</Text>
+                </Stack>
+              </Alert>
+            ) : null}
             {(contributions ?? trace.contributions).length > 0 ? (
               <details>
                 <summary className="cursor-pointer text-sm font-semibold text-blue-700">Source details ({(contributions ?? trace.contributions).length})</summary>
@@ -115,7 +125,7 @@ export const CellExplanationDialog = ({
               {onRepair && repairLabel(trace) ? (
                 <Button variant="default" onClick={() => onRepair(coordinate, trace.status)}>{repairLabel(trace)}</Button>
               ) : null}
-              {trace.hasMore ? <Button variant="light" loading={loading} onClick={onLoadMore}>Load more source details</Button> : null}
+              {trace.hasMore ? <Button variant="light" loading={loading} onClick={onLoadMore}>{moreError ? 'Retry loading more source details' : 'Load more source details'}</Button> : null}
             </Group>
           </>
         ) : null}
