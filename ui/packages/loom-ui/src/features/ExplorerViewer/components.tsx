@@ -18,7 +18,7 @@ import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntime
 import { resultUnitTitle } from '../../resultUnitDisplay';
 import { PAGE_SIZES, activeOutputState, isPageSize, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
-import { chartFacetName, facetName, filterLabel, filterType } from './serialization';
+import { chartFacetName, facetName, filterLabel, filterType, isMissingValue, MISSING_VALUE, MISSING_VALUE_DESCRIPTION } from './serialization';
 import { BoundedFormatCache } from './formatCache';
 import { displayValue } from '../../valueDisplay';
 import type { CellExplanationCoordinate } from './CellExplanationDialog';
@@ -117,18 +117,27 @@ const COLLAPSED_FACET_VALUES = 6;
 
 const FacetFilter = ({ id, label, description, facet, column, values, multiple, debounce = false, onChange, state, dispatch }: { readonly id: string; readonly label: string; readonly description?: string; readonly facet?: LoomFacetResult; readonly column: string; readonly values: ReadonlyArray<string>; readonly multiple: boolean; readonly debounce?: boolean; readonly onChange: (values: ReadonlyArray<string>) => void; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
   const expanded = state.expandedFacets.includes(id);
-  const options = facetValues(facet, column);
+  const facetEntries = facetValues(facet, column);
+  // A published row cannot tell an absent property apart from an explicit null,
+  // so the single missing bucket stands for both and is counted with isNull().
+  // The selected value is the bucket's own label, so a data value spelled exactly
+  // like it cannot round-trip through the serializer. Such a value is dropped
+  // along with the bucket rather than offered as a choice that would quietly
+  // return the null rows instead.
+  const collidesWithMissing = facetEntries.some((entry) => isMissingValue(entry.value));
+  const options = collidesWithMissing ? facetEntries.filter((entry) => !isMissingValue(entry.value)) : facetEntries;
   const [draftValues, setDraftValues] = React.useState(values);
   const timer = React.useRef<number | undefined>(undefined);
   const currentValues = debounce ? draftValues : values;
   const selected = new Set(currentValues);
+  // Never offer a choice that provably selects no row, but never hide a choice
+  // that is already driving the active filter.
+  const showMissing = !collidesWithMissing
+    && ((facet?.missingCount ?? 0) > 0 || selected.has(MISSING_VALUE));
   const orderedOptions = [...options].sort((left, right) => Number(selected.has(right.value)) - Number(selected.has(left.value)));
   const visibleOptions = expanded ? orderedOptions : orderedOptions.slice(0, COLLAPSED_FACET_VALUES);
   const hiddenCount = Math.max(0, orderedOptions.length - COLLAPSED_FACET_VALUES);
-  const toggleValue = (value: string, checked: boolean) => {
-    const next = !checked
-      ? currentValues.filter((candidate) => candidate !== value)
-      : multiple ? [...currentValues, value] : [value];
+  const commit = (next: ReadonlyArray<string>) => {
     if (!debounce) {
       onChange(next);
       return;
@@ -136,6 +145,19 @@ const FacetFilter = ({ id, label, description, facet, column, values, multiple, 
     setDraftValues(next);
     if (timer.current !== undefined) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => onChange(next), 250);
+  };
+  const toggleValue = (value: string, checked: boolean) => {
+    if (isMissingValue(value)) {
+      // The reader ANDs filter clauses and the filter union has no OR group, so
+      // the missing bucket and populated values on one column cannot be combined.
+      commit(checked ? [MISSING_VALUE] : currentValues.filter((candidate) => !isMissingValue(candidate)));
+      return;
+    }
+    const populated = currentValues.filter((candidate) => !isMissingValue(candidate));
+    const next = !checked
+      ? populated.filter((candidate) => candidate !== value)
+      : multiple ? [...populated, value] : [value];
+    commit(next);
   };
 
   return (
@@ -156,7 +178,7 @@ const FacetFilter = ({ id, label, description, facet, column, values, multiple, 
         <Button variant="subtle" size="compact-xs" px={0} onClick={() => dispatch({ type: 'toggleFacet', facet: id })}>
           Load values
         </Button>
-      ) : visibleOptions.length > 0 ? (
+      ) : visibleOptions.length > 0 || showMissing ? (
         <Stack gap={3}>
           {visibleOptions.map((entry) => (
             <Checkbox
@@ -173,6 +195,21 @@ const FacetFilter = ({ id, label, description, facet, column, values, multiple, 
               styles={{ root: { width: '100%' }, body: { width: '100%', alignItems: 'center' }, input: { borderWidth: 1 }, labelWrapper: { flex: 1, minWidth: 0 }, label: { width: '100%', paddingInlineStart: 8 } }}
             />
           ))}
+          {showMissing ? (
+            <Checkbox
+              size="xs"
+              aria-label={`${label}: ${MISSING_VALUE}`}
+              checked={selected.has(MISSING_VALUE)}
+              onChange={(event) => toggleValue(MISSING_VALUE, event.currentTarget.checked)}
+              label={(
+                <Group justify="space-between" gap="xs" wrap="nowrap">
+                  <Text size="xs" truncate title={MISSING_VALUE_DESCRIPTION}>{MISSING_VALUE}</Text>
+                  <Text c="dimmed" size="xs" className="shrink-0 tabular-nums">{facet.missingCount ?? '—'}</Text>
+                </Group>
+              )}
+              styles={{ root: { width: '100%' }, body: { width: '100%', alignItems: 'center' }, input: { borderWidth: 1 }, labelWrapper: { flex: 1, minWidth: 0 }, label: { width: '100%', paddingInlineStart: 8 } }}
+            />
+          ) : null}
         </Stack>
       ) : <Text c="dimmed" size="xs">No values available</Text>}
       {hiddenCount > 0 ? (
