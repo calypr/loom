@@ -58,6 +58,73 @@ type DatasetDownloadState =
   | { readonly kind: 'ready'; readonly outputId: string; readonly requestToken: number; readonly artifact: Artifact }
   | { readonly kind: 'error'; readonly outputId: string; readonly requestToken: number; readonly message: string };
 
+// One in-flight count per rendered action button, and one retained failure per button.
+type ActionRunState = {
+  readonly running: ReadonlyMap<string, number>;
+  readonly errors: ReadonlyMap<string, { readonly outputId: string; readonly message: string }>;
+};
+type ActionRunEvent =
+  | { readonly type: 'started'; readonly actionKey: string }
+  | { readonly type: 'succeeded'; readonly actionKey: string }
+  | { readonly type: 'failed'; readonly actionKey: string; readonly outputId: string; readonly message: string }
+  | { readonly type: 'dismissed'; readonly actionKey: string };
+
+const initialActionRunState: ActionRunState = { running: new Map(), errors: new Map() };
+
+const decrementRun = (running: ReadonlyMap<string, number>, actionKey: string): ReadonlyMap<string, number> => {
+  const inFlight = (running.get(actionKey) ?? 0) - 1;
+  const next = new Map(running);
+  if (inFlight > 0) next.set(actionKey, inFlight);
+  else next.delete(actionKey);
+  return next;
+};
+
+// Every run only ever touches its own button's entry, so a settling action cannot drop another action's loading
+// state or hide its failure, and starting one action cannot clear an error belonging to a different action.
+const actionRunReducer = (state: ActionRunState, event: ActionRunEvent): ActionRunState => {
+  switch (event.type) {
+    case 'started': {
+      const running = new Map(state.running).set(event.actionKey, (state.running.get(event.actionKey) ?? 0) + 1);
+      if (!state.errors.has(event.actionKey)) return { running, errors: state.errors };
+      const errors = new Map(state.errors);
+      errors.delete(event.actionKey);
+      return { running, errors };
+    }
+    case 'succeeded':
+      return { running: decrementRun(state.running, event.actionKey), errors: state.errors };
+    case 'failed':
+      return {
+        running: decrementRun(state.running, event.actionKey),
+        errors: new Map(state.errors).set(event.actionKey, { outputId: event.outputId, message: event.message }),
+      };
+    case 'dismissed': {
+      if (!state.errors.has(event.actionKey)) return state;
+      const errors = new Map(state.errors);
+      errors.delete(event.actionKey);
+      return { running: state.running, errors };
+    }
+  }
+};
+
+// Identity comes from the configured action itself, so a reordered action list keeps a running action's loading
+// state on its own button instead of moving it to whichever action happens to share the old position. Exact
+// duplicates are told apart by their occurrence order.
+const actionIdentity = (action: ViewerRuntimeAction): string =>
+  JSON.stringify([action.type, action.title, action.fileName ?? null, action.output ?? null,
+    action.columns ?? null, action.exportHeaders ?? null]);
+
+// The output id is part of each key so an action still running on a left-behind output can only ever mark that
+// output's own button, never the button of the output shown after a tab switch.
+const actionRunKeys = (outputId: string, actions: ReadonlyArray<ViewerRuntimeAction>): string[] => {
+  const occurrences = new Map<string, number>();
+  return actions.map((action) => {
+    const identity = actionIdentity(action);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return `${outputId}|${identity}|${occurrence}`;
+  });
+};
+
 const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
   [pages[0], ...pages.slice(1), page];
 
@@ -87,8 +154,7 @@ const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChan
 
 const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: { readonly project: string; readonly explorerId: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions']; readonly onRepairFeature?: LoomExplorerViewerProps['onRepairFeature'] }) => {
   const [state, dispatch] = useReducer(viewerReducer, runtime, (value) => createViewerReducerState(value, controlledOutputId));
-  const [pendingAction, setPendingAction] = useState<string>();
-  const [actionError, setActionError] = useState<string>();
+  const [actionRuns, dispatchActionRuns] = useReducer(actionRunReducer, initialActionRunState);
   const [datasetDownload, setDatasetDownload] = useState<DatasetDownloadState>({ kind: 'idle' });
   const datasetDownloadRequest = useRef(0);
   const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
@@ -109,6 +175,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const result = resultQuery.data ?? resultCache.current.get(outputId);
   const client = useLoomClient();
   if (!output || !request) return null;
+  const actionKeys = actionRunKeys(outputId, output.actions ?? []);
 
   const selectOutput = (nextOutputId: string | null) => {
     if (!nextOutputId) return;
@@ -139,10 +206,8 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
       setDatasetDownload({ kind: 'error', outputId: requestOutputId, requestToken, message: error instanceof Error ? error.message : 'The dataset download could not be prepared.' });
     }
   };
-  const runAction = async (action: ViewerRuntimeAction) => {
-    const actionKey = action.type;
-    setPendingAction(actionKey);
-    setActionError(undefined);
+  const runAction = async (action: ViewerRuntimeAction, actionKey: string) => {
+    dispatchActionRuns({ type: 'started', actionKey });
     try {
       const customAction = customActions?.[action.type];
       if (customAction) {
@@ -162,10 +227,9 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         const blob = await client.exportOutput(exportRequest);
         downloadBlob(blob, action.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
       }
+      dispatchActionRuns({ type: 'succeeded', actionKey });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'The action could not be completed.');
-    } finally {
-      setPendingAction(undefined);
+      dispatchActionRuns({ type: 'failed', actionKey, outputId, message: error instanceof Error ? error.message : 'The action could not be completed.' });
     }
   };
   const overlay = state.overlay;
@@ -224,14 +288,20 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
           </div>
           <Group gap="xs" wrap="wrap">
             <Button loading={datasetDownload.kind === 'preparing' && datasetDownload.outputId === outputId} onClick={() => { void prepareDatasetDownload(); }}>Download dataset</Button>
-            {output.actions?.map((action, index) => (
-              <Button variant="default" key={`${action.type}-${index}`} loading={pendingAction === action.type} onClick={() => { void runAction(action); }}>
-                {action.title}
-              </Button>
-            ))}
+            {output.actions?.map((action, index) => {
+              const actionKey = actionKeys[index];
+              return (
+                <Button variant="default" key={actionKey} loading={actionRuns.running.has(actionKey)} onClick={() => { void runAction(action, actionKey); }}>
+                  {action.title}
+                </Button>
+              );
+            })}
           </Group>
         </Group>
-        {actionError ? <Alert color="red" title="Action failed" withCloseButton onClose={() => setActionError(undefined)} mb="md">{actionError}</Alert> : null}
+        {/* A failure stays retained while its output is left behind, so returning to that output restores its alert. */}
+        {[...actionRuns.errors].filter(([, failure]) => failure.outputId === outputId).map(([actionKey, failure]) => (
+          <Alert key={actionKey} color="red" title="Action failed" withCloseButton closeButtonLabel="Dismiss action failure" onClose={() => { dispatchActionRuns({ type: 'dismissed', actionKey }); }} mb="md">{failure.message}</Alert>
+        ))}
         {datasetDownload.kind === 'error' && datasetDownload.outputId === outputId && datasetDownload.requestToken === datasetDownloadRequest.current ? <Alert color="red" title="Dataset download failed" withCloseButton onClose={() => setDatasetDownload({ kind: 'idle' })} mb="md">{datasetDownload.message}</Alert> : null}
         <Tabs value={outputId} onChange={selectOutput}>
           <Tabs.List aria-label="Output tables" className="loom-viewer-tabs-list flex-nowrap overflow-x-auto">
