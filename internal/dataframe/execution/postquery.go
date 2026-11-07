@@ -53,15 +53,24 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 	if len(checks) == 0 {
 		return nil
 	}
+	// Frozen column types are compiled guarantees, so every present value is
+	// checked whether or not the runtime key metadata enumerates its key: the
+	// metadata may cover only another family.
+	for dynamicName, columns := range checks {
+		for _, column := range columns {
+			if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
+				return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
+			}
+		}
+	}
 	observed, ok := row["__loom_dynamic_runtime_keys"].(map[string]any)
 	if !ok {
+		// Construction stages may drop the metadata only for families that
+		// explicitly allow unknown keys.
 		for dynamicName, columns := range checks {
 			for _, column := range columns {
 				if !column.AllowUnknownKeys {
 					return fmt.Errorf("dynamic runtime key metadata is missing for %q", dynamicName)
-				}
-				if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
-					return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
 				}
 			}
 		}
@@ -75,15 +84,8 @@ func validateDynamicDrift(row map[string]any, checks map[string]map[string]Dynam
 		}
 		for _, value := range items {
 			key := fmt.Sprint(value)
-			column, ok := allowed[key]
-			if !ok {
-				if dynamicFamilyAllowsUnknownKeys(allowed) {
-					continue
-				}
+			if _, ok := allowed[key]; !ok && !dynamicFamilyAllowsUnknownKeys(allowed) {
 				return &DynamicDriftError{DynamicName: dynamicName, Key: key, FrozenKeyCount: len(allowed)}
-			}
-			if actual, exists := row[column.ColumnName]; exists && !dynamicColumnValueMatches(actual, column) {
-				return fmt.Errorf("dynamic map %q column %q has incompatible value type %q", dynamicName, column.ColumnName, column.ValueType)
 			}
 		}
 	}
