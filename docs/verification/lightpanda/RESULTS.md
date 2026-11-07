@@ -1,10 +1,15 @@
-# Lightpanda did not qualify for restoration
+# Initial serial experiment
 
-Do not adopt Lightpanda for Loom acceptance or restore the retired suite under
-the speed premise tested here. Four useful candidate checks now execute through
-the same Playwright runner on either engine, but two fail on Lightpanda. The
-compatible load/reload check has no measurable journey speed advantage across
-five alternating trials. The requested over-5x gate is not met.
+This first experiment measured serial component-test latency and native input
+compatibility. It did not evaluate Lightpanda's concurrent throughput advantage
+and cannot settle that question. Read [the pooled results](POOLED_RESULTS.md)
+for the subsequent worker-pool implementation and measurements.
+
+The serial load/reload check had no measurable journey advantage, and two native
+input checks failed on Lightpanda. Those observations remain valid within this
+narrow workload. They are not a general verdict on Lightpanda or on a properly
+pooled test suite. The historical commands below require the original commit;
+the current runner defaults to throughput mode.
 
 The branch starts at PR #32's tip, `899f3bb6`. The experiment preserves existing
 Chromium acceptance and adds opt-in candidates and a reproducible comparison.

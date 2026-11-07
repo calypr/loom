@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { compareTrials, timingSummary } from './engine-verdict.mjs';
+import { compareTrials, timingSummary, chooseConcurrency } from './engine-verdict.mjs';
 
 function comparison() {
   return { caseIds: ['save-reload'], buildMs: 1, completeSelection: true,
@@ -22,6 +22,7 @@ test('fast failures, wrong observations, missing cases, and leaked browsers neve
     trial => { trial.cases[0].failedRequests.push({ error: 'aborted' }); },
     trial => { trial.cases[0].responses[0].status = 500; },
     trial => { trial.cleanup.browserConnected = true; },
+    trial => { trial.cleanup.errors = ['cache cleanup failed']; },
     trial => { trial.cases[0].durationMs = 0; },
   ]) {
     const input = comparison();
@@ -64,4 +65,15 @@ test('invalid timing samples cannot become reportable measurements', () => {
   assert.equal(compareTrials(empty).verdict, 'INCONCLUSIVE');
   for (const buildMs of [-1, NaN, Infinity])
     assert.equal(compareTrials({ ...comparison(), buildMs }).verdict, 'INCONCLUSIVE');
+});
+
+test('tuning chooses sustained work instead of repeated pool startup and rejects fast failures', () => {
+  assert.equal(chooseConcurrency([
+    { concurrency: 1, status: 'passed', steadyMs: 1000, durationMs: 1100 },
+    { concurrency: 4, status: 'passed', steadyMs: 410, durationMs: 500 },
+    { concurrency: 8, status: 'passed', steadyMs: 200, durationMs: 700 },
+    { concurrency: 16, status: 'passed', steadyMs: 198, durationMs: 1300 },
+    { concurrency: 32, status: 'failed', steadyMs: 1, durationMs: 2 },
+  ]), 8);
+  assert.throws(() => chooseConcurrency([{ status: 'failed', steadyMs: 1 }]), /No correct/);
 });

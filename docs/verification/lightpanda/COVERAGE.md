@@ -20,17 +20,25 @@ dataset does not itself earn another default browser journey.
 | Guarantee | Decision | Current boundary |
 | --- | --- | --- |
 | Exact table load and reload | One `preview-load` candidate consolidates `builder-preview-read-only`, `load-preview` and `builder-load` intent. | Production PreviewTable, literal rows and labels, controlled data. The former live preview request is not claimed. |
-| Native row identity and input target | Keep `preview-identity` as an engine qualification check; preserve native drag in Chromium. | Existing production PreviewTable fixture. Lightpanda fails the native identity click. |
+| Native row identity and input target | Keep `preview-identity` as an engine qualification check; preserve native drag in Chromium. | Passes on Lightpanda with stylesheet loading enabled. The initial failure used the default resource policy, which skips stylesheets. |
 | Disclosure visibility and native typing | Execute the retained `verify-browser-disclosure.mjs` unchanged through the new engine runner. | Native summary toggle, hidden fill rejection, reopening and typing. Passes on both engines. |
 | Saved route lifecycle | One `saved-route` candidate covers A/B/restored-A rows, checked route, Cancel/no-write, Apply versions, reload and late response. | Production editor/hook/panel/table with controlled responses and Apply caller. Lightpanda cannot expose route B. |
 | Drag and exact file downloads | Keep the existing `scripts/browser/run.mjs` Chromium checks. | Geometry, native drag events, filename, bytes, hash, configured URL and reload. Do not substitute event injection or HTTP fetch. |
 | Publication into Viewer | One small joined browser journey is worth recovering if the engine qualifies. | Actual publication/store rows have existing integration protection; complete browser render/identity remains a gap. No restoration under the failed gate. |
 | Viewer filters and exports | Keep mounted client/modal checks; prioritize one joined linked-output filter/pagination/reload journey over every old permutation. | Existing exact identity and population/export checks. Joined browser obligations remain open. No restoration under the failed gate. |
 
-The first four are executable candidates in `scripts/browser/lightpanda-cases.mjs`,
-shared by both engines. They are an opt-in adoption experiment, not new mandatory
-acceptance coverage. Two fail on the measured Lightpanda version. Existing
-Chromium acceptance is preserved.
+The first four remain executable native candidates through `--mode compatibility`.
+With HTTP caching and stylesheet loading explicitly enabled, Lightpanda passes
+three; the saved-route disclosure still fails. Existing Chromium acceptance is
+preserved. These are opt-in checks, not a newly required acceptance suite.
+
+The default `throughput` mode executes two additional DOM-only contracts through
+reusable process/context/page/cache pools: exact PreviewTable content and exact
+Viewer FileCell links across reload. These recover bounded content/URL promises,
+not visibility, native pointer, actual attachment or full Builder guarantees.
+They are repeated to measure throughput; the job count does not add coverage.
+The [pooled measurement](POOLED_RESULTS.md) supersedes the initial serial result
+for concurrency decisions. No synthetic input replaces a native assertion.
 
 ## Disposition of the full recovery inventory
 

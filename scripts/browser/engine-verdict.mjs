@@ -8,6 +8,15 @@ export function timingSummary(values) {
   return { count: sorted.length, medianMs: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2, minMs: sorted[0], maxMs: sorted.at(-1) };
 }
 
+export function chooseConcurrency(trials) {
+  const valid = trials.filter(trial => trial.status === 'passed' && Number.isFinite(trial.steadyMs) && trial.steadyMs > 0);
+  if (!valid.length) throw new Error('No correct tuning configuration');
+  const fastest = Math.min(...valid.map(trial => trial.steadyMs));
+  // Prefer fewer processes when exploratory work times are within five percent.
+  // Separate confirmation trials validate the selected setting.
+  return valid.filter(trial => trial.steadyMs <= fastest * 1.05).sort((a, b) => a.concurrency - b.concurrency)[0].concurrency;
+}
+
 export function compareTrials({ trials, caseIds, buildMs, completeSelection }) {
   const result = { verdict: 'INCONCLUSIVE', adopted: false, reason: 'Requires at least five valid trials per engine with equivalent observations.', caseResults: [] };
   if (!caseIds.length || !Number.isFinite(buildMs) || buildMs < 0) return result;
@@ -27,6 +36,7 @@ export function compareTrials({ trials, caseIds, buildMs, completeSelection }) {
     result.caseResults.push({ id, equivalent: true, ...timings, speedup: timings.chromium.medianMs / timings.lightpanda.medianMs });
   }
   const compatible = trials.every(trial => trial.status === 'passed' && !trial.error && !trial.cleanupError &&
+    !trial.cleanup?.errors?.length &&
     trial.cleanup?.browserConnected === false && trial.cleanup?.lightpandaStopped === true &&
     isDeepStrictEqual(trial.cases?.map(record => record.id), caseIds)) && result.caseResults.every(record => record.equivalent);
   if (!compatible) return { ...result, verdict: 'REJECTED', reason: 'A required journey failed, cleanup failed, or observations differed. Failed durations are not performance results.' };

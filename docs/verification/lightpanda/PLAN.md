@@ -1,5 +1,35 @@
 # Lightpanda adoption experiment
 
+## Throughput revision
+
+The user challenged the initial serial test as insufficient to evaluate
+Lightpanda's strength. Serial fixture latency is not a throughput result.
+
+- [x] Build persistent worker pools and a bounded, deterministic job scheduler.
+- [x] Give Lightpanda independent processes so workers can use several cores.
+- [x] Keep DOM semantic contracts separate from native input/download acceptance.
+- [x] Use the same production release bundle, immutable assets and job assertions on both engines.
+- [x] Explore concurrency at 1, 4, 8, 16 and 32; inspect driver CPU and profile the limiting path.
+- [x] Confirm chosen settings with five alternating batches per engine, with only one engine resident.
+- [x] Prove wrong rows, wrong ownership and evidence-write failures do not qualify; verify owned processes exit.
+- [x] Prepare the existing PR update with measured results, setup corrections and exact coverage boundaries.
+
+The workload is 64 independent jobs drawn from two named semantic contracts,
+not 64 distinct restored tests. Every job owns a worker context while it runs,
+has its own HTML identity, checks literal production DOM output, and retains
+reload assertions. Workers retain browser/page/cache state across jobs and clear
+caller storage before the next job. No layout or native pointer assertion is
+silently replaced by a DOM assertion.
+
+Only one engine executes at a time. More browser slots than logical CPUs are
+exploratory I/O concurrency, not a claim to additional CPU cores. The supervisor
+records its own CPU utilization so a saturated driver cannot be called an
+engine limit. Tuning samples select configuration; separate confirmation samples
+decide performance. Build, startup, warmup, steady work and shutdown are separate.
+
+The original serial plan below is historical. Its measurements remain scoped
+to their original workload and cannot reject concurrent throughput adoption.
+
 Goal: recover useful browser regression coverage from PR #32's history without
 restoring duplicate journeys or slowing the normal test loop.
 
@@ -34,7 +64,7 @@ the reversible opt-in runner. No production behavior or deployment changes.
 Browser runs are serial to avoid shared CPU interference. The user requested a
 solo mission, so review and investigation remain in the foreground.
 
-The first checkpoint is real-component compatibility. A failure changes the
+The first checkpoint of the historical plan was real-component compatibility. A failure changes the
 work to an auditable adoption rejection rather than a weaker replacement test.
 The second checkpoint is measured end-to-end speed. Browser startup and journey
 time are reported separately so a startup improvement cannot disguise slow

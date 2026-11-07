@@ -9,6 +9,67 @@ const rows = page => page.locator('[data-testid="route-preview"] [role="row"]').
   elements.map(row => Array.from(row.querySelectorAll('[role="cell"]'), cell => cell.textContent.trim())
     .filter(Boolean)).filter(row => row.length));
 
+async function semanticSnapshot(page, selector) {
+  // One browser-side observation avoids injected locator/actionability machinery
+  // for DOM-only contracts. Native visibility/input checks stay in `cases` below.
+  return page.evaluate(async selector => {
+    if (!document.querySelector(selector)) {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { observer.disconnect(); reject(new Error(`DOM never mounted: ${selector}`)); }, 5000);
+        const observer = new MutationObserver(() => {
+          if (document.querySelector(selector)) { clearTimeout(timer); observer.disconnect(); resolve(); }
+        });
+        observer.observe(document.documentElement, { subtree: true, childList: true });
+      });
+    }
+    return { jobId: document.querySelector('meta[name="loom-job"]')?.content,
+      headers: Array.from(document.querySelectorAll('[role="columnheader"]'), element => element.textContent),
+      cells: Array.from(document.querySelectorAll('[role="cell"]'), element => element.textContent),
+      links: Array.from(document.querySelectorAll('a[aria-label="file_download"]'), element => element.getAttribute('href')) };
+  }, selector);
+}
+
+export const semanticCases = [
+  {
+    id: 'preview-content', navigations: 2,
+    provenance: `${historical}:scripts/verify-ui/fast-specs/builder-preview-read-only.spec.mjs`,
+    boundary: 'DOM-only exact PreviewTable content across reload; no visibility, native input or API persistence claim.',
+    async run(page, origin, { jobId }) {
+      await page.goto(`${origin}/?feature=drag&job=${jobId}`, { waitUntil: 'commit' });
+      const observations = [];
+      for (const pass of [0, 1]) {
+        if (pass) await page.reload({ waitUntil: 'commit' });
+        const actual = await semanticSnapshot(page, '[data-testid="preview-table-scroll"]');
+        assert.deepEqual(actual, { jobId, headers: ['First', 'Second'], cells: ['patient-A', 'observation-A', 'patient-B', 'observation-B'], links: [] });
+        observations.push(actual);
+      }
+      return observations;
+    },
+  },
+  {
+    id: 'viewer-link', navigations: 4,
+    provenance: `${historical}:scripts/verify-ui/specs/viewer-row-file-download.spec.mjs`,
+    boundary: 'Production Viewer FileCell exact configured link across reload; actual native download/bytes remain in Chromium acceptance.',
+    async run(page, origin, { jobId }) {
+      const observations = [];
+      for (const variant of [
+        { query: '', href: '/download/11111111-2222-4333-8444-555555555555?redirect=true' },
+        { query: '&downloadBase=query', href: '/download/11111111-2222-4333-8444-555555555555?source=viewer&redirect=true#details' },
+      ]) {
+        await page.goto(`${origin}/?feature=download&job=${jobId}${variant.query}`, { waitUntil: 'commit' });
+        for (const pass of [0, 1]) {
+          if (pass) await page.reload({ waitUntil: 'commit' });
+          const actual = await semanticSnapshot(page, 'a[aria-label="file_download"]');
+          assert.equal(actual.jobId, jobId);
+          assert.deepEqual(actual.links, [variant.href]);
+          observations.push({ jobId, href: actual.links[0] });
+        }
+      }
+      return observations;
+    },
+  },
+];
+
 export const cases = [
   {
     id: 'preview-load',
