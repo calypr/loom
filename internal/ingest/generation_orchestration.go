@@ -205,6 +205,13 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	catalogs := make(map[generationCatalogKey]*catalog.Profiler)
 	relationshipCounts := make(map[catalog.RelationshipKey]int64)
 	lastInventoryCheckpoint := ""
+	// Row-error candidates are kept per file and only sampled into the summary
+	// when loadGeneration returns, so every staged file gets a chance at the
+	// shared sample budget. The deferred assignment covers the early returns.
+	var rowErrorCandidates [][]RowErrorSample
+	defer func() {
+		summary.RowErrors = selectGenerationRowErrorSamples(rowErrorCandidates)
+	}()
 	for _, file := range files {
 		if err = ctx.Err(); err != nil {
 			return summary, err
@@ -235,12 +242,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		summary.ValidationErrors += result.ValidationErrors
 		summary.GenerationErrors += result.GenerationErrors
 		summary.EdgeErrors += result.EdgeErrors
-		if remaining := rowErrorSampleLimit - len(summary.RowErrors); remaining > 0 {
-			if remaining > len(result.RowErrors) {
-				remaining = len(result.RowErrors)
-			}
-			summary.RowErrors = append(summary.RowErrors, result.RowErrors[:remaining]...)
-		}
+		rowErrorCandidates = append(rowErrorCandidates, result.RowErrors)
 		summary.Resources[result.ResourceType] += result.Rows
 		summary.BatchCounts["vertex_insert"] += result.VertexBatches
 		summary.BatchCounts["edge_insert"] += result.EdgeBatches
