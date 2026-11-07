@@ -16,11 +16,13 @@ test('external preconditions remain explicit unverified cases', () => {
         { Test: 'TestPivotPresenceAudit', Action: 'skip' },
         { Test: 'TestCoreAuthoringProtocolModelReplay', Action: 'skip' },
         { Test: 'TestCoreAuthoringProtocolConcretePrefixReplay', Action: 'skip' },
+        { Test: 'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse', Action: 'skip' },
     ]), { required: 'TestReal' });
     assert.deepEqual(result.unverified.map(e => e.test), [
         'TestPivotPresenceAudit',
         'TestCoreAuthoringProtocolModelReplay',
         'TestCoreAuthoringProtocolConcretePrefixReplay',
+        'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse',
     ]);
     assert.throws(() => checkEvents(stream([
         { Action: 'pass' },

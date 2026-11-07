@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -59,8 +60,8 @@ const (
 	// TestCoreAuthoringProtocolAgainstArango uses; absent means map-store mode.
 	coreProtocolReplayArangoURLEnv = "LOOM_TEST_ARANGO_URL"
 
-	coreProtocolReplayOwningStep    = "Replay model-generated core authoring protocol schedules"
-	coreProtocolReplayOwningCommand = "node scripts/verify-builder-formal-core.mjs --phase generated --model core-protocol"
+	coreProtocolReplayOwningStep    = "Replay all generated schedules and population attachment cases"
+	coreProtocolReplayOwningCommand = "node scripts/verify-builder-formal-core.mjs --phase generated"
 	coreProtocolReplayNotThisMode   = "core authoring protocol replay executes only under the harness: the required step \"" + coreProtocolReplayOwningStep + "\" in .github/workflows/builder-formal.yml runs `" + coreProtocolReplayOwningCommand + " --out <dir>` (adapter scripts/lib/formal-core-protocol-replay.mjs); ordinary go test carries no replay fixtures, and deleting that step or its harness wiring fails the Go unit tests job through TestCoreAuthoringProtocolReplayHarnessWired"
 
 	coreProtocolReplayProject         = "project-a"
@@ -1156,9 +1157,15 @@ func TestCoreAuthoringProtocolReplayHarnessWired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read required replay owner %s: %v", workflowPath, err)
 	}
-	for _, required := range []string{coreProtocolReplayOwningStep, coreProtocolReplayOwningCommand} {
-		if !strings.Contains(string(workflow), required) {
-			t.Fatalf("%s must keep the required step %q running %q; without it the core authoring protocol replay loses its owning enforcement step", workflowPath, coreProtocolReplayOwningStep, coreProtocolReplayOwningCommand)
+	owner := regexp.MustCompile(`(?m)^      - name: ` + regexp.QuoteMeta(coreProtocolReplayOwningStep) + `
+        run: ` + regexp.QuoteMeta(coreProtocolReplayOwningCommand) + ` --out \S+$`)
+	if !owner.Match(workflow) {
+		t.Fatalf("%s must keep the required step %q running unfiltered %q; without it the core authoring protocol replay loses its owning enforcement step", workflowPath, coreProtocolReplayOwningStep, coreProtocolReplayOwningCommand)
+	}
+	for _, replacement := range []string{"true", coreProtocolReplayOwningCommand + " --model apply-settlement"} {
+		mutated := strings.Replace(string(workflow), coreProtocolReplayOwningCommand, replacement, 1)
+		if owner.MatchString(mutated) {
+			t.Fatalf("workflow enforcement accepted a removed or narrowed generated replay: %s", replacement)
 		}
 	}
 	harnessPath := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(workflowPath))), "scripts", "verify-builder-formal-core.mjs")

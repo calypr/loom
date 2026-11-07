@@ -22,6 +22,9 @@ test('API checks select real named public handler tests', () => {
             .map(file => readFileSync(new URL(file, directory), 'utf8')).join('\n');
         for (const name of check.tests) assert.match(source, new RegExp(`func ${name}\\(t \\*testing\\.T\\)`));
     }
+    const reconcile = selectApiChecks('release-dangle-reconcile')[0];
+    assert.deepEqual(reconcile.tests, ['TestReconcileDanglesActiveReleaseAgainstArangoClickHouse']);
+    assert.deepEqual(reconcile.requiredEnvironment, ['LOOM_TEST_ARANGO_URL', 'LOOM_CLICKHOUSE_URL']);
 });
 test('API evidence requires actual named execution and successful completion', () => {
     assert.deepEqual(checkApiEvents(valid, check).tests, ['TestReadBack']);

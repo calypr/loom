@@ -18,6 +18,10 @@ const formalReplay = new Set([
     'TestCoreAuthoringProtocolModelReplay',
     'TestCoreAuthoringProtocolConcretePrefixReplay',
 ]);
+const dualStore = new Set([
+    // Runs as an explicit API proof in go-publication-rows, which owns both stores.
+    'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -26,6 +30,7 @@ const external = new Set([
     'TestCompoundEdgeIndexExplainAgainstArango',
     'TestReceiptPreviewExplainAgainstArango',
     ...formalReplay,
+    ...dualStore,
 ]);
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
@@ -71,7 +76,7 @@ export async function runArango(output) {
     assert.ok(!existsSync(directory) || readdirSync(directory).length === 0, 'Evidence directory must be empty');
     mkdirSync(directory, { recursive: true });
     const before = sourceFingerprint(), owned = [], deadline = performance.now() + 8 * 60 * 1000;
-    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
+    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse', feature: 'release-dangle-reconcile', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
     const database = `loom_test_restricted_starting_collection_${randomUUID()}`;
     const c01 = `loom_backend_c01_${randomUUID().replaceAll('-', '')}`;
     const sc02 = 'loom_qa_semantic_cov_resource_20261016';

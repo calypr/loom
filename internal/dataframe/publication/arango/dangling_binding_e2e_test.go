@@ -26,8 +26,8 @@ import (
 // These opt-in tests adjudicate candidate F-B7 against a real ArangoDB in a
 // fully owned database (loom_verify_db_<uuid>, dropped in t.Cleanup):
 //
-//	HYPOTHESIS F-B7: one dangling/foreign execution binding in a release
-//	demotes the ENTIRE dataset to stale, not just the viewer.
+//	F-B7 contract: a broken optional release binding must not hide a healthy
+//	current output from dataset discovery. Required bindings remain fail-closed.
 //
 // Mechanism as claimed by the brief: "internal/dataframe/published/current.go:193-257:
 // Resolve loads each binding via loadPublishedExecutionForRead, and
@@ -46,22 +46,23 @@ import (
 //	requiredReleaseBindings        -> 0 matches (internal/dataset/release.go ends at :280)
 //	releaseBindingsFrom            -> 0 matches
 //
-// The real read path has no Resolve and no stale re-marking at read time:
+// The real read path has no Resolve and no stale re-marking at read time. It
+// skips only typed deterministic failures for non-required active bindings;
+// required bindings and unclassified backend failures remain fail-closed.
 //
 //	internal/dataframe/published/current.go:190-222 activeReleaseDatasets
 //	  :203  `if binding.Stale || binding.Generation != active.Release.Generation {`
 //	  :204  	continue                                  // pre-marked-stale bindings skipped
-//	  :206-208 value, err := r.releaseMaterialization(...); if err != nil { return nil, err }
-//	  :212-214 if len(result) == 0 { return DatasetNotFound }
-//	                              // all-or-nothing: ONE failing binding aborts
-//	                              // the WHOLE list with an error, it is NOT demoted to stale
+//	  :211-216 value, err := r.releaseMaterialization(...); unavailable optional bindings continue
+//	                              // required or unknown failures still abort the list
+//	  :220-222 if len(result) == 0 { return DatasetNotFound }
 //	internal/dataframe/published/current.go:74-92 activeReleaseDataset (single selector)
 //	  :86-87 skips non-matching/stale bindings BEFORE materialization -> a binding
 //	       that cannot resolve cannot affect a different selector's answer
 //	internal/dataframe/published/current.go:94-111 releaseMaterialization
-//	  :95-97 GetExecution error -> wrapped error ("resolve active dataframe execution")
-//	  :99-101 identity mismatch -> error; NEVER consults the visibility pointer
-//	  :102-110 no queryable output -> error
+//	  :98-101 missing execution -> typed unavailable-binding error
+//	  :104-105 identity mismatch -> typed unavailable-binding error
+//	  :107-115 no queryable output -> typed unavailable-binding error
 //
 // Stale is only ever written at release CREATE (internal/dataset/release.go):
 //	  :185-188 required selector verification failure -> recorded into `failed`
@@ -90,14 +91,16 @@ type danglingCitation struct {
 }
 
 var danglingCitations = []danglingCitation{
-	{"internal/dataframe/published/current.go", 86, "if binding.Selector != selector || binding.Stale || binding.Generation != active.Release.Generation {"},
-	{"internal/dataframe/published/current.go", 95, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
-	{"internal/dataframe/published/current.go", 97, "return Materialization{}, fmt.Errorf(\"resolve active dataframe execution: %w\", err)"},
-	{"internal/dataframe/published/current.go", 110, "return Materialization{}, fmt.Errorf(\"active dataframe execution %q has no queryable output %q\", binding.ExecutionID, binding.Selector.Output)"},
-	{"internal/dataframe/published/current.go", 203, "if binding.Stale || binding.Generation != active.Release.Generation {"},
-	{"internal/dataframe/published/current.go", 206, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
-	{"internal/dataframe/published/current.go", 207, "if err != nil {"},
-	{"internal/dataframe/published/current.go", 208, "return nil, err"},
+	{"internal/dataframe/published/current.go", 88, "if binding.Selector != selector || binding.Stale || binding.Generation != active.Release.Generation {"},
+	{"internal/dataframe/published/current.go", 97, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
+	{"internal/dataframe/published/current.go", 99, "if errors.Is(err, bundlepublication.ErrBundleNotFound) {"},
+	{"internal/dataframe/published/current.go", 102, "return Materialization{}, fmt.Errorf(\"resolve active dataframe execution: %w\", err)"},
+	{"internal/dataframe/published/current.go", 115, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q has no queryable output %q\", errReleaseBindingUnavailable, binding.ExecutionID, binding.Selector.Output)"},
+	{"internal/dataframe/published/current.go", 208, "if binding.Stale || binding.Generation != active.Release.Generation {"},
+	{"internal/dataframe/published/current.go", 211, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
+	{"internal/dataframe/published/current.go", 212, "if err != nil {"},
+	{"internal/dataframe/published/current.go", 213, "if !binding.Required && errors.Is(err, errReleaseBindingUnavailable) {"},
+	{"internal/dataframe/published/current.go", 216, "return nil, err"},
 	{"internal/dataset/release.go", 193, "return ProjectRelease{}, &ReleaseRequirementsError{Verifications: failed}"},
 	{"internal/dataset/release.go", 210, "prior.Stale = prior.Generation != ref.Generation"},
 	{"internal/dataset/release.go", 255, "return ReleasePublication{Selector: result.Selector, ExecutionID: result.ExecutionID, Generation: result.Generation, Required: required, Stale: result.Generation != generation, VerifiedAt: result.VerifiedAt}"},
@@ -116,7 +119,6 @@ var danglingAbsentIdentifiers = []danglingAbsentIdentifier{
 	{"internal/dataframe/published/current.go", "loadPublishedExecutionForRead"},
 	{"internal/dataframe/published/current.go", "publishedOutputMatches"},
 	{"internal/dataframe/published/current.go", "all = false"},
-	{"internal/dataframe/published/current.go", "Required"}, // read path never consults binding.Required
 	{"internal/dataframe/publication/arango/bundle_registry.go", "verifyPublishedExecution"},
 	{"internal/dataset/release.go", "requiredReleaseBindings"},
 	{"internal/dataset/release.go", "releaseBindingsFrom"},
@@ -440,7 +442,7 @@ func danglingSelector(output string, recipe string) published.DataframeSelector 
 	return published.DataframeSelector{Recipe: recipe, TranslationVersion: "v1", Output: output}
 }
 
-// TestSingleDanglingBindingDemotesWholeDataset is the F-B7 finding-assert.
+// TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango is the F-B7 regression.
 //
 // Pre-stated independent expectations (derived from the line-exact audit
 // above, declared BEFORE running):
@@ -452,23 +454,19 @@ func danglingSelector(output string, recipe string) published.DataframeSelector 
 //	    either read path, because releaseMaterialization (current.go:94-111)
 //	    never calls GetPointer. The claim "verifyPublishedExecution
 //	    (arango:188-196) rechecks pointer naming" is false: no such function.
-//	E3  Deleting the bad binding's PublishedOutput row: CurrentProjectDatasets
-//	    returns nil + error (NOT a demoted-to-stale list, NOT a partial list):
-//	    current.go:206-208 aborts the whole result. The healthy binding's fresh
-//	    answer is LOST from the list response -> F-B7 product harm (wrong
-//	    mechanism: hard error, not stale) => FAILED-ON-PURPOSE.
-//	E4  Deleting the whole bad execution document: same whole-response error,
-//	    chain contains "resolve active dataframe execution" and
-//	    "bundle execution not found" (current.go:95-97, bundle_registry.go:212-213).
+//	E3  Deleting the bad optional binding's PublishedOutput row: the list keeps
+//	    the healthy materialization and omits only the unavailable optional one.
+//	E4  Deleting the whole bad optional execution has the same result. Required
+//	    bindings and transient catalog failures still abort the whole list.
 //	E5  The single-selector path activeReleaseDataset (current.go:85-90) skips
 //	    the broken OTHER binding by selector before materializing, so the
 //	    healthy selector keeps resolving fresh independently => per-viewer
-//	    degradation DISPROVEN (only the discovery list is all-or-nothing).
+//	    degradation DISPROVEN; the list and single-selector paths stay independent.
 //
 // Verdict rules: CONFIRMED iff one bad binding demonstrably degrades the
 // healthy binding's freshness or forces stale fallback in the list path;
 // DISPROVEN iff the healthy binding reports fresh independently.
-func TestSingleDanglingBindingDemotesWholeDataset(t *testing.T) {
+func TestBrokenOptionalBindingDoesNotHideHealthyDatasetAgainstArango(t *testing.T) {
 	danglingCheckCitations(t)
 	ctx, client, registry, lifecycle := danglingOpen(t, 120*time.Second)
 
@@ -520,14 +518,14 @@ func TestSingleDanglingBindingDemotesWholeDataset(t *testing.T) {
 	}
 	t.Logf("OBSERVED E2 pointer-unnamed control: %s (pointer re-check claim has no code behind it)", danglingMaterializationDigest(list))
 
-	// E3: delete the PublishedOutput row of the bad execution.
+	// E3: delete the PublishedOutput row of the bad optional execution.
 	danglingCorruptDropOutputs(t, ctx, client, badExec.ID)
-	t.Log("EXPECT E3: list path returns nil+error (no stale demotion, no partial list); healthy materialization LOST")
+	t.Log("EXPECT E3: healthy out-a remains in the list; only unavailable optional out-b is omitted")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
-	droppedOutputListLostHealthy := err != nil && len(list) == 0 && strings.Contains(danglingErrorChain(err), "has no queryable output")
-	t.Logf("OBSERVED E3: list=%s err=[%s] userCode=%q", danglingMaterializationDigest(list), danglingErrorChain(err), danglingUserErrorCode(err))
-	if err != nil && droppedOutputListLostHealthy {
-		t.Logf("F-B7 LIST PATH CONFIRMED (mechanism corrected): the dangling-output binding aborted the WHOLE dataset response; the healthy out-a materialization was lost (return nil, err at current.go:207-208); no binding was marked stale and no stale fallback ran")
+	droppedOutputListKeepsHealthy := err == nil && len(list) == 1 && list[0].Name == "out-a" && list[0].ID == healthyExec.ID+":out-a"
+	t.Logf("OBSERVED E3: list=%s err=[%s] healthyRetained=%v", danglingMaterializationDigest(list), danglingErrorChain(err), droppedOutputListKeepsHealthy)
+	if !droppedOutputListKeepsHealthy {
+		t.Errorf("F-B7 regression: broken optional out-b hid healthy out-a: list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 
 	// E5a: despite E3, healthy single-selector read must be independent.
@@ -538,16 +536,14 @@ func TestSingleDanglingBindingDemotesWholeDataset(t *testing.T) {
 	}
 	t.Logf("OBSERVED E5a: healthy single read while binding out-b corrupt: {Name=%q ID=%q PhysicalTable=%q} -> per-viewer demotion DISPROVEN", single.Name, single.ID, single.PhysicalTable)
 
-	// E4: now delete the bad execution document entirely (true dangling binding).
+	// E4: now delete the bad execution document entirely (true dangling optional binding).
 	danglingCorruptDeleteExecution(t, ctx, client, badExec.ID)
-	t.Log("EXPECT E4: list path still nil+error, chain contains 'resolve active dataframe execution' and 'bundle execution not found'")
+	t.Log("EXPECT E4: healthy out-a remains listed after dangling optional out-b is removed")
 	list, err = reader.CurrentProjectDatasets(ctx, project)
-	danglingListLostHealthy := err != nil && len(list) == 0 &&
-		strings.Contains(danglingErrorChain(err), "resolve active dataframe execution") &&
-		strings.Contains(danglingErrorChain(err), publication.ErrBundleNotFound.Error())
-	t.Logf("OBSERVED E4: list=%s err=[%s] userCode=%q", danglingMaterializationDigest(list), danglingErrorChain(err), danglingUserErrorCode(err))
-	if err != nil && danglingListLostHealthy {
-		t.Logf("F-B7 LIST PATH CONFIRMED (dangling variant): one dangling binding made CurrentProjectDatasets fail entirely; healthy out-a lost")
+	danglingListKeepsHealthy := err == nil && len(list) == 1 && list[0].Name == "out-a" && list[0].ID == healthyExec.ID+":out-a"
+	t.Logf("OBSERVED E4: list=%s err=[%s] healthyRetained=%v", danglingMaterializationDigest(list), danglingErrorChain(err), danglingListKeepsHealthy)
+	if !danglingListKeepsHealthy {
+		t.Errorf("F-B7 regression: dangling optional out-b hid healthy out-a: list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 	if _, err := registry.GetExecution(ctx, badExec.ID); !errors.Is(err, publication.ErrBundleNotFound) {
 		t.Fatalf("E4 precondition: bad execution should be absent: err=%v", err)
@@ -567,23 +563,18 @@ func TestSingleDanglingBindingDemotesWholeDataset(t *testing.T) {
 		t.Logf("OBSERVED E5c: healthy single read with dangling binding: {Name=%q ID=%q} fresh => per-selector independence CONFIRMED", single.Name, single.ID)
 	}
 
-	harm := droppedOutputListLostHealthy && danglingListLostHealthy
-	if harm {
-		t.Errorf("FAILED-ON-PURPOSE: F-B7 product-level harm CONFIRMED with corrected mechanism. Observed values above: ONE bad binding (dangling execution or dropped PublishedOutput row) force-degrades the whole CurrentProjectDatasets response (returns nil + error via current.go:206-208), hiding the independently valid healthy binding from the only dataset-discovery surface (internal/api/graphql/graph/dataframe/rows.go:27-29 ProjectDatasets). NOT CONFIRMED as stated: there is no whole-dataset STALE demotion (no all=false, no stale re-marking at read, no stale snapshot fallback at internal/dataset/release.go:204-213 - that range is Create's prior-binding carry-forward); per-selector reads stay fresh (E5)")
-	} else {
-		t.Logf("DISPROVEN: healthy binding reported fresh independently on every path; no whole-dataset degradation observed. droppedOutputListLostHealthy=%v danglingListLostHealthy=%v", droppedOutputListLostHealthy, danglingListLostHealthy)
-	}
+	t.Logf("F-B7 prevented: unavailable optional bindings were omitted while the healthy binding remained current; droppedOutputHealthy=%v danglingHealthy=%v", droppedOutputListKeepsHealthy, danglingListKeepsHealthy)
 }
 
 // TestRequiredBindingSilentDemotion adjudicates the required-set variant:
 // "requiredReleaseBindings/releaseBindingsFrom (release.go:349-390): if a
 // binding with Required=true gets stale, does the caller error or silently
 // serve stale?" Those functions do not exist (release.go ends at :280). The
-// real required enforcement is create-only: release.go:181-193 makes an
-// unverifiable required selector a ReleaseRequirementsError, and the carried-
-// forward prior bindings lose Required at :209. Read-side (current.go) never
-// reads the Required field (danglingAbsentIdentifiers pins this) and only
-// gates on binding.Stale/binding.Generation (current.go:86-87, 203-204).
+// real required verification happens at create time: release.go:181-193 makes
+// an unverifiable selector a ReleaseRequirementsError, and carried-forward
+// prior bindings lose Required at :209. At read time stale/generation filters
+// run first; Required only preserves fail-closed behavior for a deterministic
+// unavailable active binding instead of omitting it as optional.
 //
 // Pre-stated independent expectations (declared BEFORE running):
 //
@@ -599,9 +590,9 @@ func TestSingleDanglingBindingDemotesWholeDataset(t *testing.T) {
 //	    DATASET_NOT_FOUND (current.go:212-214). Silent empty, still no
 //	    requirements error at read time.
 //	R4  Control: required=true + Stale=false but execution corrupted ->
-//	    CurrentProjectDatasets errors (like E3/E4); Required changes nothing.
-//	R5  Flipping Required true/false on the stale binding is behaviorally
-//	    inert (read path ignores it).
+//	    CurrentProjectDatasets still errors, unlike the broken optional binding.
+//	R5  Flipping Required true/false on a pre-marked stale binding remains
+//	    behaviorally inert because the stale filter runs before materialization.
 //
 // Verdict: "silently serve stale" is DISPROVEN if the reader never returns a
 // stale/generation-mismatched value and instead skips it; "caller errors on
@@ -667,7 +658,7 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 		t.Fatalf("R1 violated: expected silently-skipped required-stale binding (nil error, [out-o]); got list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
 
-	// R5: Required is inert on the read path - flip it to false, same result.
+	// R5: Required does not override the pre-marked stale filter.
 	inertBindings := make([]dataset.ReleasePublication, len(staleBindings))
 	copy(inertBindings, staleBindings)
 	inertBindings[0].Required = false
@@ -676,7 +667,7 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 	if err != nil || len(list) != 1 || list[0].Name != "out-o" {
 		t.Fatalf("R5 violated: read path consulted Required (flipping it changed behavior): list=%s err=%v", danglingMaterializationDigest(list), err)
 	}
-	t.Log("OBSERVED R5: Required=true->false on the stale binding changed nothing; read path ignores the field (current.go has no 'Required')")
+	t.Log("OBSERVED R5: Required=true->false on the stale binding changed nothing; stale bindings are filtered before the Required error policy")
 
 	// R2: single read of the required-stale selector.
 	t.Log("EXPECT R2: single required-stale selector -> UserError code DATASET_NOT_FOUND, NOT ErrReleaseRequirementsUnmet; no stale value served")
@@ -703,5 +694,5 @@ func TestRequiredBindingSilentDemotion(t *testing.T) {
 	}
 	t.Logf("OBSERVED R3 verbatim: all-stale list -> err=[%s] userCode=%q; ErrReleaseRequirementsUnmet errors.Is = %v", danglingErrorChain(err), code, errors.Is(err, dataset.ErrReleaseRequirementsUnmet))
 
-	t.Log("VERDICT required-set variant: DISPROVEN as stated. The caller never serves stale data and never errors on required-stale bindings at read time; it silently skips them (current.go:203-204) and reports DATASET_NOT_FOUND. Required enforcement exists only at Create (release.go:181-193 ReleaseRequirementsError), which this test cites, and carried-forward bindings lose Required at release.go:209, so Required=true with Stale=true is not reachable through the production Create/Activate path")
+	t.Log("VERDICT required-set variant: stale required bindings are skipped before catalog access and report DATASET_NOT_FOUND; an active required binding that is deterministically unavailable remains fail-closed. Required verification also occurs at Create (release.go:181-193), and carried-forward bindings lose Required at release.go:209, so Required=true with Stale=true is not reachable through the production Create/Activate path")
 }

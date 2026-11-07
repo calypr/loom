@@ -59,7 +59,7 @@ var rrdCitations = []rrdCitation{
 	// consults the pointer; a demoted/non-successful execution is an ERROR.
 	{"internal/dataframe/published/current.go", 95, "execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)"},
 	{"internal/dataframe/published/current.go", 99, "if execution.ID != binding.ExecutionID || execution.Project != release.Project || execution.DatasetGeneration != binding.Generation || !execution.State.Successful() {"},
-	{"internal/dataframe/published/current.go", 100, "return Materialization{}, fmt.Errorf(\"active dataframe execution %q does not match release %q\", binding.ExecutionID, release.ID)"},
+	{"internal/dataframe/published/current.go", 105, "return Materialization{}, fmt.Errorf(\"%w: active dataframe execution %q does not match release %q\", errReleaseBindingUnavailable, binding.ExecutionID, release.ID)"},
 	// One failing binding aborts the WHOLE CurrentProjectDatasets response.
 	{"internal/dataframe/published/current.go", 206, "value, err := r.releaseMaterialization(ctx, active.Release, binding)"},
 	{"internal/dataframe/published/current.go", 207, "if err != nil {"},
@@ -696,6 +696,9 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 	if h.stageErr != nil {
 		t.Fatalf("%v", h.stageErr)
 	}
+	if reconcileErr != nil {
+		t.Fatalf("production Reconcile failed: %v", reconcileErr)
+	}
 
 	if !wrapper.fired {
 		t.Errorf("DISPROVEN (staging): reconcileExecution never reached the exported ClaimExecutionCleanup seam for the candidate - the drop path was never reached; verify the candidate enumerated RUNNING and its lease was claimable")
@@ -704,6 +707,9 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 
 	// OBSERVED after reconcile.
 	execNow, execErr := h.registry.GetExecution(h.ctx, h.dangle.ID)
+	if execErr != nil {
+		t.Fatalf("read candidate execution after reconcile: %v", execErr)
+	}
 	after := h.listRRDTables(t)
 	dangleGone := !contains(after, h.dangleTable)
 	healthyPresent := contains(after, h.healthyTable)
@@ -749,22 +755,22 @@ func TestReconcileDanglesActiveReleaseAgainstArangoClickHouse(t *testing.T) {
 	t.Logf("OBSERVED after pointer-LAST wrote the FAILED candidate: list=%d err=[%s] (reader ignored the pointer; current.go has only one GetPointer call, in the non-release path)",
 		len(finalAfterPointer), rrdErrorChain(errAfterPointer))
 
-	confirmedDrop := reconcileErr == nil &&
-		execNow.State == publication.BundleFailed &&
-		len(execNow.Outputs) == 0 &&
-		dangleGone &&
-		releaseBindsDangle &&
-		finalErr != nil && len(finalList) == 0 &&
-		healthyStillServes && releaseBindsHealthy &&
-		len(h.midSeamHealthyIDs) == 2
+	activeBindingDamaged := releaseBindsDangle && (dangleGone || execNow.State != publication.BundlePublished || len(execNow.Outputs) == 0)
 
-	if confirmedDrop {
-		t.Errorf("FAILED-ON-PURPOSE: CONFIRMED-RELEASE-DANGLE. A reconcile pass enumerated the stale RUNNING candidate, its pre-claim GetPointer guard saw an ABSENT pointer and proceeded, then the racing publish made the exec a queryable PUBLISHED row and a release Created+Activated binding BOTH executions. Real production AQL then (a) physically DROP TABLE'd the candidate's ClickHouse table %q (system.tables: no %s, healthy %s still present), (b) demoted the candidate bundle execution %q to State=%q with Outputs=%d, while the ACTIVE release (revision=%d) STILL binds it (bound ExecutionIDs: %s). Because the release-read path resolves the binding via GetExecution (current.go:95) and a demoted/!Successful execution errors (current.go:99-100), ONE dropped+demoted binding aborts the WHOLE CurrentProjectDatasets response (current.go:206-208 -> nil+error, userCode=%q): the INDEPENDENTLY HEALTHY binding (execution %q still PUBLISHED, table %s present) is lost from the only dataset-discovery surface. Pointer-last naming the FAILED execution changes nothing, proving the reader never consults the pointer. Verbatim final list error chain: [%s]",
-			h.dangleTable, h.dangleTable, h.healthyTable, h.dangle.ID, execNow.State, len(execNow.Outputs), active.Revision, rrdBoundIDs(active), rrdUserErrorCode(finalErr), h.healthy.ID, h.healthyTable, rrdErrorChain(finalErr))
-	} else {
+	if activeBindingDamaged {
+		t.Errorf("F-B12 regression: active release revision=%d still binds execution %q, but reconcile left state=%q outputs=%d tableGone=%v (table=%s); bound IDs=%s",
+			active.Revision, h.dangle.ID, execNow.State, len(execNow.Outputs), dangleGone, h.dangleTable, rrdBoundIDs(active))
+	}
+	if !releaseBindsHealthy || !healthyStillServes || !healthyPresent {
+		t.Errorf("healthy release binding was damaged: binds=%v serves=%v tablePresent=%v", releaseBindsHealthy, healthyStillServes, healthyPresent)
+	}
+	if finalErr != nil {
+		t.Errorf("CurrentProjectDatasets failed despite optional-binding isolation: list=%d err=[%s]", len(finalList), rrdErrorChain(finalErr))
+	}
+	if !activeBindingDamaged && releaseBindsHealthy && healthyStillServes && healthyPresent && finalErr == nil {
 		prevent, detail := rrdDiagnose(execNow, execErr, dangleGone, healthyPresent, releaseBindsDangle, finalList, finalErr, reconcileErr)
-		t.Logf("PASS: DISPROVEN. The drop/demotion did not materialize against real Arango + ClickHouse; the guard that stopped it is %s (%s). candidate State=%q Outputs=%d, candidate table gone=%v, active release binds candidate=%v, final CurrentProjectDatasets len=%d err=[%s], reconcile err=[%s]",
-			prevent, detail, execNow.State, len(execNow.Outputs), dangleGone, releaseBindsDangle, len(finalList), rrdErrorChain(finalErr), rrdErrorChain(reconcileErr))
+		t.Logf("PASS: active-release-bound execution remained queryable and current after reconciliation. Guard=%s (%s); candidate state=%q outputs=%d tableGone=%v active release binds candidate=%v final list=%d err=[%s]",
+			prevent, detail, execNow.State, len(execNow.Outputs), dangleGone, releaseBindsDangle, len(finalList), rrdErrorChain(finalErr))
 	}
 
 	// Residue: after this function the cleanup handlers drop the tables; log the
@@ -806,9 +812,9 @@ func rrdBoundIDs(active dataset.ActiveRelease) string {
 // DISPROVEN verdict cites the mechanism rather than merely asserting it.
 func rrdDiagnose(exec publication.BundleExecution, execErr error, dangleGone, healthyPresent, releaseBindsDangle bool, list []published.Materialization, listErr, reconcileErr error) (string, string) {
 	switch {
-	case dangleGone && exec.State == publication.BundleFailed:
-		return "current.go:206-208 (release read survived)",
-			"the physical drop + demotion happened yet CurrentProjectDatasets did NOT fail; re-inspect current.go:95-100 (the demoted execution failed to invalidate the binding)"
+	case dangleGone && exec.State == publication.BundleFailed && releaseBindsDangle:
+		return "active-release cleanup veto",
+			"the active release still binds an execution whose ClickHouse table was physically deleted and whose state is FAILED"
 	case !releaseBindsDangle:
 		return "release activation (release_store.go)",
 			"the active release no longer binds the candidate after reconcile, so the read path cannot total-fail; inspect the seam's activateRelease round-trip"

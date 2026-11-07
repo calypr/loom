@@ -151,6 +151,8 @@ jobs:
         run: go test -timeout=10m -run '^$' ./internal/server
       - name: Verify literal compiled and stored rows through fresh Viewer
         run: node scripts/verify-builder-formal-core.mjs --phase api --feature publication-rows --out "$RUNNER_TEMP/publication-proof"
+      - name: Verify active release tables survive cleanup races
+        run: node scripts/verify-builder-formal-core.mjs --phase api --feature release-dangle-reconcile --out "$RUNNER_TEMP/release-dangle-proof"
       - name: Verify current draft APPEND rows and actual source faults
         run: node scripts/lib/formal-append-rows.mjs --out "$RUNNER_TEMP/append-proof"
       - name: Preserve current draft APPEND evidence
@@ -159,6 +161,13 @@ jobs:
         with:
           name: append-rows
           path: ${{ runner.temp }}/append-proof
+          if-no-files-found: warn
+      - name: Preserve active release cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dangle-reconcile
+          path: ${{ runner.temp }}/release-dangle-proof
           if-no-files-found: warn
       - name: Preserve publication evidence
         if: always()
@@ -240,6 +249,8 @@ jobs:
           if-no-files-found: error
       - name: Run retained non-Playwright tests
         run: |
+          export LOOM_E2E_CHROME="$(command -v google-chrome)"
+          test -n "$LOOM_E2E_CHROME"
           test_list=$(node scripts/ci/list-node-tests.mjs)
           test -n "$test_list"
           mapfile -t tests <<< "$test_list"
@@ -261,6 +272,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
       - name: Run retained Python tests
         run: |
           python3 -m unittest discover -s scripts/tests

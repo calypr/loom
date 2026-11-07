@@ -151,8 +151,12 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = releases.TransitionManifest(ctx, manifest, dataset.StateStaged); err != nil {
+	manifest, err = releases.TransitionManifest(ctx, manifest, dataset.StateStaged)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := releases.Activate(ctx, manifest); err != nil {
+		t.Fatalf("activate staged generation before authoring publication: %v", err)
 	}
 	release := dataset.ProjectRelease{ID: "published-rows-release", Project: "project-a", Generation: "generation-a"}
 	config := lifecycle.Config{Capability: lifecycle.CapabilityResolver{Token: func(context.Context, string, string) (capability.Snapshot, error) { return snapshot, nil }, ForExecution: func(context.Context, string, string) (lifecycle.AuthorizedCapability, error) { return authorized, nil }}, ValidateReleaseGeneration: func(ctx context.Context, project, generation string) error {
