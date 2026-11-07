@@ -23,6 +23,9 @@ type Service struct {
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
 	explain                func(context.Context, dataframeexecution.CompiledQuery) error
+	// now is the single clock seam for the run-phase diagnostics so a test can
+	// hold the backend open without racing wall-clock speed thresholds.
+	now func() time.Time
 }
 
 type Config struct {
@@ -59,6 +62,15 @@ func NewService(cfg Config) *Service {
 
 func catalogUnavailable() error {
 	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
+}
+
+// clockNow is the run-phase diagnostics clock. Production uses the wall clock;
+// tests substitute a controlled clock to assert phase boundaries.
+func (s *Service) clockNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func (s *Service) discoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
@@ -99,12 +111,12 @@ func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (datafr
 }
 
 func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit *int) (*dataframeexecution.Result, error) {
-	started := time.Now()
+	started := s.clockNow()
 	normalizedInput, scope, generation, err := s.prepareRunInput(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	inputResolutionDuration := time.Since(started)
+	inputResolutionDuration := s.clockNow().Sub(started)
 	rowLimit := 0
 	if limit != nil {
 		rowLimit = *limit
@@ -114,7 +126,7 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	if rowLimit <= 0 {
 		rowLimit = 25
 	}
-	preparationStarted := time.Now()
+	preparationStarted := s.clockNow()
 	bundle, err := RecipeBundleFromInput(normalizedInput)
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
@@ -130,19 +142,23 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
-	requestPreparationDuration := time.Since(preparationStarted)
-	compileStarted := time.Now()
+	requestPreparationDuration := s.clockNow().Sub(preparationStarted)
+	compileStarted := s.clockNow()
 	compiled, err := compileSingleQuery(resolved, rowLimit)
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
+	// The compilation interval closes at the compiler boundary: the backend
+	// query and row materialization below are already reported as their own
+	// diagnostics and must not be double-charged here.
+	compilationDuration := s.clockNow().Sub(compileStarted)
 	result, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {
 		return nil, queryBackend(err)
 	}
-	result.Diagnostics.Compilation = time.Since(compileStarted)
+	result.Diagnostics.Compilation = compilationDuration
 	result.Diagnostics.InputResolution = inputResolutionDuration
 	result.Diagnostics.RequestPreparation = requestPreparationDuration
-	result.Diagnostics.Total = time.Since(started)
+	result.Diagnostics.Total = s.clockNow().Sub(started)
 	return result, nil
 }

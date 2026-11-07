@@ -3,7 +3,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLoomClient, type Artifact, type LoomOutputRequest } from '../../api';
-import { LoomExplorerViewer } from '../../Viewer';
+import { LoomExplorerViewer, type LoomViewerActionHandler } from '../../Viewer';
 import type { ExplorerRuntimeV1 } from '../../types';
 
 const runtime: ExplorerRuntimeV1 = {
@@ -31,7 +31,13 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done; });
   return { promise, resolve };
 };
-function harness(options: { runtime?: ExplorerRuntimeV1; respond?: (index: number) => Promise<Artifact> } = {}) {
+const gate = () => {
+  let resolve!: () => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+};
+function harness(options: { runtime?: ExplorerRuntimeV1; respond?: (index: number) => Promise<Artifact>; customActions?: Readonly<Record<string, LoomViewerActionHandler>> } = {}) {
   const requests: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -51,8 +57,8 @@ function harness(options: { runtime?: ExplorerRuntimeV1; respond?: (index: numbe
     };
   });
   const prepare = vi.spyOn(client, 'prepareArtifact');
-  const view = render(<LoomExplorerViewer project="org/project" explorerId="explorer-main" client={client} />);
-  return { ...view, requests, query, prepare };
+  const view = render(<LoomExplorerViewer project="org/project" explorerId="explorer-main" client={client} customActions={options.customActions} />);
+  return { ...view, client, requests, query, prepare };
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 async function chooseFemale() {
@@ -126,5 +132,346 @@ describe('Viewer complete-population dataset download', () => {
     await waitFor(() => expect(screen.getByRole('tab', { name: /Encounters/ })).toHaveAttribute('aria-selected', 'true'));
     expect(screen.queryByRole('dialog', { name: 'Download dataset' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Download ZIP' })).toBeNull();
+  });
+});
+
+const runtimeWithActions: ExplorerRuntimeV1 = {
+  ...runtime,
+  outputs: [{
+    ...runtime.outputs[0],
+    actions: [
+      { type: 'flag-review', title: 'Flag for review' },
+      { type: 'share-cohort', title: 'Share cohort' },
+    ],
+  }],
+};
+const actionHarness = (customActions: Readonly<Record<string, LoomViewerActionHandler>>) =>
+  harness({ runtime: runtimeWithActions, customActions });
+const actionHarnessFor = (
+  actions: ReadonlyArray<{ readonly type: string; readonly title: string }>,
+  handler: LoomViewerActionHandler,
+) => harness({
+  runtime: { ...runtimeWithActions, outputs: [{ ...runtimeWithActions.outputs[0], actions }] },
+  customActions: Object.fromEntries(actions.map((action) => [action.type, handler])),
+});
+const expectPending = (button: HTMLElement) => {
+  expect(button).toBeDisabled();
+  expect(button).toHaveAttribute('data-loading', 'true');
+};
+const expectSettled = (button: HTMLElement) => {
+  expect(button).toBeEnabled();
+  expect(button).not.toHaveAttribute('data-loading');
+};
+
+describe('Viewer concurrent configured custom actions', () => {
+  const actionButtons = () => ({
+    runFirst: screen.getByRole('button', { name: 'Flag for review' }),
+    runSecond: screen.getByRole('button', { name: 'Share cohort' }),
+  });
+  const deferredActions = (gates: ReturnType<typeof gate>[]) => {
+    const handlers: Record<string, LoomViewerActionHandler> = {};
+    const start = () => { const next = gate(); gates.push(next); return next.promise; };
+    handlers['flag-review'] = start;
+    handlers['share-cohort'] = start;
+    return handlers;
+  };
+  it('keeps both buttons pending while both run and keeps the slower one pending after the first settles', async () => {
+    const first = gate();
+    const second = gate();
+    actionHarness({ 'flag-review': () => first.promise, 'share-cohort': () => second.promise });
+    await screen.findByText('patient-male');
+    const { runFirst, runSecond } = actionButtons();
+    fireEvent.click(runFirst);
+    fireEvent.click(runSecond);
+    await waitFor(() => {
+      expectPending(runFirst);
+      expectPending(runSecond);
+    });
+
+    first.resolve();
+    await waitFor(() => expectSettled(runFirst));
+    expectPending(runSecond);
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+
+    second.resolve();
+    await waitFor(() => expectSettled(runSecond));
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+  });
+  it('keeps the earlier-started action pending when the later action settles first', async () => {
+    const first = gate();
+    const second = gate();
+    actionHarness({ 'flag-review': () => first.promise, 'share-cohort': () => second.promise });
+    await screen.findByText('patient-male');
+    const { runFirst, runSecond } = actionButtons();
+    fireEvent.click(runFirst);
+    fireEvent.click(runSecond);
+    await waitFor(() => {
+      expectPending(runFirst);
+      expectPending(runSecond);
+    });
+
+    second.resolve();
+    await waitFor(() => expectSettled(runSecond));
+    expectPending(runFirst);
+
+    first.resolve();
+    await waitFor(() => expectSettled(runFirst));
+  });
+  it('shows a failing action error without clearing the other pending action, and settles both', async () => {
+    const first = gate();
+    const second = gate();
+    actionHarness({ 'flag-review': () => first.promise, 'share-cohort': () => second.promise });
+    await screen.findByText('patient-male');
+    const { runFirst, runSecond } = actionButtons();
+    fireEvent.click(runFirst);
+    fireEvent.click(runSecond);
+    await waitFor(() => {
+      expectPending(runFirst);
+      expectPending(runSecond);
+    });
+
+    first.reject(new Error('The cohort could not be flagged.'));
+    const alert = await screen.findByRole('alert', { name: 'Action failed' });
+    expect(alert).toHaveTextContent('The cohort could not be flagged.');
+    expectSettled(runFirst);
+    expectPending(runSecond);
+
+    second.resolve();
+    await waitFor(() => expectSettled(runSecond));
+    expect(screen.getByRole('alert', { name: 'Action failed' })).toBeInTheDocument();
+  });
+  it('shows each failed action separately and dismisses only the clicked failure', async () => {
+    const gates: ReturnType<typeof gate>[] = [];
+    actionHarness(deferredActions(gates));
+    await screen.findByText('patient-male');
+    const { runFirst, runSecond } = actionButtons();
+    fireEvent.click(runFirst);
+    fireEvent.click(runSecond);
+    await waitFor(() => {
+      expectPending(runFirst);
+      expectPending(runSecond);
+    });
+
+    gates[0].reject(new Error('The cohort could not be flagged.'));
+    gates[1].reject(new Error('The cohort could not be shared.'));
+    await waitFor(() => expect(screen.getAllByRole('alert', { name: 'Action failed' })).toHaveLength(2));
+    expectSettled(runFirst);
+    expectSettled(runSecond);
+    expect(screen.getByText('The cohort could not be flagged.')).toBeInTheDocument();
+    expect(screen.getByText('The cohort could not be shared.')).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByText('The cohort could not be flagged.').closest('[role="alert"]') as HTMLElement)
+      .getByRole('button', { name: 'Dismiss action failure' }));
+    await waitFor(() => expect(screen.queryByText('The cohort could not be flagged.')).toBeNull());
+    expect(screen.getByText('The cohort could not be shared.')).toBeInTheDocument();
+  });
+  it('keeps one failed action error visible while another action starts and runs', async () => {
+    const gates: ReturnType<typeof gate>[] = [];
+    actionHarness(deferredActions(gates));
+    await screen.findByText('patient-male');
+    const { runFirst, runSecond } = actionButtons();
+    fireEvent.click(runFirst);
+    await waitFor(() => expect(gates).toHaveLength(1));
+    expectPending(runFirst);
+
+    gates[0].reject(new Error('The cohort could not be flagged.'));
+    await waitFor(() => expect(screen.getByText('The cohort could not be flagged.')).toBeInTheDocument());
+    expectSettled(runFirst);
+
+    fireEvent.click(runSecond);
+    await waitFor(() => expect(gates).toHaveLength(2));
+    expectPending(runSecond);
+    expectSettled(runFirst);
+    expect(screen.getByText('The cohort could not be flagged.')).toBeInTheDocument();
+
+    gates[1].resolve();
+    await waitFor(() => {
+      expectSettled(runFirst);
+      expectSettled(runSecond);
+    });
+    expect(screen.getByText('The cohort could not be flagged.')).toBeInTheDocument();
+  });
+  it('scopes pending state to the action run and not to the output currently shown', async () => {
+    const flag = gate();
+    const share = gate();
+    const encounters = {
+      ...runtimeWithActions.outputs[0],
+      outputId: 'encounters',
+      name: 'encounters',
+      title: 'Encounters',
+      selector: { ...runtimeWithActions.outputs[0].selector, output: 'encounters' },
+    };
+    harness({
+      runtime: { ...runtimeWithActions, outputs: [runtimeWithActions.outputs[0], encounters] },
+      customActions: { 'flag-review': () => flag.promise, 'share-cohort': () => share.promise },
+    });
+    await screen.findByText('patient-male');
+    fireEvent.click(screen.getByRole('button', { name: 'Flag for review' }));
+    await waitFor(() => expectPending(screen.getByRole('button', { name: 'Flag for review' })));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Encounters/ }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Encounters/ })).toHaveAttribute('aria-selected', 'true'));
+    expectSettled(screen.getByRole('button', { name: 'Flag for review' }));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Patients/ }));
+    await waitFor(() => expectPending(screen.getByRole('button', { name: 'Flag for review' })));
+    flag.resolve();
+    await waitFor(() => expectSettled(screen.getByRole('button', { name: 'Flag for review' })));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Share cohort' }));
+    await waitFor(() => expectPending(screen.getByRole('button', { name: 'Share cohort' })));
+    share.resolve();
+    await waitFor(() => expectSettled(screen.getByRole('button', { name: 'Share cohort' })));
+  });
+  it('keeps a single action pending only while its own promise runs, on every run', async () => {
+    const invocations: ReturnType<typeof gate>[] = [];
+    actionHarness({ 'flag-review': () => { const next = gate(); invocations.push(next); return next.promise; } });
+    await screen.findByText('patient-male');
+    const { runFirst, runSecond } = actionButtons();
+    expectSettled(runFirst);
+    expectSettled(runSecond);
+
+    fireEvent.click(runFirst);
+    await waitFor(() => expect(invocations).toHaveLength(1));
+    expectPending(runFirst);
+    expectSettled(runSecond);
+
+    await act(async () => { invocations[0].resolve(); });
+    await waitFor(() => {
+      expectSettled(runFirst);
+      expectSettled(runSecond);
+    });
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+
+    fireEvent.click(runFirst);
+    await waitFor(() => expect(invocations).toHaveLength(2));
+    expectPending(runFirst);
+    expectSettled(runSecond);
+
+    await act(async () => { invocations[1].resolve(); });
+    await waitFor(() => {
+      expectSettled(runFirst);
+      expectSettled(runSecond);
+    });
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+  });
+  it('hides an action failure belonging to an output left behind and retains it for the return visit', async () => {
+    const encounters = {
+      ...runtimeWithActions.outputs[0],
+      outputId: 'encounters',
+      name: 'encounters',
+      title: 'Encounters',
+      selector: { ...runtimeWithActions.outputs[0].selector, output: 'encounters' },
+      actions: [],
+    };
+    const flag = gate();
+    harness({
+      runtime: { ...runtimeWithActions, outputs: [runtimeWithActions.outputs[0], encounters] },
+      customActions: { 'flag-review': () => flag.promise },
+    });
+    await screen.findByText('patient-male');
+    fireEvent.click(screen.getByRole('button', { name: 'Flag for review' }));
+    await waitFor(() => expectPending(screen.getByRole('button', { name: 'Flag for review' })));
+
+    flag.reject(new Error('The cohort could not be flagged.'));
+    await waitFor(() => expect(screen.getByText('The cohort could not be flagged.')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('tab', { name: /Encounters/ }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Encounters/ })).toHaveAttribute('aria-selected', 'true'));
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+    expect(screen.queryByText('The cohort could not be flagged.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Patients/ }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Patients/ })).toHaveAttribute('aria-selected', 'true'));
+    expect(screen.getByRole('alert', { name: 'Action failed' })).toHaveTextContent('The cohort could not be flagged.');
+  });
+  it('does not show an action failure that settles after its output was left behind', async () => {
+    const encounters = {
+      ...runtimeWithActions.outputs[0],
+      outputId: 'encounters',
+      name: 'encounters',
+      title: 'Encounters',
+      selector: { ...runtimeWithActions.outputs[0].selector, output: 'encounters' },
+      actions: [],
+    };
+    const flag = gate();
+    harness({
+      runtime: { ...runtimeWithActions, outputs: [runtimeWithActions.outputs[0], encounters] },
+      customActions: { 'flag-review': () => flag.promise },
+    });
+    await screen.findByText('patient-male');
+    fireEvent.click(screen.getByRole('button', { name: 'Flag for review' }));
+    await waitFor(() => expectPending(screen.getByRole('button', { name: 'Flag for review' })));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Encounters/ }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Encounters/ })).toHaveAttribute('aria-selected', 'true'));
+
+    flag.reject(new Error('The cohort could not be flagged while away.'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Patients/ })).toBeInTheDocument());
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+    expect(screen.queryByText('The cohort could not be flagged while away.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Patients/ }));
+    await waitFor(() => expect(screen.getByRole('alert', { name: 'Action failed' })).toBeInTheDocument());
+    expect(screen.getByRole('alert', { name: 'Action failed' })).toHaveTextContent('The cohort could not be flagged while away.');
+  });
+  it('keeps a running action loading when the configured action list changes order', async () => {
+    const actions: Array<{ readonly type: string; readonly title: string }> = [
+      { type: 'flag-review', title: 'Flag for review' },
+      { type: 'flag-review', title: 'Flag for audit' },
+    ];
+    const gates: ReturnType<typeof gate>[] = [];
+    const customActions: Record<string, LoomViewerActionHandler> = {
+      'flag-review': () => { const next = gate(); gates.push(next); return next.promise; },
+    };
+    const { client, rerender } = harness({
+      runtime: { ...runtimeWithActions, outputs: [{ ...runtimeWithActions.outputs[0], actions }] },
+      customActions,
+    });
+    await screen.findByText('patient-male');
+    const first = screen.getByRole('button', { name: 'Flag for review' });
+    const second = screen.getByRole('button', { name: 'Flag for audit' });
+    fireEvent.click(first);
+    await waitFor(() => expectPending(first));
+    expectSettled(second);
+
+    actions.reverse();
+    rerender(<LoomExplorerViewer project="org/project" explorerId="explorer-main" client={client} customActions={customActions} />);
+
+    expectPending(screen.getByRole('button', { name: 'Flag for review' }));
+    expectSettled(screen.getByRole('button', { name: 'Flag for audit' }));
+
+    gates[0].resolve();
+    await waitFor(() => {
+      expectSettled(screen.getByRole('button', { name: 'Flag for review' }));
+      expectSettled(screen.getByRole('button', { name: 'Flag for audit' }));
+    });
+    expect(screen.queryByRole('alert', { name: 'Action failed' })).toBeNull();
+  });
+  it('keeps identically configured actions pending independently', async () => {
+    const actions = [
+      { type: 'flag-review', title: 'Flag for review' },
+      { type: 'flag-review', title: 'Flag for review' },
+    ];
+    const gates: ReturnType<typeof gate>[] = [];
+    actionHarnessFor(actions, () => { const next = gate(); gates.push(next); return next.promise; });
+    await screen.findByText('patient-male');
+    const buttons = screen.getAllByRole('button', { name: 'Flag for review' });
+    expect(buttons).toHaveLength(2);
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    await waitFor(() => {
+      expectPending(buttons[0]);
+      expectPending(buttons[1]);
+    });
+
+    gates[0].reject(new Error('The first flag failed.'));
+    await waitFor(() => expect(screen.getByText('The first flag failed.')).toBeInTheDocument());
+    expectSettled(buttons[0]);
+    expectPending(buttons[1]);
+
+    gates[1].resolve();
+    await waitFor(() => expectSettled(buttons[1]));
+    expect(screen.getByRole('alert', { name: 'Action failed' })).toHaveTextContent('The first flag failed.');
   });
 });
