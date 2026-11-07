@@ -10,8 +10,23 @@ test('real case must pass; empty package and skip cannot masquerade as proof', (
     assert.equal(checkEvents(stream([{ Action: 'pass' }, { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' }]), profile).passes.length, 1);
 });
 test('external preconditions remain explicit unverified cases', () => {
-    const result = checkEvents(stream([{ Action: 'pass' }, { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' }, { Test: 'TestPivotPresenceAudit', Action: 'skip' }]), { required: 'TestReal' });
-    assert.deepEqual(result.unverified.map(e => e.test), ['TestPivotPresenceAudit']);
+    const result = checkEvents(stream([
+        { Action: 'pass' },
+        { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' },
+        { Test: 'TestPivotPresenceAudit', Action: 'skip' },
+        { Test: 'TestCoreAuthoringProtocolModelReplay', Action: 'skip' },
+        { Test: 'TestCoreAuthoringProtocolConcretePrefixReplay', Action: 'skip' },
+    ]), { required: 'TestReal' });
+    assert.deepEqual(result.unverified.map(e => e.test), [
+        'TestPivotPresenceAudit',
+        'TestCoreAuthoringProtocolModelReplay',
+        'TestCoreAuthoringProtocolConcretePrefixReplay',
+    ]);
+    assert.throws(() => checkEvents(stream([
+        { Action: 'pass' },
+        { Test: 'TestReal', Action: 'run' }, { Test: 'TestReal', Action: 'pass' },
+        { Test: 'TestUnexpected', Action: 'skip' },
+    ]), { required: 'TestReal' }), /Unexpected skipped case/);
 });
 test('only a database successfully created by this run becomes cleanup-owned', async () => {
     const owned = [];

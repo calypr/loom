@@ -3,11 +3,11 @@
   "fragments": [
     {
       "path": "docs/ui-contract-inventory/expression.fragment.json",
-      "sha256": "8687e9f3d6594779bc41439b8ebe31585eaec2b884f2956610eee6634db3eef8"
+      "sha256": "fe69dec48e04615d9325507081d2fb2162272f0d580671b9d939f6a62347ff27"
     },
     {
       "path": "docs/ui-contract-inventory/relational.fragment.json",
-      "sha256": "b1016a91a520cd6b97b4818a1168d18782b3c6e79d75b5a0578a47e592c8ec7f"
+      "sha256": "823ee2a5c3ef87ca986b7acebe0b49ed33537ec10acaca5d759715d107ed4dcc"
     },
     {
       "path": "docs/ui-contract-inventory/lifecycle.fragment.json",
@@ -18,7 +18,7 @@
       "sha256": "22a47c5f101a3c59621513f5b31489d3e651916149f01d547049ffeffafa7bc8"
     }
   ],
-  "expandedSha256": "a785484dcedf3941c70eb178d581b95e11012b252d25a21f2657eada0e371f91",
+  "expandedSha256": "909115ab08b3ce523c0eb616d6e6e902ba930be40f80cfe60aa8a31fc227729c",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -88,11 +88,11 @@
         },
         {
           "path": "ui/packages/loom-ui/src/api.ts",
-          "sha256": "223cf519f9df2b356582107bf7c9bfa9240bc413e51677d06762d51d7e3cdb79"
+          "sha256": "b1d02d0681652231cf4e6fa6f9b5cba1df5104b0a32e7429c8f1b5f932418335"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-          "sha256": "d67597c72ca680871c8a651aa16d74ea63a56ab531e130d9af9c3ad9fd9d1d7a"
+          "sha256": "fc7dd098c4f6cba40b4e24b5d77de756acfa27f8921a311287b5521a9f3d9808"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/builderLoadError.ts",
@@ -236,7 +236,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowChangePreviewPanel.tsx",
-          "sha256": "2153b81ce52a2364b0997693734e28b2f3873afb9a98b60e3899fdfc9b94c393"
+          "sha256": "2ef9c7654587042f71ef6c48ddaf2117cd3b7076286fef3f0934ea2eb3953cf0"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionPanel.tsx",
@@ -244,11 +244,15 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx",
-          "sha256": "84dfd83392bc7fbc2f2cea44b8f6846cdd3b27f4ee0bd21f0ad963ae5f8cc66b"
+          "sha256": "53e67464f5d6449c53eed6d48de93776a23fbb50f6a5836f7ccd618003066c44"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowRootPicker.tsx",
           "sha256": "1fc69bba5fefbe49ae3ab9a1cff6bbf3233127c1b452a029c64b9966d0d451d2"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx",
+          "sha256": "a8115a57a659bf0a876d9204c3060a40e6cdfe9c7fe208569841d00fd3829be1"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeComparison.tsx",
@@ -260,7 +264,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx",
-          "sha256": "56b6f812f0eef6e6f1bd80e3c6358f18a44d4996e0241b78b22c93ab4ae3cff3"
+          "sha256": "ba240182c5517023ce84bfa4d68d8a8a213eb58e112a893fd0dc923cefad2b5e"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/UnpivotEditor.tsx",
@@ -304,7 +308,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx",
-          "sha256": "eb4c2e98ae817b5720ca7e9fddeb4bab1b64d1935adf3750d9be2e2a618f36ed"
+          "sha256": "c3a505bc657ecfd3494532d6ba75ab64bed20e2d4c865e15f564b243608583ae"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationsPanel.tsx",
@@ -312,7 +316,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx",
-          "sha256": "215d2189555bf039258aa269a040de34124cb606cf07893dffce6e1be553d9fa"
+          "sha256": "8f97c58a5ecbe5207d9258cb6ba1e288471ea4d06872b59e8ca4a9a3b6c9a3bf"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/FilterRowsEditor.tsx",
@@ -347,12 +351,20 @@
           "sha256": "dc89a725128611bd57a9865f663fc5fa2e7a9a780d9e8099d191d7703b47763e"
         },
         {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts",
+          "sha256": "9e8c387fb7ed68639f4d56604441ff1d7c5aeb7a55edbdc52265908cccc96b25"
+        },
+        {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/index.ts",
           "sha256": "53129ff54667593a702fa791987e67f033eb31fc204cbb35b0a62aa3b29c15df"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/operationFamilies.ts",
           "sha256": "6d3bf141a042366987b7ec48e10734ff4d7ad26a40702323f03fc2b8bcf7ef80"
+        },
+        {
+          "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts",
+          "sha256": "d976e4cdb18a3276ddb658a06c452ca371f31e597679c9b94d58ce8ee0a63cc8"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionColumnSelection.tsx",
@@ -364,7 +376,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionProposalPreview.tsx",
-          "sha256": "7c4f168ab8723fcb9abf36ccb0346f8f2b023b2ccd67946deb74bbeacce753ae"
+          "sha256": "32c247f3bd482e6c3f0cedd5120d57c1ee28c0a6a2611793e62d222c10782af4"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/ConstructionWorkspace.tsx",
@@ -472,7 +484,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/types.ts",
-          "sha256": "49fd41d86330d4d9c43374b872994d4e76d439d8979d89144b252022495ee9dd"
+          "sha256": "0917431df5cb8cfd52991296aa4dd9bf798143247cd21bae9e8327ce406a7165"
         }
       ],
       "mountedOperationSources": [
@@ -508,47 +520,7 @@
           "schema": "allOperationFamilies",
           "mappingField": "affordances[].operation.family"
         }
-      ],
-      "reviewedWorkingTree": {
-        "baselineCommit": "e736e1300716e8cdfe4dbfbe370e87b6713bebd2",
-        "uncommitted": true,
-        "contractOriginCommit": "dc331783dde3f61e764bab3a421b66b28698c9d4",
-        "reviewNote": "docs/ui-contract-inventory/source-review.md",
-        "changes": [
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx",
-            "review": "Apply cleanup follows the initiating completion handle. Reconcile admission now delegates the same synchronous current/receipt/diagnostic decisions to reconcileAcceptance; cancellation and repair/compiled dispatch semantics and public HTTP request shapes are preserved. Recovery now rechecks generation, Explorer and workspace fingerprint after each catalog refresh and before retrying after backoff; obsolete continuations cannot overwrite a newer draft/catalog or resubmit an old request. Public request constructors and affordances unchanged. Publication refresh and completion also reject obsolete ownership and retain the submitted draft digest; request shapes unchanged. Successful publication acknowledgement now follows captured owner/Explorer/draft/intent/snapshot identity rather than an unrelated preview compile epoch. The old stale-refetch recovery rule is preserved. No request constructor or user affordance changed. Population exclusion validates captured base/context/lifetime after preflight and after the real queued drain, including current local/server coherence. Existing public command and route request shapes are preserved. Six mounted schedules and model-backed real-code source controls establish this review."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/useConstructionLifecycle.ts",
-            "review": "Attempt-bound completion and current-context checks replace shared finishApply; proposal/preview public request shapes unchanged."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionWorkspace/constructionApplyOwnership.ts",
-            "review": "New synchronous ownership helper extracted from beginApply/finish; watched as production source, not a new user affordance."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/components/ConceptCatalog.tsx",
-            "review": "Selected-feature labels wrap and display their route suffix; existing selection actions and request constructors unchanged."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/authoring/reconcileAcceptance.ts",
-            "review": "New actual synchronous reconcile response classifier. It calls existing current-result and receipt predicates, rejects error diagnostics for preview, and distinguishes obsolete/mismatch/diagnostics/accepted caller branches. No new affordance or HTTP request."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/api.ts",
-            "review": "prepareArtifact now rejects responses whose canonical project, Explorer, revision or output differs from the submitted identity. Existing artifact request method, endpoint, payload and valid response shape are unchanged."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerViewer/components.tsx",
-            "review": "FileCell appends the encoded file ID to the path before preserving query/fragment and setting redirect=true. This Viewer source is outside this Builder manifest watched scope; separate component/browser proofs cover it. No Builder HTTP request ABI change."
-          },
-          {
-            "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/populationRoutes.ts",
-            "review": "Saved route matching now honors optional catalog edge and storage direction pins, retaining legacy omitted-pin matching. No request shape or affordance changes. The targeted actual helper regression and semantic source fault pass."
-          }
-        ]
-      }
+      ]
     }
   }
 }

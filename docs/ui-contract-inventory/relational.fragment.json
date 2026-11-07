@@ -421,11 +421,12 @@
       "id": "builder.reshape.expand_scalar_list",
       "family": "Expand",
       "operation": "ConstructionStep.operation.kind=EXPAND",
-      "status": "reachable_when_current_preview_has_expandable_scalar_list",
-      "ui_path": "Builder table preview > Columns > Split values into rows on an eligible scalar-list column. This starts a new ConstructionStep EXPAND, then proposes and previews it in the reshape editor.",
+      "status": "reachable_when_current_preview_has_expandable_scalar_list_or_populated_signed_expand_choice",
+      "ui_path": "Builder table preview > Columns > Split values into rows on an eligible scalar-list column. Alternatively, Rows > Reshape table > Expand repeated field opens the signed source-field EXPAND picker. Both paths start a ConstructionStep EXPAND, then propose and preview it in the reshape editor.",
       "capability_gates": [
         "The Split values into rows action is only rendered for a column ID in expandableColumnIds; this set is populated only when the table preview is current, the selected capability stage is the append stage, EXPAND is supported, and the stage has a public scalar-list column.",
-        "The click handler requires exactly one preferred column. BuilderWorkspace rechecks append-stage EXPAND support and that the chosen ID is still a public scalar-list column before creating the entry.",
+        "For Split values into rows, the click handler requires exactly one preferred public scalar-list column. BuilderWorkspace rechecks append-stage EXPAND support and that column identity before creating the entry.",
+        "The separate Expand repeated field entry requires a current preview, append-stage capabilities, supported expandSourceInput, and at least one populated signed choice. It does not require an existing public scalar-list column; it opens an empty form for selecting a signed field.",
         "Candidate construction requires a selected list input, an empty-list policy, non-empty valid unique output names, and at least one output column."
       ],
       "payload_constructor": {
@@ -436,16 +437,16 @@
       "semantic_domains": [
         {
           "id": "scalar_list_input",
-          "kind": "dynamic-stage-column-choice",
+          "kind": "dynamic-stage-column-or-signed-source-choice",
           "values": null,
           "provider": {
-            "kind": "selected-append-stage-public-scalar-list-columns",
-            "source": "capability stage columns filtered by isListColumn"
+            "kind": "selected-append-stage-public-scalar-list-columns-or-signed-expand-choices",
+            "source": "capability stage columns filtered by isListColumn, or populated expandSourceInput.choices selected through the signed-field picker"
           },
           "dependencies": [
             "current preview",
             "selected stage is append stage",
-            "EXPAND supported"
+            "EXPAND supported for public list columns, or expandSourceInput supported for signed fields"
           ],
           "cardinality": {
             "minimum": 1,
@@ -454,7 +455,9 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3488-3496",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:456-460",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3962-3977"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:3962-3977",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3665-3677",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4191-4249"
           ]
         },
         {
@@ -546,11 +549,34 @@
       "invariants": [
         {
           "basis": "observed-ui",
-          "statement": "The action appears only for eligible columns when the current preview, append-stage capability identity, EXPAND support, and public scalar-list input are all present; the click rechecks those conditions.",
+          "statement": "Construction capabilities may include expandSourceInput with supported, stageId, optional refusal reasonCode/reason, and choices carrying choiceId, optional columnId, fieldPath, label, logicalType, and isPopulated. A missing or empty response columnId means no live materialization; selecting a signed field submits expandSources entries with non-empty choiceId and columnId through construction-proposals. Signed EXPAND choices represent direct-root primitive arrays and logicalType denotes the element type. Saved EXPAND operations may retain server-signed expandedField facts (path, cardinality=many, optional fhirType, logicalType); these facts are not authored by the picker.",
+          "evidence": [
+            "ui/packages/loom-ui/src/types.ts:1995-2127",
+            "ui/packages/loom-ui/src/types.ts:2185-2204",
+            "ui/packages/loom-ui/src/api.ts:1694-1698",
+            "ui/packages/loom-ui/src/types.ts:1747-1764"
+          ]
+        },
+        {
+          "basis": "observed-ui",
+          "statement": "The Rows > Reshape table > Expand repeated field entry is shown only for a current preview, append-stage capabilities, supported expandSourceInput, and at least one populated signed choice. The handler rechecks those capabilities and opens an empty EXPAND form; selecting a signed field emits expandSources with its choiceId and input columnId through the existing construction proposal flow.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3400-3455",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3665-3677",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/RowDefinitionSettingsPanel.tsx:1011-1021",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2042-2044",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4191-4249"
+          ]
+        },
+        {
+          "basis": "observed-ui",
+          "statement": "The Split values into rows column action appears only for eligible public scalar-list columns when the current preview, append-stage capability identity, and EXPAND support are present; its click handler rechecks those conditions. The separate signed-field entry uses expandSourceInput support and populated choices.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3488-3496",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3253-3285",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:729-738"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/PreviewTable.tsx:729-738",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3400-3455",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx:3665-3677"
           ]
         },
         {
@@ -1047,6 +1073,16 @@
       "invariants": [
         {
           "basis": "observed-ui",
+          "statement": "The Pivot editor owns an accessible Finding categories progress state for the current request identity during debounce and while its discovery owner has not published a matching terminal state or adopted result. It hides prior-pair categories, rejects superseded callbacks by revision/context/owner/stage identity, hides progress while disabled, and retains unrelated form choices across discovery failure and retry.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2135-2165",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2224-2243",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:2372-2480",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.unit.test.tsx:4477-4635"
+          ]
+        },
+        {
+          "basis": "observed-ui",
           "statement": "At least one group key and included category are required; category/value roles differ; every discovered category must be selected to form a new pivot candidate.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:1245-1250",
@@ -1320,6 +1356,26 @@
         }
       ],
       "invariants": [
+        {
+          "basis": "observed-ui",
+          "statement": "Construction capabilities may include unpivotSourceInput with supported, stageId, optional refusal reasonCode/reason, and choices carrying choiceId, optional columnId, fieldPath, label, logicalType, and isPopulated. A missing or empty response columnId means no live materialization; selecting a signed field submits unpivotSources entries with non-empty choiceId and columnId through construction-proposals.",
+          "evidence": [
+            "ui/packages/loom-ui/src/types.ts:1995-2127",
+            "ui/packages/loom-ui/src/types.ts:2185-2204",
+            "ui/packages/loom-ui/src/api.ts:1694-1698"
+          ]
+        },
+        {
+          "basis": "observed-ui",
+          "statement": "Signed source pickers distinguish no listed fields, no populated eligible fields, and eligible populated fields already bound elsewhere. Own bindings count as selectable only when visible and solely bound in the lane; unavailable source-lane reasons stay separate. Existing live field carriers suppress duplicate signed choices only when authoritative field identity resolves unambiguously; stale or ambiguous carriers retain the signed-choice path, and saved bindings are not rewritten. The source-level explanation is derived independently of input rows, including when no inputs have been selected.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4905-4920",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4967-4985",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-65",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:27-56",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:9-47"
+          ]
+        },
         {
           "basis": "observed-ui",
           "statement": "At least one scalar input is required; inputs are unique; NULL and MISSING cannot be key values; output names must be complete and unique.",
@@ -2357,10 +2413,18 @@
       "invariants": [
         {
           "basis": "observed-ui",
-          "statement": "At least one supported input is required; output names must be non-empty and unique, labels non-empty, and null-row policy supported.",
+          "statement": "Resolving a table-shape UNPIVOT requires at least two selected input columns. With fewer than two, the settings panel retains the editing session, shows the minimum-input explanation, and sends no resolve or proposal request.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:255-276"
+          ]
+        },
+        {
+          "basis": "observed-ui",
+          "statement": "Resolving the shape requires at least two supported inputs; output names must be non-empty and unique, labels non-empty, and null-row policy supported.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:648-678",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:410-415"
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/tableShapeModel.ts:410-415",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/TableShapeSettingsPanel.tsx:255-276"
           ]
         },
         {

@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 /// <reference types="node" />
-import { appendFileSync, writeFileSync } from 'node:fs';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -281,36 +280,8 @@ const renderMountedBuilder = () => render(
   <BuilderWorkspace organization="BForePC" project="BForePC" explorerId="builder" />,
 );
 
-let dbgTick: ReturnType<typeof setInterval> | undefined;
-let dbgTag = 'untagged';
-const tr = (m: string) => process.stderr.write(`M2J ${m}\n`);
-const dbgWatch = (label: string) => {
-  dbgTag = label;
-  const t0 = Date.now();
-  let n = 0;
-  clearInterval(dbgTick);
-  dbgTick = setInterval(() => {
-    const statuses = Array.from(document.querySelectorAll('[role="status"]')).map((e) => e.textContent?.trim().slice(0, 90));
-    const stubCalls = Object.entries(harness.client).filter(([, fn]) => typeof (fn as { mock?: { calls?: unknown } }).mock?.calls === 'object')
-      .map(([name, fn]) => `${name}:${(fn as { mock: { calls: unknown[] } }).mock.calls.length}`)
-      .filter((entry) => !entry.endsWith(':0')).join(',');
-    const line = `${label} n=${n++} t=${Date.now() - t0}ms r=${harness.reconcileCalls.length} p=${harness.previewCalls.length} s=${harness.applyCalls.length} rg=${harness.reconcileGates.length} pg=${harness.previewGates.length} stubs=${stubCalls} statuses=${JSON.stringify(statuses)}\n`;
-    appendFileSync('/tmp/opencode/dbg-spec-watch.log', line);
-  }, 400);
-};
-const dbgDump = (name: string, extra?: unknown) => {
-  const buttons = Array.from(document.querySelectorAll('button')).map((b) => ({ t: b.textContent?.trim().slice(0, 40), al: b.getAttribute('aria-label'), exp: b.getAttribute('aria-expanded'), testid: b.getAttribute('data-testid') }));
-  const statuses = Array.from(document.querySelectorAll('[role="status"]')).map((e) => e.textContent?.trim().slice(0, 120));
-  const previewContents = Array.from(document.querySelectorAll('[data-testid="preview-table-content"]')).map((e) => (e as HTMLElement).outerHTML.slice(0, 500));
-  writeFileSync(`/tmp/opencode/dbg-spec-${name}.json`, JSON.stringify({ buttons, statuses, previewContents, extra: extra ?? null }, null, 1));
-};
 const renameFirstColumn = (label: string) => {
-  try {
-    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
-  } catch (error) {
-    dbgDump('renameFirstColumn-columns', String(error).slice(0, 200));
-    throw error;
-  }
+  fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
   const input = screen.getByLabelText(`Column name for ${headLabels[1]}`);
   fireEvent.change(input, { target: { value: label } });
   fireEvent.keyDown(input, { key: 'Enter' });
@@ -332,7 +303,6 @@ beforeEach(() => {
 
 describe('mounted Builder core protocol admission', () => {
   it('never admits an in-flight reconcile whose identity was superseded by a save, and previews only the current head', async () => {
-    dbgTag = 'an';
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -403,7 +373,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('discards a preview whose echoed receipt identity does not match the accepted receipt', async () => {
-    dbgTag = 'preview';
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls).toHaveLength(1), { timeout: 5000 });
@@ -580,19 +549,11 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   const renameColumnLabel = async (from: string, to: string) => {
-    let toggle: HTMLElement | null = null;
-    try {
-      toggle = screen.getByRole('button', { name: 'Columns' });
-    } catch (error) {
-      dbgDump(`renameColumnLabel-columns-${from}-to-${to}`, String(error).slice(0, 200));
-      throw error;
-    }
+    const toggle = screen.getByRole('button', { name: 'Columns' });
     for (let attempt = 0; attempt < 5 && !screen.queryByTestId('preview-table-column-settings'); attempt += 1) {
       fireEvent.click(toggle);
       await new Promise((r) => window.setTimeout(r, 20));
-      dbgDump(`renameColumnLabel-click-${to}-${attempt}`, { exp: toggle.getAttribute('aria-expanded') });
     }
-    dbgDump(`renameColumnLabel-menu-${to}`, { menu: screen.queryByTestId('preview-table-column-settings') !== null, inputs: Array.from(document.querySelectorAll('input')).map((i) => i.getAttribute('aria-label')).filter((l) => l && l.startsWith('Column name')).join('|') });
     const input = screen.getByLabelText(`Column name for ${from}`);
     fireEvent.change(input, { target: { value: to } });
     fireEvent.keyDown(input, { key: 'Enter' });
@@ -600,18 +561,14 @@ describe('mounted Builder core protocol admission', () => {
   };
 
   afterEach(() => {
-    dbgDump(`after-1-${dbgTag}`);
-    clearInterval(dbgTick);
     // Vitest 4 does not run RTL auto-cleanup under this config (globals are
     // injected but the cleanup side effect is not), so unmount explicitly;
     // tab selection also persists through sessionStorage and must not leak.
     cleanup();
-    dbgDump(`after-2-${dbgTag}`);
     window.sessionStorage.clear();
   });
 
   it('keeps a stale preview generation out of the current table and keeps the current preview error visible when the old generation finishes with rows', async () => {
-    dbgWatch('stale-gen');
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -631,17 +588,15 @@ describe('mounted Builder core protocol admission', () => {
       while (resolvedCompiles < harness.reconcileGates.length) {
         harness.reconcileGates[resolvedCompiles]!.resolve(compileForHead(2));
         resolvedCompiles += 1;
-        if (resolvedCompiles > 15) { dbgDump('sg-compile-spin', resolvedCompiles); throw new Error('reconcile resolve spin'); }
+        if (resolvedCompiles > 15) { throw new Error('reconcile resolve spin'); }
       }
       while (deliveredPreviews < harness.previewGates.length) {
         harness.previewGates[deliveredPreviews]!.reject(explorerError('core-preview-error-from-B', previewErrorCode));
         deliveredPreviews += 1;
-        if (deliveredPreviews > 15) { dbgDump('sg-preview-spin', deliveredPreviews); throw new Error('preview settle spin'); }
+        if (deliveredPreviews > 15) { throw new Error('preview settle spin'); }
       }
       expect(harness.previewGates.length).toBeGreaterThanOrEqual(2);
     }, { timeout: 5000 });
-    dbgDump('sg-looped');
-    dbgDump('sg-1');
     await settleDelay(100);
     while (deliveredPreviews < harness.previewGates.length) {
       harness.previewGates[deliveredPreviews]!.reject(explorerError('core-preview-error-from-B', previewErrorCode));
@@ -650,7 +605,6 @@ describe('mounted Builder core protocol admission', () => {
 
     // B is the active generation carrying its own error; A was detached at the
     // request boundary when the save took over.
-    dbgDump('sg-2');
     expect(screen.getByText(/Preview did not complete for this draft/)).toHaveTextContent('core-preview-error-from-B');
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
     expect(harness.previewGates[0]!.aborted).toBe(true);
@@ -661,21 +615,16 @@ describe('mounted Builder core protocol admission', () => {
     const reconcileCallsAtHandoff = harness.reconcileCalls.length;
 
     // A's late success must neither publish rows nor clear B's error state.
-    dbgDump('sg-3');
     // Late delivery outside act, matching real timer arrival; a resolved
     // never-settling gate awaited inside act() never returns.
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
     await settleDelay(25);
-    dbgDump('sg-4');
-    tr('sg-4-done');
     await settleDelay(150);
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
     expect(screen.getByText(/Preview did not complete for this draft/)).toHaveTextContent('core-preview-error-from-B');
     expect(harness.previewCalls.length).toBe(previewCallsAtHandoff);
     expect(harness.reconcileCalls.length).toBe(reconcileCallsAtHandoff);
-    dbgDump('sg-5');
-    tr('sg-5-done');
 
     // Boundary note: "B error then B success" through the same generation is
     // unreachable through real controls here — no affordance refetches the
@@ -687,8 +636,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('keeps a stale preview error from surfacing on the current generation while the current generation completes with rows', async () => {
-    dbgTag = 'stale';
-    dbgWatch('stale-err');
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -704,14 +651,12 @@ describe('mounted Builder core protocol admission', () => {
       while (resolvedCompiles < harness.reconcileGates.length) {
         harness.reconcileGates[resolvedCompiles]!.resolve(compileForHead(2));
         resolvedCompiles += 1;
-        if (resolvedCompiles > 15) { dbgDump('se-spin', resolvedCompiles); throw new Error('reconcile resolve spin'); }
+        if (resolvedCompiles > 15) { throw new Error('reconcile resolve spin'); }
       }
       expect(harness.previewCalls.length).toBeGreaterThanOrEqual(2);
     }, { timeout: 5000 });
-    dbgDump('se-looped');
 
     // B (head 2) is loading, holding no preview yet.
-    dbgDump('se-1');
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
 
     // A's late error is delivered after A was detached by the save. Gate
@@ -733,27 +678,21 @@ describe('mounted Builder core protocol admission', () => {
       while (deliveredB < harness.previewGates.length) {
         harness.previewGates[deliveredB]!.resolve(previewFor(2, 'receipt-core-2'));
         deliveredB += 1;
-        if (deliveredB > 15) { dbgDump('se-preview-spin', deliveredB); throw new Error('B preview settle spin'); }
+        if (deliveredB > 15) { throw new Error('B preview settle spin'); }
       }
       expect(harness.previewGates.length).toBeGreaterThanOrEqual(2);
     }, { timeout: 5000 });
-    dbgDump('se-2');
-    tr('se-2-done');
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]), { timeout: 5000 });
-    dbgDump('se-3');
-    tr('se-3-done');
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
     expect(screen.queryByText(/core-error-from-A-before-B/)).toBeNull();
     expect(screen.queryByText(/Preview did not complete for this draft/)).toBeNull();
   });
 
   it('keeps an abandoned output preview out of the switched output and completes the switched output preview', async () => {
-    dbgTag = 'abandoned';
     // Real output affordance: ConstructionTableNavigation's tab button
     // (constructionWorkspace/ConstructionWorkspace.tsx:259-276) is unstubbed
     // in this mount and drives selectTableFromUser → 'selectTable'.
     harness.builderState = hydratedStateWithTwoOutputs();
-    dbgWatch('switch');
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
@@ -767,39 +706,27 @@ describe('mounted Builder core protocol admission', () => {
     }));
 
     // Switch outputs while generation A (patients preview) is still in flight.
-    dbgDump('sw-1');
     fireEvent.click(screen.getByRole('button', { name: 'Encounters' }));
-    dbgDump('sw-m');
     await flushMicrotasks();
-    dbgDump('sw-2');
-    tr('sw-2-done');
     // The switch detaches A at the request boundary via the keyed query's
     // controller.abort() → refresh cancel() → execution.previewRequest.abort().
     expect(harness.previewGates[0]!.aborted).toBe(true);
-    dbgDump('sw-a');
-    tr('sw-a-done');
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(2), { timeout: 5000 });
-    dbgDump('sw-b');
     expect(harness.reconcileCalls[1]).toEqual(expect.objectContaining({
       snapshotToken, draftVersion: 1, draftDigest: headDigests[1], outputId: outputId2,
     }));
     harness.reconcileGates[1]!.resolve(switchCompileBothOutputs('receipt-switch-encounters'));
-    dbgDump('sw-c');
     await waitFor(() => expect(harness.previewCalls.length).toBe(2), { timeout: 5000 });
-    dbgDump('sw-d');
     expect(harness.previewCalls[1]).toEqual(expect.objectContaining({
       receiptId: 'receipt-switch-encounters', outputId: outputId2,
     }));
     expect(screen.getByText('Loading your table…')).toBeInTheDocument();
-    dbgDump('sw-e');
 
     // A's completion must not populate the switched output's preview area.
-    dbgDump('sw-3');
     // Gate settlement outside act(): awaiting a settling promise inside
     // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-switch-baseline'));
     await settleDelay(25);
-    dbgDump('sw-4');
     await settleDelay(150);
     expect(screen.queryByText(rowMarkers[1])).toBeNull();
     expect(screen.queryByTestId('preview-table-content')).toBeNull();
@@ -816,7 +743,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('aborts the in-flight preview request on unmount and admits nothing from the late preview success', async () => {
-    dbgTag = 'in-flight';
     // C13 detach semantics only: abort cancels the transport request, it is
     // not evidence of a server-side rollback (plan C13 acceptance row).
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -829,26 +755,19 @@ describe('mounted Builder core protocol admission', () => {
       await flushMicrotasks();
       await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
 
-      dbgDump('au-1');
       view.unmount();
       // react.tsx resourceFor subscribe cleanup aborts on a microtask.
       await flushMicrotasks();
-      dbgDump('au-2');
-    tr('au-2-done');
       // The owned preview request was actually aborted through the mock
       // boundary (execution.previewRequest.abort() at BuilderWorkspace.tsx:2996).
       expect(harness.previewGates[0]!.aborted).toBe(true);
-      dbgDump('au-a');
-    tr('au-a-done');
       // Late success after detach: it must not surface anywhere and must not
       // be retried. An unhandled rejection would fail this suite (vitest
       // reports it), so a green run is the "no rejection surface" evidence.
-      dbgDump('au-3');
       // Gate settlement outside act(): awaiting a settling promise inside
       // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
       harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
       await settleDelay(25);
-      dbgDump('au-4');
       expect(harness.previewCalls.length).toBe(1);
       expect(harness.reconcileCalls.length).toBe(1);
 
@@ -859,7 +778,6 @@ describe('mounted Builder core protocol admission', () => {
         // deadlocks the flush; genuine failure signals below stay caught.
         .filter((line) => /unmounted|Maximum update depth|Cannot update during render|Cannot read properties of undefined/i.test(line)
           && !/not wrapped in act/.test(line));
-      dbgDump('compile-unmount-leaks', leaks);
       expect(leaks).toEqual([]);
     } finally {
       consoleErrors.mockRestore();
@@ -867,7 +785,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('aborts the in-flight compile request on unmount and admits nothing from the late compile error', async () => {
-    dbgTag = 'in-flight';
     // C13 boundary: no user-facing cancel control exists for a pending
     // command, compile, or preview await in this mount — cancelAutomaticPreview
     // is only reached through saves, Explorer switches, and query detach
@@ -875,7 +792,6 @@ describe('mounted Builder core protocol admission', () => {
     // detach path; command-await unmount shares the same trigger-abort chain
     // through queueCommands and is not asserted here.
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    dbgWatch('abort-preview');
     try {
       const view = renderMountedBuilder();
       await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
@@ -909,8 +825,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('lets only the current attempt complete when a reused receipt label spans three A-B-A preview attempts', async () => {
-    dbgTag = 'the';
-    dbgDump('cp-start');
     // C14: A→B→A with the identical receipt label reused for the first A and
     // A''' (snapshotToken is identical throughout). The late stale-A preview
     // and the current A''' preview are the very same payload object, so an
@@ -918,24 +832,17 @@ describe('mounted Builder core protocol admission', () => {
     // values matching.
     renderMountedBuilder();
 
-    dbgDump('cp-a');
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
-    dbgDump('cp-b', harness.reconcileCalls.length);
     harness.reconcileGates[0]!.resolve(compileForHead(1));
-    dbgDump('cp-c');
     await waitFor(() => expect(harness.previewCalls.length).toBe(1), { timeout: 5000 });
-    dbgDump('cp-d', harness.previewCalls.length);
     // Gate settlement outside act(): awaiting a settling promise inside
     // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
     harness.previewGates[0]!.resolve(previewFor(1, 'receipt-core-1'));
     await flushMicrotasks();
-    dbgDump('cp-e');
     await waitFor(() => expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[1]), { timeout: 5000 });
-    dbgDump('cp-f');
 
     // Attempt A: rename to the reused-A state; park its preview in flight.
     await renameColumnLabel(headLabels[1], attemptALabel);
-    dbgDump('cp-g');
     await waitFor(() => expect(harness.applyCalls.length).toBe(1), { timeout: 5000 });
     // Gate settlement outside act(): awaiting a settling promise inside
     // act() deadlocks the flush; deliveries legitimately arrive on the test timer.
@@ -1003,7 +910,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('lets only the current attempt compile when a reused receipt label spans A-B-A reconcile attempts', async () => {
-    dbgTag = 'the';
     // C14 reconcile arm ("deliver the first A's stale ... reconcile after A'''
     // started"). The stale first-A compile is the byte-identical payload the
     // current attempt accepts. reconcileRecovery.ts reconcileResultIsCurrent
@@ -1160,7 +1066,7 @@ describe('mounted Builder core protocol admission', () => {
       while (resolvedCompiles < harness.reconcileGates.length) {
         harness.reconcileGates[resolvedCompiles]!.resolve(compileForHead(2));
         resolvedCompiles += 1;
-        if (resolvedCompiles > 15) { dbgDump('c1213-compile-spin', resolvedCompiles); throw new Error('reconcile resolve spin'); }
+        if (resolvedCompiles > 15) { throw new Error('reconcile resolve spin'); }
       }
       expect(harness.previewCalls.length).toBeGreaterThanOrEqual(2);
     }, { timeout: 5000 });
@@ -1172,7 +1078,7 @@ describe('mounted Builder core protocol admission', () => {
       while (delivered < harness.previewGates.length) {
         harness.previewGates[delivered]!.resolve(previewFor(2, 'receipt-core-2'));
         delivered += 1;
-        if (delivered > 15) { dbgDump('c1213-preview-spin', delivered); throw new Error('preview settle spin'); }
+        if (delivered > 15) { throw new Error('preview settle spin'); }
       }
       expect(screen.getByTestId('preview-table-content')).toHaveTextContent(rowMarkers[2]);
     }, { timeout: 5000 });
@@ -1184,7 +1090,7 @@ describe('mounted Builder core protocol admission', () => {
       while (delivered < harness.previewGates.length) {
         harness.previewGates[delivered]!.reject(explorerError(message, previewErrorCode));
         delivered += 1;
-        if (delivered > 15) { dbgDump('c1213-preview-reject-spin', delivered); throw new Error('preview reject spin'); }
+        if (delivered > 15) { throw new Error('preview reject spin'); }
       }
       expect(screen.getByText(/Preview did not complete for this draft/)).toHaveTextContent(message);
     }, { timeout: 5000 });
@@ -1199,7 +1105,6 @@ describe('mounted Builder core protocol admission', () => {
   };
 
   it('C12 "finish A and B in both orders with success and error variants": B-success-then-A-late-success cannot replace current rows or header and never releases B owner', async () => {
-    dbgTag = 'c12-b-success-a-late-success';
     await startGenerationAWaitingOnPreview();
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
@@ -1229,7 +1134,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C12 "finish A and B in both orders with success and error variants": A-late-success-while-B-loading cannot clear B loading, then current B finishes with rows', async () => {
-    dbgTag = 'c12-b-loading-a-late-success';
     await startGenerationAWaitingOnPreview();
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
@@ -1259,7 +1163,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C12 "finish A and B in both orders with success and error variants": B-error-then-A-late-error keeps the displayed error B-owned and never releases B owner', async () => {
-    dbgTag = 'c12-b-error-a-late-error';
     await startGenerationAWaitingOnPreview();
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
@@ -1285,7 +1188,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C12 "finish A and B in both orders with success and error variants": A-late-error-before-B-finish never enters the error slot and B still finishes with its own error', async () => {
-    dbgTag = 'c12-a-late-error-b-error';
     await startGenerationAWaitingOnPreview();
     await startSaveSwitchingToHeadB();
     await driveHeadBCompile();
@@ -1308,7 +1210,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": unmount during preview await then late 500 admits nothing and issues no retry', async () => {
-    dbgTag = 'c13-unmount-late-500';
     // Observed adapter-call counts for THIS case: preview 1 -> 1 and reconcile
     // 1 -> 1 across the late 500 delivery. A non-cancelled 500 is retryable at
     // the adapter (api.ts:925) and previewRecovery.ts:44 would spend one
@@ -1348,7 +1249,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": unmount during preview await then late 409 DRAFT_CONFLICT with advanced head admits nothing and issues no retry', async () => {
-    dbgTag = 'c13-unmount-late-409';
     // Observed adapter-call counts for THIS case: preview 1 -> 1 and reconcile
     // 1 -> 1 across the late 409 delivery. Trace: a 409 is not retryable at
     // the adapter (api.ts:925 — only 408/429/>=500) and DRAFT_CONFLICT is in
@@ -1391,7 +1291,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": cancel via the real save path during preview await then late 500 admits nothing and B still finishes', async () => {
-    dbgTag = 'c13-save-cancel-late-500';
     // Real cancel path: applyCommandsWithResult calls cancelAutomaticPreview
     // synchronously (BuilderWorkspace.tsx:813, definition :649-651) before
     // queueing the command; execution.cancelled + gate abort follow at
@@ -1432,7 +1331,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C13 "Cancel or unmount during command, compile, recovery and preview awaits; deliver late success/error.": cancel via the real save path during preview await then late 409 DRAFT_CONFLICT head is neither shown nor adopted by the next command CAS', async () => {
-    dbgTag = 'c13-save-cancel-late-409';
     // Observed adapter-call counts for THIS case: preview 1 -> 1 and reconcile
     // 1 -> 1 across the late 409 delivery (same guard evidence as the 500-
     // cancel case; the 409 additionally has no retry budget in production at
@@ -1491,8 +1389,6 @@ describe('mounted Builder core protocol admission', () => {
   // error outside the receipt/catalog refresh sets (previewRecovery.ts
   // `error.retryable && transientRetries < 1 → return 'retry'`).
   it('stops the preview recovery retry loop once the attempt is detached by a save handoff', async () => {
-    dbgTag = 'retry-detach';
-    (globalThis as { __probe?: (m: string) => void }).__probe = (m) => process.stderr.write(`PROBE ${m}\n`);
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -1540,7 +1436,6 @@ describe('mounted Builder core protocol admission', () => {
   // attempt (previewRecovery.ts `error.retryable && transientRetries < 1`),
   // not zero and not a storm.
   it('reissues the preview exactly once for a transient error on the current attempt and then renders rows', async () => {
-    dbgTag = 'retry-budget';
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -1567,7 +1462,6 @@ describe('mounted Builder core protocol admission', () => {
   // C13 remainder closed: the prior cases only asserted compile/preview
   // detach; the command (apply) await is the third await named by the plan.
   it('admits nothing from a late command ack after unmount during the command await', async () => {
-    dbgTag = 'command-detach';
     const consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const view = renderMountedBuilder();
@@ -1600,7 +1494,6 @@ describe('mounted Builder core protocol admission', () => {
         .map((entry) => entry.map((item) => String(item)).join(' '))
         .filter((line) => /unmounted|Maximum update depth|Cannot update during render|Cannot read properties of undefined/i.test(line)
           && !/not wrapped in act/.test(line));
-      dbgDump('command-unmount-leaks', leaks);
       expect(leaks).toEqual([]);
     } finally {
       consoleErrors.mockRestore();
@@ -1614,7 +1507,6 @@ describe('mounted Builder core protocol admission', () => {
   // (BuilderWorkspace.tsx:695-702 after shouldSyncServerDraft) and the
   // post-ack pin (BuilderWorkspace.tsx:850).
   it('cannot regress an admitted save with a late same-context Builder GET, and still adopts a genuinely newer draft identity', async () => {
-    dbgTag = 'c01-late-get';
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -1689,7 +1581,6 @@ describe('mounted Builder core protocol admission', () => {
   // failed intent), and the next visible command must carry the exact
   // refreshed identity.
   it('forced-refreshes on a command conflict, never replays the stale intent, and binds the next command to the exact refreshed identity', async () => {
-    dbgTag = 'c03-conflict-refresh';
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -1766,7 +1657,6 @@ describe('mounted Builder core protocol admission', () => {
   // (Queue identity-at-drain is asserted where the queue is actually formable;
   // this probe records the observable gating through the harness.)
   it('gates a second UI command submission while the first command await is pending', async () => {
-    dbgTag = 'c02-queue-probe';
     renderMountedBuilder();
 
     await waitFor(() => expect(harness.reconcileCalls.length).toBeGreaterThanOrEqual(1), { timeout: 5000 });
@@ -1792,7 +1682,6 @@ describe('mounted Builder core protocol admission', () => {
     harness.applyGates[0]!.resolve(ackForHead(2));
     await settleDelay(120);
     const submittedWhilePending = harness.applyCalls.length;
-    dbgDump('c02-gate-observation', { submittedWhilePending });
 
     if (submittedWhilePending > 1) {
       expect(harness.applyCalls[1]).toEqual(expect.objectContaining({
@@ -1862,7 +1751,6 @@ describe('mounted Builder core protocol admission', () => {
   };
 
   it('C08 the stale-refresh budget admits two refresh-retries then the third stale error repairs and stops', async () => {
-    dbgTag = 'c08-stale-budget';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     let refreshRound = 0;
@@ -1906,7 +1794,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C08 a stale failure whose forced refresh yields no data stops without a second compile attempt', async () => {
-    dbgTag = 'c08-nodata';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     // refetchImpl stays undefined → the reload refetch resolves data-less,
@@ -1921,7 +1808,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C08 a draft-desynchronized failure forces one refresh and stops without any retry', async () => {
-    dbgTag = 'c08-draft-conflict';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     let refreshRound = 0;
@@ -1940,7 +1826,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C09 ordinary retry budget: exactly three attempts, no forced refresh, then repair and a recoverable surface', async () => {
-    dbgTag = 'c09-retry-budget';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
 
@@ -1974,7 +1859,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C09 ownership loss between attempts stops the superseded round while the advanced head completes', async () => {
-    dbgTag = 'c09-ownership';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     const firstRequest = harness.reconcileCalls[0] as { requestId: string };
@@ -2043,7 +1927,6 @@ describe('mounted Builder core protocol admission', () => {
   });
 
   it('C09 mixed counter sequence across both budgets reaches five total attempts, then stops without a sixth', async () => {
-    dbgTag = 'c09-mixed-5';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     let refreshRound = 0;
@@ -2101,7 +1984,6 @@ describe('mounted Builder core protocol admission', () => {
   };
 
   it(    'C07 refresh-and-stop: a stale post-refresh payload during a mid-await context change is refused through the request channel (no hydrate side-effect, no head-1 re-issue)', async () => {
-    dbgTag = 'c07-stop-ownerchange';
     renderMountedBuilder();
     await waitFor(() => expect(harness.reconcileCalls.length).toBe(1), { timeout: 5000 });
     const staleRefresh = deferredRefresh();

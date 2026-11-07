@@ -10,7 +10,23 @@ import { apiDoctor, apiSourceFingerprint } from './lib/formal-api.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceFingerprint = () => createHash('sha256').update(apiSourceFingerprint()).update(readFileSync(fileURLToPath(import.meta.url))).digest('hex');
-const external = new Set(['TestPivotPresenceAudit', 'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly', 'TestPopulationPlanProfilesAgainstArango', 'TestProfileCorpusAgainstArango', 'TestCompoundEdgeIndexExplainAgainstArango', 'TestReceiptPreviewExplainAgainstArango']);
+// These cases require a different fixture or are exercised by a separately
+// routed CI job. Their explicit skips remain visible in the proof summary.
+const formalReplay = new Set([
+    // Both tests run with generated fixtures in builder-formal.yml through
+    // scripts/lib/formal-core-protocol-replay.mjs.
+    'TestCoreAuthoringProtocolModelReplay',
+    'TestCoreAuthoringProtocolConcretePrefixReplay',
+]);
+const external = new Set([
+    'TestPivotPresenceAudit',
+    'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
+    'TestPopulationPlanProfilesAgainstArango',
+    'TestProfileCorpusAgainstArango',
+    'TestCompoundEdgeIndexExplainAgainstArango',
+    'TestReceiptPreviewExplainAgainstArango',
+    ...formalReplay,
+]);
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
     ['compiler', './internal/dataframe/compiler', 'TestPivotPresenceArangoAudit'],

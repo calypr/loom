@@ -195,6 +195,26 @@
       "invariants": [
         {
           "status": "observed-ui",
+          "statement": "Construction capabilities may include filterSourceInput with supported, stageId, optional refusal reasonCode/reason, and choices carrying choiceId, optional columnId, fieldPath, label, logicalType, and isPopulated. A missing or empty response columnId means no live materialization; selecting a signed field submits filterSources entries with non-empty choiceId and columnId through construction-proposals.",
+          "evidence": [
+            "ui/packages/loom-ui/src/types.ts:1995-2127",
+            "ui/packages/loom-ui/src/types.ts:2185-2204",
+            "ui/packages/loom-ui/src/api.ts:1694-1698"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "Signed source pickers distinguish no listed fields, no populated eligible fields, and eligible populated fields already bound elsewhere. Own bindings count as selectable only when visible and solely bound in the lane; unavailable source-lane reasons stay separate. Existing live field carriers suppress duplicate signed choices only when authoritative field identity resolves unambiguously; stale or ambiguous carriers retain the signed-choice path, and saved bindings are not rewritten. Filter also accepts server-signed public field carriers and canonicalizes their root. prefix; it never matches labels.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:981-1003",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1097-1150",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-65",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:27-56",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:9-47"
+          ]
+        },
+        {
+          "status": "observed-ui",
           "statement": "Rows must match every saved row condition.",
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:806"
@@ -663,6 +683,26 @@
         }
       ],
       "invariants": [
+        {
+          "status": "observed-ui",
+          "statement": "Construction capabilities may include deriveSourceInput with supported, stageId, optional refusal reasonCode/reason, and choices carrying choiceId, optional columnId, fieldPath, label, logicalType, and isPopulated. A missing or empty response columnId means no live materialization; selecting a signed field submits deriveSources entries with non-empty choiceId and columnId through construction-proposals.",
+          "evidence": [
+            "ui/packages/loom-ui/src/types.ts:1995-2127",
+            "ui/packages/loom-ui/src/types.ts:2185-2204",
+            "ui/packages/loom-ui/src/api.ts:1694-1698"
+          ]
+        },
+        {
+          "status": "observed-ui",
+          "statement": "Signed source pickers distinguish no listed fields, no populated eligible fields, and eligible populated fields already bound elsewhere. Own bindings count as selectable only when visible and solely bound in the lane; unavailable source-lane reasons stay separate. Existing live field carriers suppress duplicate signed choices only when authoritative field identity resolves unambiguously; stale or ambiguous carriers retain the signed-choice path, and saved bindings are not rewritten.",
+          "evidence": [
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1248-1263",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1440-1475",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-65",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:27-56",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:9-47"
+          ]
+        },
         {
           "status": "observed-ui",
           "statement": "Operands are numeric stage columns or finite numeric literals; missing-input and division-by-zero policies are explicitly submitted.",

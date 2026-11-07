@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -66,6 +67,17 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 // CompareAndSwapActivateRelease commits the active Explorer revision and
 // matching dataset release in one Arango transaction.
 func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
+	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, false)
+}
+
+// CompareAndSwapPublishRelease activates a release produced by an Explorer
+// publication. The publication is only current when the active generation
+// pointer still identifies its source manifest.
+func CompareAndSwapPublishRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
+	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, true)
+}
+
+func compareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64, requireCurrentGeneration bool) (dataset.ActiveRelease, error) {
 	releaseDocument, err := lifecycleDocument(release)
 	if err != nil {
 		return dataset.ActiveRelease{}, err
@@ -82,6 +94,7 @@ func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 	binds["active_release_key"] = activeReleaseDocumentKey(release.Project)
 	binds["expected_revision"] = expectedRevision
 	binds["next_revision"] = expectedRevision + 1
+	binds["require_current_generation"] = requireCurrentGeneration
 	binds["staged_state"] = string(dataset.StateStaged)
 	binds["ready_state"] = string(dataset.StateReady)
 	var active *dataset.ActiveRelease
@@ -94,6 +107,13 @@ func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 		return nil
 	})
 	if err != nil {
+		// Concurrent release CAS operations can both observe the same revision
+		// before Arango serializes their pointer writes. Arango reports the loser
+		// as error 1200 (write-write conflict), so preserve the repository's
+		// typed CAS contract for callers instead of leaking a backend failure.
+		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
+			return dataset.ActiveRelease{}, fmt.Errorf("%w: concurrent active-pointer update", dataset.ErrReleaseActivationConflict)
+		}
 		return dataset.ActiveRelease{}, fmt.Errorf("activate release: %w", err)
 	}
 	if active == nil {
@@ -167,6 +187,11 @@ FILTER manifest != null AND manifest.recordType == "manifest"
 FILTER manifest.dataset.project == @project AND manifest.dataset.generation == @generation
 FILTER manifest.state IN [@staged_state, @ready_state]
 FILTER generationPointer != null AND generationPointer.recordType == "active_generation"
+FILTER NOT @require_current_generation OR (
+  generationPointer.dataset.project == @project
+  AND generationPointer.dataset.generation == @generation
+  AND generationPointer.manifestKey == @manifest_key
+)
 FILTER releasePointer != null AND releasePointer.recordType == "active_project_release"
 FILTER currentRevision == @expected_revision OR alreadyActive
 // F-B15: with content-addressed release IDs an identical re-activation hits

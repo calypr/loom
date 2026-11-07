@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	publication "github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -164,6 +165,10 @@ func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testi
 	for _, required := range []string{
 		"currentRevision == @expected_revision OR alreadyActive",
 		"manifest.state IN [@staged_state, @ready_state]",
+		"NOT @require_current_generation OR (",
+		"generationPointer.dataset.project == @project",
+		"generationPointer.dataset.generation == @generation",
+		"generationPointer.manifestKey == @manifest_key",
 		"active_project_release",
 		"FOR item IN updates",
 		"UPDATE item.document WITH item.patch",
@@ -173,8 +178,25 @@ func TestReleaseActivationAtomicallyUpdatesReleaseAndGenerationPointers(t *testi
 			t.Fatalf("release activation query missing %q:\n%s", required, call.query)
 		}
 	}
+	if requireCurrent, ok := call.bindVars["require_current_generation"].(bool); !ok || requireCurrent {
+		t.Fatalf("general release activation unexpectedly requires the current generation: %#v", call.bindVars)
+	}
 	if got := strings.Count(call.query, "UPDATE "); got != 1 {
 		t.Fatalf("release activation must use one AQL modification operation, got %d:\n%s", got, call.query)
+	}
+	assertOnlyDeclaredBindVariables(t, call)
+}
+
+func TestPublishReleaseActivationRequiresCurrentGeneration(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: now}
+	fake := &fakeQueryClient{responses: [][]map[string]any{{jsonObject(t, publication.ActiveRelease{Release: release, Revision: 4})}}}
+	if _, err := CompareAndSwapPublishRelease(context.Background(), fake, release, 3); err != nil {
+		t.Fatalf("CompareAndSwapPublishRelease = %v", err)
+	}
+	call := fake.onlyCall(t)
+	if requireCurrent, ok := call.bindVars["require_current_generation"].(bool); !ok || !requireCurrent {
+		t.Fatalf("publish release activation did not require the current generation: %#v", call.bindVars)
 	}
 	assertOnlyDeclaredBindVariables(t, call)
 }
@@ -203,6 +225,20 @@ func TestReleaseActivationEmptyCASResultIsConflict(t *testing.T) {
 	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: time.Now().UTC()}
 	if _, err := store.CompareAndSwapActivateRelease(context.Background(), release, 2); !errors.Is(err, publication.ErrReleaseActivationConflict) {
 		t.Fatalf("activation conflict = %v", err)
+	}
+}
+
+func TestReleaseActivationArangoWriteConflictIsCASConflict(t *testing.T) {
+	release := publication.ProjectRelease{ID: "release-a", Project: "project-a", GitCommit: "commit-a", Generation: "commit-a", CreatedAt: time.Now().UTC()}
+	writeConflict := shared.ArangoError{HasError: true, ErrorNum: shared.ErrArangoConflict, ErrorMessage: "write-write conflict"}
+	store := mustStore(t, &fakeQueryClient{err: writeConflict})
+	if _, err := store.CompareAndSwapActivateRelease(context.Background(), release, 2); !errors.Is(err, publication.ErrReleaseActivationConflict) {
+		t.Fatalf("Arango write conflict = %v, want %v", err, publication.ErrReleaseActivationConflict)
+	}
+
+	store = mustStore(t, &fakeQueryClient{err: errors.New("Arango server unavailable")})
+	if _, err := store.CompareAndSwapActivateRelease(context.Background(), release, 2); err == nil || errors.Is(err, publication.ErrReleaseActivationConflict) {
+		t.Fatalf("backend failure incorrectly classified as a release conflict: %v", err)
 	}
 }
 

@@ -68,18 +68,19 @@ describe('RowChangePreviewPanel', () => {
     expect(applyButton()).toBeEnabled();
   });
 
-  it('labels the sampled rowCount as the proposal total and states the displayed count separately', () => {
+  it('labels sampled rowCount as returned rows with an unknown proposal total', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 2, sampled: true, rows: rows(2) }) });
     expect(impactText()).toBe(
-      'The proposed Observation row root would produce 2 proposal rows in total; this sampled preview displays 2 of those rows.',
+      'This sampled preview returned 2 rows and displays 2 of those rows; the total the proposed Observation row root produces is unknown.',
     );
     expect(screen.getByText('Showing 2 preview rows. Full-output coverage is unavailable before publication.')).toBeInTheDocument();
+    expect(impactText()).not.toMatch(/would produce|in total/i);
   });
 
-  it('uses singular copy for a one-row sampled preview total and sample', () => {
+  it('uses singular copy for a one-row sample without claiming a total', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 1, sampled: true, rows: rows(1) }) });
     expect(impactText()).toBe(
-      'The proposed Observation row root would produce 1 proposal row in total; this sampled preview displays 1 of those rows.',
+      'This sampled preview returned 1 row and displays 1 of those rows; the total the proposed Observation row root produces is unknown.',
     );
   });
 
@@ -101,14 +102,16 @@ describe('RowChangePreviewPanel', () => {
     );
   });
 
-  // A sampled preview still reports the response rowCount as the proposal total; the
-  // separate displayed count is what tells the researcher the sample is smaller.
-  it('separates the sampled proposal total from the smaller displayed count', () => {
+  // A consumer can display fewer rows than the response returned; neither count
+  // establishes the full proposal total when the response is sampled.
+  it('separates returned sampled rows from the smaller displayed count', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 25, sampled: true, rows: rows(2) }) });
     expect(impactText()).toBe(
-      'The proposed Observation row root would produce 25 proposal rows in total; this sampled preview displays 2 of those rows.',
+      'This sampled preview returned 25 rows and displays 2 of those rows; the total the proposed Observation row root produces is unknown.',
     );
-    expect(impactText()).toMatch(/would produce 25 proposal rows in total/i);
+    expect(impactText()).toMatch(/returned 25 rows/i);
+    expect(impactText()).toMatch(/total .* is unknown/i);
+    expect(impactText()).not.toMatch(/would produce|in total/i);
     expect(impactText()).toMatch(/displays 2 of those rows/i);
   });
 
@@ -120,13 +123,14 @@ describe('RowChangePreviewPanel', () => {
   it('announces the impact summary as a status live region', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 2, sampled: true, rows: rows(2) }) });
     expect(impact()).toHaveAttribute('role', 'status');
-    expect(impact()).toHaveTextContent('would produce 2 proposal rows in total');
+    expect(impact()).toHaveTextContent('This sampled preview returned 2 rows');
+    expect(impact()).toHaveTextContent('total the proposed Observation row root produces is unknown');
   });
 
-  it('states the sampled total without a displayed-row count when no preview rows came back', () => {
+  it('keeps the full total unknown when a sampled response has no preview rows', () => {
     renderPanel({ status: 'ready', preview: preview({ rowCount: 0, sampled: true, rows: null }) });
     expect(impactText()).toBe(
-      'The proposed Observation row root would produce 0 proposal rows in total; this sampled preview displays no rows.',
+      'This sampled preview returned 0 rows and displays no rows; the total the proposed Observation row root produces is unknown.',
     );
     expect(screen.getByText('Loom did not return preview rows for this proposal.')).toBeInTheDocument();
     expect(applyButton()).toBeEnabled();
@@ -217,7 +221,7 @@ describe('rowCountImpactSummary', () => {
 
   it.each([
     [false, 'The proposed Observation row root would produce 25 rows.'],
-    [true, 'The proposed Observation row root would produce 25 proposal rows in total; this sampled preview displays 2 of those rows.'],
+    [true, 'This sampled preview returned 25 rows and displays 2 of those rows; the total the proposed Observation row root produces is unknown.'],
     [undefined, 'This preview returned 25 proposal rows and displays 2 of those rows; the response did not state whether that is the total the proposed Observation row root produces.'],
   ] as const)('describes rowCount for sampled=%s from the response fields alone', (sampled, expected) => {
     expect(summary({ rowCount: 25, sampled, rows: rows(2) })).toBe(expected);

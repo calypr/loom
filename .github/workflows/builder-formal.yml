@@ -33,7 +33,7 @@ on:
 
 jobs:
   audit:
-    name: Formal verification
+    name: Formal models and generated replays
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -56,12 +56,19 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Bootstrap pinned formal tools
         run: node scripts/setup-formal-tools.mjs
-      - name: Replay model-generated core authoring protocol schedules
-        run: node scripts/verify-builder-formal-core.mjs --phase generated --model core-protocol --out /tmp/loom-core-protocol-replay-ci
+      - name: Check models and every model fault control
+        run: node scripts/verify-builder-formal-core.mjs --self-test --models-only --out /tmp/loom-formal-ci/models
+      - name: Replay all generated schedules and population attachment cases
+        run: node scripts/verify-builder-formal-core.mjs --phase generated --out /tmp/loom-formal-ci/generated
+      - name: Check mounted traces and every trace fault control
+        run: node scripts/verify-builder-formal-core.mjs --phase trace-controls --out /tmp/loom-formal-ci/traces
       - name: Check framework rejection paths
         run: node --test scripts/lib/formal-framework.test.mjs
-      - name: Check all scoped promises and controls
-        run: node scripts/verify-builder-formal-core.mjs --self-test --out /tmp/loom-formal-ci
+      - name: Type-check UI tests
+        working-directory: ui/packages/loom-ui
+        run: ../../node_modules/.bin/tsc -p tsconfig.test.json
+      - name: Check reviewed UI source checkpoint
+        run: python3 scripts/verify_ui_contract_inventory.py --source-only
       - name: Replay representative operation-history journeys
         run: node scripts/verify-builder-formal-core.mjs --phase journey --feature operation-history-routine --out /tmp/loom-recovered-journeys-ci
       - name: Preserve formal evidence
@@ -71,8 +78,45 @@ jobs:
           name: formal-verification
           path: |
             /tmp/loom-formal-ci
-            /tmp/loom-core-protocol-replay-ci
             /tmp/loom-recovered-journeys-ci
+          if-no-files-found: warn
+
+  source-proofs:
+    name: Source proofs (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Bootstrap pinned formal tools
+        run: node scripts/setup-formal-tools.mjs
+      - name: Check assigned positive and negative source proofs
+        run: node scripts/verify-builder-formal-core.mjs --phase source-proofs --shard ${{ matrix.shard }}/4 --out /tmp/loom-source-proofs-${{ matrix.shard }}
+      - name: Preserve source-proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-source-proofs-${{ matrix.shard }}
+          path: /tmp/loom-source-proofs-${{ matrix.shard }}
           if-no-files-found: warn
 
   browser:

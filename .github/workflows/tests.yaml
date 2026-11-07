@@ -219,6 +219,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Record executable routes and blocked legacy checks
         run: node scripts/verify-builder-formal-core.mjs --phase inventory > "$RUNNER_TEMP/verification-inventory.json"
       - name: Preserve verification inventory
