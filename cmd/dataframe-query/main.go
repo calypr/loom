@@ -97,7 +97,7 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 	if err != nil {
 		return fmt.Errorf("read query %q: %w", queryPath, err)
 	}
-	payload, err := json.Marshal(graphqlRequest{Query: string(query), Variables: variables})
+	payload, err := encodeGraphQLRequest(query, variables)
 	if err != nil {
 		return fmt.Errorf("encode GraphQL request: %w", err)
 	}
@@ -375,7 +375,8 @@ func graphqlDataframePayload(data json.RawMessage) bool {
 	if !ok {
 		return false
 	}
-	return strings.TrimSpace(string(run)) != "null"
+	var payload map[string]json.RawMessage
+	return json.Unmarshal(run, &payload) == nil && payload != nil
 }
 
 func durationMinusMillis(duration time.Duration, milliseconds float64) float64 {
@@ -386,24 +387,30 @@ func durationMinusMillis(duration time.Duration, milliseconds float64) float64 {
 	return remaining
 }
 
-// withLimit replaces the top-level "limit" while re-encoding every other value
-// verbatim: decoding through map[string]any would push large integers through
-// float64 and silently rewrite them (9007199254740993 -> ...992). RawMessage
-// keeps the original bytes.
+// encodeGraphQLRequest builds the GraphQL POST body from the raw operation and
+// variables bytes so neither passes through a numeric decode.
+func encodeGraphQLRequest(query, variables []byte) ([]byte, error) {
+	return json.Marshal(graphqlRequest{Query: string(query), Variables: variables})
+}
+
+// withLimit replaces or adds the top-level limit field, leaving every other
+// byte of the variables document untouched. Fields are kept as RawMessage
+// because decoding into any would route numbers through float64, which silently
+// rewrites integers above 2^53 and reformats exponent and decimal literals.
 func withLimit(variables []byte, limit int) ([]byte, error) {
 	if limit <= 0 {
 		return variables, nil
 	}
-	var decoded map[string]json.RawMessage
-	if err := json.Unmarshal(variables, &decoded); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(variables, &fields); err != nil {
 		return nil, err
 	}
-	encodedLimit, err := json.Marshal(limit)
-	if err != nil {
-		return nil, err
+	// json.Unmarshal accepts "null" into a nil map without an error.
+	if fields == nil {
+		return nil, fmt.Errorf("variables must be a JSON object")
 	}
-	decoded["limit"] = encodedLimit
-	return json.Marshal(decoded)
+	fields["limit"] = json.RawMessage(strconv.AppendInt(nil, int64(limit), 10))
+	return json.Marshal(fields)
 }
 
 func execute(client *http.Client, url string, payload []byte) ([]byte, error) {
