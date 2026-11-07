@@ -29,9 +29,12 @@ type fhirReferenceOwner struct {
 	contained map[string]map[string]any
 	depth     int
 }
+
+// fhirReferenceLookup includes the versioned-reference version so two versions
+// of one logical resource can never share a cached or pending result.
 type fhirReferenceLookup struct {
-	scope      fhirReferenceScopeKey
-	target, id string
+	scope               fhirReferenceScopeKey
+	target, id, version string
 }
 type fhirReferenceResult struct {
 	resource map[string]any
@@ -201,7 +204,12 @@ func (l *fhirReferenceLoader) runBatch(ctx context.Context, lookups []fhirRefere
 		return
 	}
 	values := make([]*model.FhirFilterValueInput, 0, len(lookups))
+	seenIDs := make(map[string]bool, len(lookups))
 	for _, lookup := range lookups {
+		if seenIDs[lookup.id] {
+			continue
+		}
+		seenIDs[lookup.id] = true
 		id := lookup.id
 		values = append(values, &model.FhirFilterValueInput{Kind: model.FhirFilterValueKindString, String: &id})
 	}
@@ -216,11 +224,11 @@ func (l *fhirReferenceLoader) runBatch(ctx context.Context, lookups []fhirRefere
 		Project: read.Project, ResourceType: lookups[0].target, Limit: len(lookups),
 		Filters: []*model.FhirFilterInput{{Select: "id", Operator: model.FhirFilterOperatorIn, Values: values}},
 	})
-	byID := make(map[string]map[string]any)
+	byID := make(map[string][]map[string]any)
 	if err == nil {
 		for _, resource := range result.Resources {
 			if id, ok := resource["id"].(string); ok {
-				byID[id] = resource
+				byID[id] = append(byID[id], resource)
 			}
 		}
 	}
@@ -228,7 +236,7 @@ func (l *fhirReferenceLoader) runBatch(ctx context.Context, lookups []fhirRefere
 		var resolved fhirReferenceResult
 		if err != nil {
 			resolved.err = err
-		} else if resource, ok := byID[lookup.id]; ok {
+		} else if resource, ok := selectFHIRReferenceRow(byID[lookup.id], lookup.version); ok {
 			resolved.resource = resource
 		} else {
 			resolved.err = dataframeerrors.NewError(dataframeerrors.CodeReferenceNotResolved, "reference could not be resolved")
@@ -276,12 +284,61 @@ func decodeFHIRResource(resourceType string, resource map[string]any) (model.FHI
 }
 
 type parsedFHIRReference struct {
-	target, id string
-	contained  bool
+	target, id, version string
+	contained           bool
+}
+
+// selectFHIRReferenceRow picks the row satisfying one reference out of the rows
+// returned for its logical id. Unversioned references keep the existing
+// selected-generation row; versioned references must match meta.versionId
+// exactly, so a versioned reference never resolves to a different version.
+func selectFHIRReferenceRow(rows []map[string]any, version string) (map[string]any, bool) {
+	if len(rows) == 0 {
+		return nil, false
+	}
+	if version == "" {
+		// Preserve the pre-version semantics: the last row the backend returned
+		// for the logical id wins.
+		return rows[len(rows)-1], true
+	}
+	for _, row := range rows {
+		if fhirResourceVersionID(row) == version {
+			return row, true
+		}
+	}
+	return nil, false
+}
+
+func fhirResourceVersionID(resource map[string]any) string {
+	meta, ok := resource["meta"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	version, _ := meta["versionId"].(string)
+	return version
+}
+
+// validFHIRReferenceVersion mirrors the generated Meta.versionId pattern
+// '^[A-Za-z0-9\-.]{1,64}$'; a version that cannot be a versionId can never
+// match a stored row and is rejected as malformed syntax.
+func validFHIRReferenceVersion(version string) bool {
+	if version == "" || len(version) > 64 {
+		return false
+	}
+	for i := 0; i < len(version); i++ {
+		c := version[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func parseFHIRReference(ref string) (parsedFHIRReference, bool) {
 	ref = strings.TrimSpace(ref)
+	var version string
 	if strings.HasPrefix(ref, "#") {
 		id := strings.TrimPrefix(ref, "#")
 		return parsedFHIRReference{id: id, contained: true}, id != "" && !strings.ContainsAny(id, "/?#")
@@ -301,7 +358,8 @@ func parseFHIRReference(ref string) (parsedFHIRReference, bool) {
 		return parsedFHIRReference{}, false
 	}
 	if len(parts) >= 4 && parts[len(parts)-2] == "_history" {
-		if parts[len(parts)-1] == "" {
+		version = parts[len(parts)-1]
+		if !validFHIRReferenceVersion(version) {
 			return parsedFHIRReference{}, false
 		}
 		parts = parts[:len(parts)-2]
@@ -313,7 +371,7 @@ func parseFHIRReference(ref string) (parsedFHIRReference, bool) {
 	if target == "" || id == "" || !fhirschema.HasResource(target) {
 		return parsedFHIRReference{}, false
 	}
-	return parsedFHIRReference{target: target, id: id}, true
+	return parsedFHIRReference{target: target, id: id, version: version}, true
 }
 
 func indexContainedResources(resource map[string]any) map[string]map[string]any {

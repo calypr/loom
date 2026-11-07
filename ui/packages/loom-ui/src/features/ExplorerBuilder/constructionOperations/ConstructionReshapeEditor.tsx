@@ -380,6 +380,15 @@ type PendingPivotDiscovery = {
   readonly owner: PivotDiscoveryRequestOwner;
 };
 type ScheduledPivotDiscovery = PendingPivotDiscovery & { readonly timer: number };
+// Editor-owned view of "a discovery for this exact request identity has been asked
+// for and no result was adopted yet". Hosts may lag or omit status:'loading', so the
+// in-progress UI cannot depend on props.pivotDiscovery alone. `seen` is the host state
+// already acknowledged when the request was issued; a newer host object ends the
+// in-flight window even for a terminal status.
+type AwaitingPivotDiscovery = PendingPivotDiscovery & {
+  readonly contextKey: string;
+  readonly seen: ConstructionReshapePivotDiscovery | undefined;
+};
 
 export const CONSTRUCTION_RESHAPE_EDITABLE_KINDS = ['PIVOT', 'CODED_PIVOT', 'UNPIVOT', 'GROUP', 'CODED_GROUP', 'EXPAND', 'RELATED_EXPAND'] as const;
 
@@ -2129,6 +2138,23 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
   const pivotDiscoveryRevision = useRef(0);
   const requestedPivotDiscovery = useRef<PendingPivotDiscovery | undefined>(undefined);
   const scheduledPivotDiscovery = useRef<ScheduledPivotDiscovery | undefined>(undefined);
+  const [awaitingPivotDiscovery, setAwaitingPivotDiscovery] = useState<AwaitingPivotDiscovery | undefined>(undefined);
+  const rememberAwaitingPivotDiscovery = useCallback((next: AwaitingPivotDiscovery) => {
+    setAwaitingPivotDiscovery((current) => (
+      current?.identity === next.identity
+        && current?.revision === next.revision
+        && current?.owner === next.owner
+        && current?.contextKey === next.contextKey
+        && current?.seen === next.seen
+        ? current
+        : next
+    ));
+  }, []);
+  const clearAwaitingPivotDiscovery = useCallback((identity: string, revision: number) => {
+    setAwaitingPivotDiscovery((current) => (
+      current && current.identity === identity && current.revision === revision ? undefined : current
+    ));
+  }, []);
   const pivotDiscoveryActivationTimer = useRef<number | undefined>(undefined);
   const pivotDiscoveryRootMounted = useRef(false);
   const currentFormRef = useRef(form);
@@ -2195,6 +2221,21 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
   const pivotDiscovery = formContextKey === contextKey ? props.pivotDiscovery : undefined;
+  // A host-published loading state stays handled by PivotEditor's own check. Beyond
+  // that, an editor-issued request counts as in flight until the host publishes
+  // something newer for the current key or a result for its exact identity is
+  // adopted, because hosts may lag or omit status:'loading' entirely.
+  const pivotDiscoveryInFlight = ((): boolean => {
+    const owner = props.onDiscoverCategories;
+    if (!owner || disabled || form.kind !== 'pivot' || !pivotDiscoveryRootMounted.current) return false;
+    if (formContextKey !== contextKey || !pivotSupport.supported) return false;
+    if (awaitingPivotDiscovery?.contextKey !== contextKey
+        || awaitingPivotDiscovery.owner !== owner
+        || awaitingPivotDiscovery.revision !== pivotDiscoveryRevision.current
+        || awaitingPivotDiscovery.identity !== pivotDiscoveryRequestIdentity(form, stage.id, contextKey)) return false;
+    if (pivotDiscovery === awaitingPivotDiscovery.seen) return true;
+    return !pivotDiscoveryMatches(form, stage.id, pivotDiscovery) || pivotDiscovery.status === 'loading';
+  })();
 
   useLayoutEffect(() => {
     if (props.initialEntry) return;
@@ -2340,6 +2381,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         || current.kind !== 'pivot'
         || pivotDiscoveryRequestIdentity(current, stage.id, contextKey) !== identity
         || !pivotDiscoveryMatches(current, stage.id, discovery)) return false;
+    clearAwaitingPivotDiscovery(identity, pivotDiscoveryRevision.current);
     updateFormRef.current?.(current, discovery);
     return true;
   };
@@ -2376,6 +2418,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
       scheduledPivotDiscovery.current = undefined;
     }
     requestedPivotDiscovery.current = { identity, revision, owner };
+    rememberAwaitingPivotDiscovery({ identity, revision, owner, contextKey, seen: pivotDiscovery });
     const request: ConstructionReshapePivotDiscoveryRequest = {
       stageId: stage.id,
       ...(pivot.pivotSources?.length ? {
@@ -2408,6 +2451,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
         window.clearTimeout(scheduled.timer);
         scheduledPivotDiscovery.current = undefined;
       }
+      clearAwaitingPivotDiscovery(identity, pivotDiscoveryRevision.current);
       return;
     }
     const revision = pivotDiscoveryRevision.current;
@@ -2417,6 +2461,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     if (pending?.identity === identity && pending.revision === revision && pending.owner === owner) return;
     if (pending) window.clearTimeout(pending.timer);
 
+    rememberAwaitingPivotDiscovery({ identity, revision, owner, contextKey, seen: pivotDiscovery });
     const timer = window.setTimeout(() => {
       if (scheduledPivotDiscovery.current?.timer !== timer) return;
       scheduledPivotDiscovery.current = undefined;
@@ -2652,6 +2697,7 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
           reason={pivotSupport.reason}
           disabled={disabled}
           discovery={pivotDiscovery}
+          discoveryAwaited={pivotDiscoveryInFlight}
           requireEveryDiscoveredCategory={editingStep?.operation.kind !== 'PIVOT'}
           canDiscover={Boolean(props.onDiscoverCategories)}
           onDiscover={() => requestPivotCategories(form, true)}
@@ -4411,6 +4457,7 @@ const PivotEditor = (props: {
   readonly reason: string;
   readonly disabled: boolean;
   readonly discovery?: ConstructionReshapePivotDiscovery;
+  readonly discoveryAwaited: boolean;
   readonly requireEveryDiscoveredCategory: boolean;
   readonly canDiscover: boolean;
   readonly onDiscover: () => void;
@@ -4431,9 +4478,10 @@ const PivotEditor = (props: {
     && props.form.categoryColumnId !== ''
     && props.form.valueColumnId !== ''
     && !categoriesKnown;
-  const discoveryPending = discoveryEligible
+  const hostDiscoveryPending = discoveryEligible
     && discoveryMatches
     && props.discovery?.status === 'loading';
+  const discoveryPending = hostDiscoveryPending || (props.discoveryAwaited && !categoriesKnown);
   const categoriesAvailable = discoveryComplete ? props.discovery.categories : [];
   const missingDiscoveredCategories = props.requireEveryDiscoveredCategory
     && discoveryComplete
@@ -4643,7 +4691,23 @@ const PivotEditor = (props: {
           ) : null}
           {!props.canDiscover && !categoriesKnown ? <p role="status" className="text-sm text-amber-900">Category discovery is unavailable for this stage.</p> : null}
           {props.canDiscover && props.supported && !categoriesKnown && (!props.form.pivotSources?.length || props.form.groupKeyIds.length > 0) && (props.form.categoryColumnId === '' || props.form.valueColumnId === '') ? <p role="status" className="text-sm text-slate-600">Choose fields for New column names and Cell values to find categories.</p> : null}
-          {discoveryPending ? <p role="status" className="text-sm text-slate-600">Finding categories…</p> : null}
+          {discoveryPending ? (
+            <div
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+              data-testid="construction-reshape-pivot-discovery-status"
+              data-stage-id={props.stage.id}
+              data-category-column-id={props.form.categoryColumnId}
+              data-value-column-id={props.form.valueColumnId}
+              className="grid gap-1 rounded bg-slate-50 px-3 py-2 text-sm text-slate-600"
+            >
+              <p className="m-0">Finding categories…</p>
+              <p className="m-0 text-xs">
+                Searching category values for New column names “{categoryColumnLabel}” and Cell values “{valueColumnLabel}”. Your entries stay as they are.
+              </p>
+            </div>
+          ) : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'failed' ? <div role="status" className="text-sm text-amber-900"><p>{props.discovery.reason}</p><button type="button" onClick={props.onDiscover} disabled={props.disabled || !discoveryEligible} className="mt-1 text-blue-800 underline">Retry finding categories</button></div> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'limit-exceeded' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason} (Maximum supported categories: {props.discovery.limit}.)</p> : null}
           {props.discovery && discoveryMatches && props.discovery.status === 'missing-unsupported' ? <p role="status" className="text-sm text-amber-900">{props.discovery.reason}</p> : null}
