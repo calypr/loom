@@ -66,3 +66,11 @@ and reports; the agent skill owns diagnosis and reviewed code changes.
 
 Historical browser reports under `docs/verification/` are records only. They
 are not executable tests or current-source proof.
+
+The opt-in [Lightpanda comparison](../docs/verification/lightpanda/README.md)
+executes four recovered/retained checks through the same Playwright client on
+Chromium and Lightpanda. It preserves native actions and literal observations,
+records failures separately from timings, and requires an over-5x speed gate.
+Lightpanda has not qualified for adoption; the existing Chromium routes remain
+the acceptance checks. The [coverage review](../docs/verification/lightpanda/COVERAGE.md)
+records which of the 96 retired specs merit consolidated recovery.

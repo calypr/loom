@@ -7,6 +7,12 @@ description: Verify Loom Builder features in the real local browser, including b
 
 ## Current executable routes
 
+For the opt-in Lightpanda engine experiment, read
+`docs/verification/lightpanda/README.md`. The shared Playwright candidates are
+not a replacement acceptance route. Lightpanda has not passed their compatibility
+and over-5x speed requirements; do not count its failed native interactions as
+coverage or weaken them with synthetic event injection.
+
 Use the existing verification entry point and feature map:
 
 ```sh
