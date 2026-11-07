@@ -25,6 +25,10 @@ Last verified: `a5db5f55...69254` / `c0da93a2...ffd7b` at HEAD `218edabb`
 pre-`8160bb97` shape — the Repair-1b/4 wave changed both files and the pins
 were refreshed in this pass).
 
+Re-verified 2026-11-07: both digests still match the live bytes in this
+checkout, so the pins above stand (no re-pin — the values did not change) and
+the Repair-1b post-claim guard is present in `bundle_store.go`.
+
 ## Model checks (TLA+)
 
 Canonical model: `BundleCommitLifecycle.tla` (+`.cfg`). Requires
@@ -42,7 +46,7 @@ overlay config outside Git; run each separately):
 
 | Invariant | Meaning | Fault constant | Expected |
 | --- | --- | --- | --- |
-| `InvariantNoDropUnderPointer` | never drop the pointer-advertised bundle (`:840`) | none needed | **violates by design today — this is the confirmed F-B1 finding; a PASS would be suspicious** |
+| `InvariantNoDropUnderPointer` | never drop the pointer-advertised bundle (`:840`) | none needed | **violated only in the historical pre-Repair-1b model — see "F-B1: current state vs historical evidence"; the shipped code has the guard and its Go regression passes** |
 | `InvariantNoDropWhenNamed` (ghost.m) | drop even though the memoised pointer read (`:1068`, `rec.ptr`/`rec.rd`) named it | `FReconcileSkipsPointerCheck = TRUE` | clean baseline, violated under fault |
 | `InvariantNoDropUnderPin` (ghost.p) | drop while a reader pin is live at the drop instant (`claimExecutionCleanup :416-418`) | `FClaimIgnoresPins = TRUE` | clean baseline, violated under fault |
 | `InvariantNoForeignPublish` | publish only under a live caller lease (`:289-290`) | `FNoLeaseFencePublish = TRUE` | clean baseline, violated under fault |
@@ -55,6 +59,72 @@ Model-editing rules (learned the hard way — see FINDINGS.md postmortem):
 - deep EXCEPT must be `[rec.x EXCEPT !.y = [rec.x.y EXCEPT ![t] = v]]`;
 - reconciler snapshot fields live in one `rec` record (`cur`, `cand`, `ptr`,
   `rd`); claim requires `rec.rd[t]` (read-before-claim order per `:1068`→`:1076`).
+
+## F-B1: current state vs historical evidence
+
+F-B1 (reconcile TOCTOU: `reconcileExecution` deleting the physical tables of a
+bundle the visibility pointer advertises as live) is **repaired**. Read this
+section before treating any F-B1 artifact as an open finding.
+
+Current, live guarantees (re-verified 2026-11-07 in this checkout):
+
+- Production guard: `reconcileExecution` re-reads the pointer after
+  `claimExecutionCleanup` and before any `DropTable`
+  (`internal/dataframe/publication/clickhouse/bundle_store.go:1178-1184`,
+  `Repair-1b (F-B12 drop-path)` comment at `:1168-1177`; the active-release
+  binding re-read follows at `:1185-1198`). The Abort drop path carries the
+  same post-claim veto (`bundle_store.go:899-909`). A read failure other than
+  "no pointer" / "no active release" vetoes the drop fail-closed.
+- Named Go regression: `TestReconcileDropsJustPublishedBundleStagesLeaseLoss`
+  in `internal/dataframe/publication/clickhouse/reconcile_toctou_test.go`
+  **PASSES**. It drives a dead lease plus a publish racing in after the
+  pre-claim `GetPointer`, and asserts the drop is denied and the pointer-named
+  tables survive. Together with
+  `TestReconcileSkipsPointerNamedExecution` and
+  `TestReconcileDropsLongStaleUnpublishedExecution` it is a preservation gate
+  for the guard, not a finding.
+- Non-vacuity (go-test `-overlay`, a throwaway probe rather than a committed
+  artifact): deleting only the post-claim pointer re-read at `:1178-1184`
+  makes `TestReconcileDropsJustPublishedBundleStagesLeaseLoss` FAIL on table
+  loss with the archived F-B1 wording, "deleted the physical tables of a
+  bundle the pointer advertises as live". The PASS therefore exercises the
+  guard instead of passing vacuously.
+
+Historical, kept for provenance only — do not restore, re-pin, or delete:
+
+- `BundleCommitLifecycle.tla` models the **pre-Repair-1b** shape: the
+  reconciler reads the pointer once (`ReconcilePointerRead`), memoises it in
+  `rec.ptr`, and neither `ReconcileClaim` nor `ReconcileDrop` re-validates live
+  state. Under that model `InvariantNoDropUnderPointer` is genuinely VIOLATED.
+  That violation is the archived F-B1 witness — evidence of the bug the shipped
+  code no longer has, not a desired current failure and not a bug in the model.
+- The model header's line "ALL-FALSE describes the current code" is itself
+  historical: with all fault constants FALSE the model still lacks the
+  post-claim pointer/binding re-read `reconcileExecution` performs today, so
+  the no-fault shape describes the pre-Repair-1b code, not `bundle_store.go`
+  as shipped. The fault constants remain exactly what they say — single
+  omissions used as falsifiability controls — not a catalogue of live defects.
+- The archived witnesses, coverage ledger rows and recovery provenance
+  (`FINDINGS.md`, `reviewed-sources.json`, `evidence/`) stay as written. Their
+  model digests are historical pins; refresh one only by re-deriving live
+  bytes, never by hand. As of this guidance pass the canonical model is
+  byte-identical to those pins (`md5sum BundleCommitLifecycle.tla` =
+  `14d341f86d6f4f072a585434334dfc7a`, matching `reviewed-sources.json`
+  `canonicalProbe.expectedMD5`), so this correction changed no model, witness
+  or ledger bytes.
+
+What the model does NOT currently prove, stated plainly: no TLC run in this
+checkout covers the shipped post-claim guard. `BundleCommitLifecycle.tla` has
+no constant for it, so a clean baseline there says nothing about Repair-1b, and
+a violation there is the historical shape rather than a live defect. Formal
+assurance for the guard is the Go regression plus the overlay non-vacuity
+above. Extending the model with a post-claim-recheck arm (compare
+`ReconcileDangleTrust.tla`'s `m-dangle-RecheckBeforeDrop.cfg`) is unstarted
+work; do not report model coverage of the guard without running it and
+recording the log.
+
+Repairing F-B1 also grants **no** judgment on legacy-key upgrade safety: R1
+remains a separate open defect, neither repaired nor cleared by Repair-1b.
 
 ## TLC-bound trio entry points (last synced 218edabb)
 
@@ -86,12 +156,24 @@ broke.
 
 ## Component + real-DB reproductions
 
-Sanctioned red artifacts (they fail ON PURPOSE as findings; keep them red,
-do not "fix" them):
+Keep-them-red findings (they fail ON PURPOSE; do not "fix" them): F-B3
+(pinblock, export-pin crash window), F-B6 (name-latest binding), F-B7
+(dangling binding), F-B13 (cross-generation publish), F-B14 (release
+requirements), F-B17 (generation-activation CAS), F-B19/F-B21 arms as listed
+in `FINDINGS.md`.
+
+The F-B1 reconcile TOCTOU trio is NOT one of them any more — Repair-1b
+shipped and this command is a green preservation gate:
 
 ```
 go test -count=1 -run 'TestReconcile(Drops|Skips)' ./internal/dataframe/publication/clickhouse/
 ```
+
+Expected 2026-11-07: `TestReconcileDropsJustPublishedBundleStagesLeaseLoss`,
+`TestReconcileSkipsPointerNamedExecution` and
+`TestReconcileDropsLongStaleUnpublishedExecution` all PASS. A failure means
+the post-claim guard in `reconcileExecution` was weakened or removed — restore
+the guard; converting the trio back to red is a regression, never a finding.
 
 End-to-end on the real Arango of the owned stack (pinned container
 `loom-dev-qwen-current-loom-api-1`; `/workspace` is this checkout; only
@@ -116,12 +198,27 @@ docker exec loom-dev-qwen-current-loom-api-1 sh -c \
 
 ## Known open operator items
 
-- F-B1 fix authorization (pre-drop lease re-validation / fresh GetPointer gate)
-  — operator decision, never apply without approval.
+- F-B1 needs nothing here: the pre-drop pointer re-validation / fresh
+  `GetPointer` gate shipped as Repair-1b and is covered by the passing
+  regression in "F-B1: current state vs historical evidence". Do not remove or
+  weaken it while clearing other operator items.
 - F-B2 (abort-after-loose-publish-ACK drop) — see FINDINGS.md for reproduction
   status.
 - Findings, coverage ledger, and unverified scope live next to this file:
-  `FINDINGS.md`, `reviewed-sources.json`.
+  `FINDINGS.md`, `reviewed-sources.json`. The rest of the historical record is
+  `OPERATOR_REVIEW_DIGEST.md` (Phase B adversarial verdicts at `dc9016bc`),
+  `PUBLISHED_IMMORTALITY_PROPOSAL.md` (verification-only proposal, no code
+  changed), and the saved witnesses under `evidence/`. All four are provenance
+  for findings as they stood when recorded; read them as history, and re-derive
+  current status from source, tests, and this file.
+- This guidance correction edits only `SKILL.md`, and that edit intentionally
+  makes its own ledger entry stale: `files["verification/publication-bundle/
+  SKILL.md"].sha256` in `reviewed-sources.json` still pins the pre-correction
+  bytes (`2ee4c56c...` @`49d6999e`). That is a guidance-doc lag, not model or
+  product drift — the canonical model digest is unaffected. Re-derive the pin
+  from live bytes in the ledger-owner pass; never hand-type a digest, and do
+  not read the stale value as a reason to touch the model, witnesses, or the
+  guard.
 
 Local TLC runs use `/sandbox/.local/bin/tlc-run` (explicit budget; split via `TLC_WORKERS`/`TLC_HEAP_MB`, one `-metadir` per run). If unreadable `/sys/fs/cgroup/{cpu,memory}.max` crashes the launcher, it needs the OSError guards (applied 2026-11-01).
 
