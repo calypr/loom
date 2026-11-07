@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -48,6 +49,118 @@ func TestMaterializePostQueryRejectsDynamicTypeDrift(t *testing.T) {
 	}
 	if _, err := materializePostQueryRowWithChecks(row, checks); err == nil {
 		t.Fatal("dynamic type drift was accepted")
+	}
+}
+
+func TestMaterializePostQueryValidatesEveryPresentColumnWhenRuntimeKeysCoverAnotherFamily(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"category_keys": {"stage": {ColumnName: "category_stage", ValueType: "string"}},
+		"identifier_keys": {
+			"count": {ColumnName: "identifier_count", ValueType: "integer"},
+			"tags":  {ColumnName: "identifier_tags", ValueType: "string", Many: true},
+		},
+	}
+	// Runtime key metadata enumerates only family A; family B columns are still
+	// present in the row and must satisfy their frozen types.
+	newRow := func(dynamicValues map[string]any) map[string]any {
+		row := map[string]any{
+			"category_stage":              "stage-a",
+			"__loom_dynamic_runtime_keys": map[string]any{"category_keys": []any{"stage"}},
+		}
+		for key, value := range dynamicValues {
+			row[key] = value
+		}
+		return row
+	}
+
+	mismatches := map[string]map[string]any{
+		"integer mismatch": newRow(map[string]any{"identifier_count": "not-an-integer"}),
+		"array mismatch":   newRow(map[string]any{"identifier_tags": "tag"}),
+		"both mismatch":    newRow(map[string]any{"identifier_count": "not-an-integer", "identifier_tags": []any{"tag", 42}}),
+	}
+	for name, row := range mismatches {
+		if _, err := materializePostQueryRowWithChecks(row, checks); err == nil {
+			t.Fatalf("%s in an unenumerated family was accepted: %#v", name, row)
+		}
+	}
+
+	valid := newRow(map[string]any{"identifier_count": 7, "identifier_tags": []any{"tag", "other"}})
+	if _, err := materializePostQueryRowWithChecks(valid, checks); err != nil {
+		t.Fatalf("valid row across both families rejected: %v", err)
+	}
+	// An unselected family B column stays valid because only present values bind.
+	if _, err := materializePostQueryRowWithChecks(newRow(map[string]any{"identifier_count": 7}), checks); err != nil {
+		t.Fatalf("valid row with a missing unselected column rejected: %v", err)
+	}
+}
+
+func TestMaterializePostQueryValidatesPresentColumnsWithoutRuntimeKeys(t *testing.T) {
+	checks := map[string]map[string]DynamicColumnCheck{
+		"category_keys": {"stage": {ColumnName: "category_stage", ValueType: "string", AllowUnknownKeys: true}},
+	}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{"category_stage": "stage-a"}, checks); err != nil {
+		t.Fatalf("valid row without runtime keys rejected: %v", err)
+	}
+	if _, err := materializePostQueryRowWithChecks(map[string]any{"category_stage": 42}, checks); err == nil {
+		t.Fatal("type drift without runtime keys was accepted")
+	}
+}
+
+func TestOutputStreamRejectsMalformedRowFromUnenumeratedDynamicFamily(t *testing.T) {
+	newStream := func(rows ...map[string]any) OutputStream {
+		index := 0
+		return OutputStream{
+			Name:    "Condition",
+			Columns: []string{"condition", "category_stage", "identifier_count"},
+			DynamicChecks: map[string]map[string]DynamicColumnCheck{
+				"category_keys":   {"stage": {ColumnName: "category_stage", ValueType: "string"}},
+				"identifier_keys": {"count": {ColumnName: "identifier_count", ValueType: "integer"}},
+			},
+			stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+				if err := visit(rows[index]); err != nil {
+					return err
+				}
+				index++
+				return nil
+			},
+		}
+	}
+	malformed := map[string]any{
+		"__loom_row_id":               "row-1",
+		"condition":                   "C50.9",
+		"category_stage":              "stage-a",
+		"identifier_count":            "not-an-integer",
+		"__loom_dynamic_runtime_keys": map[string]any{"category_keys": []any{"stage"}},
+	}
+	var visited []map[string]any
+	if _, err := newStream(malformed).Stream(context.Background(), func(row map[string]any) error {
+		visited = append(visited, row)
+		return nil
+	}); err == nil {
+		t.Fatal("malformed row from an unenumerated dynamic family reached the public visitor")
+	}
+	if len(visited) != 0 {
+		t.Fatalf("public visitor received malformed rows: %#v", visited)
+	}
+
+	valid := map[string]any{
+		"__loom_row_id":               "row-2",
+		"condition":                   "C50.9",
+		"category_stage":              "stage-a",
+		"identifier_count":            float64(7),
+		"__loom_dynamic_runtime_keys": map[string]any{"category_keys": []any{"stage"}},
+	}
+	if _, err := newStream(valid).Stream(context.Background(), func(row map[string]any) error {
+		visited = append(visited, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("valid stream: %v", err)
+	}
+	if len(visited) != 1 || visited[0]["identifier_count"] != float64(7) {
+		t.Fatalf("public rows = %#v", visited)
+	}
+	if _, ok := visited[0]["__loom_dynamic_runtime_keys"]; ok {
+		t.Fatalf("public row leaked dynamic runtime keys: %#v", visited[0])
 	}
 }
 

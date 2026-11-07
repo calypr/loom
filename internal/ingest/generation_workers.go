@@ -67,6 +67,74 @@ type fileLoadResult struct {
 
 const rowErrorSampleLimit = 10
 
+// selectGenerationRowErrorSamples picks the bounded row-error samples a failed
+// generation load reports to operators. fileSamples holds one candidate list per
+// staged file, in the sorted discovery order DiscoverNDJSON returns, and each list
+// is already ordered by line. Rank zero takes the earliest sample from every failing
+// file before any later file can be dropped, so a file with many bad rows cannot
+// starve the samples of the files after it; later ranks round-robin the remaining
+// budget in the same file order. When more files fail than the cap permits, the
+// earliest files in discovery order keep the whole budget. Duplicate samples are
+// ignored, so the result never exceeds the cap and keeps file-then-line order.
+func selectGenerationRowErrorSamples(fileSamples [][]RowErrorSample) []RowErrorSample {
+	failing := make([][]RowErrorSample, 0, len(fileSamples))
+	longest := 0
+	for _, candidates := range fileSamples {
+		if len(candidates) == 0 {
+			continue
+		}
+		failing = append(failing, candidates)
+		if len(candidates) > longest {
+			longest = len(candidates)
+		}
+	}
+	if len(failing) == 0 {
+		return nil
+	}
+
+	picked := make([][]RowErrorSample, len(failing))
+	seen := make(map[RowErrorSample]struct{}, rowErrorSampleLimit)
+	total := 0
+	for rank := 0; rank < longest; rank++ {
+		for file, candidates := range failing {
+			if total >= rowErrorSampleLimit {
+				return flattenRowErrorSamples(picked)
+			}
+			if rank >= len(candidates) {
+				continue
+			}
+			sample := candidates[rank]
+			if _, duplicate := seen[sample]; duplicate {
+				continue
+			}
+			seen[sample] = struct{}{}
+			picked[file] = append(picked[file], sample)
+			total++
+		}
+	}
+	return flattenRowErrorSamples(picked)
+}
+
+func flattenRowErrorSamples(picked [][]RowErrorSample) []RowErrorSample {
+	total := 0
+	for _, samples := range picked {
+		total += len(samples)
+	}
+	samples := make([]RowErrorSample, 0, total)
+	for _, fileSamples := range picked {
+		samples = append(samples, fileSamples...)
+	}
+	// Two staged files can share a base name in different subdirectories, so the
+	// group order alone does not guarantee the reported order.
+	sort.SliceStable(samples, func(i, j int) bool {
+		if samples[i].File != samples[j].File {
+			return samples[i].File < samples[j].File
+		}
+		return samples[i].Line < samples[j].Line
+	})
+	return samples
+}
+
 type fileLine struct {
 	number int
 	text   string

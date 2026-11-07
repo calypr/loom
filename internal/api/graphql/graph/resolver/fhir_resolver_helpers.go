@@ -126,7 +126,8 @@ func (r *Resolver) resolveFHIRReference(ctx context.Context, ref *fhir.Reference
 		generation: owner.read.DatasetGeneration,
 		digest:     owner.read.ScopeDigest,
 	}
-	resource, err := loader.load(ctx, fhirReferenceLookup{scope: scope, target: parsed.target, id: parsed.id}, owner.read)
+	lookup := fhirReferenceLookup{scope: scope, target: parsed.target, id: parsed.id, version: parsed.version}
+	resource, err := loader.load(ctx, lookup, owner.read)
 	if err != nil {
 		return referenceError(optional)
 	}
