@@ -1371,7 +1371,7 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4905-4920",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionReshapeEditor.tsx:4967-4985",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-65",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-64",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:27-56",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:9-47"
           ]
