@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
-import { nodeTestInventory } from '../ci/list-node-tests.mjs';
+import { NodeTestInventoryError, nodeTestInventory } from '../ci/list-node-tests.mjs';
 import { verificationInventory } from './verification-inventory.mjs';
 
 function fixture(files) {
@@ -43,7 +43,8 @@ test('a missing retained dependency or fixture fails the inventory with root and
     const directory = fixture({ ...files, 'scripts/healthy.test.mjs': "import test from 'node:test'; test('healthy', () => {});" });
     try {
       await assert.rejects(() => nodeTestInventory(directory), error => {
-        assert.equal(error.name, 'NodeTestInventoryError');
+        assert.ok(error instanceof NodeTestInventoryError);
+        assert.equal(error.code, 'ERETAINEDNODETESTDEPENDENCY');
         assert.equal(error.problems.length, 1);
         const [problem] = error.problems;
         assert.equal(problem.file, Object.keys(files)[0]);
@@ -68,7 +69,8 @@ test('a missing dependency propagates through an import cycle to every test root
   });
   try {
     await assert.rejects(() => nodeTestInventory(directory), error => {
-      assert.equal(error.name, 'NodeTestInventoryError');
+      assert.ok(error instanceof NodeTestInventoryError);
+      assert.equal(error.code, 'ERETAINEDNODETESTDEPENDENCY');
       assert.equal(error.problems.length, 2);
       assert.deepEqual(error.problems.map(row => row.file).sort(), ['scripts/a.test.mjs', 'scripts/b.test.mjs']);
       for (const row of error.problems) {

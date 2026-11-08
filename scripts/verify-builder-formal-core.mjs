@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { verificationTimeoutMs } from './lib/verification-budget.mjs';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -58,8 +58,21 @@ if (options.phase === 'inventory') {
     // nonzero instead of emitting a reduced inventory.
     const inventory = await verificationInventory(options.projectRoot ? resolve(options.projectRoot) : root);
     if (options.out) {
-        mkdirSync(options.out, { recursive: true });
-        writeFileSync(join(options.out, 'verification-inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`);
+        // Resolve the output directory like every other --out path, then write a
+        // unique temp file in that same directory and rename it into place, so an
+        // interrupted or ENOSPC write can never leave a truncated document for the
+        // if-always upload step to publish. Same directory keeps the rename atomic.
+        const outDirectory = resolve(options.out);
+        mkdirSync(outDirectory, { recursive: true });
+        const target = join(outDirectory, 'verification-inventory.json');
+        const temporary = `${target}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
+        try {
+            writeFileSync(temporary, `${JSON.stringify(inventory, null, 2)}\n`);
+            renameSync(temporary, target);
+        } catch (error) {
+            rmSync(temporary, { force: true });
+            throw error;
+        }
     } else await emit(inventory);
     process.exit(0);
 }
