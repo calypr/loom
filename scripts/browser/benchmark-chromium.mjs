@@ -43,7 +43,7 @@ async function run(side, index) {
   let timedOut = false, forceStop;
   const deadline = setTimeout(() => {
     timedOut = true;
-    process.kill(-child.pid, 'SIGTERM');
+    try { process.kill(-child.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
     forceStop = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; } }, 2000);
   }, 60000);
   let code;

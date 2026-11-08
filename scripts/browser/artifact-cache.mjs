@@ -6,27 +6,37 @@ import { join } from 'node:path';
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const validName = name => typeof name === 'string' && /^[\w.-]+\.(js|css)$/.test(name);
 
+async function verifyEntry(directory, key) {
+  const manifest = JSON.parse(await readFile(join(directory, key, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.version, 1);
+  assert.equal(manifest.key, key);
+  assert.ok(Array.isArray(manifest.files));
+  const names = manifest.files.map(file => file.name);
+  assert.ok(names.includes('app.js') && names.includes('app.css'));
+  assert.equal(new Set(names).size, names.length);
+  assert.ok(names.every(validName));
+  // Read the bytes we hash, so later writes copy exactly what was verified.
+  return Promise.all(manifest.files.map(async file => {
+    const bytes = await readFile(join(directory, key, file.name));
+    assert.equal(digest(bytes), file.sha256, `Corrupt cached asset ${file.name}`);
+    return [file.name, bytes];
+  }));
+}
+
 export async function restoreArtifacts({ directory, key, destination }) {
   assert.match(key, /^[a-f0-9]{64}$/);
+  const entry = join(directory, key);
   let verified;
   try {
-    const manifest = JSON.parse(await readFile(join(directory, key, 'manifest.json'), 'utf8'));
-    assert.equal(manifest.version, 1);
-    assert.equal(manifest.key, key);
-    assert.ok(Array.isArray(manifest.files));
-    const names = manifest.files.map(file => file.name);
-    assert.ok(names.includes('app.js') && names.includes('app.css'));
-    assert.equal(new Set(names).size, names.length);
-    assert.ok(names.every(validName));
-    verified = await Promise.all(manifest.files.map(async file => {
-      const bytes = await readFile(join(directory, key, file.name));
-      assert.equal(digest(bytes), file.sha256, `Corrupt cached asset ${file.name}`);
-      return [file.name, bytes];
-    }));
+    verified = await verifyEntry(directory, key);
   } catch (error) {
-    return { status: error.code === 'ENOENT' ? 'miss' : 'invalid', reason: error.message };
+    const status = error.code === 'ENOENT' ? 'miss' : 'invalid';
+    // A key is content-addressed, so a non-verifying entry is never legitimate.
+    // Remove it so the rebuild's publish can commit instead of looping on
+    // ENOTEMPTY forever. Best effort: publish re-verifies and repairs too.
+    if (status === 'invalid') await rm(entry, { recursive: true, force: true }).catch(() => {});
+    return { status, reason: error.message };
   }
-  // Copy the bytes we hashed, rather than reopening potentially changed files.
   await mkdir(destination, { recursive: true });
   await Promise.all(verified.map(([name, bytes]) => writeFile(join(destination, name), bytes)));
   return { status: 'hit' };
@@ -45,7 +55,15 @@ export async function publishArtifacts({ directory, key, source }) {
       return { name, sha256: digest(bytes) };
     }));
     await writeFile(join(staging, 'manifest.json'), JSON.stringify({ version: 1, key, files }));
-    try { await rename(staging, join(directory, key)); }
-    catch (error) { if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error; }
+    const entry = join(directory, key);
+    for (let attempt = 1; ; attempt++) {
+      try { await rename(staging, entry); break; }
+      catch (error) {
+        if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error;
+        try { await verifyEntry(directory, key); break; } // A concurrent publisher committed a valid entry.
+        catch { if (attempt >= 3) throw error; }
+        await rm(entry, { recursive: true, force: true }); // Stale or corrupt: the fresh staging replaces it.
+      }
+    }
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
