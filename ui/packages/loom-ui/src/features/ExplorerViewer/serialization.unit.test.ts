@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { createLoomClient, type LoomOutputFilter } from '../../api';
 import type { ExplorerRuntimeV1 } from '../../types';
 import { createViewerReducerState, viewerReducer } from './reducer';
-import { MISSING_VALUE, outputFiltersFor, outputRequestFor } from './serialization';
+import { outputFiltersFor, outputRequestFor } from './serialization';
+import { missingSelection, valuesSelection, type ViewerFieldSelection } from './model';
 
 const runtime: ExplorerRuntimeV1 = {
   generation: 'generation-1',
@@ -95,9 +96,9 @@ const contractRuntime: ExplorerRuntimeV1 = {
   diagnostics: [],
 };
 
-const selectedFilters = (column: string, values: ReadonlyArray<string>): ReadonlyArray<LoomOutputFilter> => {
+const selectedFilters = (column: string, selection: ViewerFieldSelection): ReadonlyArray<LoomOutputFilter> => {
   const state = viewerReducer(createViewerReducerState(contractRuntime), {
-    type: 'setFilter', outputId: 'patients', column, values,
+    type: 'setFilter', outputId: 'patients', column, selection,
   });
   return outputFiltersFor(contractRuntime, state, contractOutput).filter((filter) => filter.column === column);
 };
@@ -105,8 +106,8 @@ const selectedFilters = (column: string, values: ReadonlyArray<string>): Readonl
 describe('Explorer Viewer request serialization', () => {
   it('combines fixed, local, and shared filters without exposing hidden columns', () => {
     let state = createViewerReducerState(runtime);
-    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', values: ['active'] });
-    state = viewerReducer(state, { type: 'setSharedFilter', name: 'cohort', values: ['reviewed'] });
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection(['active']) });
+    state = viewerReducer(state, { type: 'setSharedFilter', name: 'cohort', selection: valuesSelection(['reviewed']) });
     state = viewerReducer(state, { type: 'setSort', outputId: 'patients', sort: { column: 'patient_id', desc: true } });
 
     const request = outputRequestFor('NCPI_ACCEPTANCE', runtime, state, runtime.outputs[0]);
@@ -125,8 +126,8 @@ describe('Explorer Viewer request serialization', () => {
 
   it('starts a fresh Viewer state without selected local or shared values while retaining configured fixed filters', () => {
     let selected = createViewerReducerState(runtime);
-    selected = viewerReducer(selected, { type: 'setFilter', outputId: 'patients', column: 'status', values: ['active'] });
-    selected = viewerReducer(selected, { type: 'setSharedFilter', name: 'cohort', values: ['reviewed'] });
+    selected = viewerReducer(selected, { type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection(['active']) });
+    selected = viewerReducer(selected, { type: 'setSharedFilter', name: 'cohort', selection: valuesSelection(['reviewed']) });
 
     expect(outputRequestFor('NCPI_ACCEPTANCE', runtime, selected, runtime.outputs[0]).filters).toEqual([
       { column: 'project', op: 'EQ', value: 'NCPI' },
@@ -160,37 +161,43 @@ describe('Explorer Viewer request serialization', () => {
 
 describe('Explorer Viewer missing-value filter contract', () => {
   it('selects the absent property and the explicit null together as one IS_NULL bucket', () => {
-    const filters = selectedFilters('status', [MISSING_VALUE]);
+    const filters = selectedFilters('status', missingSelection());
 
     expect(filters).toEqual([{ column: 'status', op: 'IS_NULL', value: {} }]);
     expect(rowIdsFor(filters)).toEqual(['status-absent', 'status-null']);
   });
 
   it('keeps each populated facet selection on its exact row IDs', () => {
-    expect(rowIdsFor(selectedFilters('status', ['active']))).toEqual(['status-active']);
-    expect(rowIdsFor(selectedFilters('status', ['active', 'pending']))).toEqual(['status-active', 'status-pending']);
-    expect(rowIdsFor(selectedFilters('note', ['queued']))).toEqual([
+    expect(rowIdsFor(selectedFilters('status', valuesSelection(['active'])))).toEqual(['status-active']);
+    expect(rowIdsFor(selectedFilters('status', valuesSelection(['active', 'pending'])))).toEqual(['status-active', 'status-pending']);
+    expect(rowIdsFor(selectedFilters('note', valuesSelection(['queued'])))).toEqual([
       'status-absent', 'status-null', 'status-active', 'status-pending',
     ]);
   });
 
   it('reports the missing bucket for a column whose nulls are explicit rather than absent', () => {
-    const filters = selectedFilters('note', [MISSING_VALUE]);
+    const filters = selectedFilters('note', missingSelection());
 
     expect(filters).toEqual([{ column: 'note', op: 'IS_NULL', value: {} }]);
     expect(rowIdsFor(filters)).toEqual(['note-absent', 'note-null']);
   });
 
   it('does not fold the missing bucket into a populated selection, which the AND join would empty', () => {
-    const filters = selectedFilters('status', ['active', MISSING_VALUE]);
+    let state = viewerReducer(createViewerReducerState(contractRuntime), {
+      type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection(['active']),
+    });
+    state = viewerReducer(state, {
+      type: 'setFilter', outputId: 'patients', column: 'status', selection: missingSelection(),
+    });
+    const filters = outputFiltersFor(contractRuntime, state, contractOutput).filter((filter) => filter.column === 'status');
 
     expect(filters).toEqual([{ column: 'status', op: 'IS_NULL', value: {} }]);
     expect(rowIdsFor(filters)).not.toEqual([]);
-    expect(rowIdsFor(filters)).toEqual(rowIdsFor(selectedFilters('status', [MISSING_VALUE])));
+    expect(rowIdsFor(filters)).toEqual(rowIdsFor(selectedFilters('status', missingSelection())));
   });
 
   it('carries a defined value so the JSON! filter input accepts the request', () => {
-    for (const filter of selectedFilters('status', [MISSING_VALUE])) {
+    for (const filter of selectedFilters('status', missingSelection())) {
       expect(filter.value).toBeDefined();
       expect(JSON.stringify({ column: filter.column, op: filter.op, value: filter.value }))
         .not.toContain('null');
@@ -209,7 +216,7 @@ describe('Explorer Viewer missing-value filter contract', () => {
       },
     }), { status: 200 }));
     const state = viewerReducer(createViewerReducerState(contractRuntime), {
-      type: 'setFilter', outputId: 'patients', column: 'status', values: [MISSING_VALUE],
+      type: 'setFilter', outputId: 'patients', column: 'status', selection: missingSelection(),
     });
     const request = outputRequestFor('NCPI_ACCEPTANCE', contractRuntime, state, contractOutput);
 
@@ -227,9 +234,9 @@ describe('Explorer Viewer missing-value filter contract', () => {
 
   it('emits no missing or value operator for an empty selection', () => {
     const state = viewerReducer(createViewerReducerState(contractRuntime), {
-      type: 'setFilter', outputId: 'patients', column: 'status', values: ['active'],
+      type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection(['active']),
     });
-    const cleared = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', values: [] });
+    const cleared = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection([]) });
 
     const filters = outputFiltersFor(contractRuntime, cleared, contractOutput);
     expect(filters).toEqual([{ column: 'project', op: 'EQ', value: 'NCPI' }]);

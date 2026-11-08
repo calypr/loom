@@ -2,7 +2,9 @@ import type { ExplorerRuntimeV1 } from '../../types';
 import {
   activeOutputState,
   initialViewerState,
+  isClearedSelection,
   type PageSize,
+  type ViewerFieldSelection,
   type ViewerSharedFilterProposal,
   type ViewerSort,
   type ViewerState,
@@ -10,8 +12,8 @@ import {
 
 export type ViewerAction =
   | { readonly type: 'selectOutput'; readonly outputId: string }
-  | { readonly type: 'setFilter'; readonly outputId: string; readonly column: string; readonly values: ReadonlyArray<string> }
-  | { readonly type: 'setSharedFilter'; readonly name: string; readonly values: ReadonlyArray<string> }
+  | { readonly type: 'setFilter'; readonly outputId: string; readonly column: string; readonly selection: ViewerFieldSelection }
+  | { readonly type: 'setSharedFilter'; readonly name: string; readonly selection: ViewerFieldSelection }
   | { readonly type: 'proposeSharedFilter'; readonly proposal: ViewerSharedFilterProposal }
   | { readonly type: 'clearOverlay' }
   | { readonly type: 'setSort'; readonly outputId: string; readonly sort?: ViewerSort }
@@ -46,7 +48,7 @@ export const viewerReducer = (state: ViewerState, action: ViewerAction): ViewerS
     case 'setFilter': {
       return outputMap(state, action.outputId, (output) => {
         const filterValues = { ...output.filterValues };
-        if (action.values.length > 0) filterValues[action.column] = [...action.values];
+        if (!isClearedSelection(action.selection)) filterValues[action.column] = action.selection;
         else delete filterValues[action.column];
         return resetPage({ ...output, filterValues });
       });
@@ -55,7 +57,7 @@ export const viewerReducer = (state: ViewerState, action: ViewerAction): ViewerS
       return { ...state, overlay: { kind: 'sharedFilterConfirmation', proposal: action.proposal } };
     case 'setSharedFilter': {
       const nextFilters = { ...state.sharedFilters };
-      if (action.values.length > 0) nextFilters[action.name] = [...action.values];
+      if (!isClearedSelection(action.selection)) nextFilters[action.name] = action.selection;
       else delete nextFilters[action.name];
       const nextOutputs = Object.fromEntries(
         Object.entries(state.outputs).map(([outputId, output]) => [outputId, resetPage(output)]),
