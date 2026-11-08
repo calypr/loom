@@ -7,6 +7,13 @@ description: Verify Loom Builder features in the real local browser, including b
 
 ## Current executable routes
 
+For the opt-in Lightpanda engine experiment, read
+`docs/verification/lightpanda/README.md`. Its default pooled DOM lane uses private
+Lightpanda HTTP caches and independent worker processes; native compatibility
+mode also enables stylesheet loading. Read `POOLED_RESULTS.md` for current
+measurements. DOM checks do not replace native input/download acceptance. Do not
+count failed native interactions as coverage or replace them with injected events.
+
 Use the existing verification entry point and feature map:
 
 ```sh

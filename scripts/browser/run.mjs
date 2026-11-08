@@ -9,6 +9,7 @@ import { dirname, join, resolve, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
 import { CDPClient } from './cdp.mjs';
+import { restoreArtifacts, publishArtifacts } from './artifact-cache.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const fixture = join(root, 'ui/packages/loom-ui/testSupport/browser/fixture.tsx');
 const uuid = '11111111-2222-4333-8444-555555555555';
@@ -18,6 +19,7 @@ const payload = Buffer.from('Loom browser download fixture\npatient-A\n');
 const options = { feature: 'all', chrome: process.env.LOOM_E2E_CHROME || '/usr/bin/chromium' };
 for (let i = 2; i < process.argv.length; i++) {
     if (process.argv[i] === '--doctor') options.doctor = true;
+    else if (process.argv[i] === '--no-cache') options.noCache = true;
     else {
         const key = { '--feature': 'feature', '--out': 'out', '--chrome': 'chrome' }[process.argv[i]];
         assert.ok(key && process.argv[i + 1], `Unknown/missing option ${process.argv[i]}`);
@@ -47,15 +49,16 @@ function fingerprint() {
         }
     }
     for (const path of ['ui/packages/loom-ui/src', 'ui/packages/loom-ui/testSupport/browser', 'scripts/browser']) visit(path);
-    hash.update(readFileSync(join(root, 'ui/package-lock.json')));
+    for (const file of ['ui/package-lock.json', 'ui/package.json', 'ui/packages/loom-ui/package.json', 'ui/packages/loom-ui/tsconfig.json'])
+        hash.update(file).update('\0').update(readFileSync(join(root, file))).update('\0');
     return hash.digest('hex');
 }
 const inputFingerprint = fingerprint();
 const temp = await mkdtemp(join(tmpdir(), 'loom-browser-component-'));
 const assets = join(temp, 'assets'), profile = join(temp, 'profile'), downloads = join(temp, 'downloads');
 await mkdir(downloads);
-let server, chrome, client, browser, stopBuild;
-const started = performance.now(), requests = [], browserErrors = [];
+let server, chrome, client, browser, stopBuild, currentLoader;
+const started = performance.now(), requests = [], browserErrors = [], downloadStarts = [], downloadStates = new Map();
 const report = { schemaVersion: 1, status: 'running', feature: options.feature, sourceFingerprint: inputFingerprint, chrome: version.stdout.trim(), checks: [], boundary: 'Actual PreviewTable/OutputTable and saved-route editor/proposal lifecycle in Chromium with native input. Test-owned caller/API responses/sessionStorage and controlled attachment endpoint. No BuilderWorkspace, real API/store, published Viewer integration or disk durability claim.' };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(probe, message, milliseconds = 5000) {
@@ -63,7 +66,7 @@ async function until(probe, message, milliseconds = 5000) {
     while (performance.now() < deadline) {
         const value = await probe();
         if (value) return value;
-        await wait(40);
+        await wait(10);
     }
     assert.fail(`Browser condition failed before deadline: ${message}`);
 }
@@ -73,20 +76,34 @@ async function evaluate(expression) {
     return result.result.value;
 }
 async function position(selector) {
-    return evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if(!e) return null; const b=e.getBoundingClientRect(); return {x:b.x+b.width/2,y:b.y+b.height/2,top:b.top,height:b.height,width:b.width}; })()`);
+    return evaluate(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if(!e) return null; const b=e.getBoundingClientRect(), x=b.x+b.width/2, y=b.y+b.height/2; if(!b.width || !b.height || !e.contains(document.elementFromPoint(x,y))) return null; return {x,y,top:b.top,height:b.height,width:b.width}; })()`);
 }
 async function click(selector) {
-    await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), `control mounted ${selector}`);
-    await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center', inline:'center'})`);
-    await wait(40);
-    const point = await until(() => position(selector), `visible control ${selector}`);
-    assert.ok(point.width > 0 && point.height > 0, `Invisible target ${selector}`);
+    const point = await until(() => evaluate(`(() => {
+        const e = document.querySelector(${JSON.stringify(selector)});
+        if (!e || e.matches(':disabled')) return null;
+        e.scrollIntoView({block:'center', inline:'center', behavior:'instant'});
+        const b = e.getBoundingClientRect(), x = b.x + b.width/2, y = b.y + b.height/2;
+        if (!b.width || !b.height || !e.contains(document.elementFromPoint(x,y))) return null;
+        return {x,y};
+    })()`), `unobstructed control ${selector}`);
     await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 });
     await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x, y: point.y, button: 'left', clickCount: 1 });
 }
-async function navigate(feature) {
-    await client.send('Page.navigate', { url: `${report.origin}/?feature=${feature}` });
+async function loadDocument(method, params, feature) {
+    const { frameTree } = await client.send('Page.getFrameTree');
+    const previousLoader = frameTree.frame.loaderId;
+    const result = await client.send(method, params);
+    assert.ok(!result.errorText, result.errorText);
+    await until(() => currentLoader && currentLoader !== previousLoader && (!result.loaderId || currentLoader === result.loaderId), 'new document committed');
     await until(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(feature === 'route' ? '[data-testid="construction-related-expand-editor"]' : feature === 'drag' ? '[data-testid="preview-table-scroll"]' : 'a[aria-label="file_download"]')}))`), 'production component mounted');
+    report.documentNavigations = (report.documentNavigations || 0) + 1;
+}
+async function navigate(feature) {
+    await loadDocument('Page.navigate', { url: `${report.origin}/?feature=${feature}` }, feature.split('&')[0]);
+}
+async function reloadRoute() {
+    await loadDocument('Page.reload', {}, 'route');
 }
 async function identities() {
     const result = [];
@@ -99,17 +116,27 @@ async function identities() {
     return result;
 }
 try {
-    const { build, stop } = await import(pathToFileURL(join(root, 'ui/node_modules/esbuild/lib/main.js')));
-    stopBuild = stop;
-    await build({ absWorkingDir: root, entryPoints: [fixture], bundle: true, format: 'esm', splitting: true, outdir: assets, entryNames: 'app', jsx: 'automatic', logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' }, nodePaths: [join(root, 'ui/node_modules')] });
-    stop();
-    stopBuild = undefined;
-    const [{ default: postcss }, { default: tailwind }] = await Promise.all([
-        import(pathToFileURL(join(root, 'ui/node_modules/postcss/lib/postcss.mjs'))),
-        import(pathToFileURL(join(root, 'ui/node_modules/tailwindcss/lib/index.js'))),
-    ]);
-    const css = await postcss([tailwind({ content: [join(root, 'ui/packages/loom-ui/src/**/*.tsx'), fixture], theme: { extend: {} }, plugins: [] })]).process(await readFile(join(assets, 'app.css'), 'utf8'), { from: join(assets, 'app.css') });
-    await writeFile(join(assets, 'app.css'), css.css);
+    const preparationStart = performance.now();
+    const tools = await Promise.all(['esbuild', 'postcss', 'tailwindcss'].map(async name => [name, JSON.parse(await readFile(join(root, `ui/node_modules/${name}/package.json`), 'utf8')).version]));
+    const cacheKey = createHash('sha256').update(JSON.stringify({ source: inputFingerprint, node: process.version, tools, root })).digest('hex');
+    const cacheDirectory = join(root, '.cache/browser-components');
+    report.artifactCache = { ...(options.noCache ? { status: 'disabled' } : await restoreArtifacts({ directory: cacheDirectory, key: cacheKey, destination: assets })), key: cacheKey };
+    if (report.artifactCache.status !== 'hit') {
+        const { build, stop } = await import(pathToFileURL(join(root, 'ui/node_modules/esbuild/lib/main.js')));
+        stopBuild = stop;
+        await build({ absWorkingDir: root, entryPoints: [fixture], bundle: true, format: 'esm', splitting: true, outdir: assets, entryNames: 'app', jsx: 'automatic', logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' }, nodePaths: [join(root, 'ui/node_modules')] });
+        stop();
+        stopBuild = undefined;
+        const [{ default: postcss }, { default: tailwind }] = await Promise.all([
+            import(pathToFileURL(join(root, 'ui/node_modules/postcss/lib/postcss.mjs'))),
+            import(pathToFileURL(join(root, 'ui/node_modules/tailwindcss/lib/index.js'))),
+        ]);
+        const css = await postcss([tailwind({ content: [join(root, 'ui/packages/loom-ui/src/**/*.tsx'), fixture], theme: { extend: {} }, plugins: [] })]).process(await readFile(join(assets, 'app.css'), 'utf8'), { from: join(assets, 'app.css') });
+        await writeFile(join(assets, 'app.css'), css.css);
+        assert.equal(fingerprint(), inputFingerprint, 'Browser verification sources changed during build');
+        if (!options.noCache) await publishArtifacts({ directory: cacheDirectory, key: cacheKey, source: assets });
+    }
+    report.preparationMs = performance.now() - preparationStart;
     server = createServer(async (req, res) => {
         try {
             if (req.url.startsWith('/download/')) {
@@ -136,10 +163,13 @@ try {
     await until(() => existsSync(portFile), 'Chromium DevTools startup', 8000);
     const [port, browserPath] = (await readFile(portFile, 'utf8')).trim().split('\n');
     browser = await CDPClient.connect(`ws://127.0.0.1:${port}${browserPath}`);
+    browser.on('Browser.downloadWillBegin', event => downloadStarts.push(event));
+    browser.on('Browser.downloadProgress', event => downloadStates.set(event.guid, event.state));
     await browser.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads, eventsEnabled: true });
     const target = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' }).then(response => response.json());
     client = await CDPClient.connect(target.webSocketDebuggerUrl);
     client.on('Runtime.exceptionThrown', event => browserErrors.push(event.exceptionDetails?.exception?.description || event.exceptionDetails?.text));
+    client.on('Page.frameNavigated', ({ frame }) => { if (!frame.parentId) currentLoader = frame.loaderId; });
     await client.send('Runtime.enable'); await client.send('Page.enable');
     if (['all', 'drag'].includes(options.feature)) {
         const before = performance.now(); await navigate('drag');
@@ -151,7 +181,7 @@ try {
         await click('[data-testid="preview-table-header-controls"] button');
         await evaluate(`window.__nativeDragEvents = []; for (const type of ['dragstart','dragover','drop','dragend']) document.addEventListener(type, event => window.__nativeDragEvents.push({type:event.type,trusted:event.isTrusted}), true);`);
         const source = await until(() => position('[aria-label="Drag Second"]'), 'drag handle');
-        const destination = await position('[data-column-name="first"]');
+        const destination = await until(() => position('[data-column-name="first"]'), 'drag destination');
         assert.ok(source.width > 0 && destination.height > 0);
         await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: source.x, y: source.y });
         await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: source.x, y: source.y, button: 'left', clickCount: 1 });
@@ -187,6 +217,12 @@ try {
                 const actualHref = await evaluate(`document.querySelector('a[aria-label="file_download"]').getAttribute('href')`);
                 assert.equal(actualHref, variant.href, `Exact ${variant.id} download URL`);
                 await click('a[aria-label="file_download"]');
+                await until(() => {
+                    const download = downloadStarts[observedCases.length];
+                    if (!download) return false;
+                    assert.notEqual(downloadStates.get(download.guid), 'canceled', 'Browser attachment download canceled');
+                    return downloadStates.get(download.guid) === 'completed';
+                }, 'browser attachment download completed');
                 const file = join(downloads, 'loom-browser-fixture.txt');
                 await until(() => existsSync(file), 'exact browser attachment filename');
                 const actual = await readFile(file);
@@ -199,6 +235,7 @@ try {
             }
         }
         assert.deepEqual(requests, [downloadPath, downloadPath, configuredDownloadPath, configuredDownloadPath].map(url => ({ method: 'GET', url })));
+        assert.equal(downloadStarts.length, 4, 'One completed browser download per case');
         report.checks.push({ feature: 'download', status: 'passed', cases: observedCases, filename: 'loom-browser-fixture.txt', bytes: payload.length, sha256: createHash('sha256').update(payload).digest('hex'), requests: [...requests], seconds: (performance.now() - before) / 1000 });
     }
     if (['all', 'route'].includes(options.feature)) {
@@ -220,12 +257,12 @@ try {
         assert.deepEqual(await rows(), a);
         await choose('route-B'); await ready(); assert.deepEqual(await rows(),b);
         await panelButton('Cancel'); assert.deepEqual(await saved(),{route:'route-A',version:1,writes:0}); assert.deepEqual(await rows(),a);
-        await client.send('Page.reload'); await until(()=>checkedRoute(), 'saved route remounted');
+        await reloadRoute(); await until(()=>checkedRoute(), 'saved route remounted');
         assert.ok((await checkedRoute()).includes('route-A')); assert.deepEqual(await rows(),a);
         await choose('route-B'); await ready(); await panelButton('Apply change');
         await until(async()=> (await saved()).route==='route-B', 'Apply persisted route B');
         assert.deepEqual(await saved(),{route:'route-B',version:2,writes:1}); assert.deepEqual(await rows(),b);
-        await client.send('Page.reload'); await until(()=>checkedRoute(),'route B remounted');
+        await reloadRoute(); await until(()=>checkedRoute(),'route B remounted');
         assert.ok((await checkedRoute()).includes('route-B')); assert.deepEqual(await rows(),b);
         await choose('route-A'); await ready(); await panelButton('Apply change');
         await until(async()=> (await saved()).route==='route-A','restore route A');
@@ -236,10 +273,11 @@ try {
         await click('[data-testid="route-release"]');
         await until(()=>evaluate(`document.querySelector('[data-testid="route-released"]').textContent==='1'`),'old response released');
         await wait(100); assert.deepEqual(await rows(),a); assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2});
-        await panelButton('Cancel'); await client.send('Page.reload'); await until(()=>checkedRoute(),'restored A remounted');
+        await panelButton('Cancel'); await reloadRoute(); await until(()=>checkedRoute(),'restored A remounted');
         assert.deepEqual(await rows(),a); assert.deepEqual(await saved(),{route:'route-A',version:3,writes:2});
         report.checks.push({feature:'route',status:'passed',routeA:a,routeB:b,restored:a,versions:[1,2,3],writes:2,cancelWrites:0,lateResponseIgnored:true,seconds:(performance.now()-before)/1000,boundary:'Actual RelatedExpandEditor, proposal lifecycle, panel and PreviewTable; test-owned service responses and sessionStorage Apply caller. Not BuilderWorkspace or deployed API/database.'});
     }
+    assert.equal(report.documentNavigations, options.feature === 'all' ? 10 : { drag: 2, download: 4, route: 4 }[options.feature], 'Every required navigation/reload completed');
     assert.deepEqual(browserErrors, [], 'Browser runtime exceptions');
     assert.equal(fingerprint(), inputFingerprint, 'Browser verification sources changed during run');
     const screenshot = await client.send('Page.captureScreenshot', { format: 'png' });
@@ -252,13 +290,11 @@ try {
     stopBuild?.();
     client?.close(); browser?.close();
     if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
+        const stopped = new Promise(resolve => chrome.once('exit', resolve));
+        const forceStop = setTimeout(() => chrome.kill('SIGKILL'), 1000);
         chrome.kill('SIGTERM');
-        await Promise.race([new Promise(resolve => chrome.once('exit', resolve)), wait(1000)]);
-        if (chrome.exitCode === null && chrome.signalCode === null) {
-            const stopped = new Promise(resolve => chrome.once('exit', resolve));
-            chrome.kill('SIGKILL');
-            await stopped;
-        }
+        try { await stopped; }
+        finally { clearTimeout(forceStop); }
     }
     if (server) await new Promise(resolve => { server.closeAllConnections(); server.close(resolve); });
     try {

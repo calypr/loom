@@ -66,3 +66,19 @@ and reports; the agent skill owns diagnosis and reviewed code changes.
 
 Historical browser reports under `docs/verification/` are records only. They
 are not executable tests or current-source proof.
+
+The native Chromium component runner now reuses validated fixture builds across
+invocations and waits for actionable controls, completed downloads and new
+documents. `--no-cache` forces a full build. The
+[Chromium hillclimb](../docs/verification/chromium/PERFORMANCE.md) documents the
+preserved checks and an alternating before/after benchmark command.
+
+The opt-in [Lightpanda runner](../docs/verification/lightpanda/README.md) defaults
+to bounded, reusable worker pools for two DOM semantic contracts. It enables
+private Lightpanda HTTP caches, serves a minified production bundle, batches DOM
+observations, tunes concurrency and confirms sustained throughput. It retains
+the four native candidates in explicit compatibility mode with stylesheet
+loading enabled. Native drag/download acceptance remains in the Chromium route.
+See [measurements](../docs/verification/lightpanda/POOLED_RESULTS.md) for the
+precise speed scope and [coverage](../docs/verification/lightpanda/COVERAGE.md)
+for dispositions of all 96 retired specs. Job count is not a coverage count.
