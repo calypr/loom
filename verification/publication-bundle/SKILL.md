@@ -123,8 +123,11 @@ above. Extending the model with a post-claim-recheck arm (compare
 work; do not report model coverage of the guard without running it and
 recording the log.
 
-Repairing F-B1 also grants **no** judgment on legacy-key upgrade safety: R1
-remains a separate open defect, neither repaired nor cleared by Repair-1b.
+Repairing F-B1 also grants **no** judgment on legacy-written bundle documents:
+the separate, still-open mis-selection concern for docs carrying capitalized
+legacy field names (lowercase-only sort/Go checks; recorded as the CONFIRMED
+"legacy case asymmetry" Bug-3 under F-B6 and the F-B9 candidate in
+`FINDINGS.md`) is neither repaired nor cleared by Repair-1b.
 
 ## TLC-bound trio entry points (last synced 218edabb)
 
@@ -211,14 +214,15 @@ docker exec loom-dev-qwen-current-loom-api-1 sh -c \
   changed), and the saved witnesses under `evidence/`. All four are provenance
   for findings as they stood when recorded; read them as history, and re-derive
   current status from source, tests, and this file.
-- This guidance correction edits only `SKILL.md`, and that edit intentionally
-  makes its own ledger entry stale: `files["verification/publication-bundle/
-  SKILL.md"].sha256` in `reviewed-sources.json` still pins the pre-correction
-  bytes (`2ee4c56c...` @`49d6999e`). That is a guidance-doc lag, not model or
-  product drift — the canonical model digest is unaffected. Re-derive the pin
-  from live bytes in the ledger-owner pass; never hand-type a digest, and do
-  not read the stale value as a reason to touch the model, witnesses, or the
-  guard.
+- This guidance correction edits `SKILL.md` and adds `README.md`, and those
+  edits intentionally leave the ledger incomplete: `files["verification/
+  publication-bundle/SKILL.md"].sha256` in `reviewed-sources.json` still pins
+  the pre-correction bytes (`2ee4c56c...` @`49d6999e`), and `README.md` has no
+  ledger entry at all. That is a guidance-doc lag, not model or product drift —
+  the canonical model digest is unaffected. In the ledger-owner pass, re-derive
+  the SKILL.md pin from live bytes and register `README.md` for a new
+  live-bytes pin; never hand-type a digest, and do not read the stale or
+  missing value as a reason to touch the model, witnesses, or the guard.
 
 Local TLC runs use `/sandbox/.local/bin/tlc-run` (explicit budget; split via `TLC_WORKERS`/`TLC_HEAP_MB`, one `-metadir` per run). If unreadable `/sys/fs/cgroup/{cpu,memory}.max` crashes the launcher, it needs the OSError guards (applied 2026-11-01).
 

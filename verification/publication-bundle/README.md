@@ -42,4 +42,7 @@ has no constant for it, so a clean or violating run of that model says nothing
 about Repair-1b either way. Current assurance for the guard is the passing Go
 regression above plus its overlay non-vacuity. A post-claim-recheck model arm is
 unstarted work — record a log before claiming model coverage. Repairing F-B1
-also says nothing about legacy-key upgrade safety: R1 is a separate open defect.
+also says nothing about legacy-written bundle docs: the separate, still-open
+mis-selection concern for docs carrying capitalized legacy field names
+(lowercase-only sort/Go checks; recorded as Bug-3 under F-B6 and the F-B9
+candidate in `FINDINGS.md`) is neither repaired nor cleared by Repair-1b.
