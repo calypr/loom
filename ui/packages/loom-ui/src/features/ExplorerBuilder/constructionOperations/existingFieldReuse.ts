@@ -62,27 +62,3 @@ export const existingColumnForFieldPath = (args: {
   if (column === undefined) return undefined;
   return { columnId: column.id, label: column.label, fieldPath: args.fieldPath };
 };
-
-export type ReusableChoice<T> = {
-  readonly choice: T;
-  readonly reuse: ExistingColumnReuse | undefined;
-};
-
-// Partitions picker choices into what each one should render as: the existing
-// column when reuse applies, or the signed choice otherwise. Pure and total —
-// callers keep their current ordering and filtering around it.
-export const partitionChoicesForReuse = <T extends { readonly fieldPath: string }>(args: {
-  readonly choices: ReadonlyArray<T>;
-  readonly sourceProjections: Construction['sourceProjections'];
-  readonly columns: ReadonlyArray<ReusableColumn>;
-  readonly publicCarriers?: ReadonlyArray<PublicFieldCarrier>;
-}): ReadonlyArray<ReusableChoice<T>> =>
-  args.choices.map((choice) => ({
-    choice,
-    reuse: existingColumnForFieldPath({
-      sourceProjections: args.sourceProjections,
-      columns: args.columns,
-      fieldPath: choice.fieldPath,
-      ...(args.publicCarriers ? { publicCarriers: args.publicCarriers } : {}),
-    }),
-  }));
