@@ -62,15 +62,17 @@ func (s ReadScope) Unrestricted() bool {
 // CoversExecutionPaths reports whether this restricted read scope authorizes
 // every non-blank auth resource path an execution declares. A scope that
 // declares no paths, or an execution that declares only blank paths, is not a
-// resolved authorization for that execution. The two execution-status twins
-// use this single set rule, instead of a path-count comparison, as their
-// defense-in-depth gate against resolver drift.
+// resolved authorization for that execution. A declaration holding a malformed
+// non-blank entry is likewise not a resolvable authorization: see
+// normalizeDeclaredExecutionPaths. The two execution-status twins use this
+// single set rule, instead of a path-count comparison, as their defense-in-depth
+// gate against resolver drift.
 func (s ReadScope) CoversExecutionPaths(executionAuthResourcePaths []string) bool {
 	if s.Mode != ReadScopeRestricted {
 		return false
 	}
-	declared := normalizeAuthResourcePathList(executionAuthResourcePaths)
-	if len(declared) == 0 {
+	declared, malformed := normalizeDeclaredExecutionPaths(executionAuthResourcePaths)
+	if malformed || len(declared) == 0 {
 		return false
 	}
 	allowed := make(map[string]struct{}, len(s.AuthResourcePaths))
@@ -83,6 +85,37 @@ func (s ReadScope) CoversExecutionPaths(executionAuthResourcePaths []string) boo
 		}
 	}
 	return true
+}
+
+// normalizeDeclaredExecutionPaths renders the auth resource paths an execution
+// declares for the coverage gate.
+//
+// Whitespace-only entries keep their long-standing meaning of "absent" and are
+// dropped, so a declaration that carries blank padding alongside real paths
+// still resolves. A non-blank entry that NormalizeAuthResourcePath refuses
+// (a forbidden C0/DEL control byte, or bytes that normalize away to nothing,
+// e.g. "/") is different in kind: it is a malformed persisted declaration, not
+// an absent one. Dropping it would let the surviving paths cover a declaration
+// that asserts a path the system can never name or grant, so the whole
+// declaration is refused (the boolean result) and the caller conceals. The
+// malformed bytes are never echoed, only the refusal.
+//
+// Incoming caller/grant normalization deliberately stays on the other helper
+// (normalizeAuthResourcePathList); this stricter rule applies to the persisted
+// declaration a read is being authorized against.
+func normalizeDeclaredExecutionPaths(paths []string) ([]string, bool) {
+	kept := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		normalized := NormalizeAuthResourcePath(path)
+		if normalized == "" {
+			return nil, true
+		}
+		kept = append(kept, normalized)
+	}
+	return normalizeAuthResourcePathList(kept), false
 }
 
 // Clone returns an independent copy suitable for passing between request
