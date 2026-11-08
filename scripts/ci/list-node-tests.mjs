@@ -1,4 +1,4 @@
-import { access, readdir, readFile } from 'node:fs/promises';
+import { access, constants, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -98,12 +98,32 @@ function references(source) {
   return result;
 }
 
-/** Explain the same dependency-closure policy used by the Node CI shards. */
-export async function nodeTestInventory(projectRoot = process.cwd()) {
-  const scriptsRoot = path.join(projectRoot, 'scripts');
+const RETIRED_BROWSER_ROOT = 'scripts/maintenance/playwright/';
+const INTENTIONAL_EXCLUSIONS = new Set(['browser-package-import', 'retired-browser-directory']);
+
+function formatNodeTestProblems(problems) {
+  const shown = problems.slice(0, 20);
+  const lines = shown.map(problem => `  - root=${problem.file} reason=${problem.reason}`
+    + ` dependency=${problem.dependency}${problem.code ? ` code=${problem.code}` : ''}`
+    + ` chain=${problem.chain.join(' -> ')}`);
+  if (problems.length > shown.length) lines.push(`  ... and ${problems.length - shown.length} more`);
+  return `Retained Node test dependency closure is broken (${problems.length} problem${problems.length === 1 ? '' : 's'}):\n${lines.join('\n')}`;
+}
+
+const POLICY = 'Relative static and literal dynamic import/require closure plus literal test-owned URL fixture existence; executable Playwright package imports and the retired browser directory are explicit nonfatal exclusions, incidental strings retained. A missing or unreadable retained dependency or test-owned fixture fails the inventory. Computed imports and external package availability are not proven.';
+
+/** A retained Node test can no longer execute because its source closure is broken. */
+export class NodeTestInventoryError extends Error {
+  constructor(problems) {
+    super(formatNodeTestProblems(problems));
+    this.name = 'NodeTestInventoryError';
+    this.code = 'ERETAINEDNODETESTDEPENDENCY';
+    this.problems = problems;
+  }
+}
+
+async function scanRoots(projectRoot) {
   const candidates = [];
-  const graph = new Map();
-  const relative = file => path.relative(projectRoot, file).split(path.sep).join('/');
   async function visit(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
@@ -111,26 +131,36 @@ export async function nodeTestInventory(projectRoot = process.cwd()) {
       else if (entry.name.endsWith('.test.mjs')) candidates.push(file);
     }
   }
+  await visit(path.join(projectRoot, 'scripts'));
+  try { await visit(path.join(projectRoot, '.codex/skills')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  return candidates.sort();
+}
+
+/** Classify every candidate root against the shared dependency-closure policy. */
+async function nodeTestClassification(projectRoot) {
+  const graph = new Map();
+  const relative = file => path.relative(projectRoot, file).split(path.sep).join('/');
   async function load(file) {
     if (graph.has(file)) return;
-    const node = { dependencies: [], problem: undefined };
+    const node = { dependencies: [], problems: [] };
     graph.set(file, node); // Register before recursion; cycles are checked per root below.
     let source;
     try { source = await readFile(file, 'utf8'); }
     catch (error) {
-      node.problem = { reason: 'missing-or-unreadable-import', file: relative(file), code: error.code };
+      node.problems.push({ reason: 'missing-or-unreadable-import', file: relative(file), code: error.code });
       return;
     }
     for (const { specifier, asset } of references(source)) {
       if (asset) {
         if (!file.endsWith('.test.mjs') || !specifier.startsWith('.')) continue;
         const dependency = path.resolve(path.dirname(file), specifier);
-        try { await access(dependency); }
-        catch (error) { node.problem = { reason: 'missing-source-fixture', file: relative(dependency), code: error.code }; }
+        // Read access, not mere existence: the retained test reads this fixture.
+        try { await access(dependency, constants.R_OK); }
+        catch (error) { node.problems.push({ reason: 'missing-source-fixture', file: relative(dependency), code: error.code, target: relative(dependency) }); }
         continue;
       }
       if (/^(?:@playwright\/test|playwright(?:-core)?)(?:\/|$)/.test(specifier)) {
-        node.problem = { reason: 'browser-package-import', file: relative(file), specifier };
+        node.problems.push({ reason: 'browser-package-import', file: relative(file), specifier });
         continue;
       }
       if (!specifier.startsWith('.')) continue;
@@ -140,39 +170,62 @@ export async function nodeTestInventory(projectRoot = process.cwd()) {
       await load(dependency);
     }
   }
-  await visit(scriptsRoot);
-  const skillRoot = path.join(projectRoot, '.codex/skills');
-  try { await visit(skillRoot); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  const included = [], excluded = [];
-  for (const candidate of candidates.sort()) {
-    if (relative(candidate).startsWith('scripts/maintenance/playwright/')) {
+  const included = [], excluded = [], problems = [];
+  for (const candidate of await scanRoots(projectRoot)) {
+    if (relative(candidate).startsWith(RETIRED_BROWSER_ROOT)) {
       excluded.push({ file: relative(candidate), reason: 'retired-browser-directory', chain: [relative(candidate)] });
       continue;
     }
     await load(candidate);
-    const queue = [[candidate]], seen = new Set();
-    let problem;
+    // Inspect the complete retained closure: an intentional browser exclusion
+    // in one branch must not hide a missing dependency in another branch,
+    // including one reachable only through an import cycle.
+    const queue = [[candidate]], seen = new Set(), found = [];
     for (let index = 0; index < queue.length; index++) {
       const chain = queue[index], file = chain.at(-1);
       if (seen.has(file)) continue;
       seen.add(file);
       const node = graph.get(file);
-      if (node.problem) {
-        problem = { ...node.problem, chain: chain.map(relative) };
-        break;
+      for (const problem of node.problems) {
+        const pathFromRoot = chain.map(relative);
+        found.push({ ...problem, chain: problem.target ? [...pathFromRoot, problem.target] : pathFromRoot });
       }
       for (const dependency of node.dependencies) queue.push([...chain, dependency]);
     }
-    if (problem) excluded.push({ ...problem, file: relative(candidate), dependency: problem.file });
+    const faults = found.filter(problem => !INTENTIONAL_EXCLUSIONS.has(problem.reason))
+      .map(problem => ({ ...problem, file: relative(candidate), dependency: problem.file }));
+    if (faults.length) { problems.push(...faults); continue; }
+    const intentional = found.find(problem => problem.reason === 'browser-package-import');
+    if (intentional) excluded.push({ ...intentional, file: relative(candidate), dependency: intentional.file });
     else included.push(relative(candidate));
   }
-  return { included, excluded, policy: 'Relative static and literal dynamic import/require closure plus literal test-owned URL fixture existence; executable Playwright package imports excluded, incidental strings retained. Computed imports and external package availability are not proven.' };
+  return { included, excluded, problems };
+}
+
+/**
+ * List the retained Node tests for the CI shards. A missing or unreadable
+ * retained dependency or test-owned URL fixture rejects instead of returning a
+ * silently shrunken selection; explicit Playwright and retired-browser
+ * exclusions stay ordinary results.
+ */
+export async function nodeTestInventory(projectRoot = process.cwd()) {
+  const { included, excluded, problems } = await nodeTestClassification(projectRoot);
+  if (problems.length) throw new NodeTestInventoryError(problems);
+  return { included, excluded, policy: POLICY };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   if (process.argv.slice(2).some(argument => argument !== '--explain') || process.argv.filter(argument => argument === '--explain').length > 1)
     throw new Error('Usage: node scripts/ci/list-node-tests.mjs [--explain]');
-  const result = await nodeTestInventory();
-  const output = process.argv.includes('--explain') ? JSON.stringify(result, null, 2) : result.included.join('\n');
-  await new Promise((resolve, reject) => process.stdout.write(`${output}\n`, error => error ? reject(error) : resolve()));
+  try {
+    const { included, excluded, policy } = await nodeTestInventory(process.cwd());
+    const output = process.argv.includes('--explain') ? JSON.stringify({ included, excluded, policy }, null, 2) : included.join('\n');
+    await new Promise((resolve, reject) => process.stdout.write(`${output}\n`, error => error ? reject(error) : resolve()));
+  }
+  catch (error) {
+    if (!(error instanceof NodeTestInventoryError)) throw error;
+    // Never emit a shrunken selection that CI could run as if it were complete.
+    await new Promise((resolve, reject) => process.stderr.write(`${error.message}\n`, error2 => error2 ? reject(error2) : resolve()));
+    process.exitCode = 1;
+  }
 }

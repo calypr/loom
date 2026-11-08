@@ -24,7 +24,7 @@ for (let i = 2; i < process.argv.length; i++) {
     else if (option === '--models-only')
         options.modelsOnly = true;
     else {
-        const key = { '--model': 'model', '--phase': 'phase', '--shard': 'shard', '--out': 'out', '--feature': 'feature', '--case': 'pattern', '--chrome': 'chrome' }[option];
+        const key = { '--model': 'model', '--phase': 'phase', '--shard': 'shard', '--out': 'out', '--feature': 'feature', '--case': 'pattern', '--chrome': 'chrome', '--project-root': 'projectRoot' }[option];
         assert.ok(key && process.argv[i + 1] && !process.argv[i + 1].startsWith('--'), `Unknown/missing option: ${option}`);
         options[key] = process.argv[++i];
     }
@@ -43,6 +43,7 @@ assert.ok(!options.shard || ['controls', 'source-proofs', 'trace-controls', 'beh
 const shard = options.shard && /^(\d+)\/(\d+)$/.exec(options.shard);
 if (options.shard)
     assert.ok(shard && +shard[1] > 0 && +shard[1] <= +shard[2], 'Invalid --shard');
+assert.ok(!options.projectRoot || options.phase === 'inventory', '--project-root is only for --phase inventory');
 const selectShard = (rows) => rows.filter((_, i) => !shard || i % +shard[2] === +shard[1] - 1);
 assert.ok(!(options.feature || options.list) || ['behavior', 'api', 'browser', 'journey'].includes(options.phase), '--feature/--list require --phase behavior, api, browser, or journey');
 assert.ok(!options.pattern || options.phase === 'behavior', '--case requires --phase behavior');
@@ -51,9 +52,15 @@ assert.ok(!['behavior', 'api', 'inventory', 'browser', 'journey'].includes(optio
 assert.ok(!options.selfTest || options.phase === 'all', '--self-test requires --phase all');
 const emit = async (value) => new Promise((resolve, reject) => process.stdout.write(JSON.stringify(value, null, 2) + '\n', error => error ? reject(error) : resolve()));
 if (options.phase === 'inventory') {
-    assert.ok(!options.out && !options.feature && !options.pattern && !options.list, 'Inventory is a read-only command');
+    assert.ok(!options.feature && !options.pattern && !options.list, 'Inventory is a read-only command');
     const { verificationInventory } = await import('./lib/verification-inventory.mjs');
-    await emit(await verificationInventory());
+    // A broken retained dependency closure rejects here, so the phase fails
+    // nonzero instead of emitting a reduced inventory.
+    const inventory = await verificationInventory(options.projectRoot ? resolve(options.projectRoot) : root);
+    if (options.out) {
+        mkdirSync(options.out, { recursive: true });
+        writeFileSync(join(options.out, 'verification-inventory.json'), `${JSON.stringify(inventory, null, 2)}\n`);
+    } else await emit(inventory);
     process.exit(0);
 }
 if (options.list) {
