@@ -3,11 +3,11 @@
   "fragments": [
     {
       "path": "docs/ui-contract-inventory/expression.fragment.json",
-      "sha256": "fe69dec48e04615d9325507081d2fb2162272f0d580671b9d939f6a62347ff27"
+      "sha256": "bd16cd0e8a3aad589e77029d330f60bc3ef82b748db7e5fdea69d577a67f285c"
     },
     {
       "path": "docs/ui-contract-inventory/relational.fragment.json",
-      "sha256": "823ee2a5c3ef87ca986b7acebe0b49ed33537ec10acaca5d759715d107ed4dcc"
+      "sha256": "45fb7819815325f21c76547a5782164b9056c63af6e55d59a2dfdde2f81872f3"
     },
     {
       "path": "docs/ui-contract-inventory/lifecycle.fragment.json",
@@ -18,7 +18,7 @@
       "sha256": "22a47c5f101a3c59621513f5b31489d3e651916149f01d547049ffeffafa7bc8"
     }
   ],
-  "expandedSha256": "909115ab08b3ce523c0eb616d6e6e902ba930be40f80cfe60aa8a31fc227729c",
+  "expandedSha256": "f137a248928c76f89ce7df0dd9d2e8b5fff2da28948ab0fe700b801c65b78500",
   "metadata": {
     "schemaVersion": 1,
     "status": "source-backed-provisional; model-and-adapter-coverage-pending",
@@ -352,7 +352,7 @@
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts",
-          "sha256": "9e8c387fb7ed68639f4d56604441ff1d7c5aeb7a55edbdc52265908cccc96b25"
+          "sha256": "07fdfed45e9c2e4cb8bc9d2818ebf489d76c291111c2488206f4e53f9c4583e6"
         },
         {
           "path": "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/index.ts",

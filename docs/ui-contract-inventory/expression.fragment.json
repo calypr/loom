@@ -208,7 +208,7 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:981-1003",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1097-1150",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-65",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-64",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:27-56",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:9-47"
           ]
@@ -698,7 +698,7 @@
           "evidence": [
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1248-1263",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/ConstructionOperationEditor.tsx:1440-1475",
-            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-65",
+            "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/existingFieldReuse.ts:35-64",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/constructionOperations/sourcePickerExplanations.ts:27-56",
             "ui/packages/loom-ui/src/features/ExplorerBuilder/components/SourcePickerExplanation.tsx:9-47"
           ]
