@@ -544,7 +544,6 @@ func TestReleaseIDCanonicalEquivalence(t *testing.T) {
 
 	// nil and empty repeated sections are one service form.
 	withEmpties := ridProbeRelease("project-a", "commit-a", []ReleasePublication{first}, nil)
-	withEmpties.Publications = append(withEmpties.Publications)
 	withEmpties.RequiredVerifications = []ContractVerification{}
 	if releaseID(withEmpties) != releaseID(ridProbeRelease("project-a", "commit-a", []ReleasePublication{first}, nil)) {
 		t.Fatalf("REGRESSION: nil vs empty slices are one service form and must share an id")
