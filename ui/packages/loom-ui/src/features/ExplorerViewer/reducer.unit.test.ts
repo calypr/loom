@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ExplorerRuntimeV1 } from '../../types';
+import { clearedSelection, missingSelection, valuesSelection } from './model';
 import { createViewerReducerState, viewerReducer } from './reducer';
 import { runtimeSessionKey } from './model';
+import { MISSING_VALUE } from './serialization';
 
 const runtime: ExplorerRuntimeV1 = {
   generation: 'generation-1',
@@ -36,7 +38,7 @@ describe('Explorer Viewer reducer', () => {
     let state = createViewerReducerState(runtime);
     state = viewerReducer(state, { type: 'nextPage', outputId: 'patients', cursor: 'cursor-1' });
     expect(state.outputs.patients.cursorHistory).toEqual([undefined, 'cursor-1']);
-    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', values: ['active'] });
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection(['active']) });
     expect(state.outputs.patients.cursorHistory).toEqual([undefined]);
     state = viewerReducer(state, { type: 'setSort', outputId: 'patients', sort: { column: 'status', desc: true } });
     expect(state.outputs.patients.cursorHistory).toEqual([undefined]);
@@ -46,11 +48,11 @@ describe('Explorer Viewer reducer', () => {
 
   it('requires confirmation before shared filters mutate all output sessions', () => {
     let state = createViewerReducerState(runtime);
-    state = viewerReducer(state, { type: 'proposeSharedFilter', proposal: { name: 'cohort', values: ['active'] } });
+    state = viewerReducer(state, { type: 'proposeSharedFilter', proposal: { name: 'cohort', selection: valuesSelection(['active']) } });
     expect(state.sharedFilters).toEqual({});
     expect(state.overlay.kind).toBe('sharedFilterConfirmation');
-    state = viewerReducer(state, { type: 'setSharedFilter', name: 'cohort', values: ['active'] });
-    expect(state.sharedFilters).toEqual({ cohort: ['active'] });
+    state = viewerReducer(state, { type: 'setSharedFilter', name: 'cohort', selection: valuesSelection(['active']) });
+    expect(state.sharedFilters).toEqual({ cohort: valuesSelection(['active']) });
     expect(state.overlay).toEqual({ kind: 'none' });
     expect(state.outputs.encounters.cursorHistory).toEqual([undefined]);
   });
@@ -60,5 +62,24 @@ describe('Explorer Viewer reducer', () => {
     expect(viewerReducer(state, { type: 'selectOutput', outputId: 'missing' })).toEqual(state);
     const next = viewerReducer(state, { type: 'nextPage', outputId: 'patients', cursor: 'cursor-1' });
     expect(viewerReducer(next, { type: 'nextPage', outputId: 'patients', cursor: 'cursor-1' }).outputs.patients.cursorHistory).toEqual([undefined, 'cursor-1']);
+  });
+
+  it('replaces one selection with the other so missing and populated choices stay exclusive', () => {
+    let state = createViewerReducerState(runtime);
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection(['active']) });
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: missingSelection() });
+    expect(state.outputs.patients.filterValues.status).toEqual({ kind: 'missing' });
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: valuesSelection([MISSING_VALUE]) });
+    expect(state.outputs.patients.filterValues.status).toEqual(valuesSelection([MISSING_VALUE]));
+  });
+
+  it('drops a cleared local or shared selection entirely rather than storing an empty filter', () => {
+    let state = createViewerReducerState(runtime);
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: missingSelection() });
+    state = viewerReducer(state, { type: 'setFilter', outputId: 'patients', column: 'status', selection: clearedSelection() });
+    expect(state.outputs.patients.filterValues).toEqual({});
+    state = viewerReducer(state, { type: 'setSharedFilter', name: 'cohort', selection: missingSelection() });
+    state = viewerReducer(state, { type: 'setSharedFilter', name: 'cohort', selection: clearedSelection() });
+    expect(state.sharedFilters).toEqual({});
   });
 });

@@ -1,6 +1,6 @@
 import type { LoomFacetSpec, LoomOutputFilter, LoomOutputRequest } from '../../api';
 import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
-import { activeOutputState, filterValuesFor, viewerFilterKind, type ViewerState } from './model';
+import { activeOutputState, filterSelectionsFor, isClearedSelection, isSelectedSelection, viewerFilterKind, type ViewerFieldSelection, type ViewerState } from './model';
 
 export const facetName = (outputId: string, column: string): string => `loom:${outputId}:${column}`;
 export const chartFacetName = (outputId: string, column: string): string => `loom:${outputId}:chart:${column}`;
@@ -37,30 +37,42 @@ const MISSING_VALUE_PLACEHOLDER: Record<string, never> = {};
 
 export const isMissingValue = (value: string): boolean => value === MISSING_VALUE;
 
-const filtersForValues = (column: string, values: ReadonlyArray<string>): ReadonlyArray<LoomOutputFilter> => {
-  if (values.includes(MISSING_VALUE)) return [{ column, op: 'IS_NULL', value: MISSING_VALUE_PLACEHOLDER }];
+/**
+ * Authored fixed filters are plain literal strings: a value spelled exactly like the
+ * missing bucket label is data, so it keeps EQ/IN and never becomes IS_NULL.
+ */
+const filtersForFixedValues = (column: string, values: ReadonlyArray<string>): ReadonlyArray<LoomOutputFilter> => {
   if (values.length === 1) return [{ column, op: 'EQ', value: values[0] }];
   if (values.length > 1) return [{ column, op: 'IN', value: [...values] }];
   return [];
 };
 
+/**
+ * Interactive selections carry the missing bucket as a tag rather than a sentinel
+ * string, so a populated value equal to the bucket label still serializes as data.
+ */
+const filtersForSelection = (column: string, selection: ViewerFieldSelection): ReadonlyArray<LoomOutputFilter> => {
+  if (selection.kind === 'missing') return [{ column, op: 'IS_NULL', value: MISSING_VALUE_PLACEHOLDER }];
+  return filtersForFixedValues(column, selection.values);
+};
+
 export const fixedFiltersFor = (output: ExplorerRuntimeOutputV1): ReadonlyArray<LoomOutputFilter> =>
-  Object.entries(output.fixedFilters).flatMap(([column, values]) => filtersForValues(column, values));
+  Object.entries(output.fixedFilters).flatMap(([column, values]) => filtersForFixedValues(column, values));
 
 export const outputFiltersFor = (
   runtime: ExplorerRuntimeV1,
   state: ViewerState,
   output: ExplorerRuntimeOutputV1,
 ): ReadonlyArray<LoomOutputFilter> => {
-  const values = filterValuesFor(state, runtime, output);
+  const selections = filterSelectionsFor(state, runtime, output);
   const filterBindings = new Map(output.filters.map((binding) => [binding.column, binding]));
   for (const bindings of Object.values(runtime.sharedFilters)) {
     for (const binding of bindings) if (!binding.outputId || binding.outputId === output.outputId) filterBindings.set(binding.column, binding);
   }
   const filters = fixedFiltersFor(output).slice();
-  for (const [column, selected] of Object.entries(values)) {
+  for (const [column, selection] of Object.entries(selections)) {
     if (!filterBindings.has(column)) continue;
-    filters.push(...filtersForValues(column, selected));
+    filters.push(...filtersForSelection(column, selection));
   }
   return filters;
 };
@@ -77,7 +89,7 @@ export const requestedFacetsFor = (
   for (const binding of output.filters) {
     const name = facetName(output.outputId, binding.column);
     const selected = activeOutputState(state, output.outputId).filterValues[binding.column];
-    if (!state.expandedFacets.includes(`${output.outputId}:filter:${binding.column}`) && !selected?.length) continue;
+    if (!state.expandedFacets.includes(`${output.outputId}:filter:${binding.column}`) && !isSelectedSelection(selected)) continue;
     specs.set(name, {
       name,
       kind: 'TERMS',
@@ -89,7 +101,7 @@ export const requestedFacetsFor = (
   for (const [sharedName, bindings] of Object.entries(runtime.sharedFilters)) {
     for (const binding of bindings) {
       if (binding.outputId && binding.outputId !== output.outputId) continue;
-      if (!state.expandedFacets.includes(`${output.outputId}:shared:${sharedName}`) && !(state.sharedFilters[sharedName]?.length)) continue;
+      if (!state.expandedFacets.includes(`${output.outputId}:shared:${sharedName}`) && !isSelectedSelection(state.sharedFilters[sharedName])) continue;
       specs.set(facetName(output.outputId, binding.column), {
         name: facetName(output.outputId, binding.column),
         kind: 'TERMS',
