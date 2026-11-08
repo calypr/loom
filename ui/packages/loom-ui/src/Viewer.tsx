@@ -396,7 +396,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         {overlay.kind === 'sharedFilterConfirmation' ? (
           <Stack>
             <Text size="sm">Apply <strong>{overlay.proposal.name}</strong> to every linked output?</Text>
-            <Group justify="flex-end"><Button variant="default" onClick={() => dispatch({ type: 'clearOverlay' })}>Cancel</Button><Button onClick={() => dispatch({ type: 'setSharedFilter', name: overlay.proposal.name, values: overlay.proposal.values })}>Apply filter</Button></Group>
+            <Group justify="flex-end"><Button variant="default" onClick={() => dispatch({ type: 'clearOverlay' })}>Cancel</Button><Button onClick={() => dispatch({ type: 'setSharedFilter', name: overlay.proposal.name, selection: overlay.proposal.selection })}>Apply filter</Button></Group>
           </Stack>
         ) : null}
       </Modal>

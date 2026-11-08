@@ -19,8 +19,33 @@ export interface ViewerSort {
   readonly desc: boolean;
 }
 
+/**
+ * One per-field selection. Populated values and the missing bucket cannot share a
+ * representation: a literal data value spelled exactly like the missing label must
+ * still serialize as EQ/IN, while only the tagged bucket emits IS_NULL. An empty
+ * `values` array means cleared, never a filter that matches nothing.
+ */
+export type ViewerFieldSelection =
+  | { readonly kind: 'values'; readonly values: ReadonlyArray<string> }
+  | { readonly kind: 'missing' };
+
+export const valuesSelection = (values: ReadonlyArray<string>): ViewerFieldSelection => ({
+  kind: 'values',
+  values: [...values],
+});
+
+export const missingSelection = (): ViewerFieldSelection => ({ kind: 'missing' });
+
+export const clearedSelection = (): ViewerFieldSelection => valuesSelection([]);
+
+export const isClearedSelection = (selection: ViewerFieldSelection): boolean =>
+  selection.kind === 'values' && selection.values.length === 0;
+
+export const isSelectedSelection = (selection: ViewerFieldSelection | undefined): boolean =>
+  selection !== undefined && !isClearedSelection(selection);
+
 export interface ViewerOutputState {
-  readonly filterValues: Readonly<Record<string, ReadonlyArray<string>>>;
+  readonly filterValues: Readonly<Record<string, ViewerFieldSelection>>;
   readonly sort?: ViewerSort;
   readonly pageSize: PageSize;
   readonly cursorHistory: ReadonlyArray<string | undefined>;
@@ -28,7 +53,7 @@ export interface ViewerOutputState {
 
 export interface ViewerSharedFilterProposal {
   readonly name: string;
-  readonly values: ReadonlyArray<string>;
+  readonly selection: ViewerFieldSelection;
 }
 
 export type ViewerOverlay =
@@ -39,7 +64,7 @@ export type ViewerOverlay =
 export interface ViewerState {
   readonly activeOutputId: string;
   readonly outputs: Readonly<Record<string, ViewerOutputState>>;
-  readonly sharedFilters: Readonly<Record<string, ReadonlyArray<string>>>;
+  readonly sharedFilters: Readonly<Record<string, ViewerFieldSelection>>;
   readonly expandedFacets: ReadonlyArray<string>;
   readonly chartsVisible: Readonly<Record<string, boolean>>;
   readonly overlay: ViewerOverlay;
@@ -85,16 +110,16 @@ export const initialViewerState = (
 export const activeOutputState = (state: ViewerState, outputId: string): ViewerOutputState =>
   state.outputs[outputId] ?? { filterValues: {}, pageSize: 20, cursorHistory: [undefined] };
 
-export const filterValuesFor = (
+export const filterSelectionsFor = (
   state: ViewerState,
   runtime: ExplorerRuntimeV1,
   output: ExplorerRuntimeOutputV1,
-): Readonly<Record<string, ReadonlyArray<string>>> => {
-  const values: Record<string, ReadonlyArray<string>> = { ...activeOutputState(state, output.outputId).filterValues };
-  for (const [name, selected] of Object.entries(state.sharedFilters)) {
-    if (selected.length === 0) continue;
+): Readonly<Record<string, ViewerFieldSelection>> => {
+  const values: Record<string, ViewerFieldSelection> = { ...activeOutputState(state, output.outputId).filterValues };
+  for (const [name, selection] of Object.entries(state.sharedFilters)) {
+    if (isClearedSelection(selection)) continue;
     for (const binding of runtime.sharedFilters[name] ?? []) {
-      if (!binding.outputId || binding.outputId === output.outputId) values[binding.column] = selected;
+      if (!binding.outputId || binding.outputId === output.outputId) values[binding.column] = selection;
     }
   }
   return values;

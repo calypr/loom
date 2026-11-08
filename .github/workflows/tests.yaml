@@ -238,8 +238,11 @@ jobs:
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Record executable routes and blocked legacy checks
-        run: node scripts/verify-builder-formal-core.mjs --phase inventory > "$RUNNER_TEMP/verification-inventory.json"
+      - name: Record executable routes and fail on a broken retained closure
+        # --out writes the document only after the full inventory succeeds, via an
+        # atomic rename, so a broken retained dependency closure fails without
+        # leaving a truncated or stale file for the always() upload to publish.
+        run: node scripts/verify-builder-formal-core.mjs --phase inventory --out "$RUNNER_TEMP"
       - name: Preserve verification inventory
         if: always()
         uses: actions/upload-artifact@v4
