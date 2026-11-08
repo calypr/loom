@@ -2,18 +2,21 @@ import React from 'react';
 import { Badge, Button, CloseButton, Group, Paper, Stack, Text } from '@mantine/core';
 import type { LoomOutputResult } from '../../api';
 import type { ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
-import { activeOutputState, type ViewerState } from './model';
+import { activeOutputState, clearedSelection, type ViewerFieldSelection, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
-import { filterLabel } from './serialization';
+import { filterLabel, MISSING_VALUE } from './serialization';
 
 const countLabel = (count: number, singular: string, plural: string) =>
   `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 
+const chipValues = (selection: ViewerFieldSelection): ReadonlyArray<string> =>
+  selection.kind === 'missing' ? [MISSING_VALUE] : selection.values;
+
 export const QuerySummary = ({ output, runtime, state, result, dispatch }: { readonly output: ExplorerRuntimeOutputV1; readonly runtime: ExplorerRuntimeV1; readonly state: ViewerState; readonly result?: LoomOutputResult; readonly dispatch: React.Dispatch<ViewerAction> }) => {
   const outputState = activeOutputState(state, output.outputId);
   const fixed = Object.entries(output.fixedFilters).flatMap(([column, selected]) => selected.map((value) => ({ kind: 'fixed' as const, column, value })));
-  const local = Object.entries(outputState.filterValues).flatMap(([column, selected]) => selected.map((value) => ({ kind: 'local' as const, column, value })));
-  const shared = Object.entries(state.sharedFilters).flatMap(([name, selected]) => selected.map((value) => ({ kind: 'shared' as const, name, value })));
+  const local = Object.entries(outputState.filterValues).flatMap(([column, selection]) => chipValues(selection).map((value) => ({ kind: 'local' as const, column, value })));
+  const shared = Object.entries(state.sharedFilters).flatMap(([name, selection]) => chipValues(selection).map((value) => ({ kind: 'shared' as const, name, value })));
   const chips = [...fixed, ...local, ...shared];
   const sort = activeOutputState(state, output.outputId).sort;
 
@@ -38,7 +41,7 @@ export const QuerySummary = ({ output, runtime, state, result, dispatch }: { rea
               variant="light"
               radius="xl"
               tt="none"
-              rightSection={chip.kind === 'fixed' ? undefined : <CloseButton size={14} aria-label={`Remove ${chip.value}`} onClick={() => chip.kind === 'local' ? dispatch({ type: 'setFilter', outputId: output.outputId, column: chip.column, values: [] }) : dispatch({ type: 'setSharedFilter', name: chip.name, values: [] })} />}
+              rightSection={chip.kind === 'fixed' ? undefined : <CloseButton size={14} aria-label={`Remove ${chip.value}`} onClick={() => chip.kind === 'local' ? dispatch({ type: 'setFilter', outputId: output.outputId, column: chip.column, selection: clearedSelection() }) : dispatch({ type: 'setSharedFilter', name: chip.name, selection: clearedSelection() })} />}
             >
               {chip.kind === 'shared' ? chip.name : filterLabel(output.filters.find((binding) => binding.column === chip.column) ?? { column: chip.column })}: {chip.value}
             </Badge>

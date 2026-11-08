@@ -16,7 +16,7 @@ import type { EChartsOption } from 'echarts';
 import type { LoomFacetResult, LoomOutputResult } from '../../api';
 import type { ExplorerRuntimeBindingV1, ExplorerRuntimeOutputV1, ExplorerRuntimeV1 } from '../../types';
 import { resultUnitTitle } from '../../resultUnitDisplay';
-import { PAGE_SIZES, activeOutputState, isPageSize, type ViewerState } from './model';
+import { PAGE_SIZES, activeOutputState, clearedSelection, isPageSize, isSelectedSelection, missingSelection, valuesSelection, type ViewerFieldSelection, type ViewerState } from './model';
 import type { ViewerAction } from './reducer';
 import { chartFacetName, facetName, filterLabel, filterType, isMissingValue, MISSING_VALUE, MISSING_VALUE_DESCRIPTION } from './serialization';
 import { BoundedFormatCache } from './formatCache';
@@ -115,61 +115,58 @@ export const facetValues = (facet: LoomFacetResult | undefined, column: string):
 
 const COLLAPSED_FACET_VALUES = 6;
 
-const FacetFilter = ({ id, label, description, facet, column, values, multiple, debounce = false, onChange, state, dispatch }: { readonly id: string; readonly label: string; readonly description?: string; readonly facet?: LoomFacetResult; readonly column: string; readonly values: ReadonlyArray<string>; readonly multiple: boolean; readonly debounce?: boolean; readonly onChange: (values: ReadonlyArray<string>) => void; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
+// The bucket and a published term spelled exactly like it both start with the same
+// words, so each gets a distinct accessible name instead of a parenthetical that
+// screen readers announce as part of the value itself.
+const accessibleLabel = (value: string): string => value.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
+
+const FacetFilter = ({ id, label, description, facet, column, selection, multiple, debounce = false, onChange, state, dispatch }: { readonly id: string; readonly label: string; readonly description?: string; readonly facet?: LoomFacetResult; readonly column: string; readonly selection: ViewerFieldSelection; readonly multiple: boolean; readonly debounce?: boolean; readonly onChange: (selection: ViewerFieldSelection) => void; readonly state: ViewerState; readonly dispatch: React.Dispatch<ViewerAction> }) => {
   const expanded = state.expandedFacets.includes(id);
   const facetEntries = facetValues(facet, column);
-  // A published row cannot tell an absent property apart from an explicit null,
-  // so the single missing bucket stands for both and is counted with isNull().
-  // The selected value is the bucket's own label, so a data value spelled exactly
-  // like it cannot round-trip through the serializer. Such a value is dropped
-  // along with the bucket rather than offered as a choice that would quietly
-  // return the null rows instead.
-  const collidesWithMissing = facetEntries.some((entry) => isMissingValue(entry.value));
-  const options = collidesWithMissing ? facetEntries.filter((entry) => !isMissingValue(entry.value)) : facetEntries;
-  const [draftValues, setDraftValues] = React.useState(values);
+  const [draftSelection, setDraftSelection] = React.useState(selection);
   const timer = React.useRef<number | undefined>(undefined);
-  const currentValues = debounce ? draftValues : values;
-  const selected = new Set(currentValues);
-  // Never offer a choice that provably selects no row, but never hide a choice
-  // that is already driving the active filter.
-  const showMissing = !collidesWithMissing
-    && ((facet?.missingCount ?? 0) > 0 || selected.has(MISSING_VALUE));
-  const orderedOptions = [...options].sort((left, right) => Number(selected.has(right.value)) - Number(selected.has(left.value)));
+  const current = debounce ? draftSelection : selection;
+  const missingSelected = current.kind === 'missing';
+  const selected = new Set(current.kind === 'values' ? current.values : []);
+  // A facet term spelled exactly like the missing bucket is real data: it stays
+  // listed and selectable, and only the separately tagged bucket emits IS_NULL.
+  const showMissing = (facet?.missingCount ?? 0) > 0 || missingSelected;
+  // Mirrors requestedFacetsFor: a facet the current request never asked for still
+  // needs its own control, even when the response happens to carry the data.
+  const requested = expanded || isSelectedSelection(current);
+  const orderedOptions = [...facetEntries].sort((left, right) => Number(selected.has(right.value)) - Number(selected.has(left.value)));
   const visibleOptions = expanded ? orderedOptions : orderedOptions.slice(0, COLLAPSED_FACET_VALUES);
   const hiddenCount = Math.max(0, orderedOptions.length - COLLAPSED_FACET_VALUES);
-  const commit = (next: ReadonlyArray<string>) => {
+  const commit = (next: ViewerFieldSelection) => {
     if (!debounce) {
       onChange(next);
       return;
     }
-    setDraftValues(next);
+    setDraftSelection(next);
     if (timer.current !== undefined) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => onChange(next), 250);
   };
   const toggleValue = (value: string, checked: boolean) => {
-    if (isMissingValue(value)) {
-      // The reader ANDs filter clauses and the filter union has no OR group, so
-      // the missing bucket and populated values on one column cannot be combined.
-      commit(checked ? [MISSING_VALUE] : currentValues.filter((candidate) => !isMissingValue(candidate)));
-      return;
-    }
-    const populated = currentValues.filter((candidate) => !isMissingValue(candidate));
+    // The reader ANDs filter clauses and the filter union has no OR group, so the
+    // missing bucket and populated values on one column cannot be combined.
+    const populated = current.kind === 'values' ? current.values : [];
     const next = !checked
       ? populated.filter((candidate) => candidate !== value)
       : multiple ? [...populated, value] : [value];
-    commit(next);
+    commit(valuesSelection(next));
   };
+  const toggleMissing = (checked: boolean) => commit(checked ? missingSelection() : clearedSelection());
 
   return (
     <section className="border-b border-slate-200 px-4 py-4 last:border-b-0" aria-labelledby={`${id}-label`}>
       <Group justify="space-between" align="flex-start" gap="xs" mb={description ? 2 : "xs"} wrap="nowrap">
         <Text id={`${id}-label`} fw={650} size="sm" className="min-w-0 break-words">{label}</Text>
-        {currentValues.length > 0 ? (
+        {isSelectedSelection(current) ? (
           <Button variant="subtle" size="compact-xs" px={4} onClick={() => {
-            setDraftValues([]);
+            setDraftSelection(clearedSelection());
             if (timer.current !== undefined) window.clearTimeout(timer.current);
-            if (debounce) timer.current = window.setTimeout(() => onChange([]), 250);
-            else onChange([]);
+            if (debounce) timer.current = window.setTimeout(() => onChange(clearedSelection()), 250);
+            else onChange(clearedSelection());
           }}>Clear</Button>
         ) : null}
       </Group>
@@ -180,41 +177,48 @@ const FacetFilter = ({ id, label, description, facet, column, values, multiple, 
         </Button>
       ) : visibleOptions.length > 0 || showMissing ? (
         <Stack gap={3}>
-          {visibleOptions.map((entry) => (
+          {visibleOptions.map((entry) => {
+            const collidesWithMissing = isMissingValue(entry.value);
+            return (
             <Checkbox
               key={entry.value}
               size="xs"
+              aria-label={collidesWithMissing ? `${accessibleLabel(entry.value)} (exact value)` : undefined}
               checked={selected.has(entry.value)}
               onChange={(event) => toggleValue(entry.value, event.currentTarget.checked)}
               label={(
                 <Group justify="space-between" gap="xs" wrap="nowrap">
-                  <Text size="xs" truncate title={entry.value}>{entry.value}</Text>
+                  <Text size="xs" truncate title={collidesWithMissing ? 'A published value with this exact text, not missing data' : entry.value}>{entry.value}</Text>
                   <Text c="dimmed" size="xs" className="shrink-0 tabular-nums">{entry.count ?? '—'}</Text>
                 </Group>
               )}
               styles={{ root: { width: '100%' }, body: { width: '100%', alignItems: 'center' }, input: { borderWidth: 1 }, labelWrapper: { flex: 1, minWidth: 0 }, label: { width: '100%', paddingInlineStart: 8 } }}
             />
-          ))}
+            );
+          })}
           {showMissing ? (
-            <Checkbox
-              size="xs"
-              aria-label={`${label}: ${MISSING_VALUE}`}
-              checked={selected.has(MISSING_VALUE)}
-              onChange={(event) => toggleValue(MISSING_VALUE, event.currentTarget.checked)}
-              label={(
-                <Group justify="space-between" gap="xs" wrap="nowrap">
-                  <Text size="xs" truncate title={MISSING_VALUE_DESCRIPTION}>{MISSING_VALUE}</Text>
-                  <Text c="dimmed" size="xs" className="shrink-0 tabular-nums">{facet.missingCount ?? '—'}</Text>
-                </Group>
-              )}
-              styles={{ root: { width: '100%' }, body: { width: '100%', alignItems: 'center' }, input: { borderWidth: 1 }, labelWrapper: { flex: 1, minWidth: 0 }, label: { width: '100%', paddingInlineStart: 8 } }}
-            />
+            <>
+              <Checkbox
+                size="xs"
+                aria-label={`${accessibleLabel(MISSING_VALUE)} (missing or null)`}
+                checked={missingSelected}
+                onChange={(event) => toggleMissing(event.currentTarget.checked)}
+                label={(
+                  <Group justify="space-between" gap="xs" wrap="nowrap">
+                    <Text size="xs" truncate title={MISSING_VALUE_DESCRIPTION}>{MISSING_VALUE}</Text>
+                    <Text c="dimmed" size="xs" className="shrink-0 tabular-nums">{facet.missingCount ?? '—'}</Text>
+                  </Group>
+                )}
+                styles={{ root: { width: '100%' }, body: { width: '100%', alignItems: 'center' }, input: { borderWidth: 1 }, labelWrapper: { flex: 1, minWidth: 0 }, label: { width: '100%', paddingInlineStart: 8 } }}
+              />
+              <Text c="dimmed" size="xs">{MISSING_VALUE_DESCRIPTION}</Text>
+            </>
           ) : null}
         </Stack>
       ) : <Text c="dimmed" size="xs">No values available</Text>}
-      {hiddenCount > 0 ? (
+      {facet && (!requested || hiddenCount > 0) ? (
         <Button variant="subtle" size="compact-xs" px={0} mt="xs" aria-expanded={expanded} onClick={() => dispatch({ type: 'toggleFacet', facet: id })}>
-          {expanded ? 'Show fewer' : `Show ${hiddenCount} more`}
+          {hiddenCount > 0 ? (expanded ? 'Show fewer' : `Show ${hiddenCount} more`) : 'Load values'}
         </Button>
       ) : null}
       {facet?.truncated ? <Text c="dimmed" size="xs" mt={4}>Showing the most common values</Text> : null}
@@ -241,16 +245,16 @@ export const FilterRail = ({ runtime, output, result, state, dispatch }: { reado
       <Stack gap={0}>
         {sharedEntries.map(([name, sharedBindings]) => {
           const binding = sharedBindings.find((candidate) => !candidate.outputId || candidate.outputId === output.outputId) ?? sharedBindings[0];
-          const values = state.sharedFilters[name] ?? [];
+          const selection = state.sharedFilters[name] ?? clearedSelection();
           return (
-            <FacetFilter key={`shared-${name}`} id={`${output.outputId}:shared:${name}`} label={name} description="Shared across linked outputs" facet={facetFor(binding.column)} column={binding.column} values={values} multiple onChange={(nextValues) => dispatch({ type: 'proposeSharedFilter', proposal: { name, values: nextValues } })} state={state} dispatch={dispatch} />
+            <FacetFilter key={`shared-${name}`} id={`${output.outputId}:shared:${name}`} label={name} description="Shared across linked outputs" facet={facetFor(binding.column)} column={binding.column} selection={selection} multiple onChange={(nextSelection) => dispatch({ type: 'proposeSharedFilter', proposal: { name, selection: nextSelection } })} state={state} dispatch={dispatch} />
           );
         })}
         {bindings.map((binding) => {
-          const values = outputState.filterValues[binding.column] ?? [];
+          const selection = outputState.filterValues[binding.column] ?? clearedSelection();
           const kind = filterType(binding);
           return (
-            <FacetFilter key={binding.column} id={`${output.outputId}:filter:${binding.column}`} label={filterLabel(binding)} facet={facetFor(binding.column)} column={binding.column} values={values} multiple={kind !== 'enum'} debounce onChange={(nextValues) => dispatch({ type: 'setFilter', outputId: output.outputId, column: binding.column, values: nextValues })} state={state} dispatch={dispatch} />
+            <FacetFilter key={binding.column} id={`${output.outputId}:filter:${binding.column}`} label={filterLabel(binding)} facet={facetFor(binding.column)} column={binding.column} selection={selection} multiple={kind !== 'enum'} debounce onChange={(nextSelection) => dispatch({ type: 'setFilter', outputId: output.outputId, column: binding.column, selection: nextSelection })} state={state} dispatch={dispatch} />
           );
         })}
         {bindings.length === 0 && sharedEntries.length === 0 ? <Text c="dimmed" size="xs" p="md">No runtime filters declared.</Text> : null}
