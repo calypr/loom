@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Construction, ConstructionStageDescriptor } from '../../../types';
-import { existingColumnForFieldPath, partitionChoicesForReuse } from './existingFieldReuse';
+import { existingColumnForFieldPath } from './existingFieldReuse';
 
 const column = (id: string, label: string): ConstructionStageDescriptor['columns'][number] => ({
   id,
@@ -145,18 +145,5 @@ describe('existingColumnForFieldPath public-field identity', () => {
       columns: [column('col-status', 'Status')],
       fieldPath: 'root.status',
     })?.columnId).toBe('col-status');
-  });
-});
-
-describe('partitionChoicesForReuse', () => {
-  it('marks each choice with its reuse target while preserving order', () => {
-    const parts = partitionChoicesForReuse({
-      choices: [{ fieldPath: 'root.note.text' }, { fieldPath: 'root.status' }],
-      sourceProjections: [projection('col-status', 'root.status')],
-      columns: [column('col-status', 'Status')],
-    });
-    expect(parts.map((part) => part.choice.fieldPath)).toEqual(['root.note.text', 'root.status']);
-    expect(parts[0]?.reuse).toBeUndefined();
-    expect(parts[1]?.reuse?.columnId).toBe('col-status');
   });
 });
