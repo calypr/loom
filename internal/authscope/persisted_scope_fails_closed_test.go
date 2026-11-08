@@ -99,12 +99,20 @@ func TestCoversExecutionPathsRejectsInvalidNonblankDeclaration(t *testing.T) {
 	// occurrence must refuse the whole mixed declaration, and a bare
 	// non-whitespace control entry must refuse it too. Whitespace-only entries
 	// stay legitimate blanks, so they are asserted not to flip the decision.
+	// The swept set is exactly what containsAuthPathControlChar refuses:
+	// 0x00-0x1f plus 0x7f. Printable bytes must not be asserted to refuse, and
+	// 0x20 is excluded because a bare space entry is a legitimate blank (pinned
+	// by the table cases above) whose padded forms are ordinary foreign paths —
+	// asserting refusal there would pass through the subset-membership loop
+	// rather than the malformed-entry rule this sweep exists to pin.
 	t.Run("every-forbidden-control-byte-refuses-declaration", func(t *testing.T) {
-		for b := 0; b <= 0x20; b++ {
+		forbidden := make([]byte, 0, 0x21)
+		for b := 0x00; b <= 0x1f; b++ {
+			forbidden = append(forbidden, byte(b))
+		}
+		forbidden = append(forbidden, 0x7f)
+		for _, b := range forbidden {
 			control := string(rune(b))
-			if b == 0x7f {
-				control = "\x7f"
-			}
 			whitespaceOnly := strings.TrimSpace(control) == ""
 			forms := [][]string{
 				{msGrantedPath, "foreign" + control + "secret"},
