@@ -75,6 +75,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/execution": "Prepare, authorize, execute, explain, and post-process compiled dataframe requests.",
     "internal/dataframe/execution/chartifact": "Manage private ClickHouse staging tables and leases used to cross execution boundaries without publishing outputs.",
     "internal/dataframe/execution/chartifact/arango": "Persist private ClickHouse artifact manifests and leases in a dedicated Arango collection.",
+    "internal/dataframe/execution/chartifact/postgres": "Persist private ClickHouse artifact manifests and cleanup leases in the PostgreSQL 18 control plane with CAS progress writes, bounded expired scans, and one-winner cleanup claims while physical tables stay in ClickHouse.",
     "internal/dataframe/lineage": "Define stable identities and provenance for columns expanded from one authored source slot.",
     "internal/dataframe/expression": "Define and validate the typed backend-neutral expression AST used by recipes.",
     "internal/dataframe/publication": "Own backend-neutral dataframe publication contracts, bundles, and publication orchestration.",
