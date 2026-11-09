@@ -437,6 +437,16 @@ func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseServ
 
 func run(ctx context.Context, serverConfig Config) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
+	// The PostgreSQL source backend is a configuration-only selector until its
+	// runtime wiring lands. Fail explicitly instead of silently falling back
+	// to the ArangoDB stores below. The message names no credentials.
+	backend, err := normalizeSourceBackend(serverConfig.Server.Backend)
+	if err != nil {
+		return err
+	}
+	if backend == sourceBackendPostgres {
+		return errors.New("server.backend postgres is configured, but the PostgreSQL source runtime is not wired yet; refusing to start on the ArangoDB backend")
+	}
 	connOpts := arangostore.ConnectionOptions{
 		URL:      serverConfig.Server.URL,
 		Database: serverConfig.Server.Database,
