@@ -126,6 +126,9 @@ type Migration struct {
 	// SQL is the complete migration body, executed as one simple-protocol
 	// command inside the migration transaction. It must not manage its own
 	// transaction blocks; PostgreSQL rejects those inside a transaction.
+	// The transaction pins search_path to the target schema alone -- no
+	// public -- so migrations must schema-qualify references to objects that
+	// live outside the target schema (e.g. public.gen_random_uuid()).
 	SQL string
 	// Checksum is the lowercase hex SHA-256 of SQL.
 	Checksum string
@@ -399,39 +402,49 @@ func NewMigrationRunner(src ConnSource, schema string, migrations []Migration) (
 // on the same schema serialize on an advisory lock and each migration is
 // recorded exactly once; re-applying an applied history is a no-op that
 // returns the same result.
-func (r *MigrationRunner) Migrate(ctx context.Context) (MigrateResult, error) {
+func (r *MigrationRunner) Migrate(ctx context.Context) (result MigrateResult, err error) {
 	conn, err := r.src.Acquire(ctx)
 	if err != nil {
 		return MigrateResult{}, fmt.Errorf("postgres: acquire migration connection: %w", err)
 	}
 
 	key := migrationAdvisoryLockKey(r.schema)
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", key); err != nil {
-		conn.Release()
-		return MigrateResult{}, fmt.Errorf("postgres: take migration lock for schema %q: %w", r.schema, err)
-	}
-
-	result, runErr := r.migrateLocked(ctx, conn)
-
-	// The release must happen even on a cancelled context: an advisory lock
-	// is session-scoped, so a connection returned to the pool while still
-	// holding it would keep other callers waiting. If the release cannot be
-	// confirmed, discard the connection instead of pooling it.
-	unlockCtx, cancelUnlock := context.WithTimeout(context.WithoutCancel(ctx), unlockTimeout)
-	defer cancelUnlock()
-	var unlocked bool
-	if err := conn.QueryRow(unlockCtx, "SELECT pg_advisory_unlock($1)", key).Scan(&unlocked); err != nil || !unlocked {
+	if _, lockErr := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", key); lockErr != nil {
+		// pg_advisory_lock is session-scoped and a failed statement tells
+		// the client nothing about whether the grant raced the failure
+		// (e.g. a cancel landing after the backend granted the lock), and
+		// statement abort never releases a session-level lock. Symmetric
+		// with the unlock path: a connection of unknown lock state is
+		// discarded, never pooled.
 		discardPoolConn(conn)
-		if runErr != nil {
-			return MigrateResult{}, runErr
-		}
-		if err != nil {
-			return MigrateResult{}, fmt.Errorf("postgres: release migration lock for schema %q: %w", r.schema, err)
-		}
-		return MigrateResult{}, fmt.Errorf("postgres: release migration lock for schema %q: reported already unlocked", r.schema)
+		return MigrateResult{}, fmt.Errorf("postgres: take migration lock for schema %q: %w", r.schema, lockErr)
 	}
-	conn.Release()
-	return result, runErr
+
+	// From here the session holds the lock. Every exit path, panic included,
+	// must confirm the unlock and release the connection, or discard it.
+	// The release must also work on a cancelled context: an advisory lock is
+	// session-scoped, so a pooled connection still holding it would keep
+	// every later caller waiting.
+	defer func() {
+		unlockCtx, cancelUnlock := context.WithTimeout(context.WithoutCancel(ctx), unlockTimeout)
+		defer cancelUnlock()
+		var unlocked bool
+		unlockErr := conn.QueryRow(unlockCtx, "SELECT pg_advisory_unlock($1)", key).Scan(&unlocked)
+		if unlockErr != nil || !unlocked {
+			discardPoolConn(conn)
+			if err == nil {
+				if unlockErr != nil {
+					err = fmt.Errorf("postgres: release migration lock for schema %q: %w", r.schema, unlockErr)
+					return
+				}
+				err = fmt.Errorf("postgres: release migration lock for schema %q: reported already unlocked", r.schema)
+			}
+			return
+		}
+		conn.Release()
+	}()
+
+	return r.migrateLocked(ctx, conn)
 }
 
 // discardPoolConn removes a connection from its pool without returning it

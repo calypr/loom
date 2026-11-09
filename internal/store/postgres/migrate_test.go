@@ -671,6 +671,37 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 	}
 }
 
+// TestMigrationUnconfirmedUnlockDiscardsConnection covers the
+// discardPoolConn branch: a migration whose SQL surrenders the session's
+// advisory locks makes the runner's confirming unlock report false, so the
+// connection's lock state is unproven and must be discarded rather than
+// pooled. The run must surface the unconfirmed release as an error even
+// though the migration itself applied and was recorded, and the pool must
+// not retain the poisoned connection.
+func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
+	svc := newMigrationService(t)
+	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+		"000002_surrender.sql": "SELECT pg_catalog.pg_advisory_unlock_all();\nCREATE TABLE surrendered (id int);\n",
+	})
+	client := svc.openClient(t)
+
+	_, err := svc.newRunner(t, client, set).Migrate(svc.ctx)
+	if err == nil || !strings.Contains(err.Error(), "already unlocked") {
+		t.Fatalf("Migrate with a lock-surrendering migration = %v, want already-unlocked release error", err)
+	}
+	// The migration still applied and recorded exactly once.
+	assertLedgerEquals(t, svc.readLedger(t), set)
+	// The unproven connection was discarded, not returned to the pool.
+	if acquired := client.pool.Stat().AcquiredConns(); acquired != 0 {
+		t.Errorf("pool still holds %d acquired connections; the poisoned connection was not discarded", acquired)
+	}
+	// The pool is still usable for migrations on this schema.
+	again := svc.mustMigrate(t, svc.newRunner(t, client, set))
+	if again.LatestVersion != 2 {
+		t.Fatalf("follow-up LatestVersion = %d, want 2", again.LatestVersion)
+	}
+}
+
 func TestMigrationSchemaMustExist(t *testing.T) {
 	svc := newMigrationService(t)
 	runner, err := NewMigrationRunner(svc.openClient(t), "pgstore02_it_missing", mustEmbeddedMigrations(t))
