@@ -95,6 +95,16 @@ const (
 	// defaultSemanticContributionBatchSize is the fallback chunk size when
 	// a caller passes batchSize <= 0, matching the Arango adapter.
 	defaultSemanticContributionBatchSize = 500
+	// maxSemanticContributionChunkSize bounds one INSERT chunk's row count.
+	// writeChunk binds 14 parameters per row, and PostgreSQL caps one
+	// statement at 65535 bind parameters (the Parse message encodes the
+	// count in a 16-bit integer), so no caller-supplied batchSize —
+	// ingest.BackfillSemanticInventory legally passes up to 5000 — may
+	// build a statement beyond the protocol ceiling. 1000 rows x 14 =
+	// 14000 parameters sits far below it, matching the named bounds in
+	// internal/store/postgres/inventory.go (MaxInventoryWriteBatch = 1000)
+	// and staying under the floor(32767/14) safe limit.
+	maxSemanticContributionChunkSize = 1000
 	// undefinedTableSQLState42P01 is PostgreSQL's undefined_table state.
 	// The store package's constant is unexported, so this adapter names it.
 	undefinedTableSQLState42P01 = "42P01"
@@ -313,6 +323,12 @@ func (r *SemanticContributionRepository) WriteSemanticInventoryContributions(ctx
 	}
 	if batchSize <= 0 {
 		batchSize = defaultSemanticContributionBatchSize
+	}
+	if batchSize > maxSemanticContributionChunkSize {
+		// Clamp rather than refuse: the backend contract accepts
+		// batchSize up to 5000 and a larger value carries no meaning
+		// beyond "chunk no bigger than this".
+		batchSize = maxSemanticContributionChunkSize
 	}
 	// Validate and encode every contribution before the first statement
 	// runs, so a malformed batch writes nothing.

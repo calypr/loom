@@ -2346,3 +2346,79 @@ func TestZZZeroLeftoverSemanticContributionFixtures(t *testing.T) {
 		t.Errorf("%d verify_pgcat05_it_* databases survive all cleanups", prefixLeftovers)
 	}
 }
+
+// TestSemanticContributionLargeBatchClampsChunkCeiling drives the exact
+// contract-legal worst case: ingest.BackfillSemanticInventory accepts
+// BatchSize up to 5000 and passes it verbatim, so a 5000-row flush must
+// not build one 70000-parameter INSERT (PostgreSQL's Parse message carries
+// the parameter count in a 16-bit integer; the ceiling is 65535). The
+// repository clamps one chunk to maxSemanticContributionChunkSize rows
+// (14 bind parameters per row). Without the clamp this test fails at the
+// first statement with a protocol-level parameter error; with it the write
+// lands in chunks, the identical replay across chunk boundaries
+// byte-identically succeeds, and no row is written twice.
+func TestSemanticContributionLargeBatchClampsChunkCeiling(t *testing.T) {
+	s := newPgcat05Service(t)
+	repo := s.contributionRepository(t)
+
+	const rows = 5000 // the contract maximum from internal/ingest validation
+	var goldenObs catalog.SemanticObservation
+	if err := json.Unmarshal([]byte(pgcat05ObservationCodeObs), &goldenObs); err != nil {
+		t.Fatalf("decode shared observation template: %v", err)
+	}
+	const (
+		project    = "pgcat05-large-batch"
+		generation = "gen-large"
+	)
+	buildID := catalog.SemanticInventoryBuildID(project, generation)
+
+	batch := make([]catalog.SemanticInventoryContribution, 0, rows)
+	for i := 0; i < rows; i++ {
+		key := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("pgcat05-large/%d", i))))
+		batch = append(batch, catalog.SemanticInventoryContribution{
+			Key:               key,
+			Project:           project,
+			DatasetGeneration: generation,
+			BuildID:           buildID,
+			SourceKind:        catalog.SemanticInventorySourceRetained,
+			ResourceType:      "Observation",
+			SourceID:          fmt.Sprintf("retained:Observation/large-%05d", i),
+			Ordinal:           0,
+			ConceptID:         fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("concept/%d", i)))),
+			BindingID:         fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("binding/%d", i)))),
+			Example:           fmt.Sprintf("example-%d", i),
+			Observation:       goldenObs,
+		})
+	}
+
+	// 5000 rows x 14 bind parameters = 70000 > the 65535 ceiling. A single
+	// oversized statement cannot execute; the clamp must split the flush.
+	if err := repo.WriteSemanticInventoryContributions(s.ctx, batch, 5000); err != nil {
+		t.Fatalf("contract-maximum batch of %d rows: %v", rows, err)
+	}
+	var count int64
+	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.contributionFQN()+" WHERE project = $1", project).Scan(&count); err != nil {
+		s.fail("count large-batch rows", err)
+	}
+	if count != rows {
+		t.Fatalf("large-batch rows = %d, want %d", count, rows)
+	}
+
+	// Replay across chunk boundaries: the identical batch succeeds without
+	// duplicating or touching any row.
+	if err := repo.WriteSemanticInventoryContributions(s.ctx, batch, 5000); err != nil {
+		t.Fatalf("large-batch replay: %v", err)
+	}
+	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.contributionFQN()+" WHERE project = $1", project).Scan(&count); err != nil {
+		s.fail("recount large-batch rows", err)
+	}
+	if count != rows {
+		t.Fatalf("large-batch rows after replay = %d, want %d (replay must not add rows)", count, rows)
+	}
+	for _, i := range []int{0, 1, rows / 2, rows - 2, rows - 1} {
+		key := fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("pgcat05-large/%d", i))))
+		if _, found := s.witnessContribution(t, key); !found {
+			t.Fatalf("row %d (chunk-crossing sample) missing after clamped write", i)
+		}
+	}
+}
