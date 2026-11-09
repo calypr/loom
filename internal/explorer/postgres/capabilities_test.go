@@ -300,17 +300,23 @@ func (s *capabilityService) migrate(t *testing.T) {
 	s.fixture = fixture[0]
 	s.ledgerAfter = result.Applied
 
-	if result.LatestVersion != 4 {
-		t.Fatalf("latest migration version = %d, want 4", result.LatestVersion)
+	// The ledger must be the fully merged, ascending union of the owner
+	// lineage and this ticket's fixture, independent of compose order:
+	// NewMigrationRunner sorts by version (migrate.go sort.Slice on the
+	// normalized history), so a future owner history [1,2,3,5,6] plus this
+	// fixture [4] converges to [1,2,3,4,5,6] on the one shared ledger.
+	want := append([]pgstore.LedgerRecord{}, ownerRecords(owner)...)
+	want = append(want, pgstore.LedgerRecord{Version: fixture[0].Version, Name: fixture[0].Name, Checksum: fixture[0].Checksum})
+	sort.Slice(want, func(i, j int) bool { return want[i].Version < want[j].Version })
+	var maxVersion int64
+	for _, w := range want {
+		if w.Version > maxVersion {
+			maxVersion = w.Version
+		}
 	}
-	want := []pgstore.LedgerRecord{
-		{Version: 1, Name: "ledger", Checksum: owner[0].Checksum},
-		{Version: 2, Name: "explorer_owner", Checksum: owner[1].Checksum},
+	if result.LatestVersion != maxVersion {
+		t.Fatalf("latest migration version = %d, want %d", result.LatestVersion, maxVersion)
 	}
-	for _, m := range owner[2:] {
-		want = append(want, pgstore.LedgerRecord{Version: m.Version, Name: m.Name, Checksum: m.Checksum})
-	}
-	want = append(want, pgstore.LedgerRecord{Version: 4, Name: fixture[0].Name, Checksum: fixture[0].Checksum})
 	if len(result.Applied) != len(want) {
 		t.Fatalf("applied history = %+v, want %+v", result.Applied, want)
 	}
@@ -326,6 +332,38 @@ func (s *capabilityService) migrate(t *testing.T) {
 			t.Fatalf("ledger not strictly ascending: %+v", result.Applied)
 		}
 	}
+}
+
+// ownerRecords maps a migration history to its expected ledger rows.
+func ownerRecords(history []pgstore.Migration) []pgstore.LedgerRecord {
+	records := make([]pgstore.LedgerRecord, 0, len(history))
+	for _, m := range history {
+		records = append(records, pgstore.LedgerRecord{Version: m.Version, Name: m.Name, Checksum: m.Checksum})
+	}
+	return records
+}
+
+// tablesCreatedIn extracts the table names created by one migration's SQL,
+// so schema-composition expectations are derived from the applied history
+// instead of hardcoded (future owner migrations cannot break the leak check
+// and cannot be silently tolerated either).
+func tablesCreatedIn(sql string) []string {
+	// Strip -- comments first: prose in migration headers quotes DDL too.
+	var code strings.Builder
+	for _, line := range strings.Split(sql, "\n") {
+		if idx := strings.Index(line, "--"); idx >= 0 {
+			line = line[:idx]
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	re := regexp.MustCompile(`(?i)CREATE TABLE IF NOT EXISTS\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	matches := re.FindAllStringSubmatch(code.String(), -1)
+	tables := make([]string, 0, len(matches))
+	for _, m := range matches {
+		tables = append(tables, strings.ToLower(m[1]))
+	}
+	return tables
 }
 
 // ---------------------------------------------------------------------------
@@ -886,17 +924,25 @@ func TestNewCapabilityStoresRejectNilClientAndUnsafeSchema(t *testing.T) {
 func TestCapabilitySchemaCompositionColumnContractAndGuards(t *testing.T) {
 	s := newCapabilityService(t)
 
-	// Exactly the tables the composed history declares -- nothing from the
-	// source-store or publication planes leaked in.
+	// Exactly the tables the composed history declares -- derived from the
+	// applied migrations' own DDL, so nothing from the source-store or
+	// publication planes can leak in and future owner migrations compose
+	// without breaking this check.
 	var tables []string
 	s.forEachWitnessText(t, &tables,
 		"SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = $1 ORDER BY tablename", s.schema)
-	want := []string{"capability_snapshots", "explorers", "schema_migrations", "table_shape_capabilities"}
+	declared := map[string]bool{"schema_migrations": true} // the runner's own ledger table
 	for _, m := range s.owner {
-		if m.Version == 3 && m.Name == "explorer_draft_revision" {
-			want = append(want, "explorers_draft_revisions")
-			break
+		for _, table := range tablesCreatedIn(m.SQL) {
+			declared[table] = true
 		}
+	}
+	for _, table := range tablesCreatedIn(s.fixture.SQL) {
+		declared[table] = true
+	}
+	var want []string
+	for table := range declared {
+		want = append(want, table)
 	}
 	sort.Strings(want)
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
