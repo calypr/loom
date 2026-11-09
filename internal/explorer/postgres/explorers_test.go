@@ -896,6 +896,95 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	}
 }
 
+// TestPostgresExplorerOwnerMixedHistoryIsRefused pins the schema-ownership
+// invariant from the package comment: exactly one embedded history may ever
+// migrate one schema. Both directions are covered. (a) This history applied
+// first, then pgstore.MigrateSchema on the same schema: the runner refuses
+// with pgstore.ErrMigrationChecksumMismatch (version 1 bodies differ by
+// design) and persists nothing -- the ledger keeps exactly this package's
+// two rows and the owner row survives untouched. (b) The source-store
+// history first, then this package's: the same named refusal fires and the
+// explorers table is never created. Failing closed before applying any
+// statement is the contract; a mixed schema never converges silently.
+func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
+	f := newOwnerFixture(t)
+
+	// (a) This package's history owns the schema; the source-store history
+	// must be refused on it.
+	f.migrate(t)
+	store := f.newStore(t)
+	owner := fullOwner("proj_ownership", "exp_keep")
+	if _, err := store.Create(f.ctx, owner); err != nil {
+		f.fail("create owner before mixed-history refusal check", err)
+	}
+	client, err := pgstore.Open(f.ctx, pgstore.Config{
+		DSN: f.dsn, MaxConns: 2, MinConns: 0, AcquireTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		f.fail("open source-store pool", err)
+	}
+	defer client.Close()
+	if _, err := pgstore.MigrateSchema(f.ctx, client, f.schema); !errors.Is(err, pgstore.ErrMigrationChecksumMismatch) {
+		t.Fatalf("source-store history on this package's schema error = %v, want ErrMigrationChecksumMismatch", err)
+	}
+	// Refused before applying: ledger untouched, owner intact.
+	var ledgerVersions []int64
+	rows, err := f.iso.Query(f.ctx, `SELECT version FROM `+
+		pgx.Identifier{f.schema, pgstore.LedgerTable}.Sanitize()+` ORDER BY version`)
+	if err != nil {
+		f.fail("read ledger after refused run", err)
+	}
+	for rows.Next() {
+		var v int64
+		if err := rows.Scan(&v); err != nil {
+			rows.Close()
+			f.fail("scan ledger", err)
+		}
+		ledgerVersions = append(ledgerVersions, v)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		f.fail("read ledger after refused run", err)
+	}
+	if len(ledgerVersions) != 2 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 {
+		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2] (refused before applying)", ledgerVersions)
+	}
+	reader := f.newStore(t)
+	got, err := reader.Get(f.ctx, "proj_ownership", "exp_keep")
+	if err != nil {
+		f.fail("owner must survive the refused mixed-history run", err)
+	}
+	requireOwnerEqual(t, owner, *got, "owner after refused mixed-history run")
+
+	// (b) The source-store history owns a fresh schema; this package's
+	// history must be refused on it, creating nothing.
+	pgStoreSchema := f.schema + "_source"
+	if _, err := f.iso.Exec(f.ctx, `CREATE SCHEMA "`+pgStoreSchema+`"`); err != nil {
+		f.fail("create source-store schema", err)
+	}
+	t.Cleanup(func() {
+		if _, err := f.iso.Exec(context.WithoutCancel(f.ctx),
+			`DROP SCHEMA IF EXISTS "`+pgStoreSchema+`" CASCADE`); err != nil {
+			t.Errorf("drop source-store schema: %s", f.scrub(err))
+		}
+	})
+	if _, err := pgstore.MigrateSchema(f.ctx, client, pgStoreSchema); err != nil {
+		f.fail("apply source-store history to its own schema", err)
+	}
+	if _, err := MigrateSchema(f.ctx, client, pgStoreSchema); !errors.Is(err, pgstore.ErrMigrationChecksumMismatch) {
+		t.Fatalf("this package's history on a source-store schema error = %v, want ErrMigrationChecksumMismatch", err)
+	}
+	var ownerTableExists bool
+	if err := f.iso.QueryRow(f.ctx,
+		`SELECT to_regclass($1) IS NOT NULL`,
+		pgx.Identifier{pgStoreSchema, OwnerTable}.Sanitize()).Scan(&ownerTableExists); err != nil {
+		f.fail("check owner table absence", err)
+	}
+	if ownerTableExists {
+		t.Fatal("refused mixed-history run created the explorers table; the runner must fail before applying")
+	}
+}
+
 // TestPostgresExplorerOwnerSchemaConstraints proves the typed columns and
 // constraints are enforced by PostgreSQL itself: the management mode CHECK
 // refuses an unknown mode with 23514, the non-negative draft_version CHECK

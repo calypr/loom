@@ -14,6 +14,21 @@
 // methods (draft CAS, receipts, revisions, selections, ...) arrive with the
 // state tickets that depend on this foundation, adding their own migrations
 // under migrations/ and methods beside these.
+//
+// Schema ownership (pinned by TestPostgresExplorerOwnerMixedHistoryIsRefused):
+// every MigrationRunner keys its ledger -- and therefore its authoritative
+// applied history -- by schema, so exactly one embedded history may ever
+// migrate a given schema. The pg-store-02 history
+// (internal/store/postgres.MigrateSchema) owns source-store schemas; this
+// package's history owns Explorer control-plane schemas, and dependent state
+// tickets extend this same history rather than starting a competing one.
+// Pointing two histories at one schema is a deployment misconfiguration: the
+// runner fails closed with a named error (for these two histories,
+// pgstore.ErrMigrationChecksumMismatch on version 1, whose bodies differ
+// deliberately: IF NOT EXISTS for this feature history versus the plain
+// CREATE TABLE of the source-store history) before applying any statement,
+// so a mixed schema never converges silently or loses state. Callers must
+// surface that failure, not route around it.
 package postgres
 
 import (
@@ -53,12 +68,17 @@ func OwnerMigrations() ([]pgstore.Migration, error) {
 	return migrations, nil
 }
 
-// MigrateSchema applies this package's owner history to one schema of the
-// database reachable through client, serialized by the pg-store-02 advisory
-// lock. The caller owns schema creation. Re-applying the applied history is a
-// no-op: the DDL is IF NOT EXISTS, so a rerun never truncates existing owner
-// state. Failures are returned, never absorbed: there is no fallback to
-// another backend.
+// MigrateSchema applies this package's owner history to one Explorer
+// control-plane schema of the database reachable through client, serialized
+// by the pg-store-02 advisory lock. The caller owns schema creation, and this
+// history must be the only one ever applied to that schema: a schema already
+// migrated by another history (e.g. internal/store/postgres.MigrateSchema)
+// fails closed with pgstore.ErrMigrationChecksumMismatch before any statement
+// runs (see the package comment; pinned by
+// TestPostgresExplorerOwnerMixedHistoryIsRefused). Re-applying the applied
+// history is a no-op: the DDL is IF NOT EXISTS, so a rerun never truncates
+// existing owner state. Failures are returned, never absorbed: there is no
+// fallback to another backend.
 func MigrateSchema(ctx context.Context, client *pgstore.Client, schema string) (pgstore.MigrateResult, error) {
 	if client == nil {
 		return pgstore.MigrateResult{}, errors.New("postgres explorer store: nil client")
@@ -115,11 +135,14 @@ type Store struct {
 	list   string // backend-tagged SELECT ... WHERE project = $1 ORDER BY explorer_id
 }
 
-// New builds a Store for one schema of the database behind client. It opens
-// no connection: the pool stays shared with other control-plane users. The
-// schema name must be a safe lowercase identifier (the pg-store-02 runner
-// accepts exactly the same shape); every statement the Store runs binds the
-// pre-qualified, sanitized table reference and uses ordered SQL parameters.
+// New builds a Store for one Explorer control-plane schema of the database
+// behind client -- a schema created by the caller and migrated exclusively
+// by this package's MigrateSchema (see the package comment's schema-ownership
+// invariant). It opens no connection: the pool stays shared with other
+// control-plane users. The schema name must be a safe lowercase identifier
+// (the pg-store-02 runner accepts exactly the same shape); every statement
+// the Store runs binds the pre-qualified, sanitized table reference and uses
+// ordered SQL parameters.
 func New(client *pgstore.Client, schema string) (*Store, error) {
 	if client == nil {
 		return nil, errors.New("postgres explorer store: client is required")

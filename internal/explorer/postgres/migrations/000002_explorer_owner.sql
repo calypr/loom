@@ -20,6 +20,11 @@
 --   - The draft payload is stored lossless: jsonb keeps every member of the
 --     canonical ExplorerConfigV2 packet (key order/whitespace are
 --     normalized by the jsonb type itself, never a member or value).
+--     Caveat, true of jsonb itself: duplicate object keys collapse
+--     last-wins and out-of-range numeric literals fail at parse. Authoring
+--     packets are canonically encoded (encoding/json ordering) before they
+--     reach this column, and non-JSON input is rejected by PostgreSQL
+--     (22P02), pinned by the owner tests.
 --   - explorers_management_mode_known accepts only the ManagementMode domain
 --     ('REPOSITORY'/'INTERACTIVE'); explorers_draft_version_non_negative
 --     keeps the CAS counter in its meaningful range. Constraint violations
