@@ -415,96 +415,31 @@ func (r *Registry) GetPointer(ctx context.Context, name string) (publication.Bun
 // racing publishers converge to exactly one winner. The conflict clause
 // references the target by its unqualified name, as PostgreSQL requires, and
 // the exact name binds as bytea so NUL-bearing PointerNames survive, which
-// both text and jsonb would reject.
-func compareAndSwapPointer(ctx context.Context, e execer, qualifiedPointers, name, expected, next string, updatedAt time.Time) (bool, error) {
-	tag, err := e.Exec(ctx,
-		"INSERT INTO "+qualifiedPointers+" (pointer_key, name_bytes, execution_id, updated_at)"+
-			" VALUES ($1, $2, $3, $4)"+
-			" ON CONFLICT (pointer_key) DO UPDATE SET execution_id = $3, updated_at = $4"+
-			" WHERE "+BundlePointersTable+".execution_id = $5",
-		pointerKey(name), []byte(name), next, updatedAt, expected)
+// both text and jsonb would reject. It also returns the exact SQL text
+// executed so the publish witness in publish.go can record what actually
+// ran.
+func compareAndSwapPointer(ctx context.Context, e execer, qualifiedPointers, name, expected, next string, updatedAt time.Time) (bool, string, error) {
+	sql := "INSERT INTO " + qualifiedPointers + " (pointer_key, name_bytes, execution_id, updated_at)" +
+		" VALUES ($1, $2, $3, $4)" +
+		" ON CONFLICT (pointer_key) DO UPDATE SET execution_id = $3, updated_at = $4" +
+		" WHERE " + BundlePointersTable + ".execution_id = $5"
+	tag, err := e.Exec(ctx, sql, pointerKey(name), []byte(name), next, updatedAt, expected)
 	if err != nil {
-		return false, fmt.Errorf("publication postgres: compare-and-swap pointer: %w", err)
+		return false, sql, fmt.Errorf("publication postgres: compare-and-swap pointer: %w", err)
 	}
-	return tag.RowsAffected() == 1, nil
+	return tag.RowsAffected() == 1, sql, nil
 }
 
 // CompareAndSwapPointer is the visibility update: it succeeds only when the
 // pointer is absent or still names expected; otherwise it reports
 // ErrBundlePointerConflict with the row untouched.
 func (r *Registry) CompareAndSwapPointer(ctx context.Context, name, expected, next string) error {
-	swapped, err := compareAndSwapPointer(ctx, r.db, r.pointers, name, expected, next, time.Now().UTC())
+	swapped, _, err := compareAndSwapPointer(ctx, r.db, r.pointers, name, expected, next, time.Now().UTC())
 	if err != nil {
 		return err
 	}
 	if !swapped {
 		return publication.ErrBundlePointerConflict
-	}
-	return nil
-}
-
-// PublishExecution atomically commits the PUBLISHED execution metadata and
-// its visibility pointer in one PostgreSQL transaction under the lease
-// fence. A missing execution, an unheld or expired lease, or a failed
-// pointer compare-and-swap rolls the whole thing back and reports
-// ErrBundlePointerConflict, so no observer -- above all the reconcile
-// sweep -- ever sees a PUBLISHED execution the pointer does not yet name.
-// Lock order is stable across writers: lease, execution, pointer.
-func (r *Registry) PublishExecution(ctx context.Context, name, expected string, execution publication.BundleExecution) error {
-	params, err := executionParams(execution)
-	if err != nil {
-		return err
-	}
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("publication postgres: begin publish: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var held bool
-	if err := tx.QueryRow(ctx,
-		"SELECT true FROM "+r.leases+
-			" WHERE key = $1 AND owner_id = $2 AND expires_at >= $3 FOR UPDATE",
-		execution.Key, execution.OwnerID, time.Now().UTC()).Scan(&held); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return publication.ErrBundlePointerConflict
-		}
-		return fmt.Errorf("publication postgres: check publish lease: %w", err)
-	}
-	if !held {
-		return publication.ErrBundlePointerConflict
-	}
-
-	var exists bool
-	if err := tx.QueryRow(ctx,
-		"SELECT true FROM "+r.executions+" WHERE id = $1 FOR UPDATE", execution.ID).
-		Scan(&exists); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return publication.ErrBundlePointerConflict
-		}
-		return fmt.Errorf("publication postgres: check publish execution: %w", err)
-	}
-	if !exists {
-		return publication.ErrBundlePointerConflict
-	}
-
-	swapped, err := compareAndSwapPointer(ctx, tx, r.pointers, name, expected, execution.ID, execution.UpdatedAt)
-	if err != nil {
-		return err
-	}
-	if !swapped {
-		return publication.ErrBundlePointerConflict
-	}
-
-	set := "execution_key = $2, project = $3, dataset_generation = $4, recipe_name = $5, " +
-		"translation_version = $6, state = $7, created_at = $8, updated_at = $9, " +
-		"ready_at = $10, published_at = $11, payload = $12"
-	if _, err := tx.Exec(ctx,
-		"UPDATE "+r.executions+" SET "+set+" WHERE id = $1", params...); err != nil {
-		return fmt.Errorf("publication postgres: publish execution: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("publication postgres: commit publish: %w", err)
 	}
 	return nil
 }
