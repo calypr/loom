@@ -65,10 +65,11 @@ type FieldProfileStore interface {
 var _ FieldProfileStore = (*storepostgres.FieldProfileRepository)(nil)
 
 // Store is the PostgreSQL catalog adapter for this slice. Create one with
-// New or NewFieldProfileStore.
+// New, NewFieldProfileStore, or NewRelationshipEvidenceStore.
 type Store struct {
-	inventory InventoryStore
-	profiles  FieldProfileStore
+	inventory     InventoryStore
+	profiles      FieldProfileStore
+	relationships RelationshipStore
 }
 
 // New validates the persistence boundary. The store holds no state beyond
@@ -90,4 +91,17 @@ func NewFieldProfileStore(profiles FieldProfileStore) (*Store, error) {
 		return nil, errors.New("catalog PostgreSQL field profile store is required")
 	}
 	return &Store{profiles: profiles}, nil
+}
+
+// NewRelationshipEvidenceStore validates the relationship-evidence
+// persistence boundary and returns a Store exposing only the relationship
+// discovery methods (DiscoverRelationshipObservations,
+// ReadRelationshipObservations). The store holds no state beyond the
+// injected boundary; the caller owns the pool and schema lifecycle, and the
+// occurrence table must be created by MigrateSchema before use.
+func NewRelationshipEvidenceStore(relationships RelationshipStore) (*Store, error) {
+	if relationships == nil {
+		return nil, errors.New("catalog PostgreSQL relationship evidence store is required")
+	}
+	return &Store{relationships: relationships}, nil
 }
