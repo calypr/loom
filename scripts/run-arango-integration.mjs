@@ -22,6 +22,20 @@ const dualStore = new Set([
     // Runs as an explicit API proof in go-publication-rows, which owns both stores.
     'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse',
 ]);
+// pg-exec-02: the engine's PostgreSQL dispatch cases require the separate
+// PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. They
+// run against the real PG18 server under the ticket check-2 harness; in this
+// Arango-only lane their explicit skips stay visible in the proof summary.
+const pgExecDispatch = new Set([
+    'TestPostgresEngineExecutesCompiledCommandThroughRealAdapter',
+    'TestPostgresEnginePreviewBoundsCompletionOnRealServer',
+    'TestPostgresEnginePreviewCancellationRealServer',
+    'TestPostgresEngineTwoRealConnectionRaceDistinctBackends',
+    'TestPostgresEngineParameterizedValuesCannotChangeShape',
+    'TestPostgresEngineCrossTagRefusedBeforeServer',
+    'TestPostgresEngineBackendKillConverges',
+    'TestZZZeroLeftoverExec02PostgresFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -31,6 +45,7 @@ const external = new Set([
     'TestReceiptPreviewExplainAgainstArango',
     ...formalReplay,
     ...dualStore,
+    ...pgExecDispatch,
 ]);
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
