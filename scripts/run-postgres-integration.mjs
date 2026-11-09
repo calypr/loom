@@ -66,6 +66,33 @@ export const EXPLORER_INTEGRATION_TESTS = [
   'TestDraftCASStoresExactPreimageAndPreservesPublishedHead',
   'TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows',
 ];
+// The pg-ingest-01 resource-writer suite (the store ResourceWriter facade
+// and the ingest PostgresResourceWriter) runs as a fourth never-skipped
+// lane over both packages. Unlike the dataset and explorer lanes this one
+// carries an explicit -run filter: ./internal/store/postgres holds every
+// other PG-gated suite (pool, batch writer, edge, inventory, migrate,
+// field profile), and pulling them all into this lane would stress the
+// 180s-lane, 540s-step, and 10-minute-job budgets alongside this suite's
+// 12-round two-connection races with per-test CREATE/DROP DATABASE. The
+// filter matches exactly the TestPostgresResourceWriter* acceptance cases
+// plus both packages' TestZZ fixture-cleanup audit, so checkGoEvents'
+// zero-skip assertion makes every one of them mandatory; the anchors prove
+// the exact-column commit, ledger replay with tampered-digest mutation,
+// crash-window injection, and cleanup cores actually executed on the real
+// server.
+export const RESOURCE_WRITER_INTEGRATION_PACKAGES = ['./internal/ingest', './internal/store/postgres'];
+export const RESOURCE_WRITER_INTEGRATION_FILTER = '^(TestPostgresResourceWriter\\w*|TestZZZeroLeftover\\w*PostgresResourceWriterFixtures)$';
+export const RESOURCE_WRITER_INTEGRATION_TESTS = [
+  'TestPostgresResourceWriterWritesBoundedBatchWithExactColumnsAndLedgerMarker',
+  'TestPostgresResourceWriterIdenticalReplayIsNoOpAndTamperedDigestRefuses',
+  'TestPostgresResourceWriterCrashWindowAtEveryStepBeforeCommitLeavesNothing',
+  'TestZZZeroLeftoverPostgresResourceWriterFixtures',
+  'TestPostgresResourceWriterWritesBuiltRowsWithExactTypedColumnsAndLedger',
+  'TestPostgresResourceWriterLegacyNamespaceAndPayloadNullFidelity',
+  'TestPostgresResourceWriterReplayIdenticalBatchIsLedgerNoOp',
+  'TestPostgresResourceWriterCanonicalPayloadEncoding',
+  'TestZZZeroLeftoverIngestPostgresResourceWriterFixtures',
+];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -675,6 +702,28 @@ export async function runPostgres(output, deps = {}) {
       propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
       anchors: [...EXPLORER_INTEGRATION_TESTS],
       passes: explorerPasses,
+    };
+    budget(goTestBudgetMs + 30_000 + 90_000);
+    evidence.phases.push('resource-writer-integration');
+    // Same owned-service propagation pattern: the child sees
+    // LOOM_TEST_POSTGRES_URL only because this run passed it, so a matched
+    // case that skips is a failure here, never a pass. The explicit -run
+    // filter (kept in the recorded command) is what makes this lane
+    // never-skipped while leaving the other PG-gated store suites to their
+    // own lanes and budgets.
+    const resourceWriterArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', RESOURCE_WRITER_INTEGRATION_FILTER, ...RESOURCE_WRITER_INTEGRATION_PACKAGES];
+    const resourceWriter = await Promise.resolve(goTest(resourceWriterArgs, childEnv));
+    writeFileSync(join(directory, 'resource-writer-integration.jsonl'), scrubSecrets(resourceWriter.stdout || '', secrets));
+    writeFileSync(join(directory, 'resource-writer-integration.stderr'), scrubSecrets(resourceWriter.stderr || '', secrets));
+    assert.equal(resourceWriter.status, 0, `resource-writer real-PG suites failed: ${scrubSecrets(resourceWriter.error?.message || resourceWriter.stderr || '', secrets)}`);
+    const resourceWriterPasses = checkGoEvents(resourceWriter.stdout, RESOURCE_WRITER_INTEGRATION_TESTS).passes;
+    evidence.resourceWriterIntegration = {
+      status: 'passed',
+      packages: [...RESOURCE_WRITER_INTEGRATION_PACKAGES],
+      command: ['go', 'test', '-count=1', '-run', RESOURCE_WRITER_INTEGRATION_FILTER, ...RESOURCE_WRITER_INTEGRATION_PACKAGES],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...RESOURCE_WRITER_INTEGRATION_TESTS],
+      passes: resourceWriterPasses,
     };
     evidence.status = 'passed';
   } catch (error) {
