@@ -22,9 +22,10 @@ import { spawnSync } from 'node:child_process';
 import { verificationTimeoutMs } from './lib/verification-budget.mjs';
 
 // Aligned CI budget: the Go test timeout never exceeds the child kill, the
-// child kill never exceeds the workflow step timeout, and the step timeout
-// (840s) plus the two-minute evidence margin fits the job timeout.
-const goTestBudgetMs = Math.min(verificationTimeoutMs, 300_000);
+// child kill plus a cleanup reserve fits inside the runner's internal
+// deadline, and the workflow step (540s) stays under the enforced 10-minute
+// job budget from scripts/tests/test_ui_ci_workflow.py.
+const goTestBudgetMs = Math.min(verificationTimeoutMs, 180_000);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const composeFile = resolve(root, 'experimental', 'docker-compose.yml');
@@ -552,7 +553,9 @@ export async function runPostgres(output, deps = {}) {
     cleanup: [],
   };
   const owned = [];
-  const budget = () => assert.ok(performance.now() < deadline, 'Eight-minute fixture budget exhausted; reserve remaining CI time for cleanup');
+  // reserveMs keeps room for the child kill plus finally-cleanup probes so a
+  // hung phase can never consume the time GitHub needs for summary.json.
+  const budget = (reserveMs = 0) => assert.ok(performance.now() + reserveMs < deadline, 'Eight-minute fixture budget exhausted; reserve remaining CI time for cleanup');
   try {
     const admin = parseAdminUrl(rawUrl);
     evidence.postgres = { host: admin.host, port: admin.port, username: admin.username, maintenanceDatabase: admin.database };
@@ -586,7 +589,7 @@ export async function runPostgres(output, deps = {}) {
     assert.equal(acceptance.token, token, 'Fixture acceptance did not observe the run correlation token');
     assert.deepEqual(acceptance.checked, EXPECTED_CHECKS, 'Fixture acceptance checks drifted from the contract');
     evidence.acceptance = { status: 'passed', database, rows: acceptance.rows, checked: acceptance.checked };
-    budget();
+    budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('integration');
     // Propagation proof: the child sees LOOM_TEST_POSTGRES_URL only because
     // this run passed it; without it the required case skips, which is a

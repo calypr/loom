@@ -208,8 +208,8 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
-  assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 300),
-    'the Go test timeout must be bounded at or below the aligned 300s budget');
+  assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
+    'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
