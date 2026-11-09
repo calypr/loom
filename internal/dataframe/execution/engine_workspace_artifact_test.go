@@ -104,7 +104,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		Semantic:           semantic.ResolvedRecipePlan{SemanticPlan: semantic.RecipePlan{Bindings: bindings}},
 		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{terminal}, WorkspaceDependencies: []lower.CompiledRecipeOutput{inner, leafA, leafB}},
 	}
-	stream, _, err := engine.streamForOutput(resolved, "terminal", 3)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		t.Fatalf("nested execution leaked %d private artifact manifests", len(catalog.items))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "terminal", 3)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		t.Fatalf("nested execution leaked %d private artifact manifests after consumer cancellation", len(catalog.items))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "terminal", 3)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile Group/Pivot workspace fixture: %v", err)
 	}
-	stream, _, err := engine.streamForOutput(resolved, "joined", 2)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, "joined", 2)
 	if err != nil {
 		t.Fatalf("build Group/Pivot workspace stream: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("Group/Pivot source calls or cleanup = %d AQL calls, %d manifests, %d tables", aqlCalls, len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build Group/Pivot cancellation capture: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("terminal query cancellation leaked %d manifests and %d ClickHouse tables", len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build Group/Pivot terminal failure capture: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("terminal query failure leaked %d manifests and %d ClickHouse tables", len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build unbounded Group/Pivot capture stream: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			resolved.Compiled.Outputs = []lower.CompiledRecipeOutput{joined}
 			resolved.Compiled.WorkspaceDependencies = dependencies
 
-			stream, _, err := engine.streamForOutput(resolved, "joined", 1)
+			stream, _, err := engine.streamForOutput(context.Background(), resolved, "joined", 1)
 			if err != nil {
 				t.Fatalf("build restricted workspace Combine: %v", err)
 			}
@@ -734,7 +734,7 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		Semantic: semantic.ResolvedRecipePlan{SemanticPlan: semantic.RecipePlan{Bindings: bindings}},
 		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
 	}
-	stream, _, err := engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

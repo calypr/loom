@@ -27,6 +27,13 @@ const (
 )
 
 func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream) error {
+	if stream != nil && stream.postgreSQLCommand.Backend() == compiler.CompiledBackendPostgreSQL {
+		// The Group preview optimizer is an Arango control surface: it uses
+		// the Arango index listing, EXPLAIN result types, and AQL-shaped
+		// assessment queries. It never evaluates a PostgreSQL-served stream,
+		// even if a preview scan spec were somehow attached to it.
+		return contextError(ctx)
+	}
 	if query == nil || stream == nil || stream.stream == nil ||
 		(query.PreviewGroupScan == nil && query.PreviewGroupProjection == nil) {
 		return contextError(ctx)

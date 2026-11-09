@@ -452,7 +452,7 @@ func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName
 	if err != nil {
 		t.Fatalf("compile fixture capture output %q: %v", outputID, err)
 	}
-	stream, _, err := engine.streamForOutput(resolved, outputID, 0)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, outputID, 0)
 	if err != nil {
 		t.Fatalf("build fixture capture stream %q: %v", outputID, err)
 	}

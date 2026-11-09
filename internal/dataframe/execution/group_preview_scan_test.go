@@ -276,7 +276,7 @@ func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindin
 		t.Fatal(err)
 	}
 	resolved := compileGroupPreviewCacheTestOutput(t, engine, bindings)
-	stream, query, err := engine.streamForOutput(resolved, "group_preview", 25)
+	stream, query, err := engine.streamForOutput(context.Background(), resolved, "group_preview", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +561,7 @@ func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, query, err := engine.streamForOutput(resolved, "semantic_group_projection", 600)
+	stream, query, err := engine.streamForOutput(context.Background(), resolved, "semantic_group_projection", 600)
 	if err != nil {
 		t.Fatal(err)
 	}
