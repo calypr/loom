@@ -338,23 +338,17 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	if err != nil {
 		fail("create marker table through pool", err)
 	}
-	host, port := u.Hostname(), u.Port()
-	if port == "" {
-		port = "5432"
+	// Derive the witness from the parsed service config so credentials and
+	// TLS settings stay byte-exact, then override only the target database.
+	// Setting Database after parsing also outranks any dbname parameter, so
+	// the witness independently proves the pool targets the isolated
+	// database rather than the shared service database.
+	witnessCfg, err := pgxpool.ParseConfig(raw)
+	if err != nil {
+		fail("parse witness config", err)
 	}
-	user, pw := "", ""
-	if u.User != nil {
-		user = u.User.Username()
-		pw, _ = u.User.Password()
-	}
-	sslmode := u.Query().Get("sslmode")
-	if sslmode == "" {
-		sslmode = "prefer"
-	}
-	witnessDSN := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		host, port, user, pw, dbName, sslmode)
-	secrets = append(secrets, witnessDSN)
-	witness, err := pgxpool.New(ctx, witnessDSN)
+	witnessCfg.ConnConfig.Database = dbName
+	witness, err := pgxpool.NewWithConfig(ctx, witnessCfg)
 	if err != nil {
 		fail("connect isolated-database witness", err)
 	}
