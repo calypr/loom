@@ -1000,9 +1000,15 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 			close(seamRelease)
 		}
+		// wg.Wait() first: the rival goroutine may still read its seam
+		// field (its header check can pass on a divergent schedule),
+		// and a plain write-then-read on those fields with no
+		// happens-before edge is a data race. The next round assigns
+		// both seams in this goroutine after Wait, so per-round setup
+		// is unchanged.
+		wg.Wait()
 		s.storeA.afterMemberInsert = nil
 		s.storeB.beforeCompleteCommit = nil
-		wg.Wait()
 
 		// Exactly one of the two raced operations was refused with its
 		// exact name; the other may have succeeded. Both-succeed is
