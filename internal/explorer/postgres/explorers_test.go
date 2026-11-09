@@ -452,8 +452,13 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
 	}
-	if len(migrations) != 6 {
-		t.Fatalf("migration count = %d, want 6 (ledger bootstrap + owner table + draft revision history + receipts + revisions + explicit groups)", len(migrations))
+	// Count is self-derived from the embedded migrations directory (the
+	// #84 pattern) so future owner-dir migrations never need an edit for
+	// the count itself; the checksum registry below stays the deliberate
+	// per-file pin that a new migration must update by hand.
+	embeddedHistoryFiles, _ := pgstate02EnumerateEmbeddedMigrations(t)
+	if len(migrations) != len(embeddedHistoryFiles) {
+		t.Fatalf("migration count = %d, want %d (one per file in the embedded migrations directory)", len(migrations), len(embeddedHistoryFiles))
 	}
 	// Literal checksum pins (the pg-store-02 wantEmbeddedChecksums
 	// convention): the sha256 of each file's exact bytes. Editing any
@@ -473,6 +478,13 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{5, "explorer_compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
 		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
 		{9, "explorer_explicit_groups", "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"},
+	}
+	// The literal checksum registry above is the deliberate per-file pin
+	// (pg-store-02 convention): it must name every embedded migration file,
+	// so a new migration fails here with an actionable message instead of
+	// indexing past a stale registry.
+	if len(want) != len(migrations) {
+		t.Fatalf("checksum registry holds %d entries, want %d (one per embedded migration file): add the new migration's name and sha256 pin deliberately", len(want), len(migrations))
 	}
 	for i, m := range migrations {
 		if m.Version != want[i].version || m.Name != want[i].name {
@@ -840,8 +852,12 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	f := newOwnerFixture(t)
 
 	first := f.migrate(t)
-	if first.LatestVersion != 9 || len(first.Applied) != 6 {
-		t.Fatalf("first migrate = %+v, want latest 9 with 6 applied rows (ledger, owner, draft history, receipts, revisions, explicit groups; version 4 is the capability ticket's reserved slot)", first)
+	// Self-derived expectations (the #84 pattern): count = number of
+	// embedded migration files, latest = max version parsed from their
+	// names, so future owner-dir migrations never need an edit here.
+	embeddedFiles, embeddedMax := pgstate02EnumerateEmbeddedMigrations(t)
+	if first.LatestVersion != embeddedMax || len(first.Applied) != len(embeddedFiles) {
+		t.Fatalf("first migrate = %+v, want latest %d with %d applied rows (one per embedded migration file; version 4 is the capability ticket's reserved slot)", first, embeddedMax, len(embeddedFiles))
 	}
 
 	store := f.newStore(t)
@@ -982,8 +998,28 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger after refused run", err)
 	}
-	if len(ledgerVersions) != 6 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 || ledgerVersions[2] != 3 || ledgerVersions[3] != 5 || ledgerVersions[4] != 6 || ledgerVersions[5] != 9 {
-		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 3 5 6 9] (this package's full history; version 4 is the capability ticket's reserved slot; refused before applying)", ledgerVersions)
+	// Self-derived ledger expectation (the #84 pattern): the version list
+	// is enumerated from this package's embedded migrations directory, so
+	// future owner-dir migrations (000007, 000008, ...) never need an edit
+	// here; the refused run must leave the ledger equal to the whole
+	// embedded history (version 4 is the capability ticket's reserved slot
+	// in the capability fixture's own file, absent from this dir).
+	embeddedFiles, _ := pgstate02EnumerateEmbeddedMigrations(t)
+	wantLedgerVersions := make([]int64, 0, len(ledgerVersions))
+	for _, file := range embeddedFiles {
+		fileVersion, err := pgstate02MigrationFileVersion(file)
+		if err != nil {
+			f.fail("parse embedded migration file name", err)
+		}
+		wantLedgerVersions = append(wantLedgerVersions, fileVersion)
+	}
+	if len(ledgerVersions) != len(wantLedgerVersions) {
+		t.Fatalf("ledger versions after refused source-store run = %v, want the embedded history %v (refused before applying)", ledgerVersions, wantLedgerVersions)
+	}
+	for i, want := range wantLedgerVersions {
+		if ledgerVersions[i] != want {
+			t.Fatalf("ledger versions after refused source-store run = %v, want %v (refused before applying)", ledgerVersions, wantLedgerVersions)
+		}
 	}
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_ownership", "exp_keep")

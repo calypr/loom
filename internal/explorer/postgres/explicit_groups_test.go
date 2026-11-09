@@ -1780,16 +1780,28 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 		f.fail("owner migrations", err)
 	}
 
-	// The full shared Explorer ledger this ticket composes into: 1, 2, 3,
-	// 5, 6 (owner dir), plus this ticket's explicit-groups migration at
-	// its coordinator-assigned version.
-	wantVersions := []int64{1, 2, 3, 5, 6, pgstate06MigrationVersion}
-	if len(owner) != len(wantVersions) {
-		t.Fatalf("embedded history has %d migrations, want %d (versions %v)", len(owner), len(wantVersions), wantVersions)
+	// Lineage-wide expectations are SELF-DERIVED from the embedded
+	// migrations directory (coordinator ruling; the #84 self-derive
+	// regime): count = number of migration files, latest = max version
+	// parsed from their names, and the loader must agree with the
+	// directory file-for-file. Hard-coding the ledger here would break
+	// every future owner-dir migration (000007, 000008, ...), which is
+	// exactly the open-ended-directory defect the dedicated test-robustness
+	// wave fixes elsewhere. Only this ticket's own slot -- version 9, its
+	// name, and its byte-frozen checksum -- stays a literal pin below:
+	// author duty over one's own artifact, never a lineage-wide literal.
+	embeddedFiles, embeddedMax := pgstate02EnumerateEmbeddedMigrations(t)
+	if len(owner) != len(embeddedFiles) {
+		t.Fatalf("embedded history has %d migrations, want %d (loader and the migrations directory disagree)", len(owner), len(embeddedFiles))
 	}
-	for i, want := range wantVersions {
-		if owner[i].Version != want {
-			t.Fatalf("embedded migration[%d].Version = %d, want %d", i, owner[i].Version, want)
+	for i, file := range embeddedFiles {
+		fileVersion, err := pgstate02MigrationFileVersion(file)
+		if err != nil {
+			f.fail("parse embedded migration file name", err)
+		}
+		if owner[i].Version != fileVersion {
+			t.Fatalf("loader/directory disagreement: migrations/%s carries version %d, loader reports %d at index %d",
+				file, fileVersion, owner[i].Version, i)
 		}
 	}
 
@@ -1821,8 +1833,8 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 		return out
 	}
 	ledger := readLedger()
-	if len(ledger) != len(wantVersions) {
-		t.Fatalf("ledger holds %d rows, want %d", len(ledger), len(wantVersions))
+	if len(ledger) != len(embeddedFiles) {
+		t.Fatalf("ledger holds %d rows, want %d (one per embedded migration file)", len(ledger), len(embeddedFiles))
 	}
 	for i, migration := range owner {
 		recomputed := sha256.Sum256([]byte(migration.SQL))
@@ -1864,8 +1876,9 @@ func TestPostgresExplicitGroupDefinitionsMigrationLedgerConvergence(t *testing.T
 	if len(first.Applied) != len(second.Applied) || first.LatestVersion != second.LatestVersion {
 		t.Fatalf("rerun result = %+v, first = %+v, want the identical convergence", second, first)
 	}
-	if second.LatestVersion != pgstate06MigrationVersion {
-		t.Fatalf("latest ledger version = %d, want %d", second.LatestVersion, pgstate06MigrationVersion)
+	if second.LatestVersion != embeddedMax {
+		t.Fatalf("latest ledger version = %d, want %d (the maximum version parsed from the embedded migrations directory)",
+			second.LatestVersion, embeddedMax)
 	}
 	if got := readLedger(); len(got) != len(ledger) {
 		t.Fatalf("ledger after rerun holds %d rows, want %d", len(got), len(ledger))
