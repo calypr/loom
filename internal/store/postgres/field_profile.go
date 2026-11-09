@@ -3,7 +3,7 @@
 //
 // FieldProfileRepository is the persistence half of the field-profile slice
 // built by internal/catalog/postgres. It stores the two tables created by
-// migration 000006_field_profile:
+// migration 000007_field_profile:
 //
 //   - fhir_field_profile: one row per field-profile identity
 //     (project, dataset_generation, auth_resource_path, resource_type,
@@ -50,7 +50,7 @@ import (
 
 const (
 	// fieldProfileTableName and fieldProfileCoverageTableName are the tables
-	// created by migration 000006_field_profile.sql.
+	// created by migration 000007_field_profile.sql.
 	fieldProfileTableName         = "fhir_field_profile"
 	fieldProfileCoverageTableName = "fhir_field_profile_coverage"
 	// MaxFieldProfileWriteBatch bounds one upsert chunk's row count so a
