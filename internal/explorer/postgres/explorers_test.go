@@ -467,8 +467,8 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	}{
 		{1, "ledger", "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086"},
 		{2, "explorer_owner", "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056"},
-		{3, "compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
-		{4, "explorer_revision", "ee9775ad8e8a16696a3613c7cd8f0655bb717b40ea5bf3fbf5f340040a21f526"},
+		{5, "explorer_compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
+		{6, "explorer_revision", "ee9775ad8e8a16696a3613c7cd8f0655bb717b40ea5bf3fbf5f340040a21f526"},
 	}
 	for i, m := range migrations {
 		if m.Version != want[i].version || m.Name != want[i].name {
@@ -826,8 +826,8 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	f := newOwnerFixture(t)
 
 	first := f.migrate(t)
-	if first.LatestVersion != 4 || len(first.Applied) != 4 {
-		t.Fatalf("first migrate = %+v, want latest 4 with 4 applied rows (ledger, owner, receipts, revisions)", first)
+	if first.LatestVersion != 6 || len(first.Applied) != 4 {
+		t.Fatalf("first migrate = %+v, want latest 6 with 4 applied rows (ledger, owner, receipts, revisions; versions 3-4 belong to sibling tickets)", first)
 	}
 
 	store := f.newStore(t)
@@ -967,8 +967,8 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger after refused run", err)
 	}
-	if len(ledgerVersions) != 4 || ledgerVersions[0] != 1 || ledgerVersions[3] != 4 {
-		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 3 4] (this package's full history; refused before applying)", ledgerVersions)
+	if len(ledgerVersions) != 4 || ledgerVersions[0] != 1 || ledgerVersions[3] != 6 {
+		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 5 6] (this package's full history; versions 3-4 are sibling-ticket slots; refused before applying)", ledgerVersions)
 	}
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_ownership", "exp_keep")

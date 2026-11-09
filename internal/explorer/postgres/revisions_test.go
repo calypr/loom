@@ -974,7 +974,7 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 
 	// Restore the guard from the migration's own text: identical writes are
 	// refused again.
-	f.rerunMigration(t, 4)
+	f.rerunMigration(t, 6)
 	if _, err := f.iso.Exec(f.ctx,
 		"UPDATE "+f.revisionTable()+" SET recipe_digest = 'sha256:refrozen' WHERE id = $1", revision.ID); err == nil {
 		t.Fatal("frozen mutation accepted after the guard was restored from the migration text")
@@ -1151,8 +1151,8 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	f := newPGState02Fixture(t)
 	first := f.migrate(t)
-	if len(first.Applied) != 4 || first.LatestVersion != 4 {
-		t.Fatalf("first migration result = %+v, want 4 ledger rows ending at version 4", first)
+	if len(first.Applied) != 4 || first.LatestVersion != 6 {
+		t.Fatalf("first migration result = %+v, want 4 ledger rows ending at version 6", first)
 	}
 
 	writer := f.newStore(t)
@@ -1170,8 +1170,8 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 
 	second := f.migrate(t)
-	if len(second.Applied) != 4 || second.LatestVersion != 4 {
-		t.Fatalf("rerun result = %+v, want the identical 4-row ledger (all recorded, nothing re-run)", second)
+	if len(second.Applied) != 4 || second.LatestVersion != 6 {
+		t.Fatalf("rerun result = %+v, want the identical 4-row ledger ending at version 6 (all recorded, nothing re-run)", second)
 	}
 
 	rows, err := f.iso.Query(f.ctx, `SELECT version, name, checksum FROM `+

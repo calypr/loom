@@ -10,7 +10,7 @@ package postgres
 // (same content digest) replays idempotently, and same ID + different
 // frozen content is the typed explorer.ErrImmutableRevision refusal. The
 // DB enforces the boundary independently of Go: migration
-// 000004_explorer_revision.sql freezes every frozen column and admits only
+// 000006_explorer_revision.sql freezes every frozen column and admits only
 // the monotone lifecycle transitions READY->ACTIVE, READY->FAILED,
 // ACTIVE->SUPERSEDED and ACTIVE->FAILED, each in one statement, so a double
 // transition (FAILED->FAILED), a resurrection (FAILED->READY), or an
@@ -46,7 +46,7 @@ import (
 )
 
 // RevisionsTable is the Explorer revision table created by migration
-// 000004_explorer_revision.sql inside the store's schema.
+// 000006_explorer_revision.sql inside the store's schema.
 const RevisionsTable = "explorer_revisions"
 
 const revisionInsertMaxAttempts = 4

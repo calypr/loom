@@ -797,7 +797,7 @@ func TestPostgresReceiptFrozenGuardProvenNonVacuous(t *testing.T) {
 	}
 
 	// Restore the guard from the migration's own text and re-prove refusal.
-	f.rerunMigration(t, 3)
+	f.rerunMigration(t, 5)
 	f.rawInsertReceipt(t, receipt)
 	if _, err := f.iso.Exec(f.ctx,
 		"UPDATE "+f.receiptTable()+" SET intent_digest = 'sha256:refrozen' WHERE "+where); err == nil {
@@ -849,7 +849,7 @@ func TestPostgresReceiptCorruptRowDetectedOnRead(t *testing.T) {
 	}
 	// ...and the guard is restored so the read, not a weakened schema, is
 	// what decides.
-	f.rerunMigration(t, 3)
+	f.rerunMigration(t, 5)
 
 	if _, err := writer.GetCompilationReceiptForExplorer(f.ctx, receiptProject, receiptExplorer, receipt.ID); !errors.Is(err, explorer.ErrCorruptReceipt) {
 		t.Fatalf("read of tampered receipt error = %v, want ErrCorruptReceipt", err)

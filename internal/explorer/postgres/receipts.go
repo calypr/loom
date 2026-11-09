@@ -34,7 +34,7 @@ import (
 )
 
 // ReceiptsTable is the compilation receipt table created by migration
-// 000003_compilation_receipt.sql inside the store's schema.
+// 000005_explorer_compilation_receipt.sql inside the store's schema.
 const ReceiptsTable = "compilation_receipts"
 
 const (
