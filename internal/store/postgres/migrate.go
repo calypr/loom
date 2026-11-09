@@ -110,6 +110,12 @@ var (
 	// ErrMigrationApply reports a migration whose transaction failed; the
 	// migration's DDL was rolled back and the ledger untouched.
 	ErrMigrationApply = errors.New("postgres: migration apply failed")
+	// ErrMigrationLockAcquire reports failure to take the migration
+	// advisory lock, e.g. the caller context expiring while a competing
+	// migration holds the lock. The underlying cause stays inspectable
+	// (context.DeadlineExceeded, context.Canceled, or a cancelled-query
+	// *pgconn.PgError).
+	ErrMigrationLockAcquire = errors.New("postgres: migration lock acquisition failed")
 	// ErrLedgerRecord reports a migration that committed but whose ledger
 	// row could not be written. This is an operator-visible split-brain
 	// window; see the package comment.
@@ -343,6 +349,11 @@ type MigrationRunner struct {
 	schema     string
 	ledgerFQN  string
 	migrations []Migration
+	// panicHook, when non-nil, is invoked at the top of the locked
+	// section. It is a test seam (set directly by in-package tests) for
+	// exercising the panic-safety of the advisory-lock release path;
+	// production construction always leaves it nil.
+	panicHook func()
 }
 
 // NewMigrationRunner validates the inputs and normalizes the history. It
@@ -417,7 +428,7 @@ func (r *MigrationRunner) Migrate(ctx context.Context) (result MigrateResult, er
 		// with the unlock path: a connection of unknown lock state is
 		// discarded, never pooled.
 		discardPoolConn(conn)
-		return MigrateResult{}, fmt.Errorf("postgres: take migration lock for schema %q: %w", r.schema, lockErr)
+		return MigrateResult{}, fmt.Errorf("%w for schema %q: %w", ErrMigrationLockAcquire, r.schema, lockErr)
 	}
 
 	// From here the session holds the lock. Every exit path, panic included,
@@ -458,6 +469,9 @@ func discardPoolConn(conn *pgxpool.Conn) {
 
 // migrateLocked runs under the held advisory lock on conn.
 func (r *MigrationRunner) migrateLocked(ctx context.Context, conn *pgxpool.Conn) (MigrateResult, error) {
+	if r.panicHook != nil {
+		r.panicHook()
+	}
 	var schemaExists bool
 	if err := conn.QueryRow(ctx, "SELECT to_regnamespace($1) IS NOT NULL", r.schema).Scan(&schemaExists); err != nil {
 		return MigrateResult{}, fmt.Errorf("postgres: check schema %q: %w", r.schema, err)

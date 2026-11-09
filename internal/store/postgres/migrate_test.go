@@ -335,6 +335,11 @@ func (s *migrationService) readLedger(t *testing.T) []LedgerRecord {
 	rows, err := s.iso.Query(s.ctx,
 		`SELECT version, name, checksum, applied_at FROM "`+s.schema+`".`+LedgerTable+` ORDER BY version`)
 	if err != nil {
+		// A missing ledger table is an empty history, matching the runner.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42P01" {
+			return nil
+		}
 		s.fail("witness ledger", err)
 	}
 	defer rows.Close()
@@ -700,6 +705,136 @@ func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 	if again.LatestVersion != 2 {
 		t.Fatalf("follow-up LatestVersion = %d, want 2", again.LatestVersion)
 	}
+}
+
+// TestMigrationPanicUnderLockReleasesLockAndLeaksNothing pins the
+// panic-safety requirement: a panic inside the locked section must still
+// release the session-level advisory lock and return (or discard) the
+// connection, so a recovered panic upstream cannot permanently wedge every
+// future Migrate on the schema or leak a pool connection. The panic itself
+// must still propagate to the caller.
+func TestMigrationPanicUnderLockReleasesLockAndLeaksNothing(t *testing.T) {
+	svc := newMigrationService(t)
+	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+		"000002_item.sql": "CREATE TABLE panicked_on (id int);\n",
+	})
+	injected := errors.New("injected panic under the migration lock")
+
+	client := svc.openClient(t)
+	runner := svc.newRunner(t, client, set)
+	runner.panicHook = func() { panic(injected) }
+
+	panicked := func() (recovered any) {
+		defer func() { recovered = recover() }()
+		_, _ = runner.Migrate(svc.ctx)
+		return nil
+	}()
+	if recovered, ok := panicked.(error); !ok || !errors.Is(recovered, injected) {
+		t.Fatalf("panic under the lock was not propagated: %v", panicked)
+	}
+	// Nothing was applied: the panic landed before any ledger work.
+	if rows := svc.readLedger(t); len(rows) != 0 {
+		t.Errorf("ledger has %d rows after the injected panic, want 0", len(rows))
+	}
+	// The connection was returned or discarded, never orphaned in the
+	// acquired state.
+	if acquired := client.pool.Stat().AcquiredConns(); acquired != 0 {
+		t.Errorf("pool still holds %d acquired connections after the panic", acquired)
+	}
+	// The lock is free: a fresh connection can run the whole history now.
+	recovered := svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), set))
+	if recovered.LatestVersion != 2 {
+		t.Fatalf("post-panic LatestVersion = %d, want 2", recovered.LatestVersion)
+	}
+	assertLedgerEquals(t, svc.readLedger(t), set)
+}
+
+// waitAdvisoryLock blocks until an advisory lock on the isolated database
+// appears (granted=wait) or disappears (granted=return) in pg_locks, so the
+// contended-acquisition test starts its loser exactly while the holder is
+// inside the locked section.
+func waitAdvisoryLock(t *testing.T, svc *migrationService, present bool) {
+	t.Helper()
+	query := `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted
+		AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		var held int64
+		if err := svc.iso.QueryRow(svc.ctx, query).Scan(&held); err != nil {
+			svc.fail("probe advisory locks", err)
+		}
+		if (held > 0) == present {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("advisory lock presence did not reach %v within 15s (last count %d)", present, held)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestMigrationContendedAcquireDeadlineIsNamed drives the two-connection
+// contended-acquisition path: a holder migrates a sleep-bearing migration
+// while a second, separate connection attempts Migrate with a short context
+// deadline. The loser must fail with the named acquisition error (chained to
+// its deadline/cancellation cause), the racing connection must be closed
+// rather than pooled with an unknown lock state, and after the holder
+// finishes a fresh caller must acquire the lock immediately -- no residue
+// from the aborted attempt.
+func TestMigrationContendedAcquireDeadlineIsNamed(t *testing.T) {
+	svc := newMigrationService(t)
+	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+		"000002_slow.sql": "SELECT pg_catalog.pg_sleep(3);\nCREATE TABLE slow_one (id int);\n",
+	})
+
+	holderClient := svc.openClient(t)
+	holderRunner := svc.newRunner(t, holderClient, set)
+	holderDone := make(chan error, 1)
+	go func() {
+		_, err := holderRunner.Migrate(svc.ctx)
+		holderDone <- err
+	}()
+	waitAdvisoryLock(t, svc, true)
+
+	loserClient := svc.openClient(t)
+	loserRunner := svc.newRunner(t, loserClient, set)
+	shortCtx, cancelShort := context.WithTimeout(svc.ctx, 300*time.Millisecond)
+	defer cancelShort()
+	_, err := loserRunner.Migrate(shortCtx)
+	if !errors.Is(err, ErrMigrationLockAcquire) {
+		t.Fatalf("contended Migrate = %v, want ErrMigrationLockAcquire", err)
+	}
+	var pgErr *pgconn.PgError
+	if !errors.Is(err, context.DeadlineExceeded) &&
+		!(errors.As(err, &pgErr) && pgErr.Code == "57014") {
+		t.Fatalf("acquisition error does not chain a deadline or cancellation cause: %v", err)
+	}
+	// The racing connection was discarded, not pooled with unknown lock
+	// state: the loser's pool holds nothing acquired.
+	if acquired := loserClient.pool.Stat().AcquiredConns(); acquired != 0 {
+		t.Errorf("loser pool still holds %d acquired connections; racing connection was not discarded", acquired)
+	}
+
+	// The holder completes normally on its own connection.
+	if holderErr := <-holderDone; holderErr != nil {
+		svc.fail("holder Migrate", holderErr)
+	}
+
+	// No lock residue: a brand-new caller acquires immediately and sees the
+	// applied history.
+	started := time.Now()
+	fresh := svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), set))
+	if waited := time.Since(started); waited > 2*time.Second {
+		t.Errorf("fresh Migrate waited %v after the holder finished; the aborted attempt left lock residue", waited)
+	}
+	if fresh.LatestVersion != 2 {
+		t.Fatalf("fresh LatestVersion = %d, want 2", fresh.LatestVersion)
+	}
+	// The loser's pool recovered and can still migrate on this schema.
+	if _, err := loserRunner.Migrate(svc.ctx); err != nil {
+		svc.fail("loser client retry after deadline", err)
+	}
+	assertLedgerEquals(t, svc.readLedger(t), set)
 }
 
 func TestMigrationSchemaMustExist(t *testing.T) {
