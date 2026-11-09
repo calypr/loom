@@ -79,6 +79,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/execution/chartifact/postgres": "Persist private ClickHouse artifact manifests and cleanup leases in the PostgreSQL 18 control plane with CAS progress writes, bounded expired scans, and one-winner cleanup claims while physical tables stay in ClickHouse.",
     "internal/dataframe/lineage": "Define stable identities and provenance for columns expanded from one authored source slot.",
     "internal/dataframe/expression": "Define and validate the typed backend-neutral expression AST used by recipes.",
+    "internal/dataframe/postgres": "Stream typed rows from tagged compiled PostgreSQL commands over pgx connections, preserving bound-value integrity and three-state typed decoding, enforcing output column contracts, and classifying cancellation, visitor stops, contract violations, and driver failures with identifiable wrapped causes.",
     "internal/dataframe/publication": "Own backend-neutral dataframe publication contracts, bundles, and publication orchestration.",
     "internal/dataframe/publication/arango": "Persist dataframe publication registry and bundle metadata in ArangoDB.",
     "internal/dataframe/publication/clickhouse": "Materialize and inspect published dataframe bundles in ClickHouse.",
