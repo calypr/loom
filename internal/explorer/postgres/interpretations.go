@@ -46,13 +46,14 @@ const (
 	InterpretationRevisionsTable = "interpretation_revisions"
 )
 
-// Immutable-state identifiers pinned by the fixture and asserted by the
-// suite. The revision table rejects UPDATE and DELETE outright; the library
-// table admits only the head advance (identity columns stable, head changed)
-// and never a DELETE.
+// Guard and constraint identifiers pinned by the fixture. The revision
+// table rejects UPDATE and DELETE outright; the library table admits only
+// the head advance (identity columns stable, head changed) and never a
+// DELETE. Production references only interpretationRevisionParentFKConstraint
+// and interpretationForeignKey below; the guard triggers, their functions,
+// and the remaining constraint names are exercised by the suite's
+// guard-drop and negative-constraint probes.
 const (
-	interpretationImmutableSQLState = "45501"
-
 	interpretationRevisionImmutableTrigger = "interpretation_revisions_immutable"
 	interpretationLibraryHeadGuardTrigger  = "interpretation_libraries_head_guard"
 	interpretationRevisionGuardFunction    = "loom_interpretation_revision_immutable"
@@ -62,18 +63,15 @@ const (
 	interpretationRevisionParentFKConstraint = "interpretation_revisions_parent_same_library_fk"
 	interpretationLibraryPKConstraint        = "interpretation_libraries_identity_pk"
 	interpretationLibraryHeadFKConstraint    = "interpretation_libraries_head_same_library_fk"
-)
 
-// duplicateKeySQLState, undefinedTableSQLState and the 23503/23505 states
-// for these tables: revision identity is the (project, id) primary key, so
-// a 23505 against interpretation_revisions_identity_pk from a raw write
-// means content identity was reused. The adapter never surfaces a raw
-// duplicate: ON CONFLICT DO NOTHING plus a classified re-read turns the
-// same-content race into the idempotent path and the different-content race
-// into explorer.ErrImmutableInterpretation.
-const (
-	interpretationUniqueViolation = "23505"
-	interpretationForeignKey      = "23503"
+	// interpretationForeignKey is the 23503 class surfaced by the revision
+	// insert when its composite parent foreign key fails. The adapter
+	// never surfaces a raw duplicate key: ON CONFLICT DO NOTHING plus a
+	// classified re-read turns the same-content race into the idempotent
+	// path and the different-content race into
+	// explorer.ErrImmutableInterpretation, so no unique-violation state is
+	// named in production code.
+	interpretationForeignKey = "23503"
 )
 
 // interpretationRevisionColumns is the single source of truth for the
