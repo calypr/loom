@@ -40,6 +40,19 @@ export const NAMESPACE_PREFIX = 'pgfixture_';
 export const REQUIRED_INTEGRATION_TEST = 'TestPostgres18PoolIntegration';
 // Positive and negative checks the fixture probe must execute literally.
 export const EXPECTED_CHECKS = ['pg18', 'literal-rows', 'aggregate', 'unique-negative', 'numeric-negative'];
+// The dataset PG suite (pg-store-03 manifests/active-generation CAS, and the
+// release store once merged) runs as a second never-skipped lane. The whole
+// package runs with no -run filter, so checkGoEvents' zero-skip assertion
+// covers every PG-gated case it holds, present and future; the anchors below
+// additionally prove the core real-PG behaviors executed. The suite owns its
+// isolated *_it_* databases and audits them itself; this phase administers
+// no databases and reuses the run's owned-service propagation only.
+export const DATASET_INTEGRATION_PACKAGE = './internal/dataset/postgres';
+export const DATASET_INTEGRATION_TESTS = [
+  'TestManifestLifecyclePersistsLiteralRows',
+  'TestActivateCompareAndSwapAgainstPointerValue',
+  'TestConcurrentActivationsSameExpectedYieldOneWinner',
+];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -608,6 +621,27 @@ export async function runPostgres(output, deps = {}) {
       command: ['go', 'test', '-count=1', '-run', `^${REQUIRED_INTEGRATION_TEST}$`, './internal/store/postgres'],
       propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
       passes,
+    };
+    budget(goTestBudgetMs + 30_000 + 90_000);
+    evidence.phases.push('dataset-integration');
+    // Same owned-service propagation pattern as pg-store-01: the child sees
+    // LOOM_TEST_POSTGRES_URL only because this run passed it, so a package
+    // whose cases skip is a failure here, never a pass. Whole-package
+    // execution (no -run filter) makes every PG-gated case in the dataset
+    // package mandatory, and the anchors prove the CAS/literal-row core ran.
+    const datasetArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, DATASET_INTEGRATION_PACKAGE];
+    const dataset = await Promise.resolve(goTest(datasetArgs, childEnv));
+    writeFileSync(join(directory, 'dataset-integration.jsonl'), scrubSecrets(dataset.stdout || '', secrets));
+    writeFileSync(join(directory, 'dataset-integration.stderr'), scrubSecrets(dataset.stderr || '', secrets));
+    assert.equal(dataset.status, 0, `${DATASET_INTEGRATION_PACKAGE} real-PG suite failed: ${scrubSecrets(dataset.error?.message || dataset.stderr || '', secrets)}`);
+    const datasetPasses = checkGoEvents(dataset.stdout, DATASET_INTEGRATION_TESTS).passes;
+    evidence.datasetIntegration = {
+      status: 'passed',
+      package: DATASET_INTEGRATION_PACKAGE,
+      command: ['go', 'test', '-count=1', DATASET_INTEGRATION_PACKAGE],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...DATASET_INTEGRATION_TESTS],
+      passes: datasetPasses,
     };
     evidence.status = 'passed';
   } catch (error) {
