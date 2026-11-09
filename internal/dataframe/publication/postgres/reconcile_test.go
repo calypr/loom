@@ -29,11 +29,16 @@ package postgres
 //	   backend.
 //	E. Crash injection at each durability seam with post-abort convergence:
 //	   a failure inside the claim transaction leaves ZERO retention state
-//	   (including the anchor) with the bundle lease still held; a failure
-//	   between the drop phase and the terminal write leaves the claim
-//	   active, the execution pre-sweep, and the drops already applied, from
-//	   which a re-sweep converges -- same sweeper immediately, foreign
-//	   sweeper once the abandoned claim expires.
+//	   (including the anchor) and releases the just-taken bundle lease
+//	   (baseline parity); a failure between the drop phase and the terminal
+//	   write leaves the claim active, the execution pre-sweep, and the drops
+//	   already applied. In the PRODUCTION shape every sweep mints a fresh
+//	   identity, so the next sweep -- even of the same instance -- is
+//	   foreign to both the abandoned lease and claim: it is skipped-leased
+//	   with the record untouched, and converges only after BOTH TTLs lapse
+//	   (arm A2). The immediate refresh (arm A) is the fixed-identity TEST
+//	   SEAM (fixIdentity), not a production recovery path: production
+//	   recovery is expiry-driven.
 //	F. Heartbeat loss stops the deletion: losing the cleanup claim mid-drop
 //	   (owner-conditional renewal refused) cancels the drop context, the
 //	   lost tables stay listed in remaining outputs, and the final error

@@ -550,7 +550,9 @@ func (rc *Reconciler) claimCleanup(ctx context.Context, execution publication.Bu
 	}
 
 	// 5. Foreign-claim guard: an unexpired claim owned by someone else
-	// refuses; the same sweeper identity refreshes its own claim.
+	// refuses. Only a sweep carrying the identical identity refreshes it --
+	// in production that never happens across calls (fresh identity per
+	// SweepStale), so a refresh means the fixIdentity test seam.
 	readClaimSQL := "SELECT owner_id, expires_at FROM " + rc.pins.cleanup + " WHERE execution_id = $1"
 	record(readClaimSQL)
 	var (
