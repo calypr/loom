@@ -1405,6 +1405,15 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "publish-visibility zero-leftover audit failed: %v\n", err)
 		code = 1
 	}
+	// The read-pins/reconcile suite (read_pins_test.go, reconcile_test.go)
+	// owns the verify_rpr_it_* resources; auditing here keeps its required
+	// ownership-scoped zero-leftover checks (creation-tracked names plus a
+	// zero row count under the registered verify_rpr_* prefix) alive under
+	// filtered -run invocations of the ticket's checks.
+	if err := auditReadPinsLeftovers(); err != nil {
+		fmt.Fprintf(os.Stderr, "read-pins zero-leftover audit failed: %v\n", err)
+		code = 1
+	}
 	os.Exit(code)
 }
 
