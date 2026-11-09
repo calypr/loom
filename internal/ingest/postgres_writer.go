@@ -64,12 +64,24 @@
 //
 // Guarantees for the edge surface (proven in postgres_writer_test.go
 // against real PostgreSQL 18):
-//   - Endpoint identity is taken verbatim from the edge document's _from,
-//     _to, label, from_type, and to_type columns (parsed with
+//   - Endpoint identity is taken from the edge document's _from, _to,
+//     label, from_type, and to_type columns (parsed with
 //     SplitCollectionID); the document must be internally consistent and
 //     one endpoint must be the owning row's own resource collection — an
 //     edge whose source endpoint resolves to another resource is persisted
 //     with that resource as source (back-reference direction included).
+//     The one documented deviation: the generic builder's EdgeFromGrip
+//     stamps every back-reference _from/from_type with the OWNING row's
+//     type, so a back-reference whose matched payload reference carries a
+//     different concrete type and whose declared type is exactly the row's
+//     own type has its stored source type recovered from the payload
+//     position — mirroring the raw logical-id recovery the same contract
+//     already applies — instead of persisting a mislabeled typed source
+//     that the store's source precondition would refuse batch-wide (or, on
+//     an id collision, silently commit). A declared type that contradicts
+//     the matched position and is not the row's own type is refused
+//     (rowErrorEdge), as is a forward document whose declared target type
+//     contradicts the matched position.
 //     The source precondition (the source must exist in the same
 //     project/dataset_generation) and target resolution stay the store's
 //     typed facts; a missing target persists as an unresolved typed
@@ -652,6 +664,20 @@ type pgEdgeDocument struct {
 // reference position in the vertex payload that produced it. Edge-free
 // built rows convert to no occurrences (their vertex still must be
 // in-scope).
+//
+// Endpoint identities come from the edge documents, with one payload-wins
+// exception: a back-reference whose declared source type equals the row's
+// own type while the matched payload reference names another concrete type
+// (the generic builder's EdgeFromGrip signature — it builds every back-
+// reference _from with the row's type) stores the payload's type, because
+// the stored typed identity must agree with the resource the source
+// precondition and every scoped read look it up by. The batch-wide
+// consequence of NOT recovering is that every generic cross-type
+// back-reference batch would be refused by the store's source precondition
+// — or, when a same-type resource shares the peer id, silently commit a
+// mislabeled typed source — so recovery, not faithful mislabeling, is what
+// keeps generic ingestion committable. Any other declared/type
+// contradiction is a typed refusal.
 func convertBuiltEdgeOccurrences(
 	built rowBuildResult,
 	scope PGEdgeBatchScope,
@@ -785,7 +811,7 @@ func convertBuiltEdgeOccurrences(
 				return generationDocumentKey(project, generation, peerType, SanitizeKey(logicalID))
 			}
 		}
-		candidates := selectReferencePositions(positions, peerType, peerKey, identity.label, qualify)
+		candidates := selectReferencePositions(positions, peerType, peerKey, identity.label, qualify, identity.directionBackref)
 		if len(candidates) == 0 {
 			column := fmt.Sprintf("edge _to (first of group %s)", identity.key)
 			if !ownIsSource {
@@ -802,6 +828,7 @@ func convertBuiltEdgeOccurrences(
 				identity.toType, identity.toID, len(candidates))
 		}
 		ordinals := make(map[string]int64, len(candidates))
+		rowType := SanitizeKey(resourceType)
 		for i := range members {
 			position := candidates[i]
 			ordinal := ordinals[position.path]
@@ -810,9 +837,40 @@ func convertBuiltEdgeOccurrences(
 			if ownIsSource {
 				sourceID = logicalID
 				targetID = position.logicalID
+				// The generic and generated builders both derive the
+				// forward endpoint from the reference value itself, so a
+				// typed position that contradicts the declared target type
+				// is a defective document: the occurrence would persist a
+				// typed identity the payload's own reference denies.
+				if position.refType != "" && position.refType != identity.toType {
+					return refuse(rowErrorEdge, fmt.Sprintf("edge _to (first of group %s)", identity.key),
+						"the forward edge document declares target type %q, but the matched payload reference %s/%s at %q carries type %q",
+						identity.toType, position.refType, position.logicalID, position.path, position.refType)
+				}
 			} else {
 				sourceID = position.logicalID
 				targetID = logicalID
+				// The generic builder's EdgeFromGrip builds every
+				// back-reference _from with the OWNING row's type (see
+				// documents.go), so a cross-type generic back-reference
+				// declares source (rowType, peerID) while the payload's
+				// reference — the FHIR truth the store's typed-identity
+				// contract follows — says (peerType, peerID). The stored
+				// logical id is already recovered from this position; the
+				// source type is recovered the same way. Without this the
+				// mislabeled source (1) fails the store's source
+				// precondition for every cross-type generic back-reference
+				// batch, or (2) silently commits a mislabeled typed source
+				// whenever a same-type resource shares the peer id.
+				if position.refType != "" && position.refType != identity.fromType {
+					if identity.fromType == rowType {
+						sourceType = position.refType
+					} else {
+						return refuse(rowErrorEdge, fmt.Sprintf("edge _from (first of group %s)", identity.key),
+							"the back-reference edge document declares source type %q, but the matched payload reference %s/%s at %q carries type %q and the declared type is not the row's own type %q",
+							identity.fromType, position.refType, position.logicalID, position.path, position.refType, rowType)
+					}
+				}
 			}
 			out = append(out, postgresstore.EdgeOccurrenceRow{
 				Project:            scope.Project,
@@ -1173,6 +1231,7 @@ func selectReferencePositions(
 	positions []pgReferencePosition,
 	peerType, peerKey, label string,
 	qualify func(logicalID string) string,
+	backref bool,
 ) []pgReferencePosition {
 	var idMatches []pgReferencePosition
 	for _, position := range positions {
@@ -1191,6 +1250,25 @@ func selectReferencePositions(
 			}
 		}
 		return kept, len(kept) > 0
+	}
+	// A back-reference document's declared peer type is unreliable in the
+	// generic path (EdgeFromGrip stamps the owning row's type), so the
+	// label — generated from the schema relation name, which names the
+	// source field — leads the narrowing; otherwise a same-key position
+	// under a different field whose type happens to equal the mis-declared
+	// row type would outrank the position that actually built the
+	// document. Forward documents declare their peer type from the
+	// reference value itself, so the type tier leads there.
+	if backref {
+		if kept, ok := pick(func(p pgReferencePosition) bool { return labelNamesPathToken(label, p.path) }); ok {
+			idMatches = kept
+		}
+		if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == peerType }); ok {
+			idMatches = kept
+		} else if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == "" }); ok {
+			idMatches = kept
+		}
+		return idMatches
 	}
 	if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == peerType }); ok {
 		idMatches = kept

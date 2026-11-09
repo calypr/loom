@@ -1382,6 +1382,12 @@ const (
 	ing02GeneratedDupFocusLine = `{"resourceType":"Observation","id":"obs-generated","status":"final","code":{"text":"dup focus"},"focus":[{"reference":"Observation/focus-1"},{"reference":"Observation/focus-1"}],"subject":{"reference":"Patient/patient-1"}}`
 	ing02FocusTargetLine       = `{"resourceType":"Observation","id":"focus-1","status":"final","code":{"text":"target"}}`
 	ing02PatientLine           = `{"resourceType":"Patient","id":"patient-1","gender":"male"}`
+
+	// Cross-type generic fixture: EdgeFromGrip stamps the subject
+	// back-reference _from/from_type with the OWNING row's type
+	// (Observation), never Patient — the converter must recover the
+	// source type from the matched payload reference.
+	ing02GenericCrossTypeLine = `{"resourceType":"Observation","id":"obs-cross","status":"final","code":{"text":"cross"},"focus":[{"reference":"Observation/focus-1"}],"subject":{"reference":"Patient/patient-1"}}`
 )
 
 var ing02IngestNamePattern = regexp.MustCompile(`^verify_ing02_ing_[0-9]+_[0-9a-f]+$`)
@@ -2472,6 +2478,32 @@ func TestPostgresEdgeWriterRefusalMatrix(t *testing.T) {
 			wantReason: "only 1 matching reference positions",
 		},
 		{
+			name: "back-reference source type contradicts payload and is not the row type",
+			rows: func() []rowBuildResult {
+				built := legacy()
+				i := edgeIndexOf(t, built, "subject_observation")
+				return []rowBuildResult{editEdgeDocument(t, built, i, func(m map[string]json.RawMessage) {
+					m["_from"] = json.RawMessage(`"Practitioner/patient-1"`)
+					m["from_type"] = json.RawMessage(`"Practitioner"`)
+				})}
+			}(),
+			scope:        ing02LegacyScope("ing02-ing/matrix/backref-contradiction"),
+			controlRows:  []rowBuildResult{legacy()},
+			wantCategory: rowErrorEdge, wantColumn: "matches-no-position-contradiction",
+			wantReason: "declares source type",
+		},
+		{
+			name: "forward target type contradicts payload",
+			rows: []rowBuildResult{editEdgeDocument(t, legacy(), 0, func(m map[string]json.RawMessage) {
+				m["_to"] = json.RawMessage(`"Patient/focus-1"`)
+				m["to_type"] = json.RawMessage(`"Patient"`)
+			})},
+			scope:        ing02LegacyScope("ing02-ing/matrix/fwd-contradiction"),
+			controlRows:  []rowBuildResult{legacy()},
+			wantCategory: rowErrorEdge, wantColumn: "matches-no-position-contradiction",
+			wantReason: "declares target type",
+		},
+		{
 			name:        "edge capacity exceeded",
 			rows:        []rowBuildResult{bigHandBuiltRow(t, postgresstore.MaxBatchEdges+1)},
 			scope:       ing02LegacyScope("ing02-ing/matrix/edge-capacity"),
@@ -3005,6 +3037,156 @@ func TestPostgresEdgeWriterOrdinalAssignmentIsReproducibleAcrossSerializations(t
 	if fpA != fpB || fpA == "EMPTY" {
 		t.Fatalf("stored rows drifted across serializations: %s vs %s", fpA, fpB)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Generic cross-type back-references: payload-wins source-type recovery.
+// ---------------------------------------------------------------------------
+
+// Builder-derived logical edge keys for the cross-type generic fixture
+// (uuid v5 over the endpoint triple, pinned from the real generic builder).
+const (
+	ing02KeyCrossFocusFwd   = "35af41b5-d5e6-5541-a691-9612d0c6c0ed"
+	ing02KeyCrossFocusBack  = "5190907f-9a27-58cd-b917-c0931230e5cb"
+	ing02KeyCrossSubjectFwd = "df75cc57-662e-5be7-a651-2a4ebe5b7973"
+	ing02KeyCrossSubjectBk  = "838c4a72-1e7c-5f70-a781-321ef7656b5d"
+)
+
+// TestPostgresEdgeWriterGenericCrossTypeBackReferenceStoresPayloadSource
+// witnesses the real generic builder's cross-type shape: EdgeFromGrip
+// stamps the subject back-reference _from and from_type with the row's own
+// type (asserted directly on the built document), which uncorrected would
+// persist source (Observation, patient-1) — refused batch-wide by the
+// store's source precondition because Patient/patient-1 is the only stored
+// peer, or silently mislabeled on an id collision. The converter recovers
+// the source type from the matched payload reference, and the occurrence
+// commits with the FHIR-truth typed identity.
+func TestPostgresEdgeWriterGenericCrossTypeBackReferenceStoresPayloadSource(t *testing.T) {
+	s := newIngest02IngestService(t)
+	s.migrate(t)
+	crossRow := buildGenericRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", ing02GenericCrossTypeLine)
+
+	// The quirk is present in the real builder's document: the
+	// subject_observation back-reference claims the row's own collection.
+	mislabelWitnessed := false
+	for _, raw := range crossRow.edges {
+		document, err := decodeTopLevelDocument(raw)
+		if err != nil {
+			s.fail("decode cross edge", err)
+		}
+		var label, from, fromType string
+		if err := json.Unmarshal(document["label"], &label); err != nil {
+			s.fail("cross edge label", err)
+		}
+		if label != "subject_observation" {
+			continue
+		}
+		if err := json.Unmarshal(document["_from"], &from); err != nil {
+			s.fail("cross edge _from", err)
+		}
+		if err := json.Unmarshal(document["from_type"], &fromType); err != nil {
+			s.fail("cross edge from_type", err)
+		}
+		if fromType != "Observation" || !strings.HasPrefix(from, "Observation/") {
+			t.Fatalf("fixture drifted: generic back-reference declares %q %q, want the EdgeFromGrip row-type stamp", from, fromType)
+		}
+		mislabelWitnessed = true
+	}
+	if !mislabelWitnessed {
+		t.Fatal("generic builder emitted no subject_observation back-reference")
+	}
+
+	rows := []rowBuildResult{
+		crossRow,
+		buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Patient", ing02PatientLine),
+		buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", ing02FocusTargetLine),
+	}
+	if _, err := s.newResourceWriter(t).WriteResourceBatch(s.ctx, PGResourceBatchScope{
+		BatchID: "ing02-ing/cross-res", Project: ing02IngestProject,
+		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
+	}, rows); err != nil {
+		s.fail("cross resources", err)
+	}
+	res, err := s.newEdgeWriter(t).WriteEdgeBatch(s.ctx, PGEdgeBatchScope{
+		BatchID: "ing02-ing/cross-edges", Project: ing02IngestProject,
+		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
+	}, rows[:1])
+	if err != nil {
+		s.fail("cross edges", err)
+	}
+	if res.Committed != 4 || res.Replay {
+		t.Fatalf("cross result = %+v, want 4 committed", res)
+	}
+	k := func(v string) *string { return &v }
+	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "focus_Observation",
+		"Observation", "obs-cross", "Observation", "focus-1", "focus", 0, k(ing02KeyCrossFocusFwd))
+	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "focus_observation",
+		"Observation", "focus-1", "Observation", "obs-cross", "focus", 0, k(ing02KeyCrossFocusBack))
+	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_Patient",
+		"Observation", "obs-cross", "Patient", "patient-1", "subject", 0, k(ing02KeyCrossSubjectFwd))
+	// The recovered occurrence: typed source Patient/patient-1, not the
+	// document's mislabeled (Observation, patient-1).
+	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_observation",
+		"Patient", "patient-1", "Observation", "obs-cross", "subject", 0, k(ing02KeyCrossSubjectBk))
+	if n := s.countEdges(t, ing02IngestProject, ing02IngestGen); n != 4 {
+		t.Fatalf("cross edge rows = %d, want 4", n)
+	}
+}
+
+// TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy
+// pins the candidate-narrowing half: with the same peer key under two
+// fields — a decoy Observation/patient-1 under focus and the true
+// Patient/patient-1 under subject — the mis-declared row type must not let
+// the decoy outrank the position that built the document; the label token
+// does. The stored occurrence names the subject path and the Patient type.
+func TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy(t *testing.T) {
+	payload := `{"resourceType":"Observation","id":"ref-e","status":"final",` +
+		`"focus":[{"reference":"Observation/patient-1"}],` +
+		`"subject":{"reference":"Patient/patient-1"}}`
+	built := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-e", "", payload, nil)
+	back := handBuiltEdgeDocument("Observation/patient-1", "Observation/ref-e",
+		"subject_observation", "Observation", "Observation", ing02IngestProject, "", "")
+	row := replaceEdges(t, built, back)
+
+	recorder := &ing02Recorder{}
+	writer := &PostgresEdgeWriter{committer: recorder}
+	if _, err := writer.WriteEdgeBatch(context.Background(),
+		ing02LegacyScope("ing02-ing/decoy/capture"), []rowBuildResult{row}); err != nil {
+		t.Fatalf("conversion: %v", err)
+	}
+	got := recorder.lastBatch(t).Rows
+	if len(got) != 1 {
+		t.Fatalf("converted %d rows, want 1", len(got))
+	}
+	r := got[0]
+	if r.SourceResourceType != "Patient" || r.SourceLogicalID != "patient-1" ||
+		r.TargetResourceType != "Observation" || r.TargetLogicalID != "ref-e" ||
+		r.SourcePath != "subject" || r.SourceOrdinal != 0 {
+		t.Fatalf("decoy position won selection: %+v, want Patient/patient-1 at subject#0", r)
+	}
+
+	// Live half: the recovered source (Patient/patient-1) exists in scope,
+	// so the batch commits; the mislabeled source would not.
+	s := newIngest02IngestService(t)
+	s.migrate(t)
+	ownVertex := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-e", "", payload, nil)
+	patientVertex := handBuiltVertex(ing02IngestProject, "", "Patient", "patient-1", "",
+		`{"resourceType":"Patient","id":"patient-1","gender":"male"}`, nil)
+	if _, err := s.newResourceWriter(t).WriteResourceBatch(s.ctx, PGResourceBatchScope{
+		BatchID: "ing02-ing/decoy-res", Project: ing02IngestProject,
+	}, []rowBuildResult{ownVertex, patientVertex}); err != nil {
+		s.fail("decoy resources", err)
+	}
+	res, err := s.newEdgeWriter(t).WriteEdgeBatch(s.ctx, ing02LegacyScope("ing02-ing/decoy-edges"), []rowBuildResult{row})
+	if err != nil {
+		s.fail("decoy edges", err)
+	}
+	if res.Committed != 1 || res.Replay {
+		t.Fatalf("decoy result = %+v, want 1 committed", res)
+	}
+	key := SanitizeKey("Observation/patient-1") + "_" + SanitizeKey("Observation/ref-e") + "_subject_observation"
+	s.requireEdgeRow(t, ing02IngestProject, "", "", "subject_observation",
+		"Patient", "patient-1", "Observation", "ref-e", "subject", 0, &key)
 }
 
 // ---------------------------------------------------------------------------
