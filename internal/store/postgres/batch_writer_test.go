@@ -1410,16 +1410,20 @@ func TestBatchWriterConcurrentClaimOfSameBatchCommitsOnceAndReplaysTwoConnection
 	claimHeld := make(chan struct{})
 	release := make(chan struct{})
 	var t1PID int64
+	var t1ProbeErr error
 	var t1PIDMu sync.Mutex
 	writer1 := s.newWriterOn(t, s.openAppClient(t, "pgstore06-t1", 1))
+	// The probe runs on the WriteBatch goroutine, so it must never call
+	// t.Fatalf there: a Goexit on that goroutine would strand the r1
+	// receive below into a package timeout. The probe records its outcome
+	// and the main goroutine fails after the channel handoff, like the
+	// golden test's probeErrs and the overlap test's stalled flag.
 	writer1.inTxProbe = func(step, batchID string, tx pgx.Tx) {
 		if step != stepClaimLedger {
 			return
 		}
 		t1PIDMu.Lock()
-		if err := tx.QueryRow(s.ctx, "SELECT pg_backend_pid()").Scan(&t1PID); err != nil {
-			s.fail("witness t1 backend", err)
-		}
+		t1ProbeErr = tx.QueryRow(s.ctx, "SELECT pg_backend_pid()").Scan(&t1PID)
 		t1PIDMu.Unlock()
 		close(claimHeld)
 		<-release
@@ -1436,7 +1440,13 @@ func TestBatchWriterConcurrentClaimOfSameBatchCommitsOnceAndReplaysTwoConnection
 		r1 <- outcome{res, err}
 	}()
 
-	<-claimHeld // T1 owns the claim, uncommitted
+	// T1 owns the claim, uncommitted; if it died before the probe, fail
+	// with its outcome instead of blocking forever.
+	select {
+	case <-claimHeld:
+	case o := <-r1:
+		s.fail("T1 never reached the claim probe", o.err)
+	}
 	r2 := make(chan outcome, 1)
 	go func() {
 		res, err := writer2.WriteBatch(s.ctx, goldenBatch())
@@ -1447,16 +1457,20 @@ func TestBatchWriterConcurrentClaimOfSameBatchCommitsOnceAndReplaysTwoConnection
 	// session-local illusion is impossible because these are separate
 	// pools (verified below via pg_stat_activity pid vs T1's tx pid).
 	t2PID := s.waitBackendWaiting(t, "pgstore06-t2")
-	t1PIDMu.Lock()
-	heldT1 := t1PID
-	t1PIDMu.Unlock()
-	if heldT1 == 0 || heldT1 == t2PID {
-		t.Fatalf("backends t1=%d t2=%d, want two distinct real PG connections", heldT1, t2PID)
-	}
-
 	close(release)
 	o1 := <-r1
 	o2 := <-r2
+	// Both writer goroutines have handed off; every failure now lands on
+	// the main test goroutine.
+	t1PIDMu.Lock()
+	heldT1, probeErr := t1PID, t1ProbeErr
+	t1PIDMu.Unlock()
+	if probeErr != nil {
+		s.fail("witness t1 backend", probeErr)
+	}
+	if heldT1 == 0 || heldT1 == t2PID {
+		t.Fatalf("backends t1=%d t2=%d, want two distinct real PG connections", heldT1, t2PID)
+	}
 	if o1.err != nil {
 		s.fail("T1 WriteBatch", o1.err)
 	}
@@ -1512,7 +1526,14 @@ func TestBatchWriterAbandonedClaimDoesNotBurnIdentityTwoConnections(t *testing.T
 		res, err := writer1.WriteBatch(s.ctx, goldenBatch())
 		r1 <- outcome{res, err}
 	}()
-	<-claimHeld
+	// If T1 died before the probe, fail with its outcome instead of
+	// blocking forever; the probe itself records nothing that could Goexit
+	// this goroutine.
+	select {
+	case <-claimHeld:
+	case o := <-r1:
+		s.fail("T1 never reached the claim probe", o.err)
+	}
 	r2 := make(chan outcome, 1)
 	go func() {
 		res, err := writer2.WriteBatch(s.ctx, goldenBatch())
