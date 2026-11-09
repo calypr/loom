@@ -7,10 +7,12 @@ package postgres
 // three-valued logic maps a document path onto the two evidence values a
 // null/missing-sensitive operation needs: a typed jsonb VALUE expression and
 // a two-valued path-presence PROOF expression. Loom distinguishes three
-// source states that naive SQL collapses, and this mapping must never
-// collapse them (storage keeps them distinct too: migration
-// 000002_fhir_resource.sql documents payload as nullable so an absent
-// resource object — SQL NULL — stays distinct from a stored JSON null):
+// source states that naive SQL collapses, and this mapping never collapses
+// them beyond the declared per-behavior coercions in the table below, whose
+// agreement rules state exactly which stored states remain observable apart
+// (storage keeps them distinct too: migration 000002_fhir_resource.sql
+// documents payload as nullable so an absent resource object — SQL NULL —
+// stays distinct from a stored JSON null):
 //
 //   - ABSENT: no document, or some parent along the path is missing, not an
 //     object, or lacks the next key. PostgreSQL: `#>` yields SQL NULL and the
@@ -47,8 +49,14 @@ package postgres
 // OMIT_NULLS reads value IS SQL NULL exactly when presence is false or the
 // stored value was the JSON null scalar; EMPTY_ON_NULL reads the JSON empty
 // string exactly when presence is false, the stored value was the JSON null
-// scalar, or the stored value was the empty string — the presence bit is
-// what still distinguishes those three, so no behavior may drop it.
+// scalar, or the stored value was the empty string. Under EMPTY_ON_NULL the
+// presence bit separates ABSENT (false) from the two present-but-nullish
+// states (true), but it does not separate those two from each other: a
+// stored JSON null and a stored empty string collapse to the same
+// value-and-presence pair, as the table above shows. Only PRESERVE_NULL and
+// OMIT_NULLS observe those two states apart. The presence bit is therefore
+// load-bearing wherever a behavior maps more than one stored state onto the
+// same value, and no behavior may drop it.
 //
 // The presence predicate keeps AQL parity with the HAS chain the AQL
 // renderer proves (render/aql/table_reshape.go renderPropertyPathPresence:

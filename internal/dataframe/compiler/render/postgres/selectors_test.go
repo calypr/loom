@@ -594,7 +594,10 @@ func pgsq03GenderPlan(t *testing.T, behavior ir.PhysicalNullBehavior, paths []st
 // missing, JSON null, empty array, [null], empty string, false, numeric
 // zero — plus the SQL-NULL payload state, rendered under preserve, omit,
 // and empty-on-null, comparing literal rows and proving the presence
-// metadata agrees with each projection result.
+// metadata agrees with each projection result. Under EMPTY_ON_NULL the
+// JSON-null and empty-string rows share one observable value-and-presence
+// pair — the collapse that behavior declares — so the matrix pins that
+// identity rather than claiming to distinguish the two.
 func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	states := []struct {
@@ -633,6 +636,10 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 		// Cells are the driver's decoded rendering through stringifyCell:
 		// JSON null and SQL NULL both read as <null> — the presence bit
 		// is what distinguishes them — and string scalars arrive unquoted.
+		// Under EMPTY_ON_NULL the m-null and m-emptystring cells are
+		// deliberately the same observable pair (the empty value with
+		// presence true), the collapse null_semantics.go declares; the
+		// presence bit still separates them from the absent states.
 		ir.PhysicalPreserveNull: {
 			"m-absent":      {"<null>", "false"},
 			"m-null":        {"<null>", "true"},
@@ -858,6 +865,7 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 		{"k-absent", `{"gender": "female"}`},
 		{"k-nested", `{"null": {"x": 7}}`},
 		{"k-nestedarray", `{"null": ["x"]}`},
+		{"k-upper", `{"NULL": "upper-value"}`},
 	} {
 		svc.insertResource(t, "Patient", state.logicalID, json.RawMessage(state.payload))
 		svc.expectStored(t, state.logicalID, state.payload)
@@ -919,6 +927,29 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 		t.Fatalf("the same nested statement with a naive unquoted prefix must read nothing, got %v", got)
 	}
 
+	// Case: the array parser matches the null keyword case-insensitively,
+	// so an upper-case NULL-named key is just as ambiguous — it must
+	// extract correctly, and the naive encoding must redden the same probe
+	// (unquoted NULL is the same SQL NULL path element).
+	upper, err := RenderPhysicalPlan(filterPlan([]string{"NULL"}, "upper_value", "upper-value"), binding)
+	if err != nil {
+		t.Fatalf("upper null-key filter render: %v", err)
+	}
+	if text, ok := upper.Args[4].Value.(string); !ok || text != `{"NULL"}` {
+		t.Fatalf("upper null-key path arg = %#v, want {\"NULL\"}", upper.Args[4])
+	}
+	if got := svc.runRendered(t, upper); !reflect.DeepEqual(got, [][]string{{"k-upper"}}) {
+		t.Fatalf("upper null-key filter rows = %v, want [k-upper]", got)
+	}
+	if got := runWithNaivePath(t, upper, 4); len(got) != 0 {
+		t.Fatalf("the same upper-case statement with the naive unquoted NULL element must read nothing, got %v", got)
+	}
+	storedUpper := svc.witness(t, `SELECT payload #> '{"NULL"}'::text[] FROM "`+svc.schema+`".fhir_resource
+		WHERE project=$1 AND dataset_generation=$2 AND logical_id='k-upper'`, pgsq03Project, pgsq03Gen)
+	if len(storedUpper) != 1 || storedUpper[0][0] != "upper-value" {
+		t.Fatalf("the stored upper-case null-named key must read its value, got %v", storedUpper)
+	}
+
 	// The presence expression, rendered by the exact emitter the selector
 	// renderers call and executed verbatim on this server: presence through
 	// the null-named parent is true only for k-nested — and with the naive
@@ -943,7 +974,7 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 	got := svc.witness(t, presenceSQL, r.args[0].Value, r.args[1].Value, pgsq03Project, pgsq03Gen)
 	want := [][]string{
 		{"k-value", "false"}, {"k-jsonnull", "false"}, {"k-absent", "false"},
-		{"k-nested", "true"}, {"k-nestedarray", "false"},
+		{"k-nested", "true"}, {"k-nestedarray", "false"}, {"k-upper", "false"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("null-key presence rows = %v, want %v", got, want)
