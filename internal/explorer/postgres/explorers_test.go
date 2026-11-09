@@ -452,11 +452,11 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
 	}
-	if len(migrations) != 2 {
-		t.Fatalf("migration count = %d, want 2 (ledger bootstrap + owner table)", len(migrations))
+	if len(migrations) != 3 {
+		t.Fatalf("migration count = %d, want 3 (ledger bootstrap + owner table + draft revision history)", len(migrations))
 	}
-	wantVersions := []int64{1, 2}
-	wantNames := []string{"ledger", "explorer_owner"}
+	wantVersions := []int64{1, 2, 3}
+	wantNames := []string{"ledger", "explorer_owner", "explorer_draft_revision"}
 	for i, m := range migrations {
 		if m.Version != wantVersions[i] || m.Name != wantNames[i] {
 			t.Fatalf("migration %d = %d/%s, want %d/%s",
@@ -797,16 +797,17 @@ func TestPostgresExplorerOwnerNullSemantics(t *testing.T) {
 
 // TestPostgresExplorerOwnerMigrateRerunPreservesState proves bootstrap can
 // rerun without truncating existing owner state: the first MigrateSchema
-// applies ledger + owner table, an owner is inserted, a second and third
-// MigrateSchema are no-ops that record nothing new, return the identical
-// history, and leave the owner fully readable through a fresh pool. A run
-// against a nil client or a nonexistent schema fails with named errors.
+// applies ledger + owner table + draft revision history, an owner is
+// inserted, a second and third MigrateSchema are no-ops that record nothing
+// new, return the identical history, and leave the owner fully readable
+// through a fresh pool. A run against a nil client or a nonexistent schema
+// fails with named errors.
 func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	f := newOwnerFixture(t)
 
 	first := f.migrate(t)
-	if first.LatestVersion != 2 || len(first.Applied) != 2 {
-		t.Fatalf("first migrate = %+v, want latest 2 with 2 applied rows", first)
+	if first.LatestVersion != 3 || len(first.Applied) != 3 {
+		t.Fatalf("first migrate = %+v, want latest 3 with 3 applied rows", first)
 	}
 
 	store := f.newStore(t)
@@ -902,7 +903,8 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 // first, then pgstore.MigrateSchema on the same schema: the runner refuses
 // with pgstore.ErrMigrationChecksumMismatch (version 1 bodies differ by
 // design) and persists nothing -- the ledger keeps exactly this package's
-// two rows and the owner row survives untouched. (b) The source-store
+// rows (1 ledger, 2 owner, 3 draft revision) and the owner row survives
+// untouched. (b) The source-store
 // history first, then this package's: the same named refusal fires and the
 // explorers table is never created. Failing closed before applying any
 // statement is the contract; a mixed schema never converges silently.
@@ -946,8 +948,8 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger after refused run", err)
 	}
-	if len(ledgerVersions) != 2 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 {
-		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2] (refused before applying)", ledgerVersions)
+	if len(ledgerVersions) != 3 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 || ledgerVersions[2] != 3 {
+		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 3] (refused before applying)", ledgerVersions)
 	}
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_ownership", "exp_keep")

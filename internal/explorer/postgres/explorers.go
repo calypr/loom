@@ -10,10 +10,11 @@
 // failure is returned for the caller to surface, and no Arango path is wired
 // in here.
 //
-// This slice implements the owner record only. The remaining explorer.Store
-// methods (draft CAS, receipts, revisions, selections, ...) arrive with the
-// state tickets that depend on this foundation, adding their own migrations
-// under migrations/ and methods beside these.
+// This slice implements the owner record and the draft CAS with exact
+// preimage history (drafts.go). The remaining explorer.Store methods
+// (receipts, revisions, selections, ...) arrive with the state tickets that
+// depend on this foundation, adding their own migrations under migrations/
+// and methods beside these.
 //
 // Schema ownership (pinned by TestPostgresExplorerOwnerMixedHistoryIsRefused):
 // every MigrationRunner keys its ledger -- and therefore its authoritative
@@ -133,6 +134,12 @@ type Store struct {
 	insert string // backend-tagged INSERT ... ON CONFLICT DO NOTHING RETURNING
 	get    string // backend-tagged SELECT ... WHERE project = $1 AND explorer_id = $2
 	list   string // backend-tagged SELECT ... WHERE project = $1 ORDER BY explorer_id
+	// drafts holds the draft CAS/preimage statement set (drafts.go),
+	// built once for the same schema the owner statements target.
+	drafts draftSQL
+	// afterHistoryInsert is the test-only fault/interleaving seam of
+	// SaveDraft (see drafts.go). Production never assigns it.
+	afterHistoryInsert func(context.Context, pgx.Tx) error
 }
 
 // New builds a Store for one Explorer control-plane schema of the database
@@ -154,6 +161,7 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	cols := strings.Join(ownerColumns, ", ")
 	return &Store{
 		client: client,
+		drafts: newDraftSQL(schema),
 		insert: "INSERT INTO " + table + " (" + cols + ") VALUES (" + ownerPlaceholders() + ") " +
 			"ON CONFLICT (project, explorer_id) DO NOTHING RETURNING " + cols,
 		get:  "SELECT " + cols + " FROM " + table + " WHERE project = $1 AND explorer_id = $2",

@@ -45,6 +45,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -893,10 +894,11 @@ func TestCapabilitySchemaCompositionColumnContractAndGuards(t *testing.T) {
 	want := []string{"capability_snapshots", "explorers", "schema_migrations", "table_shape_capabilities"}
 	for _, m := range s.owner {
 		if m.Version == 3 && m.Name == "explorer_draft_revision" {
-			want = append([]string{"explorers_draft_revisions"}, want...)
+			want = append(want, "explorers_draft_revisions")
 			break
 		}
 	}
+	sort.Strings(want)
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema tables = %#v, want exactly %#v", tables, want)
 	}
