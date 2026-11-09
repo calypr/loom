@@ -27,8 +27,11 @@
 -- Fidelity rules pinned by internal/catalog/postgres tests:
 --   - Every public field of catalog.FieldCatalogDocument round-trips
 --     unchanged, including false booleans and zero counts.
---   - Optional text columns are NOT NULL DEFAULT '' because Go strings have
---     no missing/empty distinction; the Go zero value round-trips exactly.
+--   - Optional text columns are NOT NULL with no DEFAULT: Go strings have
+--     no missing/empty distinction, the repository always supplies all 26
+--     column values, so the Go zero value round-trips exactly, and a direct
+--     SQL writer that omits a column gets a NOT NULL violation rather than
+--     a silent empty string.
 --   - enrichment_complete is a nullable boolean: SQL NULL is the missing
 --     *bool (nil), true/false are the explicit states. It is never coerced.
 --   - distinct_values, pivot_columns, and pivot_value_selectors are text[]:
