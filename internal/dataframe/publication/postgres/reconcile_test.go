@@ -1290,6 +1290,77 @@ func TestReconcileTerminalReleaseSurvivesSlowDrop(t *testing.T) {
 // with a shared identity the first finish would strip the lease and claim
 // from the second, whose heartbeat renewal and fenced terminal write then
 // fail and abort that whole sweep.
+// TestReconcileVetoCleanupReleaseBounded witnesses the veto-path cleanup
+// release (releaseClaimAndLease) the way the terminal path is witnessed:
+// the pre-claim budget must be spent, the release must run PAST that
+// budget, and the run must still end with the claim and lease rows empty
+// rather than a blocked sweep or a stranded claim (baseline parity:
+// executionCleanupLease.release bounds this path with
+// bundleCleanupTimeout at bundle_store.go:310). The release stalls inside
+// the readPinGate seam, after the owner-conditional DELETE and before its
+// COMMIT: had the release been bound to cleanupCtx, that commit would land
+// past the deadline and the claim would survive, failing this test.
+func TestReconcileVetoCleanupReleaseBounded(t *testing.T) {
+	s := newRPRService(t)
+	ctx := s.ctx
+	defer setReconcileGates(nil, nil)
+	defer setReadPinGate(nil)
+
+	const id = "exec-veto-bound"
+	execution := rprExecution(id, "proj-a", "recipe-vetobound", publication.BundleRunning, 1)
+	s.seedStaleExecution(t, execution)
+	releases := newRPRReleases()
+	releases.bind("proj-a", id)
+
+	rc := s.newReconciler(t, releases)
+	rc.callTimeout = 900 * time.Millisecond
+	// Consume most of the pre-claim budget inside the claim transaction,
+	// so the post-claim veto fires with only a sliver of cleanupCtx left.
+	setReconcileGates(func(attempt reconcileClaimAttempt) error {
+		if attempt.ExecutionID == id && attempt.Outcome == reconcileClaimGranted {
+			time.Sleep(650 * time.Millisecond)
+		}
+		return nil
+	}, nil)
+	// The active-release re-read vets the granted claim (skipped-bound);
+	// its cleanup release then stalls 500ms past the pre-claim budget.
+	setReadPinGate(func(attempt readPinAttempt) error {
+		if attempt.Op == "release-cleanup" && attempt.ExecutionID == id {
+			time.Sleep(500 * time.Millisecond)
+		}
+		return nil
+	})
+
+	started := time.Now()
+	drops := newRPRDrops()
+	var decisions []ReconcileDecision
+	rc.OnDecision = func(d ReconcileDecision) { decisions = append(decisions, d) }
+	if err := rc.SweepStale(ctx, time.Now().UTC(), drops.hook); err != nil {
+		t.Fatalf("veto sweep with a delayed claim release: %v", err)
+	}
+	if got := time.Since(started); got > 8*time.Second {
+		t.Fatalf("veto sweep blocked %v, want bounded", got)
+	}
+	sawBound := false
+	for _, d := range decisions {
+		if d.ExecutionID == id && d.Outcome == ReconcileSkippedBound {
+			sawBound = true
+		}
+	}
+	if !sawBound {
+		t.Fatalf("active-release veto expected on the post-claim gate: %v", decisions)
+	}
+	if got := drops.snapshot(); len(got) != 0 {
+		t.Fatalf("veto ran physical drops: %v", got)
+	}
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("veto path stranded the cleanup claim (release died past the pre-claim budget): %q", claim)
+	}
+	if s.leaseRow(t, "key-"+id) != "" {
+		t.Fatal("veto path stranded the bundle lease")
+	}
+}
+
 func TestReconcileSweepsAreMutuallyExclusive(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx

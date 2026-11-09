@@ -365,8 +365,17 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 	}
 
 	releaseClaimAndLease := func() error {
+		// Baseline parity with executionCleanupLease.release
+		// (bundle_store.go:310): detached from cancellation AND bounded.
+		// Without the bound a stalled database -- the release touches rows
+		// under the retention anchor a pin acquire or foreign claim holds
+		// FOR UPDATE -- wedges the janitor forever, and because errors.Join
+		// evaluates eagerly the unbounded call would stop the bounded
+		// releaseLease from ever running.
+		claimReleaseCtx, cancelClaimRelease := context.WithTimeout(context.WithoutCancel(ctx), rc.callTimeout)
+		defer cancelClaimRelease()
 		return errors.Join(
-			rc.pins.ReleaseExecutionCleanup(context.WithoutCancel(ctx), execution.ID, sweepID),
+			rc.pins.ReleaseExecutionCleanup(claimReleaseCtx, execution.ID, sweepID),
 			releaseLease(),
 		)
 	}
