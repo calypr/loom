@@ -151,7 +151,7 @@ func TestSemanticGroupProjectionFactorizationMatchesExactArangoOutputs(t *testin
 		errorQuery := compileSemanticGroupProjectionPolicy(t, ctx, result.engine, bindings,
 			semanticGroupProjectionOutput(t, recipe.ConstructionGroupMissingKeyError,
 				bindingID, familyID, ruleVersion, targetSystem, targetVersion, codingPath), 600)
-		if err := client.QueryRowsWithMaxRuntime(ctx, errorQuery.Query, 2000, errorQuery.BindVars, 8*time.Second, func(map[string]any) error { return nil }); err == nil {
+		if err := client.QueryRowsWithMaxRuntime(ctx, testAQLText(t, errorQuery.Command), 2000, testAQLBinds(t, errorQuery.Command), 8*time.Second, func(map[string]any) error { return nil }); err == nil {
 			t.Fatal("ERROR semantic Group accepted in-scope empty and nonmatching Coding arrays")
 		}
 	})
@@ -308,7 +308,7 @@ func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *t
 		t.Fatalf("compile simple-path semantic Group preview: %v", err)
 	}
 	if query.PreviewGroupProjection == nil {
-		t.Fatalf("simple repeated Coding path did not qualify for projection factoring:\n%s", query.Query)
+		t.Fatalf("simple repeated Coding path did not qualify for projection factoring:\n%s", testAQLText(t, query.Command))
 	}
 	rootVariable := ""
 	for _, operation := range query.PhysicalPlan.Operations {
@@ -323,18 +323,18 @@ func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *t
 	arrayPath := fmt.Sprintf("%s.payload[%q][%q]", rootVariable, "code", "coding")
 	wantArray := fmt.Sprintf("(IS_ARRAY(%s) ? %s : [])", arrayPath, arrayPath)
 	assertSimpleSemanticGroupProjectionArray(t, "assessment", func() string {
-		text, _, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, "", true)
+		assessmentCommand, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, "", true)
 		if err != nil {
 			t.Fatalf("render simple-path assessment: %v", err)
 		}
-		return text
+		return testAQLText(t, assessmentCommand)
 	}(), wantArray)
 	assertSimpleSemanticGroupProjectionArray(t, "factored query", func() string {
-		text, _, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, "", true)
+		factorCommand, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, "", true)
 		if err != nil {
 			t.Fatalf("render simple-path factored query: %v", err)
 		}
-		return text
+		return testAQLText(t, factorCommand)
 	}(), wantArray)
 }
 
@@ -385,19 +385,19 @@ func compileRunAndCaptureSemanticGroupProjectionPreview(
 	engine, resolved, ordinaryQuery, callbacks := prepareSemanticGroupProjectionPreview(t, ctx, client, bindings, output, limit)
 	ordinaryRows := querySemanticGroupProjectionRows(t, ctx, client, ordinaryQuery, 2000)
 
-	factoredText, factoredBindVars, err := compiler.RenderPreviewGroupProjectionFactorization(ordinaryQuery.PhysicalPlan, "", false)
+	factoredCommand, err := compiler.RenderPreviewGroupProjectionFactorization(ordinaryQuery.PhysicalPlan, "", false)
 	if err != nil {
 		t.Fatalf("render exact factored semantic Group projection query: %v", err)
 	}
 	factoredRows := querySemanticGroupProjectionRows(t, ctx, client,
-		compiler.CompiledQuery{Query: factoredText, BindVars: factoredBindVars}, 2000)
+		compiler.CompiledQuery{Command: factoredCommand}, 2000)
 
-	assessmentText, assessmentBindVars, err := compiler.RenderPreviewGroupProjectionAssessment(ordinaryQuery.PhysicalPlan, "", false)
+	assessmentCommand, err := compiler.RenderPreviewGroupProjectionAssessment(ordinaryQuery.PhysicalPlan, "", false)
 	if err != nil {
 		t.Fatalf("render bounded semantic Group projection assessment: %v", err)
 	}
 	assessmentRows := querySemanticGroupProjectionRows(t, ctx, client,
-		compiler.CompiledQuery{Query: assessmentText, BindVars: assessmentBindVars}, 10)
+		compiler.CompiledQuery{Command: assessmentCommand}, 10)
 
 	var previewRows []map[string]any
 	summary, err := engine.PreviewOutput(ctx, resolved,
@@ -433,13 +433,21 @@ func prepareSemanticGroupProjectionPreview(
 	callbacks := &semanticGroupProjectionCallbackCounts{}
 	engine, err := execution.New(execution.Config{
 		Registry: semanticGroupProjectionRegistry{bundle: bundle},
-		QueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			return client.QueryRows(ctx, query, batchSize, bindVars, visit)
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit execution.RowVisitor) error {
+			query, bindVars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return client.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		},
-		PreviewQueryRows: func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		PreviewQueryRows: func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit execution.RowVisitor) error {
+			query, bindVars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
 			callbacks.previewQueries = append(callbacks.previewQueries, query)
 			started := time.Now()
-			err := client.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, 8*time.Second, visit)
+			err := client.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, 8*time.Second, arangostore.RowVisitor(visit))
 			callbacks.previewQueryDurations = append(callbacks.previewQueryDurations, time.Since(started))
 			return err
 		},
@@ -480,7 +488,7 @@ func prepareSemanticGroupProjectionPreview(
 		t.Fatalf("compile ordinary semantic Group projection query: %v", err)
 	}
 	if ordinaryQuery.PreviewGroupProjection == nil {
-		t.Fatalf("direct semantic Group has no exact source-scope projection evidence:\n%s", ordinaryQuery.Query)
+		t.Fatalf("direct semantic Group has no exact source-scope projection evidence:\n%s", testAQLText(t, ordinaryQuery.Command))
 	}
 	return engine, resolved, ordinaryQuery, callbacks
 }
@@ -788,11 +796,11 @@ func querySemanticGroupProjectionRows(
 ) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRowsWithMaxRuntime(ctx, query.Query, maxRows, query.BindVars, 8*time.Second, func(row map[string]any) error {
+	if err := client.QueryRowsWithMaxRuntime(ctx, testAQLText(t, query.Command), maxRows, testAQLBinds(t, query.Command), 8*time.Second, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute semantic Group projection query: %v\n%s", err, query.Query)
+		t.Fatalf("execute semantic Group projection query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	return rows
 }
@@ -872,10 +880,7 @@ func assertSemanticGroupProjectionScopeCount(
 	if query.PreviewGroupProjection == nil {
 		t.Fatal("semantic Group query lost its source-scope count evidence")
 	}
-	countQuery := compiler.CompiledQuery{
-		Query:    query.PreviewGroupProjection.ScopeCountQuery,
-		BindVars: query.PreviewGroupProjection.ScopeCountBindVars,
-	}
+	countQuery := compiler.CompiledQuery{Command: query.PreviewGroupProjection.ScopeCount}
 	rows := querySemanticGroupProjectionRows(t, ctx, client, countQuery, 10)
 	if len(rows) != 1 || !semanticGroupProjectionNumberEqual(rows[0]["count"], float64(want)) {
 		t.Fatalf("exact source-scope count = %#v, want %d scoped rows", rows, want)
@@ -903,7 +908,7 @@ func assertProjectionSelectionCallbacks(
 		}
 	}
 	for _, query := range callbacks.previewQueries {
-		if query == ordinaryQuery.PreviewGroupProjection.ScopeCountQuery {
+		if query == testAQLText(t, ordinaryQuery.PreviewGroupProjection.ScopeCount) {
 			scopeCountSeen = true
 		}
 		if strings.Contains(query, "distinctProjections") && strings.Contains(query, "sampleRows") {
@@ -938,7 +943,7 @@ func assertProjectionSelectionCallbacks(
 		for index, query := range callbacks.previewQueries {
 			role := "final preview"
 			switch {
-			case query == ordinaryQuery.PreviewGroupProjection.ScopeCountQuery:
+			case query == testAQLText(t, ordinaryQuery.PreviewGroupProjection.ScopeCount):
 				role = "exact scope count"
 			case strings.Contains(query, "distinctProjections") && strings.Contains(query, "sampleRows"):
 				role = "projection assessment"

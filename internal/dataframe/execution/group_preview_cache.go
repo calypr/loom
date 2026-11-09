@@ -4,6 +4,8 @@ import (
 	"container/list"
 	"encoding/json"
 	"sync"
+
+	"github.com/calypr/loom/internal/dataframe/compiler"
 )
 
 const (
@@ -27,8 +29,16 @@ type groupPreviewRowsKey struct {
 	decision      bool
 }
 
-func newGroupPreviewRowsKey(query string, bindVars map[string]any, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
-	if query == "" || collection == "" || revision == "" || limit <= 0 {
+// newGroupPreviewRowsKey derives the exact-cache identity from a tagged AQL
+// command: dispatch through AQLParameters is the only way the key builder
+// obtains query text and binds, so a non-AQL command never keys the AQL row
+// cache. The derived pair is hashed exactly as before.
+func newGroupPreviewRowsKey(command compiler.CompiledCommand, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
+	if collection == "" || revision == "" || limit <= 0 {
+		return groupPreviewRowsKey{}, 0, false
+	}
+	query, bindVars, dispatchErr := command.AQLParameters()
+	if dispatchErr != nil || query == "" {
 		return groupPreviewRowsKey{}, 0, false
 	}
 	canonicalBinds, err := json.Marshal(bindVars)
@@ -46,8 +56,15 @@ func newGroupPreviewRowsKey(query string, bindVars map[string]any, collection, r
 	return key, weight, weight <= groupPreviewCacheMaxEntryBytes
 }
 
-func newGroupPreviewProjectionDecisionKey(query string, bindVars map[string]any, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
-	if query == "" || collection == "" || revision == "" || indexIdentity == "" {
+// newGroupPreviewProjectionDecisionKey derives the projection-decision
+// identity from a tagged AQL command through AQLParameters, the same closed
+// dispatch as the row cache key.
+func newGroupPreviewProjectionDecisionKey(command compiler.CompiledCommand, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
+	if collection == "" || revision == "" || indexIdentity == "" {
+		return groupPreviewRowsKey{}, 0, false
+	}
+	query, bindVars, dispatchErr := command.AQLParameters()
+	if dispatchErr != nil || query == "" {
 		return groupPreviewRowsKey{}, 0, false
 	}
 	canonicalBinds, err := json.Marshal(bindVars)

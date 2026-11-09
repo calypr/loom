@@ -24,7 +24,7 @@ func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	query := scanned.Query
+	query := testAQLText(t, scanned.Command)
 	wantRoute := []struct{ from, to, direction string }{
 		{from: "Specimen", to: "Patient", direction: "OUTBOUND"},
 		{from: "Patient", to: "Observation", direction: "INBOUND"},
@@ -108,32 +108,32 @@ func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t
 	if scanned.CategoryIndex != nil {
 		t.Fatalf("streamed related category query should not synchronously prepare a terminal category index: %+v", scanned.CategoryIndex)
 	}
-	if !containsCollectionBindValue(scanned.BindVars, "Specimen") || !containsCollectionBindValue(scanned.BindVars, "fhir_edge") {
-		t.Fatalf("streamed route is missing its typed root or edge collection bind: %#v", scanned.BindVars)
+	if !containsCollectionBindValue(testAQLBinds(t, scanned.Command), "Specimen") || !containsCollectionBindValue(testAQLBinds(t, scanned.Command), "fhir_edge") {
+		t.Fatalf("streamed route is missing its typed root or edge collection bind: %#v", testAQLBinds(t, scanned.Command))
 	}
 	if !strings.Contains(query, "FOR __loom_related_category_stream_document_2 IN @@__loom_related_category_target_collection") ||
-		scanned.BindVars["@__loom_related_category_target_collection"] != "Observation" {
-		t.Fatalf("valueQuantity.code projection is not using the exact typed Observation primary-key collection lookup: bind=%#v\n%s", scanned.BindVars["@__loom_related_category_target_collection"], query)
+		testAQLBinds(t, scanned.Command)["@__loom_related_category_target_collection"] != "Observation" {
+		t.Fatalf("valueQuantity.code projection is not using the exact typed Observation primary-key collection lookup: bind=%#v\n%s", testAQLBinds(t, scanned.Command)["@__loom_related_category_target_collection"], query)
 	}
 	if !strings.Contains(query, "IS_SAME_COLLECTION(@related_expand_1_hop_1_target_type, __loom_related_category_stream_edge_2._from)") ||
 		!strings.Contains(query, "LET __loom_related_category_stream_fallback_document_2 = DOCUMENT(__loom_related_category_stream_edge_2._from)") {
 		t.Fatalf("projected category lookup must retain the collection-identity fallback for a resourceType stored in another collection:\n%s", query)
 	}
 	for _, routeValue := range []string{"Specimen", "Patient", "Observation", "subject_Patient", "fhir_edge"} {
-		if !relatedCategoryHasBindValue(scanned.BindVars, routeValue) {
-			t.Errorf("typed related route did not bind exact route value %q: %#v", routeValue, scanned.BindVars)
+		if !relatedCategoryHasBindValue(testAQLBinds(t, scanned.Command), routeValue) {
+			t.Errorf("typed related route did not bind exact route value %q: %#v", routeValue, testAQLBinds(t, scanned.Command))
 		}
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
+	assertCategoryScanBindVarsMatchQuery(t, scanned.Command)
 	if scanned.OverflowWitness != nil {
 		if scanned.Proof.OverflowWitnessFingerprint == "" {
 			t.Fatal("overflow witness is not bound into the category proof")
 		}
-		assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
+		assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Command)
 	}
-	assertCategoryScanLimitFollowsStreamedWitnesses(t, scanned.Query)
-	if scanned.BindVars[categoryLimitBind] != MaxCategoryScanValues+1 {
-		t.Fatalf("category limit = %#v, want complete-category sentinel %d", scanned.BindVars[categoryLimitBind], MaxCategoryScanValues+1)
+	assertCategoryScanLimitFollowsStreamedWitnesses(t, testAQLText(t, scanned.Command))
+	if testAQLBinds(t, scanned.Command)[categoryLimitBind] != MaxCategoryScanValues+1 {
+		t.Fatalf("category limit = %#v, want complete-category sentinel %d", testAQLBinds(t, scanned.Command)[categoryLimitBind], MaxCategoryScanValues+1)
 	}
 	if !scanned.Proof.PresenceTracked || !strings.Contains(query, "stream_present") || !strings.Contains(query, "HAS(") {
 		t.Fatalf("exact related-field presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, query)
@@ -190,8 +190,8 @@ func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallbac
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(deniedScan.Query, "__loom_construction_stage_") || strings.Contains(deniedScan.Query, "__loom_related_category_stream_") {
-		t.Fatalf("scope_allowed=false physical plan bypassed its source guards or selected the streamed specialization:\n%s", deniedScan.Query)
+	if !strings.Contains(testAQLText(t, deniedScan.Command), "__loom_construction_stage_") || strings.Contains(testAQLText(t, deniedScan.Command), "__loom_related_category_stream_") {
+		t.Fatalf("scope_allowed=false physical plan bypassed its source guards or selected the streamed specialization:\n%s", testAQLText(t, deniedScan.Command))
 	}
 }
 
@@ -302,8 +302,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	// path from explicit NULL. Discover chooser categories from an independent
 	// raw traversal that tracks both PRESERVE_PARENT boundaries and exact path
 	// presence instead.
-	rawCategories := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
-		Query: `FOR root IN Specimen
+	rawCategoriesCommand := testAQLCommand(`FOR root IN Specimen
   FILTER root.project == @project AND root.dataset_generation == @generation
   LET patients = (
     FOR first_edge IN fhir_edge
@@ -334,9 +333,8 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
       LET category_value = category_present ? terminal.payload.valueQuantity.code : null
       COLLECT present = category_present, value = category_value
       RETURN { present, value }
-`,
-		BindVars: map[string]any{"project": project, "generation": generation},
-	})
+`, map[string]any{"project": project, "generation": generation})
+	rawCategories := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: rawCategoriesCommand})
 	want := map[string]struct{}{
 		relatedCategoryValueKey(false, nil):            {},
 		relatedCategoryValueKey(true, nil):             {},
@@ -353,7 +351,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	if !reflect.DeepEqual(oracleCategories, want) {
 		t.Fatalf("independent raw category states = %v, want explicit MISSING, NULL, and native string: %v", oracleCategories, want)
 	}
-	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: scanned.Command})
 	got := map[string]struct{}{}
 	for _, row := range actualRows {
 		present, ok := row[scanned.PresentColumn].(bool)
@@ -366,7 +364,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		t.Fatalf("optimized category scan returned duplicate category rows: rows=%#v distinct=%v", actualRows, got)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("optimized categories = %v, independent raw categories = %v; query:\n%s", got, want, scanned.Query)
+		t.Fatalf("optimized categories = %v, independent raw categories = %v; query:\n%s", got, want, testAQLText(t, scanned.Command))
 	}
 	if _, found := got[relatedCategoryValueKey(true, "orphan-terminal")]; found {
 		t.Fatalf("orphan terminal leaked into related categories: %v", got)
@@ -385,7 +383,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	witnessObservation := insertResource(witnessProject, "Observation", "only-code", map[string]any{"valueQuantity": map[string]any{"code": "d"}})
 	insertEdge(witnessProject, "only-code-patient", "Observation", witnessObservation, "Patient", witnessFull)
 	_, _, witnessScan := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), witnessProject, generation, MaxCategoryScanValues)
-	witnessRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: witnessScan.Query, BindVars: witnessScan.BindVars})
+	witnessRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: witnessScan.Command})
 	witnessCategories := map[string]struct{}{}
 	for _, row := range witnessRows {
 		witnessCategories[relatedCategoryValueKey(row[witnessScan.PresentColumn].(bool), row[witnessScan.ValueColumn])] = struct{}{}
@@ -406,7 +404,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	firstObservation := insertResource(firstStageProject, "Observation", "only-code", map[string]any{"valueQuantity": map[string]any{"code": "e"}})
 	insertEdge(firstStageProject, "only-code-patient", "Observation", firstObservation, "Patient", firstPatient)
 	_, _, firstStageScan := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), firstStageProject, generation, MaxCategoryScanValues)
-	firstStageRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: firstStageScan.Query, BindVars: firstStageScan.BindVars})
+	firstStageRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: firstStageScan.Command})
 	firstStageCategories := map[string]struct{}{}
 	for _, row := range firstStageRows {
 		firstStageCategories[relatedCategoryValueKey(row[firstStageScan.PresentColumn].(bool), row[firstStageScan.ValueColumn])] = struct{}{}
@@ -431,7 +429,7 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		insertEdge(capProject, id+"-patient", "Observation", observation, "Patient", capFull)
 	}
 	_, _, capScan := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), capProject, generation, MaxCategoryScanValues)
-	capRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: capScan.Query, BindVars: capScan.BindVars})
+	capRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: capScan.Command})
 	if len(capRows) != MaxCategoryScanValues+1 {
 		t.Fatalf("category scan returned %d rows for 256 string categories plus a preserved empty category; want sentinel %d", len(capRows), MaxCategoryScanValues+1)
 	}
@@ -530,8 +528,8 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 		"__loom_related_category_stream_edge_2.auth_resource_path IN @auth_resource_paths",
 		"__loom_related_category_stream_document_2.auth_resource_path IN @auth_resource_paths",
 	} {
-		if !strings.Contains(scanned.Query, path) {
-			t.Errorf("related-category query omitted scoped route component %q:\n%s", path, scanned.Query)
+		if !strings.Contains(testAQLText(t, scanned.Command), path) {
+			t.Errorf("related-category query omitted scoped route component %q:\n%s", path, testAQLText(t, scanned.Command))
 		}
 	}
 	want := map[string]struct{}{}
@@ -540,7 +538,7 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 		value, present := row["category"]
 		want[relatedCategoryValueKey(present, value)] = struct{}{}
 	}
-	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	actualRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: scanned.Command})
 	got := map[string]struct{}{}
 	for _, row := range actualRows {
 		present, ok := row[scanned.PresentColumn].(bool)
@@ -626,11 +624,11 @@ func TestCompileRelatedCategoryScanFallsBackForUnsafeShapes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(scanned.Query, "__loom_construction_stage_") || !strings.Contains(scanned.Query, "related_expand_records") {
-				t.Fatalf("unsafe shape bypassed the exact construction prefix:\n%s", scanned.Query)
+			if !strings.Contains(testAQLText(t, scanned.Command), "__loom_construction_stage_") || !strings.Contains(testAQLText(t, scanned.Command), "related_expand_records") {
+				t.Fatalf("unsafe shape bypassed the exact construction prefix:\n%s", testAQLText(t, scanned.Command))
 			}
-			if strings.Contains(scanned.Query, "__loom_related_category_stream_") {
-				t.Fatalf("unsafe shape selected the streamed related-category specialization:\n%s", scanned.Query)
+			if strings.Contains(testAQLText(t, scanned.Command), "__loom_related_category_stream_") {
+				t.Fatalf("unsafe shape selected the streamed related-category specialization:\n%s", testAQLText(t, scanned.Command))
 			}
 		})
 	}

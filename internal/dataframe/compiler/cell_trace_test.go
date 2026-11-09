@@ -23,13 +23,13 @@ func TestCompileCellTraceUsesFinalValueAndStableIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"root.payload.id", "@cell_trace_offset", "@cell_trace_limit", "[@project, root._key]"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("trace query missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("trace query missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	for _, field := range []string{ir.PhysicalCellTraceValueField, ir.PhysicalCellTraceContributionsField, ir.PhysicalCellTraceStatusField, ir.PhysicalCellTraceHasMoreField} {
-		if !containsBindValue(compiled.BindVars, field) {
-			t.Fatalf("trace field %q missing from binds %#v", field, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), field) {
+			t.Fatalf("trace field %q missing from binds %#v", field, testAQLBinds(t, compiled.Command))
 		}
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
@@ -73,16 +73,16 @@ func TestCompileCellTraceForSourceOnlyGroupRowsUsesFinalMemberValueAndObjectIden
 		"__loom_trace_source_identity.id, value:",
 		"UNIQUE(",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("typed GROUP_ROWS CellTrace query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("typed GROUP_ROWS CellTrace query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
-		t.Fatalf("selected scalar member field should carry exact contributor evidence:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+		t.Fatalf("selected scalar member field should carry exact contributor evidence:\n%s", testAQLText(t, compiled.Command))
 	}
 	for _, field := range []string{ir.PhysicalCellTraceValueField, ir.PhysicalCellTraceExplicitIdentityField} {
-		if !containsBindValue(compiled.BindVars, field) {
-			t.Errorf("group-row CellTrace is missing typed output field %q: %#v", field, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), field) {
+			t.Errorf("group-row CellTrace is missing typed output field %q: %#v", field, testAQLBinds(t, compiled.Command))
 		}
 	}
 }
@@ -139,22 +139,22 @@ func TestCompileSourceOnlyGroupRowsCellTraceMatchesExactOneAndAllMemberValues(t 
 				t.Fatalf("compile %s GROUP_ROWS CellTrace: %v", test.name, err)
 			}
 			for _, marker := range test.want {
-				if !strings.Contains(compiled.Query, marker) {
-					t.Errorf("query is missing %q:\n%s", marker, compiled.Query)
+				if !strings.Contains(testAQLText(t, compiled.Command), marker) {
+					t.Errorf("query is missing %q:\n%s", marker, testAQLText(t, compiled.Command))
 				}
 			}
 			for _, marker := range test.unexpected {
-				if strings.Contains(compiled.Query, marker) {
-					t.Errorf("query unexpectedly contains %q:\n%s", marker, compiled.Query)
+				if strings.Contains(testAQLText(t, compiled.Command), marker) {
+					t.Errorf("query unexpectedly contains %q:\n%s", marker, testAQLText(t, compiled.Command))
 				}
 			}
-			if strings.Contains(compiled.Query, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
-				t.Errorf("supported %s output has unavailable contributor evidence:\n%s", test.name, compiled.Query)
+			if strings.Contains(testAQLText(t, compiled.Command), "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+				t.Errorf("supported %s output has unavailable contributor evidence:\n%s", test.name, testAQLText(t, compiled.Command))
 			}
-			if !strings.Contains(compiled.Query, "source.auth_resource_path IN @auth_resource_paths") ||
-				!strings.Contains(compiled.Query, "revision.project == @project") ||
-				!strings.Contains(compiled.Query, "revision.generation == @dataset_generation") {
-				t.Errorf("%s trace lost its project, generation, or authorization scope:\n%s", test.name, compiled.Query)
+			if !strings.Contains(testAQLText(t, compiled.Command), "source.auth_resource_path IN @auth_resource_paths") ||
+				!strings.Contains(testAQLText(t, compiled.Command), "revision.project == @project") ||
+				!strings.Contains(testAQLText(t, compiled.Command), "revision.generation == @dataset_generation") {
+				t.Errorf("%s trace lost its project, generation, or authorization scope:\n%s", test.name, testAQLText(t, compiled.Command))
 			}
 		})
 	}
@@ -175,8 +175,8 @@ func TestCompileCellTraceExplainsOptionalTraversalBeforeFirstReduction(t *testin
 		t.Fatal(err)
 	}
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "TO_ARRAY(", "resourceType:", "resourceId:", "LENGTH(__loom_physical_trace_status_candidates) > 1 ? \"AMBIGUOUS\""} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("trace query missing pre-reduction contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("trace query missing pre-reduction contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	if compiled.ContributionOffset != 5 || compiled.ContributionLimit != 10 {
@@ -200,8 +200,8 @@ func TestCompileCellTraceExplainsRelatedAggregateContributors(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "resourceType:", "resourceId:", ".payload.valueQuantity.value"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("trace query missing related aggregate contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }
@@ -232,12 +232,12 @@ func TestCompileCellTracePreservesAggregateContributorsThroughCategoryRecode(t *
 		t.Fatal(err)
 	}
 	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", ".payload.valueString", "resourceType:", "resourceId:"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("recoded aggregate trace is missing contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("recoded aggregate trace is missing contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if containsBindValue(compiled.BindVars, "TRACE_CONTRIBUTORS_UNAVAILABLE") {
-		t.Fatalf("recoded aggregate trace unexpectedly reports unavailable contributors: %#v", compiled.BindVars)
+	if containsBindValue(testAQLBinds(t, compiled.Command), "TRACE_CONTRIBUTORS_UNAVAILABLE") {
+		t.Fatalf("recoded aggregate trace unexpectedly reports unavailable contributors: %#v", testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -257,12 +257,12 @@ func TestCompileCellTraceExplainsNumericAggregateContributors(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"NUMERIC_AGGREGATE_NON_NUMERIC", "resourceType:", "resourceId:", "value:", "!= null"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("numeric aggregate trace is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("numeric aggregate trace is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "AMBIGUOUS") {
-		t.Fatalf("a numeric reduction with explicit contributor enumeration must not be marked lossy:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "AMBIGUOUS") {
+		t.Fatalf("a numeric reduction with explicit contributor enumeration must not be marked lossy:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -295,8 +295,8 @@ func TestCompileWindowedAggregateCellTraceUsesEligibleContributors(t *testing.T)
 		"FOR __loom_physical_trace_numeric_contributor IN FIRST(FOR __loom_physical_contributor_window_scope",
 		"__loom_physical_contributor_window_timestamp",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("windowed aggregate trace query missing eligible contributor evidence %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("windowed aggregate trace query missing eligible contributor evidence %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }
@@ -320,8 +320,8 @@ func TestCompileCellTraceUsesOwnerRecordEvidenceAsContributions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"trace_owner_record", ".source.resourceType", ".source.resourceId", "ownerOrdinal", "INVALID_CHOICE_ARM"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("owner-record trace query missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("owner-record trace query missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }
@@ -356,34 +356,34 @@ func TestCompileCellTraceCarriesPivotAndDerivedLeafLineage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"UNIQUE(FLATTEN", "resourceId:", "FILTER", " != null"} {
-		if !strings.Contains(alpha.Query, want) {
-			t.Fatalf("pivot trace query missing %q:\n%s", want, alpha.Query)
+		if !strings.Contains(testAQLText(t, alpha.Command), want) {
+			t.Fatalf("pivot trace query missing %q:\n%s", want, testAQLText(t, alpha.Command))
 		}
 	}
-	if !containsBindValue(alpha.BindVars, ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(alpha.BindVars, ir.PhysicalCellTraceSourcePresencePrefix+"6") {
-		t.Fatalf("pivot trace did not bind source document and value-presence fields: %#v", alpha.BindVars)
+	if !containsBindValue(testAQLBinds(t, alpha.Command), ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(testAQLBinds(t, alpha.Command), ir.PhysicalCellTraceSourcePresencePrefix+"6") {
+		t.Fatalf("pivot trace did not bind source document and value-presence fields: %#v", testAQLBinds(t, alpha.Command))
 	}
 
 	group, err := CompileCellTraceOutputWithPolicy(compiled, "group_text", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsBindValue(group.BindVars, "group_text") || !containsBindValue(group.BindVars, ir.PhysicalCellTraceSourcePresencePrefix+"2") {
-		t.Fatalf("pivot group-key trace does not retain the selected source field:\n%s", group.Query)
+	if !containsBindValue(testAQLBinds(t, group.Command), "group_text") || !containsBindValue(testAQLBinds(t, group.Command), ir.PhysicalCellTraceSourcePresencePrefix+"2") {
+		t.Fatalf("pivot group-key trace does not retain the selected source field:\n%s", testAQLText(t, group.Command))
 	}
 
 	derived, err := CompileCellTraceOutputWithPolicy(compiled, "alpha_plus_zero", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(derived.Query, "FOR __loom_physical_trace_pivot_cell_source"); got != 4 {
-		t.Fatalf("derived trace has %d pivot contributor subqueries, want status/page for alpha and zero:\n%s", got, derived.Query)
+	if got := strings.Count(testAQLText(t, derived.Command), "FOR __loom_physical_trace_pivot_cell_source"); got != 4 {
+		t.Fatalf("derived trace has %d pivot contributor subqueries, want status/page for alpha and zero:\n%s", got, testAQLText(t, derived.Command))
 	}
-	if strings.Contains(derived.Query, ir.PhysicalCellTraceDerivedOmission) {
-		t.Fatalf("supported derived lineage has omission:\n%s", derived.Query)
+	if strings.Contains(testAQLText(t, derived.Command), ir.PhysicalCellTraceDerivedOmission) {
+		t.Fatalf("supported derived lineage has omission:\n%s", testAQLText(t, derived.Command))
 	}
-	if !containsBindValue(derived.BindVars, "alpha") || !containsBindValue(derived.BindVars, "zero") {
-		t.Fatalf("derived trace lost pivot category bindings: %#v", derived.BindVars)
+	if !containsBindValue(testAQLBinds(t, derived.Command), "alpha") || !containsBindValue(testAQLBinds(t, derived.Command), "zero") {
+		t.Fatalf("derived trace lost pivot category bindings: %#v", testAQLBinds(t, derived.Command))
 	}
 }
 
@@ -398,30 +398,30 @@ func TestCompileCellTraceDistinguishesUnpivotValueFromGeneratedKey(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, want := range []string{"sourceDocument", "sourcePresence", "sourceSupported"} {
-		if !strings.Contains(value.Query, want) {
-			t.Fatalf("unpivot trace query missing %q:\n%s", want, value.Query)
+		if !strings.Contains(testAQLText(t, value.Command), want) {
+			t.Fatalf("unpivot trace query missing %q:\n%s", want, testAQLText(t, value.Command))
 		}
 	}
-	if !containsBindValue(value.BindVars, ir.PhysicalCellTraceSourceDocumentField) {
-		t.Fatalf("unpivot trace did not bind the source-document field: %#v", value.BindVars)
+	if !containsBindValue(testAQLBinds(t, value.Command), ir.PhysicalCellTraceSourceDocumentField) {
+		t.Fatalf("unpivot trace did not bind the source-document field: %#v", testAQLBinds(t, value.Command))
 	}
 	passed, err := CompileCellTraceOutputWithPolicy(compiled, "text_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsBindValue(passed.BindVars, ir.PhysicalCellTracePassSourceDocumentField) || !containsBindValue(passed.BindVars, ir.PhysicalCellTracePassSourcePresenceField) {
-		t.Fatalf("unpivot pass-through trace lost source evidence fields: %#v", passed.BindVars)
+	if !containsBindValue(testAQLBinds(t, passed.Command), ir.PhysicalCellTracePassSourceDocumentField) || !containsBindValue(testAQLBinds(t, passed.Command), ir.PhysicalCellTracePassSourcePresenceField) {
+		t.Fatalf("unpivot pass-through trace lost source evidence fields: %#v", testAQLBinds(t, passed.Command))
 	}
-	if !containsBindValue(value.BindVars, "group_number") || !containsBindValue(value.BindVars, "numeric_value") {
-		t.Fatalf("unpivot trace lost selected source columns: %#v", value.BindVars)
+	if !containsBindValue(testAQLBinds(t, value.Command), "group_number") || !containsBindValue(testAQLBinds(t, value.Command), "numeric_value") {
+		t.Fatalf("unpivot trace lost selected source columns: %#v", testAQLBinds(t, value.Command))
 	}
 
 	key, err := CompileCellTraceOutputWithPolicy(compiled, "measure", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(key.Query, ir.PhysicalCellTraceGeneratedKeyOmission) {
-		t.Fatalf("unpivot key trace omitted its generated-key reason:\n%s", key.Query)
+	if !strings.Contains(testAQLText(t, key.Command), ir.PhysicalCellTraceGeneratedKeyOmission) {
+		t.Fatalf("unpivot key trace omitted its generated-key reason:\n%s", testAQLText(t, key.Command))
 	}
 }
 
@@ -462,15 +462,15 @@ func TestCompileConstructionCellTraceReturnsDerivedValueAndStageEvidence(t *test
 		"@cell_trace_offset, @cell_trace_fetch_limit",
 		"inputStageId:", "inputColumnId:", "outputStageId:", "outputColumnId:", "finalStageId:", "constructionId:", "operation:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("construction cell trace query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("construction cell trace query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	for _, want := range []string{
 		"source_projection", "amount_id", "amount", "derive_total", "total_id", "total", "keep_positive", "calc_total", "DERIVE",
 	} {
-		if !containsBindValue(compiled.BindVars, want) {
-			t.Errorf("construction trace bind value %q is missing from %#v", want, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), want) {
+			t.Errorf("construction trace bind value %q is missing from %#v", want, testAQLBinds(t, compiled.Command))
 		}
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
@@ -515,23 +515,23 @@ func TestConstructionRelatedSourceCellTraceReplaysScopedRoutePerOccurrence(t *te
 		"LIMIT @cell_trace_offset, @cell_trace_fetch_limit",
 		"NO_MATCH",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("related-source trace query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("related-source trace query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "UNIQUE(") || strings.Contains(compiled.Query, "SORTED_UNIQUE(") || strings.Contains(compiled.Query, ".payload.status != null") {
-		t.Fatalf("related-source trace must preserve path occurrences and null values without deduplication/filtering:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "UNIQUE(") || strings.Contains(testAQLText(t, compiled.Command), "SORTED_UNIQUE(") || strings.Contains(testAQLText(t, compiled.Command), ".payload.status != null") {
+		t.Fatalf("related-source trace must preserve path occurrences and null values without deduplication/filtering:\n%s", testAQLText(t, compiled.Command))
 	}
 	for _, want := range []string{
 		"fixture_program-project-a", "generation-a", "subject_Patient", "Patient", "Observation",
 		"resourceType", "resourceId", "value", "outputStageId", "outputColumnId", "observation_status", "add_observation_status", "finalStageId", "RELATED_SOURCE",
 	} {
-		if !containsBindValue(compiled.BindVars, want) {
-			t.Errorf("related-source route bind value %q is missing from %#v", want, compiled.BindVars)
+		if !containsBindValue(testAQLBinds(t, compiled.Command), want) {
+			t.Errorf("related-source route bind value %q is missing from %#v", want, testAQLBinds(t, compiled.Command))
 		}
 	}
-	if !strings.Contains(compiled.Query, "dataset_generation") || !strings.Contains(compiled.Query, "auth_resource_path") {
-		t.Fatalf("related-source trace lost generation or authorization filters:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "dataset_generation") || !strings.Contains(testAQLText(t, compiled.Command), "auth_resource_path") {
+		t.Fatalf("related-source trace lost generation or authorization filters:\n%s", testAQLText(t, compiled.Command))
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" || compiled.RowIdentity == nil {
 		t.Fatalf("related-source trace lost exact output row identity: %#v", compiled)
@@ -578,11 +578,11 @@ func assertConstructionTraceUsesPreviewIdentity(t *testing.T, output lower.Compi
 	if compiled.RowIdentity == nil || !reflect.DeepEqual(compiled.RowIdentity.Fields, output.RowIdentity.Fields) {
 		t.Fatalf("cell trace identity = %#v, want Preview identity %#v", compiled.RowIdentity, output.RowIdentity)
 	}
-	if compiled.BindVars["project"] != "fixture_program-project-a" {
-		t.Fatalf("cell trace project identity bind = %#v, want the same pinned project as Preview", compiled.BindVars["project"])
+	if testAQLBinds(t, compiled.Command)["project"] != "fixture_program-project-a" {
+		t.Fatalf("cell trace project identity bind = %#v, want the same pinned project as Preview", testAQLBinds(t, compiled.Command)["project"])
 	}
-	if !strings.Contains(compiled.Query, "[@project, __loom_construction_final_row._key]") {
-		t.Fatalf("cell trace identity parts do not match Preview project/key order:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "[@project, __loom_construction_final_row._key]") {
+		t.Fatalf("cell trace identity parts do not match Preview project/key order:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -630,12 +630,12 @@ func TestConstructionCellTraceMarksPivotLineageAsUnsupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, "__loom_construction_final_row.alpha") || !strings.Contains(compiled.Query, "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") {
-		t.Fatalf("unsupported reshape trace must retain the value and explicit omission:\n%s\n%#v", compiled.Query, compiled.BindVars)
+	if !strings.Contains(testAQLText(t, compiled.Command), "__loom_construction_final_row.alpha") || !strings.Contains(testAQLText(t, compiled.Command), "CONSTRUCTION_TRACE_OPERATION_UNSUPPORTED") {
+		t.Fatalf("unsupported reshape trace must retain the value and explicit omission:\n%s\n%#v", testAQLText(t, compiled.Command), testAQLBinds(t, compiled.Command))
 	}
 	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || compiled.IdentityPartsColumn != "" ||
-		!strings.Contains(compiled.Query, "__loom_construction_final_row.__loom_row_id") {
-		t.Fatalf("pivot trace must match Preview's literal generated row ID without re-hashing:\n%s\n%#v", compiled.Query, compiled)
+		!strings.Contains(testAQLText(t, compiled.Command), "__loom_construction_final_row.__loom_row_id") {
+		t.Fatalf("pivot trace must match Preview's literal generated row ID without re-hashing:\n%s\n%#v", testAQLText(t, compiled.Command), compiled)
 	}
 }
 

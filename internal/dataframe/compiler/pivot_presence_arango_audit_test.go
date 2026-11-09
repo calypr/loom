@@ -88,7 +88,7 @@ FOR document IN %s
 					t.Logf("%s\t%s\t%s\tCOMPILE_REFUSED\t%v", fixture.name, stage.ID, category.Name, err)
 					continue
 				}
-				presentFalse, missing, conclusive, rows, err := executePresenceAuditScan(ctx, client, scanned)
+				presentFalse, missing, conclusive, rows, err := executePresenceAuditScan(t, ctx, client, scanned)
 				if err != nil {
 					t.Logf("%s\t%s\t%s\tEXECUTION_ERROR\t%v", fixture.name, stage.ID, category.Name, err)
 					continue
@@ -167,11 +167,11 @@ func compilePresenceAuditOutput(t *testing.T, output recipe.Output, project, gen
 	return compiled.Outputs[0]
 }
 
-func executePresenceAuditScan(ctx context.Context, client *store.Client, scanned CompiledCategoryScanQuery) (presentFalse int, missing, conclusive bool, rows int, err error) {
+func executePresenceAuditScan(t *testing.T, ctx context.Context, client *store.Client, scanned CompiledCategoryScanQuery) (presentFalse int, missing, conclusive bool, rows int, err error) {
 	if witness := scanned.OverflowWitness; witness != nil {
 		witnessRows := 0
 		witnessMissing := false
-		if err := client.QueryRows(ctx, witness.Query, 100, witness.BindVars, func(row map[string]any) error {
+		if err := client.QueryRows(ctx, testAQLText(t, witness.Command), 100, testAQLBinds(t, witness.Command), func(row map[string]any) error {
 			present, ok := row[scanned.PresentColumn].(bool)
 			if !ok {
 				return fmt.Errorf("overflow witness has invalid presence marker")
@@ -189,7 +189,7 @@ func executePresenceAuditScan(ctx context.Context, client *store.Client, scanned
 			return 0, true, true, witnessRows, nil
 		}
 	}
-	err = client.QueryRows(ctx, scanned.Query, 100, scanned.BindVars, func(row map[string]any) error {
+	err = client.QueryRows(ctx, testAQLText(t, scanned.Command), 100, testAQLBinds(t, scanned.Command), func(row map[string]any) error {
 		present, ok := row[scanned.PresentColumn].(bool)
 		if !ok {
 			return fmt.Errorf("category scan row has invalid presence marker")

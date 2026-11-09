@@ -18,15 +18,17 @@ const (
 	rootPageDatasetGenerationBind  = "dataset_generation"
 )
 
-// CompiledOutputPage contains immutable query templates for bounded root
-// execution. RootKeys selects the next root page even when those roots emit no
-// output rows. Rows executes the complete output for exactly that page.
+// CompiledOutputPage contains immutable parent-tagged command templates for
+// bounded root execution. RootKeys selects the next root page even when those
+// roots emit no output rows. Rows executes the complete output for exactly
+// that page. Both templates are AQL-tagged commands whose only mutable page
+// binds are the compiler-owned RootPageAfterKeyBind, RootPageSizeBind, and
+// RootPageKeysBind; callers replace those values through
+// CompiledCommand.WithAQLBinds, which never mutates the templates.
 type CompiledOutputPage struct {
-	RootKeysQuery    string
-	RootKeysBindVars map[string]any
-	RowsQuery        string
-	RowsBindVars     map[string]any
-	RowsDiagnostics  ir.CompilerPlanDiagnostics
+	RootKeys        CompiledCommand
+	Rows            CompiledCommand
+	RowsDiagnostics ir.CompilerPlanDiagnostics
 }
 
 // CompileRecipeOutputPageWithPolicy builds typed key-discovery and selected-
@@ -88,9 +90,16 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
 	}
+	rootKeysCommand, err := CompiledCommandForBackend(CompiledBackendAQL, keys)
+	if err != nil {
+		return CompiledOutputPage{}, fmt.Errorf("tag root-key page command: %w", err)
+	}
+	rowsCommand, err := CompiledCommandForBackend(CompiledBackendAQL, rows)
+	if err != nil {
+		return CompiledOutputPage{}, fmt.Errorf("tag selected-root page command: %w", err)
+	}
 	return CompiledOutputPage{
-		RootKeysQuery: keys.Query, RootKeysBindVars: keys.BindVars,
-		RowsQuery: rows.Query, RowsBindVars: rows.BindVars, RowsDiagnostics: physicalPlanDiagnostics(rowsPlan),
+		RootKeys: rootKeysCommand, Rows: rowsCommand, RowsDiagnostics: physicalPlanDiagnostics(rowsPlan),
 	}, nil
 }
 

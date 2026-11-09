@@ -572,7 +572,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = client.ExecuteAQL(ctx, query.Query, query.BindVars)
+		err = client.ExecuteAQL(ctx, testAQLText(t, query.Command), testAQLBinds(t, query.Command))
 		if err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
 			t.Fatalf("ONE disagreement must preserve its typed repair error: %v", err)
 		}
@@ -652,7 +652,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := client.ExecuteAQL(ctx, query.Query, query.BindVars); err == nil || !strings.Contains(err.Error(), "CATEGORY_RECODE_UNKNOWN_VALUE") {
+		if err := client.ExecuteAQL(ctx, testAQLText(t, query.Command), testAQLBinds(t, query.Command)); err == nil || !strings.Contains(err.Error(), "CATEGORY_RECODE_UNKNOWN_VALUE") {
 			t.Fatalf("unknown non-null cohort member must retain the transformation error: %v", err)
 		}
 	})

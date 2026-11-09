@@ -37,26 +37,26 @@ func TestCompileCategoryScanWrapsCompleteFinalOutputWithBoundedDistinct(t *testi
 		"__loom_category_row[@__loom_category_column]", "COLLECT __loom_category_group_present",
 		"SORT __loom_category_group_present ASC", "LIMIT @__loom_category_limit",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("category query missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("category query missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "[\"doubled\"]") {
-		t.Fatalf("category column was interpolated into AQL:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "[\"doubled\"]") {
+		t.Fatalf("category column was interpolated into AQL:\n%s", testAQLText(t, compiled.Command))
 	}
-	if got := compiled.BindVars[categoryColumnBind]; got != "doubled" {
+	if got := testAQLBinds(t, compiled.Command)[categoryColumnBind]; got != "doubled" {
 		t.Fatalf("column bind = %#v", got)
 	}
-	if got := compiled.BindVars[categoryLimitBind]; got != 257 {
+	if got := testAQLBinds(t, compiled.Command)[categoryLimitBind]; got != 257 {
 		t.Fatalf("limit bind = %#v", got)
 	}
-	collectAt := strings.LastIndex(compiled.Query, "COLLECT __loom_category_group_present")
-	limitAt := strings.LastIndex(compiled.Query, "LIMIT @__loom_category_limit")
+	collectAt := strings.LastIndex(testAQLText(t, compiled.Command), "COLLECT __loom_category_group_present")
+	limitAt := strings.LastIndex(testAQLText(t, compiled.Command), "LIMIT @__loom_category_limit")
 	if collectAt < 0 || limitAt < collectAt {
-		t.Fatalf("distinct must precede category limit:\n%s", compiled.Query)
+		t.Fatalf("distinct must precede category limit:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Contains(compiled.Query[:collectAt], "LIMIT @limit") {
-		t.Fatalf("category scan retained a preview/root limit before distinct:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command)[:collectAt], "LIMIT @limit") {
+		t.Fatalf("category scan retained a preview/root limit before distinct:\n%s", testAQLText(t, compiled.Command))
 	}
 	if compiled.Proof.OutputSchemaDigest == "" || compiled.Proof.PlanFingerprint == "" || compiled.Proof.QueryFingerprint == "" || compiled.Proof.Fingerprint == "" {
 		t.Fatalf("incomplete proof: %#v", compiled.Proof)
@@ -126,8 +126,8 @@ func TestCompileCategoryScanUsesExactConstructionStagePrefixAndBindsPivotPair(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(scanned.Query, "LET __loom_construction_stage_") != 1 || strings.Contains(scanned.Query, "__loom_construction_stage_2") {
-		t.Fatalf("category scan did not stop at derive_total:\n%s", scanned.Query)
+	if strings.Count(testAQLText(t, scanned.Command), "LET __loom_construction_stage_") != 1 || strings.Contains(testAQLText(t, scanned.Command), "__loom_construction_stage_2") {
+		t.Fatalf("category scan did not stop at derive_total:\n%s", testAQLText(t, scanned.Command))
 	}
 	proof := scanned.Proof
 	if proof.Version != 2 || proof.Output != output.Name || proof.StageID != "derive_total" || proof.ColumnID != "status_id" || proof.ValueColumnID != "total_id" || proof.Column != "status" || proof.MaxValues != 256 {
@@ -189,13 +189,13 @@ func TestCompileCategoryScanTracksPresenceThroughFilterForOrdinaryDiscoveryProbe
 	if err != nil {
 		t.Fatal(err)
 	}
-	companion, ok := scanned.BindVars["__loom_category_presence_column"].(string)
+	companion, ok := testAQLBinds(t, scanned.Command)["__loom_category_presence_column"].(string)
 	if !ok || companion == "" || !scanned.Proof.PresenceTracked {
-		t.Fatalf("ordinary temporary Pivot probe lost source presence across its filtered prefix: proof=%#v binds=%#v\n%s", scanned.Proof, scanned.BindVars, scanned.Query)
+		t.Fatalf("ordinary temporary Pivot probe lost source presence across its filtered prefix: proof=%#v binds=%#v\n%s", scanned.Proof, testAQLBinds(t, scanned.Command), testAQLText(t, scanned.Command))
 	}
 	for _, marker := range []string{"__loom_construction_stage_", "FILTER __loom_construction_input_2.total", companion, "__loom_category_presence_column"} {
-		if !strings.Contains(scanned.Query, marker) {
-			t.Fatalf("filtered source-presence category query omitted %q:\n%s", marker, scanned.Query)
+		if !strings.Contains(testAQLText(t, scanned.Command), marker) {
+			t.Fatalf("filtered source-presence category query omitted %q:\n%s", marker, testAQLText(t, scanned.Command))
 		}
 	}
 }
@@ -206,12 +206,12 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(scanned.Query, "__loom_construction_stage_") || strings.Contains(scanned.Query, "related_expand_records") ||
-		strings.Contains(scanned.Query, "related_field_document") {
-		t.Fatalf("parent-preserving related prefix was not narrowed to the direct root category scan:\n%s", scanned.Query)
+	if strings.Contains(testAQLText(t, scanned.Command), "__loom_construction_stage_") || strings.Contains(testAQLText(t, scanned.Command), "related_expand_records") ||
+		strings.Contains(testAQLText(t, scanned.Command), "related_field_document") {
+		t.Fatalf("parent-preserving related prefix was not narrowed to the direct root category scan:\n%s", testAQLText(t, scanned.Command))
 	}
-	if strings.Contains(scanned.Query, "LET __loom_category_rows =") {
-		t.Fatalf("direct root category scan should stream its terminal source projection:\n%s", scanned.Query)
+	if strings.Contains(testAQLText(t, scanned.Command), "LET __loom_category_rows =") {
+		t.Fatalf("direct root category scan should stream its terminal source projection:\n%s", testAQLText(t, scanned.Command))
 	}
 	wantFields := []string{"project", "dataset_generation", "resourceType", "payload.gender", "auth_resource_path"}
 	wantLegacyFields := []string{"project", "dataset_generation", "payload.gender", "auth_resource_path"}
@@ -222,9 +222,9 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 		!reflect.DeepEqual(scanned.CategoryIndex.Supersedes.Fields, wantLegacyFields) {
 		t.Fatalf("direct root category index replacement = %+v, want only its exact legacy category index", scanned.CategoryIndex.Supersedes)
 	}
-	if !strings.Contains(scanned.Query, "forceIndexHint: false") || !strings.Contains(scanned.Query, scanned.CategoryIndex.Name) ||
-		!strings.Contains(scanned.Query, "root.resourceType == @__loom_category_resource_type") || scanned.BindVars["__loom_category_resource_type"] != "Patient" {
-		t.Fatalf("direct root category query omitted its non-forcing shared index hint or exact root type guard:\n%s\n%#v", scanned.Query, scanned.BindVars)
+	if !strings.Contains(testAQLText(t, scanned.Command), "forceIndexHint: false") || !strings.Contains(testAQLText(t, scanned.Command), scanned.CategoryIndex.Name) ||
+		!strings.Contains(testAQLText(t, scanned.Command), "root.resourceType == @__loom_category_resource_type") || testAQLBinds(t, scanned.Command)["__loom_category_resource_type"] != "Patient" {
+		t.Fatalf("direct root category query omitted its non-forcing shared index hint or exact root type guard:\n%s\n%#v", testAQLText(t, scanned.Command), testAQLBinds(t, scanned.Command))
 	}
 	if scanned.OverflowWitness == nil {
 		t.Fatal("direct root category scan omitted its exact missing-value witness")
@@ -235,21 +235,21 @@ func TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategori
 		"FILTER root_scope_allowed == @scope_allowed",
 		"FILTER root.resourceType == @__loom_category_resource_type",
 	} {
-		if !strings.Contains(scanned.Query, guard) || !strings.Contains(scanned.OverflowWitness.Query, guard) {
-			t.Errorf("root category query or missing witness lost the exact scope/type guard %q:\nquery:\n%s\nwitness:\n%s", guard, scanned.Query, scanned.OverflowWitness.Query)
+		if !strings.Contains(testAQLText(t, scanned.Command), guard) || !strings.Contains(testAQLText(t, scanned.OverflowWitness.Command), guard) {
+			t.Errorf("root category query or missing witness lost the exact scope/type guard %q:\nquery:\n%s\nwitness:\n%s", guard, testAQLText(t, scanned.Command), testAQLText(t, scanned.OverflowWitness.Command))
 		}
 	}
-	if scanned.BindVars["@root_collection"] != "Patient" || scanned.BindVars["auth_resource_paths_unrestricted"] != true {
-		t.Fatalf("root category query changed its typed collection or auth-scope bindings: %#v", scanned.BindVars)
+	if testAQLBinds(t, scanned.Command)["@root_collection"] != "Patient" || testAQLBinds(t, scanned.Command)["auth_resource_paths_unrestricted"] != true {
+		t.Fatalf("root category query changed its typed collection or auth-scope bindings: %#v", testAQLBinds(t, scanned.Command))
 	}
-	if !strings.Contains(scanned.Query, "LET __loom_category_nonnull = (") || !strings.Contains(scanned.Query, "LET __loom_category_null = (") {
-		t.Fatalf("direct root category query omitted its indexed null/non-null branches:\n%s", scanned.Query)
+	if !strings.Contains(testAQLText(t, scanned.Command), "LET __loom_category_nonnull = (") || !strings.Contains(testAQLText(t, scanned.Command), "LET __loom_category_null = (") {
+		t.Fatalf("direct root category query omitted its indexed null/non-null branches:\n%s", testAQLText(t, scanned.Command))
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.Query, scanned.BindVars)
-	if !strings.Contains(scanned.OverflowWitness.Query, "FILTER NOT (") {
+	assertCategoryScanBindVarsMatchQuery(t, scanned.Command)
+	if !strings.Contains(testAQLText(t, scanned.OverflowWitness.Command), "FILTER NOT (") {
 		t.Fatalf("direct root category scan omitted its exact missing-value witness: %+v", scanned.OverflowWitness)
 	}
-	assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Query, scanned.OverflowWitness.BindVars)
+	assertCategoryScanBindVarsMatchQuery(t, scanned.OverflowWitness.Command)
 	terminalStage, found := compiledStageByID(output.Stages, "add_status")
 	if !found {
 		t.Fatal("compiled output lost terminal related-field stage")
@@ -287,16 +287,17 @@ func TestCompileCategoryScanUsesLegacyIndexFallbackWhenRootCollectionTypeIsUnpro
 		!reflect.DeepEqual(scanned.CategoryIndex.Fields, wantFields) || scanned.CategoryIndex.Supersedes != nil {
 		t.Fatalf("unproven collection/type pair should retain the legacy non-replacement index: %+v", scanned.CategoryIndex)
 	}
-	if strings.Contains(scanned.Query, "root.resourceType == @__loom_category_resource_type") {
-		t.Fatalf("unproven collection/type pair received a narrowing type predicate:\n%s", scanned.Query)
+	if strings.Contains(testAQLText(t, scanned.Command), "root.resourceType == @__loom_category_resource_type") {
+		t.Fatalf("unproven collection/type pair received a narrowing type predicate:\n%s", testAQLText(t, scanned.Command))
 	}
-	if _, exists := scanned.BindVars["__loom_category_resource_type"]; exists {
-		t.Fatalf("unproven collection/type pair received a resourceType bind: %#v", scanned.BindVars)
+	if _, exists := testAQLBinds(t, scanned.Command)["__loom_category_resource_type"]; exists {
+		t.Fatalf("unproven collection/type pair received a resourceType bind: %#v", testAQLBinds(t, scanned.Command))
 	}
 }
 
-func assertCategoryScanBindVarsMatchQuery(t *testing.T, query string, bindVars map[string]any) {
+func assertCategoryScanBindVarsMatchQuery(t *testing.T, command CompiledCommand) {
 	t.Helper()
+	query, bindVars := testAQLView(t, command)
 	want := map[string]struct{}{}
 	for index := 0; index < len(query); index++ {
 		if query[index] != '@' {
@@ -348,8 +349,8 @@ func TestCategoryScanRootCategoryFastPathRejectsUnsafePrefixes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(scanned.Query, "__loom_construction_stage_") || scanned.CategoryIndex != nil {
-				t.Fatalf("unsafe stage prefix bypassed construction evaluation or got a direct root index:\n%s", scanned.Query)
+			if !strings.Contains(testAQLText(t, scanned.Command), "__loom_construction_stage_") || scanned.CategoryIndex != nil {
+				t.Fatalf("unsafe stage prefix bypassed construction evaluation or got a direct root index:\n%s", testAQLText(t, scanned.Command))
 			}
 		})
 	}
@@ -426,14 +427,14 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	finalAt := strings.Index(scanned.Query, "FOR __loom_construction_final_row IN")
-	categoryAt := strings.Index(scanned.Query, "FOR __loom_category_row IN __loom_category_rows")
+	finalAt := strings.Index(testAQLText(t, scanned.Command), "FOR __loom_construction_final_row IN")
+	categoryAt := strings.Index(testAQLText(t, scanned.Command), "FOR __loom_category_row IN __loom_category_rows")
 	if finalAt < 0 || categoryAt <= finalAt {
-		t.Fatalf("category scan is missing its terminal output boundary:\n%s", scanned.Query)
+		t.Fatalf("category scan is missing its terminal output boundary:\n%s", testAQLText(t, scanned.Command))
 	}
-	terminal := scanned.Query[finalAt:categoryAt]
-	if !strings.Contains(scanned.Query[:finalAt], "total") || !strings.Contains(scanned.Query, "__loom_construction_stage_1") || !strings.Contains(scanned.Query, "__loom_construction_stage_2") {
-		t.Fatalf("category scan dropped the prior derived filter or exact stage prefix:\n%s", scanned.Query)
+	terminal := testAQLText(t, scanned.Command)[finalAt:categoryAt]
+	if !strings.Contains(testAQLText(t, scanned.Command)[:finalAt], "total") || !strings.Contains(testAQLText(t, scanned.Command), "__loom_construction_stage_1") || !strings.Contains(testAQLText(t, scanned.Command), "__loom_construction_stage_2") {
+		t.Fatalf("category scan dropped the prior derived filter or exact stage prefix:\n%s", testAQLText(t, scanned.Command))
 	}
 	if !strings.Contains(terminal, "status") || strings.Contains(terminal, "amount") || strings.Contains(terminal, "total") {
 		t.Fatalf("terminal category projection was not narrowed safely:\n%s", terminal)
@@ -441,13 +442,13 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	if strings.Contains(terminal, "SORT __loom_construction_final_row.") {
 		t.Fatalf("category scan retained an unneeded terminal row sort:\n%s", terminal)
 	}
-	if strings.Contains(scanned.Query[:finalAt], "MERGE(") {
-		t.Fatalf("category scan merged projected objects before its stage filter:\n%s", scanned.Query[:finalAt])
+	if strings.Contains(testAQLText(t, scanned.Command)[:finalAt], "MERGE(") {
+		t.Fatalf("category scan merged projected objects before its stage filter:\n%s", testAQLText(t, scanned.Command)[:finalAt])
 	}
 	if !strings.Contains(terminal, `"__loom_category_scan_presence": __loom_construction_final_row["__loom_category_scan_presence"]`) {
 		t.Fatalf("terminal category scan did not carry the presence marker through its stage prefix:\n%s", terminal)
 	}
-	categoryOutput := scanned.Query[categoryAt:]
+	categoryOutput := testAQLText(t, scanned.Command)[categoryAt:]
 	for _, required := range []string{
 		"COLLECT __loom_category_group_present = __loom_category_present, __loom_category_group_value = __loom_category_value",
 		"SORT __loom_category_group_present ASC, TYPENAME(__loom_category_group_value) ASC, __loom_category_group_value ASC",
@@ -457,8 +458,8 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 			t.Errorf("category scan lost its ordered complete-category contract %q:\n%s", required, categoryOutput)
 		}
 	}
-	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
-		t.Fatalf("narrowed category return lost the source authorization scope:\n%s", scanned.Query)
+	if !strings.Contains(testAQLText(t, scanned.Command), "root_scope_allowed") || !strings.Contains(testAQLText(t, scanned.Command), "auth_resource_paths") {
+		t.Fatalf("narrowed category return lost the source authorization scope:\n%s", testAQLText(t, scanned.Command))
 	}
 	stage, found := compiledStageByID(output.Stages, "keep_positive")
 	if !found {
@@ -471,7 +472,7 @@ func TestCompileCategoryScanReturnsOnlyTerminalCategoryAfterFilter(t *testing.T)
 	if scanned.Proof.OutputSchemaDigest != wantSchemaDigest {
 		t.Fatalf("category proof was narrowed with the query return: got %q, want full stage schema %q", scanned.Proof.OutputSchemaDigest, wantSchemaDigest)
 	}
-	wantQueryDigest, err := categoryQueryFingerprint(scanned.Query, scanned.BindVars)
+	wantQueryDigest, err := categoryQueryFingerprint(testAQLText(t, scanned.Command), testAQLBinds(t, scanned.Command))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,16 +532,16 @@ func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(
 	}
 	rootFilter := "FILTER root.payload.active == @construction_filter_value"
 	stageFilter := "FILTER __loom_construction_input_1.active == @construction_filter_value"
-	if strings.Count(scanned.Query, rootFilter) != 1 || !strings.Contains(scanned.Query, stageFilter) {
-		t.Fatalf("category scan must duplicate an eligible source equality and retain the stage predicate:\n%s", scanned.Query)
+	if strings.Count(testAQLText(t, scanned.Command), rootFilter) != 1 || !strings.Contains(testAQLText(t, scanned.Command), stageFilter) {
+		t.Fatalf("category scan must duplicate an eligible source equality and retain the stage predicate:\n%s", testAQLText(t, scanned.Command))
 	}
-	rootFilterAt := strings.Index(scanned.Query, rootFilter)
-	stageReturnAt := strings.Index(scanned.Query, "RETURN { [@__loom_physical_projection_")
+	rootFilterAt := strings.Index(testAQLText(t, scanned.Command), rootFilter)
+	stageReturnAt := strings.Index(testAQLText(t, scanned.Command), "RETURN { [@__loom_physical_projection_")
 	if rootFilterAt < 0 || stageReturnAt < 0 || rootFilterAt > stageReturnAt ||
-		strings.Index(scanned.Query, "root.project == @project") > rootFilterAt ||
-		strings.Index(scanned.Query, "root.dataset_generation == @dataset_generation") > rootFilterAt ||
-		strings.Index(scanned.Query, "root_scope_allowed") > rootFilterAt {
-		t.Fatalf("source equality must follow project, generation, and authorization scope before source projection:\n%s", scanned.Query)
+		strings.Index(testAQLText(t, scanned.Command), "root.project == @project") > rootFilterAt ||
+		strings.Index(testAQLText(t, scanned.Command), "root.dataset_generation == @dataset_generation") > rootFilterAt ||
+		strings.Index(testAQLText(t, scanned.Command), "root_scope_allowed") > rootFilterAt {
+		t.Fatalf("source equality must follow project, generation, and authorization scope before source projection:\n%s", testAQLText(t, scanned.Command))
 	}
 
 	ineligibleOutput := compilePopulationMappingOutput(t, categoryScanFilterTestOutput(recipe.FilterExists))
@@ -548,8 +549,8 @@ func TestCompileCategoryScanPushesDirectScalarEqualityToSourceAndKeepsFallbacks(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(ineligible.Query, "FILTER root.payload.active") || !strings.Contains(ineligible.Query, "FILTER __loom_construction_input_1.active != null") {
-		t.Fatalf("ineligible non-equality filter should remain on the staged path:\n%s", ineligible.Query)
+	if strings.Contains(testAQLText(t, ineligible.Command), "FILTER root.payload.active") || !strings.Contains(testAQLText(t, ineligible.Command), "FILTER __loom_construction_input_1.active != null") {
+		t.Fatalf("ineligible non-equality filter should remain on the staged path:\n%s", testAQLText(t, ineligible.Command))
 	}
 }
 
@@ -609,14 +610,14 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 	}
 	index := scanned.PreviewCoveringIndex
 	if index == nil {
-		t.Fatalf("direct source category discovery did not emit an explicit-pair covering-index spec:\n%s", scanned.Query)
+		t.Fatalf("direct source category discovery did not emit an explicit-pair covering-index spec:\n%s", testAQLText(t, scanned.Command))
 	}
 	wantFields := []string{"project", "dataset_generation", "auth_resource_path", "_key", "payload.gender", "payload.id", "payload.multipleBirthInteger"}
 	if index.Collection != "Patient" || !strings.HasPrefix(index.Name, previewCoveringIndexNamePrefix) || !reflect.DeepEqual(index.Fields, wantFields) {
 		t.Fatalf("category scan covering-index metadata = %+v, want collection Patient fields %#v", index, wantFields)
 	}
 	projectionCount := 0
-	for key, value := range scanned.BindVars {
+	for key, value := range testAQLBinds(t, scanned.Command) {
 		if !strings.HasPrefix(key, "__loom_physical_projection_") || !strings.HasSuffix(key, "_name") {
 			continue
 		}
@@ -625,16 +626,16 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 			t.Fatalf("source category scan retained projection %q=%#v", key, value)
 		}
 	}
-	if projectionCount != 0 || !strings.Contains(scanned.Query, "COLLECT value = root.payload.gender") || strings.Contains(scanned.Query, "root.payload.id") || strings.Contains(scanned.Query, "root.payload.multipleBirthInteger") {
-		t.Fatalf("source category scan should group the selected source field directly (found %d projection names):\n%s", projectionCount, scanned.Query)
+	if projectionCount != 0 || !strings.Contains(testAQLText(t, scanned.Command), "COLLECT value = root.payload.gender") || strings.Contains(testAQLText(t, scanned.Command), "root.payload.id") || strings.Contains(testAQLText(t, scanned.Command), "root.payload.multipleBirthInteger") {
+		t.Fatalf("source category scan should group the selected source field directly (found %d projection names):\n%s", projectionCount, testAQLText(t, scanned.Command))
 	}
 	for _, guard := range []string{"root.project == @project", "root.dataset_generation == @dataset_generation", "root.auth_resource_path IN @auth_resource_paths", "FILTER root_scope_allowed == @scope_allowed"} {
-		if !strings.Contains(scanned.Query, guard) {
-			t.Fatalf("direct source category scan lost scope guard %q:\n%s", guard, scanned.Query)
+		if !strings.Contains(testAQLText(t, scanned.Command), guard) {
+			t.Fatalf("direct source category scan lost scope guard %q:\n%s", guard, testAQLText(t, scanned.Command))
 		}
 	}
-	if strings.Contains(scanned.Query, "SORT root._key") {
-		t.Fatalf("complete category discovery must not sort source rows before grouping categories:\n%s", scanned.Query)
+	if strings.Contains(testAQLText(t, scanned.Command), "SORT root._key") {
+		t.Fatalf("complete category discovery must not sort source rows before grouping categories:\n%s", testAQLText(t, scanned.Command))
 	}
 	sourceStage, found := compiledStageByID(output.Stages, recipe.ConstructionSourceProjectionID)
 	if !found {
@@ -650,14 +651,14 @@ func TestCompileSourceProjectionCategoryScanOffersCoveringIndexForExplicitPivotP
 		scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
 		t.Fatalf("narrowed source scan lost its complete stage/pair proof: %#v", scanned.Proof)
 	}
-	if !scanned.Proof.PresenceTracked || !strings.Contains(scanned.Query, "present") {
-		t.Fatalf("exact root selector presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, scanned.Query)
+	if !scanned.Proof.PresenceTracked || !strings.Contains(testAQLText(t, scanned.Command), "present") {
+		t.Fatalf("exact root selector presence is not bound into the category proof/query: proof=%#v\n%s", scanned.Proof, testAQLText(t, scanned.Command))
 	}
-	if !strings.Contains(scanned.Query, "root_scope_allowed") || !strings.Contains(scanned.Query, "auth_resource_paths") {
-		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", scanned.Query)
+	if !strings.Contains(testAQLText(t, scanned.Command), "root_scope_allowed") || !strings.Contains(testAQLText(t, scanned.Command), "auth_resource_paths") {
+		t.Fatalf("narrowed source scan lost root authorization scope:\n%s", testAQLText(t, scanned.Command))
 	}
-	if !strings.Contains(scanned.Query, `indexHint: "`+previewCoveringIndexNamePrefix) || !strings.Contains(scanned.Query, "forceIndexHint: false") || strings.Contains(scanned.Query, "forceIndexHint: true") {
-		t.Fatalf("category scan should use its optional covering index without requiring it:\n%s", scanned.Query)
+	if !strings.Contains(testAQLText(t, scanned.Command), `indexHint: "`+previewCoveringIndexNamePrefix) || !strings.Contains(testAQLText(t, scanned.Command), "forceIndexHint: false") || strings.Contains(testAQLText(t, scanned.Command), "forceIndexHint: true") {
+		t.Fatalf("category scan should use its optional covering index without requiring it:\n%s", testAQLText(t, scanned.Command))
 	}
 
 	withoutPair, err := CompileCategoryScanOutputWithPolicy(output, "category", 256, ir.DefaultPhysicalOptimizationPolicy())
@@ -699,13 +700,13 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 		t.Fatal(err)
 	}
 	if !scanned.Proof.PresenceTracked {
-		t.Fatalf("source presence was dropped through Expand: proof=%#v\n%s", scanned.Proof, scanned.Query)
+		t.Fatalf("source presence was dropped through Expand: proof=%#v\n%s", scanned.Proof, testAQLText(t, scanned.Command))
 	}
-	companion, ok := scanned.BindVars["__loom_category_presence_column"].(string)
+	companion, ok := testAQLBinds(t, scanned.Command)["__loom_category_presence_column"].(string)
 	if !ok || companion == "" {
-		t.Fatalf("Expand category scan did not consume its source presence companion: %#v", scanned.BindVars)
+		t.Fatalf("Expand category scan did not consume its source presence companion: %#v", testAQLBinds(t, scanned.Command))
 	}
-	if !strings.Contains(scanned.Query, companion) {
-		t.Fatalf("Expand category query omitted presence companion %q:\n%s", companion, scanned.Query)
+	if !strings.Contains(testAQLText(t, scanned.Command), companion) {
+		t.Fatalf("Expand category query omitted presence companion %q:\n%s", companion, testAQLText(t, scanned.Command))
 	}
 }

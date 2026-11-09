@@ -31,18 +31,18 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 	if err != nil {
 		t.Fatalf("compile generic full-source Group: %v", err)
 	}
-	selectedKeys := strings.Index(preview.Query, "source_group_preview_selected_root_keys")
-	canonicalGroup := strings.Index(preview.Query, "LET __loom_construction_stage_1 = (")
+	selectedKeys := strings.Index(testAQLText(t, preview.Command), "source_group_preview_selected_root_keys")
+	canonicalGroup := strings.Index(testAQLText(t, preview.Command), "LET __loom_construction_stage_1 = (")
 	hasFocusRelationship := false
-	for _, value := range preview.BindVars {
+	for _, value := range testAQLBinds(t, preview.Command) {
 		if relationship, ok := value.(string); ok && relationship == "focus_Specimen" {
 			hasFocusRelationship = true
 			break
 		}
 	}
 	if selectedKeys < 0 || canonicalGroup < selectedKeys || !hasFocusRelationship ||
-		!strings.Contains(preview.Query, "WITH COUNT INTO") || !strings.Contains(preview.Query, "__loom_physical_unnest_index_0 IN") {
-		t.Fatalf("preview did not key-page before the unchanged routed COUNT_ROWS Group:\n%s", preview.Query)
+		!strings.Contains(testAQLText(t, preview.Command), "WITH COUNT INTO") || !strings.Contains(testAQLText(t, preview.Command), "__loom_physical_unnest_index_0 IN") {
+		t.Fatalf("preview did not key-page before the unchanged routed COUNT_ROWS Group:\n%s", testAQLText(t, preview.Command))
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
@@ -223,11 +223,11 @@ RETURN {kind: TYPENAME(group_key)}`
 	insert("Observation", []json.RawMessage{eligibleTarget})
 	eligibleEdge := edge("edge_malformed_eligible", "malformed_eligible", "observation_malformed_eligible", project, generation, "/allowed")
 	insert("fhir_edge", []json.RawMessage{eligibleEdge})
-	previewErr := executeSourceGroupPreviewError(ctx, client, preview)
+	previewErr := executeSourceGroupPreviewError(t, ctx, client, preview)
 	if previewErr == nil || !strings.Contains(previewErr.Error(), "CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH") {
 		t.Fatalf("eligible malformed STRING key preview error = %v, want CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH despite being beyond the first 25 groups", previewErr)
 	}
-	fullErr := executeSourceGroupPreviewError(ctx, client, full)
+	fullErr := executeSourceGroupPreviewError(t, ctx, client, full)
 	if fullErr == nil || !strings.Contains(fullErr.Error(), "CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH") {
 		t.Fatalf("generic Group error for eligible malformed key = %v, want CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH", fullErr)
 	}
@@ -264,6 +264,6 @@ func sourceGroupPreviewArangoOutput() recipe.Output {
 	}
 }
 
-func executeSourceGroupPreviewError(ctx context.Context, client *store.Client, query CompiledQuery) error {
-	return client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
+func executeSourceGroupPreviewError(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) error {
+	return client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
 }

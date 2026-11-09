@@ -20,8 +20,8 @@ func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testin
 			ResourceType: "Specimen",
 		},
 	})
-	if got := strings.Count(compiled.Query, "FOR population_member IN @@population_members_collection"); got != 1 {
-		t.Fatalf("mapping member scan count = %d, want 1:\n%s", got, compiled.Query)
+	if got := strings.Count(testAQLText(t, compiled.Command), "FOR population_member IN @@population_members_collection"); got != 1 {
+		t.Fatalf("mapping member scan count = %d, want 1:\n%s", got, testAQLText(t, compiled.Command))
 	}
 	for _, want := range []string{
 		"COLLECT __loom_physical_population_root_key = population_source._key INTO __loom_physical_population_member_ids = population_member.id",
@@ -31,18 +31,18 @@ func TestCompilePopulationMappingDirectKeepsMemberRowWitnessesInternal(t *testin
 		"@__loom_physical_population_mapping_identity_name",
 		"[@project, root._key]",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("mapping query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("mapping query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "RETURN { [@__loom_projection") {
-		t.Fatalf("mapping query used a public projection return:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "RETURN { [@__loom_projection") {
+		t.Fatalf("mapping query used a public projection return:\n%s", testAQLText(t, compiled.Command))
 	}
-	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingMemberField) {
-		t.Fatalf("member witness bind is missing from %#v", compiled.BindVars)
+	if !containsBindValue(testAQLBinds(t, compiled.Command), ir.PhysicalPopulationMappingMemberField) {
+		t.Fatalf("member witness bind is missing from %#v", testAQLBinds(t, compiled.Command))
 	}
-	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingIdentityPartsField) {
-		t.Fatalf("identity-parts witness bind is missing from %#v", compiled.BindVars)
+	if !containsBindValue(testAQLBinds(t, compiled.Command), ir.PhysicalPopulationMappingIdentityPartsField) {
+		t.Fatalf("identity-parts witness bind is missing from %#v", testAQLBinds(t, compiled.Command))
 	}
 	if compiled.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
 		t.Fatalf("default mapping identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
@@ -62,14 +62,14 @@ func TestCompilePopulationMappingExplicitIdentityUsesCompiledExpression(t *testi
 			ResourceType: "Specimen",
 		},
 	})
-	if !strings.Contains(compiled.Query, "@__loom_physical_population_mapping_identity_name]: root.payload.id") || strings.Contains(compiled.Query, "@__loom_physical_population_mapping_identity_name]: [root.payload.id]") {
-		t.Fatalf("mapping query did not preserve the compiled explicit identity expression:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "@__loom_physical_population_mapping_identity_name]: root.payload.id") || strings.Contains(testAQLText(t, compiled.Command), "@__loom_physical_population_mapping_identity_name]: [root.payload.id]") {
+		t.Fatalf("mapping query did not preserve the compiled explicit identity expression:\n%s", testAQLText(t, compiled.Command))
 	}
-	if containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingIdentityPartsField) {
-		t.Fatalf("explicit mapping unexpectedly rendered default identity parts: %#v", compiled.BindVars)
+	if containsBindValue(testAQLBinds(t, compiled.Command), ir.PhysicalPopulationMappingIdentityPartsField) {
+		t.Fatalf("explicit mapping unexpectedly rendered default identity parts: %#v", testAQLBinds(t, compiled.Command))
 	}
-	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingExplicitIdentityField) {
-		t.Fatalf("explicit identity bind is missing: %#v", compiled.BindVars)
+	if !containsBindValue(testAQLBinds(t, compiled.Command), ir.PhysicalPopulationMappingExplicitIdentityField) {
+		t.Fatalf("explicit identity bind is missing: %#v", testAQLBinds(t, compiled.Command))
 	}
 	if compiled.IdentityPartsColumn != "" || compiled.ExplicitIdentityColumn != ir.PhysicalPopulationMappingExplicitIdentityField {
 		t.Fatalf("explicit mapping identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
@@ -99,8 +99,8 @@ func TestCompilePopulationMappingDefaultIdentityIsStableAcrossInnerOuterExpansio
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(compiled.Query, "[@project, root._key]") {
-			t.Fatalf("%s mapping query does not carry canonical project/key identity parts:\n%s", mode, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), "[@project, root._key]") {
+			t.Fatalf("%s mapping query does not carry canonical project/key identity parts:\n%s", mode, testAQLText(t, compiled.Command))
 		}
 		if compiled.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
 			t.Fatalf("%s mapping identity columns = (%q, %q)", mode, compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
@@ -187,11 +187,11 @@ func TestCompilePopulationMappingReversedRouteRunsOnceBeforeWitnessTerminal(t *t
 			Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
 		},
 	})
-	if got := strings.Count(compiled.Query, "FOR population_root_edge_0 IN @@population_root_route_0_edge_collection"); got != 1 {
-		t.Fatalf("mapping route traversal count = %d, want 1:\n%s", got, compiled.Query)
+	if got := strings.Count(testAQLText(t, compiled.Command), "FOR population_root_edge_0 IN @@population_root_route_0_edge_collection"); got != 1 {
+		t.Fatalf("mapping route traversal count = %d, want 1:\n%s", got, testAQLText(t, compiled.Command))
 	}
-	if strings.Index(compiled.Query, "population_source.id == population_member.id") > strings.Index(compiled.Query, "FOR __loom_physical_population_mapping_member") {
-		t.Fatalf("mapping witness terminal preceded member matching:\n%s", compiled.Query)
+	if strings.Index(testAQLText(t, compiled.Command), "population_source.id == population_member.id") > strings.Index(testAQLText(t, compiled.Command), "FOR __loom_physical_population_mapping_member") {
+		t.Fatalf("mapping witness terminal preceded member matching:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -208,11 +208,11 @@ func TestCompilePopulationMappingRequiredNavigationRemainsBeforeWitnesses(t *tes
 			ResourceType: "Patient",
 		},
 	})
-	if !strings.Contains(compiled.Query, "required_0_node_0") {
-		t.Fatalf("mapping query lost required downstream elimination:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "required_0_node_0") {
+		t.Fatalf("mapping query lost required downstream elimination:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Index(compiled.Query, "required_0_node_0") > strings.Index(compiled.Query, "FOR __loom_physical_population_mapping_member") {
-		t.Fatalf("required match was evaluated after witnesses:\n%s", compiled.Query)
+	if strings.Index(testAQLText(t, compiled.Command), "required_0_node_0") > strings.Index(testAQLText(t, compiled.Command), "FOR __loom_physical_population_mapping_member") {
+		t.Fatalf("required match was evaluated after witnesses:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -246,20 +246,20 @@ func TestCompilePopulationMappingPreservesInnerAndOuterFinalRowSemantics(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode == "INNER" && !strings.Contains(compiled.Query, "LET item =") {
-				t.Fatalf("inner mapping query lost expansion:\n%s", compiled.Query)
+			if mode == "INNER" && !strings.Contains(testAQLText(t, compiled.Command), "LET item =") {
+				t.Fatalf("inner mapping query lost expansion:\n%s", testAQLText(t, compiled.Command))
 			}
-			if mode == "OUTER" && !strings.Contains(compiled.Query, "LET item =") {
-				t.Fatalf("outer mapping query lost expansion:\n%s", compiled.Query)
+			if mode == "OUTER" && !strings.Contains(testAQLText(t, compiled.Command), "LET item =") {
+				t.Fatalf("outer mapping query lost expansion:\n%s", testAQLText(t, compiled.Command))
 			}
-			if mode == "INNER" && !strings.Contains(compiled.Query, "LENGTH(__loom_physical_unnest_source_0) == 0 ? [] : RANGE") {
-				t.Fatalf("inner mapping query did not preserve inner expansion:\n%s", compiled.Query)
+			if mode == "INNER" && !strings.Contains(testAQLText(t, compiled.Command), "LENGTH(__loom_physical_unnest_source_0) == 0 ? [] : RANGE") {
+				t.Fatalf("inner mapping query did not preserve inner expansion:\n%s", testAQLText(t, compiled.Command))
 			}
-			if mode == "OUTER" && !strings.Contains(compiled.Query, "LENGTH(__loom_physical_unnest_source_0) == 0 ? [null]") {
-				t.Fatalf("outer mapping query did not preserve outer expansion:\n%s", compiled.Query)
+			if mode == "OUTER" && !strings.Contains(testAQLText(t, compiled.Command), "LENGTH(__loom_physical_unnest_source_0) == 0 ? [null]") {
+				t.Fatalf("outer mapping query did not preserve outer expansion:\n%s", testAQLText(t, compiled.Command))
 			}
-			if strings.Index(compiled.Query, "FOR item IN") > strings.Index(compiled.Query, "FOR __loom_physical_population_mapping_member") {
-				t.Fatalf("%s witness terminal ran before final expansion:\n%s", mode, compiled.Query)
+			if strings.Index(testAQLText(t, compiled.Command), "FOR item IN") > strings.Index(testAQLText(t, compiled.Command), "FOR __loom_physical_population_mapping_member") {
+				t.Fatalf("%s witness terminal ran before final expansion:\n%s", mode, testAQLText(t, compiled.Command))
 			}
 		})
 	}
@@ -316,15 +316,15 @@ func TestCompilePopulationMappingConstructionUsesFinalObjectIdentityAndRootMembe
 		"@__loom_physical_construction_population_mapping_identity_name]: [__loom_physical_construction_population_mapping_selected_identity]",
 	}
 	for _, want := range wants {
-		if !strings.Contains(compiled.Query, want) {
-			t.Fatalf("construction population mapping query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("construction population mapping query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	if compiled.RowIdentity == nil || len(compiled.RowIdentity.Fields) != 1 || compiled.RowIdentity.Fields[0] != "__loom_row_id" ||
 		compiled.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
 		t.Fatalf("construction population mapping identity columns = (%#v, %q, %q)", compiled.RowIdentity, compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
 	}
-	if !containsBindValue(compiled.BindVars, ir.PhysicalPopulationMappingMembersColumn) {
+	if !containsBindValue(testAQLBinds(t, compiled.Command), ir.PhysicalPopulationMappingMembersColumn) {
 		t.Fatal("construction population mapping source IDs are not projected through the private source mapping column")
 	}
 }
@@ -352,9 +352,9 @@ func TestCompilePopulationMappingOrdinaryGroupRelatedUsesTypedFinalIdentity(t *t
 	if mapping.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || mapping.ExplicitIdentityColumn != "" {
 		t.Fatalf("mapping identity columns = (%q, %q)", mapping.IdentityPartsColumn, mapping.ExplicitIdentityColumn)
 	}
-	if !strings.Contains(mapping.Query, "COLLECT __loom_physical_construction_population_mapping_selected_member") ||
-		!strings.Contains(mapping.Query, "__loom_construction_final_row[@__loom_physical_construction_population_mapping_final_row_identity]") {
-		t.Fatalf("mapping query did not bind selected members to the exact final row identity:\n%s", mapping.Query)
+	if !strings.Contains(testAQLText(t, mapping.Command), "COLLECT __loom_physical_construction_population_mapping_selected_member") ||
+		!strings.Contains(testAQLText(t, mapping.Command), "__loom_construction_final_row[@__loom_physical_construction_population_mapping_final_row_identity]") {
+		t.Fatalf("mapping query did not bind selected members to the exact final row identity:\n%s", testAQLText(t, mapping.Command))
 	}
 }
 

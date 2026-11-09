@@ -158,7 +158,7 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	mapped := make(map[string]struct{})
 	emitted := make(map[string]struct{})
 	witnessRows := int64(0)
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

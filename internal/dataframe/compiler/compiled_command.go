@@ -3,6 +3,7 @@ package compiler
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -145,6 +146,53 @@ func NewPostgreSQLCommand(sql string, args []PostgreSQLParameter) (CompiledComma
 
 // Backend reports the command's routing tag.
 func (c CompiledCommand) Backend() CompiledBackend { return c.backend }
+
+// WithAQLBinds returns a copy of an AQL-tagged command whose named bind map
+// carries the given overrides applied on top of the command's current binds;
+// only existing bind keys may be overridden and only with values of the same
+// Go type, so a caller can supply a per-page bind value without mutating the
+// command or introducing unrendered keys into an executed query. The original
+// command and its bind map are never modified: the returned command owns a
+// fresh map, preserving the parameter copy/ownership rules. A non-AQL tag, a
+// nil or empty override, an unknown key, a nil current value with a
+// mismatched replacement type, or a nil override value is rejected before any
+// command could execute; PostgreSQL statements bind positionally and have no
+// named binds to override.
+func (c CompiledCommand) WithAQLBinds(overrides map[string]any) (CompiledCommand, error) {
+	switch c.backend {
+	case CompiledBackendAQL:
+	case CompiledBackendPostgreSQL:
+		return CompiledCommand{}, fmt.Errorf("%w: %s statements bind positional arguments and have no named binds to override",
+			ErrCompiledCommandBackendMismatch, string(CompiledBackendPostgreSQL))
+	default:
+		return CompiledCommand{}, fmt.Errorf("%w: cannot override binds on command with unregistered backend %q",
+			ErrCompiledCommandBackendNotRegistered, string(c.backend))
+	}
+	if len(overrides) == 0 {
+		return CompiledCommand{}, fmt.Errorf("%w: bind overrides must name at least one existing bind",
+			ErrCompiledCommandBackendMismatch)
+	}
+	binds := make(map[string]any, len(c.aql.BindVars))
+	for key, value := range c.aql.BindVars {
+		binds[key] = value
+	}
+	for key, value := range overrides {
+		current, exists := binds[key]
+		if !exists {
+			return CompiledCommand{}, fmt.Errorf("%w: bind %q is not part of the rendered AQL command",
+				ErrCompiledCommandBackendMismatch, key)
+		}
+		if current == nil || value == nil || reflect.TypeOf(current) != reflect.TypeOf(value) {
+			return CompiledCommand{}, fmt.Errorf("%w: bind %q override type %T does not match the rendered type %T",
+				ErrCompiledCommandBackendMismatch, key, value, current)
+		}
+		binds[key] = value
+	}
+	return CompiledCommand{
+		backend: CompiledBackendAQL,
+		aql:     AQLCommand{Query: c.aql.Query, BindVars: binds},
+	}, nil
+}
 
 // AQLParameters dispatches an AQL-tagged command to the Arango adapter
 // parameters. Any other tag, including the zero value, is rejected with

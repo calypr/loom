@@ -151,8 +151,8 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 			"root.project == @project", "root.dataset_generation == @dataset_generation",
 			"root.auth_resource_path IN @auth_resource_paths",
 		} {
-			if !strings.Contains(query.Query, want) {
-				t.Errorf("Group row-lineage query lost source scope %q:\n%s", want, query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), want) {
+				t.Errorf("Group row-lineage query lost source scope %q:\n%s", want, testAQLText(t, query.Command))
 			}
 		}
 		return query
@@ -289,8 +289,8 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 			"root.project == @project", "root.dataset_generation == @dataset_generation",
 			"root.auth_resource_path IN @auth_resource_paths", "LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 		} {
-			if !strings.Contains(query.Query, want) {
-				t.Errorf("filtered Group row-lineage query lost required scope/page clause %q:\n%s", want, query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), want) {
+				t.Errorf("filtered Group row-lineage query lost required scope/page clause %q:\n%s", want, testAQLText(t, query.Command))
 			}
 		}
 		return query
@@ -350,28 +350,28 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 
 func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) {
 	query := compileConstructionOutputQuery(t, constructionCountRowsOnlyOutput(), "construction-count-rows-only", "generation-count-rows-only")
-	if !strings.Contains(query.Query, "COLLECT WITH COUNT INTO ") {
-		t.Fatalf("count-only query does not use streaming row count:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "COLLECT WITH COUNT INTO ") {
+		t.Fatalf("count-only query does not use streaming row count:\n%s", testAQLText(t, query.Command))
 	}
 	for _, bufferedRows := range []string{
 		"construction_group_input_rows",
 		"construction_group_all_rows",
 		"LET __loom_construction_source_projection = (",
 	} {
-		if strings.Contains(query.Query, bufferedRows) {
-			t.Errorf("keyless count-only query retains %q:\n%s", bufferedRows, query.Query)
+		if strings.Contains(testAQLText(t, query.Command), bufferedRows) {
+			t.Errorf("keyless count-only query retains %q:\n%s", bufferedRows, testAQLText(t, query.Command))
 		}
 	}
-	if strings.Contains(query.Query, "SORT root.id ASC") {
-		t.Fatalf("keyless count-only query sorts source rows before counting:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "SORT root.id ASC") {
+		t.Fatalf("keyless count-only query sorts source rows before counting:\n%s", testAQLText(t, query.Command))
 	}
-	collectAt := strings.Index(query.Query, "COLLECT WITH COUNT INTO")
-	limitAt := strings.LastIndex(query.Query, "LIMIT @limit")
+	collectAt := strings.Index(testAQLText(t, query.Command), "COLLECT WITH COUNT INTO")
+	limitAt := strings.LastIndex(testAQLText(t, query.Command), "LIMIT @limit")
 	if collectAt < 0 || limitAt < collectAt {
-		t.Fatalf("preview bound is not applied after the exact keyless count:\n%s", query.Query)
+		t.Fatalf("preview bound is not applied after the exact keyless count:\n%s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query[:collectAt], "SORT ") {
-		t.Fatalf("keyless count query sorts source rows before the count:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command)[:collectAt], "SORT ") {
+		t.Fatalf("keyless count query sorts source rows before the count:\n%s", testAQLText(t, query.Command))
 	}
 	if query.PartialValidation {
 		t.Fatal("exact keyless count was marked as partial validation")
@@ -386,30 +386,30 @@ func TestConstructionGroupCountRowsOnlyQueryAvoidsInputRowBuffers(t *testing.T) 
 		"root.dataset_generation == @dataset_generation",
 		"root.auth_resource_path IN @auth_resource_paths",
 	} {
-		if !strings.Contains(restricted.Query, scopedPredicate) {
-			t.Errorf("inlined count source lost canonical scope predicate %q:\n%s", scopedPredicate, restricted.Query)
+		if !strings.Contains(testAQLText(t, restricted.Command), scopedPredicate) {
+			t.Errorf("inlined count source lost canonical scope predicate %q:\n%s", scopedPredicate, testAQLText(t, restricted.Command))
 		}
 	}
-	if restricted.BindVars["auth_resource_paths_unrestricted"] != false {
-		t.Fatalf("inlined count source bypassed restricted authorization: %#v", restricted.BindVars)
+	if testAQLBinds(t, restricted.Command)["auth_resource_paths_unrestricted"] != false {
+		t.Fatalf("inlined count source bypassed restricted authorization: %#v", testAQLBinds(t, restricted.Command))
 	}
-	if paths, ok := restricted.BindVars["auth_resource_paths"].([]string); !ok || len(paths) != 1 || paths[0] != "Specimen/visible" {
-		t.Fatalf("inlined count source changed the authorized paths: %#v", restricted.BindVars["auth_resource_paths"])
+	if paths, ok := testAQLBinds(t, restricted.Command)["auth_resource_paths"].([]string); !ok || len(paths) != 1 || paths[0] != "Specimen/visible" {
+		t.Fatalf("inlined count source changed the authorized paths: %#v", testAQLBinds(t, restricted.Command)["auth_resource_paths"])
 	}
 
 	keyedQuery := compileConstructionOutputQuery(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyError), "construction-count-rows-only", "generation-count-rows-only")
-	if !strings.Contains(keyedQuery.Query, "WITH COUNT INTO ") || !strings.Contains(keyedQuery.Query, "CONSTRUCTION_GROUP_MISSING_KEY") {
-		t.Fatalf("keyed count query did not retain its missing-key error behavior:\n%s", keyedQuery.Query)
+	if !strings.Contains(testAQLText(t, keyedQuery.Command), "WITH COUNT INTO ") || !strings.Contains(testAQLText(t, keyedQuery.Command), "CONSTRUCTION_GROUP_MISSING_KEY") {
+		t.Fatalf("keyed count query did not retain its missing-key error behavior:\n%s", testAQLText(t, keyedQuery.Command))
 	}
 	keyed := constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup)
 	keyed.Fields = append(keyed.Fields, recipe.Field{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueQuantity.value"}})
 	keyed.Construction.SourceColumns = append(keyed.Construction.SourceColumns, recipe.StageColumn{ID: "amount_id", Name: "amount", Type: "decimal"})
 	pruned := compileConstructionOutputQuery(t, keyed, "construction-count-rows-only", "generation-count-rows-only")
-	if !strings.Contains(pruned.Query, "root.payload.status") || strings.Contains(pruned.Query, "root.payload.valueQuantity.value") {
-		t.Fatalf("keyed count query projected an unused source field:\n%s", pruned.Query)
+	if !strings.Contains(testAQLText(t, pruned.Command), "root.payload.status") || strings.Contains(testAQLText(t, pruned.Command), "root.payload.valueQuantity.value") {
+		t.Fatalf("keyed count query projected an unused source field:\n%s", testAQLText(t, pruned.Command))
 	}
-	if !strings.Contains(pruned.Query, "SORT __loom_construction_group_key_1 ASC") || strings.Contains(pruned.Query, "SORT __loom_construction_final_row.__loom_row_id") {
-		t.Fatalf("group query did not preserve its key order without a second final sort:\n%s", pruned.Query)
+	if !strings.Contains(testAQLText(t, pruned.Command), "SORT __loom_construction_group_key_1 ASC") || strings.Contains(testAQLText(t, pruned.Command), "SORT __loom_construction_final_row.__loom_row_id") {
+		t.Fatalf("group query did not preserve its key order without a second final sort:\n%s", testAQLText(t, pruned.Command))
 	}
 }
 
@@ -425,8 +425,8 @@ func TestConstructionGroupAllRowValuesUsesStreamingTypedAggregates(t *testing.T)
 		"SORTED_UNIQUE((FOR ",
 		"CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH",
 	} {
-		if !strings.Contains(query.Query, want) {
-			t.Errorf("streaming Group query missing %q:\n%s", want, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), want) {
+			t.Errorf("streaming Group query missing %q:\n%s", want, testAQLText(t, query.Command))
 		}
 	}
 	for _, buffered := range []string{
@@ -435,40 +435,40 @@ func TestConstructionGroupAllRowValuesUsesStreamingTypedAggregates(t *testing.T)
 		" INTO __loom_construction_group_rows_",
 		"LENGTH((FOR ",
 	} {
-		if strings.Contains(query.Query, buffered) {
-			t.Errorf("streaming Group query retained contributor materialization %q:\n%s", buffered, query.Query)
+		if strings.Contains(testAQLText(t, query.Command), buffered) {
+			t.Errorf("streaming Group query retained contributor materialization %q:\n%s", buffered, testAQLText(t, query.Command))
 		}
 	}
-	projectionAt := strings.Index(query.Query, "LET __loom_construction_input_1 = {")
-	collectAt := strings.Index(query.Query, "COLLECT __loom_construction_group_key_")
+	projectionAt := strings.Index(testAQLText(t, query.Command), "LET __loom_construction_input_1 = {")
+	collectAt := strings.Index(testAQLText(t, query.Command), "COLLECT __loom_construction_group_key_")
 	if projectionAt < 0 || collectAt < projectionAt {
-		t.Fatalf("direct source projection was not assigned in the Group scope before COLLECT:\n%s", query.Query)
+		t.Fatalf("direct source projection was not assigned in the Group scope before COLLECT:\n%s", testAQLText(t, query.Command))
 	}
 	for _, scopeClause := range []string{
 		"FILTER root.project == @project",
 		"FILTER root.dataset_generation == @dataset_generation",
 		"FILTER root_scope_allowed == @scope_allowed",
 	} {
-		if !strings.Contains(query.Query, scopeClause) {
-			t.Errorf("streamed Group source lost scope clause %q:\n%s", scopeClause, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), scopeClause) {
+			t.Errorf("streamed Group source lost scope clause %q:\n%s", scopeClause, testAQLText(t, query.Command))
 		}
 	}
-	if strings.Contains(query.Query, "FOR __loom_selector_") || !strings.Contains(query.Query, "[* FILTER CURRENT.text != null RETURN CURRENT.text]") {
-		t.Fatalf("repeated source selector did not use a typed inline array expansion:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "FOR __loom_selector_") || !strings.Contains(testAQLText(t, query.Command), "[* FILTER CURRENT.text != null RETURN CURRENT.text]") {
+		t.Fatalf("repeated source selector did not use a typed inline array expansion:\n%s", testAQLText(t, query.Command))
 	}
 	oneQuery := compileConstructionOutputQuery(t, constructionGroupOneRowValueOutput(), "construction-group-one-row-value", "generation-group-one-row-value")
-	if strings.Contains(oneQuery.Query, "construction_source_projection = (") || !strings.Contains(oneQuery.Query, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
-		t.Fatalf("ONE row values did not use direct-source aggregation with its multiple-value check:\n%s", oneQuery.Query)
+	if strings.Contains(testAQLText(t, oneQuery.Command), "construction_source_projection = (") || !strings.Contains(testAQLText(t, oneQuery.Command), "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
+		t.Fatalf("ONE row values did not use direct-source aggregation with its multiple-value check:\n%s", testAQLText(t, oneQuery.Command))
 	}
 }
 
 func TestConstructionGroupStreamingKeepsExpandedInputStage(t *testing.T) {
 	query := compileConstructionOutputQuery(t, constructionExpandGroupOutput(), "construction-group-expanded", "generation-group-expanded")
-	if !strings.Contains(query.Query, "FOR __loom_construction_input_2 IN __loom_construction_stage_1") {
-		t.Fatalf("Group after expansion no longer consumes the expanded stage:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "FOR __loom_construction_input_2 IN __loom_construction_stage_1") {
+		t.Fatalf("Group after expansion no longer consumes the expanded stage:\n%s", testAQLText(t, query.Command))
 	}
-	if !strings.Contains(query.Query, "construction_source_projection = (") {
-		t.Fatalf("multi-stage Group bypassed its staged source input:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "construction_source_projection = (") {
+		t.Fatalf("multi-stage Group bypassed its staged source input:\n%s", testAQLText(t, query.Command))
 	}
 }
 
@@ -755,7 +755,7 @@ func TestConstructionGroupMissingKeyPoliciesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile ERROR query: %v", err)
 	}
-	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil }); err == nil {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil }); err == nil {
 		t.Fatal("ERROR policy accepted absent or null group keys")
 	}
 }
@@ -964,7 +964,7 @@ func executeConstructionOutput(t *testing.T, ctx context.Context, client *store.
 func executeConstructionOutputError(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string) error {
 	t.Helper()
 	query := compileConstructionOutputQuery(t, output, project, generation)
-	return client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
+	return client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
 }
 
 func compileConstructionOutputQuery(t *testing.T, output recipe.Output, project, generation string) CompiledQuery {
@@ -1006,14 +1006,14 @@ func TestPreviewSourceIdentityStaysPrivateThroughConstructionExpand(t *testing.T
 	output := constructionExpandOutput()
 	ordinary := compileConstructionOutputQuery(t, output, "source-id-project", "source-id-generation")
 	preview := compileConstructionOutputQueryWithBindings(t, output, "source-id-project", "source-id-generation", recipe.RuntimeBindings{IncludeSourceIdentity: true})
-	if strings.Contains(ordinary.Query, ir.PreviewSourceResourceIDColumn) {
-		t.Fatalf("ordinary compilation gained a source ID projection:\n%s", ordinary.Query)
+	if strings.Contains(testAQLText(t, ordinary.Command), ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("ordinary compilation gained a source ID projection:\n%s", testAQLText(t, ordinary.Command))
 	}
-	if !strings.Contains(preview.Query, ir.PreviewSourceResourceIDColumn) {
-		t.Fatalf("preview compilation did not carry the source ID through EXPAND:\n%s", preview.Query)
+	if !strings.Contains(testAQLText(t, preview.Command), ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("preview compilation did not carry the source ID through EXPAND:\n%s", testAQLText(t, preview.Command))
 	}
-	if !strings.Contains(preview.Query, "root.id") {
-		t.Fatalf("preview projection did not read the root FHIR id in scope:\n%s", preview.Query)
+	if !strings.Contains(testAQLText(t, preview.Command), "root.id") {
+		t.Fatalf("preview projection did not read the root FHIR id in scope:\n%s", testAQLText(t, preview.Command))
 	}
 	if containsString(preview.PublicColumns, ir.PreviewSourceResourceIDColumn) {
 		t.Fatalf("private source ID entered public columns: %#v", preview.PublicColumns)

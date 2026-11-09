@@ -12,7 +12,12 @@ import (
 func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 	engine := &Engine{
 		batchSize: 1000,
-		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			for _, row := range []map[string]any{
 				{"member": "file-001", "identity": []any{"specimen-001"}},
 				{"member": "file-002", "identity": []any{"specimen-001"}},
@@ -33,7 +38,7 @@ func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 		return nil
 	})
 	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
-		Query:        "RETURN witnesses",
+		Command:      mustAQLCommand("RETURN witnesses", nil),
 		MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{MaxUnmapped: 10}, reader)
@@ -51,7 +56,12 @@ func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testing.T) {
 	engine := &Engine{
 		batchSize: 1000,
-		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return visit(map[string]any{"member": "file-001", "identity": []any{"specimen-001"}})
 		},
 	}
@@ -59,7 +69,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 		return visit("file-001")
 	})
 	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
-		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
+		Command: mustAQLCommand("RETURN witnesses", nil), MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{MaxWitnessRows: 0}, reader)
 	if err != nil {
@@ -71,7 +81,7 @@ func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testi
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	incomplete, err := engine.PopulationMappingCompiled(ctx, compiler.CompiledPopulationMappingQuery{
-		Query: "RETURN witnesses", MemberColumn: "member", IdentityPartsColumn: "identity",
+		Command: mustAQLCommand("RETURN witnesses", nil), MemberColumn: "member", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
 	}, PopulationMappingRequest{}, reader)
 	if err != nil {
@@ -128,7 +138,12 @@ func TestPopulationWitnessIdentityRejectsNullAndStructuredExplicitValues(t *test
 func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities(t *testing.T) {
 	engine := &Engine{
 		batchSize: 1000,
-		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			for _, row := range []map[string]any{
 				{"member": "file-001", "identity": float64(0.5)},
 				{"member": "file-001", "identity": json.Number("0.50")},
@@ -142,7 +157,7 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 		},
 	}
 	result, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
-		Query: "RETURN witnesses", MemberColumn: "member", ExplicitIdentityColumn: "identity",
+		Command: mustAQLCommand("RETURN witnesses", nil), MemberColumn: "member", ExplicitIdentityColumn: "identity",
 	}, PopulationMappingRequest{MaxUnmapped: 10}, PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
 		return visit("file-001")
 	}))

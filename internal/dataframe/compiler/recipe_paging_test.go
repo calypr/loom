@@ -45,24 +45,24 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := page.RootKeysBindVars[RootPageSizeBind]; got != 25 {
+	if got := testAQLBinds(t, page.RootKeys)[RootPageSizeBind]; got != 25 {
 		t.Fatalf("root page size bind = %#v, want 25", got)
 	}
-	if strings.Contains(page.RootKeysQuery, "unnest") || strings.Contains(page.RootKeysQuery, "extension") {
-		t.Fatalf("root-key discovery crossed the expansion boundary:\n%s", page.RootKeysQuery)
+	if strings.Contains(testAQLText(t, page.RootKeys), "unnest") || strings.Contains(testAQLText(t, page.RootKeys), "extension") {
+		t.Fatalf("root-key discovery crossed the expansion boundary:\n%s", testAQLText(t, page.RootKeys))
 	}
-	keyWindow := strings.Index(page.RowsQuery, "IN SORTED_UNIQUE(@"+RootPageKeysBind+")")
-	rootLookup := strings.Index(page.RowsQuery, "LET root = DOCUMENT(@@root_collection,")
-	nullGuard := strings.Index(page.RowsQuery, "FILTER root != null")
-	unnestIndex := strings.Index(page.RowsQuery, "LET item =")
+	keyWindow := strings.Index(testAQLText(t, page.Rows), "IN SORTED_UNIQUE(@"+RootPageKeysBind+")")
+	rootLookup := strings.Index(testAQLText(t, page.Rows), "LET root = DOCUMENT(@@root_collection,")
+	nullGuard := strings.Index(testAQLText(t, page.Rows), "FILTER root != null")
+	unnestIndex := strings.Index(testAQLText(t, page.Rows), "LET item =")
 	if keyWindow < 0 || rootLookup < keyWindow || nullGuard < rootLookup || unnestIndex < nullGuard {
-		t.Fatalf("sorted page-key lookup and missing-root guard must run before UNNEST:\n%s", page.RowsQuery)
+		t.Fatalf("sorted page-key lookup and missing-root guard must run before UNNEST:\n%s", testAQLText(t, page.Rows))
 	}
-	if strings.Contains(page.RowsQuery, "root._key IN @"+RootPageKeysBind) {
-		t.Fatalf("selected-root rows still scan the root collection and filter its keys:\n%s", page.RowsQuery)
+	if strings.Contains(testAQLText(t, page.Rows), "root._key IN @"+RootPageKeysBind) {
+		t.Fatalf("selected-root rows still scan the root collection and filter its keys:\n%s", testAQLText(t, page.Rows))
 	}
-	if !strings.Contains(page.RootKeysQuery, "root._key > @"+RootPageAfterKeyBind) {
-		t.Fatalf("root-key discovery is not a keyset query:\n%s", page.RootKeysQuery)
+	if !strings.Contains(testAQLText(t, page.RootKeys), "root._key > @"+RootPageAfterKeyBind) {
+		t.Fatalf("root-key discovery is not a keyset query:\n%s", testAQLText(t, page.RootKeys))
 	}
 }
 
@@ -117,16 +117,16 @@ func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testin
 	if err != nil {
 		t.Fatalf("compile paged related-source output: %v", err)
 	}
-	if strings.Contains(page.RootKeysQuery, "observation_status") || strings.Contains(page.RootKeysQuery, "@@related_") {
-		t.Fatalf("root-key discovery evaluated the related-source stage:\n%s", page.RootKeysQuery)
+	if strings.Contains(testAQLText(t, page.RootKeys), "observation_status") || strings.Contains(testAQLText(t, page.RootKeys), "@@related_") {
+		t.Fatalf("root-key discovery evaluated the related-source stage:\n%s", testAQLText(t, page.RootKeys))
 	}
-	if !strings.Contains(page.RootKeysQuery, "root._key > @"+RootPageAfterKeyBind) || page.RootKeysBindVars[RootPageSizeBind] != 2 {
-		t.Fatalf("root-key discovery lost its keyset window: query=%s binds=%#v", page.RootKeysQuery, page.RootKeysBindVars)
+	if !strings.Contains(testAQLText(t, page.RootKeys), "root._key > @"+RootPageAfterKeyBind) || testAQLBinds(t, page.RootKeys)[RootPageSizeBind] != 2 {
+		t.Fatalf("root-key discovery lost its keyset window: query=%s binds=%#v", testAQLText(t, page.RootKeys), testAQLBinds(t, page.RootKeys))
 	}
-	if !strings.Contains(page.RowsQuery, "IN SORTED_UNIQUE(@"+RootPageKeysBind+")") ||
-		!strings.Contains(page.RowsQuery, "LET root = DOCUMENT(@@root_collection,") ||
-		!strings.Contains(page.RowsQuery, "observation_status") || !strings.Contains(page.RowsQuery, "@@related_0_hop_1_edge_collection") {
-		t.Fatalf("selected-root page did not retain the related-source stage:\n%s", page.RowsQuery)
+	if !strings.Contains(testAQLText(t, page.Rows), "IN SORTED_UNIQUE(@"+RootPageKeysBind+")") ||
+		!strings.Contains(testAQLText(t, page.Rows), "LET root = DOCUMENT(@@root_collection,") ||
+		!strings.Contains(testAQLText(t, page.Rows), "observation_status") || !strings.Contains(testAQLText(t, page.Rows), "@@related_0_hop_1_edge_collection") {
+		t.Fatalf("selected-root page did not retain the related-source stage:\n%s", testAQLText(t, page.Rows))
 	}
 }
 
@@ -137,9 +137,9 @@ func TestCompileRecipeOutputPageKeepsAggregationOnCollectionFilterPath(t *testin
 	if err != nil {
 		t.Fatalf("compile aggregated output page: %v", err)
 	}
-	if strings.Contains(page.RowsQuery, "IN SORTED_UNIQUE(@"+RootPageKeysBind+")") ||
-		!strings.Contains(page.RowsQuery, "root._key IN @"+RootPageKeysBind) {
-		t.Fatalf("aggregated Pivot/Unpivot output must keep the existing root collection filter path:\n%s", page.RowsQuery)
+	if strings.Contains(testAQLText(t, page.Rows), "IN SORTED_UNIQUE(@"+RootPageKeysBind+")") ||
+		!strings.Contains(testAQLText(t, page.Rows), "root._key IN @"+RootPageKeysBind) {
+		t.Fatalf("aggregated Pivot/Unpivot output must keep the existing root collection filter path:\n%s", testAQLText(t, page.Rows))
 	}
 }
 
@@ -154,31 +154,31 @@ func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T)
 		t.Fatalf("compile terminal related-expansion preview page: %v", err)
 	}
 	previewLimitBind := ""
-	for key, value := range page.RowsBindVars {
+	for key, value := range testAQLBinds(t, page.Rows) {
 		if strings.HasPrefix(key, "__loom_physical_construction_related_expand_preview_limit") && value == 3 {
 			previewLimitBind = key
 		}
 	}
 	if previewLimitBind == "" {
-		t.Fatalf("selected-root page has no per-parent preview limit bind: %#v", page.RowsBindVars)
+		t.Fatalf("selected-root page has no per-parent preview limit bind: %#v", testAQLBinds(t, page.Rows))
 	}
-	if !strings.Contains(page.RowsQuery, "SORT TO_STRING([[\"input\",") || !strings.Contains(page.RowsQuery, "[\"related\",") ||
-		!strings.Contains(page.RowsQuery, "LIMIT @"+previewLimitBind) {
-		t.Fatalf("terminal related candidates were not capped by the exact final row identity:\n%s", page.RowsQuery)
+	if !strings.Contains(testAQLText(t, page.Rows), "SORT TO_STRING([[\"input\",") || !strings.Contains(testAQLText(t, page.Rows), "[\"related\",") ||
+		!strings.Contains(testAQLText(t, page.Rows), "LIMIT @"+previewLimitBind) {
+		t.Fatalf("terminal related candidates were not capped by the exact final row identity:\n%s", testAQLText(t, page.Rows))
 	}
-	if strings.Contains(page.RowsQuery, "LIMIT @limit") {
-		t.Fatalf("selected-root rows query gained a global page limit:\n%s", page.RowsQuery)
+	if strings.Contains(testAQLText(t, page.Rows), "LIMIT @limit") {
+		t.Fatalf("selected-root rows query gained a global page limit:\n%s", testAQLText(t, page.Rows))
 	}
-	if !strings.Contains(page.RowsQuery, "SORTED_UNIQUE(") || !strings.Contains(page.RowsQuery, "SORT __loom_construction_final_row.__loom_row_id ASC") {
-		t.Fatalf("related deduplication or final identity ordering was removed:\n%s", page.RowsQuery)
+	if !strings.Contains(testAQLText(t, page.Rows), "SORTED_UNIQUE(") || !strings.Contains(testAQLText(t, page.Rows), "SORT __loom_construction_final_row.__loom_row_id ASC") {
+		t.Fatalf("related deduplication or final identity ordering was removed:\n%s", testAQLText(t, page.Rows))
 	}
 
 	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile full related-expansion output: %v", err)
 	}
-	if strings.Contains(full.Query, "related_expand_preview_candidate") || strings.Contains(full.Query, "LIMIT @limit") {
-		t.Fatalf("preview cap leaked into full publication execution:\n%s", full.Query)
+	if strings.Contains(testAQLText(t, full.Command), "related_expand_preview_candidate") || strings.Contains(testAQLText(t, full.Command), "LIMIT @limit") {
+		t.Fatalf("preview cap leaked into full publication execution:\n%s", testAQLText(t, full.Command))
 	}
 
 	filteredOutput := directRelatedExpandOutput(recipe.ExpansionExclude)
@@ -196,8 +196,8 @@ func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T)
 	if err != nil {
 		t.Fatalf("compile nonterminal related-expansion page: %v", err)
 	}
-	if strings.Contains(filteredPage.RowsQuery, "related_expand_preview_limit") || strings.Contains(filteredPage.RowsQuery, "related_expand_preview_candidate") {
-		t.Fatalf("nonterminal related expansion was capped before its downstream filter:\n%s", filteredPage.RowsQuery)
+	if strings.Contains(testAQLText(t, filteredPage.Rows), "related_expand_preview_limit") || strings.Contains(testAQLText(t, filteredPage.Rows), "related_expand_preview_candidate") {
+		t.Fatalf("nonterminal related expansion was capped before its downstream filter:\n%s", testAQLText(t, filteredPage.Rows))
 	}
 }
 
@@ -234,7 +234,7 @@ func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, query := range map[string]string{"root keys": page.RootKeysQuery, "rows": page.RowsQuery} {
+	for name, query := range map[string]string{"root keys": testAQLText(t, page.RootKeys), "rows": testAQLText(t, page.Rows)} {
 		if got := strings.Count(query, "FOR population_member IN @@population_members_collection"); got != 1 {
 			t.Fatalf("%s population member scan count = %d, want 1:\n%s", name, got, query)
 		}
@@ -245,10 +245,10 @@ func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T)
 			t.Fatalf("%s ordinary page query materialized population provenance:\n%s", name, query)
 		}
 	}
-	filterIndex := strings.Index(page.RowsQuery, "root._key IN @"+RootPageKeysBind)
-	populationIndex := strings.Index(page.RowsQuery, "FOR population_member IN @@population_members_collection")
+	filterIndex := strings.Index(testAQLText(t, page.Rows), "root._key IN @"+RootPageKeysBind)
+	populationIndex := strings.Index(testAQLText(t, page.Rows), "FOR population_member IN @@population_members_collection")
 	if populationIndex < 0 || filterIndex < 0 || populationIndex > filterIndex {
-		t.Fatalf("population eligibility was not evaluated before selected-root paging:\n%s", page.RowsQuery)
+		t.Fatalf("population eligibility was not evaluated before selected-root paging:\n%s", testAQLText(t, page.Rows))
 	}
 }
 
@@ -279,26 +279,26 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 		t.Fatal(err)
 	}
 	letSuffix := " = root.payload.id"
-	letValue := strings.Index(page.RootKeysQuery, letSuffix)
+	letValue := strings.Index(testAQLText(t, page.RootKeys), letSuffix)
 	if letValue < 0 {
-		t.Fatalf("root-key query lost the source projection for the filtered ID:\n%s", page.RootKeysQuery)
+		t.Fatalf("root-key query lost the source projection for the filtered ID:\n%s", testAQLText(t, page.RootKeys))
 	}
-	letStart := strings.LastIndex(page.RootKeysQuery[:letValue], "\n") + 1
-	letVariable := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(page.RootKeysQuery[letStart:letValue]), "LET "))
+	letStart := strings.LastIndex(testAQLText(t, page.RootKeys)[:letValue], "\n") + 1
+	letVariable := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(testAQLText(t, page.RootKeys)[letStart:letValue]), "LET "))
 	filterText := "FILTER " + letVariable + " == @construction_filter_value"
-	filter := strings.Index(page.RootKeysQuery, filterText)
-	window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
-	limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
+	filter := strings.Index(testAQLText(t, page.RootKeys), filterText)
+	window := strings.Index(testAQLText(t, page.RootKeys), "SORT root._key ASC")
+	limit := strings.Index(testAQLText(t, page.RootKeys), "LIMIT @limit")
 	if letVariable == "" || filter < 0 || window < 0 || limit < 0 || letValue > filter || filter > window || window > limit {
-		t.Fatalf("construction EQUALS filter must compare the source ID value and run before the keyset page window: let=%q filter=%d sort=%d limit=%d\n%s", letVariable, filter, window, limit, page.RootKeysQuery)
+		t.Fatalf("construction EQUALS filter must compare the source ID value and run before the keyset page window: let=%q filter=%d sort=%d limit=%d\n%s", letVariable, filter, window, limit, testAQLText(t, page.RootKeys))
 	}
-	for name, bindVars := range map[string]map[string]any{"root keys": page.RootKeysBindVars, "selected rows": page.RowsBindVars} {
+	for name, bindVars := range map[string]map[string]any{"root keys": testAQLBinds(t, page.RootKeys), "selected rows": testAQLBinds(t, page.Rows)} {
 		if got := bindVars["construction_filter_value"]; got != id {
 			t.Fatalf("%s construction filter bind = %#v, want %q", name, got, id)
 		}
 	}
-	if !strings.Contains(page.RowsQuery, "@construction_filter_value") {
-		t.Fatalf("selected-root execution lost the construction filter:\n%s", page.RowsQuery)
+	if !strings.Contains(testAQLText(t, page.Rows), "@construction_filter_value") {
+		t.Fatalf("selected-root execution lost the construction filter:\n%s", testAQLText(t, page.Rows))
 	}
 }
 
@@ -328,13 +328,13 @@ func TestCompileRecipeOutputPageFiltersRelatedConstructionRowsBeforeRootWindow(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
-	limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
-	filter := strings.Index(page.RootKeysQuery, "@construction_filter_value")
+	window := strings.Index(testAQLText(t, page.RootKeys), "SORT root._key ASC")
+	limit := strings.Index(testAQLText(t, page.RootKeys), "LIMIT @limit")
+	filter := strings.Index(testAQLText(t, page.RootKeys), "@construction_filter_value")
 	if filter < 0 || window < 0 || limit < 0 || filter > window || window > limit {
-		t.Fatalf("source-projection Patient.id construction filter must run before the root-key window: filter=%d sort=%d limit=%d\n%s", filter, window, limit, page.RootKeysQuery)
+		t.Fatalf("source-projection Patient.id construction filter must run before the root-key window: filter=%d sort=%d limit=%d\n%s", filter, window, limit, testAQLText(t, page.RootKeys))
 	}
-	if got := page.RootKeysBindVars["construction_filter_value"]; got != patientID {
+	if got := testAQLBinds(t, page.RootKeys)["construction_filter_value"]; got != patientID {
 		t.Fatalf("root-key related construction filter bind = %#v, want %q", got, patientID)
 	}
 }
@@ -403,14 +403,14 @@ func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t
 				t.Fatal(err)
 			}
 			rootFilter := "FILTER __loom_construction_input_1 " + tc.comparison
-			filter := strings.Index(page.RootKeysQuery, rootFilter)
-			window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
-			limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
+			filter := strings.Index(testAQLText(t, page.RootKeys), rootFilter)
+			window := strings.Index(testAQLText(t, page.RootKeys), "SORT root._key ASC")
+			limit := strings.Index(testAQLText(t, page.RootKeys), "LIMIT @limit")
 			if filter < 0 || window < 0 || limit < 0 || filter > window || window > limit {
-				t.Fatalf("construction %s filter must run before the root-key page window: filter=%d sort=%d limit=%d\n%s", tc.name, filter, window, limit, page.RootKeysQuery)
+				t.Fatalf("construction %s filter must run before the root-key page window: filter=%d sort=%d limit=%d\n%s", tc.name, filter, window, limit, testAQLText(t, page.RootKeys))
 			}
-			if !strings.Contains(page.RowsQuery, "FILTER __loom_construction_input_1.specimen_id "+tc.comparison) {
-				t.Fatalf("selected-root execution lost the construction %s filter:\n%s", tc.name, page.RowsQuery)
+			if !strings.Contains(testAQLText(t, page.Rows), "FILTER __loom_construction_input_1.specimen_id "+tc.comparison) {
+				t.Fatalf("selected-root execution lost the construction %s filter:\n%s", tc.name, testAQLText(t, page.Rows))
 			}
 		})
 	}
@@ -447,15 +447,15 @@ func TestCompileRecipeOutputPageDirectRootExistsOrdersPredicateBeforeLimit(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	cursorFilter := strings.Index(page.RootKeysQuery, "FILTER root._key > @"+RootPageAfterKeyBind)
-	projectedID := strings.Index(page.RootKeysQuery, " = root.payload.id")
-	existsFilter := strings.Index(page.RootKeysQuery, "FILTER __loom_construction_input_1 != null")
-	sort := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
-	limit := strings.Index(page.RootKeysQuery, "LIMIT @"+RootPageSizeBind)
+	cursorFilter := strings.Index(testAQLText(t, page.RootKeys), "FILTER root._key > @"+RootPageAfterKeyBind)
+	projectedID := strings.Index(testAQLText(t, page.RootKeys), " = root.payload.id")
+	existsFilter := strings.Index(testAQLText(t, page.RootKeys), "FILTER __loom_construction_input_1 != null")
+	sort := strings.Index(testAQLText(t, page.RootKeys), "SORT root._key ASC")
+	limit := strings.Index(testAQLText(t, page.RootKeys), "LIMIT @"+RootPageSizeBind)
 	if cursorFilter < 0 || projectedID <= cursorFilter || existsFilter <= projectedID || sort <= existsFilter || limit <= sort {
-		t.Fatalf("compiled direct-root EXISTS query must place its predicate after the cursor and before root-key sorting/limiting: cursor=%d projection=%d exists=%d sort=%d limit=%d\n%s", cursorFilter, projectedID, existsFilter, sort, limit, page.RootKeysQuery)
+		t.Fatalf("compiled direct-root EXISTS query must place its predicate after the cursor and before root-key sorting/limiting: cursor=%d projection=%d exists=%d sort=%d limit=%d\n%s", cursorFilter, projectedID, existsFilter, sort, limit, testAQLText(t, page.RootKeys))
 	}
-	if got := page.RootKeysBindVars[RootPageSizeBind]; got != pageSize {
+	if got := testAQLBinds(t, page.RootKeys)[RootPageSizeBind]; got != pageSize {
 		t.Fatalf("compiled root page size = %#v, want %d", got, pageSize)
 	}
 }
@@ -525,19 +525,19 @@ func TestCompileRecipeOutputPageRendersEveryValueFilterBeforeRootWindow(t *testi
 				t.Fatal(err)
 			}
 
-			filterIndex := strings.Index(page.RootKeysQuery, "FILTER __loom_construction_input_1 "+tc.comparison)
+			filterIndex := strings.Index(testAQLText(t, page.RootKeys), "FILTER __loom_construction_input_1 "+tc.comparison)
 			if tc.operator == recipe.FilterContains {
-				filterIndex = strings.Index(page.RootKeysQuery, "FILTER "+tc.comparison)
+				filterIndex = strings.Index(testAQLText(t, page.RootKeys), "FILTER "+tc.comparison)
 			}
-			window := strings.Index(page.RootKeysQuery, "SORT root._key ASC")
-			limit := strings.Index(page.RootKeysQuery, "LIMIT @limit")
+			window := strings.Index(testAQLText(t, page.RootKeys), "SORT root._key ASC")
+			limit := strings.Index(testAQLText(t, page.RootKeys), "LIMIT @limit")
 			if filterIndex < 0 || window < 0 || limit < 0 || filterIndex > window || window > limit {
-				t.Fatalf("construction %s filter must execute before the root-key window: filter=%d sort=%d limit=%d\n%s", tc.name, filterIndex, window, limit, page.RootKeysQuery)
+				t.Fatalf("construction %s filter must execute before the root-key window: filter=%d sort=%d limit=%d\n%s", tc.name, filterIndex, window, limit, testAQLText(t, page.RootKeys))
 			}
-			if !strings.Contains(page.RowsQuery, "@construction_filter_value") {
-				t.Fatalf("selected-root execution lost the construction %s predicate:\n%s", tc.name, page.RowsQuery)
+			if !strings.Contains(testAQLText(t, page.Rows), "@construction_filter_value") {
+				t.Fatalf("selected-root execution lost the construction %s predicate:\n%s", tc.name, testAQLText(t, page.Rows))
 			}
-			for label, bindVars := range map[string]map[string]any{"root keys": page.RootKeysBindVars, "selected rows": page.RowsBindVars} {
+			for label, bindVars := range map[string]map[string]any{"root keys": testAQLBinds(t, page.RootKeys), "selected rows": testAQLBinds(t, page.Rows)} {
 				if got := bindVars["construction_filter_value"]; !reflect.DeepEqual(got, tc.wantBind) {
 					t.Fatalf("%s %s bind = %#v, want %#v", label, tc.name, got, tc.wantBind)
 				}

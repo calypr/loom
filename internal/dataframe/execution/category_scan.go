@@ -94,7 +94,7 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	if compiled.OverflowWitness != nil {
 		witnessCount := 0
 		missing := false
-		err := queryRows(ctx, compiled.OverflowWitness.Query, e.batchSize, compiled.OverflowWitness.BindVars, func(row map[string]any) error {
+		err := queryRows(ctx, compiled.OverflowWitness.Command, e.batchSize, func(row map[string]any) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -122,7 +122,7 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 			return CategoryScanResult{ConclusiveMissing: true, Proof: compiled.Proof}, nil
 		}
 	}
-	err := queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

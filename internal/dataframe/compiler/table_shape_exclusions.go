@@ -33,8 +33,7 @@ func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
 // derived from one finalized output plan. It has no caller-supplied paths or
 // query fragments.
 type CompiledTableShapeExclusionQuery struct {
-	Query                string
-	BindVars             map[string]any
+	Command              CompiledCommand
 	ResourceTypeField    string
 	ResourceIDField      string
 	IdentityStatusField  string
@@ -138,8 +137,12 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 	if strings.TrimSpace(output.Name) == "" {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
 	}
+	command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	if commandErr != nil {
+		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("tag table-shape exclusion command: %w", commandErr)
+	}
 	return CompiledTableShapeExclusionQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:              command,
 		ResourceTypeField:    ir.PhysicalTableShapeExclusionResourceTypeField,
 		ResourceIDField:      ir.PhysicalTableShapeExclusionResourceIDField,
 		IdentityStatusField:  ir.PhysicalTableShapeExclusionIdentityStatusField,

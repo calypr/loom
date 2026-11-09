@@ -11,7 +11,7 @@ import (
 
 func compiledTableShapeExclusionPage(offset, limit int) compiler.CompiledTableShapeExclusionQuery {
 	return compiler.CompiledTableShapeExclusionQuery{
-		Query: "exclusions", BindVars: map[string]any{"offset": offset, "limit": limit}, Offset: offset, Limit: limit,
+		Command: mustAQLCommand("exclusions", map[string]any{"offset": offset, "limit": limit}), Offset: offset, Limit: limit,
 		ResourceTypeField: "resourceType", ResourceIDField: "resourceId", IdentityStatusField: "identityStatus",
 		CategoryValueField: "categoryValue", CategoryPresentField: "categoryPresent", CategoryTypeField: "categoryType",
 		OutputRowIDField: "outputRowId", ReasonField: "reason", OmissionField: "omission",
@@ -26,7 +26,12 @@ func TestTableShapeExclusionsCompiledPagesExactTypedRows(t *testing.T) {
 		tableShapeExclusionRow("Observation", "null", true, nil, "STRING", "row-null"),
 		tableShapeExclusionRow("Observation", "missing", false, nil, "STRING", "row-missing"),
 	}
-	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		query, binds, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		if query != "exclusions" || binds["offset"] != 0 || binds["limit"] != 10 {
 			t.Fatalf("unexpected query invocation %q %#v", query, binds)
 		}
@@ -65,7 +70,12 @@ func TestTableShapeExclusionsCompiledPagesAndMarksIdentityOmissionIncomplete(t *
 		tableShapeExclusionRow("", "", false, "not-a-real-id", "STRING", "row-three"),
 	}
 	makeEngine := func() *Engine {
-		return &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+		return &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			query, binds, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if query != "exclusions" {
 				t.Fatalf("query = %q", query)
 			}
@@ -98,7 +108,12 @@ func TestTableShapeExclusionsCompiledPagesAndMarksIdentityOmissionIncomplete(t *
 }
 
 func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		_ = visit(tableShapeExclusionRow("Observation", "good", true, "a", "STRING", "row-a"))
 		return visit(map[string]any{"categoryPresent": "not-bool"})
 	}}
@@ -109,7 +124,12 @@ func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t
 }
 
 func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
-	engine := testEngine(func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+	engine := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		t.Fatal("refused table-shape diagnostics must not execute a query")
 		return nil
 	})

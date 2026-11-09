@@ -722,11 +722,11 @@ func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, trace.Query, 500, trace.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, trace.Command), 500, testAQLBinds(t, trace.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute %s cell trace: %v\n%s", column, err, trace.Query)
+		t.Fatalf("execute %s cell trace: %v\n%s", column, err, testAQLText(t, trace.Command))
 	}
 	project, _ := output.Plan.BindVars["project"].(string)
 	return trace, oracleTraceResultsByIdentity(t, rows, trace, project)

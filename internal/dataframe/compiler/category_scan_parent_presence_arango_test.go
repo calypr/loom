@@ -64,7 +64,7 @@ FOR document IN Observation
 	if !scan.Proof.PresenceTracked || scan.OverflowWitness == nil || scan.Proof.OverflowWitnessFingerprint == "" {
 		t.Fatalf("root category scan proof = %+v, overflow witness present=%t; want tracked parent presence and a fingerprinted witness", scan.Proof, scan.OverflowWitness != nil)
 	}
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scan.Query, BindVars: scan.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: scan.Command})
 	got := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		present, ok := row[scan.PresentColumn].(bool)
@@ -125,13 +125,13 @@ FOR document IN Observation
 		t.Fatalf("overflow scan proof = %+v, witness=%+v; want a presence-aware overflow witness", overflowScan.Proof, overflowScan.OverflowWitness)
 	}
 	witnessRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
-		Query: overflowScan.OverflowWitness.Query, BindVars: overflowScan.OverflowWitness.BindVars,
+		Command: overflowScan.OverflowWitness.Command,
 	})
 	if len(witnessRows) != 1 || witnessRows[0][overflowScan.PresentColumn] != false || witnessRows[0][overflowScan.ValueColumn] != nil {
 		t.Fatalf("overflow witness rows = %#v, want one MISSING category witness", witnessRows)
 	}
 
-	overflowRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: overflowScan.Query, BindVars: overflowScan.BindVars})
+	overflowRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: overflowScan.Command})
 	if len(overflowRows) != MaxCategoryScanValues+1 {
 		t.Fatalf("category scan returned %d rows at the overflow boundary, want %d (256 values plus one witness row)", len(overflowRows), MaxCategoryScanValues+1)
 	}

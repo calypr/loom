@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"reflect"
 	"sort"
@@ -110,9 +111,14 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }
+	queryRows := func(context.Context, compiler.CompiledCommand, int, dataframeexecution.RowVisitor) error { return nil }
 	if rowClient != nil {
-		queryRows = func(ctx context.Context, query string, batch int, variables map[string]any, visit func(map[string]any) error) error {
+		queryRows = func(ctx context.Context, command compiler.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+			query, variables, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return rowClient.QueryRows(ctx, query, batch, variables, storearango.RowVisitor(visit))
 		}
 	}
