@@ -343,7 +343,10 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 }
 
 // resolveValue maps one plan value onto either a trusted column expression
-// or a parameterized JSONB payload path over its row alias.
+// or a parameterized JSONB payload path over its row alias. Payload paths
+// are bound through documentPathExpression (null_semantics.go), the
+// package's single path-binding authority, so extraction and comparison
+// paths can never drift apart.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 	scope, ok := r.rows[value.Variable]
 	if !ok {
@@ -352,19 +355,7 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
 		return scope.alias + "." + r.storage.Resource.MustColumn(value.Path[0]).SQLText(), nil
 	}
-	// PostgreSQL 18 defines #> only for text[] paths. The whole document path
-	// is bound as one text[] parameter (a validated array literal), so paths
-	// never become SQL text. Segments were already frozen by ir.Validate; the
-	// renderer re-checks them so a future loosening upstream cannot make an
-	// array literal ambiguous.
-	for _, segment := range value.Path {
-		if !payloadPathSegmentPattern.MatchString(segment) {
-			return "", fmt.Errorf("%w: payload path segment %q is not renderer-safe", ErrUnsupportedPostgresPlan, segment)
-		}
-	}
-	pathLiteral := "{" + strings.Join(value.Path, ",") + "}"
-	return scope.alias + "." + r.storage.Resource.MustColumn("payload").SQLText() +
-		" #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
+	return r.documentPathExpression(scope.alias, value.Path)
 }
 
 // payloadPathSegmentPattern re-checks the frozen ir path contract at the
@@ -641,40 +632,56 @@ func (r *planRenderer) renderLimit(plan ir.PhysicalPlan, limit ir.PhysicalLimit)
 	return nil
 }
 
+// renderReturn assembles the positional projection list. Every projection
+// first passes classifyExtractionProjections (selectors.go) — the single
+// projection-contract definition, applied with the renderer's own row
+// bindings — and is then emitted from its classification: direct values and
+// VALUE expressions through resolveValue, selector extractions and presence
+// sidecars through the canonical mappings in null_semantics.go.
 func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
 	if len(ret.Projections) == 0 {
 		return fmt.Errorf("%w: RETURN requires at least one projection", ErrUnsupportedPostgresPlan)
 	}
-	for _, projection := range ret.Projections {
-		if strings.TrimSpace(projection.Name) == "" {
-			return fmt.Errorf("%w: projection names are required output metadata (never SQL text)", ErrUnsupportedPostgresPlan)
-		}
-		if projection.Presence != nil || projection.PresenceOutput || projection.Hidden {
-			return fmt.Errorf("%w: presence sidecars and hidden projections are not yet implemented for PostgreSQL",
-				ErrUnsupportedPostgresPlan)
-		}
-		var value *ir.PhysicalValue
-		if projection.Expression != nil {
-			hasDirectValue := projection.Value.Variable != "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 0
-			if projection.Expression.Kind != ir.PhysicalValueExpression || projection.Expression.Value == nil || hasDirectValue {
-				return fmt.Errorf("%w: projection expressions must be exactly one VALUE expression", ErrUnsupportedPostgresPlan)
+	classified, err := classifyExtractionProjections(ret.Projections, func(variable string) (string, bool) {
+		scope, ok := r.rows[variable]
+		return scope.resourceType, ok
+	})
+	if err != nil {
+		return err
+	}
+	for _, projection := range classified {
+		var expression string
+		switch projection.kind {
+		case extractionDirectValue, extractionValueExpression:
+			value := projection.projection.Value
+			if projection.kind == extractionValueExpression {
+				value = *projection.projection.Expression.Value
 			}
-			value = projection.Expression.Value
-		} else if projection.Value.Variable != "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 0 {
-			value = &projection.Value
-		}
-		if value == nil || value.BindKey != "" {
-			return fmt.Errorf("%w: projection %q must read exactly one typed row value", ErrUnsupportedPostgresPlan, projection.Name)
-		}
-		expression, err := r.resolveValue(*value)
-		if err != nil {
-			return fmt.Errorf("projection %q: %w", projection.Name, err)
-		}
-		if isPayloadExpression(expression) {
-			expression = "(" + expression + ")"
+			resolved, err := r.resolveValue(value)
+			if err != nil {
+				return fmt.Errorf("projection %q: %w", projection.projection.Name, err)
+			}
+			expression = resolved
+			if isPayloadExpression(expression) {
+				expression = "(" + expression + ")"
+			}
+		case extractionSelector:
+			scope := r.rows[projection.expression.Extract.Source.Variable]
+			value, err := r.scalarExtractValueExpression(scope.alias, projection.path, projection.expression.NullBehavior)
+			if err != nil {
+				return fmt.Errorf("projection %q: %w", projection.projection.Name, err)
+			}
+			expression = value
+		case extractionPresenceSidecar:
+			scope := r.rows[projection.presence.Source.Variable]
+			presence, err := r.propertyPresenceExpression(scope.alias, projection.presencePath)
+			if err != nil {
+				return fmt.Errorf("presence projection %q: %w", projection.projection.Name, err)
+			}
+			expression = presence
 		}
 		r.selects = append(r.selects, expression+` AS "c`+strconv.Itoa(len(r.selects))+`"`)
-		r.outputColumns = append(r.outputColumns, projection.Name)
+		r.outputColumns = append(r.outputColumns, projection.projection.Name)
 	}
 	return nil
 }
