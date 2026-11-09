@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  DATASET_INTEGRATION_PACKAGE,
+  DATASET_INTEGRATION_TESTS,
   EXPECTED_CHECKS,
   NAMESPACE_PREFIX,
   PROBE_SOURCE,
@@ -22,14 +24,22 @@ import {
 
 const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/loom_test?sslmode=disable';
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
-const passingGo = () => ({
+const passingGo = (args = []) => ({
   status: 0,
-  stdout: events([
-    { Action: 'run', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST },
-    { Action: 'output', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST, Output: 'ok' },
-    { Action: 'pass', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST },
-    { Action: 'pass', Package: 'pkg' },
-  ]),
+  stdout: events(args.at(-1) === DATASET_INTEGRATION_PACKAGE
+    ? [
+      ...DATASET_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'datasetpkg', Test: name },
+        { Action: 'pass', Package: 'datasetpkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'datasetpkg' },
+    ]
+    : [
+      { Action: 'run', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST },
+      { Action: 'output', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST, Output: 'ok' },
+      { Action: 'pass', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST },
+      { Action: 'pass', Package: 'pkg' },
+    ]),
   stderr: '',
 });
 
@@ -49,7 +59,7 @@ function harness({ probe, go, composeProbe, env = { LOOM_TEST_POSTGRES_URL: ADMI
   const goCalls = [];
   const goTest = (args, childEnv) => {
     goCalls.push({ args, childEnv });
-    return go ? go(args, childEnv) : passingGo();
+    return go ? go(args, childEnv) : passingGo(args);
   };
   const composeCalls = [];
   const defaultComposeProbe = (command, args) => {
@@ -204,17 +214,73 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 1);
+  assert.equal(goCalls.length, 2, 'both the pg-store-01 and the dataset lane must run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration']);
+  // The dataset lane runs whole-package: no -run filter, same propagated URL.
+  assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
+  assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
+  assert.ok(!goCalls[1].args.includes('-run'), 'whole-package execution is the never-skipped guarantee');
+  assert.ok(goCalls[1].args.includes('-json') && goCalls[1].args.includes('-count=1'));
+  assert.deepEqual(evidence.datasetIntegration.anchors, [...DATASET_INTEGRATION_TESTS]);
+  for (const name of DATASET_INTEGRATION_TESTS) assert.ok(evidence.datasetIntegration.passes.includes(name));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
   assert.ok(readFileSync(join(out, 'integration.jsonl'), 'utf8').includes(REQUIRED_INTEGRATION_TEST));
+  assert.ok(readFileSync(join(out, 'dataset-integration.jsonl'), 'utf8').includes(DATASET_INTEGRATION_TESTS[0]));
+});
+
+test('a failing dataset lane fails the run and its evidence is still scrubbed', async () => {
+  const { goCalls, out, run } = harness({
+    go: args => args.at(-1) === DATASET_INTEGRATION_PACKAGE
+      ? { status: 1, stdout: events([{ Action: 'fail', Package: 'datasetpkg' }]), stderr: `connection refused for ${ADMIN_URL}` }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /internal\/dataset\/postgres real-PG suite failed/);
+  assert.equal(goCalls.length, 2, 'the dataset lane must actually be attempted after pg-store-01 passes');
+  assert.ok(!('datasetIntegration' in evidence), 'a failed lane records no pass evidence');
+  assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');
+  const stderr = readFileSync(join(out, 'dataset-integration.stderr'), 'utf8');
+  assert.ok(!stderr.includes('s3cret-test-password'), 'dataset lane evidence must be credential-free');
+  assert.ok(stderr.includes('[redacted]'), 'dataset lane evidence must record the redaction');
+});
+
+test('a dataset lane that skips any case is a blocker, never acceptance', async () => {
+  const { out, run } = harness({
+    go: args => args.at(-1) === DATASET_INTEGRATION_PACKAGE
+      ? {
+        status: 0,
+        stdout: events([
+          { Action: 'run', Package: 'datasetpkg', Test: DATASET_INTEGRATION_TESTS[0] },
+          { Action: 'skip', Package: 'datasetpkg', Test: DATASET_INTEGRATION_TESTS[0] },
+          { Action: 'pass', Package: 'datasetpkg' },
+        ]),
+        stderr: '',
+      }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed', 'a skipped dataset case cannot masquerade as real-PG acceptance');
+  assert.match(evidence.error, new RegExp(DATASET_INTEGRATION_TESTS[0]));
+});
+
+test('a dataset lane that never runs an anchor case fails the run', async () => {
+  const { out, run } = harness({
+    go: args => args.at(-1) === DATASET_INTEGRATION_PACKAGE
+      ? { status: 0, stdout: events([{ Action: 'pass', Package: 'datasetpkg' }]), stderr: '' }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /did not run/);
 });
 
 test('a non-18 server fails readiness before any namespace is created', async () => {
