@@ -150,7 +150,7 @@ func (f *pgState02Fixture) rawInsertReceipt(t *testing.T, receipt explorer.Compi
 	if err != nil {
 		f.fail("encode raw receipt fixture", err)
 	}
-	_, err = f.iso.Exec(f.ctx, pgstate02RawReceiptInsert(f.schema), receiptArgs(receipt, doc)...)
+	_, err = f.iso.Exec(f.ctx, pgstate02RawReceiptInsert(f.schema), compilationReceiptArgs(receipt, doc)...)
 	if err != nil {
 		f.fail("raw insert receipt "+receipt.ID, err)
 	}
@@ -230,20 +230,20 @@ func TestPostgresReceiptSQLContract(t *testing.T) {
 			t.Errorf("receipt %s statement is not tenant-scoped by project AND explorer_id: %s", name, statement)
 		}
 	}
-	for i := 1; i <= len(receiptColumns); i++ {
+	for i := 1; i <= len(compilationReceiptColumns); i++ {
 		if !strings.Contains(statements.insert, fmt.Sprintf("$%d", i)) {
 			t.Fatalf("receipt insert is missing ordered parameter $%d", i)
 		}
 	}
-	if strings.Contains(statements.insert, fmt.Sprintf("$%d", len(receiptColumns)+1)) {
-		t.Fatalf("receipt insert carries more than %d parameters", len(receiptColumns))
+	if strings.Contains(statements.insert, fmt.Sprintf("$%d", len(compilationReceiptColumns)+1)) {
+		t.Fatalf("receipt insert carries more than %d parameters", len(compilationReceiptColumns))
 	}
 	doc, err := json.Marshal(pgstate02LegacyReceipt("legacy-1", "intent"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := len(receiptArgs(pgstate02LegacyReceipt("legacy-1", "intent"), doc)); got != len(receiptColumns) {
-		t.Fatalf("receiptArgs produced %d values, want %d (one per column)", got, len(receiptColumns))
+	if got := len(compilationReceiptArgs(pgstate02LegacyReceipt("legacy-1", "intent"), doc)); got != len(compilationReceiptColumns) {
+		t.Fatalf("receiptArgs produced %d values, want %d (one per column)", got, len(compilationReceiptColumns))
 	}
 }
 
@@ -570,7 +570,7 @@ func TestPostgresReceiptUncommittedWinnerClaimTwoConnections(t *testing.T) {
 		if err != nil {
 			f.fail("begin raw claim transaction", err)
 		}
-		if _, err := tx.Exec(f.ctx, rawInsert, receiptArgs(winner, winnerDoc)...); err != nil {
+		if _, err := tx.Exec(f.ctx, rawInsert, compilationReceiptArgs(winner, winnerDoc)...); err != nil {
 			tx.Rollback(f.ctx)
 			f.fail("raw claim insert on A", err)
 		}
@@ -671,7 +671,7 @@ func TestPostgresReceiptUncommittedWinnerClaimTwoConnections(t *testing.T) {
 		if err != nil {
 			f.fail("begin raw claim transaction (abort case)", err)
 		}
-		if _, err := tx.Exec(f.ctx, rawInsert, receiptArgs(abortWinner, abortDoc)...); err != nil {
+		if _, err := tx.Exec(f.ctx, rawInsert, compilationReceiptArgs(abortWinner, abortDoc)...); err != nil {
 			tx.Rollback(f.ctx)
 			f.fail("raw claim insert on A (abort case)", err)
 		}

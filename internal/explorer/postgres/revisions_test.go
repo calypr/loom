@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -1243,13 +1244,14 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 
 // TestPostgresExplorerStateMigrationsRerunConverges proves the extended
 // history (ledger + owner + receipts + revisions) reruns as a no-op that
-// preserves all state and keeps the ledger pinned to the five embedded
-// checksums.
+// preserves all state and keeps the ledger pinned to the six
+// composed checksums (five embedded + the #81-owned capability fixture at
+// version 4).
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	f := newPGState02Fixture(t)
 	first := f.migrate(t)
-	if len(first.Applied) != 5 || first.LatestVersion != 6 {
-		t.Fatalf("first migration result = %+v, want 5 ledger rows ending at version 6", first)
+	if len(first.Applied) != 6 || first.LatestVersion != 6 {
+		t.Fatalf("first migration result = %+v, want 6 ledger rows ending at version 6 (the shared ledger includes the #81 capability fixture at version 4)", first)
 	}
 
 	writer := f.newStore(t)
@@ -1267,8 +1269,8 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 
 	second := f.migrate(t)
-	if len(second.Applied) != 5 || second.LatestVersion != 6 {
-		t.Fatalf("rerun result = %+v, want the identical 5-row ledger ending at version 6 (all recorded, nothing re-run)", second)
+	if len(second.Applied) != 6 || second.LatestVersion != 6 {
+		t.Fatalf("rerun result = %+v, want the identical 6-row ledger ending at version 6 (all recorded, nothing re-run)", second)
 	}
 
 	rows, err := f.iso.Query(f.ctx, `SELECT version, name, checksum FROM `+
@@ -1294,10 +1296,12 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger", err)
 	}
-	migrations, err := OwnerMigrations()
+	ownerHistory, err := OwnerMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
+	migrations := append(append([]pgstore.Migration{}, ownerHistory...), pgstate02CapabilityFixtureMigration(t))
+	sort.Slice(migrations, func(i, j int) bool { return migrations[i].Version < migrations[j].Version })
 	if len(ledger) != len(migrations) {
 		t.Fatalf("ledger holds %d rows, want %d", len(ledger), len(migrations))
 	}

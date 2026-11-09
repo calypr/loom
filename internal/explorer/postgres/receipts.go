@@ -50,11 +50,12 @@ const (
 // surface it.
 var ErrReceiptClaimLost = errors.New("postgres explorer store: receipt insert lost every claim race to an aborted winner")
 
-// receiptColumns is the single source of truth for column order: the INSERT
+// compilationReceiptColumns is the single source of truth for the compilation
+// receipts column order: the INSERT
 // column list, the RETURNING/SELECT column list, the argument order, and the
 // scan order all derive from it, so ordered SQL parameters ($1..$N) match
 // the Go argument slice by construction.
-var receiptColumns = []string{
+var compilationReceiptColumns = []string{
 	"project",
 	"explorer_id",
 	"id",
@@ -78,8 +79,8 @@ type receiptStatements struct {
 
 func newReceiptStatements(schema string) receiptStatements {
 	table := sanitizeTableRef(schema, ReceiptsTable)
-	cols := strings.Join(receiptColumns, ", ")
-	placeholders := orderedPlaceholders(len(receiptColumns))
+	cols := strings.Join(compilationReceiptColumns, ", ")
+	placeholders := orderedPlaceholders(len(compilationReceiptColumns))
 	scope := " WHERE project = $1 AND explorer_id = $2 AND id = $3"
 	return receiptStatements{
 		insert: "INSERT INTO " + table + " (" + cols + ") VALUES (" + placeholders + ") " +
@@ -107,7 +108,7 @@ type storedReceipt struct {
 }
 
 // scanReceipt decodes one row into a storedReceipt. Targets follow
-// receiptColumns order.
+// compilationReceiptColumns order.
 func scanReceipt(row rowScanner, out *storedReceipt) error {
 	return row.Scan(
 		&out.Project,
@@ -125,9 +126,9 @@ func scanReceipt(row rowScanner, out *storedReceipt) error {
 	)
 }
 
-// receiptArgs maps a receipt and its pre-encoded document to column values
-// in receiptColumns order.
-func receiptArgs(receipt explorer.CompilationReceipt, doc []byte) []any {
+// compilationReceiptArgs maps a receipt and its pre-encoded document to column values
+// in compilationReceiptColumns order.
+func compilationReceiptArgs(receipt explorer.CompilationReceipt, doc []byte) []any {
 	return []any{
 		receipt.Project,
 		receipt.ExplorerID,
@@ -259,7 +260,7 @@ func (s *Store) InsertCompilationReceipt(ctx context.Context, receipt explorer.C
 // attempt should be retried or surfaced.
 func (s *Store) claimedReceipt(ctx context.Context, conn *pgxpool.Conn, receipt explorer.CompilationReceipt, doc []byte, wantKey string) (*explorer.CompilationReceipt, error) {
 	var row storedReceipt
-	err := scanReceipt(conn.QueryRow(ctx, s.receipt.insert, receiptArgs(receipt, doc)...), &row)
+	err := scanReceipt(conn.QueryRow(ctx, s.receipt.insert, compilationReceiptArgs(receipt, doc)...), &row)
 	if err == nil {
 		// This writer won the claim: verify what PostgreSQL persisted and
 		// return it, never the in-memory input.
