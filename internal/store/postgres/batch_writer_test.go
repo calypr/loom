@@ -1604,10 +1604,16 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 	if err != nil {
 		s.fail("first MigrateSchema", err)
 	}
-	if first.LatestVersion != 8 {
-		t.Fatalf("latest version = %d, want 8", first.LatestVersion)
+	// pg-catalog-05 appends migration 9 after batch_write_ledger, so the
+	// newest applied version is 9; this test pins its own migration 8 row
+	// by identity, not by position.
+	if first.LatestVersion != 9 {
+		t.Fatalf("latest version = %d, want 9", first.LatestVersion)
 	}
-	last := first.Applied[len(first.Applied)-1]
+	if len(first.Applied) < 8 {
+		t.Fatalf("applied %d migrations, want at least 8", len(first.Applied))
+	}
+	last := first.Applied[7]
 	if last.Version != 8 || last.Name != "batch_write_ledger" ||
 		last.Checksum != wantEmbeddedChecksums[8].checksum {
 		t.Fatalf("applied row 8 = %+v, want the pinned batch_write_ledger row", last)
@@ -1626,10 +1632,14 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 		t.Fatalf("ledger rows for version 8 = %d, want exactly 1 after double apply", n)
 	}
 
-	// Crash window the runner documents: a committed migration whose
-	// ledger row was lost. Re-applying must converge (the DDL is IF NOT
-	// EXISTS) and re-record the row exactly once.
-	s.exec(t, "DELETE FROM "+s.qualified(LedgerTable)+" WHERE version = 8")
+	// Crash window the runner documents: committed migrations whose ledger
+	// rows were lost. Re-applying must converge (the DDL is IF NOT EXISTS)
+	// and re-record each row exactly once. The loss must cover the whole
+	// trailing tail (version 8 and the pg-catalog-05 version 9): the
+	// runner refuses to re-record a middle version while a later one is
+	// still recorded, which is exactly the history-edit guard this ticket
+	// relies on.
+	s.exec(t, "DELETE FROM "+s.qualified(LedgerTable)+" WHERE version >= 8")
 	third, err := MigrateSchema(s.ctx, client, s.schema)
 	if err != nil {
 		s.fail("third MigrateSchema after lost ledger row", err)
@@ -1656,6 +1666,11 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 		"SELECT count(*) FROM "+s.qualified(LedgerTable)+" WHERE version = 8 AND checksum = $1",
 		wantEmbeddedChecksums[8].checksum); n != 1 {
 		t.Fatalf("ledger rows for version 8 after convergence = %d, want exactly 1", n)
+	}
+	if n := s.mustInt64(t,
+		"SELECT count(*) FROM "+s.qualified(LedgerTable)+" WHERE version = 9 AND checksum = $1",
+		wantEmbeddedChecksums[9].checksum); n != 1 {
+		t.Fatalf("ledger rows for version 9 after convergence = %d, want exactly 1", n)
 	}
 
 	// The converged schema is functional: a real batch commits through it.
