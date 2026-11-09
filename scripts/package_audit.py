@@ -85,6 +85,8 @@ RESPONSIBILITIES = {
     "internal/dataframe/recipe": "Define, canonicalize, expand, encode, and validate persistence-neutral recipe documents.",
     "internal/dataframe/recipe/exec": "Define durable recipe-version storage contracts and immutable registration behavior.",
     "internal/dataframe/recipe/exec/arango": "Persist recipe versions and execution-use records in ArangoDB.",
+    "internal/dataframe/recipe/exec/postgres": "Persist immutable recipe registrations and fenced execution-occurrence usage markers in the PostgreSQL 18 control plane.",
+    "internal/dataframe/recipe/postgres": "Persist project recipe revision chains with CAS head tracking in the PostgreSQL 18 control plane.",
     "internal/dataframe/recipe/schema": "Resolve catalog-backed recipe declarations into concrete validated schemas.",
     "internal/dataframe/semantic": "Convert validated dataframe requests and recipes into backend-neutral logical FHIR plans.",
     "internal/dataframe/spec": "Define the backend-independent dataframe request, filter, grain, relationship, and selector language.",
