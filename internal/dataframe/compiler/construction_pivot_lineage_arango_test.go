@@ -80,7 +80,7 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 			if err != nil {
 				t.Fatalf("compile Pivot row lineage: %v", err)
 			}
-			err = client.QueryRows(ctx, lineage.Query, 32, lineage.BindVars, func(map[string]any) error { return nil })
+			err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })
 			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
 				t.Fatalf("row lineage error = %v, want global Pivot policy error %s", err, test.wantErrorCode)
 			}
@@ -145,8 +145,8 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 			t.Fatalf("compile Pivot row-lineage page at %d: %v", offset, compileErr)
 		}
 		for _, want := range []string{"root.project == @project", "root.dataset_generation == @dataset_generation", "LIMIT @row_lineage_offset, @row_lineage_fetch_limit"} {
-			if !strings.Contains(query.Query, want) {
-				t.Errorf("Pivot row-lineage query lost source scope or bounded paging contract %q:\n%s", want, query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), want) {
+				t.Errorf("Pivot row-lineage query lost source scope or bounded paging contract %q:\n%s", want, testAQLText(t, query.Command))
 			}
 		}
 		return query

@@ -78,14 +78,18 @@ type CategoryScanProof struct {
 	Fingerprint                string
 }
 
+// CategoryOverflowWitness is the bounded confirmation query for a category
+// scan overflow claim. Command is a parent-tagged AQL command; the witness is
+// executed only through the AQL row-stream adapter.
 type CategoryOverflowWitness struct {
-	Query    string
-	BindVars map[string]any
+	Command CompiledCommand
 }
 
+// CompiledCategoryScanQuery is a bounded distinct-value scan. Command is the
+// single parent-tagged executable; loose rendered text and named binds are
+// never carried as execution fields.
 type CompiledCategoryScanQuery struct {
-	Query                string
-	BindVars             map[string]any
+	Command              CompiledCommand
 	PresentColumn        string
 	ValueColumn          string
 	Proof                CategoryScanProof
@@ -298,7 +302,11 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 				witnessBinds := cloneCategoryScanBinds(witness.BindVars)
 				witnessBinds[categoryColumnBind] = column.Name
 				witnessBinds[categoryLimitBind] = maxValues + 1
-				overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
+				witnessCommand, witnessCommandErr := NewAQLCommand(witnessQuery, witnessBinds)
+				if witnessCommandErr != nil {
+					return CompiledCategoryScanQuery{}, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
+				}
+				overflowWitness = &CategoryOverflowWitness{Command: witnessCommand}
 			}
 		}
 	}
@@ -324,7 +332,11 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		QueryFingerprint: queryDigest, PresenceTracked: column.PresenceCompanionName != "" || relatedEligible || categoryScanDirectRootSource(physical, column),
 	}
 	if overflowWitness != nil {
-		proof.OverflowWitnessFingerprint, err = categoryQueryFingerprint(overflowWitness.Query, overflowWitness.BindVars)
+		witnessText, witnessBinds, witnessDispatchErr := overflowWitness.Command.AQLParameters()
+		if witnessDispatchErr != nil {
+			return CompiledCategoryScanQuery{}, fmt.Errorf("dispatch category overflow witness to AQL fingerprinting: %w", witnessDispatchErr)
+		}
+		proof.OverflowWitnessFingerprint, err = categoryQueryFingerprint(witnessText, witnessBinds)
 		if err != nil {
 			return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category overflow witness: %w", err)
 		}
@@ -339,8 +351,12 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan proof: %w", err)
 	}
+	command, commandErr := NewAQLCommand(query, bindVars)
+	if commandErr != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("tag category scan command: %w", commandErr)
+	}
 	return CompiledCategoryScanQuery{
-		Query: query, BindVars: bindVars, PresentColumn: "present", ValueColumn: "value",
+		Command: command, PresentColumn: "present", ValueColumn: "value",
 		Proof: proof, Diagnostics: diagnostics, CategoryIndex: categoryIndex,
 		PreviewCoveringIndex: previewCoveringIndex, OverflowWitness: overflowWitness,
 	}, nil
@@ -727,7 +743,11 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	delete(witnessBinds, categoryLimitBind)
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+	witnessCommand, witnessCommandErr := NewAQLCommand(witnessQuery, witnessBinds)
+	if witnessCommandErr != nil {
+		return "", nil, nil, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
+	}
+	return query, bindVars, &CategoryOverflowWitness{Command: witnessCommand}, nil
 }
 
 func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootScan, valueExpression string, valuePath []string, bindVars map[string]any, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
@@ -768,7 +788,11 @@ func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootS
 	delete(witnessBinds, categoryLimitBind)
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+	witnessCommand, witnessCommandErr := NewAQLCommand(witnessQuery, witnessBinds)
+	if witnessCommandErr != nil {
+		return "", nil, nil, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
+	}
+	return query, bindVars, &CategoryOverflowWitness{Command: witnessCommand}, nil
 }
 
 func categoryScanUsesStoredQuantityParent(index *PreviewCoveringIndexSpec, valuePath []string) bool {

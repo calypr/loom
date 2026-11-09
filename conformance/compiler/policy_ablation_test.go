@@ -23,7 +23,11 @@ func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, co
 		return arango.ExplainResult{}, err
 	}
 	defer client.Close(ctx)
-	return client.Explain(ctx, arango.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
+	query, bindVars, err := compiled.Command.AQLParameters()
+	if err != nil {
+		return arango.ExplainResult{}, err
+	}
+	return client.Explain(ctx, arango.ExplainRequest{Query: query, BindVars: bindVars})
 }
 
 // TestGDCOptimizationPolicyAblationAgainstArango is opt-in because it reads
@@ -90,7 +94,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := make([]map[string]any, 0, 1000)
-			err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+			err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 				rows = append(rows, row)
 				return nil
 			})
@@ -122,7 +126,7 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 				}
 				t.Fatalf("result hash = %s, want %s", resultHash, expectedHash)
 			}
-			t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x rule_states=%#v", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), compiled.PlanDiagnostics.OptimizationPolicy.RuleStates)
+			t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x rule_states=%#v", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), compiled.PlanDiagnostics.OptimizationPolicy.RuleStates)
 		})
 	}
 }
@@ -187,7 +191,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -225,7 +229,7 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 				} else if resultHash != expectedHash {
 					t.Fatalf("%s result hash = %s, want %s", candidate.name, resultHash, expectedHash)
 				}
-				t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v shared=%d", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(compiled.Query)), warmMedian, warm[0], executeSeconds, compiled.PlanDiagnostics.SharedTraversalCount)
+				t.Logf("policy=%s rows=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v shared=%d", candidate.name, len(rows), resultHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), warmMedian, warm[0], executeSeconds, compiled.PlanDiagnostics.SharedTraversalCount)
 			}
 		})
 	}
@@ -294,7 +298,7 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, fixture.Limit)
 					executeStart := time.Now()
-					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})
@@ -328,8 +332,8 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 					t.Fatal(err)
 				}
 				assessment := arango.AssessExplainResult(explain)
-				preparedFields := strings.Count(compiled.Query, "__loom_prepared_")
-				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x prepared_tokens=%d warm_median=%0.6fs warm_min=%0.6fs runs=%#v indexes=%#v", candidate.name, len(rows), responseBytes, executionHash, sha256.Sum256([]byte(compiled.Query)), preparedFields, warm[len(warm)/2], warm[0], executeSeconds, assessment.Indexes)
+				preparedFields := strings.Count(testAQLText(t, compiled.Command), "__loom_prepared_")
+				t.Logf("policy=%s rows=%d response_bytes=%d hash=%s aql_sha256=%x prepared_tokens=%d warm_median=%0.6fs warm_min=%0.6fs runs=%#v indexes=%#v", candidate.name, len(rows), responseBytes, executionHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), preparedFields, warm[len(warm)/2], warm[0], executeSeconds, assessment.Indexes)
 			}
 		})
 	}
@@ -391,7 +395,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 			for run := 0; run < 5; run++ {
 				candidateRows := make([]map[string]any, 0, fixture.Limit)
 				start := time.Now()
-				err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+				err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 					candidateRows = append(candidateRows, row)
 					return nil
 				})
@@ -420,7 +424,7 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 				t.Fatal(err)
 			}
 			assessment := arango.AssessExplainResult(explain)
-			t.Logf("rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v rich_source_reuse=%#v rich_consumer_groups=%#v aql_for_loops=%d indexes=%#v", len(rows), responseBytes, resultHash, sha256.Sum256([]byte(compiled.Query)), warm[len(warm)/2], warm[0], executeSeconds, compiled.PlanDiagnostics.RichSourceReuse, compiled.PlanDiagnostics.RichConsumerGroups, strings.Count(compiled.Query, "FOR "), assessment.Indexes)
+			t.Logf("rows=%d response_bytes=%d hash=%s aql_sha256=%x warm_median=%0.6fs warm_min=%0.6fs runs=%#v rich_source_reuse=%#v rich_consumer_groups=%#v aql_for_loops=%d indexes=%#v", len(rows), responseBytes, resultHash, sha256.Sum256([]byte(testAQLText(t, compiled.Command))), warm[len(warm)/2], warm[0], executeSeconds, compiled.PlanDiagnostics.RichSourceReuse, compiled.PlanDiagnostics.RichConsumerGroups, strings.Count(testAQLText(t, compiled.Command), "FOR "), assessment.Indexes)
 		})
 	}
 }
@@ -491,7 +495,7 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 				for run := 0; run < 5; run++ {
 					candidateRows := make([]map[string]any, 0, limit)
 					start := time.Now()
-					err = client.QueryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+					err = client.QueryRows(ctx, testAQLText(t, compiled.Command), 1000, testAQLBinds(t, compiled.Command), func(row map[string]any) error {
 						candidateRows = append(candidateRows, row)
 						return nil
 					})

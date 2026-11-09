@@ -9,7 +9,12 @@ import (
 )
 
 func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
-	engine := &Engine{batchSize: 32, queryRows: func(_ context.Context, query string, batchSize int, binds map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{batchSize: 32, queryRows: func(_ context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+		query, binds, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		if batchSize != 32 || query != "row-lineage-query" || binds["row_id"] != "row-7" {
 			t.Fatalf("unexpected query invocation: batch=%d query=%q binds=%#v", batchSize, query, binds)
 		}
@@ -22,8 +27,8 @@ func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
 		})
 	}}
 	result, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
-		Query: "row-lineage-query", BindVars: map[string]any{"row_id": "row-7"},
-		Offset: 24, Limit: 1, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+		Command: mustAQLCommand("row-lineage-query", map[string]any{"row_id": "row-7"}),
+		Offset:  24, Limit: 1, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -34,20 +39,30 @@ func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
 }
 
 func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"found": false, "contributors": []any{}, "hasMore": false})
 	}}
 	_, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
-		Query: "keyed-group-query", Limit: 25, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+		Command: mustAQLCommand("keyed-group-query", nil), Limit: 25, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if !errors.Is(err, ErrRowLineageRowNotFound) {
 		t.Fatalf("keyed zero-match Group error = %v, want row not found", err)
 	}
-	engine.queryRows = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine.queryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"found": true, "contributors": []any{}, "hasMore": false})
 	}
 	result, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
-		Query: "keyless-empty-group-query", Limit: 25, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+		Command: mustAQLCommand("keyless-empty-group-query", nil), Limit: 25, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,14 +73,19 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 }
 
 func TestRowLineageRejectsQueryResultsLargerThanRequestedPage(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"found": true, "contributors": []any{
 			map[string]any{"resourceType": "Observation", "resourceId": "one", "occurrenceKey": "one"},
 			map[string]any{"resourceType": "Observation", "resourceId": "two", "occurrenceKey": "two"},
 		}, "hasMore": false})
 	}}
 	_, err := engine.rowLineageCompiled(context.Background(), compiler.CompiledRowLineageQuery{
-		Query: "row-lineage-query", Limit: 1, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+		Command: mustAQLCommand("row-lineage-query", nil), Limit: 1, FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	})
 	if err == nil {
 		t.Fatal("row lineage accepted more contributors than the requested page size")

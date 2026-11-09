@@ -392,6 +392,15 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 	if actual.PreviewCoveringIndex == nil {
 		return errors.New("current production recompile has no PreviewCoveringIndexSpec")
 	}
+	// The golden comparison is a compiler-side diagnostic: the AQL text and
+	// bind map used for SHA-256 equality are derived from the recompiled
+	// command through closed dispatch, so the comparison digests exactly what
+	// the AQL adapter would receive and a non-AQL-tagged command is refused
+	// instead of being compared as AQL.
+	actualQuery, actualBindVars, dispatchErr := actual.Command.AQLParameters()
+	if dispatchErr != nil {
+		return fmt.Errorf("dispatch current production recompile to AQL comparison: %w", dispatchErr)
+	}
 	baseReceiptID := baseReceipt.ReceiptID
 	if baseReceiptID == "" || baseReceipt.RecipeDigest == "" {
 		return errors.New("captured reconcile response lacks saved base receipt identity")
@@ -404,16 +413,16 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 		return fmt.Errorf("current compiler index spec: %w", err)
 	}
 	queryComparison := queryComparison{
-		ExactAQLMatch: actual.Query == expected.Query, ExactBindVarsMatch: sameJSONValue(actual.BindVars, expected.BindVars),
-		CapturedAQLSHA256: digest([]byte(expected.Query)), RecompiledAQLSHA256: digest([]byte(actual.Query)),
-		CapturedBindsSHA256: digestJSON(expected.BindVars), RecompiledBindsSHA256: digestJSON(actual.BindVars),
-		FirstDifference:     firstQueryDifference(expected.Query, actual.Query),
-		FirstBindDifference: bindDifference(expected.BindVars, actual.BindVars),
+		ExactAQLMatch: actualQuery == expected.Query, ExactBindVarsMatch: sameJSONValue(actualBindVars, expected.BindVars),
+		CapturedAQLSHA256: digest([]byte(expected.Query)), RecompiledAQLSHA256: digest([]byte(actualQuery)),
+		CapturedBindsSHA256: digestJSON(expected.BindVars), RecompiledBindsSHA256: digestJSON(actualBindVars),
+		FirstDifference:     firstQueryDifference(expected.Query, actualQuery),
+		FirstBindDifference: bindDifference(expected.BindVars, actualBindVars),
 	}
 	var recompiledQueryBytes []byte
 	recompiledQuerySHA256 := ""
 	if compiledQueryOutPath != "" {
-		recompiledQueryBytes, err = encodeRecompiledQueryArtifact(actual.Query, actual.BindVars)
+		recompiledQueryBytes, err = encodeRecompiledQueryArtifact(actualQuery, actualBindVars)
 		if err != nil {
 			return fmt.Errorf("encode current recompiled query artifact: %w", err)
 		}
@@ -431,7 +440,7 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 			Algorithm: "sha256", Mode: "verified-go-run-source-closure-current-production-recompile-from-captured-base-and-candidate-request",
 			CapturedQueryFile: queryPath, CapturedQueryFileSHA256: digest(queryBytes),
 			CapturedAQLSHA256: digest([]byte(expected.Query)), CapturedBindVarsSHA256: digestJSON(expected.BindVars),
-			RecompiledAQLSHA256: digest([]byte(actual.Query)), RecompiledBindVarsSHA256: digestJSON(actual.BindVars),
+			RecompiledAQLSHA256: digest([]byte(actualQuery)), RecompiledBindVarsSHA256: digestJSON(actualBindVars),
 			RecompiledQueryFile: compiledQueryOutPath, RecompiledQueryFileSHA256: recompiledQuerySHA256,
 			CapturedBaseReceiptID: baseReceiptID, CapturedBaseRecipeDigest: baseReceipt.ResolvedRecipeDigest,
 			CandidateRequestSHA256: digest(proposalBody), CandidateIsRequestOnly: true,
@@ -1184,7 +1193,14 @@ func proveCandidateCorrespondence(base authoringv2.Workspace, proposal proposalR
 	if len(finalSchema) != len(publicSchema)+1 {
 		return candidateProof{}, fmt.Errorf("final output schema has %d columns including internal identity, want %d", len(finalSchema), len(publicSchema)+1)
 	}
-	if strings.Count(compiled.Query, "FOR root IN @@root_collection") != 1 || strings.Contains(compiled.Query, "FOR related") {
+	// The single-root-scan shape check inspects the AQL view derived through
+	// closed dispatch; a non-AQL-tagged recompile cannot satisfy a Pivot
+	// proof and is refused here.
+	compiledQueryText, _, compiledDispatchErr := compiled.Command.AQLParameters()
+	if compiledDispatchErr != nil {
+		return candidateProof{}, fmt.Errorf("dispatch current Pivot recompile to AQL shape check: %w", compiledDispatchErr)
+	}
+	if strings.Count(compiledQueryText, "FOR root IN @@root_collection") != 1 || strings.Contains(compiledQueryText, "FOR related") {
 		return candidateProof{}, errors.New("current Pivot query is not a single root scan without related-row expansion")
 	}
 	return candidateProof{

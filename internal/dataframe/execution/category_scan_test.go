@@ -20,7 +20,7 @@ import (
 
 func compiledCategoryScan(max int) compiler.CompiledCategoryScanQuery {
 	return compiler.CompiledCategoryScanQuery{
-		Query: "scan", BindVars: map[string]any{"column": "category"}, PresentColumn: "present", ValueColumn: "value",
+		Command: mustAQLCommand("scan", map[string]any{"column": "category"}), PresentColumn: "present", ValueColumn: "value",
 		Proof: compiler.CategoryScanProof{Version: 1, Output: "output", Column: "category", MaxValues: max, Fingerprint: "proof"},
 	}
 }
@@ -34,7 +34,12 @@ func TestScanCategoriesCompiledReportsCompleteAtBoundAndOverflowAtBoundPlusOne(t
 		{257, 256, false, true},
 	} {
 		t.Run(fmt.Sprintf("rows_%d", test.rows), func(t *testing.T) {
-			engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+			engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				query, binds, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				if query != "scan" || binds["column"] != "category" {
 					t.Fatalf("wrong invocation: %q %#v", query, binds)
 				}
@@ -67,9 +72,14 @@ func TestScanCategoriesCompiledUsesExactOverflowWitnessBeforeFullScan(t *testing
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			compiled := compiledCategoryScan(2)
-			compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness", BindVars: map[string]any{"scope": "same"}}
+			compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Command: mustAQLCommand("witness", map[string]any{"scope": "same"})}
 			fullScan := false
-			engine := &Engine{queryRows: func(_ context.Context, query string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+			engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				query, binds, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				if query == "witness" {
 					if binds["scope"] != "same" {
 						t.Fatalf("witness binds = %#v", binds)
@@ -114,7 +124,12 @@ func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *tes
 		{"present": true, "value": float64(0)},
 		{"present": true, "value": ""},
 	}
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		for _, row := range rows {
 			if err := visit(row); err != nil {
 				return err
@@ -135,9 +150,14 @@ func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *tes
 func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked(t *testing.T) {
 	compiled := compiledCategoryScan(4)
 	compiled.Proof.PresenceTracked = true
-	compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Query: "witness"}
+	compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Command: mustAQLCommand("witness", nil)}
 	mainScanned := false
-	engine := &Engine{queryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		query, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		switch query {
 		case "witness":
 			return visit(map[string]any{"present": false, "value": nil})
@@ -163,7 +183,12 @@ func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked
 
 func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	engine := &Engine{queryRows: func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		cancel()
 		return visit(map[string]any{"present": true, "value": "unreachable"})
 	}}
@@ -176,11 +201,21 @@ func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
 func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
 	called := false
 	engine := &Engine{
-		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			t.Fatal("category discovery used the unbounded execution query path")
 			return nil
 		},
-		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		previewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			query, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			called = true
 			if query != "scan" {
 				t.Fatalf("query = %q", query)
@@ -201,7 +236,12 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 	var prepareCalls atomic.Int32
 	var queryCalls atomic.Int32
 	engine := &Engine{
-		queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			t.Fatal("category discovery used the unbounded executor")
 			return nil
 		},
@@ -219,7 +259,12 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 				return ctx.Err()
 			}
 		},
-		previewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		previewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			query, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if query != "scan" {
 				t.Fatalf("query = %q", query)
 			}
@@ -291,7 +336,12 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	var query string
-	engine := &Engine{queryRows: func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		query = queryText
 		return visit(map[string]any{"present": true, "value": "final"})
 	}}
@@ -317,7 +367,12 @@ func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
 			prepared = true
 			return nil
 		},
-		queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if !prepared {
 				t.Fatal("category query ran before its index was prepared")
 			}

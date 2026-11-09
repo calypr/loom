@@ -44,8 +44,7 @@ func (err *RowLineageUnsupportedError) Error() string {
 var _ error = (*RowLineageUnsupportedError)(nil)
 
 type CompiledRowLineageQuery struct {
-	Query              string
-	BindVars           map[string]any
+	Command            CompiledCommand
 	Offset             int
 	Limit              int
 	FoundColumn        string
@@ -685,8 +684,12 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		if err != nil {
 			return CompiledRowLineageQuery{}, fmt.Errorf("render composed cohort row lineage: %w", err)
 		}
+		command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+		if commandErr != nil {
+			return CompiledRowLineageQuery{}, fmt.Errorf("tag composed cohort row lineage command: %w", commandErr)
+		}
 		return CompiledRowLineageQuery{
-			Query: rendered.Query, BindVars: rendered.BindVars, Offset: offset, Limit: limit,
+			Command: command, Offset: offset, Limit: limit,
 			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 		}, nil
 	}
@@ -701,8 +704,12 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		if err != nil {
 			return CompiledRowLineageQuery{}, fmt.Errorf("render explicit group row lineage: %w", err)
 		}
+		command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+		if commandErr != nil {
+			return CompiledRowLineageQuery{}, fmt.Errorf("tag explicit group row lineage command: %w", commandErr)
+		}
 		return CompiledRowLineageQuery{
-			Query: rendered.Query, BindVars: rendered.BindVars, Offset: offset, Limit: limit,
+			Command: command, Offset: offset, Limit: limit,
 			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 		}, nil
 	}
@@ -865,8 +872,12 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	if err != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("render row lineage physical plan: %w", err)
 	}
+	command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	if commandErr != nil {
+		return CompiledRowLineageQuery{}, fmt.Errorf("tag row lineage command: %w", commandErr)
+	}
 	return CompiledRowLineageQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars, Offset: offset, Limit: limit,
+		Command: command, Offset: offset, Limit: limit,
 		FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	}, nil
 }

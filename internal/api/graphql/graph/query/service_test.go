@@ -3,6 +3,7 @@ package queryapi
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"sync"
 	"testing"
@@ -75,7 +76,12 @@ type queryapiBackend struct {
 // queryRows blocks for cursorDelay before producing any row, which is the
 // execution service's ArangoQuery span. Inside a synctest bubble that block is
 // an exact virtual quantum.
-func (b *queryapiBackend) queryRows(_ context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+func (b *queryapiBackend) queryRows(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	query, bindVars, deriveErr := command.AQLParameters()
+	if deriveErr != nil {
+		return deriveErr
+	}
+
 	b.mu.Lock()
 	b.calls++
 	b.queries = append(b.queries, query)

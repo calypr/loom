@@ -205,7 +205,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 		t.Fatalf("connected EXCLUDE changed the absent-route Patient C identity: GROUP=%#v EXCLUDE=%#v", cMissingRoute, cExcluded)
 	}
 	errorQuery := queries["ERROR"]
-	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil {
+	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil {
 		t.Fatal("connected ERROR Coding-empty policy accepted the matched B-empty target")
 	}
 	removeDocument := func(collection, key string) {
@@ -465,7 +465,7 @@ func connectedCodingWithoutSystem(version, code, display string) map[string]any 
 func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		raw, err := json.Marshal(row)
 		if err != nil {
 			return fmt.Errorf("snapshot connected Group result row: %w", err)
@@ -477,7 +477,7 @@ func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store
 		rows = append(rows, copy)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute connected Group query: %v\n%s", err, query.Query)
+		t.Fatalf("execute connected Group query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	return rows
 }

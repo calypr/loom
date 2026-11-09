@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"strings"
 	"testing"
 
@@ -53,7 +54,12 @@ func TestPreviewOutputMaterializesPopulationSourceForKeylessGroupContributors(t 
 			var executedBindVars map[string]any
 			engine, err := New(Config{
 				Registry: invalidRecipeRegistry{},
-				QueryRows: func(_ context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+				QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+					query, bindVars, dispatchErr := command.AQLParameters()
+					if dispatchErr != nil {
+						return dispatchErr
+					}
+
 					executedQuery = query
 					executedBindVars = bindVars
 					return visit(map[string]any{"row_count": int64(1)})

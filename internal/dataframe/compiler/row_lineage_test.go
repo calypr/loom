@@ -62,8 +62,8 @@ func TestSemanticGroupUsesExactFamilyTupleAndReconstructsContributors(t *testing
 		"FILTER [__loom_physical_construction_row_lineage_semantic_membership_1.system, __loom_physical_construction_row_lineage_semantic_membership_1.version, __loom_physical_construction_row_lineage_semantic_membership_1.code] == __loom_physical_construction_row_lineage_semantic_selected_group.semanticTuple",
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 	} {
-		if !strings.Contains(lineage.Query, want) {
-			t.Errorf("semantic Group lineage query is missing %q:\n%s", want, lineage.Query)
+		if !strings.Contains(testAQLText(t, lineage.Command), want) {
+			t.Errorf("semantic Group lineage query is missing %q:\n%s", want, testAQLText(t, lineage.Command))
 		}
 	}
 }
@@ -89,25 +89,25 @@ func TestExpandedCodingGroupLineagePagesExactInputOccurrences(t *testing.T) {
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 		"occurrenceKey: __loom_physical_construction_row_lineage_coding_contributor",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("expanded Coding Group lineage query missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("expanded Coding Group lineage query missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Count(compiled.Query, "FOR root IN @@root_collection") != 2 ||
-		strings.Count(compiled.Query, "FOR __loom_physical_unnest_index_0") != 2 {
-		t.Fatalf("lineage must requery the exact scoped root/UNNEST preimage twice:\n%s", compiled.Query)
+	if strings.Count(testAQLText(t, compiled.Command), "FOR root IN @@root_collection") != 2 ||
+		strings.Count(testAQLText(t, compiled.Command), "FOR __loom_physical_unnest_index_0") != 2 {
+		t.Fatalf("lineage must requery the exact scoped root/UNNEST preimage twice:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Contains(compiled.Query, "UNIQUE(") || strings.Contains(compiled.Query, "SORT __loom_physical_construction_row_lineage_coding_contributor[@__loom_physical_construction_row_lineage_coding_occurrence_key_column] ASC") == false {
-		t.Fatalf("expanded occurrence lineage must page exact occurrence identities without owner dedup:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "UNIQUE(") || strings.Contains(testAQLText(t, compiled.Command), "SORT __loom_physical_construction_row_lineage_coding_contributor[@__loom_physical_construction_row_lineage_coding_occurrence_key_column] ASC") == false {
+		t.Fatalf("expanded occurrence lineage must page exact occurrence identities without owner dedup:\n%s", testAQLText(t, compiled.Command))
 	}
 	foundExactOccurrence := false
-	for _, value := range compiled.BindVars {
+	for _, value := range testAQLBinds(t, compiled.Command) {
 		if value == "__loom_group_source_occurrence_key" {
 			foundExactOccurrence = true
 		}
 	}
 	if !foundExactOccurrence {
-		t.Fatalf("lineage binds did not pin the full expanded occurrence column: %#v", compiled.BindVars)
+		t.Fatalf("lineage binds did not pin the full expanded occurrence column: %#v", testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -133,16 +133,16 @@ func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T
 	if terminal != nil {
 		t.Fatal("compilation mutated its input output plan")
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != rowID || compiled.BindVars[rowLineageOffsetBind] != 2 ||
-		compiled.BindVars[rowLineageFetchLimitBind] != 6 || compiled.BindVars[rowLineageLimitBind] != 5 {
-		t.Fatalf("lineage query has wrong identity/page bindings: %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != rowID || testAQLBinds(t, compiled.Command)[rowLineageOffsetBind] != 2 ||
+		testAQLBinds(t, compiled.Command)[rowLineageFetchLimitBind] != 6 || testAQLBinds(t, compiled.Command)[rowLineageLimitBind] != 5 {
+		t.Fatalf("lineage query has wrong identity/page bindings: %#v", testAQLBinds(t, compiled.Command))
 	}
-	if !rowLineageHasBindValue(compiled.BindVars, adapter.OccurrenceKeyColumn) ||
-		!rowLineageHasBindValue(compiled.BindVars, rowLineageResourceID) {
-		t.Fatalf("lineage output does not expose the exact Group occurrence and root resource ID columns: %#v", compiled.BindVars)
+	if !rowLineageHasBindValue(testAQLBinds(t, compiled.Command), adapter.OccurrenceKeyColumn) ||
+		!rowLineageHasBindValue(testAQLBinds(t, compiled.Command), rowLineageResourceID) {
+		t.Fatalf("lineage output does not expose the exact Group occurrence and root resource ID columns: %#v", testAQLBinds(t, compiled.Command))
 	}
-	if _, ok := compiled.BindVars["@related_expand_0_hop_1_edge_collection"]; !ok {
-		t.Fatalf("related Group route collection bind is missing: %#v", compiled.BindVars)
+	if _, ok := testAQLBinds(t, compiled.Command)["@related_expand_0_hop_1_edge_collection"]; !ok {
+		t.Fatalf("related Group route collection bind is missing: %#v", testAQLBinds(t, compiled.Command))
 	}
 	for _, want := range []string{
 		"row_lineage_related_selected",
@@ -158,26 +158,26 @@ func TestRelatedCodingGroupLineageReplaysExactRouteAndCodingOrdinal(t *testing.T
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 		"occurrenceKey: __loom_physical_construction_row_lineage_related_contributor[@__loom_physical_construction_row_lineage_related_occurrence_key_column]",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("related Coding Group lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("related Coding Group lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 	for _, field := range []string{"root_id", "terminal_id", "item_present", "ordinal"} {
-		if !rowLineageHasBindValue(compiled.BindVars, field) {
+		if !rowLineageHasBindValue(testAQLBinds(t, compiled.Command), field) {
 			t.Errorf("lineage occurrence projection does not bind %q", field)
 		}
 	}
-	if !strings.Contains(compiled.Query, " == 0 ? [null] : RANGE(0, LENGTH(") ||
-		!strings.Contains(compiled.Query, " AND "+adapter.CodingUnnest.HasItemVariable) {
-		t.Fatalf("lineage replay lost the route/Coding empty sentinels or route-gated Coding presence:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), " == 0 ? [null] : RANGE(0, LENGTH(") ||
+		!strings.Contains(testAQLText(t, compiled.Command), " AND "+adapter.CodingUnnest.HasItemVariable) {
+		t.Fatalf("lineage replay lost the route/Coding empty sentinels or route-gated Coding presence:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Count(compiled.Query, "FOR root IN @@root_collection") != 2 ||
-		strings.Count(compiled.Query, "FOR __loom_construction_related_expand_0_hop_1_edge_1 IN @@related_expand_0_hop_1_edge_collection") != 2 ||
-		strings.Count(compiled.Query, "LET "+adapter.CodingUnnest.OutputVariable+" =") != 2 {
-		t.Fatalf("lineage must replay the same scoped root, route, and Coding expansion for lookup and paging:\n%s", compiled.Query)
+	if strings.Count(testAQLText(t, compiled.Command), "FOR root IN @@root_collection") != 2 ||
+		strings.Count(testAQLText(t, compiled.Command), "FOR __loom_construction_related_expand_0_hop_1_edge_1 IN @@related_expand_0_hop_1_edge_collection") != 2 ||
+		strings.Count(testAQLText(t, compiled.Command), "LET "+adapter.CodingUnnest.OutputVariable+" =") != 2 {
+		t.Fatalf("lineage must replay the same scoped root, route, and Coding expansion for lookup and paging:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Contains(compiled.Query, " INTO ") {
-		t.Fatalf("related Coding Group lineage must preserve Coding ordinals without materializing or deduplicating contributors:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), " INTO ") {
+		t.Fatalf("related Coding Group lineage must preserve Coding ordinals without materializing or deduplicating contributors:\n%s", testAQLText(t, compiled.Command))
 	}
 
 	unsupported := output
@@ -347,21 +347,21 @@ func TestExpandedCodingGroupLineageReusesRoutedAncestorOccurrence(t *testing.T) 
 	if err != nil {
 		t.Fatalf("compile routed expanded Coding Group lineage: %v", err)
 	}
-	if strings.Count(compiled.Query, "FOR population_member IN @@population_members_collection") != 2 ||
-		strings.Count(compiled.Query, "FOR __loom_physical_unnest_index_0") != 2 {
-		t.Fatalf("routed lineage must requery the same root/route/UNNEST preimage twice:\n%s", compiled.Query)
+	if strings.Count(testAQLText(t, compiled.Command), "FOR population_member IN @@population_members_collection") != 2 ||
+		strings.Count(testAQLText(t, compiled.Command), "FOR __loom_physical_unnest_index_0") != 2 {
+		t.Fatalf("routed lineage must requery the same root/route/UNNEST preimage twice:\n%s", testAQLText(t, compiled.Command))
 	}
 	for _, want := range []string{
 		"row_lineage_coding_contributor", "occurrenceKey:", "component", "coding", "ordinal",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("routed expanded Coding Group lineage lacks %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("routed expanded Coding Group lineage lacks %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	bindText := fmt.Sprint(compiled.BindVars)
+	bindText := fmt.Sprint(testAQLBinds(t, compiled.Command))
 	for _, want := range []string{"subject_Patient", "edge_00_id", "owner_id", "item_present"} {
 		if !strings.Contains(bindText, want) {
-			t.Errorf("lineage binds omitted routed occurrence fact %q: %#v", want, compiled.BindVars)
+			t.Errorf("lineage binds omitted routed occurrence fact %q: %#v", want, testAQLBinds(t, compiled.Command))
 		}
 	}
 }
@@ -391,30 +391,30 @@ func TestExpandedCodingGroupLineageCapabilityAcceptsExactPopulationRouteFixture(
 	if err != nil {
 		t.Fatalf("compile exact fixture Group query: %v", err)
 	}
-	if !strings.HasPrefix(groupQuery.Query, "LET __loom_construction_stage_1 = (\n  FOR population_member IN @@population_members_collection") ||
-		strings.Count(groupQuery.Query, "FOR population_member IN @@population_members_collection") != 1 ||
-		strings.Count(groupQuery.Query, "FOR __loom_expansion_edge_1 IN @@expansion_route_1_edge_collection") != 1 ||
-		strings.Count(groupQuery.Query, "FOR __loom_physical_unnest_index_0") != 1 ||
-		strings.Contains(groupQuery.Query, "LET __loom_construction_source_projection = (") ||
-		strings.Contains(groupQuery.Query, " INTO __loom_construction_group_rows") ||
-		strings.Contains(groupQuery.Query, "__loom_root_contributor_keys") ||
-		strings.Contains(groupQuery.Query, "__loom_construction_root_contributors") {
-		t.Fatalf("exact fixture Group did not stream its scoped population/route/UNNEST into COLLECT:\n%s", groupQuery.Query)
+	if !strings.HasPrefix(testAQLText(t, groupQuery.Command), "LET __loom_construction_stage_1 = (\n  FOR population_member IN @@population_members_collection") ||
+		strings.Count(testAQLText(t, groupQuery.Command), "FOR population_member IN @@population_members_collection") != 1 ||
+		strings.Count(testAQLText(t, groupQuery.Command), "FOR __loom_expansion_edge_1 IN @@expansion_route_1_edge_collection") != 1 ||
+		strings.Count(testAQLText(t, groupQuery.Command), "FOR __loom_physical_unnest_index_0") != 1 ||
+		strings.Contains(testAQLText(t, groupQuery.Command), "LET __loom_construction_source_projection = (") ||
+		strings.Contains(testAQLText(t, groupQuery.Command), " INTO __loom_construction_group_rows") ||
+		strings.Contains(testAQLText(t, groupQuery.Command), "__loom_root_contributor_keys") ||
+		strings.Contains(testAQLText(t, groupQuery.Command), "__loom_construction_root_contributors") {
+		t.Fatalf("exact fixture Group did not stream its scoped population/route/UNNEST into COLLECT:\n%s", testAQLText(t, groupQuery.Command))
 	}
-	if !strings.Contains(groupQuery.Query, "COLLECT __loom_construction_group_key_1 =") ||
-		!strings.Contains(groupQuery.Query, " AGGREGATE __loom_physical_construction_construction_group_count_rows = SUM(") ||
-		strings.Contains(groupQuery.Query, " INTO ") {
-		t.Fatalf("exact fixture Group did not aggregate rows directly without materializing Group rows:\n%s", groupQuery.Query)
+	if !strings.Contains(testAQLText(t, groupQuery.Command), "COLLECT __loom_construction_group_key_1 =") ||
+		!strings.Contains(testAQLText(t, groupQuery.Command), " AGGREGATE __loom_physical_construction_construction_group_count_rows = SUM(") ||
+		strings.Contains(testAQLText(t, groupQuery.Command), " INTO ") {
+		t.Fatalf("exact fixture Group did not aggregate rows directly without materializing Group rows:\n%s", testAQLText(t, groupQuery.Command))
 	}
-	inputStart := strings.Index(groupQuery.Query, "LET __loom_construction_input_1 = {")
+	inputStart := strings.Index(testAQLText(t, groupQuery.Command), "LET __loom_construction_input_1 = {")
 	if inputStart < 0 {
-		t.Fatalf("exact fixture Group has no narrow per-row source projection:\n%s", groupQuery.Query)
+		t.Fatalf("exact fixture Group has no narrow per-row source projection:\n%s", testAQLText(t, groupQuery.Command))
 	}
-	inputEnd := strings.Index(groupQuery.Query[inputStart:], "LET __loom_physical_construction_construction_group_coding_membership =")
+	inputEnd := strings.Index(testAQLText(t, groupQuery.Command)[inputStart:], "LET __loom_physical_construction_construction_group_coding_membership =")
 	if inputEnd < 0 {
-		t.Fatalf("exact fixture Group has no narrow per-row source projection:\n%s", groupQuery.Query)
+		t.Fatalf("exact fixture Group has no narrow per-row source projection:\n%s", testAQLText(t, groupQuery.Command))
 	}
-	inputProjection := groupQuery.Query[inputStart : inputStart+inputEnd]
+	inputProjection := testAQLText(t, groupQuery.Command)[inputStart : inputStart+inputEnd]
 	for _, want := range []string{
 		"__loom_expansion_node_1.payload.id", "__loom_expansion_node_1.payload.status",
 		"coding_item.code", "coding_item.display", "coding_item.system", "coding_item.version",
@@ -424,19 +424,19 @@ func TestExpandedCodingGroupLineageCapabilityAcceptsExactPopulationRouteFixture(
 			t.Errorf("exact fixture Group projection omitted selected scalar/occurrence fact %q:\n%s", want, inputProjection)
 		}
 	}
-	if strings.Contains(inputProjection, "coding_item,") || !strings.Contains(groupQuery.Query, "construction_group_row_value_arrays_0 = UNIQUE(") {
-		t.Fatalf("Group input must project compact Coding fields and only the requested ALL RowValue, not whole Coding payloads:\nprojection=%s\nquery=%s", inputProjection, groupQuery.Query)
+	if strings.Contains(inputProjection, "coding_item,") || !strings.Contains(testAQLText(t, groupQuery.Command), "construction_group_row_value_arrays_0 = UNIQUE(") {
+		t.Fatalf("Group input must project compact Coding fields and only the requested ALL RowValue, not whole Coding payloads:\nprojection=%s\nquery=%s", inputProjection, testAQLText(t, groupQuery.Command))
 	}
 	compiled, err := CompileRowLineageOutput(output, "fixture-expanded-coded-group-row", 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile exact fixture Coding Group lineage: %v", err)
 	}
-	if strings.Count(compiled.Query, "FOR population_member IN @@population_members_collection") != 2 ||
-		strings.Count(compiled.Query, "FOR __loom_physical_unnest_index_0") != 2 {
-		t.Fatalf("fixture lineage must requery the exact population/route/UNNEST preimage twice:\n%s", compiled.Query)
+	if strings.Count(testAQLText(t, compiled.Command), "FOR population_member IN @@population_members_collection") != 2 ||
+		strings.Count(testAQLText(t, compiled.Command), "FOR __loom_physical_unnest_index_0") != 2 {
+		t.Fatalf("fixture lineage must requery the exact population/route/UNNEST preimage twice:\n%s", testAQLText(t, compiled.Command))
 	}
 	for _, want := range []string{"population_selection_id", "subject_Patient", "ordinal", "occurrenceKey:"} {
-		if !strings.Contains(fmt.Sprint(compiled.BindVars), want) && !strings.Contains(compiled.Query, want) {
+		if !strings.Contains(fmt.Sprint(testAQLBinds(t, compiled.Command)), want) && !strings.Contains(testAQLText(t, compiled.Command), want) {
 			t.Errorf("fixture lineage omitted exact source fact %q from AQL and binds", want)
 		}
 	}
@@ -631,16 +631,16 @@ func TestCompileRowLineageUsesBoundedCanonicalGroupTerminal(t *testing.T) {
 		"TO_STRING([[\"construction\"", "SORT __loom_physical_construction_row_lineage_contributor",
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit", "hasMore:", "found:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("row lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("row lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "COLLECT ") && strings.Contains(compiled.Query, " INTO ") {
-		t.Fatalf("row lineage query materialized unbounded Group contributors:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "COLLECT ") && strings.Contains(testAQLText(t, compiled.Command), " INTO ") {
+		t.Fatalf("row lineage query materialized unbounded Group contributors:\n%s", testAQLText(t, compiled.Command))
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != "opaque-group-row" || compiled.BindVars[rowLineageOffsetBind] != 25 ||
-		compiled.BindVars[rowLineageLimitBind] != 10 || compiled.BindVars[rowLineageFetchLimitBind] != 11 {
-		t.Fatalf("row lineage page bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != "opaque-group-row" || testAQLBinds(t, compiled.Command)[rowLineageOffsetBind] != 25 ||
+		testAQLBinds(t, compiled.Command)[rowLineageLimitBind] != 10 || testAQLBinds(t, compiled.Command)[rowLineageFetchLimitBind] != 11 {
+		t.Fatalf("row lineage page bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -671,19 +671,19 @@ func TestCompileStandaloneExplicitGroupRowLineageUsesPinnedBoundedMembers(t *tes
 		"LIMIT @__loom_physical_row_lineage_offset, @__loom_physical_row_lineage_fetch_limit",
 		"contributors: SLICE(page, 0, @__loom_physical_row_lineage_limit)",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("standalone explicit group row lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("standalone explicit group row lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "COLLECT member") || strings.Contains(compiled.Query, "COLLECT selected") || strings.Contains(compiled.Query, "COLLECT resource") {
-		t.Fatalf("explicit group lineage materialized an unbounded contributor collection:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "COLLECT member") || strings.Contains(testAQLText(t, compiled.Command), "COLLECT selected") || strings.Contains(testAQLText(t, compiled.Command), "COLLECT resource") {
+		t.Fatalf("explicit group lineage materialized an unbounded contributor collection:\n%s", testAQLText(t, compiled.Command))
 	}
-	if compiled.BindVars["__loom_physical_row_lineage_group_revision_id"] != "grouprev_row_lineage" ||
-		compiled.BindVars["__loom_physical_row_lineage_group_id"] != "cohort-a" ||
-		compiled.BindVars["__loom_physical_row_lineage_offset"] != 3 ||
-		compiled.BindVars["__loom_physical_row_lineage_limit"] != 7 ||
-		compiled.BindVars["__loom_physical_row_lineage_fetch_limit"] != 8 {
-		t.Fatalf("explicit group row lineage bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_group_revision_id"] != "grouprev_row_lineage" ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_group_id"] != "cohort-a" ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_offset"] != 3 ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_limit"] != 7 ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_fetch_limit"] != 8 {
+		t.Fatalf("explicit group row lineage bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
 
 	for _, invalidID := range []string{
@@ -695,8 +695,8 @@ func TestCompileStandaloneExplicitGroupRowLineageUsesPinnedBoundedMembers(t *tes
 		if compileErr != nil {
 			t.Fatalf("compile malformed/cross-revision identity %q: %v", invalidID, compileErr)
 		}
-		if invalid.BindVars["__loom_physical_row_lineage_group_revision_id"] != "" || invalid.BindVars["__loom_physical_row_lineage_group_id"] != "" {
-			t.Errorf("invalid identity %q retained requested group binds %#v", invalidID, invalid.BindVars)
+		if testAQLBinds(t, invalid.Command)["__loom_physical_row_lineage_group_revision_id"] != "" || testAQLBinds(t, invalid.Command)["__loom_physical_row_lineage_group_id"] != "" {
+			t.Errorf("invalid identity %q retained requested group binds %#v", invalidID, testAQLBinds(t, invalid.Command))
 		}
 	}
 }
@@ -754,15 +754,15 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 		"source.auth_resource_path IN @",
 		"LIMIT @__loom_physical_row_lineage_offset, @__loom_physical_row_lineage_fetch_limit",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("cohort Group lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("cohort Group lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if compiled.BindVars["__loom_physical_row_lineage_group_revision_id"] != "grouprev_cohort_row_lineage" ||
-		compiled.BindVars["__loom_physical_row_lineage_group_id"] != "cohort-a" ||
-		compiled.BindVars["__loom_physical_row_lineage_offset"] != 2 ||
-		compiled.BindVars["__loom_physical_row_lineage_fetch_limit"] != 5 {
-		t.Fatalf("cohort Group lineage bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_group_revision_id"] != "grouprev_cohort_row_lineage" ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_group_id"] != "cohort-a" ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_offset"] != 2 ||
+		testAQLBinds(t, compiled.Command)["__loom_physical_row_lineage_fetch_limit"] != 5 {
+		t.Fatalf("cohort Group lineage bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
 	for _, invalidID := range []string{
 		`{"group_revision_id":"grouprev_other","group_id":"cohort-a"}`,
@@ -772,9 +772,9 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 		if compileErr != nil {
 			t.Fatalf("compile invalid cohort row ID %q: %v", invalidID, compileErr)
 		}
-		if invalid.BindVars["__loom_physical_row_lineage_group_revision_id"] != "" ||
-			invalid.BindVars["__loom_physical_row_lineage_group_id"] != "" {
-			t.Errorf("invalid cohort row ID %q retained binds %#v", invalidID, invalid.BindVars)
+		if testAQLBinds(t, invalid.Command)["__loom_physical_row_lineage_group_revision_id"] != "" ||
+			testAQLBinds(t, invalid.Command)["__loom_physical_row_lineage_group_id"] != "" {
+			t.Errorf("invalid cohort row ID %q retained binds %#v", invalidID, testAQLBinds(t, invalid.Command))
 		}
 	}
 	forged, err := CompileRowLineageOutput(compiledOutput,
@@ -782,9 +782,9 @@ func TestCompileCohortGroupLineageAppliesFilterBeforePaging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile canonical but nonexistent cohort row ID: %v", err)
 	}
-	if forged.BindVars["__loom_physical_row_lineage_group_id"] != "forged" ||
-		!strings.Contains(forged.Query, "FILTER found AND") || !strings.Contains(forged.Query, "LET found =") {
-		t.Fatalf("nonexistent cohort row is not gated by final row membership: binds=%#v query=%s", forged.BindVars, forged.Query)
+	if testAQLBinds(t, forged.Command)["__loom_physical_row_lineage_group_id"] != "forged" ||
+		!strings.Contains(testAQLText(t, forged.Command), "FILTER found AND") || !strings.Contains(testAQLText(t, forged.Command), "LET found =") {
+		t.Fatalf("nonexistent cohort row is not gated by final row membership: binds=%#v query=%s", testAQLBinds(t, forged.Command), testAQLText(t, forged.Command))
 	}
 	memberFilterOutput := compiledOutput
 	memberFilterOutput.Plan = ir.ClonePhysicalPlan(compiledOutput.Plan)
@@ -806,23 +806,23 @@ func TestCompileGroupRowLineageAppliesEveryTrailingFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(compiled.Query, ".rows > @") != 2 {
-		t.Fatalf("lineage query did not evaluate both typed filters against the candidate Group row:\n%s", compiled.Query)
+	if strings.Count(testAQLText(t, compiled.Command), ".rows > @") != 2 {
+		t.Fatalf("lineage query did not evaluate both typed filters against the candidate Group row:\n%s", testAQLText(t, compiled.Command))
 	}
-	if !strings.Contains(compiled.Query, "WITH COUNT INTO") || strings.Contains(compiled.Query, "row_lineage_filter_group_inputs") || strings.Contains(compiled.Query, "__loom_construction_group_rows") {
-		t.Fatalf("COUNT_ROWS lineage buffered Group contributors instead of streaming its candidate count:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "WITH COUNT INTO") || strings.Contains(testAQLText(t, compiled.Command), "row_lineage_filter_group_inputs") || strings.Contains(testAQLText(t, compiled.Command), "__loom_construction_group_rows") {
+		t.Fatalf("COUNT_ROWS lineage buffered Group contributors instead of streaming its candidate count:\n%s", testAQLText(t, compiled.Command))
 	}
-	if !strings.Contains(compiled.Query, "found: ") || !strings.Contains(compiled.Query, " AND ") || !strings.Contains(compiled.Query, "contributors: SLICE(") {
-		t.Fatalf("lineage result does not bind contributor lookup to final filter membership:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "found: ") || !strings.Contains(testAQLText(t, compiled.Command), " AND ") || !strings.Contains(testAQLText(t, compiled.Command), "contributors: SLICE(") {
+		t.Fatalf("lineage result does not bind contributor lookup to final filter membership:\n%s", testAQLText(t, compiled.Command))
 	}
 	thresholds := 0
-	for _, value := range compiled.BindVars {
+	for _, value := range testAQLBinds(t, compiled.Command) {
 		if value == int64(104) || value == int64(103) {
 			thresholds++
 		}
 	}
 	if thresholds != 2 {
-		t.Fatalf("filter chain lost typed thresholds; bind vars = %#v", compiled.BindVars)
+		t.Fatalf("filter chain lost typed thresholds; bind vars = %#v", testAQLBinds(t, compiled.Command))
 	}
 
 	changedSchema := output
@@ -844,14 +844,14 @@ func TestCompileNonCountGroupFilterLineageProjectsSourceRowsInScope(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, "construction_group_projected_input") {
-		t.Fatalf("non-count candidate did not project source rows in scope:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "construction_group_projected_input") {
+		t.Fatalf("non-count candidate did not project source rows in scope:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Contains(compiled.Query, "row_lineage_filter_group_inputs") {
-		t.Fatalf("non-count candidate materialized an extra selected-group input array:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "row_lineage_filter_group_inputs") {
+		t.Fatalf("non-count candidate materialized an extra selected-group input array:\n%s", testAQLText(t, compiled.Command))
 	}
-	if !strings.Contains(compiled.Query, ".amount_sum > @") {
-		t.Fatalf("typed filter was not evaluated against the candidate aggregate:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), ".amount_sum > @") {
+		t.Fatalf("typed filter was not evaluated against the candidate aggregate:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -891,11 +891,11 @@ func TestCompileKeylessEmptyGroupHasExplicitEmptyContributorPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.Query, "COLLECT WITH COUNT INTO") || !strings.Contains(compiled.Query, "contributors: SLICE") || strings.Contains(compiled.Query, "COLLECT "+"__loom_physical_row_lineage_group_key") {
-		t.Fatalf("keyless Group lineage terminal does not preserve the empty Group row and bounded empty page:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "COLLECT WITH COUNT INTO") || !strings.Contains(testAQLText(t, compiled.Command), "contributors: SLICE") || strings.Contains(testAQLText(t, compiled.Command), "COLLECT "+"__loom_physical_row_lineage_group_key") {
+		t.Fatalf("keyless Group lineage terminal does not preserve the empty Group row and bounded empty page:\n%s", testAQLText(t, compiled.Command))
 	}
-	if compiled.Limit != DefaultRowLineageLimit || compiled.BindVars[rowLineageFetchLimitBind] != DefaultRowLineageLimit+1 {
-		t.Fatalf("default page = limit %d, bindings %#v", compiled.Limit, compiled.BindVars)
+	if compiled.Limit != DefaultRowLineageLimit || testAQLBinds(t, compiled.Command)[rowLineageFetchLimitBind] != DefaultRowLineageLimit+1 {
+		t.Fatalf("default page = limit %d, bindings %#v", compiled.Limit, testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -955,17 +955,17 @@ func TestCompileCodedGroupRowLineageResolvesExactTupleAndPagesRootSources(t *tes
 		"contributors: SLICE(__loom_physical_construction_row_lineage_coded_group_page, 0, @row_lineage_limit)",
 		"resourceId:", "occurrenceKey:", "hasMore:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("CODED_GROUP lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("CODED_GROUP lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "COLLECT "+"__loom_physical_row_lineage_coded_group_source_id = ") &&
-		strings.Contains(compiled.Query, " INTO ") {
-		t.Fatalf("CODED_GROUP lineage materialized an unbounded contributor list:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "COLLECT "+"__loom_physical_row_lineage_coded_group_source_id = ") &&
+		strings.Contains(testAQLText(t, compiled.Command), " INTO ") {
+		t.Fatalf("CODED_GROUP lineage materialized an unbounded contributor list:\n%s", testAQLText(t, compiled.Command))
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != "opaque-coded-group-row" || compiled.BindVars[rowLineageOffsetBind] != 4 ||
-		compiled.BindVars[rowLineageLimitBind] != 10 || compiled.BindVars[rowLineageFetchLimitBind] != 11 {
-		t.Fatalf("CODED_GROUP lineage page bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != "opaque-coded-group-row" || testAQLBinds(t, compiled.Command)[rowLineageOffsetBind] != 4 ||
+		testAQLBinds(t, compiled.Command)[rowLineageLimitBind] != 10 || testAQLBinds(t, compiled.Command)[rowLineageFetchLimitBind] != 11 {
+		t.Fatalf("CODED_GROUP lineage page bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -1030,15 +1030,15 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		"SORT __loom_physical_construction_row_lineage_pivot_source",
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit", "contributors: SLICE(", "hasMore:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("construction Pivot lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("construction Pivot lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	pageAt := strings.Index(compiled.Query, "LET __loom_physical_construction_row_lineage_pivot_page = (")
+	pageAt := strings.Index(testAQLText(t, compiled.Command), "LET __loom_physical_construction_row_lineage_pivot_page = (")
 	if pageAt < 0 {
-		t.Fatalf("Pivot contributor page subquery is missing:\n%s", compiled.Query)
+		t.Fatalf("Pivot contributor page subquery is missing:\n%s", testAQLText(t, compiled.Command))
 	}
-	validationQuery := compiled.Query[:pageAt]
+	validationQuery := testAQLText(t, compiled.Command)[:pageAt]
 	if !strings.Contains(validationQuery, "TABLE_PIVOT_UNLISTED_CATEGORY") ||
 		!strings.Contains(validationQuery, "TABLE_PIVOT_CELL_CARDINALITY") ||
 		!strings.Contains(validationQuery, "== @row_lineage_row_id ? 1 : 0") {
@@ -1048,26 +1048,26 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		strings.Contains(validationQuery, "FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id") {
 		t.Fatalf("Pivot policy validation was narrowed to the requested key before global checks:\n%s", validationQuery)
 	}
-	if strings.Contains(compiled.Query, "COLLECT INTO") || strings.Contains(compiled.Query, "sourceRows") || strings.Contains(compiled.Query, "fullsourceRows") {
-		t.Fatalf("construction Pivot lineage retained an unbounded source/member array:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "COLLECT INTO") || strings.Contains(testAQLText(t, compiled.Command), "sourceRows") || strings.Contains(testAQLText(t, compiled.Command), "fullsourceRows") {
+		t.Fatalf("construction Pivot lineage retained an unbounded source/member array:\n%s", testAQLText(t, compiled.Command))
 	}
-	if strings.Contains(compiled.Query, "TABLE_PIVOT_VALUE_TYPE_MISMATCH") {
-		t.Fatalf("ERROR duplicate policy gained a value type check that ordinary Pivot does not apply:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "TABLE_PIVOT_VALUE_TYPE_MISMATCH") {
+		t.Fatalf("ERROR duplicate policy gained a value type check that ordinary Pivot does not apply:\n%s", testAQLText(t, compiled.Command))
 	}
-	keyValue, keyFound := compiled.BindVars["row_lineage_pivot_group_key_0"]
+	keyValue, keyFound := testAQLBinds(t, compiled.Command)["row_lineage_pivot_group_key_0"]
 	if !keyFound || keyValue != nil {
-		t.Fatalf("decoded null Pivot group key = (%#v, %t), want a present null binding; binds=%#v", keyValue, keyFound, compiled.BindVars)
+		t.Fatalf("decoded null Pivot group key = (%#v, %t), want a present null binding; binds=%#v", keyValue, keyFound, testAQLBinds(t, compiled.Command))
 	}
-	if compiled.BindVars[rowLineageRowIDBind] != string(rowID) || compiled.BindVars[rowLineageOffsetBind] != 4 ||
-		compiled.BindVars[rowLineageLimitBind] != 7 || compiled.BindVars[rowLineageFetchLimitBind] != 8 {
-		t.Fatalf("construction Pivot row lineage identity/page bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != string(rowID) || testAQLBinds(t, compiled.Command)[rowLineageOffsetBind] != 4 ||
+		testAQLBinds(t, compiled.Command)[rowLineageLimitBind] != 7 || testAQLBinds(t, compiled.Command)[rowLineageFetchLimitBind] != 8 {
+		t.Fatalf("construction Pivot row lineage identity/page bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
-	if compiled.BindVars["population_selection_id"] != "selection-lineage-revision" ||
-		compiled.BindVars["population_project"] != "lineage-selection-project" ||
-		compiled.BindVars["project"] != "lineage-project" ||
-		compiled.BindVars["dataset_generation"] != "lineage-generation" ||
-		!reflect.DeepEqual(compiled.BindVars["auth_resource_paths"], []string{"/programs/lineage"}) {
-		t.Fatalf("Pivot lineage lost population or read-scope bindings: %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)["population_selection_id"] != "selection-lineage-revision" ||
+		testAQLBinds(t, compiled.Command)["population_project"] != "lineage-selection-project" ||
+		testAQLBinds(t, compiled.Command)["project"] != "lineage-project" ||
+		testAQLBinds(t, compiled.Command)["dataset_generation"] != "lineage-generation" ||
+		!reflect.DeepEqual(testAQLBinds(t, compiled.Command)["auth_resource_paths"], []string{"/programs/lineage"}) {
+		t.Fatalf("Pivot lineage lost population or read-scope bindings: %#v", testAQLBinds(t, compiled.Command))
 	}
 
 	forgedIDs := []string{
@@ -1080,12 +1080,12 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		if compileErr != nil {
 			t.Fatalf("compile forged Pivot row ID %q: %v", forgedID, compileErr)
 		}
-		if !strings.Contains(forged.Query, "FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id") ||
-			forged.BindVars[rowLineageRowIDBind] != forgedID {
-			t.Errorf("forged Pivot row ID %q did not remain an exact owner-identity comparison: %#v", forgedID, forged.BindVars)
+		if !strings.Contains(testAQLText(t, forged.Command), "FILTER __loom_physical_construction_row_lineage_pivot_identity == @row_lineage_row_id") ||
+			testAQLBinds(t, forged.Command)[rowLineageRowIDBind] != forgedID {
+			t.Errorf("forged Pivot row ID %q did not remain an exact owner-identity comparison: %#v", forgedID, testAQLBinds(t, forged.Command))
 		}
-		if key, ok := forged.BindVars["row_lineage_pivot_group_key_0"]; !ok || key != nil {
-			t.Errorf("forged Pivot row ID %q did not fail closed with a null key bind: %#v", forgedID, forged.BindVars)
+		if key, ok := testAQLBinds(t, forged.Command)["row_lineage_pivot_group_key_0"]; !ok || key != nil {
+			t.Errorf("forged Pivot row ID %q did not fail closed with a null key bind: %#v", forgedID, testAQLBinds(t, forged.Command))
 		}
 	}
 
@@ -1098,8 +1098,8 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		t.Fatalf("compile SUM Pivot lineage: %v", err)
 	}
 	for _, want := range []string{"TABLE_PIVOT_VALUE_TYPE_MISMATCH", "TABLE_PIVOT_CELL_MISSING"} {
-		if !strings.Contains(summed.Query, want) {
-			t.Errorf("SUM Pivot lineage query is missing %q:\n%s", want, summed.Query)
+		if !strings.Contains(testAQLText(t, summed.Command), want) {
+			t.Errorf("SUM Pivot lineage query is missing %q:\n%s", want, testAQLText(t, summed.Command))
 		}
 	}
 }
@@ -1144,38 +1144,38 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 		"SORT __loom_physical_construction_row_lineage_group_pivot_source",
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit", "contributors: SLICE(", "hasMore:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("Group/Pivot lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("Group/Pivot lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if strings.Contains(compiled.Query, "COLLECT INTO") || strings.Contains(compiled.Query, "SORTED_UNIQUE") || strings.Contains(compiled.Query, "__loom_root_contributor_keys") {
-		t.Fatalf("Group/Pivot row lineage used a row array or RootContributor sidecar:\n%s", compiled.Query)
+	if strings.Contains(testAQLText(t, compiled.Command), "COLLECT INTO") || strings.Contains(testAQLText(t, compiled.Command), "SORTED_UNIQUE") || strings.Contains(testAQLText(t, compiled.Command), "__loom_root_contributor_keys") {
+		t.Fatalf("Group/Pivot row lineage used a row array or RootContributor sidecar:\n%s", testAQLText(t, compiled.Command))
 	}
-	pageAt := strings.Index(compiled.Query, "LET __loom_physical_construction_row_lineage_group_pivot_page = (")
+	pageAt := strings.Index(testAQLText(t, compiled.Command), "LET __loom_physical_construction_row_lineage_group_pivot_page = (")
 	if pageAt < 0 {
-		t.Fatalf("Group/Pivot source preimage page is missing:\n%s", compiled.Query)
+		t.Fatalf("Group/Pivot source preimage page is missing:\n%s", testAQLText(t, compiled.Command))
 	}
-	validation := compiled.Query[:pageAt]
+	validation := testAQLText(t, compiled.Command)[:pageAt]
 	if !strings.Contains(validation, "TABLE_PIVOT_UNLISTED_CATEGORY") ||
 		!strings.Contains(validation, "TABLE_PIVOT_CELL_CARDINALITY") ||
 		!strings.Contains(validation, "== @row_lineage_row_id ? 1 : 0") {
 		t.Fatalf("Group/Pivot policies were not checked across the full scoped grouped input before paging:\n%s", validation)
 	}
 	for _, key := range []string{"row_lineage_pivot_group_key_0", "row_lineage_row_id", "row_lineage_offset", "row_lineage_limit", "row_lineage_fetch_limit"} {
-		if _, ok := compiled.BindVars[key]; !ok {
-			t.Errorf("Group/Pivot lineage omitted typed/page bind %q: %#v", key, compiled.BindVars)
+		if _, ok := testAQLBinds(t, compiled.Command)[key]; !ok {
+			t.Errorf("Group/Pivot lineage omitted typed/page bind %q: %#v", key, testAQLBinds(t, compiled.Command))
 		}
 	}
-	if compiled.BindVars["row_lineage_pivot_group_key_0"] != "patient-7" || compiled.BindVars[rowLineageRowIDBind] != string(rowID) ||
-		compiled.BindVars[rowLineageOffsetBind] != 6 || compiled.BindVars[rowLineageLimitBind] != 9 || compiled.BindVars[rowLineageFetchLimitBind] != 10 {
-		t.Errorf("Group/Pivot typed identity/page bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)["row_lineage_pivot_group_key_0"] != "patient-7" || testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != string(rowID) ||
+		testAQLBinds(t, compiled.Command)[rowLineageOffsetBind] != 6 || testAQLBinds(t, compiled.Command)[rowLineageLimitBind] != 9 || testAQLBinds(t, compiled.Command)[rowLineageFetchLimitBind] != 10 {
+		t.Errorf("Group/Pivot typed identity/page bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
-	if compiled.BindVars["population_selection_id"] != "selection-group-pivot-revision" ||
-		compiled.BindVars["population_project"] != "group-pivot-selection-project" ||
-		compiled.BindVars["project"] != "group-pivot-project" ||
-		compiled.BindVars["dataset_generation"] != "group-pivot-generation" ||
-		!reflect.DeepEqual(compiled.BindVars["auth_resource_paths"], []string{"/programs/group-pivot"}) {
-		t.Fatalf("Group/Pivot lineage lost source scope bindings: %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)["population_selection_id"] != "selection-group-pivot-revision" ||
+		testAQLBinds(t, compiled.Command)["population_project"] != "group-pivot-selection-project" ||
+		testAQLBinds(t, compiled.Command)["project"] != "group-pivot-project" ||
+		testAQLBinds(t, compiled.Command)["dataset_generation"] != "group-pivot-generation" ||
+		!reflect.DeepEqual(testAQLBinds(t, compiled.Command)["auth_resource_paths"], []string{"/programs/group-pivot"}) {
+		t.Fatalf("Group/Pivot lineage lost source scope bindings: %#v", testAQLBinds(t, compiled.Command))
 	}
 	for policy, want := range map[ir.PhysicalStageGroupMissingKeyPolicy]string{
 		ir.PhysicalStageGroupMissingKeyExclude: "FILTER __loom_physical_construction_row_lineage_group_pivot_group_value_0 != null",
@@ -1188,8 +1188,8 @@ func TestCompileConstructionCountRowsGroupPivotLineageStreamsScopedRootPreimage(
 		if policyErr != nil {
 			t.Fatalf("compile Group/Pivot lineage with Group missing policy %q: %v", policy, policyErr)
 		}
-		if !strings.Contains(policyCompiled.Query, want) {
-			t.Errorf("Group/Pivot lineage did not preserve Group missing policy %q (%q):\n%s", policy, want, policyCompiled.Query)
+		if !strings.Contains(testAQLText(t, policyCompiled.Command), want) {
+			t.Errorf("Group/Pivot lineage did not preserve Group missing policy %q (%q):\n%s", policy, want, testAQLText(t, policyCompiled.Command))
 		}
 	}
 
@@ -1380,17 +1380,17 @@ func TestCompileRelatedExpandRowLineageUsesAnchoredCanonicalAuthorizedRoute(t *t
 		"LIMIT 1",
 		"contributors: SLICE",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("related row lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("related row lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	if compiled.BindVars[rowLineageRootKeyBind] != "patient-storage-key" ||
-		compiled.BindVars[rowLineageStage0TerminalIDBind] != "Observation/observation-storage-key" ||
-		compiled.BindVars[rowLineageStage0RowIDBind] != rowID || compiled.BindVars[rowLineageRowIDBind] != rowID {
-		t.Fatalf("row identity bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRootKeyBind] != "patient-storage-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0TerminalIDBind] != "Observation/observation-storage-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0RowIDBind] != rowID || testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != rowID {
+		t.Fatalf("row identity bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
-	if !strings.Contains(compiled.Query, "auth_resource_path IN @auth_resource_paths") {
-		t.Fatalf("related row lineage omitted the restricted route scope:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "auth_resource_path IN @auth_resource_paths") {
+		t.Fatalf("related row lineage omitted the restricted route scope:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -1404,19 +1404,19 @@ func TestCompileRelatedExpandPreserveParentLineageReturnsRootOnlyForEmptyIdentit
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compiled.BindVars[rowLineageRootKeyBind] != "patient-storage-key" ||
-		compiled.BindVars[rowLineageStage0RowIDBind] != rowID {
-		t.Fatalf("empty related row identity bindings = %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRootKeyBind] != "patient-storage-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0RowIDBind] != rowID {
+		t.Fatalf("empty related row identity bindings = %#v", testAQLBinds(t, compiled.Command))
 	}
-	if _, exists := compiled.BindVars[rowLineageStage0TerminalIDBind]; exists {
-		t.Fatalf("empty row retained an unused terminal bind: %#v", compiled.BindVars)
+	if _, exists := testAQLBinds(t, compiled.Command)[rowLineageStage0TerminalIDBind]; exists {
+		t.Fatalf("empty row retained an unused terminal bind: %#v", testAQLBinds(t, compiled.Command))
 	}
 	for _, want := range []string{"FILTER __loom_physical_construction_row_lineage", "[\"empty\"]", "contributors: SLICE", "root:"} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("PRESERVE_PARENT row lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("PRESERVE_PARENT row lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
-	for key := range compiled.BindVars {
+	for key := range testAQLBinds(t, compiled.Command) {
 		if strings.Contains(key, "row_lineage_related_resource_type") {
 			t.Fatalf("PRESERVE_PARENT empty row retained a related contributor bind %q", key)
 		}
@@ -1433,13 +1433,13 @@ func TestCompileRelatedExpandRowLineageTreatsForgedIdentityAsUnmatchable(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compiled.BindVars[rowLineageRootKeyBind] != "patient-storage-key" ||
-		compiled.BindVars[rowLineageStage0TerminalIDBind] != "Observation/forged-key" ||
-		compiled.BindVars[rowLineageStage0RowIDBind] != forged {
-		t.Fatalf("forged row ID was not bound as an exact candidate: %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRootKeyBind] != "patient-storage-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0TerminalIDBind] != "Observation/forged-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0RowIDBind] != forged {
+		t.Fatalf("forged row ID was not bound as an exact candidate: %#v", testAQLBinds(t, compiled.Command))
 	}
-	if !strings.Contains(compiled.Query, "_id == @row_lineage_stage_0_terminal_id") || !strings.Contains(compiled.Query, "== @row_lineage_stage_0_row_id") {
-		t.Fatalf("forged row ID is not checked against the authorized terminal and canonical identity:\n%s", compiled.Query)
+	if !strings.Contains(testAQLText(t, compiled.Command), "_id == @row_lineage_stage_0_terminal_id") || !strings.Contains(testAQLText(t, compiled.Command), "== @row_lineage_stage_0_row_id") {
+		t.Fatalf("forged row ID is not checked against the authorized terminal and canonical identity:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 
@@ -1450,9 +1450,9 @@ func TestCompileRelatedExpandRowLineageBindsMalformedIdentityToNullRoot(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compiled.BindVars[rowLineageRootKeyBind] != nil || compiled.BindVars[rowLineageStage0TerminalIDBind] != "" ||
-		compiled.BindVars[rowLineageStage0RowIDBind] != "not-json" {
-		t.Fatalf("malformed identity was not made unmatchable at the root: %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRootKeyBind] != nil || testAQLBinds(t, compiled.Command)[rowLineageStage0TerminalIDBind] != "" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0RowIDBind] != "not-json" {
+		t.Fatalf("malformed identity was not made unmatchable at the root: %#v", testAQLBinds(t, compiled.Command))
 	}
 }
 
@@ -1524,13 +1524,13 @@ func TestCompileComposedRelatedRowLineageBindsEachOwnerAndPagesWitnesses(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compiled.BindVars[rowLineageRootKeyBind] != "patient-storage-key" ||
-		compiled.BindVars[rowLineageStage0RowIDBind] != firstRowID ||
-		compiled.BindVars[rowLineageStage0TerminalIDBind] != "Observation/observation-storage-key" ||
-		compiled.BindVars["row_lineage_stage_1_row_id"] != finalRowID ||
-		compiled.BindVars["row_lineage_stage_1_terminal_id"] != "Patient/related-patient-storage-key" ||
-		compiled.BindVars[rowLineageRowIDBind] != finalRowID {
-		t.Fatalf("composed owner bindings do not retain exact stage identities: %#v", compiled.BindVars)
+	if testAQLBinds(t, compiled.Command)[rowLineageRootKeyBind] != "patient-storage-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0RowIDBind] != firstRowID ||
+		testAQLBinds(t, compiled.Command)[rowLineageStage0TerminalIDBind] != "Observation/observation-storage-key" ||
+		testAQLBinds(t, compiled.Command)["row_lineage_stage_1_row_id"] != finalRowID ||
+		testAQLBinds(t, compiled.Command)["row_lineage_stage_1_terminal_id"] != "Patient/related-patient-storage-key" ||
+		testAQLBinds(t, compiled.Command)[rowLineageRowIDBind] != finalRowID {
+		t.Fatalf("composed owner bindings do not retain exact stage identities: %#v", testAQLBinds(t, compiled.Command))
 	}
 	for _, want := range []string{
 		"root._key == @row_lineage_root_key",
@@ -1539,8 +1539,8 @@ func TestCompileComposedRelatedRowLineageBindsEachOwnerAndPagesWitnesses(t *test
 		"LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 		"contributors: SLICE", "hasMore:",
 	} {
-		if !strings.Contains(compiled.Query, want) {
-			t.Errorf("composed row lineage query is missing %q:\n%s", want, compiled.Query)
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Errorf("composed row lineage query is missing %q:\n%s", want, testAQLText(t, compiled.Command))
 		}
 	}
 }

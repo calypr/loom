@@ -60,10 +60,10 @@ func TestCompiledQueryRetainsFinalizedPlanThatRendersExecutedQuery(t *testing.T)
 	if err != nil {
 		t.Fatalf("render retained plan: %v", err)
 	}
-	if rendered.Query != queries[0].Query || !reflect.DeepEqual(rendered.BindVars, queries[0].BindVars) {
-		t.Fatalf("retained plan differs from executed query/binds: queryMatch=%t bindMatch=%t", rendered.Query == queries[0].Query, reflect.DeepEqual(rendered.BindVars, queries[0].BindVars))
+	if rendered.Query != testAQLText(t, queries[0].Command) || !reflect.DeepEqual(rendered.BindVars, testAQLBinds(t, queries[0].Command)) {
+		t.Fatalf("retained plan differs from executed query/binds: queryMatch=%t bindMatch=%t", rendered.Query == testAQLText(t, queries[0].Command), reflect.DeepEqual(rendered.BindVars, testAQLBinds(t, queries[0].Command)))
 	}
-	if got := queries[0].BindVars["limit"]; got != 7 {
+	if got := testAQLBinds(t, queries[0].Command)["limit"]; got != 7 {
 		t.Fatalf("retained execution plan lost its final preview window, limit bind=%#v", got)
 	}
 }

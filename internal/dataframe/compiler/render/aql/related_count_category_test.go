@@ -77,20 +77,20 @@ func TestRelatedEligibilityCategoryScanUsesScopedReverseFrontier(t *testing.T) {
 		"COLLECT __loom_physical_related_category_group_present = __loom_physical_related_category_category_present, __loom_physical_related_category_group_value = __loom_physical_related_category_category_value",
 		"LIMIT 257",
 	} {
-		if !strings.Contains(query.Query, want) {
-			t.Errorf("reverse category query is missing %q:\n%s", want, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), want) {
+			t.Errorf("reverse category query is missing %q:\n%s", want, testAQLText(t, query.Command))
 		}
 	}
-	if strings.Contains(query.Query, "LET __loom_construction_source_projection = (") {
-		t.Fatalf("category scan materialized the source root projection before reversing eligibility:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "LET __loom_construction_source_projection = (") {
+		t.Fatalf("category scan materialized the source root projection before reversing eligibility:\n%s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "unused_source_calculation") {
-		t.Fatalf("unselected derived LET leaked into the specialized category plan:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "unused_source_calculation") {
+		t.Fatalf("unselected derived LET leaked into the specialized category plan:\n%s", testAQLText(t, query.Command))
 	}
-	if got := query.BindVars["related_eligibility_0_hop_1_source_type"]; got != "Patient" {
+	if got := testAQLBinds(t, query.Command)["related_eligibility_0_hop_1_source_type"]; got != "Patient" {
 		t.Fatalf("typed source discriminator bind = %#v, want Patient", got)
 	}
-	if got := query.BindVars["@__loom_related_category_terminal_collection"]; got != "Observation" {
+	if got := testAQLBinds(t, query.Command)["@__loom_related_category_terminal_collection"]; got != "Observation" {
 		t.Fatalf("terminal collection bind = %#v, want Observation", got)
 	}
 	if query.OverflowWitness == nil || query.Proof.OverflowWitnessFingerprint == "" {
@@ -102,11 +102,11 @@ func TestRelatedEligibilityCategoryScanUsesScopedReverseFrontier(t *testing.T) {
 		"LIMIT 1025",
 		"COLLECT present = __loom_witness_present, value = __loom_witness_value",
 	} {
-		if !strings.Contains(query.OverflowWitness.Query, want) {
-			t.Errorf("category overflow witness is missing %q:\n%s", want, query.OverflowWitness.Query)
+		if !strings.Contains(testAQLText(t, query.OverflowWitness.Command), want) {
+			t.Errorf("category overflow witness is missing %q:\n%s", want, testAQLText(t, query.OverflowWitness.Command))
 		}
 	}
-	if strings.Contains(query.OverflowWitness.Query, "unused_source_calculation") {
+	if strings.Contains(testAQLText(t, query.OverflowWitness.Command), "unused_source_calculation") {
 		t.Fatal("unselected source calculation leaked into the overflow witness")
 	}
 }

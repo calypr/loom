@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"testing"
@@ -256,7 +257,12 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	cleanupFailure := errors.New("injected source artifact cleanup failure")
 	engine, err := New(Config{
 		Registry: invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			query, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if strings.Contains(query, " LIMIT ") {
 				return fmt.Errorf("group or Pivot dependency received a preview limit")
 			}
@@ -472,7 +478,12 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			var sourceCalls, combineCalls int
 			engine, err := New(Config{
 				Registry: invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-				QueryRows: func(_ context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+				QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+					query, bindVars, dispatchErr := command.AQLParameters()
+					if dispatchErr != nil {
+						return dispatchErr
+					}
+
 					if !strings.Contains(query, "auth_resource_path IN @auth_resource_paths") || strings.Contains(query, " LIMIT ") {
 						return fmt.Errorf("restricted source query omitted its exact scope filter or received a limit: %s", query)
 					}
@@ -625,7 +636,12 @@ func TestOrdinaryRestrictedPreviewDoesNotRequirePrivateCaptureProof(t *testing.T
 	var queryCalls int
 	engine, err := New(Config{
 		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			_, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			queryCalls++
 			if bindVars["auth_resource_paths_unrestricted"] != false || !reflect.DeepEqual(bindVars["auth_resource_paths"], []string{"/programs/a"}) {
 				return fmt.Errorf("ordinary preview lost its exact restricted source scope: %#v", bindVars)
@@ -708,8 +724,14 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		published("table-right", "revision-right", "right", "right-key", "right_private", false)
 	var pinned []string
 	engine, err := New(Config{
-		Registry:  invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry: invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 		WithExecutionReadPins: func(_ context.Context, revisions []string, visit func(context.Context) error) error {
 			pinned = append([]string(nil), revisions...)
 			return visit(context.Background())

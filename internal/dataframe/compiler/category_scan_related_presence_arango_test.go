@@ -129,8 +129,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 
 	// This raw traversal is deliberately independent of the compiler plans. It
 	// models the two PRESERVE_PARENT boundaries and the exact terminal field.
-	oracle := CompiledQuery{
-		Query: `FOR root IN Specimen
+	oracleCommand := testAQLCommand(`FOR root IN Specimen
   FILTER root.project == @project AND root.dataset_generation == @generation
     AND root.auth_resource_path IN @auth_paths AND root._key IN @root_keys
   LET patients = (
@@ -161,12 +160,11 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
       LET category = present AND terminal != null ? quantity.code : null
       LET amount = terminal == null ? null : quantity.value
       RETURN { specimen_id: root.id, present, category, amount }
-`,
-		BindVars: map[string]any{
-			"project": project, "generation": generation, "auth_paths": []string{visible},
-			"root_keys": []string{rootKeys["root-string"], rootKeys["root-null"], rootKeys["root-absent-code"], rootKeys["root-absent-parent"], rootKeys["root-no-observation"]},
-		},
-	}
+`, map[string]any{
+		"project": project, "generation": generation, "auth_paths": []string{visible},
+		"root_keys": []string{rootKeys["root-string"], rootKeys["root-null"], rootKeys["root-absent-code"], rootKeys["root-absent-parent"], rootKeys["root-no-observation"]}},
+	)
+	oracle := CompiledQuery{Command: oracleCommand}
 	rawRows := executeReshapeOracleQuery(t, ctx, client, oracle)
 	if len(rawRows) != 5 {
 		t.Fatalf("independent scoped related rows = %#v, want five visible roots including the preserved no-target row", rawRows)
@@ -226,7 +224,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("preserved no-target row should remain in its group with NULL Pivot cells: %#v", noTarget)
 	}
 
-	discoveredRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: categoryScan.Query, BindVars: categoryScan.BindVars})
+	discoveredRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: categoryScan.Command})
 	gotCategoryKeys := make(map[string]bool, len(discoveredRows))
 	for _, row := range discoveredRows {
 		present, ok := row[categoryScan.PresentColumn].(bool)
@@ -317,7 +315,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 	if err != nil {
 		t.Fatalf("compile NULL-only related Pivot with unlisted error: %v", err)
 	}
-	err = client.QueryRows(ctx, nullOnlyErrorQuery.Query, 100, nullOnlyErrorQuery.BindVars, func(map[string]any) error { return nil })
+	err = client.QueryRows(ctx, testAQLText(t, nullOnlyErrorQuery.Command), 100, testAQLBinds(t, nullOnlyErrorQuery.Command), func(map[string]any) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "TABLE_PIVOT_UNLISTED_CATEGORY") {
 		t.Fatalf("NULL-only Pivot with an absent category returned error %v, want TABLE_PIVOT_UNLISTED_CATEGORY", err)
 	}
@@ -366,8 +364,8 @@ func TestRelatedConstructionPivotPresencePlanCompiles(t *testing.T) {
 			presenceColumn = stage.GroupedPivot.CategoryPresenceColumn
 		}
 	}
-	if presenceColumn == "" || !strings.Contains(query.Query, "NOT (") || !containsBindValue(query.BindVars, presenceColumn) {
-		t.Fatalf("compiled MISSING Pivot did not consume its typed presence companion %q:\n%s\n%#v", presenceColumn, query.Query, query.BindVars)
+	if presenceColumn == "" || !strings.Contains(testAQLText(t, query.Command), "NOT (") || !containsBindValue(testAQLBinds(t, query.Command), presenceColumn) {
+		t.Fatalf("compiled MISSING Pivot did not consume its typed presence companion %q:\n%s\n%#v", presenceColumn, testAQLText(t, query.Command), testAQLBinds(t, query.Command))
 	}
 }
 

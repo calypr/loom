@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -116,7 +117,13 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 		RootPageRows: 100,
 	})
 	if err != nil {
