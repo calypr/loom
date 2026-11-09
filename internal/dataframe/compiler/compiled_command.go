@@ -176,12 +176,18 @@ func (c CompiledCommand) AQLParameters() (string, map[string]any, error) {
 }
 
 // PostgreSQLParameters dispatches a PostgreSQL-tagged command to statement
-// SQL plus ordered typed arguments. Any other tag is rejected before a
-// statement could execute.
+// SQL plus ordered typed arguments. Unlike the AQL bind map, which is a
+// documented shared instance, the returned argument slice is a fresh copy:
+// callers cannot mutate the command's positional bindings through the
+// accessor. Any other tag is rejected before a statement could execute.
 func (c CompiledCommand) PostgreSQLParameters() (string, []PostgreSQLParameter, error) {
 	switch c.backend {
 	case CompiledBackendPostgreSQL:
-		return c.postgreSQL.SQL, c.postgreSQL.Args, nil
+		var copied []PostgreSQLParameter
+		if len(c.postgreSQL.Args) != 0 {
+			copied = append([]PostgreSQLParameter(nil), c.postgreSQL.Args...)
+		}
+		return c.postgreSQL.SQL, copied, nil
 	case CompiledBackendAQL:
 		return "", nil, fmt.Errorf("%w: refusing to pass %s query to the PostgreSQL statement executor",
 			ErrCompiledCommandBackendMismatch, string(CompiledBackendAQL))

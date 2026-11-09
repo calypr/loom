@@ -71,6 +71,13 @@ func TestCompiledCommand(t *testing.T) {
 		if _, reread, err := command.PostgreSQLParameters(); err != nil || reread[0].Value != "Patient" {
 			t.Fatalf("args must be copied at construction: %#v %v", reread, err)
 		}
+		// The accessor hands out a fresh copy, unlike AQL's documented shared
+		// bind map: mutating the returned slice must not corrupt the
+		// command's positional bindings for a later dispatch.
+		gotArgs[0].Value = "Corrupted"
+		if _, afterMutate, err := command.PostgreSQLParameters(); err != nil || afterMutate[0].Value != "Patient" {
+			t.Fatalf("PostgreSQLParameters must return a fresh copy on every read: %#v %v", afterMutate, err)
+		}
 		// The acceptance guarantee: PostgreSQL SQL is rejected before it can
 		// reach the AQL QueryRows(query, bindVars) adapter.
 		if _, _, err := command.AQLParameters(); !errors.Is(err, ErrCompiledCommandBackendMismatch) {
