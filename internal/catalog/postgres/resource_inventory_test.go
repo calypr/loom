@@ -100,60 +100,32 @@ func newCatalogInventoryService(t *testing.T) *catalogInventoryService {
 	}
 	t.Cleanup(admin.Close)
 
+	var dbName, schema string
+
 	// Registered while the admin pool is open, so (LIFO) it runs after every
-	// database/schema drop and audits the namespace for leftovers.
+	// drop. Ownership-based zero-leftover audit: every resource this test
+	// created (ownership began at verified create, per the canonical fixture
+	// runner) must be gone afterward. The names are pgcat02_it_*-patterned
+	// below; an ownership-scoped audit is what makes this race-free when
+	// another test or package holds live pgcat02_it_* fixtures in parallel.
 	t.Cleanup(func() {
-		var leftoverDBs []string
-		rows, err := admin.Query(context.WithoutCancel(ctx),
-			"SELECT datname FROM pg_database WHERE datname ~ '^pgcat02_it_[0-9]+_[0-9a-f]+$' ORDER BY datname")
-		if err != nil {
-			t.Errorf("audit isolated databases: %s", scrub(err))
-			return
+		var dbCount int
+		if err := admin.QueryRow(context.WithoutCancel(ctx),
+			"SELECT COUNT(*) FROM pg_database WHERE datname = $1", dbName).Scan(&dbCount); err != nil {
+			t.Errorf("audit isolated database %s: %s", dbName, scrub(err))
+		} else if dbCount != 0 {
+			t.Errorf("leftover isolated database %s after cleanup", dbName)
 		}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				rows.Close()
-				t.Errorf("audit isolated databases: %s", scrub(err))
-				return
-			}
-			leftoverDBs = append(leftoverDBs, name)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			t.Errorf("audit isolated databases: %s", scrub(err))
-			return
-		}
-		if len(leftoverDBs) > 0 {
-			t.Errorf("leftover pgcat02_it_* databases after cleanup: %v", leftoverDBs)
-		}
-		var leftoverSchemas []string
-		rows, err = admin.Query(context.WithoutCancel(ctx),
-			"SELECT nspname FROM pg_namespace WHERE nspname ~ '^pgcat02_it_[0-9]+_[0-9a-f]+$' ORDER BY nspname")
-		if err != nil {
-			t.Errorf("audit service-database schemas: %s", scrub(err))
-			return
-		}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				rows.Close()
-				t.Errorf("audit service-database schemas: %s", scrub(err))
-				return
-			}
-			leftoverSchemas = append(leftoverSchemas, name)
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			t.Errorf("audit service-database schemas: %s", scrub(err))
-			return
-		}
-		if len(leftoverSchemas) > 0 {
-			t.Errorf("leftover pgcat02_it_* schemas in the service database after cleanup: %v", leftoverSchemas)
+		var schemaCount int
+		if err := admin.QueryRow(context.WithoutCancel(ctx),
+			"SELECT COUNT(*) FROM pg_namespace WHERE nspname = $1", schema).Scan(&schemaCount); err != nil {
+			t.Errorf("audit owned schema %s: %s", schema, scrub(err))
+		} else if schemaCount != 0 {
+			t.Errorf("leftover owned schema %s in the service database after cleanup", schema)
 		}
 	})
 
-	dbName := fmt.Sprintf("pgcat02_it_%d_%s", time.Now().UnixNano(), catalogRandomHex(t))
+	dbName = fmt.Sprintf("pgcat02_it_%d_%s", time.Now().UnixNano(), catalogRandomHex(t))
 	if !pgcat02CatalogNamePattern.MatchString(dbName) {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
@@ -181,7 +153,7 @@ func newCatalogInventoryService(t *testing.T) *catalogInventoryService {
 	}
 	t.Cleanup(iso.Close)
 
-	schema := fmt.Sprintf("pgcat02_it_%d_%s", time.Now().UnixNano(), catalogRandomHex(t))
+	schema = fmt.Sprintf("pgcat02_it_%d_%s", time.Now().UnixNano(), catalogRandomHex(t))
 	if !pgcat02CatalogNamePattern.MatchString(schema) {
 		t.Fatalf("owned schema name %q does not match the required pattern", schema)
 	}
