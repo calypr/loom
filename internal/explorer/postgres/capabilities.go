@@ -108,7 +108,7 @@ type CapabilitySnapshotStore struct {
 	client   *pgstore.Client
 	insert   string // INSERT ... ON CONFLICT (token) DO NOTHING RETURNING payload
 	getToken string // SELECT payload ... WHERE token = $1
-	getIdent string // SELECT payload ... WHERE <12 identity columns> AND status IN (...) ORDER BY READY-first, token
+	getIdent string // SELECT payload ... WHERE all 13 identity columns (incl. shape_digest) AND status IN (...) ORDER BY READY-first, token
 }
 
 var _ capability.Repository = (*CapabilitySnapshotStore)(nil)
@@ -140,7 +140,7 @@ func NewCapabilitySnapshotStore(client *pgstore.Client, schema string) (*Capabil
 			"AND authorization_scope_digest = $3 AND cache_version = $4 AND schema_digest = $5 " +
 			"AND resource_inventory_digest = $6 AND relationship_digest = $7 AND field_digest = $8 " +
 			"AND protocol_version = $9 AND compiler_version = $10 AND traversal_policy_version = $11 " +
-			"AND projection_policy_version = $12 AND status IN ('READY', 'BUILDING', 'FAILED') " +
+			"AND projection_policy_version = $12 AND shape_digest = $13 AND status IN ('READY', 'BUILDING', 'FAILED') " +
 			"ORDER BY (status = 'READY') DESC, token LIMIT 1",
 	}, nil
 }
@@ -288,9 +288,15 @@ func (s *CapabilitySnapshotStore) getByTokenRaw(ctx context.Context, conn capabi
 }
 
 // GetByIdentity returns the best available snapshot for one exact identity:
-// READY first, then BUILDING/FAILED, ordered by token -- the same selection
-// the Arango adapter performs over the same 12 identity columns. Misses
-// (including every cross-project/generation/scope/digest retrieval) return
+// READY first, then BUILDING/FAILED, ordered by token. The SQL filter
+// covers all thirteen identity columns, including shape_digest: the
+// Arango AQL filter omits shape_digest, but keeping filter and post-read
+// mirror check aligned means a sibling row differing only on shape_digest
+// is a typed capability.ErrNotFound miss here rather than a misleading
+// corruption error, and a returned row's mirror columns are guaranteed to
+// equal the requested identity -- so a payload that still disagrees is a
+// genuine mirror/payload inconsistency. Misses (including every
+// cross-project/generation/scope/digest retrieval) return
 // capability.ErrNotFound with no information leak.
 func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity capability.SnapshotIdentity) (*capability.Snapshot, error) {
 	conn, err := s.client.Acquire(ctx)
@@ -304,7 +310,7 @@ func (s *CapabilitySnapshotStore) GetByIdentity(ctx context.Context, identity ca
 		identity.Project, identity.Generation, identity.AuthorizationScopeDigest, identity.CacheVersion,
 		identity.SchemaDigest, identity.ResourceInventoryDigest, identity.RelationshipDigest, identity.FieldDigest,
 		identity.ProtocolVersion, identity.CompilerVersion, identity.TraversalPolicyVersion,
-		identity.ProjectionPolicyVersion).Scan(&raw)
+		identity.ProjectionPolicyVersion, identity.ShapeDigest).Scan(&raw)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, capability.ErrNotFound
 	}
@@ -343,8 +349,8 @@ var receiptColumns = []string{
 type TableShapeCapabilityStore struct {
 	client     *pgstore.Client
 	insert     string // INSERT ... ON CONFLICT (id) DO NOTHING RETURNING payload
-	catalog    string // SELECT <cols> ... WHERE id, kind, 13 binding columns
-	scanRow    string // SELECT <cols> ... WHERE id, kind, parent_catalog_id, 13 binding columns
+	catalog    string // SELECT <cols> ... WHERE id, kind, 12 binding columns
+	scanRow    string // SELECT <cols> ... WHERE id, kind, parent_catalog_id, 12 binding columns
 	resolution string // same shape as scanRow, kind RESOLUTION
 	lookup     string // SELECT <cols> ... WHERE id, kind CATALOG, 9 lookup columns
 }
@@ -379,8 +385,8 @@ func NewTableShapeCapabilityStore(client *pgstore.Client, schema string) (*Table
 	}, nil
 }
 
-// bindingColumnFilterFrom renders the 13 fully bound binding-column
-// predicates starting at placeholder position start ($3..$15 or $4..$16).
+// bindingColumnFilterFrom renders the 12 fully bound binding-column
+// predicates starting at placeholder position start ($3..$14 or $4..$15).
 func bindingColumnFilterFrom(start int) string {
 	columns := []string{
 		"project", "explorer_id", "output_id", "snapshot_token", "authorization_scope",
@@ -410,6 +416,10 @@ func lookupColumnFilterFrom(start int) string {
 
 // bindingArgs maps a Binding to its mirror column values in binding
 // declaration order (the tail of receiptColumns' binding block).
+// Documented bound: DraftVersion is a CAS counter bounded far below
+// math.MaxInt64; the int64 cast is exact for every reachable value, and a
+// hand-forged value above math.MaxInt64 would surface as a wrapped
+// draft_version >= 1 CHECK refusal, never an overflowed match.
 func bindingArgs(binding tableshapecap.Binding) []any {
 	return []any{
 		binding.Project, binding.ExplorerID, binding.OutputID, binding.SnapshotToken,
@@ -533,6 +543,9 @@ func (s *TableShapeCapabilityStore) GetCatalogForLookup(ctx context.Context, loo
 	return receipt, nil
 }
 
+// lookupArgs maps the nine request-bound CatalogLookup columns to
+// placeholders. The DraftVersion int64 cast obeys the documented bound
+// stated on bindingArgs.
 func lookupArgs(lookup tableshapecap.CatalogLookup) []any {
 	return []any{
 		lookup.Project, lookup.ExplorerID, lookup.OutputID, lookup.SnapshotToken,

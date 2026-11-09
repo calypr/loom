@@ -1118,6 +1118,7 @@ func TestCapabilitySnapshotIdentityRetrievalIsFullyScoped(t *testing.T) {
 		"resourceInventoryDigest":  func(id *capability.SnapshotIdentity) { id.ResourceInventoryDigest += "-other" },
 		"relationshipDigest":       func(id *capability.SnapshotIdentity) { id.RelationshipDigest += "-other" },
 		"fieldDigest":              func(id *capability.SnapshotIdentity) { id.FieldDigest += "-other" },
+		"shapeDigest":              func(id *capability.SnapshotIdentity) { id.ShapeDigest += "-other" },
 		"protocolVersion":          func(id *capability.SnapshotIdentity) { id.ProtocolVersion += "-other" },
 		"compilerVersion":          func(id *capability.SnapshotIdentity) { id.CompilerVersion += "-other" },
 		"traversalPolicyVersion":   func(id *capability.SnapshotIdentity) { id.TraversalPolicyVersion += "-other" },
@@ -1160,6 +1161,47 @@ func TestCapabilitySnapshotIdentityRetrievalIsFullyScoped(t *testing.T) {
 		s.fail("get diagnostic identity", err)
 	}
 	assertSnapshotEquivalent(t, "GetByIdentity FAILED", got, diagnostic)
+
+	// Shape-digest siblings (AO review finding on 4e85103c): two READY
+	// snapshots that agree on every identity column except shape_digest are
+	// both healthy rows. Each identity query must return exactly the
+	// requested artifact -- never the sibling, and never a corruption error
+	// for a row that is internally consistent. The SQL identity filter and
+	// the post-read mirror check therefore have to agree on shape_digest.
+	sibling := richSnapshot("pgstate03-identity", "generation-1", "beta")
+	sibling.Identity.ShapeDigest = "sha256:shape-beta-sibling"
+	siblingSum := sha256.Sum256(sibling.CanonicalPayload())
+	sibling.Token = "sha256:" + hex.EncodeToString(siblingSum[:])
+	if sibling.Token == ready.Token {
+		t.Fatal("shape-digest sibling did not produce a distinct token")
+	}
+	if _, err := s.snapshots.Put(s.ctx, sibling); err != nil {
+		s.fail("put shape-digest sibling", err)
+	}
+	got, err = s.snapshots.GetByIdentity(s.ctx, ready.Identity)
+	if err != nil {
+		s.fail("get by identity with shape-digest sibling", err)
+	}
+	if got.Token != ready.Token {
+		t.Fatalf("GetByIdentity(ready) returned sibling token %q, want %q", got.Token, ready.Token)
+	}
+	assertSnapshotEquivalent(t, "GetByIdentity ready beside shape sibling", got, ready)
+	got, err = s.snapshots.GetByIdentity(s.ctx, sibling.Identity)
+	if err != nil {
+		s.fail("get by identity for shape-digest sibling", err)
+	}
+	if got.Token != sibling.Token {
+		t.Fatalf("GetByIdentity(sibling) returned token %q, want %q", got.Token, sibling.Token)
+	}
+	assertSnapshotEquivalent(t, "GetByIdentity shape-digest sibling", got, sibling)
+
+	// An identity that differs from both rows only on shape_digest is a
+	// typed miss, never the sibling and never a corruption error.
+	ghost := sibling.Identity
+	ghost.ShapeDigest = "sha256:shape-beta-ghost"
+	if _, err := s.snapshots.GetByIdentity(s.ctx, ghost); !errors.Is(err, capability.ErrNotFound) {
+		t.Fatalf("GetByIdentity(ghost shape digest) = %v, want capability.ErrNotFound", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
