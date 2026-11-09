@@ -386,6 +386,85 @@ func TestReconcileSweepReclaimsAbandoned(t *testing.T) {
 // B. Pin arbitration.
 // ---------------------------------------------------------------------------
 
+// TestReconcileDropFailureConvergesIdempotently witnesses the seam the
+// coordinator ruling names: the values-only drop callback runs OUTSIDE any
+// PG transaction, so a drop that fails AFTER the claim transaction has
+// committed must not strand the sweep. The terminal record lands with the
+// un-droppable table in remaining and the claim and lease consumed (no
+// orphan), and the NEXT reconcile converges idempotently: the still-live
+// table is dropped exactly once more and the already-dead table is a
+// no-op re-drop (double-drop safety), ending with empty remaining.
+func TestReconcileDropFailureConvergesIdempotently(t *testing.T) {
+	s := newRPRService(t)
+	ctx := s.ctx
+	defer setReconcileGates(nil, nil)
+
+	const id = "exec-dropconv"
+	tbl0 := "tbl-" + id + "-0"
+	tbl1 := "tbl-" + id + "-1"
+	s.seedStaleExecution(t, rprExecution(id, "proj-a", "recipe-dropconv", publication.BundleRunning, 2))
+
+	failing := newRPRDrops()
+	failing.hookErr = func(table string, _ context.Context) error {
+		if table == tbl0 {
+			return errors.New("drop callback exploded")
+		}
+		return nil
+	}
+	rc := s.newReconciler(t, nil)
+	err := rc.SweepStale(ctx, time.Now().UTC(), failing.hook)
+	if err == nil || !strings.Contains(err.Error(), "drop callback exploded") {
+		t.Fatalf("sweep 1 error = %v, want the drop callback failure", err)
+	}
+	if got := strings.Join(failing.snapshot(), ","); got != tbl0+"!error,"+tbl1 {
+		t.Fatalf("sweep 1 drop witnesses = %v, want [%s %s] in page order", failing.snapshot(), tbl0+"!error", tbl1)
+	}
+	// The terminal write landed despite the failed drop: FAILED, with ONLY
+	// the un-droppable table kept in remaining.
+	state, payload := s.executionRow(t, id)
+	if state != string(publication.BundleFailed) {
+		t.Fatalf("state after failed drop = %q, want FAILED", state)
+	}
+	if !strings.Contains(payload, tbl0) || strings.Contains(payload, tbl1) {
+		t.Fatalf("remaining after failed drop wrong (want %s kept, %s gone): %s", tbl0, tbl1, payload)
+	}
+	// No orphan: the terminal release consumed claim and lease despite the
+	// drop error, and no pin rows exist for the swept execution.
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("failed-drop sweep stranded the cleanup claim: %q", claim)
+	}
+	if s.leaseRow(t, "key-"+id) != "" {
+		t.Fatal("failed-drop sweep stranded the bundle lease")
+	}
+	if got := s.pinsRows(t, s.w, id); len(got) != 0 {
+		t.Fatalf("failed-drop sweep left pin rows: %v", got)
+	}
+
+	// Convergence run: the next sweep -- fresh identity, production shape
+	// -- finishes the job idempotently.
+	rc2 := s.newReconciler(t, nil)
+	converged := newRPRDrops()
+	if err := rc2.SweepStale(ctx, time.Now().UTC(), converged.hook); err != nil {
+		t.Fatalf("converging sweep: %v", err)
+	}
+	if got := converged.snapshot(); len(got) != 1 || got[0] != tbl0 {
+		t.Fatalf("converging drop witnesses = %v, want exactly [%s]: the already-dead %s must be a no-op re-drop, not a recounted deletion", got, tbl0, tbl1)
+	}
+	state, payload = s.executionRow(t, id)
+	if state != string(publication.BundleFailed) {
+		t.Fatalf("state after convergence = %q, want FAILED", state)
+	}
+	if strings.Contains(payload, tbl0) || strings.Contains(payload, tbl1) {
+		t.Fatalf("convergence left outputs in the record: %s", payload)
+	}
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("converging sweep stranded the cleanup claim: %q", claim)
+	}
+	if s.leaseRow(t, "key-"+id) != "" {
+		t.Fatal("converging sweep stranded the bundle lease")
+	}
+}
+
 func TestReconcileRefusedByLivePin(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx

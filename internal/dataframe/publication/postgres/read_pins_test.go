@@ -32,11 +32,18 @@ package postgres
 //	   release-pin/renew-cleanup never touch other owners' rows.
 //
 // Every fixture database and schema is uniquely owned as verify_rpr_it_* and
-// dropped by the test that created it; TestZZ audits the exact owned names
-// plus a pg_database==baseline equality over the process-lifetime baseline,
-// tolerating the documented sibling-suite prefixes (pgpubcat01_it_*,
-// pgleases01_it_*, verify_pubvis_it_*). A skipped required case is a failure
-// for this ticket's acceptance, so the check is run with
+// dropped by the test that created it. Per the coordinator audit-scoping
+// ruling, TestZZ asserts only OWNERSHIP-SCOPED guarantees: every exact name
+// on this suite's creation-tracked registry is gone, and pg_database holds
+// zero rows under this suite's registered prefix verify_rpr_* -- a foreign
+// database under the registered prefix is a real leak and fails here. There
+// is deliberately no global pg_database==baseline equality: sibling batch
+// sessions (registered prefixes verify_cat05b_*, verify_ing02_*,
+// verify_exec01_*, verify_v93_*, verify_v94_*, CI-internal *_it_*, and the
+// in-package pgpubcat01_it_*, pgleases01_it_*, verify_pubvis_it_* suites)
+// legitimately create and drop databases concurrently; foreign churn is
+// neither this suite's leak nor its failure. A skipped required case is a
+// failure for this ticket's acceptance, so the check is run with
 // LOOM_TEST_POSTGRES_URL configured; the gate exists only to keep unrelated
 // CI lanes green.
 
@@ -46,6 +53,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -74,62 +82,17 @@ func rprRegisterOwned(db string) {
 	rprOwned[db] = true
 }
 
-// pg_database baseline captured before any test runs, for the
-// pg_database==baseline equality in the zero-leftover audit.
-var (
-	rprBaselineOnce sync.Once
-	rprBaseline     map[string]bool
-	rprBaselineErr  error
-)
-
-func captureRprBaseline() {
-	rprBaselineOnce.Do(func() {
-		raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-		if raw == "" {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		admin, err := pgxpool.New(ctx, raw)
-		if err != nil {
-			rprBaselineErr = fmt.Errorf("baseline connect: %w", err)
-			return
-		}
-		defer admin.Close()
-		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database")
-		if err != nil {
-			rprBaselineErr = fmt.Errorf("baseline query: %w", err)
-			return
-		}
-		defer rows.Close()
-		rprBaseline = map[string]bool{}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				rprBaselineErr = fmt.Errorf("baseline scan: %w", err)
-				return
-			}
-			rprBaseline[name] = true
-		}
-		if err := rows.Err(); err != nil {
-			rprBaselineErr = fmt.Errorf("baseline rows: %w", err)
-		}
-	})
-}
-
-func init() { captureRprBaseline() }
-
-// auditReadPinsLeftovers is the ownership-scoped zero-leftover audit: every
-// exact verify_rpr_it_* database this suite created is gone, and the
-// pg_database set still equals the process baseline outside the documented
-// sibling-suite prefixes.
+// auditReadPinsLeftovers is the ownership-scoped zero-leftover audit (the
+// coordinator ruling's shape): (a) every exact database on the creation-
+// tracked registry is gone, and (b) pg_database holds zero rows under this
+// suite's registered prefix verify_rpr_*. No global pg_database==baseline
+// equality: sibling batch sessions create and drop their registered-prefix
+// databases concurrently, and foreign churn is neither this suite's leak nor
+// its failure. Anything that DOES appear under verify_rpr_* at audit time
+// is a leak by ruling -- registered or not.
 func auditReadPinsLeftovers() error {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		return nil
-	}
-	captureRprBaseline()
-	if rprBaselineErr != nil {
-		return rprBaselineErr
 	}
 	rprOwnedMu.Lock()
 	owned := make([]string, 0, len(rprOwned))
@@ -158,39 +121,24 @@ func auditReadPinsLeftovers() error {
 			return fmt.Errorf("leftover owned database %s after all cleanups", db)
 		}
 	}
-	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database")
+	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE left(datname, $1) = $2", len("verify_rpr_"), "verify_rpr_")
 	if err != nil {
-		return fmt.Errorf("audit current databases: %w", err)
+		return fmt.Errorf("audit prefix scan: %w", err)
 	}
 	defer rows.Close()
-	current := map[string]bool{}
+	var leftovers []string
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return fmt.Errorf("audit scan: %w", err)
+			return fmt.Errorf("audit prefix scan: %w", err)
 		}
-		current[name] = true
+		leftovers = append(leftovers, name)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("audit rows: %w", err)
+		return fmt.Errorf("audit prefix scan: %w", err)
 	}
-	for name := range current {
-		if rprBaseline[name] {
-			continue
-		}
-		// Sibling suites own their prefixes and their own zero-leftover
-		// audits in this same package; their transient databases are
-		// documented, not counted against this suite.
-		if strings.HasPrefix(name, "pgpubcat01_it_") || strings.HasPrefix(name, "pgleases01_it_") ||
-			strings.HasPrefix(name, "verify_pubvis_it_") || strings.HasPrefix(name, "verify_rpr_it_") {
-			continue
-		}
-		return fmt.Errorf("pg_database drifted from the baseline: unexpected database %q", name)
-	}
-	for name := range rprBaseline {
-		if !current[name] {
-			return fmt.Errorf("pg_database drifted from the baseline: baseline database %q vanished", name)
-		}
+	if len(leftovers) != 0 {
+		return fmt.Errorf("leftover databases under this suite's registered prefix verify_rpr_* after all cleanups: %v", leftovers)
 	}
 	return nil
 }
@@ -220,10 +168,6 @@ type rprService struct {
 func newRPRService(t *testing.T) *rprService {
 	t.Helper()
 	raw := testPostgresURL(t)
-	captureRprBaseline()
-	if rprBaselineErr != nil {
-		t.Fatalf("capture pg_database baseline: %v", rprBaselineErr)
-	}
 
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
@@ -401,6 +345,252 @@ func (s *rprService) migrate(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // Witnesses.
+// TestMigrationsCoexistStoreDir000009AndReadPins000009 is the coexistence
+// witness the coordinator ruling requires: with catalog-05's store
+// migration 000009_semantic_inventory_contribution.sql (internal/store/
+// postgres/migrations) AND this ticket's tests/migrations-readpins/
+// 000009_publication_read_pins.sql both present in the tree, composition is
+// deterministic and BOTH apply. Following the 000006 dual-existence
+// precedent (store 000006_semantic_inventory_build beside tests/
+// migrations-leases 000006_publication_lease_checkpoints), version spaces
+// are per composed history: the ledger primary key is (version) and
+// NewMigrationRunner refuses a duplicate version inside one history. The
+// ruling says witness it, do not assume, so this test proves all four
+// facts: (1) the publication history -- embedded ledger bootstrap 1, the
+// sibling 000004 catalog, and read-pins 9 -- applies in its own schema and
+// records {1,4,9} with the exact load checksums; (2) the full embedded
+// store history, including 000009 semantic_inventory_contribution, applies
+// in a second schema of the SAME database, recording version 9 under its
+// own name; the two ledger rows publication_read_pins and
+// semantic_inventory_contribution then coexist at the same version in one
+// database -- witnessed dual existence, per-schema version spaces; (3)
+// re-running each runner returns the identical applied history
+// (deterministic no-op replay) and each directory re-loads with identical
+// versions/names/checksums; and (4) forcing both 000009 files into ONE
+// history fails loudly with ErrInvalidMigration "duplicate version 9" --
+// the per-history version space is a guard, not an accident.
+func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
+	raw := testPostgresURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 480*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect admin: %v", err)
+	}
+	t.Cleanup(admin.Close)
+
+	dbName := fmt.Sprintf("verify_rpr_it_%d_%s", time.Now().UnixNano(), randomHex())
+	if !rprResourceNamePattern.MatchString(dbName) {
+		t.Fatalf("coexistence database name %q does not match the required pattern", dbName)
+	}
+	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
+		t.Fatalf("create coexistence database: %v", err)
+	}
+	rprRegisterOwned(dbName)
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
+			t.Errorf("drop coexistence database: %v", err)
+		}
+	})
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
+	}
+	if q := u.Query(); q.Get("dbname") != "" {
+		q.Del("dbname")
+		u.RawQuery = q.Encode()
+	}
+	u.Path = "/" + dbName
+	pool, err := newOwnedPool(ctx, u.String())
+	if err != nil {
+		t.Fatalf("connect coexistence database: %v", err)
+	}
+	defer pool.Close()
+
+	embedded, err := storepostgres.EmbeddedMigrations()
+	if err != nil {
+		t.Fatalf("embedded migrations: %v", err)
+	}
+	var ledger, store9 storepostgres.Migration
+	var ledgerFound, store9Found bool
+	for _, m := range embedded {
+		if m.Version == 1 && m.Name == "ledger" {
+			ledger, ledgerFound = m, true
+		}
+		if m.Version == 9 && m.Name == "semantic_inventory_contribution" {
+			store9, store9Found = m, true
+		}
+	}
+	if !ledgerFound {
+		t.Fatal("embedded history lacks the version 1 ledger bootstrap")
+	}
+	if !store9Found {
+		t.Fatal("embedded history lacks 000009_semantic_inventory_contribution: catalog-05 must be present for the coexistence witness")
+	}
+	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
+	if err != nil {
+		t.Fatalf("load tests/migrations: %v", err)
+	}
+	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
+		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
+	}
+	retention, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations-readpins")
+	if err != nil {
+		t.Fatalf("load tests/migrations-readpins: %v", err)
+	}
+	if len(retention) != 1 || retention[0].Version != 9 || retention[0].Name != "publication_read_pins" {
+		t.Fatalf("tests/migrations-readpins history = %+v, want exactly version 9 publication_read_pins", retention)
+	}
+
+	pubSchema := fmt.Sprintf("verify_rpr_it_%d_%s", time.Now().UnixNano(), randomHex())
+	storeSchema := fmt.Sprintf("verify_rpr_it_%d_%s", time.Now().UnixNano()+1, randomHex())
+	for _, schema := range []string{pubSchema, storeSchema} {
+		if !rprResourceNamePattern.MatchString(schema) {
+			t.Fatalf("coexistence schema name %q does not match the required pattern", schema)
+		}
+		if _, err := pool.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
+			t.Fatalf("create coexistence schema: %v", err)
+		}
+	}
+
+	pubRunner, err := storepostgres.NewMigrationRunner(pool, pubSchema,
+		append(append([]storepostgres.Migration{ledger}, catalog...), retention...))
+	if err != nil {
+		t.Fatalf("publication-space runner: %v", err)
+	}
+	pubResult, err := pubRunner.Migrate(ctx)
+	if err != nil {
+		t.Fatalf("publication-space migrate: %v", err)
+	}
+	wantPub := []storepostgres.LedgerRecord{
+		{Version: 1, Name: "ledger", Checksum: ledger.Checksum},
+		{Version: 4, Name: "publication_bundle_catalog", Checksum: catalog[0].Checksum},
+		{Version: 9, Name: "publication_read_pins", Checksum: retention[0].Checksum},
+	}
+	if pubResult.LatestVersion != 9 || len(pubResult.Applied) != len(wantPub) {
+		t.Fatalf("publication-space result = %+v, want latest 9 with %+v", pubResult, wantPub)
+	}
+	for i, want := range wantPub {
+		got := pubResult.Applied[i]
+		if got.Version != want.Version || got.Name != want.Name || got.Checksum != want.Checksum {
+			t.Fatalf("publication-space applied[%d] = {Version:%d Name:%q Checksum:%q}, want {Version:%d Name:%q Checksum:%q}",
+				i, got.Version, got.Name, got.Checksum, want.Version, want.Name, want.Checksum)
+		}
+	}
+	storeRunner, err := storepostgres.NewMigrationRunner(pool, storeSchema, embedded)
+	if err != nil {
+		t.Fatalf("store-space runner: %v", err)
+	}
+	storeResult, err := storeRunner.Migrate(ctx)
+	if err != nil {
+		t.Fatalf("store-space migrate: %v", err)
+	}
+	if storeResult.LatestVersion != 9 || len(storeResult.Applied) != len(embedded) {
+		t.Fatalf("store-space result latest = %d applied = %d, want 9 and %d", storeResult.LatestVersion, len(storeResult.Applied), len(embedded))
+	}
+	last := storeResult.Applied[len(storeResult.Applied)-1]
+	if last.Version != 9 || last.Name != "semantic_inventory_contribution" || last.Checksum != store9.Checksum {
+		t.Fatalf("store-space last applied = {Version:%d Name:%q Checksum:%q}, want {Version:9 Name:%q Checksum:%q}",
+			last.Version, last.Name, last.Checksum, "semantic_inventory_contribution", store9.Checksum)
+	}
+
+	// Dual existence in one database: both ledgers hold a version 9 row,
+	// under different names, in the same database.
+	ledgerRows := func(schema string) []string {
+		rows, err := pool.Query(ctx, "SELECT version, name, checksum FROM "+
+			pgx.Identifier{schema, storepostgres.LedgerTable}.Sanitize()+" ORDER BY version")
+		if err != nil {
+			t.Fatalf("ledger %s: %v", schema, err)
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var v int64
+			var name, checksum string
+			if err := rows.Scan(&v, &name, &checksum); err != nil {
+				t.Fatalf("ledger scan %s: %v", schema, err)
+			}
+			out = append(out, fmt.Sprintf("%d|%s|%s", v, name, checksum))
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("ledger rows %s: %v", schema, err)
+		}
+		return out
+	}
+	pubLedger := ledgerRows(pubSchema)
+	storeLedger := ledgerRows(storeSchema)
+	if len(pubLedger) != 3 {
+		t.Fatalf("publication ledger = %v, want exactly 3 rows", pubLedger)
+	}
+	if pubLedger[2] != fmt.Sprintf("9|publication_read_pins|%s", retention[0].Checksum) {
+		t.Fatalf("publication ledger version 9 = %q, want publication_read_pins with the load checksum", pubLedger[2])
+	}
+	if storeLedger[len(storeLedger)-1] != fmt.Sprintf("9|semantic_inventory_contribution|%s", store9.Checksum) {
+		t.Fatalf("store ledger version 9 = %q, want semantic_inventory_contribution with the load checksum", storeLedger[len(storeLedger)-1])
+	}
+	for _, probe := range []struct {
+		schema, table string
+	}{
+		{pubSchema, ExecutionReadPinsTable},
+		{pubSchema, ExecutionCleanupClaimsTable},
+		{storeSchema, "fhir_semantic_inventory_contribution"},
+	} {
+		var present bool
+		err := pool.QueryRow(ctx,
+			"SELECT to_regclass($1) IS NOT NULL",
+			probe.schema+"."+probe.table).Scan(&present)
+		if err != nil || !present {
+			t.Fatalf("migration-created table %s.%s absent after coexistence migration (err %v)", probe.schema, probe.table, err)
+		}
+	}
+
+	// Determinism: re-running each runner is a no-op returning the
+	// identical applied history, the ledgers hold the same rows, and each
+	// directory re-loads with identical version/name/checksum tuples.
+	pubAgain, err := pubRunner.Migrate(ctx)
+	if err != nil {
+		t.Fatalf("publication-space replay: %v", err)
+	}
+	if pubAgain.LatestVersion != pubResult.LatestVersion || !reflect.DeepEqual(pubAgain.Applied, pubResult.Applied) {
+		t.Fatalf("publication-space replay = %+v, want identical to first run %+v", pubAgain, pubResult)
+	}
+	storeAgain, err := storeRunner.Migrate(ctx)
+	if err != nil {
+		t.Fatalf("store-space replay: %v", err)
+	}
+	if storeAgain.LatestVersion != storeResult.LatestVersion || !reflect.DeepEqual(storeAgain.Applied, storeResult.Applied) {
+		t.Fatalf("store-space replay = %+v, want identical to first run %+v", storeAgain, storeResult)
+	}
+	if got := ledgerRows(pubSchema); !reflect.DeepEqual(got, pubLedger) {
+		t.Fatalf("publication ledger changed on replay: %v vs %v", got, pubLedger)
+	}
+	if got := ledgerRows(storeSchema); !reflect.DeepEqual(got, storeLedger) {
+		t.Fatalf("store ledger changed on replay: %v vs %v", got, storeLedger)
+	}
+	retentionAgain, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations-readpins")
+	if err != nil {
+		t.Fatalf("reload tests/migrations-readpins: %v", err)
+	}
+	if len(retentionAgain) != len(retention) || retentionAgain[0].Version != retention[0].Version ||
+		retentionAgain[0].Name != retention[0].Name || retentionAgain[0].Checksum != retention[0].Checksum {
+		t.Fatalf("read-pins directory reloaded differently: %+v vs %+v", retentionAgain, retention)
+	}
+	embeddedAgain, err := storepostgres.EmbeddedMigrations()
+	if err != nil || !reflect.DeepEqual(embeddedAgain, embedded) {
+		t.Fatalf("embedded history reloaded differently: %v", err)
+	}
+
+	// The per-history version space is a loud guard: forcing both 000009
+	// files into ONE history is refused, not silently reordered or
+	// overwritten.
+	if _, err := storepostgres.NewMigrationRunner(pool, pubSchema,
+		[]storepostgres.Migration{store9, retention[0]}); !errors.Is(err, storepostgres.ErrInvalidMigration) ||
+		err == nil || !strings.Contains(err.Error(), "duplicate version 9") {
+		t.Fatalf("same-schema double 000009 = %v, want ErrInvalidMigration duplicate version 9", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 
 // tsText renders a timestamptz column to UTC microsecond text.
