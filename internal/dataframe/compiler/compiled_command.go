@@ -192,21 +192,25 @@ func (c CompiledCommand) PostgreSQLParameters() (string, []PostgreSQLParameter, 
 }
 
 // Dispatch routes one command to the adapter registered for its tag and
-// invokes it exactly once. A missing adapter for the matching tag, or an
-// unregistered or unknown tag, returns an error before either adapter runs;
-// a mismatched pair never executes a query.
+// invokes it exactly once; a mismatched pair never executes a query. A
+// missing adapter for the matching tag, or an unregistered or unknown tag,
+// is the fail-closed capability gap and reports
+// ErrCompiledCommandBackendNotRegistered, so callers may report the backend
+// as unsupported. Reporting ErrCompiledCommandBackendMismatch is reserved
+// for routing defects: a command tagged for one backend sent to the other
+// backend's boundary through AQLParameters or PostgreSQLParameters.
 func (c CompiledCommand) Dispatch(aqlAdapter func(AQLCommand) error, postgreSQLAdapter func(PostgreSQLCommand) error) error {
 	switch c.backend {
 	case CompiledBackendAQL:
 		if aqlAdapter == nil {
 			return fmt.Errorf("%w: no AQL adapter registered for %s command",
-				ErrCompiledCommandBackendMismatch, string(CompiledBackendAQL))
+				ErrCompiledCommandBackendNotRegistered, string(CompiledBackendAQL))
 		}
 		return aqlAdapter(c.aql)
 	case CompiledBackendPostgreSQL:
 		if postgreSQLAdapter == nil {
 			return fmt.Errorf("%w: no PostgreSQL adapter registered for %s command",
-				ErrCompiledCommandBackendMismatch, string(CompiledBackendPostgreSQL))
+				ErrCompiledCommandBackendNotRegistered, string(CompiledBackendPostgreSQL))
 		}
 		return postgreSQLAdapter(c.postgreSQL)
 	default:

@@ -103,8 +103,8 @@ func TestCompiledCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewAQLCommand: %v", err)
 		}
-		if err := aqlCommand.Dispatch(nil, func(PostgreSQLCommand) error { pgCalls++; return nil }); !errors.Is(err, ErrCompiledCommandBackendMismatch) {
-			t.Fatalf("AQL command without AQL adapter error = %v, want mismatch", err)
+		if err := aqlCommand.Dispatch(nil, func(PostgreSQLCommand) error { pgCalls++; return nil }); !errors.Is(err, ErrCompiledCommandBackendNotRegistered) {
+			t.Fatalf("AQL command without AQL adapter error = %v, want backend-not-registered", err)
 		}
 		if pgCalls != 0 {
 			t.Fatal("mismatched Dispatch must not run the other backend's adapter")
@@ -120,8 +120,24 @@ func TestCompiledCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewPostgreSQLCommand: %v", err)
 		}
-		if err := pgCommand.Dispatch(func(AQLCommand) error { aqlCalls++; return nil }, nil); !errors.Is(err, ErrCompiledCommandBackendMismatch) {
-			t.Fatalf("PostgreSQL command without PostgreSQL adapter error = %v, want mismatch", err)
+		if err := pgCommand.Dispatch(func(AQLCommand) error { aqlCalls++; return nil }, nil); !errors.Is(err, ErrCompiledCommandBackendNotRegistered) {
+			t.Fatalf("PostgreSQL command without PostgreSQL adapter error = %v, want backend-not-registered", err)
+		}
+		// Missing adapter registration is the fail-closed capability gap, not
+		// a routing defect: it must stay distinguishable from Mismatch.
+		aqlOnly, err := NewAQLCommand("RETURN 1", nil)
+		if err != nil {
+			t.Fatalf("NewAQLCommand: %v", err)
+		}
+		if err := aqlOnly.Dispatch(nil, nil); errors.Is(err, ErrCompiledCommandBackendMismatch) {
+			t.Fatalf("missing AQL adapter misclassified as mismatch: %v", err)
+		}
+		pgOnly, err := NewPostgreSQLCommand("SELECT 1", nil)
+		if err != nil {
+			t.Fatalf("NewPostgreSQLCommand: %v", err)
+		}
+		if err := pgOnly.Dispatch(nil, nil); errors.Is(err, ErrCompiledCommandBackendMismatch) {
+			t.Fatalf("missing PostgreSQL adapter misclassified as mismatch: %v", err)
 		}
 		if aqlCalls != 1 {
 			t.Fatal("mismatched Dispatch must not run the AQL adapter")
