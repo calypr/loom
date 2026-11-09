@@ -159,15 +159,29 @@ func newCatalogService(t *testing.T) *catalogService {
 	return s
 }
 
-// migrate applies the full history -- the embedded ledger bootstrap plus the
-// ticket's tests/migrations/000004_publication_bundle_catalog.sql -- through
-// the real pg-store-02 runner, and asserts the ledger literally records both
-// rows.
+// migrate applies this ticket's owned history -- the ledger bootstrap from
+// the embedded pg-store-02 set plus tests/migrations/000004_publication_bundle_catalog.sql --
+// through the real pg-store-02 runner, and asserts the ledger literally
+// records both rows. Only the ledger bootstrap is taken from the embedded
+// set: concurrent store tickets add their own migrations (000002_* and
+// onward) and those tables belong to the store owner's schema, not to this
+// catalog's metadata-only audit, so the catalog test history stays exactly
+// {1 ledger, 4 publication_bundle_catalog} regardless of how the store
+// history grows.
 func (s *catalogService) migrate(t *testing.T) {
 	t.Helper()
 	embedded, err := storepostgres.EmbeddedMigrations()
 	if err != nil {
 		s.fail("embedded migrations", err)
+	}
+	var ledger []storepostgres.Migration
+	for _, m := range embedded {
+		if m.Version == 1 && m.Name == "ledger" {
+			ledger = append(ledger, m)
+		}
+	}
+	if len(ledger) != 1 {
+		t.Fatalf("embedded history has %d migrations, want exactly one version 1 ledger bootstrap to compose against", len(embedded))
 	}
 	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
 	if err != nil {
@@ -176,7 +190,7 @@ func (s *catalogService) migrate(t *testing.T) {
 	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
 		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
 	}
-	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, append(append([]storepostgres.Migration(nil), embedded...), catalog...))
+	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, append(append([]storepostgres.Migration(nil), ledger...), catalog...))
 	if err != nil {
 		s.fail("new migration runner", err)
 	}
@@ -188,17 +202,17 @@ func (s *catalogService) migrate(t *testing.T) {
 		t.Fatalf("latest migration version = %d, want 4", result.LatestVersion)
 	}
 	wantLedger := []storepostgres.LedgerRecord{
-		{Version: 1, Name: "ledger"},
-		{Version: 4, Name: "publication_bundle_catalog"},
+		{Version: 1, Name: "ledger", Checksum: ledger[0].Checksum},
+		{Version: 4, Name: "publication_bundle_catalog", Checksum: catalog[0].Checksum},
 	}
 	if len(result.Applied) != len(wantLedger) {
 		t.Fatalf("applied history = %+v, want %+v", result.Applied, wantLedger)
 	}
 	for i, want := range wantLedger {
 		got := result.Applied[i]
-		if got.Version != want.Version || got.Name != want.Name {
-			t.Fatalf("applied[%d] = {Version:%d Name:%q}, want {Version:%d Name:%q}",
-				i, got.Version, got.Name, want.Version, want.Name)
+		if got.Version != want.Version || got.Name != want.Name || got.Checksum != want.Checksum {
+			t.Fatalf("applied[%d] = {Version:%d Name:%q Checksum:%q}, want {Version:%d Name:%q Checksum:%q}",
+				i, got.Version, got.Name, got.Checksum, want.Version, want.Name, want.Checksum)
 		}
 	}
 }
