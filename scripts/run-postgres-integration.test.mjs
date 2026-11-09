@@ -7,6 +7,9 @@ import {
   DATASET_INTEGRATION_PACKAGE,
   DATASET_INTEGRATION_TESTS,
   EXPLORER_INTEGRATION_PACKAGE,
+  EDGE_WRITER_INTEGRATION_FILTER,
+  EDGE_WRITER_INTEGRATION_PACKAGES,
+  EDGE_WRITER_INTEGRATION_TESTS,
   EXPLORER_INTEGRATION_TESTS,
   EXPECTED_CHECKS,
   NAMESPACE_PREFIX,
@@ -31,7 +34,16 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
+  stdout: events(args.includes(EDGE_WRITER_INTEGRATION_FILTER)
+    ? [
+      ...EDGE_WRITER_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'edgewriterpkg', Test: name },
+        { Action: 'pass', Package: 'edgewriterpkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'ingestpkg' },
+      { Action: 'pass', Package: 'postgrespkg' },
+    ]
+    : args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
     ? [
       ...RESOURCE_WRITER_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'resourcewriterpkg', Test: name },
@@ -236,14 +248,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 4, 'the pg-store-01, dataset, explorer, and resource-writer lanes must all run');
+  assert.equal(goCalls.length, 5, 'the pg-store-01, dataset, explorer, resource-writer, and edge-writer lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -270,6 +282,18 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
     'the resource-writer lane stays within the aligned 180s Go budget');
   assert.deepEqual(evidence.resourceWriterIntegration.anchors, [...RESOURCE_WRITER_INTEGRATION_TESTS]);
   for (const name of RESOURCE_WRITER_INTEGRATION_TESTS) assert.ok(evidence.resourceWriterIntegration.passes.includes(name));
+  // The edge-writer lane mirrors the resource-writer lane's explicit-filter
+  // pattern over both packages, and its filter is its never-skipped
+  // guarantee.
+  assert.equal(goCalls[4].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
+  assert.ok(goCalls[4].args.includes('-run'), 'the edge-writer lane must carry its never-skipped -run filter');
+  assert.ok(goCalls[4].args.includes(EDGE_WRITER_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
+  assert.deepEqual(goCalls[4].args.slice(-2), EDGE_WRITER_INTEGRATION_PACKAGES);
+  assert.ok(goCalls[4].args.includes('-json') && goCalls[4].args.includes('-count=1'));
+  assert.ok(goCalls[4].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
+    'the edge-writer lane stays within the aligned 180s Go budget');
+  assert.deepEqual(evidence.edgeWriterIntegration.anchors, [...EDGE_WRITER_INTEGRATION_TESTS]);
+  for (const name of EDGE_WRITER_INTEGRATION_TESTS) assert.ok(evidence.edgeWriterIntegration.passes.includes(name));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
@@ -277,6 +301,7 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.ok(readFileSync(join(out, 'dataset-integration.jsonl'), 'utf8').includes(DATASET_INTEGRATION_TESTS[0]));
   assert.ok(readFileSync(join(out, 'explorer-integration.jsonl'), 'utf8').includes(EXPLORER_INTEGRATION_TESTS[0]));
   assert.ok(readFileSync(join(out, 'resource-writer-integration.jsonl'), 'utf8').includes(RESOURCE_WRITER_INTEGRATION_TESTS[0]));
+  assert.ok(readFileSync(join(out, 'edge-writer-integration.jsonl'), 'utf8').includes(EDGE_WRITER_INTEGRATION_TESTS[0]));
 });
 
 test('a failing dataset lane fails the run and its evidence is still scrubbed', async () => {
@@ -413,6 +438,54 @@ test('a resource-writer lane that skips any matched case is a blocker, never acc
 test('a resource-writer lane that never runs an anchor case fails the run', async () => {
   const { out, run } = harness({
     go: args => args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
+      ? { status: 0, stdout: events([{ Action: 'pass', Package: 'postgrespkg' }, { Action: 'pass', Package: 'ingestpkg' }]), stderr: '' }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /did not run/);
+});
+
+test('a failing edge-writer lane fails the run and its evidence is still scrubbed', async () => {
+  const { goCalls, out, run } = harness({
+    go: args => args.includes(EDGE_WRITER_INTEGRATION_FILTER)
+      ? { status: 1, stdout: events([{ Action: 'fail', Package: 'postgrespkg' }]), stderr: `connection refused for ${ADMIN_URL}` }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /edge-writer real-PG suites failed/);
+  assert.equal(goCalls.length, 5, 'the edge-writer lane must actually be attempted after the resource-writer lane passes');
+  assert.ok(!('edgeWriterIntegration' in evidence), 'a failed lane records no pass evidence');
+  assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');
+  const stderr = readFileSync(join(out, 'edge-writer-integration.stderr'), 'utf8');
+  assert.ok(!stderr.includes('s3cret-test-password'), 'edge-writer lane evidence must be credential-free');
+  assert.ok(stderr.includes('[redacted]'), 'edge-writer lane evidence must record the redaction');
+});
+
+test('an edge-writer lane that skips any matched case is a blocker, never acceptance', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(EDGE_WRITER_INTEGRATION_FILTER)
+      ? {
+        status: 0,
+        stdout: events([
+          { Action: 'run', Package: 'postgrespkg', Test: EDGE_WRITER_INTEGRATION_TESTS[0] },
+          { Action: 'skip', Package: 'postgrespkg', Test: EDGE_WRITER_INTEGRATION_TESTS[0] },
+          { Action: 'pass', Package: 'postgrespkg' },
+          { Action: 'pass', Package: 'ingestpkg' },
+        ]),
+        stderr: '',
+      }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed', 'a skipped edge-writer case cannot masquerade as real-PG acceptance');
+  assert.match(evidence.error, new RegExp(EDGE_WRITER_INTEGRATION_TESTS[0]));
+});
+
+test('an edge-writer lane that never runs an anchor case fails the run', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(EDGE_WRITER_INTEGRATION_FILTER)
       ? { status: 0, stdout: events([{ Action: 'pass', Package: 'postgrespkg' }, { Action: 'pass', Package: 'ingestpkg' }]), stderr: '' }
       : passingGo(args),
   });
