@@ -194,7 +194,12 @@ def package_kind(location: str, generated_files: list[str], production_file_coun
         return "conformance"
     if location.startswith("internal/api/"):
         return "transport adapter"
-    if location.endswith("/arango") or location.endswith("/clickhouse") or location.startswith("internal/store/"):
+    if (
+        location.endswith("/arango")
+        or location.endswith("/clickhouse")
+        or location.endswith("/postgres")
+        or location.startswith("internal/store/")
+    ):
         return "storage adapter"
     return "domain/library"
 
