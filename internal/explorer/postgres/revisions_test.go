@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1242,16 +1244,148 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 	}
 }
 
-// TestPostgresExplorerStateMigrationsRerunConverges proves the extended
-// history (ledger + owner + receipts + revisions) reruns as a no-op that
-// preserves all state and keeps the ledger pinned to the six
-// composed checksums (five embedded + the #81-owned capability fixture at
-// version 4).
+// pgstate02EmbeddedMigrationPins carries the explicit per-file checksum
+// pins (the pg-store-02 wantEmbeddedChecksums convention): the lowercase
+// hex SHA-256 of each embedded migration file's exact bytes, keyed by file
+// name. Editing any migration SQL reddens the suite until its pin is
+// deliberately regenerated -- and an embedded file with no entry here fails
+// the suite too, so a new 000007+ migration must be pinned on purpose and
+// can never be silently trusted. The #81-owned capability fixture at
+// version 4 keeps its own byte-frozen pin in pgstate02_fixture_test.go.
+var pgstate02EmbeddedMigrationPins = map[string]string{
+	"000001_ledger.sql":                       "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086",
+	"000002_explorer_owner.sql":               "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056",
+	"000003_explorer_draft_revision.sql":      "4bf4fe35485cb7adc6ea46812b0ae004e89ff935a14f14dd80a300bb3cc86c3f",
+	"000005_explorer_compilation_receipt.sql": "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a",
+	"000006_explorer_revision.sql":            "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09",
+}
+
+// pgstate02MigrationFileVersion parses the leading <version>_ of a
+// <version>_<name>.sql file name (the loader's own file shape).
+func pgstate02MigrationFileVersion(fileName string) (int64, error) {
+	versionText, _, found := strings.Cut(fileName, "_")
+	if !found {
+		return 0, fmt.Errorf("embedded migration %s does not match <version>_<name>.sql", fileName)
+	}
+	version, err := strconv.ParseInt(versionText, 10, 64)
+	if err != nil || version < 1 {
+		return 0, fmt.Errorf("embedded migration %s has an unparsable version prefix", fileName)
+	}
+	return version, nil
+}
+
+// pgstate02EnumerateEmbeddedMigrations walks this package's embed FS
+// (fs.WalkDir over migrationsFS) and returns the migration file names
+// sorted plus the highest version parsed from their names. Ledger
+// expectations derive from this enumeration -- following the session-54
+// capabilities harness, which derives expectations from the applied
+// history rather than fixed counts -- so tickets extending the open-ended
+// directory (000007, 000008, 000009, ...) never need an edit here.
+func pgstate02EnumerateEmbeddedMigrations(t *testing.T) ([]string, int64) {
+	t.Helper()
+	var files []string
+	var maxVersion int64
+	err := fs.WalkDir(migrationsFS, "migrations", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		version, err := pgstate02MigrationFileVersion(d.Name())
+		if err != nil {
+			return err
+		}
+		files = append(files, d.Name())
+		if version > maxVersion {
+			maxVersion = version
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("enumerate embedded migration directory: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("embedded migration directory holds no migrations")
+	}
+	sort.Strings(files)
+	return files, maxVersion
+}
+
+// pgstate02VerifyEmbeddedChecksumPins verifies every enumerated file
+// against its explicit sha256 literal: a directory file with no pin fails
+// (new migrations must be pinned deliberately, which strengthens the
+// suite), a file whose loader-computed checksum no longer equals its pin
+// fails (SQL drift), and a pin with no file fails (removing a migration is
+// likewise a deliberate act).
+func pgstate02VerifyEmbeddedChecksumPins(t *testing.T, files []string, history []pgstore.Migration) {
+	t.Helper()
+	byVersion := make(map[int64]pgstore.Migration, len(history))
+	for _, m := range history {
+		byVersion[m.Version] = m
+	}
+	seen := make(map[string]bool, len(files))
+	for _, file := range files {
+		version, err := pgstate02MigrationFileVersion(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pin, pinned := pgstate02EmbeddedMigrationPins[file]
+		if !pinned {
+			t.Fatalf("embedded migration %s has no explicit checksum pin: add its sha256 to pgstate02EmbeddedMigrationPins deliberately -- a new migration must be pinned, never silently trusted", file)
+		}
+		m, loaded := byVersion[version]
+		if !loaded {
+			t.Fatalf("embedded migration file %s (version %d) is absent from OwnerMigrations(): the loader and the directory disagree", file, version)
+		}
+		if m.Checksum != pin {
+			t.Fatalf("embedded migration %s checksum = %s, want the pinned %s: migration SQL drifted", file, m.Checksum, pin)
+		}
+		seen[file] = true
+	}
+	for file := range pgstate02EmbeddedMigrationPins {
+		if !seen[file] {
+			t.Fatalf("checksum pin for %s has no embedded migration file: deleting a migration must drop its pin deliberately", file)
+		}
+	}
+}
+
+// TestPostgresExplorerStateMigrationsRerunConverges proves the composed
+// history reruns as a no-op that preserves all state and keeps the ledger
+// pinned to the composed checksums. Expectations are self-derived (the
+// session-54 capabilities-harness pattern): the expected ledger size and
+// latest version enumerate from the embedded directory through fs.WalkDir
+// plus the #81-owned capability fixture at version 4, so in-flight tickets
+// adding 000007+ never need an edit here -- while per-file explicit sha256
+// pins keep demanding every file's checksum literally, failing any
+// unpinned addition, and the rerun must leave every ledger row, applied_at
+// included, byte-identical.
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
+	// Self-derived expectations from the embed FS, never a fixed count.
+	embeddedFiles, embeddedMaxVersion := pgstate02EnumerateEmbeddedMigrations(t)
+	ownerHistory, err := OwnerMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ownerHistory) != len(embeddedFiles) {
+		t.Fatalf("OwnerMigrations() loaded %d migrations but the embedded directory holds %d files %v", len(ownerHistory), len(embeddedFiles), embeddedFiles)
+	}
+	pgstate02VerifyEmbeddedChecksumPins(t, embeddedFiles, ownerHistory)
+
+	fixture := pgstate02CapabilityFixtureMigration(t)
+	wantHistory := append(append([]pgstore.Migration{}, ownerHistory...), fixture)
+	sort.Slice(wantHistory, func(i, j int) bool { return wantHistory[i].Version < wantHistory[j].Version })
+	wantLatest := embeddedMaxVersion
+	if fixture.Version > wantLatest {
+		wantLatest = fixture.Version
+	}
+	wantCount := len(wantHistory)
+
 	f := newPGState02Fixture(t)
 	first := f.migrate(t)
-	if len(first.Applied) != 6 || first.LatestVersion != 6 {
-		t.Fatalf("first migration result = %+v, want 6 ledger rows ending at version 6 (the shared ledger includes the #81 capability fixture at version 4)", first)
+	if len(first.Applied) != wantCount || first.LatestVersion != wantLatest {
+		t.Fatalf("first migration result = %+v, want %d ledger rows ending at version %d (self-derived: %d embedded files %v + the #81 capability fixture at version %d)",
+			first, wantCount, wantLatest, len(embeddedFiles), embeddedFiles, fixture.Version)
 	}
 
 	writer := f.newStore(t)
@@ -1269,8 +1403,16 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 
 	second := f.migrate(t)
-	if len(second.Applied) != 6 || second.LatestVersion != 6 {
-		t.Fatalf("rerun result = %+v, want the identical 6-row ledger ending at version 6 (all recorded, nothing re-run)", second)
+	if len(second.Applied) != wantCount || second.LatestVersion != wantLatest {
+		t.Fatalf("rerun result = %+v, want the identical %d-row ledger ending at version %d (all recorded, nothing re-run)", second, wantCount, wantLatest)
+	}
+	// Converges exactly once: every ledger row survives the rerun
+	// byte-identical -- version, name, checksum, and applied_at. The rerun
+	// re-applied nothing, not even a timestamp.
+	for i := range first.Applied {
+		if first.Applied[i] != second.Applied[i] {
+			t.Fatalf("rerun disturbed applied[%d]: first = %+v, rerun = %+v (ledger rows must be stable and applied_at unchanged)", i, first.Applied[i], second.Applied[i])
+		}
 	}
 
 	rows, err := f.iso.Query(f.ctx, `SELECT version, name, checksum FROM `+
@@ -1296,24 +1438,18 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger", err)
 	}
-	ownerHistory, err := OwnerMigrations()
-	if err != nil {
-		t.Fatal(err)
+	if len(ledger) != wantCount {
+		t.Fatalf("ledger holds %d rows, want %d", len(ledger), wantCount)
 	}
-	migrations := append(append([]pgstore.Migration{}, ownerHistory...), pgstate02CapabilityFixtureMigration(t))
-	sort.Slice(migrations, func(i, j int) bool { return migrations[i].Version < migrations[j].Version })
-	if len(ledger) != len(migrations) {
-		t.Fatalf("ledger holds %d rows, want %d", len(ledger), len(migrations))
-	}
-	for i, want := range migrations {
+	for i, want := range wantHistory {
 		if ledger[i] != (ledgerRow{want.Version, want.Name, want.Checksum}) {
 			t.Fatalf("ledger[%d] = %+v, want %+v", i, ledger[i], want)
 		}
 	}
 
 	// Double-apply witness: print the ledger rows verified after the second
-	// migrate, so the merged Explorer ledger [1 2 3 5 6] appears literally in
-	// the test output (version/name -- convergence target of the rerun).
+	// migrate, so the merged Explorer ledger appears literally in the test
+	// output (version/name -- convergence target of the rerun).
 	var witness []string
 	for _, rec := range ledger {
 		witness = append(witness, fmt.Sprintf("%d/%s", rec.version, rec.name))
