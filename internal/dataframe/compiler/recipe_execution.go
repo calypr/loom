@@ -123,6 +123,18 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
+	// The rendered result becomes execution input only through the tagged
+	// command boundary: the plan's AQL rendering is tagged AQL, and the query
+	// plus named bind map reach CompiledQuery via exhaustive AQL dispatch.
+	// A PostgreSQL-tagged command cannot enter this path.
+	command, err := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	if err != nil {
+		return CompiledQuery{}, fmt.Errorf("tag canonical recipe command: %w", err)
+	}
+	query, bindVars, err := command.AQLParameters()
+	if err != nil {
+		return CompiledQuery{}, fmt.Errorf("dispatch canonical recipe command to AQL execution: %w", err)
+	}
 	columns, pivotFields := physicalProjectionMetadata(physical)
 	if len(output.Columns) != 0 {
 		columns = append([]string(nil), output.Columns...)
@@ -156,8 +168,8 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		TraversalCount:     physicalTraversalCount(physical),
 		RowIdentity:        output.RowIdentity.Clone(),
 		OptimizationRules:  recipeOptimizationRules(physical),
-		Query:              rendered.Query,
-		BindVars:           rendered.BindVars,
+		Query:              query,
+		BindVars:           bindVars,
 		Columns:            columns,
 		OutputSchema:       outputSchema,
 		PublicColumns:      publicColumns,
