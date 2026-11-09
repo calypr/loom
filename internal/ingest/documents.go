@@ -135,3 +135,26 @@ func targetTypeFromLabel(label string) (string, error) {
 func collectionID(resourceType, id string) string {
 	return SanitizeKey(resourceType) + "/" + SanitizeKey(id)
 }
+
+// SplitCollectionID is the exact inverse of collectionID for well-formed
+// values: it parses a "Type/id" endpoint (an EdgeDocument _from or _to) back
+// into its resource type and logical id. SanitizeKey never emits "/", so a
+// well-formed endpoint carries exactly one separator. Malformed input — no
+// separator, a blank half, or an embedded extra "/" — reports ok=false and
+// must be refused, not guessed at. This is the endpoint-parsing counterpart
+// for a future PostgreSQL edge write path that converts EdgeDocument
+// endpoints into the typed edge store's endpoint identity columns; the
+// current EdgeRepository (internal/store/postgres) takes those typed
+// identities directly and does not parse endpoints, so no mirror exists
+// there yet.
+func SplitCollectionID(value string) (resourceType, logicalID string, ok bool) {
+	resourceType, logicalID, found := strings.Cut(strings.TrimSpace(value), "/")
+	if !found {
+		return "", "", false
+	}
+	if strings.TrimSpace(resourceType) == "" || strings.TrimSpace(logicalID) == "" ||
+		strings.Contains(logicalID, "/") {
+		return "", "", false
+	}
+	return resourceType, logicalID, true
+}
