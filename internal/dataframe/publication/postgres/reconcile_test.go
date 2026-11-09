@@ -1203,13 +1203,6 @@ func TestReconcileFirstErrorWins(t *testing.T) {
 	}
 }
 
-// TestZZZeroLeftoverReadPinsFixtures audits only the exact verify_rpr_it_*
-// resources this suite creates. This test MUST stay the last test declared
-// in these files: Go runs a package's tests in declaration order within each
-// source file, and only this suite's files create verify_rpr_it_*
-// resources. TestMain additionally invokes the same audit after the whole
-// package (registry_test.go) so the required zero-leftover and
-// pg_database==baseline checks still execute under filtered -run invocations.
 func eqStatementLists(t *testing.T, label string, want, got []string) {
 	t.Helper()
 	if len(want) != len(got) {
@@ -1667,6 +1660,18 @@ func TestBundleCatalogDelegatesPinArbitration(t *testing.T) {
 	}
 }
 
+// TestZZZeroLeftoverReadPinsFixtures audits the ownership-scoped
+// zero-leftover guarantees for this suite, per the coordinator audit-
+// scoping ruling: every exact verify_rpr_it_* database this suite created
+// is gone (the creation-tracked registry), and pg_database holds zero rows
+// under this suite's registered prefix verify_rpr_* -- deliberately no
+// global pg_database==baseline equality. This test MUST stay the last test
+// declared in these files: Go runs a package's tests in declaration order
+// within each source file, and only this suite's files create
+// verify_rpr_it_* resources. TestMain additionally invokes the same audit
+// after the whole package (registry_test.go) so the scoped checks -- the
+// owned-registry assertions and the verify_rpr_* prefix scan -- still
+// execute under filtered -run invocations.
 func TestZZZeroLeftoverReadPinsFixtures(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		t.Skip("no service configured; nothing could have been created")
