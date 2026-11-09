@@ -98,6 +98,13 @@ const (
 
 var postgresSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
+// postgresCLIFlagNames lists the PostgreSQL connection flags. With --config
+// they are rejected explicitly rather than silently dropped.
+var postgresCLIFlagNames = []string{
+	"pg-host", "pg-port", "pg-database", "pg-user", "pg-password", "pg-sslmode",
+	"pg-max-open-conns", "pg-max-idle-conns", "pg-conn-max-lifetime",
+}
+
 type DataframerConfig struct {
 	Recipe string `yaml:"recipe"`
 }
@@ -228,7 +235,7 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 			cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
 			cfg.Server.LocalWorkspaceProject = localWorkspaceProject
 		}
-		if err := checkSourceBackendConflicts(&cfg, explicitFlags); err != nil {
+		if err := checkSourceBackendConflicts(&cfg, explicitFlags, true); err != nil {
 			return Config{}, fmt.Errorf("invalid server config: %w", err)
 		}
 		if err := cfg.Validate(); err != nil {
@@ -276,7 +283,7 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	if err := applyDevFaultOverrides(&cfg); err != nil {
 		return Config{}, err
 	}
-	if err := checkSourceBackendConflicts(&cfg, explicitFlags); err != nil {
+	if err := checkSourceBackendConflicts(&cfg, explicitFlags, false); err != nil {
 		return Config{}, fmt.Errorf("invalid server config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
@@ -394,18 +401,38 @@ func normalizeSourceBackend(value string) (string, error) {
 	}
 }
 
-// checkSourceBackendConflicts rejects explicitly passed legacy ArangoDB CLI
-// overrides when the postgres backend is selected. Values that equal the
-// ArangoDB defaults still conflict because the flag was explicitly given, so
-// an ignored override can never silently coexist with a postgres selection.
-// The resolved selector is canonicalized onto the configuration. Error
+// checkSourceBackendConflicts keeps the resolved source backend honest about
+// how it was selected and canonicalizes it onto the configuration. With
+// --config the configuration file owns backend selection and the PostgreSQL
+// connection contract, so an explicit --backend or --pg-* override is
+// rejected instead of being silently dropped next to the file's choice: an
+// ignored selector could otherwise start the server on the wrong backend, and
+// an ignored TLS flag could silently downgrade the connection. On the pure
+// flag path the PostgreSQL flags are authoritative, but explicitly passed
+// legacy ArangoDB overrides (--url/--database) still conflict with a postgres
+// selection even when they repeat the ArangoDB defaults, so an ignored
+// override can never silently coexist with a postgres selection. Error
 // messages name settings only and never echo values.
-func checkSourceBackendConflicts(cfg *Config, explicitFlags map[string]bool) error {
+func checkSourceBackendConflicts(cfg *Config, explicitFlags map[string]bool, usingConfigFile bool) error {
 	backend, err := normalizeSourceBackend(cfg.Server.Backend)
 	if err != nil {
 		return err
 	}
 	cfg.Server.Backend = backend
+	if usingConfigFile {
+		if explicitFlags["backend"] {
+			return fmt.Errorf("server.backend is owned by the --config file; remove the explicit --backend override")
+		}
+		var pgFlags []string
+		for _, name := range postgresCLIFlagNames {
+			if explicitFlags[name] {
+				pgFlags = append(pgFlags, "--"+name)
+			}
+		}
+		if len(pgFlags) > 0 {
+			return fmt.Errorf("server.postgresql settings are owned by the --config file; remove the explicit %s override", strings.Join(pgFlags, ", "))
+		}
+	}
 	if backend != sourceBackendPostgres {
 		return nil
 	}

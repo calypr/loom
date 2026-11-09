@@ -579,6 +579,32 @@ func TestPostgresBackendRejectsConflictingArangoSettings(t *testing.T) {
 			t.Fatalf("--config postgres + explicit --url error = %v", err)
 		}
 	})
+	t.Run("config path explicit backend cannot silently select arango", func(t *testing.T) {
+		path := writeServerConfigFile(t, "server:\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n")
+		_, err := parseServerOptions([]string{"--config", path, "--backend", "postgres"}, flag.ContinueOnError)
+		if err == nil || !strings.Contains(err.Error(), "--backend") || !strings.Contains(err.Error(), "--config file") {
+			t.Fatalf("--config without backend + explicit --backend postgres error = %v", err)
+		}
+	})
+	t.Run("config path owns backend even when redundant", func(t *testing.T) {
+		path := writeServerConfigFile(t, "server:\n  backend: arango\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n")
+		if _, err := parseServerOptions([]string{"--config", path, "--backend", "arango"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "--backend") {
+			t.Fatalf("--config + redundant explicit --backend error = %v", err)
+		}
+	})
+	t.Run("config path explicit pg flag cannot silently keep yaml sslmode", func(t *testing.T) {
+		path := writeServerConfigFile(t, "server:\n  backend: postgres\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n  postgresql:\n    host: db.internal\n    database: loom_pg\n    user: loom\n")
+		_, err := parseServerOptions([]string{"--config", path, "--pg-sslmode", "verify-full"}, flag.ContinueOnError)
+		if err == nil || !strings.Contains(err.Error(), "--pg-sslmode") || !strings.Contains(err.Error(), "--config file") {
+			t.Fatalf("--config postgres + explicit --pg-sslmode error = %v", err)
+		}
+	})
+	t.Run("config path explicit pg flag rejected for arango too", func(t *testing.T) {
+		path := writeServerConfigFile(t, "server:\n  backend: arango\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n")
+		if _, err := parseServerOptions([]string{"--config", path, "--pg-host", "db.internal", "--pg-password", "canary-secret"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "--pg-host") || strings.Contains(err.Error(), "canary-secret") {
+			t.Fatalf("--config arango + explicit --pg-host error = %v", err)
+		}
+	})
 	t.Run("arango backend keeps customized url", func(t *testing.T) {
 		options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json", "--url", "http://arango:8529"}, flag.ContinueOnError)
 		if err != nil {
