@@ -377,7 +377,10 @@ func TestRenderCompoundPredicateExpression(t *testing.T) {
 		}}},
 	}
 	rendered := renderOK(t, plan)
-	if !strings.Contains(rendered.SQL, `NOT ((r0."payload" #> $7::text[]) = ($8::jsonb))`) {
+	// The payload child is three-valued (missing key -> SQL NULL), so NOT
+	// must be COALESCE-guarded: AQL keeps the row (NOT(false) after its
+	// null coercion), an unguarded NOT (NULL) would drop it.
+	if !strings.Contains(rendered.SQL, `COALESCE(NOT ((r0."payload" #> $7::text[]) = ($8::jsonb)), true)`) {
 		t.Fatalf("compound predicate SQL:\n%s", rendered.SQL)
 	}
 }
@@ -671,5 +674,133 @@ func TestRenderedResultCopiesConstructorSlices(t *testing.T) {
 	columns[0] = "mutated"
 	if rendered.Args[0].Value != "x" || rendered.OutputColumns[0] != "a" {
 		t.Fatalf("constructor aliased caller slices: %#v %v", rendered.Args, rendered.OutputColumns)
+	}
+}
+
+func TestRenderNotEqualsOnTypedColumnIsTwoValued(t *testing.T) {
+	plan := basePlan()
+	plan.BindVars["id_value"] = "x"
+	plan.Operations = []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "NOT_EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+			Right: &ir.PhysicalValue{BindKey: "id_value"},
+		}}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		}}},
+	}
+	rendered := renderOK(t, plan)
+	if !strings.Contains(rendered.SQL, `r0."logical_id" IS DISTINCT FROM $5`) {
+		t.Fatalf("NOT_EQUALS over a typed column must render IS DISTINCT FROM:\n%s", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, `"x"`) {
+		t.Fatalf("bind value leaked into SQL:\n%s", rendered.SQL)
+	}
+	if got := rendered.Args[4]; got.Type != compiler.PostgreSQLParameterText || got.Value != "x" {
+		t.Fatalf("NOT_EQUALS column value arg = %#v", got)
+	}
+}
+
+func TestRenderEmptyColumnINBindsEmptyArray(t *testing.T) {
+	plan := basePlan()
+	plan.BindVars["in_values"] = []string{}
+	plan.Operations = []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "IN", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+			Right: &ir.PhysicalValue{BindKey: "in_values"},
+		}}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		}}},
+	}
+	rendered := renderOK(t, plan)
+	if !strings.Contains(rendered.SQL, `r0."logical_id" = ANY (SELECT jsonb_array_elements_text($5::jsonb))`) {
+		t.Fatalf("empty IN SQL:\n%s", rendered.SQL)
+	}
+	// JSON null would make jsonb_array_elements_text raise at execution; an
+	// empty array makes ANY false, matching the AQL x IN [] reading.
+	if got := rendered.Args[4]; got.Type != compiler.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != `[]` {
+		t.Fatalf("empty IN arg = %#v, want JSONB []", got)
+	}
+}
+
+func TestRenderExistsMissingOverTypedColumnsUseNullTests(t *testing.T) {
+	plan := basePlan()
+	plan.Operations = []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EXISTS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+		}}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "MISSING", Left: ir.PhysicalValue{Variable: "root", Path: []string{"recorded_at"}},
+		}}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		}}},
+	}
+	rendered := renderOK(t, plan)
+	if !strings.Contains(rendered.SQL, `r0."logical_id" IS NOT NULL`) || !strings.Contains(rendered.SQL, `r0."recorded_at" IS NULL`) {
+		t.Fatalf("column EXISTS/MISSING must be null tests:\n%s", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "jsonb_typeof") {
+		t.Fatalf("jsonb_typeof over a typed column cannot execute:\n%s", rendered.SQL)
+	}
+}
+
+func TestRenderPayloadNullLiteralComparisonsUsePresenceForm(t *testing.T) {
+	plan := basePlan()
+	plan.BindVars["null_value"] = json.RawMessage("null")
+	plan.Operations = []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"status"}},
+			Right: &ir.PhysicalValue{BindKey: "null_value"},
+		}}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "NOT_EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"deceased"}},
+			Right: &ir.PhysicalValue{BindKey: "null_value"},
+		}}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		}}},
+	}
+	rendered := renderOK(t, plan)
+	// AQL reads missing and stored JSON null alike as null; the jsonb
+	// equality would drop missing-key rows, so the null literal maps to the
+	// null-or-missing presence test.
+	if !strings.Contains(rendered.SQL, `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') = 'null'`) {
+		t.Fatalf("EQUALS null literal must use the presence form:\n%s", rendered.SQL)
+	}
+	if !strings.Contains(rendered.SQL, `COALESCE(jsonb_typeof(r0."payload" #> $6::text[]), 'null') <> 'null'`) {
+		t.Fatalf("NOT_EQUALS null literal must negate the presence form:\n%s", rendered.SQL)
+	}
+}
+
+func TestRenderNotOverColumnComparisonStaysPlain(t *testing.T) {
+	plan := basePlan()
+	plan.BindVars["id_value"] = "x"
+	plan.Operations = []ir.PhysicalOperation{
+		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
+			Kind: ir.PhysicalNotPredicate,
+			Children: []ir.PhysicalPredicateExpression{
+				{Kind: ir.PhysicalComparisonPredicate, Comparison: &ir.PhysicalPredicate{
+					Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+					Right: &ir.PhysicalValue{BindKey: "id_value"},
+				}},
+			},
+		}}},
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		}}},
+	}
+	rendered := renderOK(t, plan)
+	if !strings.Contains(rendered.SQL, `NOT (r0."logical_id" = $5)`) {
+		t.Fatalf("NOT over a two-valued column child must stay plain:\n%s", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, "COALESCE") {
+		t.Fatalf("two-valued child must not be COALESCE-wrapped:\n%s", rendered.SQL)
 	}
 }

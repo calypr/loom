@@ -455,78 +455,116 @@ func (r *planRenderer) renderFilter(plan ir.PhysicalPlan, filter ir.PhysicalFilt
 }
 
 func (r *planRenderer) renderPredicateExpression(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (string, error) {
+	fragment, err := r.renderPredicateFragment(plan, predicate)
+	if err != nil {
+		return "", err
+	}
+	return fragment.sql, nil
+}
+
+// predicateFragment carries rendered SQL plus whether the predicate can
+// evaluate to SQL NULL. A three-valued predicate under NOT drops rows that
+// AQL keeps (AQL coerces NOT(null) to true), so negation must know.
+type predicateFragment struct {
+	sql          string
+	mayYieldNull bool
+}
+
+func (r *planRenderer) renderPredicateFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (predicateFragment, error) {
 	switch predicate.Kind {
 	case ir.PhysicalComparisonPredicate:
 		if predicate.Comparison == nil {
-			return "", fmt.Errorf("%w: COMPARISON predicate has no payload", ErrUnsupportedPostgresPlan)
+			return predicateFragment{}, fmt.Errorf("%w: COMPARISON predicate has no payload", ErrUnsupportedPostgresPlan)
 		}
-		return r.renderComparison(plan, *predicate.Comparison)
+		return r.renderComparisonFragment(plan, *predicate.Comparison)
 	case ir.PhysicalNotPredicate:
 		if len(predicate.Children) != 1 {
-			return "", fmt.Errorf("%w: NOT requires exactly one child", ErrUnsupportedPostgresPlan)
+			return predicateFragment{}, fmt.Errorf("%w: NOT requires exactly one child", ErrUnsupportedPostgresPlan)
 		}
-		child, err := r.renderPredicateExpression(plan, predicate.Children[0])
+		child, err := r.renderPredicateFragment(plan, predicate.Children[0])
 		if err != nil {
-			return "", err
+			return predicateFragment{}, err
 		}
-		return "NOT (" + child + ")", nil
+		if child.mayYieldNull {
+			return predicateFragment{sql: "COALESCE(NOT (" + child.sql + "), true)"}, nil
+		}
+		return predicateFragment{sql: "NOT (" + child.sql + ")"}, nil
 	case ir.PhysicalAllPredicate:
 		if len(predicate.Children) == 0 {
-			return "", fmt.Errorf("%w: ALL requires at least one child", ErrUnsupportedPostgresPlan)
+			return predicateFragment{}, fmt.Errorf("%w: ALL requires at least one child", ErrUnsupportedPostgresPlan)
 		}
 		parts := make([]string, 0, len(predicate.Children))
+		mayYieldNull := false
 		for _, child := range predicate.Children {
-			part, err := r.renderPredicateExpression(plan, child)
+			part, err := r.renderPredicateFragment(plan, child)
 			if err != nil {
-				return "", err
+				return predicateFragment{}, err
 			}
-			parts = append(parts, "("+part+")")
+			mayYieldNull = mayYieldNull || part.mayYieldNull
+			parts = append(parts, "("+part.sql+")")
 		}
-		return strings.Join(parts, " AND "), nil
+		return predicateFragment{sql: strings.Join(parts, " AND "), mayYieldNull: mayYieldNull}, nil
 	default:
-		return "", fmt.Errorf("%w: predicate kind %q is not yet implemented for PostgreSQL",
+		return predicateFragment{}, fmt.Errorf("%w: predicate kind %q is not yet implemented for PostgreSQL",
 			ErrUnsupportedPostgresPlan, string(predicate.Kind))
 	}
 }
 
 func (r *planRenderer) renderComparison(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (string, error) {
+	fragment, err := r.renderComparisonFragment(plan, predicate)
+	if err != nil {
+		return "", err
+	}
+	return fragment.sql, nil
+}
+
+func (r *planRenderer) renderComparisonFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (predicateFragment, error) {
 	if predicate.Correlation != nil || predicate.LeftExpression != nil {
-		return "", fmt.Errorf("%w: selector-expression and correlated predicates are not yet implemented for PostgreSQL",
+		return predicateFragment{}, fmt.Errorf("%w: selector-expression and correlated predicates are not yet implemented for PostgreSQL",
 			ErrUnsupportedPostgresPlan)
 	}
 	if predicate.Quantifier != "" {
-		return "", fmt.Errorf("%w: array quantifier %q is not yet implemented for PostgreSQL",
+		return predicateFragment{}, fmt.Errorf("%w: array quantifier %q is not yet implemented for PostgreSQL",
 			ErrUnsupportedPostgresPlan, string(predicate.Quantifier))
 	}
 	if predicate.Left.BindKey != "" {
-		return "", fmt.Errorf("%w: filter left side must be a row path, not a bind value", ErrUnsupportedPostgresPlan)
+		return predicateFragment{}, fmt.Errorf("%w: filter left side must be a row path, not a bind value", ErrUnsupportedPostgresPlan)
 	}
 	left, err := r.resolveValue(predicate.Left)
 	if err != nil {
-		return "", err
+		return predicateFragment{}, err
 	}
 	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
 	switch operator {
 	case "EXISTS", "MISSING":
 		if predicate.Right != nil {
-			return "", fmt.Errorf("%w: %s must not carry a right value", ErrUnsupportedPostgresPlan, operator)
+			return predicateFragment{}, fmt.Errorf("%w: %s must not carry a right value", ErrUnsupportedPostgresPlan, operator)
 		}
-		presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
+		if isPayloadExpression(left) {
+			presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
+			if operator == "EXISTS" {
+				return predicateFragment{sql: presence + " <> 'null'"}, nil
+			}
+			return predicateFragment{sql: presence + " = 'null'"}, nil
+		}
+		// Registered storage columns are stored NOT NULL and jsonb_typeof has
+		// no text/timestamptz input, so column presence is nullability itself;
+		// emitting jsonb_typeof over a column would only fail at execution.
 		if operator == "EXISTS" {
-			return presence + " <> 'null'", nil
+			return predicateFragment{sql: left + " IS NOT NULL"}, nil
 		}
-		return presence + " = 'null'", nil
+		return predicateFragment{sql: left + " IS NULL"}, nil
 	case "EQUALS", "NOT_EQUALS", "GT", "GTE", "LT", "LTE", "IN":
 	default:
-		return "", fmt.Errorf("%w: filter operator %q is not part of the v1 PostgreSQL surface",
+		return predicateFragment{}, fmt.Errorf("%w: filter operator %q is not part of the v1 PostgreSQL surface",
 			ErrUnsupportedPostgresPlan, predicate.Operator)
 	}
 	if predicate.Right == nil || predicate.Right.BindKey == "" {
-		return "", fmt.Errorf("%w: %s requires a bind-backed right value", ErrUnsupportedPostgresPlan, operator)
+		return predicateFragment{}, fmt.Errorf("%w: %s requires a bind-backed right value", ErrUnsupportedPostgresPlan, operator)
 	}
 	value, ok := plan.BindVars[predicate.Right.BindKey]
 	if !ok {
-		return "", fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
+		return predicateFragment{}, fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
 	}
 	if !isPayloadExpression(left) {
 		return r.renderColumnComparison(left, operator, value)
@@ -539,33 +577,41 @@ func isPayloadExpression(expression string) bool { return strings.Contains(expre
 // renderColumnComparison binds comparisons against typed columns. Values
 // arrive in their canonical Go types; anything else fails closed rather
 // than being stringified into the statement or silently coerced.
-func (r *planRenderer) renderColumnComparison(left, operator string, value any) (string, error) {
+func (r *planRenderer) renderColumnComparison(left, operator string, value any) (predicateFragment, error) {
 	if operator == "IN" {
 		paths, ok := value.([]string)
 		if !ok {
-			return "", fmt.Errorf("%w: column IN requires a []string bind value", ErrUnsupportedPostgresPlan)
+			return predicateFragment{}, fmt.Errorf("%w: column IN requires a []string bind value", ErrUnsupportedPostgresPlan)
 		}
 		raw, err := json.Marshal(append([]string(nil), paths...))
 		if err != nil {
-			return "", fmt.Errorf("%w: column IN values are not JSON-encodable: %v", ErrUnsupportedPostgresPlan, err)
+			return predicateFragment{}, fmt.Errorf("%w: column IN values are not JSON-encodable: %v", ErrUnsupportedPostgresPlan, err)
 		}
-		return left + " = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.jsonbParameter(raw)) + "::jsonb))", nil
+		if string(raw) == "null" {
+			// An empty (or nil) slice marshals to JSON null, and
+			// jsonb_array_elements_text over a jsonb null scalar raises
+			// "cannot extract elements from a scalar". Binding an empty array
+			// makes ANY read zero rows, so the predicate is false, matching
+			// the AQL reading of x IN [].
+			raw = []byte("[]")
+		}
+		return predicateFragment{sql: left + " = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.jsonbParameter(raw)) + "::jsonb))"}, nil
 	}
 	switch {
 	case strings.HasSuffix(left, "."+r.storage.Resource.MustColumn("recorded_at").SQLText()):
 		timestamp, ok := value.(time.Time)
 		if !ok {
-			return "", fmt.Errorf("%w: recorded_at comparisons require a time.Time bind value", ErrUnsupportedPostgresPlan)
+			return predicateFragment{}, fmt.Errorf("%w: recorded_at comparisons require a time.Time bind value", ErrUnsupportedPostgresPlan)
 		}
 		index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
-		return left + " " + sqlComparison(operator) + " $" + strconv.Itoa(index), nil
+		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(index)}, nil
 	default:
 		text, ok := value.(string)
 		if !ok {
-			return "", fmt.Errorf("%w: typed column comparisons require a string bind value, got %T",
+			return predicateFragment{}, fmt.Errorf("%w: typed column comparisons require a string bind value, got %T",
 				ErrUnsupportedPostgresPlan, value)
 		}
-		return left + " " + sqlComparison(operator) + " $" + strconv.Itoa(r.textParameter(text, "text:"+text)), nil
+		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(r.textParameter(text, "text:"+text))}, nil
 	}
 }
 
@@ -576,31 +622,47 @@ func (r *planRenderer) renderColumnComparison(left, operator string, value any) 
 // null-or-missing reading; SQL NULL, JSON null, and missing remain distinct
 // in storage (migration 000002) and in this renderer they are only ever
 // bound, never flattened.
-func (r *planRenderer) renderPayloadComparison(left, operator string, value any) (string, error) {
+func (r *planRenderer) renderPayloadComparison(left, operator string, value any) (predicateFragment, error) {
 	if operator == "IN" {
-		return "", fmt.Errorf("%w: payload-path IN is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
+		return predicateFragment{}, fmt.Errorf("%w: payload-path IN is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return "", fmt.Errorf("%w: filter value %T is not JSON-encodable: %v", ErrUnsupportedPostgresPlan, value, err)
+		return predicateFragment{}, fmt.Errorf("%w: filter value %T is not JSON-encodable: %v", ErrUnsupportedPostgresPlan, value, err)
 	}
 	switch value.(type) {
 	case string, bool, int, int64, float64, json.RawMessage:
 	default:
-		return "", fmt.Errorf("%w: payload comparisons accept string, bool, number, or raw JSON values, got %T",
+		return predicateFragment{}, fmt.Errorf("%w: payload comparisons accept string, bool, number, or raw JSON values, got %T",
 			ErrUnsupportedPostgresPlan, value)
+	}
+	if string(raw) == "null" {
+		// AQL reads a missing key and a stored JSON null alike as null, so
+		// equality against the JSON null literal is the null-or-missing
+		// presence test; the plain jsonb equality would drop missing-key rows.
+		presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
+		if operator == "EQUALS" {
+			return predicateFragment{sql: presence + " = 'null'"}, nil
+		}
+		return predicateFragment{sql: presence + " <> 'null'"}, nil
 	}
 	index := r.jsonbParameter(raw)
 	if operator == "NOT_EQUALS" {
-		return "(" + left + ") IS DISTINCT FROM ($" + strconv.Itoa(index) + "::jsonb)", nil
+		return predicateFragment{sql: "(" + left + ") IS DISTINCT FROM ($" + strconv.Itoa(index) + "::jsonb)"}, nil
 	}
-	return "(" + left + ") " + sqlComparison(operator) + " ($" + strconv.Itoa(index) + "::jsonb)", nil
+	// The path extraction is SQL NULL for a missing key, so these comparisons
+	// are three-valued; NOT over them must be guarded for AQL parity.
+	return predicateFragment{sql: "(" + left + ") " + sqlComparison(operator) + " ($" + strconv.Itoa(index) + "::jsonb)", mayYieldNull: true}, nil
 }
 
 func sqlComparison(operator string) string {
 	switch operator {
 	case "EQUALS":
 		return "="
+	case "NOT_EQUALS":
+		// Identical to != over the NOT NULL storage columns and never NULL
+		// for nullable ones, mirroring the payload-path reading.
+		return "IS DISTINCT FROM"
 	case "GT":
 		return ">"
 	case "GTE":

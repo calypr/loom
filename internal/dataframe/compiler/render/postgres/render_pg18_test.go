@@ -717,6 +717,119 @@ func TestPG18BindingSelectsOwnedSchemaOnly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Case 7: predicate-parity repairs executed on real PG18.
+// ---------------------------------------------------------------------------
+
+func TestPG18PredicateParityRepairs(t *testing.T) {
+	svc := newPGIR02Service(t, 0)
+	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-active", "FHIR/Patient", map[string]any{"status": "active"})
+	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-nostatus", "FHIR/Patient", map[string]any{"note": "x"})
+
+	logicalID := ir.PhysicalProjection{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}}
+
+	// NOT over a payload equality must keep the row missing the compared
+	// key: AQL evaluates the missing-key comparison as false, so NOT is
+	// true; an unguarded SQL NOT (NULL) would silently drop it.
+	notPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+	notPlan.BindVars["status_value"] = "active"
+	notPlan.Operations = append(notPlan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &ir.PhysicalPredicateExpression{
+			Kind: ir.PhysicalNotPredicate,
+			Children: []ir.PhysicalPredicateExpression{
+				{Kind: ir.PhysicalComparisonPredicate, Comparison: &ir.PhysicalPredicate{
+					Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"status"}},
+					Right: &ir.PhysicalValue{BindKey: "status_value"},
+				}},
+			},
+		}}},
+	)
+	notPlan = withReturn(notPlan, logicalID)
+	notRendered, err := RenderPhysicalPlan(notPlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("NOT render: %v", err)
+	}
+	notGot := svc.runRendered(t, notRendered)
+	if !reflect.DeepEqual(notGot, [][]string{{"p-nostatus"}}) {
+		t.Fatalf("NOT over missing-key rows = %v, want only the missing-key row", notGot)
+	}
+	witness := svc.witness(t,
+		`SELECT logical_id FROM "`+svc.schema+`"."fhir_resource" WHERE project=$1 AND dataset_generation=$2 AND payload #> '{status}'::text[] IS NULL`,
+		itProject, itGeneration)
+	if !reflect.DeepEqual(witness, [][]string{{"p-nostatus"}}) {
+		t.Fatalf("missing-key witness = %v", witness)
+	}
+
+	// An empty IN list binds an empty array: the statement executes and
+	// selects nobody, matching the AQL x IN [] reading.
+	inPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+	inPlan.BindVars["in_values"] = []string{}
+	inPlan.Operations = append(inPlan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "IN", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+			Right: &ir.PhysicalValue{BindKey: "in_values"},
+		}}},
+	)
+	inPlan = withReturn(inPlan, logicalID)
+	inRendered, err := RenderPhysicalPlan(inPlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("empty IN render: %v", err)
+	}
+	if got := svc.runRendered(t, inRendered); len(got) != 0 {
+		t.Fatalf("empty IN rows = %v, want none", got)
+	}
+
+	// Column EXISTS/MISSING are null tests over NOT NULL storage columns:
+	// EXISTS keeps every row and MISSING keeps none.
+	existsPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+	existsPlan.Operations = append(existsPlan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EXISTS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+		}}},
+	)
+	existsPlan = withReturn(existsPlan, logicalID)
+	existsRendered, err := RenderPhysicalPlan(existsPlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("EXISTS render: %v", err)
+	}
+	existsRows := svc.runRendered(t, existsRendered)
+	if len(existsRows) != 2 {
+		t.Fatalf("column EXISTS rows = %v, want both rows", existsRows)
+	}
+	missingPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+	missingPlan.Operations = append(missingPlan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "MISSING", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+		}}},
+	)
+	missingPlan = withReturn(missingPlan, logicalID)
+	missingRendered, err := RenderPhysicalPlan(missingPlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("MISSING render: %v", err)
+	}
+	if got := svc.runRendered(t, missingRendered); len(got) != 0 {
+		t.Fatalf("column MISSING rows = %v, want none", got)
+	}
+
+	// NOT_EQUALS over a typed column executes two-valued.
+	neqPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+	neqPlan.BindVars["id_value"] = "p-active"
+	neqPlan.Operations = append(neqPlan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "NOT_EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+			Right: &ir.PhysicalValue{BindKey: "id_value"},
+		}}},
+	)
+	neqPlan = withReturn(neqPlan, logicalID)
+	neqRendered, err := RenderPhysicalPlan(neqPlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("column NOT_EQUALS render: %v", err)
+	}
+	if got := svc.runRendered(t, neqRendered); !reflect.DeepEqual(got, [][]string{{"p-nostatus"}}) {
+		t.Fatalf("column NOT_EQUALS rows = %v, want the other row", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Zero-leftover audit (runs last: this file sorts before render_test.go and
 // no unit test creates owned resources).
 // ---------------------------------------------------------------------------
