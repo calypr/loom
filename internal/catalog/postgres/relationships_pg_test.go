@@ -168,13 +168,12 @@ func newRelationshipEvidenceService(t *testing.T) *relationshipEvidenceService {
 		} else if dbCount != 0 {
 			t.Errorf("leftover isolated database %s after cleanup", dbName)
 		}
-		var schemaCount int
-		if err := admin.QueryRow(context.WithoutCancel(ctx),
-			"SELECT COUNT(*) FROM pg_namespace WHERE nspname = $1", schema).Scan(&schemaCount); err != nil {
-			t.Errorf("audit owned schema %s: %s", schema, scrub(err))
-		} else if schemaCount != 0 {
-			t.Errorf("leftover owned schema %s in the service database after cleanup", schema)
-		}
+		// The owned schema lived only inside the isolated database (the
+		// service-database pg_namespace check copied from the catalog-02
+		// service passed trivially and is dropped as false assurance). A
+		// database drop removes its schemas with it; TestZZ probes the
+		// owned schema inside any database that failed to drop, which is
+		// the only state where a schema leftover is observable.
 	})
 
 	dbName = fmt.Sprintf("verify_pgcat03_%d_%s", time.Now().UnixNano(), relationshipRandomHex(t))
@@ -769,6 +768,146 @@ func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) 
 	}
 	if lowerSources != 2 || mixedTargets != 1 {
 		t.Fatalf("raw spellings rewritten: lower=%d mixed=%d, want 2/1", lowerSources, mixedTargets)
+	}
+}
+
+// TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespaceVariants
+// is the round-2 (verifier 75) mandate: store-05's write validation
+// rejects only blank endpoint strings, so rows padded with tab, CR, LF,
+// or NBSP are legitimate stored states. The Go canonicalizer
+// (strings.TrimSpace + Unicode case-fold) classifies them into evidence,
+// while any SQL-side approximation trims a different character set
+// (btrim trims ASCII space only). The requested-type filter therefore
+// runs in Go after canonicalization, and this test pins, against real
+// PostgreSQL 18, that filtered and unfiltered reads are byte-identical —
+// values JSON, digest, and status — for tab-, CR-, NBSP-, and
+// mixed-padded rows, plus a Unicode fold variant ('Bodyſtructure').
+func TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespaceVariants(t *testing.T) {
+	s := newRelationshipEvidenceService(t)
+	store := s.newStore(t)
+	const project, generation = "pgcat03-ws", "g1"
+
+	sources := []struct{ resourceType, logicalID string }{
+		{"Condition\t", "ws-s0"},
+		{"\rCondition", "ws-s1"},
+		{"Condition", "ws-s2"},
+		{" \tCondition\u00a0", "ws-s3"},
+		{"condition", "ws-s4"},
+		{"Bodyſtructure", "ws-s5"},
+	}
+	for _, src := range sources {
+		s.seedResource(t, project, generation, src.resourceType, src.logicalID, "clinic/a")
+	}
+	s.seedOccurrence(t, project, generation, "clinic/a", "Condition\t", "ws-s0", "subject_Patient", "Patient", "ws-t", "", 0)
+	s.seedOccurrence(t, project, generation, "clinic/a", "\rCondition", "ws-s1", "subject_Patient", "Patient", "ws-t", "", 0)
+	s.seedOccurrence(t, project, generation, "clinic/a", "Condition", "ws-s2", "subject_Patient", "\u00a0Patient", "ws-t", "", 0)
+	s.seedOccurrence(t, project, generation, "clinic/a", " \tCondition\u00a0", "ws-s3", "subject_Patient", "\nPatient", "ws-t", "", 0)
+	s.seedOccurrence(t, project, generation, "clinic/a", "condition", "ws-s4", "subject_Patient", "PatIent", "ws-t", "", 0)
+	s.seedOccurrence(t, project, generation, "clinic/a", "Bodyſtructure", "ws-s5", "patient", "Patient", "ws-t", "", 0)
+
+	unfiltered, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil))
+	if err != nil {
+		t.Fatalf("unfiltered: %v", err)
+	}
+	unfilteredJSON, err := json.Marshal(unfiltered.Values)
+	if err != nil {
+		t.Fatalf("marshal unfiltered: %v", err)
+	}
+	if len(unfiltered.Diagnostics) != 0 {
+		t.Fatalf("unfiltered diagnostics = %+v, want none (every endpoint canonicalizes under the Go canonicalizer)", unfiltered.Diagnostics)
+	}
+	want := []catalog.RelationshipObservation{
+		observation(project, generation, "clinic/a", "BodyStructure", "patient", "Patient", 1, "Patient", "BodyStructure", "INBOUND"),
+		observation(project, generation, "clinic/a", "Condition", "subject_Patient", "Patient", 5, "Patient", "Condition", "INBOUND"),
+	}
+	requireValuesByteIdentical(t, unfiltered.Values, want)
+
+	// Byte-identical filtered==unfiltered: canonical spellings and
+	// padded/cased caller spellings of the same requested set.
+	for _, requested := range [][]string{
+		{"Condition", "Patient", "BodyStructure"},
+		{" condition ", "patient", "\tbodyStructure\u00a0"},
+	} {
+		filtered, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+			catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, requested...))
+		if err != nil {
+			t.Fatalf("filtered %q: %v", requested, err)
+		}
+		filteredJSON, err := json.Marshal(filtered.Values)
+		if err != nil {
+			t.Fatalf("marshal filtered: %v", err)
+		}
+		if !bytes.Equal(filteredJSON, unfilteredJSON) {
+			t.Fatalf("filtered %q vs unfiltered not byte-identical\n got: %s\nwant: %s", requested, filteredJSON, unfilteredJSON)
+		}
+		if filtered.Digest != unfiltered.Digest || filtered.Status != unfiltered.Status {
+			t.Fatalf("filtered %q digest/status %q/%s != unfiltered %q/%s",
+				requested, filtered.Digest, filtered.Status, unfiltered.Digest, unfiltered.Status)
+		}
+		for _, d := range filtered.Diagnostics {
+			t.Fatalf("filtered %q carried diagnostics: %+v", requested, d)
+		}
+	}
+
+	// The filter stays exact: a canonical request that matches no stored
+	// type returns nothing, and an all-invalid request still diagnoses the
+	// request while returning nothing.
+	missed, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, "Observation", "Patient"))
+	if err != nil {
+		t.Fatalf("non-matching filter: %v", err)
+	}
+	if len(missed.Values) != 0 || missed.Status != catalog.EvidenceEmpty {
+		t.Fatalf("non-matching filter returned %d values status %s, want 0/empty", len(missed.Values), missed.Status)
+	}
+	allInvalid, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, "Nope\u00a9", "Patient"))
+	if err != nil {
+		t.Fatalf("all-invalid filter: %v", err)
+	}
+	if len(allInvalid.Values) != 0 || allInvalid.Status != catalog.EvidenceEmpty || len(allInvalid.Diagnostics) != 1 ||
+		allInvalid.Diagnostics[0].Code != "INVALID_RESOURCE_TYPE" || allInvalid.Diagnostics[0].ResourceType != "Nope\u00a9" {
+		t.Fatalf("all-invalid filter result = %+v", allInvalid)
+	}
+
+	// Raw stored spellings are untouched: the padded bytes come back
+	// exactly as stored, proving the reads classify without rewriting.
+	// Order-independent multiset witness: the padded spellings sort by
+	// collation, not byte order, so the set is compared, not the sequence.
+	rows, err := s.iso.Query(s.ctx, "SELECT source_resource_type, target_resource_type, COUNT(*) FROM "+s.edgeTable()+
+		" WHERE project = $1 AND dataset_generation = $2 GROUP BY 1,2", project, generation)
+	if err != nil {
+		s.fail("raw spelling witness", err)
+	}
+	defer rows.Close()
+	seen := map[string]int64{}
+	for rows.Next() {
+		var source, target string
+		var count int64
+		if err := rows.Scan(&source, &target, &count); err != nil {
+			s.fail("raw spelling witness scan", err)
+		}
+		seen[source+"\x00"+target] = count
+	}
+	if err := rows.Err(); err != nil {
+		s.fail("raw spelling witness rows", err)
+	}
+	wantRaw := map[string]int64{
+		" \tCondition\u00a0\x00\nPatient": 1,
+		"Condition\x00\u00a0Patient":      1,
+		"Condition\t\x00Patient":          1,
+		"\rCondition\x00Patient":          1,
+		"Bodyſtructure\x00Patient":        1,
+		"condition\x00PatIent":            1,
+	}
+	if len(seen) != len(wantRaw) {
+		t.Fatalf("raw rows = %#v, want %#v", seen, wantRaw)
+	}
+	for key, count := range wantRaw {
+		if seen[key] != count {
+			t.Fatalf("raw row %q = %d, want %d", key, seen[key], count)
+		}
 	}
 }
 

@@ -37,10 +37,12 @@
 // lookup — an occurrence stores the endpoints the writer supplied, and the
 // Arango catalog row they correspond to was canonicalized at ingest — so a
 // casing-only variance is a canonicalization, not a misdiagnosis. A
-// requested-type read pushes the same canonicalization into SQL
-// (lower(btrim(column)) against the lowercased canonical list) so a
-// filtered read never silently drops a case-variant row that the
-// unfiltered read would return as evidence.
+// requested-type read filters in Go after that canonicalization — never
+// with a SQL-side approximation, whose trim and fold sets differ from
+// Go's (SQL btrim trims ASCII space only; strings.TrimSpace trims all
+// Unicode whitespace, and case-folding is Unicode too), so a filtered
+// read can never silently drop a tab-, CR-, NBSP-, or fold-variant row
+// that the unfiltered read returns as evidence.
 //
 // Invalid generated FHIR endpoint types are diagnosed
 // (INVALID_RELATIONSHIP_ENDPOINT) and excluded from Builder capability
@@ -117,16 +119,6 @@ type RelationshipScope struct {
 	// restricted mode. An empty list in restricted mode is a legitimate
 	// authorization state; the adapter short-circuits it without a query.
 	AuthResourcePaths []string
-	// ResourceTypes is nil (or absent) to aggregate every stored endpoint
-	// type — including types the generated registry cannot classify, which
-	// the discovery step must be able to diagnose. A non-nil list binds
-	// both endpoints in canonical form: the caller supplies lowercase
-	// concrete FHIR type names (as evidenceResourceTypes plus
-	// strings.ToLower produce them) and the SQL compares them against
-	// lower(btrim(column)), so a row the writer stored in any casing of a
-	// requested type matches — exactly the rows the unfiltered read would
-	// canonicalize into evidence. An empty non-nil list matches nothing.
-	ResourceTypes []string
 }
 
 // RelationshipOccurrenceGroup is one exact scoped aggregate produced by the
@@ -158,7 +150,8 @@ type RelationshipStore interface {
 	// ScanRelationshipOccurrences aggregates every occurrence row inside
 	// one exact scope into per (auth path, storage source type, label,
 	// storage target type) counts, ordered by those columns. It performs
-	// no endpoint classification and never deduplicates rows.
+	// no endpoint classification or type filtering and never deduplicates
+	// rows.
 	ScanRelationshipOccurrences(ctx context.Context, scope RelationshipScope) ([]RelationshipOccurrenceGroup, error)
 }
 
@@ -199,9 +192,18 @@ type relationshipAggregateShape struct {
 
 // bindRelationshipAggregate validates the scope and renders the ordered,
 // parameterized aggregation. Parameters are ordered: $1 project, $2
-// dataset generation, $3 authorized auth paths (restricted mode only),
-// $4 canonical resource types (type-filtered reads only). The SELECT casts
-// every bound array so PostgreSQL never infers a type it cannot see.
+// dataset generation, $3 authorized auth paths (restricted mode only). The
+// SELECT casts every bound array so PostgreSQL never infers a type it
+// cannot see.
+//
+// There is deliberately no endpoint-type predicate here: stored endpoint
+// columns are writer-supplied raw strings and the only canonicalizer is
+// Go's fhirschema.ConcreteResourceType (TrimSpace + case-fold). Any
+// SQL-side approximation (raw equality, or lower(btrim(...)), which trims
+// ASCII space only) would silently drop the trim/fold variants the Go
+// canonicalizer accepts, so the adapter filters in Go after scanning and
+// classifying — one source of truth for both the filtered and unfiltered
+// read.
 //
 // auth_resource_path is a GROUP BY column, never dropped; the count is
 // COUNT(*) over rows, never COUNT(DISTINCT ...) over endpoints.
@@ -221,13 +223,6 @@ func bindRelationshipAggregate(tableFQN string, scope RelationshipScope) (relati
 				ErrInvalidRelationshipScope, len(scope.AuthResourcePaths))
 		}
 	}
-	for index, resourceType := range scope.ResourceTypes {
-		if strings.TrimSpace(resourceType) == "" {
-			return relationshipAggregateShape{}, fmt.Errorf(
-				"%w: requested resource type %d is blank", ErrInvalidRelationshipScope, index)
-		}
-	}
-
 	sql := "SELECT auth_resource_path, source_resource_type, label, target_resource_type," +
 		" COUNT(*) AS " + relationshipEvidenceCountColumn +
 		" FROM " + tableFQN +
@@ -236,20 +231,6 @@ func bindRelationshipAggregate(tableFQN string, scope RelationshipScope) (relati
 	if !*scope.AuthResourcePathsUnrestricted {
 		sql += " AND auth_resource_path = ANY($" + fmt.Sprint(len(args)+1) + "::text[])"
 		args = append(args, scope.AuthResourcePaths)
-	}
-	if scope.ResourceTypes != nil {
-		// Canonicalize both sides of the comparison: stored endpoint
-		// columns are writer-supplied raw strings (store-05 validates only
-		// non-blank at insert), while classification canonicalizes them
-		// with fhirschema.ConcreteResourceType (trim plus case-fold).
-		// Comparing raw strings here would silently drop case-variant rows
-		// that the unfiltered read returns as evidence. lower(btrim(...))
-		// against the caller's lowercase canonical list matches those rows
-		// because generated FHIR type names never collide
-		// case-insensitively.
-		sql += " AND lower(btrim(source_resource_type)) = ANY($" + fmt.Sprint(len(args)+1) + "::text[])" +
-			" AND lower(btrim(target_resource_type)) = ANY($" + fmt.Sprint(len(args)+1) + "::text[])"
-		args = append(args, scope.ResourceTypes)
 	}
 	sql += " GROUP BY auth_resource_path, source_resource_type, label, target_resource_type" +
 		" ORDER BY auth_resource_path, source_resource_type, label, target_resource_type"
@@ -346,18 +327,23 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 	if !unrestricted {
 		scope.AuthResourcePaths = append([]string(nil), opts.AuthResourcePaths...)
 	}
-	if len(opts.ResourceTypes) > 0 {
-		// Bind the canonical subset lowercased to agree with the SQL-side
-		// lower(btrim(...)) comparison over the raw stored columns; an
-		// all-invalid request binds an empty non-nil list and matches
-		// nothing, exactly as the Arango adapter's "IN []" filter behaves.
-		// Request-level INVALID_RESOURCE_TYPE diagnostics were already
-		// recorded above. The copy is explicit so an empty canonical list
-		// stays non-nil (append(nil) of zero elements would silently widen
-		// the read by dropping the filter).
-		scope.ResourceTypes = make([]string, len(resourceTypes))
-		for i, resourceType := range resourceTypes {
-			scope.ResourceTypes[i] = strings.ToLower(resourceType)
+
+	// The requested-type filter is evaluated in Go against the canonical
+	// form produced by the very function that classifies evidence
+	// (fhirschema.ConcreteResourceType), never against a SQL-side
+	// approximation: stored endpoint strings keep every writer-supplied
+	// trim/fold variant (store-05 validates only non-blank), and the Go
+	// canonicalizer — not the database — defines which variants collapse.
+	// A requested set of only-invalid types canonicalizes to the empty
+	// set and matches nothing, the same posture as the Arango adapter's
+	// "IN []" filter; request-level INVALID_RESOURCE_TYPE diagnostics
+	// were already recorded above.
+	requestedTypes := len(opts.ResourceTypes) > 0
+	var requestedSet map[string]struct{}
+	if requestedTypes {
+		requestedSet = make(map[string]struct{}, len(resourceTypes))
+		for _, resourceType := range resourceTypes {
+			requestedSet[resourceType] = struct{}{}
 		}
 	}
 
@@ -377,14 +363,35 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 		if !fromOK || !toOK {
 			// The endpoint is not a concrete generated FHIR resource. It is
 			// excluded from Builder capability evidence but stays a stored,
-			// inspectable occurrence row: nothing here rewrites it.
-			result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{
-				Code:            "INVALID_RELATIONSHIP_ENDPOINT",
-				Message:         "relationship endpoint is not a concrete generated FHIR resource",
-				StorageFromType: storageFrom, Label: label, StorageToType: storageTo,
-				Count: group.OccurrenceCount,
-			})
+			// inspectable occurrence row: nothing here rewrites it. Under a
+			// requested-type read such a row can never be in the set (only
+			// concrete canonical names are), so it is skipped without a
+			// diagnostic — the same posture as the Arango adapter's SQL
+			// "IN" list, where rows outside the requested types are
+			// neither evidence nor diagnostics.
+			if !requestedTypes {
+				result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{
+					Code:            "INVALID_RELATIONSHIP_ENDPOINT",
+					Message:         "relationship endpoint is not a concrete generated FHIR resource",
+					StorageFromType: storageFrom, Label: label, StorageToType: storageTo,
+					Count: group.OccurrenceCount,
+				})
+			}
 			continue
+		}
+		if requestedTypes {
+			// Canonical-side membership: both endpoints are compared to
+			// the requested set through the same canonicalizer that
+			// produced their values above, so a filtered read can never
+			// drop a row the unfiltered read would classify into the
+			// requested types — no trim/fold variant is ever silently
+			// lost between the two paths.
+			if _, ok := requestedSet[from]; !ok {
+				continue
+			}
+			if _, ok := requestedSet[to]; !ok {
+				continue
+			}
 		}
 		observation, ok, diagnostic := relationshipObservation(opts.Project, datasetGeneration, group.AuthResourcePath, from, label, to, group.OccurrenceCount)
 		if !ok {

@@ -74,7 +74,7 @@ func TestRelationshipEvidenceScopeValidationRejectsBeforeQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRelationshipEvidenceRepository: %v", err)
 	}
-	trueValue, falseValue := true, false
+	trueValue := true
 	cases := []struct {
 		name  string
 		scope RelationshipScope
@@ -82,7 +82,6 @@ func TestRelationshipEvidenceScopeValidationRejectsBeforeQuery(t *testing.T) {
 		{"blank project", RelationshipScope{Project: "  ", DatasetGeneration: "g", AuthResourcePathsUnrestricted: &trueValue}},
 		{"nil unrestricted flag", RelationshipScope{Project: "p", DatasetGeneration: "g"}},
 		{"unrestricted with paths", RelationshipScope{Project: "p", DatasetGeneration: "g", AuthResourcePathsUnrestricted: &trueValue, AuthResourcePaths: []string{"a"}}},
-		{"blank requested type", RelationshipScope{Project: "p", DatasetGeneration: "g", AuthResourcePathsUnrestricted: &falseValue, ResourceTypes: []string{"Patient", " "}}},
 	}
 	for _, tc := range cases {
 		_, err := repo.ScanRelationshipOccurrences(context.Background(), tc.scope)
@@ -121,16 +120,14 @@ func TestRelationshipEvidenceAggregateSQLGoldens(t *testing.T) {
 			wantArgs: []any{"proj", "g1", []string{"clinic/a"}},
 		},
 		{
-			name:     "restricted multiple paths with type filter",
-			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "", AuthResourcePathsUnrestricted: &falseValue, AuthResourcePaths: []string{"clinic/a", "clinic/b"}, ResourceTypes: []string{"condition", "patient"}},
-			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = ANY($3::text[]) AND lower(btrim(source_resource_type)) = ANY($4::text[]) AND lower(btrim(target_resource_type)) = ANY($4::text[])` + groupedTail,
-			wantArgs: []any{"proj", "", []string{"clinic/a", "clinic/b"}, []string{"condition", "patient"}},
-		},
-		{
-			name:     "unrestricted with type filter",
-			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: &trueValue, ResourceTypes: []string{"patient"}},
-			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND lower(btrim(source_resource_type)) = ANY($3::text[]) AND lower(btrim(target_resource_type)) = ANY($3::text[])` + groupedTail,
-			wantArgs: []any{"proj", "g1", []string{"patient"}},
+			// No mode carries an endpoint-type predicate: the requested-type
+			// filter is a Go-side canonical comparison, and any SQL-side
+			// pushdown (raw equality, or lower(btrim(...))) would silently
+			// drop the trim/fold variants Go's canonicalizer accepts.
+			name:     "restricted multiple paths",
+			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "", AuthResourcePathsUnrestricted: &falseValue, AuthResourcePaths: []string{"clinic/a", "clinic/b"}},
+			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = ANY($3::text[])` + groupedTail,
+			wantArgs: []any{"proj", "", []string{"clinic/a", "clinic/b"}},
 		},
 	}
 	for _, tc := range cases {
@@ -513,36 +510,89 @@ func TestRelationshipEvidenceUnavailablePropagatesError(t *testing.T) {
 	}
 }
 
+// variantGroups holds the writer spellings the Go canonicalizer collapses
+// (case, tab, CR, NBSP, mixed) plus a second label/type pair and a
+// non-concrete endpoint row.
+func variantGroups() []RelationshipOccurrenceGroup {
+	return []RelationshipOccurrenceGroup{
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "condition", Label: "subject_Patient", StorageTargetResourceType: "PatIent", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition\t", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "\rCondition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition\u00a0", Label: "subject_Patient", StorageTargetResourceType: "\u00a0Patient", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: " \tCondition\u00a0", Label: "subject_Patient", StorageTargetResourceType: "\nPatient", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "BodyStructure", Label: "patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "NotAThing", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 9},
+	}
+}
+
 func TestRelationshipEvidenceTypeRequestCanonicalizesAndDiagnoses(t *testing.T) {
-	stub := &stubRelationshipStore{}
+	// The requested-type filter is a Go-side canonical comparison: the
+	// scan never carries a type predicate, invalid requested types are
+	// diagnosed once, rows outside the requested canonical set are
+	// excluded without diagnostics (Arango IN-list parity), and the
+	// empty-after-canonicalization edge returns Empty.
+	stub := &stubRelationshipStore{groups: variantGroups()}
 	store := stubStore(t, stub)
 	result, err := store.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
 		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
-		ResourceTypes: []string{"condition", "NotAThing", "Condition"},
+		// The list filters both endpoints (Arango IN-list parity), so the
+		// request names Condition and Patient.
+		ResourceTypes: []string{"condition", "Patient", "NotAThing"},
 	})
 	if err != nil {
 		t.Fatalf("DiscoverRelationshipObservations: %v", err)
 	}
-	got := stub.scopes[0]
-	// The bound list is the canonical set lowercased to agree with the
-	// SQL-side lower(btrim(...)) comparison over raw stored columns.
-	if got.ResourceTypes == nil || len(got.ResourceTypes) != 1 || got.ResourceTypes[0] != "condition" {
-		t.Fatalf("bound types = %#v, want exactly [condition]", got.ResourceTypes)
-	}
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "INVALID_RESOURCE_TYPE" || result.Diagnostics[0].ResourceType != "NotAThing" {
 		t.Fatalf("diagnostics = %+v, want one INVALID_RESOURCE_TYPE for NotAThing", result.Diagnostics)
 	}
-	// An all-invalid request binds an empty (non-nil) list: nothing matches,
-	// matching the Arango adapter's IN [] behavior.
-	stub2 := &stubRelationshipStore{}
+	if len(result.Values) != 1 || result.Values[0].StorageFromType != "Condition" || result.Values[0].EdgeCount != 6 {
+		t.Fatalf("filtered values = %+v, want the six canonical Condition->Patient variants summed, with the BodyStructure and NotAThing groups silently out", result.Values)
+	}
+
+	// The requested read over the full canonical set is byte-identical to
+	// the unfiltered read except for the invalid-endpoint diagnostic the
+	// unfiltered read adds; the shared observations must match exactly.
+	unfiltered, err := store.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
+		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
+	})
+	if err != nil {
+		t.Fatalf("unfiltered: %v", err)
+	}
+	full, err := store.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
+		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
+		ResourceTypes: []string{"Condition", "Patient", "BodyStructure"},
+	})
+	if err != nil {
+		t.Fatalf("full-set filtered: %v", err)
+	}
+	// The unfiltered read adds only the NotAThing diagnostic; the shared
+	// observation set (six-variant aggregate + BodyStructure) must be
+	// byte-identical, so digest and value count compare directly.
+	if full.Digest != unfiltered.Digest || len(full.Values) != 2 {
+		t.Fatalf("filtered full-set digest %q != unfiltered %q (values %v)", full.Digest, unfiltered.Digest, full.Values)
+	}
+
+	// Empty-after-canonicalization edge: an all-invalid request matches
+	// nothing (Arango IN [] posture) and the scan itself still runs.
+	stub2 := &stubRelationshipStore{groups: variantGroups()}
 	store2 := stubStore(t, stub2)
-	if _, err := store2.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
+	emptyResult, err := store2.DiscoverRelationshipObservations(context.Background(), catalog.RelationshipObservationOptions{
 		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
 		ResourceTypes: []string{"NotAThing"},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("all-invalid request: %v", err)
 	}
-	if stub2.scopes[0].ResourceTypes == nil || len(stub2.scopes[0].ResourceTypes) != 0 {
-		t.Fatalf("all-invalid request must bind an empty non-nil list, got %#v", stub2.scopes[0].ResourceTypes)
+	if stub2.calls != 1 {
+		t.Fatalf("all-invalid request must still scan once, calls = %d", stub2.calls)
+	}
+	if len(emptyResult.Values) != 0 || emptyResult.Status != catalog.EvidenceEmpty {
+		t.Fatalf("all-invalid result = %+v, want empty", emptyResult)
+	}
+	for _, d := range emptyResult.Diagnostics {
+		if d.Code == "INVALID_RELATIONSHIP_ENDPOINT" {
+			t.Fatalf("requested read must not diagnose rows outside the set: %+v", d)
+		}
 	}
 }
