@@ -715,6 +715,34 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("control: legal member row refused: %s", s.scrub(err))
 	}
 
+	// Conflicting member, key-shaped poison: a stored row holds the
+	// DERIVED key of files011 while storing the reference files012 -- a
+	// shape only a hostile direct insert can produce (the guard trigger
+	// makes it permanent). Appending files011 must refuse with the exact
+	// conflict rather than credit the poisoned row as staged, and leak
+	// nothing.
+	poisonKey := goldenMemberKey(t, id, selemRef("files011").Ref)
+	if err := s.witnessExecErr(
+		`INSERT INTO `+s.membersFQN()+`
+		 (selection_id, member_key, project, generation, resource_type, id, ordinal)
+		 VALUES ($1, $2, $3, 'gen-a', 'DocumentReference', 'files012', 0)`,
+		id, poisonKey, selemProject); err != nil {
+		s.fail("seed key-poisoned member", err)
+	}
+	poison := s.witnessMember(id, poisonKey)
+	if !poison.exists || poison.id != "files012" {
+		t.Fatalf("seeded key-poisoned row drifted: %+v", poison)
+	}
+	if _, err := s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files011")); !errors.Is(err, explorer.ErrSelectionConflict) {
+		t.Fatalf("append over a key-poisoned row = %v, want ErrSelectionConflict", err)
+	}
+	if after := s.witnessMember(id, poisonKey); !after.same(poison) {
+		t.Fatalf("the adapter rewrote the poisoned row: %+v", after)
+	}
+	if n := s.memberCount(t, id); n != 6 {
+		t.Fatalf("poisoned-key append leaked rows: %d, want 6 (files001-003 + the three hostile probes, no files011)", n)
+	}
+
 	// Owner abort removes header and members: post-abort convergence for
 	// the whole batch.
 	if err := s.storeA.AbortSelection(s.ctx, id, writer); err != nil {
@@ -1421,9 +1449,9 @@ func TestSelectionMembersSQLAndGoldenContract(t *testing.T) {
 	headersFQN := `"ctl"."selection_revisions"`
 	membersFQN := `"ctl"."selection_members"`
 	for name, statement := range map[string]string{
-		"memberInsert": sql.memberInsert, "memberDigestPage": sql.memberDigestPage,
-		"memberVisitPage": sql.memberVisitPage, "leaseRenew": sql.leaseRenew,
-		"completeCAS": sql.completeCAS,
+		"memberInsert": sql.memberInsert, "memberByKey": sql.memberByKey,
+		"memberDigestPage": sql.memberDigestPage, "memberVisitPage": sql.memberVisitPage,
+		"leaseRenew": sql.leaseRenew, "completeCAS": sql.completeCAS,
 	} {
 		if !strings.Contains(statement, headersFQN) && !strings.Contains(statement, membersFQN) {
 			t.Fatalf("%s is not schema-qualified: %s", name, statement)

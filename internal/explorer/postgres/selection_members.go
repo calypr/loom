@@ -101,6 +101,12 @@ type selectionMemberSQL struct {
 	// violation of selection_members_ref_ux is refused by the database
 	// and classified by the adapter as a conflicting member.
 	memberInsert string
+	// memberByKey reads one stored member row by its primary key. The
+	// append skip path uses it to verify that an already-present key
+	// stores exactly the reference its derived key promises: a stored
+	// row whose reference disagrees with the key is a conflicting
+	// member, refused rather than silently treated as staged.
+	memberByKey string
 	// memberDigestPage streams one membership frame page in byte-order id
 	// (COLLATE "C" columns, so this is Arango's byte-order SORT). The
 	// equality prefix plus the id range/order is exactly the
@@ -130,6 +136,8 @@ func newSelectionMemberSQL(schema string) selectionMemberSQL {
 			" VALUES (" + orderedPlaceholders(len(memberColumns)+1) + ")" +
 			" ON CONFLICT (selection_id, member_key) DO NOTHING" +
 			" RETURNING " + strings.Join(memberColumns, ", "),
+		memberByKey: "SELECT " + strings.Join(memberColumns, ", ") + " FROM " + members +
+			" WHERE selection_id = $1 AND member_key = $2",
 		memberDigestPage: "SELECT project, generation, resource_type, id FROM " + members +
 			" WHERE selection_id = $1 AND project = $2 AND generation = $3 AND resource_type = $4 AND id > $5" +
 			" ORDER BY id LIMIT $6",
@@ -227,10 +235,11 @@ func isMemberRefConflict(err error) bool {
 // returns no row and is NOT reported as created by this call, and a
 // reference repeated inside one batch is created exactly once. A member
 // that conflicts -- a caller-supplied memberKey that disagrees with the
-// derived key, a reference outside the header's scope, or a stored row
+// derived key, a reference outside the header's scope, a stored row
 // holding this reference under another key (the selection_members_ref_ux
-// arbiter) -- refuses with explorer.ErrSelectionConflict and zero rows of
-// the batch surviving.
+// arbiter), or a stored row holding this key while its reference
+// disagrees with what the key promises -- refuses with
+// explorer.ErrSelectionConflict and zero rows of the batch surviving.
 func (s *Store) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorer.SelectionMember) ([]explorer.SelectionMember, error) {
 	selectionID = strings.TrimSpace(selectionID)
 	writerToken = strings.TrimSpace(writerToken)
@@ -306,8 +315,31 @@ func (s *Store) AppendSelectionMembers(ctx context.Context, selectionID, writerT
 			entry.member.Ref.ResourceType, entry.member.Ref.ID, entry.member.Ordinal).
 			Scan(&memberKey, &mProject, &mGeneration, &mResourceType, &mID, &ordinal)
 		if errors.Is(err, pgx.ErrNoRows) {
-			// The key already existed: an idempotent retry, not a new
-			// member. This call did not create it.
+			// The key already existed. An idempotent retry stores the
+			// same reference under the same derived key, so verify that
+			// the stored row agrees with the reference this key promises
+			// before crediting it as staged: a stored row holding this
+			// key with a DIFFERENT reference is a conflicting member,
+			// refused exactly like the reference-arbiter shape.
+			var skippedKey, sProject, sGeneration, sResourceType, sID string
+			var sOrdinal int64
+			scanErr := tx.QueryRow(ctx, s.selectionMembers.memberByKey, selectionID, entry.memberKey).
+				Scan(&skippedKey, &sProject, &sGeneration, &sResourceType, &sID, &sOrdinal)
+			if errors.Is(scanErr, pgx.ErrNoRows) {
+				// Unreachable while this transaction holds the header
+				// lock (abort and cleanup must take it before removing
+				// members). If it ever fires, this call created nothing.
+				continue
+			}
+			if scanErr != nil {
+				return nil, fmt.Errorf("postgres explorer store: reread staged member %q of selection %q: %w",
+					entry.memberKey, selectionID, scanErr)
+			}
+			if skippedKey != entry.memberKey ||
+				sProject != entry.member.Ref.Project || sGeneration != entry.member.Ref.Generation ||
+				sResourceType != entry.member.Ref.ResourceType || sID != entry.member.Ref.ID {
+				return nil, explorer.ErrSelectionConflict
+			}
 			continue
 		}
 		if err != nil {
