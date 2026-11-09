@@ -90,7 +90,11 @@ package postgres
 //     still deadlock under adversarial timing; PostgreSQL's deadlock victim
 //     is retried on a fresh transaction a bounded number of times (the same
 //     bounded-conflict-retry budget receipts.go uses), never mislabeled as
-//     an application conflict.
+//     an application conflict. Retryability is classified by the error's
+//     sentinel (isTypedPublicationRefusal), so a victim parked at any
+//     statement of the transaction -- including the FOR UPDATE lock reads
+//     (receipt/revision claim rereads, owner guard, prior lock) -- is
+//     retried just like one from a data-write statement.
 //
 // Lock order is stable across concurrent publishes -- receipt row, revision
 // candidate, release candidate, generation manifest, generation pointer,
@@ -330,13 +334,16 @@ func (p *PublishStore) PublishAuthoring(ctx context.Context, receipt explorer.Co
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("postgres explorer store: publish authoring: %w", err)
 		}
-		out, done, runErr := p.runPublishAuthoring(ctx, receipt, receiptDoc, revision, payloads, revisionDiag, contentDigest, release, releasePayload, expectedReleaseRevision)
+		out, runErr := p.runPublishAuthoring(ctx, receipt, receiptDoc, revision, payloads, revisionDiag, contentDigest, release, releasePayload, expectedReleaseRevision)
 		if runErr == nil {
 			return out, nil
 		}
-		if done {
+		if isTypedPublicationRefusal(runErr) {
 			// A typed application refusal: retrying cannot change the
 			// verdict because it did not come from lock contention.
+			// Classification is by sentinel -- never by the statement
+			// that produced the error -- so no lock-statement backend
+			// fault can hide behind a leg's position.
 			return nil, runErr
 		}
 		lastErr = runErr
@@ -360,25 +367,26 @@ func (p *PublishStore) PublishAuthoring(ctx context.Context, receipt explorer.Co
 }
 
 // runPublishAuthoring runs one full publish transaction on one connection.
-// done=true marks a typed application refusal (never retried); done=false
-// with a non-nil error is a contention/backend fault whose only retry
-// trigger is the deadlock check in the caller.
+// It does not decide retryability: the caller classifies every error by its
+// sentinel (isTypedPublicationRefusal), so a backend fault surfacing from
+// any statement -- including the FOR UPDATE lock reads -- stays visible to
+// the bounded deadlock retry.
 func (p *PublishStore) runPublishAuthoring(
 	ctx context.Context,
 	receipt explorer.CompilationReceipt, receiptDoc []byte,
 	revision explorer.Revision, payloads revisionPayloads, revisionDiag []byte, contentDigest string,
 	release dataset.ProjectRelease, releasePayload string,
 	expectedReleaseRevision int64,
-) (out *explorer.Revision, done bool, err error) {
+) (out *explorer.Revision, err error) {
 	conn, err := p.client.Acquire(ctx)
 	if err != nil {
-		return nil, true, fmt.Errorf("acquire publish connection: %w", err)
+		return nil, fmt.Errorf("acquire publish connection: %w", err)
 	}
 	defer conn.Release()
 
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, true, fmt.Errorf("begin publish transaction: %w", err)
+		return nil, fmt.Errorf("begin publish transaction: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -398,10 +406,10 @@ func (p *PublishStore) runPublishAuthoring(
 
 	// -- Leg 1: verified receipt (claim order: receipt row first). ----------
 	if _, err := p.claimReceiptForPublish(ctx, tx, receipt, receiptDoc); err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	if err := crash("receipt-insert"); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	// The receipt is stored and verified; the revision's compilation_receipt_id
 	// binding is the caller's contract, exactly as in the baseline.
@@ -409,32 +417,32 @@ func (p *PublishStore) runPublishAuthoring(
 	// -- Leg 2: immutable revision candidate (claim order: candidate row). --
 	candidateRow, err := p.claimRevisionForPublish(ctx, tx, revision, payloads, revisionDiag, contentDigest)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	storedRevision, err := decodeRevision(*candidateRow)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	if err := crash("revision-insert"); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	// -- Leg 3: release activation CAS, release-lane lock order: candidate,
 	//    manifest, generation pointer, release pointer. --------------------
 	if _, err := p.activateReleaseInTx(ctx, tx, release, releasePayload, expectedReleaseRevision); err != nil {
 		if isTypedReleaseConflict(err) {
-			return nil, true, err
+			return nil, err
 		}
-		return nil, false, err
+		return nil, err
 	}
 	if err := crash("release-pointer"); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	// -- Leg 4: activation guard + writes (owner row, then prior row). ------
 	owner, err := p.readPublishOwner(ctx, tx, storedRevision)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	replay := storedRevision.Status == explorer.RevisionActive &&
 		owner.ActiveRevisionID == storedRevision.ID
@@ -443,26 +451,26 @@ func (p *PublishStore) runPublishAuthoring(
 		// ACTIVE->ACTIVE churn, and the row is already the requested end
 		// state. The release CAS above still ran under its own rules.
 		if err := crash("pre-commit"); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		if err := tx.Commit(ctx); err != nil {
-			return nil, false, fmt.Errorf("commit publish transaction: %w", err)
+			return nil, fmt.Errorf("commit publish transaction: %w", err)
 		}
 		committed = true
-		return storedRevision, false, nil
+		return storedRevision, nil
 	}
 
 	if storedRevision.Status != explorer.RevisionReady {
 		// Admissible statuses are READY, or ACTIVE only under the owner
 		// (the replay branch above); anything else is the baseline's
 		// guard-miss ErrDraftConflict, indistinguishable by cause.
-		return nil, true, explorer.ErrDraftConflict
+		return nil, explorer.ErrDraftConflict
 	}
 
 	if owner.ActiveRevisionID != "" && owner.ActiveRevisionID != storedRevision.ID {
 		prior, err := p.lockPriorRevision(ctx, tx, owner, storedRevision)
 		if err != nil {
-			return nil, true, err
+			return nil, err
 		}
 		var superseded storedRevisionRow
 		if err := scanRevisionRow(tx.QueryRow(ctx, p.stmts.priorSupersede, prior.ID), &superseded); err != nil {
@@ -470,58 +478,58 @@ func (p *PublishStore) runPublishAuthoring(
 				// The prior row moved out of ACTIVE between the locked read
 				// and this CAS -- unreachable while this transaction holds
 				// the row lock; refusing keeps the guard honest.
-				return nil, true, fmt.Errorf("%w: prior revision %q moved before it could be superseded", explorer.ErrDraftConflict, prior.ID)
+				return nil, fmt.Errorf("%w: prior revision %q moved before it could be superseded", explorer.ErrDraftConflict, prior.ID)
 			}
-			return nil, false, fmt.Errorf("supersede prior revision %q: %w", prior.ID, err)
+			return nil, fmt.Errorf("supersede prior revision %q: %w", prior.ID, err)
 		}
 		if err := crash("prior-supersede"); err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
 
 	activatedPublication, err := activatedPublicationPayload(candidateRow)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	activatedAt := time.Now().UTC()
 	var activated storedRevisionRow
 	if err := scanRevisionRow(tx.QueryRow(ctx, p.stmts.candidateActive,
 		storedRevision.ID, activatedAt, []byte(publishDiagnosticsSet), []byte(activatedPublication)), &activated); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, true, fmt.Errorf("%w: candidate revision %q moved before it could be activated", explorer.ErrDraftConflict, storedRevision.ID)
+			return nil, fmt.Errorf("%w: candidate revision %q moved before it could be activated", explorer.ErrDraftConflict, storedRevision.ID)
 		}
-		return nil, false, fmt.Errorf("activate candidate revision %q: %w", storedRevision.ID, err)
+		return nil, fmt.Errorf("activate candidate revision %q: %w", storedRevision.ID, err)
 	}
 	if err := crash("candidate-activate"); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	var activatedOwner explorer.Explorer
 	if err := scanOwner(tx.QueryRow(ctx, p.stmts.ownerActivate,
 		storedRevision.Project, storedRevision.ExplorerID, storedRevision.ID, time.Now().UTC()), &activatedOwner); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, true, fmt.Errorf("%w: owner vanished before activation", explorer.ErrDraftConflict)
+			return nil, fmt.Errorf("%w: owner vanished before activation", explorer.ErrDraftConflict)
 		}
-		return nil, false, fmt.Errorf("activate explorer owner %q/%q: %w", storedRevision.Project, storedRevision.ExplorerID, err)
+		return nil, fmt.Errorf("activate explorer owner %q/%q: %w", storedRevision.Project, storedRevision.ExplorerID, err)
 	}
 	if err := crash("owner-activate"); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	// The activated row is the returned revision: what PostgreSQL
 	// persisted, exactly as the baseline re-reads the stored document.
 	out, err = decodeRevision(activated)
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	if err := crash("pre-commit"); err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, false, fmt.Errorf("commit publish transaction: %w", err)
+		return nil, fmt.Errorf("commit publish transaction: %w", err)
 	}
 	committed = true
-	return out, false, nil
+	return out, nil
 }
 
 // claimReceiptForPublish runs the leg-1 claim: insert-once with the
@@ -935,6 +943,20 @@ func (p *PublishStore) readReceiptRowInTx(ctx context.Context, tx pgx.Tx, projec
 func isTypedReleaseConflict(err error) bool {
 	return errors.Is(err, dataset.ErrReleaseActivationConflict) ||
 		errors.Is(err, datasetpostgres.ErrUnexpectedStoreResult)
+}
+
+// isTypedPublicationRefusal reports an error carrying one of the publish
+// transaction's typed application refusals. Refusals are terminal (a retry
+// re-runs the same verdict); anything else is a contention/backend fault and
+// stays visible to the bounded deadlock retry, no matter which statement --
+// including the FOR UPDATE lock reads of the documented lock order --
+// produced it.
+func isTypedPublicationRefusal(err error) bool {
+	return errors.Is(err, explorer.ErrCorruptReceipt) ||
+		errors.Is(err, explorer.ErrNotFound) ||
+		errors.Is(err, explorer.ErrImmutableRevision) ||
+		errors.Is(err, explorer.ErrDraftConflict) ||
+		isTypedReleaseConflict(err)
 }
 
 // isDeadlockError reports a PostgreSQL deadlock_detected victim: the only
