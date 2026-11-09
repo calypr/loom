@@ -1307,6 +1307,15 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 		}
 	}
 
+	// Double-apply witness: print the ledger rows verified after the second
+	// migrate, so the merged Explorer ledger [1 2 3 5 6] appears literally in
+	// the test output (version/name -- convergence target of the rerun).
+	var witness []string
+	for _, rec := range ledger {
+		witness = append(witness, fmt.Sprintf("%d/%s", rec.version, rec.name))
+	}
+	t.Logf("double-apply ledger witness: [%s]", strings.Join(witness, " "))
+
 	// State survived every rerun, through brand-new pools.
 	reader := f.newStore(t)
 	if _, err := reader.Get(f.ctx, "proj_state", "exp_state"); err != nil {
