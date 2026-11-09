@@ -1258,6 +1258,7 @@ var pgstate02EmbeddedMigrationPins = map[string]string{
 	"000003_explorer_draft_revision.sql":      "4bf4fe35485cb7adc6ea46812b0ae004e89ff935a14f14dd80a300bb3cc86c3f",
 	"000005_explorer_compilation_receipt.sql": "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a",
 	"000006_explorer_revision.sql":            "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09",
+	"000009_explorer_explicit_groups.sql":     "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f",
 }
 
 // pgstate02MigrationFileVersion parses the leading <version>_ of a
