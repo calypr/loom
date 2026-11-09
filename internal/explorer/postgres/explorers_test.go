@@ -452,18 +452,32 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
 	}
-	if len(migrations) != 2 {
-		t.Fatalf("migration count = %d, want 2 (ledger bootstrap + owner table)", len(migrations))
+	if len(migrations) != 4 {
+		t.Fatalf("migration count = %d, want 4 (ledger bootstrap + owner table + receipts + revisions)", len(migrations))
 	}
-	wantVersions := []int64{1, 2}
-	wantNames := []string{"ledger", "explorer_owner"}
+	// Literal checksum pins (the pg-store-02 wantEmbeddedChecksums
+	// convention): the sha256 of each file's exact bytes. Editing any
+	// migration SQL -- including a migration guard -- reddens this test
+	// until the pin is deliberately regenerated, and the runner refuses an
+	// already-migrated schema whose embedded history drifted from its ledger.
+	want := []struct {
+		version  int64
+		name     string
+		checksum string
+	}{
+		{1, "ledger", "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086"},
+		{2, "explorer_owner", "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056"},
+		{3, "compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
+		{4, "explorer_revision", "ee9775ad8e8a16696a3613c7cd8f0655bb717b40ea5bf3fbf5f340040a21f526"},
+	}
 	for i, m := range migrations {
-		if m.Version != wantVersions[i] || m.Name != wantNames[i] {
+		if m.Version != want[i].version || m.Name != want[i].name {
 			t.Fatalf("migration %d = %d/%s, want %d/%s",
-				i, m.Version, m.Name, wantVersions[i], wantNames[i])
+				i, m.Version, m.Name, want[i].version, want[i].name)
 		}
-		if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(m.Checksum) {
-			t.Fatalf("migration %d/%s checksum %q is not lowercase hex sha256", m.Version, m.Name, m.Checksum)
+		if m.Checksum != want[i].checksum {
+			t.Fatalf("migration %d/%s checksum = %s, want pinned %s: migration SQL drifted",
+				m.Version, m.Name, m.Checksum, want[i].checksum)
 		}
 		if !strings.Contains(strings.ToUpper(m.SQL), "CREATE TABLE IF NOT EXISTS") {
 			t.Fatalf("migration %d/%s must be rerun-safe (CREATE TABLE IF NOT EXISTS); it never truncates", m.Version, m.Name)
@@ -474,6 +488,13 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	}
 	if !strings.Contains(migrations[1].SQL, `PRIMARY KEY (project, explorer_id)`) {
 		t.Fatal("owner table must be unique on (project, explorer_id) identity")
+	}
+	if !strings.Contains(migrations[2].SQL, `PRIMARY KEY (project, explorer_id, id)`) ||
+		!strings.Contains(migrations[2].SQL, "compilation_receipts_frozen") {
+		t.Fatal("receipt table must be unique on the receipt identity and ship its frozen trigger")
+	}
+	if !strings.Contains(migrations[3].SQL, "explorer_revisions_guard") {
+		t.Fatal("revision table must ship its frozen-column and monotone-transition trigger")
 	}
 }
 
@@ -805,8 +826,8 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	f := newOwnerFixture(t)
 
 	first := f.migrate(t)
-	if first.LatestVersion != 2 || len(first.Applied) != 2 {
-		t.Fatalf("first migrate = %+v, want latest 2 with 2 applied rows", first)
+	if first.LatestVersion != 4 || len(first.Applied) != 4 {
+		t.Fatalf("first migrate = %+v, want latest 4 with 4 applied rows (ledger, owner, receipts, revisions)", first)
 	}
 
 	store := f.newStore(t)
@@ -946,8 +967,8 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger after refused run", err)
 	}
-	if len(ledgerVersions) != 2 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 {
-		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2] (refused before applying)", ledgerVersions)
+	if len(ledgerVersions) != 4 || ledgerVersions[0] != 1 || ledgerVersions[3] != 4 {
+		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 3 4] (this package's full history; refused before applying)", ledgerVersions)
 	}
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_ownership", "exp_keep")
