@@ -25,7 +25,17 @@
 --     batch's publish statements inserted into their scoped tables (not the
 --     number offered, which may collapse duplicates or skip identical
 --     already-stored rows). Readers get exact commit accounting from here.
---   - committed_at records when the marker's transaction committed.
+--   - committed_at is the wall-clock moment the batch's commit accounting
+--     was finalized. The marker row is claimed EARLY in the batch's own
+--     transaction, so a DEFAULT now() value would hold the transaction
+--     START (PostgreSQL now() returns the transaction snapshot time), which
+--     precedes the real commit by the whole batch duration. The writer's
+--     finalize statement therefore overwrites the column with
+--     clock_timestamp() (the real per-call wall clock) when it records the
+--     committed counts; true commit time is unknowable from inside the
+--     transaction, and the marker deliberately lands inside the
+--     transaction so rows and marker commit or roll back together. The
+--     DEFAULT only covers hand-seeded rows.
 --
 -- The DDL is idempotent (IF NOT EXISTS) because the runner records the
 -- ledger row after commit and must converge on retry.

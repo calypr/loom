@@ -575,6 +575,7 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 		pubResCount int64
 		pubEdgeCnt  int64
 		stgEdgeVis  bool
+		txStart     time.Time
 	}
 	var facts sync.Map // batchID -> *probeFact
 	var probeErrs []string
@@ -643,6 +644,14 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 		case stepPublishEdges:
 			if err := tx.QueryRow(s.ctx,
 				"SELECT count(*) FROM "+writer.stagingEdgeFQN()).Scan(&f.stgEdgeCnt); err != nil {
+				note(err)
+			}
+		case stepFinalizeLedger:
+			// now() is the transaction snapshot: the ledger's
+			// committed_at must end up strictly after it, proving the
+			// finalize statement re-stamped with clock_timestamp()
+			// rather than keeping the claim-time default.
+			if err := tx.QueryRow(s.ctx, "SELECT now()").Scan(&f.txStart); err != nil {
 				note(err)
 			}
 		}
@@ -728,6 +737,16 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 	}
 	if total := s.mustInt64(t, "SELECT count(*) FROM "+s.qualified(batchLedgerTableName)); total != 1 {
 		t.Errorf("ledger rows = %d, want exactly 1", total)
+	}
+	// committed_at is the finalize moment, not the claim-time now()
+	// snapshot: it must be strictly after the transaction's snapshot time
+	// observed inside the same transaction. A writer that kept the
+	// DEFAULT now() would store the transaction start exactly, and this
+	// strict comparison would fail.
+	if !lw.committedAt.After(f.txStart) {
+		t.Errorf("ledger committed_at = %v, want strictly after the batch transaction start %v "+
+			"(finalize must stamp clock_timestamp(), not keep the claim-time now() default)",
+			lw.committedAt, f.txStart)
 	}
 
 	// ON COMMIT DROP: witnessed on the writer's own single-connection pool,

@@ -466,12 +466,15 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 
 	// The marker carries the exact commit accounting, written in this same
 	// transaction: readers trust the counts only because they land with the
-	// rows.
+	// rows. committed_at is stamped with clock_timestamp() (the real
+	// per-call wall clock) rather than keeping the claim-time now()
+	// snapshot, which would report the transaction START, not the
+	// finalize moment.
 	if err := w.hookFail(stepFinalizeLedger); err != nil {
 		return BatchResult{}, &BatchWriteError{Op: "ledger", BatchID: batch.ID, Err: err}
 	}
 	if _, err := tx.Exec(ctx,
-		"UPDATE "+w.ledgerFQN+" SET resource_count = $2, edge_count = $3 WHERE batch_id = $1",
+		"UPDATE "+w.ledgerFQN+" SET resource_count = $2, edge_count = $3, committed_at = clock_timestamp() WHERE batch_id = $1",
 		batch.ID, committedResources, committedEdges); err != nil {
 		return BatchResult{}, &BatchWriteError{Op: "ledger", BatchID: batch.ID, Err: err}
 	}
