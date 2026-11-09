@@ -4,8 +4,11 @@
 // ResourceRepository stores one FHIR resource per row in the fhir_resource
 // table created by migration 000002_fhir_resource: the storage identity
 // fields (project, dataset generation, resource type, logical FHIR id, auth
-// path) are typed columns, and the original resource object is kept verbatim
-// as JSONB. This mirrors the Arango vertex model without emulating
+// path) are typed columns, and the original resource object is stored as
+// JSONB. PostgreSQL canonicalizes JSONB (object key order, duplicate keys
+// collapse to the last value, numeric literals normalize), so no byte-exact
+// fidelity is claimed; the tested guarantee is the semantic one below. This
+// mirrors the Arango vertex model without emulating
 // collection-per-resource, so the same logical identity reads identically
 // from either backend.
 //
@@ -154,8 +157,9 @@ func (r *ResourceRepository) InsertResource(ctx context.Context, rec catalog.PGR
 	if err := validateResourceForInsert(rec); err != nil {
 		return 0, err
 	}
-	// A nil payloadValue reaches PostgreSQL as NULL; a non-nil one is the
-	// exact JSON bytes, cast to jsonb by the statement.
+	// A nil payloadValue reaches PostgreSQL as NULL; a non-nil one is sent
+	// as the payload's JSON bytes and cast to jsonb by the statement,
+	// where PostgreSQL canonicalizes it on input.
 	var payloadValue any
 	if rec.Payload != nil {
 		payloadValue = []byte(rec.Payload)

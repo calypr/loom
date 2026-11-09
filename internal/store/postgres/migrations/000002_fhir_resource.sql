@@ -3,8 +3,11 @@
 -- One table holds every FHIR resource type (no collection-per-resource
 -- emulation). The storage identity fields that are also graph fields on the
 -- Arango vertex (project, dataset generation, resource type, logical FHIR id,
--- auth path) become typed columns, and the original resource object is kept
--- verbatim as JSONB in payload.
+-- auth path) become typed columns, and the original resource object is stored
+-- as JSONB in payload. PostgreSQL canonicalizes JSONB -- object key order,
+-- duplicate keys (last value wins), and numeric literals (1e2 becomes 100) --
+-- so no byte-exact round trip is promised; the guarantees are the semantic
+-- ones below.
 --
 -- Identity and scope rules mirrored from the Arango model
 -- (internal/ingest/generation_identity.go, internal/ingest/documents.go):
@@ -51,9 +54,14 @@ CREATE TABLE IF NOT EXISTS fhir_resource (
         CHECK (logical_id <> '')
 );
 
--- Scope-scoped keyset scans: every restricted read binds project, dataset
--- generation, and auth path, then pages on the storage identity; the
--- unrestricted mode still binds project and dataset generation and pages on
--- the storage identity. Both orders match this index exactly.
+-- Scope-scoped keyset scans. A single-path restricted read binds project,
+-- dataset generation, and one auth_resource_path, so it walks this index in
+-- resource_seq order with no sort. A multi-path restricted read
+-- (auth_resource_path = ANY(...)) and the unrestricted mode leave
+-- auth_resource_path unbound or multi-valued: PostgreSQL still uses this
+-- index for the bound prefix but must sort the fetched rows by resource_seq
+-- within the scope. That sort is bounded by the scope's row count and the
+-- keyset predicate; revisit the index shape if it ever shows up in capacity
+-- profiles.
 CREATE INDEX IF NOT EXISTS fhir_resource_scope_seq_ix
     ON fhir_resource (project, dataset_generation, auth_resource_path, resource_seq);

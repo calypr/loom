@@ -586,8 +586,9 @@ type pathStep struct {
 // These types describe one FHIR resource row in the PostgreSQL alternative
 // for the source graph/catalog store. They mirror the Arango vertex identity
 // (project, dataset generation, resource type, logical FHIR id, auth path as
-// typed scope columns; the original resource object kept verbatim as JSONB)
-// so the same logical identity reads identically from either backend. They
+// typed scope columns; the original resource object stored as JSONB, which
+// PostgreSQL canonicalizes rather than keeping byte-exact) so the same
+// logical identity reads identically from either backend. They
 // are PostgreSQL-side additions only and do not change any Arango behavior.
 // ---------------------------------------------------------------------------
 
@@ -616,7 +617,8 @@ type PGResourceScope struct {
 
 // PGResourceRow is one persisted FHIR resource in the PostgreSQL source
 // store. The scope columns carry the storage identity; Payload carries the
-// original resource object exactly as stored.
+// stored resource object as PostgreSQL returns it from the JSONB column
+// (canonicalized text, not the caller's original bytes).
 type PGResourceRow struct {
 	// ResourceSeq is the server-assigned, immutable storage identity used
 	// for keyset ordering. It must be zero on insert; the database assigns
