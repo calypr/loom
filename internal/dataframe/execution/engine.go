@@ -876,9 +876,13 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 	}
 	outputSchema := lower.CloneCompiledOutputSchema(output.OutputSchema)
 	publicColumns := publicPostgreSQLColumns(outputSchema, selection.Columns)
+	if len(outputSchema) > 0 && len(publicColumns) == 0 {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: every declared PostgreSQL result column is an internal projection; refusing to publish internal columns in the public row", output.Name)
+	}
 	query := compiler.CompiledQuery{
 		Project:            bindings.Project,
 		DatasetGeneration:  bindings.DatasetGeneration,
+		RootResourceType:   output.RootResourceType,
 		TranslationVersion: output.TranslationVersion,
 		AuthResourcePaths:  append([]string(nil), bindings.AuthResourcePaths...),
 		PlanMode:           previewPlanMode,
@@ -910,7 +914,9 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 // publicPostgreSQLColumns derives the public preview projection from the
 // compiler-owned ordered output schema, restricted to columns the PostgreSQL
 // command actually declares; with no schema it publishes the whole declared
-// contract. Compiler-only internal projections stay out of the public row.
+// contract (there is no internal marking to honor). Compiler-only internal
+// projections never appear: an empty public intersection is returned as-is
+// and the caller refuses the selection rather than leaking internals.
 func publicPostgreSQLColumns(schema []lower.CompiledOutputColumn, declared []string) []string {
 	if len(schema) == 0 {
 		return append([]string(nil), declared...)
@@ -928,9 +934,6 @@ func publicPostgreSQLColumns(schema []lower.CompiledOutputColumn, declared []str
 			continue
 		}
 		public = append(public, column.Name)
-	}
-	if len(public) == 0 {
-		return append([]string(nil), declared...)
 	}
 	return public
 }
@@ -1404,7 +1407,10 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			e.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
 		}
 	}
-	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
+	// The post-preview index prewarm creates Arango covering indexes; like
+	// every other Arango control surface in PreviewOutput it is gated away
+	// from PostgreSQL-served previews even if a spec were attached.
+	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
 		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
 	}
 	return summary, nil

@@ -886,3 +886,123 @@ func TestPostgreSQLCommandFingerprintIsStableAndSensitivityProbed(t *testing.T) 
 		}
 	}
 }
+
+// Review round 2 (public-column leak): when every declared column is marked
+// internal in the compiler-owned output schema, the PostgreSQL selection is
+// refused outright. The public row must never fall back to publishing the
+// declared contract, because row-identity source and auth-path projections
+// are exactly such internal columns.
+func TestPostgreSQLSelectionRefusesAllInternalDeclaredColumns(t *testing.T) {
+	spies := &dispatchSpies{}
+	config := spies.arangoEngine()
+	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{
+		Command: exec02TestCommand(t),
+		Columns: []string{"id", "name"},
+	}, nil)
+	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
+	engine, err := New(config)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	output := lower.CompiledRecipeOutput{
+		Name:             "resources",
+		RootResourceType: "Patient",
+		Columns:          []string{"id", "name"},
+		OutputSchema: []lower.CompiledOutputColumn{
+			{ID: "id", Name: "id", Label: "id", Kind: "string", Cardinality: "one", Internal: true},
+			{ID: "name", Name: "name", Label: "name", Kind: "string", Cardinality: "one", Internal: true},
+		},
+		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+		Plan:        ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL},
+	}
+	resolved := Resolved{
+		Bundle: recipe.Bundle{Name: "pg_dispatch"},
+		Semantic: semantic.ResolvedRecipePlan{
+			SemanticPlan: semantic.RecipePlan{Bindings: recipe.RuntimeBindings{
+				Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"resources"},
+			}},
+		},
+		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
+		StoredRecipeDigest: "pg-internal-only",
+	}
+	_, err = engine.Streams(context.Background(), resolved)
+	if err == nil || !strings.Contains(err.Error(), "internal projection") {
+		t.Fatalf("all-internal declared contract must be refused, got %v", err)
+	}
+	if len(spies.pgFull) != 0 {
+		t.Fatalf("refused selection must not reach the row executor: %d calls", len(spies.pgFull))
+	}
+	exec02AssertUntouchedArango(t, spies)
+}
+
+// Review round 2 (source identity): the PostgreSQL-served plan must carry
+// RootResourceType into the CompiledQuery, or an authorized Builder preview
+// with IncludeSourceIdentity degrades every row's source to UNAVAILABLE in
+// SINGLE mode (which the schema earns via the internal source-id column).
+func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing.T) {
+	spies := &dispatchSpies{}
+	config := spies.arangoEngine()
+	sourceID := ir.PreviewSourceResourceIDColumn
+	command, err := compiler.NewPostgreSQLCommand(
+		`SELECT logical_id AS "id", payload->>'name' AS "name", resource_id AS "`+sourceID+`" FROM loom.resource ORDER BY resource_seq`,
+		exec02TestParameters())
+	if err != nil {
+		t.Fatalf("build command: %v", err)
+	}
+	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{
+		Command: command,
+		Columns: []string{"id", "name", sourceID},
+	}, nil)
+	rows := []map[string]any{
+		{"id": "patient-one", "name": "Ada", sourceID: "Patient/p1"},
+	}
+	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, rows)
+	engine, err := New(config)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	output := lower.CompiledRecipeOutput{
+		Name:             "resources",
+		RootResourceType: "Patient",
+		Columns:          []string{"id", "name", sourceID},
+		OutputSchema: []lower.CompiledOutputColumn{
+			{ID: "id", Name: "id", Label: "id", Kind: "string", Cardinality: "one"},
+			{ID: "name", Name: "name", Label: "name", Kind: "string", Cardinality: "one"},
+			{ID: sourceID, Name: sourceID, Label: sourceID, Kind: "string", Cardinality: "one", Internal: true},
+		},
+		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+		Plan:        ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL},
+	}
+	resolved := Resolved{
+		Bundle: recipe.Bundle{Name: "pg_dispatch"},
+		Semantic: semantic.ResolvedRecipePlan{
+			SemanticPlan: semantic.RecipePlan{Bindings: recipe.RuntimeBindings{
+				Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"resources"},
+				IncludeSourceIdentity: true,
+			}},
+		},
+		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
+		StoredRecipeDigest: "pg-source-identity",
+	}
+	var public []map[string]any
+	if _, err := engine.PreviewOutput(context.Background(), resolved,
+		PreviewRequest{Output: "resources", Limit: 5}, func(row map[string]any) error {
+			public = append(public, row)
+			return nil
+		}); err != nil {
+		t.Fatalf("PreviewOutput: %v", err)
+	}
+	if len(public) != 1 {
+		t.Fatalf("visited=%d want 1", len(public))
+	}
+	source, ok := public[0]["__loom_preview_source"].(map[string]any)
+	if !ok {
+		t.Fatalf("preview row is missing the source metadata key: %v", public[0])
+	}
+	if source["kind"] != "SINGLE" || source["resourceType"] != "Patient" || source["id"] != "Patient/p1" {
+		t.Fatalf("PostgreSQL preview source identity must be SINGLE with the root resource type, got %v (RootResourceType dropped from the compiled query?)", source)
+	}
+	if _, leaked := public[0][sourceID]; leaked {
+		t.Fatalf("internal source-id column leaked into the public row: %v", public[0])
+	}
+}
