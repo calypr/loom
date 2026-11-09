@@ -91,6 +91,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/unit": "Define unit identity, dimensional compatibility, and approved conversion rules for quantity values.",
     "internal/dataset": "Define immutable dataset generation manifests, releases, active pointers, and lifecycle validation.",
     "internal/dataset/arango": "Persist immutable dataset generation lifecycle state in ArangoDB.",
+    "internal/dataset/postgres": "Persist dataset generation manifests and the active-generation compare-and-swap pointer in PostgreSQL 18.",
     "internal/explorer": "Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, and core service operations.",
     "internal/explorer/arango": "Persist Explorer drafts, revisions, receipts, publications, capabilities, and repository state in ArangoDB.",
     "internal/explorer/artifactfs": "Persist and serve immutable Explorer training artifacts from a dedicated filesystem root.",
