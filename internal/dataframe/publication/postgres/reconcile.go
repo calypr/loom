@@ -45,16 +45,30 @@ package postgres
 //     the terminal record (FAILED, retryable, "stale execution reconciled")
 //     converges on retry: the drop hook and the SaveExecution write are
 //     both idempotent under a re-sweep.
-//   - Lease discipline: the execution's bundle lease is taken with the
-//     sweep's stable identity (minted once per Reconciler, so a claim the
-//     same sweeper abandoned is refreshable while a different sweeper must
-//     wait for expiry), is never renewed behind a lost fence, and the
-//     terminal SaveExecution runs under its fence. Lock order inside the
-//     claim transaction is pointer row, then retention anchor, then pin and
-//     claim rows -- an order no other path in this package cycles against
-//     (publish takes lease, execution, pointer; pin transitions take only
-//     the anchor), so racing sweeps, publishers, and readers serialize
-//     instead of deadlocking.
+//   - Lease discipline: every SweepStale call mints a FRESH sweep identity
+//     ("reconciler-"+uuid, ClickHouse baseline parity at
+//     bundle_store.go:1082); the only way to pin one identity across calls
+//     is the test-only fixIdentity seam, which production never calls.
+//     This is load-bearing: an aborted sweep leaves BOTH its bundle lease
+//     and its cleanup claim behind, each at the two-minute default, and
+//     every later sweep is blocked until they expire -- including the next
+//     sweep of the same Reconciler instance, which is skipped-leased while
+//     the lease holds and, in the window after the lease lapses but before
+//     the claim does, aborts the whole sweep with the named refusal under
+//     first-error-wins. Recovery therefore depends on expiry, NOT on
+//     identity; do not restore a once-per-instance identity as a "repair",
+//     it removes the mutual exclusion between concurrent sweeps of one
+//     instance (TestReconcileSweepsAreMutuallyExclusive,
+//     TestReconcileMintsFreshIdentityPerSweep). The lease is never renewed
+//     behind a lost fence; the terminal SaveExecution and the cleanup-claim
+//     release run detached from the pre-claim deadline (each bounded,
+//     baseline parity), so a slow drop phase cannot strand a live claim --
+//     TestReconcileTerminalReleaseSurvivesSlowDrop guards that guarantee.
+//     Lock order inside the claim transaction is pointer row, then
+//     retention anchor, then pin and claim rows -- an order no other path
+//     in this package cycles against (publish takes lease, execution,
+//     pointer; pin transitions take only the anchor), so racing sweeps,
+//     publishers, and readers serialize instead of deadlocking.
 //
 // First-error-wins propagation is preserved from the Arango/ClickHouse
 // baseline: one refused execution aborts the sweep rather than silently

@@ -917,14 +917,76 @@ func TestReconcileCrashWindows(t *testing.T) {
 			t.Fatalf("execution must keep its pre-sweep record: %q", state)
 		}
 
-		// Post-abort convergence A: the same sweeper re-claims immediately.
+		// Post-abort convergence A (FIXED-IDENTITY test seam): a sweep
+		// carrying the crashed sweep's pinned identity refreshes the
+		// abandoned claim immediately. Production never pins identities --
+		// the unfixed shape, where recovery depends on expiry, is proven by
+		// convergence A2 below.
 		drops2 := newRPRDrops()
 		rc2 := s.newReconciler(t, nil)
 		if err := rc2.SweepStale(ctx, time.Now().UTC(), drops2.hook); err != nil {
-			t.Fatalf("same-sweeper convergence: %v", err)
+			t.Fatalf("fixed-identity refresh convergence: %v", err)
 		}
 		if state, _ := s.executionRow(t, id); state != string(publication.BundleFailed) {
-			t.Fatalf("same-sweeper convergence state = %q", state)
+			t.Fatalf("fixed-identity refresh convergence state = %q", state)
+		}
+
+		// Post-abort convergence A2 (PRODUCTION SHAPE, unfixed identity):
+		// a crash leaves the lease AND the claim owned by the crashed
+		// sweep's fresh identity; the next sweep of the SAME instance is a
+		// foreign sweeper for both, so it is skipped-leased with the record
+		// untouched, and only forced expiry lets a sweep of the very same
+		// instance converge.
+		const id3 = "exec-crash-finalize-a2"
+		s.seedStaleExecution(t, rprExecution(id3, "proj-a", "recipe-crash-a2", publication.BundleRunning, 1))
+		setReconcileGates(nil, func(reconcileFinalizeAttempt) error { return injected })
+		rcA2, err := NewReconciler(s.regA, s.pinsA, nil)
+		if err != nil {
+			t.Fatalf("new unfixed reconciler: %v", err)
+		}
+		if err := rcA2.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); !errors.Is(err, injected) {
+			t.Fatalf("crash A2: %v", err)
+		}
+		setReconcileGates(nil, nil)
+		if claim := s.claimRow(t, s.w, id3); claim == "" || strings.HasPrefix(claim, "reconciler-test|") {
+			t.Fatalf("crashed A2 claim must carry a minted identity: %q", claim)
+		}
+		var a2Decisions []ReconcileDecision
+		rcA2.OnDecision = func(d ReconcileDecision) { a2Decisions = append(a2Decisions, d) }
+		if err := rcA2.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); err != nil {
+			t.Fatalf("same-instance sweep after same-instance crash: %v", err)
+		}
+		sawLeased := false
+		for _, d := range a2Decisions {
+			if d.ExecutionID == id3 && d.Outcome == ReconcileSkippedLeased {
+				sawLeased = true
+			}
+		}
+		if !sawLeased {
+			t.Fatalf("the next sweep of the same instance must be skipped-leased by the abandoned lease: %v", a2Decisions)
+		}
+		if state, _ := s.executionRow(t, id3); state != string(publication.BundleRunning) {
+			t.Fatalf("abandoned record mutated by a blocked sweep: %q", state)
+		}
+		s.queryRows(t, s.w,
+			"UPDATE "+pgx.Identifier{s.schema, BundleLeasesTable}.Sanitize()+
+				" SET expires_at = $1 WHERE key = $2", rprPast, "key-"+id3)
+		s.queryRows(t, s.w,
+			"UPDATE "+pgx.Identifier{s.schema, ExecutionCleanupClaimsTable}.Sanitize()+
+				" SET expires_at = $1 WHERE execution_id = $2", rprPast, id3)
+		dropsA2 := newRPRDrops()
+		if err := rcA2.SweepStale(ctx, time.Now().UTC(), dropsA2.hook); err != nil {
+			t.Fatalf("same-instance post-expiry convergence: %v", err)
+		}
+		if state, payload := s.executionRow(t, id3); state != string(publication.BundleFailed) ||
+			!strings.Contains(payload, `"error":"stale execution reconciled"`) {
+			t.Fatalf("same-instance post-expiry convergence record = %q %s", state, payload)
+		}
+		if claim := s.claimRow(t, s.w, id3); claim != "" {
+			t.Fatalf("convergence did not consume the claim: %q", claim)
+		}
+		if got := dropsA2.snapshot(); len(got) != 0 {
+			t.Fatalf("post-expiry convergence drops = %v, want none (table died in the crashed sweep)", got)
 		}
 
 		// Post-abort convergence B: a FOREIGN sweeper must wait for the
