@@ -18,14 +18,13 @@
 -- crash between a migration's commit and its ledger record must converge on
 -- re-application.
 --
--- Version-window note: 000002 is reserved for the concurrent pg-store-04
--- ticket, so this history step is 000003. The runner refuses an out-of-order
--- pending migration below the highest recorded version, so any long-lived
--- schema that records version 3 BEFORE 000002 exists can never apply a later
--- added 000002; pg-store-04's 000002 must land on the integration branch
--- before any persistent (non per-test-isolated) schema is migrated with this
--- history, or the coordinator must renumber one of the two steps. Per-test
--- fixtures always start from an empty ledger and are unaffected.
+-- Version window: 000002_fhir_resource (pg-store-04) landed on the
+-- integration branch alongside this 000003, so the embedded history is the
+-- complete {1, 2, 3} chain and the runner's out-of-order policy cannot trap
+-- a schema (no commit state ever exposes 000003 without 000002). Per-test
+-- fixtures always start from an empty ledger. The runner's pinned-checksum
+-- gate in migrate_test.go refuses any edit to this file's bytes without an
+-- explicit entry update.
 CREATE TABLE IF NOT EXISTS dataset_generation_manifest (
     project         text        NOT NULL,
     generation      text        NOT NULL,
