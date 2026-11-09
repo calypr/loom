@@ -61,7 +61,7 @@ RESPONSIBILITIES = {
     "internal/authscope": "Represent request principals and resolve authorized project, generation, and resource scopes.",
     "internal/catalog": "Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.",
     "internal/catalog/arango": "Persist and retrieve catalog facts in ArangoDB.",
-    "internal/catalog/postgres": "Persist and retrieve catalog facts in PostgreSQL 18: publish-last generation-scoped resource inventory builds, bounded field-profile records with completeness and truncation metadata, leased compare-and-swap-guarded semantic inventory build state, and deterministic semantic-inventory contribution rows with content-addressed replay and conflict classification plus byte-order-stable keyset pages over retained resources.",
+    "internal/catalog/postgres": "Persist and retrieve catalog facts in PostgreSQL 18: publish-last generation-scoped resource inventory builds, bounded field-profile records with completeness and truncation metadata, leased compare-and-swap-guarded semantic inventory build state, deterministic semantic-inventory contribution rows with content-addressed replay and conflict classification, byte-order-stable keyset pages over retained resources, and authorization-scoped semantic-inventory pages and selection resolution served directly from contribution aggregates.",
     "internal/ci": "Exercise repository-wide Go formatting and vet gates, including injected fault detection.",
     "internal/dataframe/columntransform": "Define closed, backend-neutral transformations over one selected output column value.",
     "internal/dataframe/compiler": "Orchestrate semantic planning, physical lowering, optimization, rendering, and compiled-query assembly.",
