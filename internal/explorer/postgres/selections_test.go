@@ -1134,23 +1134,44 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	}
 
 	// --- member visit walks byte-order keys ------------------------------
+	// One page per call, pinned against Arango parity (a drain loop that
+	// visited every member in one call fails these per-call bounds): the
+	// caller drives the walk, an empty page returns after unchanged.
 	visited := []string{}
-	cursor := ""
-	for {
-		last, err := s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, selectionID, cursor, 1, func(member explorer.SelectionMember) error {
-			visited = append(visited, member.MemberKey)
-			return nil
-		})
-		if err != nil {
-			s.fail("visit members", err)
-		}
-		if last == cursor {
-			break
-		}
-		cursor = last
+	last, err := s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, selectionID, "", 1, func(member explorer.SelectionMember) error {
+		visited = append(visited, member.MemberKey)
+		return nil
+	})
+	if err != nil {
+		s.fail("visit members", err)
 	}
-	if len(visited) != 2 || visited[0] != mk001 || visited[1] != mk002 {
-		t.Fatalf("visit walk = %v, want [%s %s]", visited, mk001, mk002)
+	if len(visited) != 1 || visited[0] != mk001 || last != mk001 {
+		t.Fatalf("single visit call at pageSize 1 visited %v with cursor %q, want exactly [%s] with cursor %q",
+			visited, last, mk001, mk001)
+	}
+	visited = nil
+	last, err = s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, selectionID, last, 10, func(member explorer.SelectionMember) error {
+		visited = append(visited, member.MemberKey)
+		return nil
+	})
+	if err != nil {
+		s.fail("visit members remainder", err)
+	}
+	if len(visited) != 1 || visited[0] != mk002 || last != mk002 {
+		t.Fatalf("resumed visit visited %v with cursor %q, want exactly [%s] with cursor %q",
+			visited, last, mk002, mk002)
+	}
+	visited = nil
+	last, err = s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, selectionID, last, 10, func(member explorer.SelectionMember) error {
+		visited = append(visited, member.MemberKey)
+		return nil
+	})
+	if err != nil {
+		s.fail("visit members empty page", err)
+	}
+	if len(visited) != 0 || last != mk002 {
+		t.Fatalf("empty-page visit = %v with cursor %q, want zero visits and unchanged cursor %q",
+			visited, last, mk002)
 	}
 	if _, err := s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, activeID, "", 10, func(explorer.SelectionMember) error {
 		return nil
@@ -2005,10 +2026,16 @@ func TestSelectionDigestPagingAndVisitWalk(t *testing.T) {
 	if _, err := s.storeA.CompleteSelection(s.ctx, id, writer, digest, count, byteTotal, time.Now().UTC()); err != nil {
 		s.fail("complete", err)
 	}
-	// Visit walk at pageSize 7: every member exactly once in byte order.
+	// Visit walk at pageSize 7: every member exactly once in byte order,
+	// with the per-call bound pinned against Arango parity -- one call
+	// visits at most pageSize members (a drain loop would visit all 1001
+	// on the first call and blow this bound) and the caller drives the
+	// walk to a terminal empty page that returns the cursor unchanged.
 	seen := []string{}
 	cursor := ""
+	calls := 0
 	for {
+		before := len(seen)
 		last, err := s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, id, cursor, 7, func(member explorer.SelectionMember) error {
 			seen = append(seen, member.MemberKey)
 			return nil
@@ -2016,10 +2043,24 @@ func TestSelectionDigestPagingAndVisitWalk(t *testing.T) {
 		if err != nil {
 			s.fail("visit walk", err)
 		}
+		calls++
+		visitedCount := len(seen) - before
+		if visitedCount > 7 {
+			t.Fatalf("visit call %d visited %d members, want at most pageSize 7", calls, visitedCount)
+		}
 		if last == cursor {
+			if visitedCount != 0 {
+				t.Fatalf("visit call %d advanced no cursor yet visited %d members", calls, visitedCount)
+			}
 			break
 		}
+		if visitedCount == 0 {
+			t.Fatalf("visit call %d advanced the cursor without visiting any member", calls)
+		}
 		cursor = last
+	}
+	if wantCalls := memberCount/7 + 1; calls != wantCalls {
+		t.Fatalf("visit walk took %d calls, want %d (exact pageSize-7 pages plus the terminal empty page)", calls, wantCalls)
 	}
 	if len(seen) != memberCount {
 		t.Fatalf("visit walk collected %d, want %d", len(seen), memberCount)

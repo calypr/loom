@@ -789,9 +789,15 @@ func (s *Store) GetSelection(ctx context.Context, project, selectionID string) (
 	return &revision, nil
 }
 
-// VisitSelectionMembers pages COMPLETE membership in byte-order member_key
-// (the member key starts with the selection id, so the walk is Arango's
-// m._key > @after over the same 64-hex suffix space). A STAGING revision is
+// VisitSelectionMembers visits at most one page of COMPLETE membership per
+// call -- exactly one page of at most pageSize members, mirroring
+// arango.VisitSelectionMembers, whose callers (lifecycle readSelectionIntent
+// and appendSelectionRevision) gate their own batching on that per-call
+// bound: the caller drives the walk and re-invokes with the returned
+// cursor; an empty page returns after unchanged. Members are paged in
+// byte-order member_key (the member key starts with the selection id, so
+// the walk is Arango's m._key > @after over the same 64-hex suffix space).
+// A STAGING revision is
 // ErrSelectionIncomplete: streaming membership that was never finalized
 // into a digest would let callers publish facts no completion CAS ever
 // froze.
@@ -817,39 +823,37 @@ func (s *Store) VisitSelectionMembers(ctx context.Context, project, selectionID,
 	defer conn.Release()
 
 	last := strings.TrimSpace(after)
-	for {
-		page := make([]explorer.SelectionMember, 0, pageSize)
-		keys := make([]string, 0, pageSize)
-		rows, err := conn.Query(ctx, s.selections.memberVisitPage, selectionID, strings.TrimSpace(project), last, pageSize)
-		if err != nil {
-			return last, fmt.Errorf("postgres explorer store: page selection members %q: %w", selectionID, err)
-		}
-		for rows.Next() {
-			var member explorer.SelectionMember
-			if err := rows.Scan(&member.MemberKey, &member.Ref.Project, &member.Ref.Generation,
-				&member.Ref.ResourceType, &member.Ref.ID, &member.Ordinal); err != nil {
-				rows.Close()
-				return last, fmt.Errorf("postgres explorer store: scan selection member page %q: %w", selectionID, err)
-			}
-			member = member.Canonical()
-			page = append(page, member)
-			keys = append(keys, member.MemberKey)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return last, fmt.Errorf("postgres explorer store: iterate selection member page %q: %w", selectionID, err)
-		}
-		rows.Close()
-		for i, member := range page {
-			if err := visit(member); err != nil {
-				return last, err
-			}
-			last = keys[i]
-		}
-		if len(page) < pageSize {
-			return last, nil
-		}
+	page := make([]explorer.SelectionMember, 0, pageSize)
+	keys := make([]string, 0, pageSize)
+	rows, err := conn.Query(ctx, s.selections.memberVisitPage, selectionID, strings.TrimSpace(project), last, pageSize)
+	if err != nil {
+		return last, fmt.Errorf("postgres explorer store: page selection members %q: %w", selectionID, err)
 	}
+	for rows.Next() {
+		var member explorer.SelectionMember
+		if err := rows.Scan(&member.MemberKey, &member.Ref.Project, &member.Ref.Generation,
+			&member.Ref.ResourceType, &member.Ref.ID, &member.Ordinal); err != nil {
+			rows.Close()
+			return last, fmt.Errorf("postgres explorer store: scan selection member page %q: %w", selectionID, err)
+		}
+		member = member.Canonical()
+		page = append(page, member)
+		keys = append(keys, member.MemberKey)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return last, fmt.Errorf("postgres explorer store: iterate selection member page %q: %w", selectionID, err)
+	}
+	rows.Close()
+	// One page per call, like the Arango adapter: visiting stops at
+	// pageSize members and the caller resumes from the returned cursor.
+	for i, member := range page {
+		if err := visit(member); err != nil {
+			return last, err
+		}
+		last = keys[i]
+	}
+	return last, nil
 }
 
 // CleanupSelectionStaging removes bounded abandoned staging revisions --
