@@ -49,19 +49,8 @@ var ErrUnsupportedPostgresPlan = errors.New("postgres renderer: unsupported phys
 // ErrInvalidPostgresPlanScope reports a plan whose explicit scope binds are
 // missing or contradictory (blank project, absent auth mode flags, or an
 // unrestricted mode carrying paths). Scope is never inferred and never
-// widened.
+// widened; the canonical mapping itself lives in scope.go.
 var ErrInvalidPostgresPlanScope = errors.New("postgres renderer: invalid plan scope")
-
-// Plan-level bind keys shared with the canonical lowering path
-// (internal/dataframe/compiler/lower): every scoped plan carries these
-// scope binds, and the PostgreSQL renderer re-reads them instead of trusting
-// plan-authored predicates.
-const (
-	projectBindKey        = "project"
-	datasetGenerationBind = "dataset_generation"
-	authPathsBindKey      = "auth_resource_paths"
-	authUnrestrictedBind  = "auth_resource_paths_unrestricted"
-)
 
 // renderer-owned filterable column policy: single-segment document paths
 // that map onto typed columns of the resource table. Any other path is a
@@ -143,17 +132,17 @@ type planRenderer struct {
 	parameters map[string]int
 	rows       map[string]rowScope
 
-	projectIndex    int
-	generationIndex int
-	authPathsIndex  int // 0 when unrestricted mode was explicit
-	rootAlias       string
-	edgeAliases     []string
-	where           []string
-	joins           []string
-	selects         []string
-	outputColumns   []string
-	orderBy         []string
-	limitClause     string
+	// scope is the re-read canonical scope established by loadScope (its
+	// definition and predicate mapping live in scope.go).
+	scope         planScope
+	rootAlias     string
+	edgeAliases   []string
+	where         []string
+	joins         []string
+	selects       []string
+	outputColumns []string
+	orderBy       []string
+	limitClause   string
 }
 
 // addParameter appends one ordered argument and returns its $n index. A
@@ -178,69 +167,6 @@ func (r *planRenderer) textParameter(value, cacheKey string) int {
 
 func (r *planRenderer) jsonbParameter(raw json.RawMessage) int {
 	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterJSONB, Value: append(json.RawMessage(nil), raw...)}, "")
-}
-
-// loadScope binds the explicit plan scope. Scope binds must be present with
-// their canonical types; nothing is defaulted.
-func (r *planRenderer) loadScope(plan ir.PhysicalPlan) error {
-	project, ok := plan.BindVars[projectBindKey].(string)
-	if !ok || strings.TrimSpace(project) == "" {
-		return fmt.Errorf("%w: %q bind must be a non-empty string", ErrInvalidPostgresPlanScope, projectBindKey)
-	}
-	generation, ok := plan.BindVars[datasetGenerationBind].(string)
-	if !ok {
-		return fmt.Errorf("%w: %q bind must be a string (the empty string is the legacy namespace)",
-			ErrInvalidPostgresPlanScope, datasetGenerationBind)
-	}
-	unrestricted, ok := plan.BindVars[authUnrestrictedBind].(bool)
-	if !ok {
-		return fmt.Errorf("%w: %q bind must be set explicitly; there is no implicit auth scope",
-			ErrInvalidPostgresPlanScope, authUnrestrictedBind)
-	}
-	paths, ok := plan.BindVars[authPathsBindKey].([]string)
-	if !ok {
-		return fmt.Errorf("%w: %q bind must be a []string", ErrInvalidPostgresPlanScope, authPathsBindKey)
-	}
-	if unrestricted && len(paths) != 0 {
-		return fmt.Errorf("%w: unrestricted mode must not carry auth resource paths (%d given)",
-			ErrInvalidPostgresPlanScope, len(paths))
-	}
-
-	r.projectIndex = r.textParameter(project, "text:"+project)
-	r.generationIndex = r.textParameter(generation, "text:"+generation)
-	if !unrestricted {
-		copied := append([]string(nil), paths...)
-		raw, err := json.Marshal(copied)
-		if err != nil {
-			return fmt.Errorf("%w: auth resource paths are not JSON-encodable: %v", ErrInvalidPostgresPlanScope, err)
-		}
-		// A restricted scope with no authorized paths must read nothing, not
-		// error: an empty Go slice marshals to JSON null when nil, which is
-		// not an array. Bind the empty set literally.
-		if string(raw) == "null" {
-			raw = json.RawMessage("[]")
-		}
-		r.authPathsIndex = r.jsonbParameter(raw)
-	}
-	return nil
-}
-
-// scopedResourcePredicate renders the scope equality chain for one resource
-// row, including the explicit auth mode. Restricted mode binds the exact
-// authorized path set (an empty set reads nothing and never widens);
-// unrestricted mode was explicitly requested and adds no path predicate.
-func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) string {
-	var builder strings.Builder
-	builder.WriteString(alias + "." + r.storage.Resource.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.projectIndex))
-	builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("dataset_generation").SQLText() + " = $" + strconv.Itoa(r.generationIndex))
-	if r.authPathsIndex != 0 {
-		builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("auth_resource_path").SQLText())
-		builder.WriteString(" = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.authPathsIndex) + "::jsonb))")
-	}
-	if typeIndex != 0 {
-		builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("resource_type").SQLText() + " = $" + strconv.Itoa(typeIndex))
-	}
-	return builder.String()
 }
 
 func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
@@ -380,12 +306,10 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 	resourceTable := r.storage.Resource.Identifier().SQLText()
 
 	edgeColumns := r.storage.Edge
-	edgeScope := edgeAlias + "." + edgeColumns.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.projectIndex) +
-		" AND " + edgeAlias + "." + edgeColumns.MustColumn("dataset_generation").SQLText() + " = $" + strconv.Itoa(r.generationIndex)
-	if r.authPathsIndex != 0 {
-		edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("auth_resource_path").SQLText() +
-			" = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.authPathsIndex) + "::jsonb))"
-	}
+	// The edge row's canonical project/generation/auth scope comes from the
+	// single mapping in scope.go; the label and endpoint identity clauses
+	// appended below are traversal payload, not canonical scope.
+	edgeScope := r.scopedEdgePredicate(edgeAlias)
 	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("label").SQLText() +
 		" = $" + strconv.Itoa(r.textParameter(label, "text:"+label))
 
