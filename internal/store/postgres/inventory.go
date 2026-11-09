@@ -132,9 +132,9 @@ type InventoryCountConflictError struct {
 }
 
 func (e *InventoryCountConflictError) Error() string {
-	return fmt.Sprintf("postgres: inventory count %s/%s/%s (type %s, auth path %q) already holds build %s with %s=%s; "+
+	return fmt.Sprintf("postgres: inventory count %s/%s (type %s, auth path %q) already holds build %s with %s=%s; "+
 		"reinsert requested %s=%s and never replaces the stored row",
-		e.Project, e.DatasetGeneration, e.ResourceType, e.ResourceType, e.AuthResourcePath,
+		e.Project, e.DatasetGeneration, e.ResourceType, e.AuthResourcePath,
 		e.BuildID, e.Field, e.Stored, e.Field, e.Requested)
 }
 
@@ -358,7 +358,9 @@ func (r *InventoryRepository) insertCountChunk(ctx context.Context, chunk []cata
 	returningRows.Close()
 	returnErr = returningRows.Err()
 	if returnErr != nil {
-		return fmt.Errorf("postgres: insert inventory counts: %w", returnErr)
+		// pgx can surface the INSERT..RETURNING execution error here rather
+		// than at Query; classify it the same way.
+		return inventoryWriteError("insert inventory counts", chunk, returnErr)
 	}
 
 	if len(returned) != len(chunk) {
@@ -493,7 +495,7 @@ func (r *InventoryRepository) PublishBuild(ctx context.Context, build catalog.Re
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState &&
-			strings.Contains(pgErr.ConstraintName, "marker_key") {
+			pgErr.ConstraintName == inventoryBuildTableName+"_key_ux" {
 			return fmt.Errorf("postgres: inventory marker key %s collides across scopes (corrupted derivation): %w",
 				build.Key, err)
 		}
@@ -650,7 +652,7 @@ func inventoryWriteError(op string, chunk []catalog.ResourceInventoryCount, err 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState {
 		sample := chunk[0]
-		if strings.Contains(pgErr.ConstraintName, "count_key") {
+		if pgErr.ConstraintName == inventoryCountTableName+"_key_ux" {
 			return &InventoryCountConflictError{
 				BuildID: sample.BuildID, Project: sample.Project, DatasetGeneration: sample.DatasetGeneration,
 				ResourceType: sample.ResourceType, AuthResourcePath: sample.AuthResourcePath,

@@ -411,6 +411,66 @@ func TestInventoryInsertCountsIsRepeatStableAndRejectsDivergence(t *testing.T) {
 	}
 }
 
+func TestInventoryRepositoryRejectsCrossScopeIdentityCollisions(t *testing.T) {
+	s := newInventoryStoreService(t)
+	s.migrate(t)
+	repo := s.newRepository(t)
+
+	// Count side: the ric_ key is derived from the full identity, so a row
+	// that reuses another scope's count_key is corrupted, not a routine
+	// conflict: the database arbiter is fhir_resource_inventory_count_key_ux
+	// and the insert must fail as a typed conflict.
+	_, counts := mustInventoryBuild(t, "p", "g", []string{"Patient"},
+		[]catalog.ResourceInventoryCount{countFor("p", "g", "a", "Patient", 2)})
+	if err := repo.InsertCounts(s.ctx, counts, 10); err != nil {
+		t.Fatalf("baseline InsertCounts: %v", err)
+	}
+	forgedKeyRow := catalog.ResourceInventoryCount{
+		Key: counts[0].Key, RecordType: catalog.ResourceInventoryCountRecordType,
+		BuildID: "sha256:" + strings.Repeat("f", 64), Project: "p", DatasetGeneration: "g",
+		AuthResourcePath: "z", ResourceType: "Patient", DocumentCount: 1,
+	}
+	err := repo.InsertCounts(s.ctx, []catalog.ResourceInventoryCount{forgedKeyRow}, 10)
+	if !errors.Is(err, ErrInventoryCountConflict) {
+		t.Fatalf("cross-scope count_key insert error = %v, want ErrInventoryCountConflict", err)
+	}
+
+	// Marker side: marker_key is derived from (project, dataset_generation),
+	// so one key held by two scopes is a corrupted derivation. The named
+	// fhir_resource_inventory_build_key_ux classification must fire.
+	build1, counts1 := mustInventoryBuild(t, "p", "g", []string{"Patient"},
+		[]catalog.ResourceInventoryCount{countFor("p", "g", "b", "Patient", 1)})
+	if err := repo.PublishBuild(s.ctx, build1); !errors.Is(err, ErrInventoryPublishGuard) {
+		t.Fatalf("publish before own rows = %v, want guard error", err)
+	}
+	if err := repo.InsertCounts(s.ctx, counts1, 10); err != nil {
+		t.Fatalf("commit build1 rows: %v", err)
+	}
+	build1.Key = "ribm_forged_cross_scope"
+	if err := repo.PublishBuild(s.ctx, build1); err != nil {
+		t.Fatalf("publish build1 with forged key: %v", err)
+	}
+	build2, counts2 := mustInventoryBuild(t, "p", "g2", []string{"Patient"},
+		[]catalog.ResourceInventoryCount{countFor("p", "g2", "c", "Patient", 4)})
+	if err := repo.InsertCounts(s.ctx, counts2, 10); err != nil {
+		t.Fatalf("commit build2 rows: %v", err)
+	}
+	build2.Key = "ribm_forged_cross_scope"
+	err = repo.PublishBuild(s.ctx, build2)
+	if err == nil || !strings.Contains(err.Error(), "collides across scopes") {
+		t.Fatalf("cross-scope marker_key publish error = %v, want corrupted-derivation classification", err)
+	}
+	// The colliding publish left no second marker; the first scope's marker
+	// row is intact.
+	if markers := s.witnessMarkers(t, "p", "g2"); len(markers) != 0 {
+		t.Fatalf("markers for g2 after collision = %+v, want none", markers)
+	}
+	markers := s.witnessMarkers(t, "p", "g")
+	if len(markers) != 1 || markers[0].MarkerKey != "ribm_forged_cross_scope" {
+		t.Fatalf("first marker damaged by refused publish: %+v", markers)
+	}
+}
+
 func TestInventoryPublishBuildGuardsUncommittedCounts(t *testing.T) {
 	s := newInventoryStoreService(t)
 	s.migrate(t)
