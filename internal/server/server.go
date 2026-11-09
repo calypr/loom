@@ -376,6 +376,65 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 	}
 }
 
+// newExplorerReleaseActivator builds the dataset release activation hook for
+// the repository publish path (lifecycle repository_publish.go ActivateRelease).
+// It reads the live release revision and submits it as the store's
+// compare-and-swap input, so a concurrent winning publication makes the
+// store's own guard reject: internal/dataset/arango/release_store.go
+// activateReleaseAQL compares it with `FILTER currentRevision ==
+// @expected_revision OR alreadyActive`, and the emptied result becomes
+// dataset.ErrReleaseActivationConflict (release_store.go:99-100), which the
+// lifecycle types as the repair-34 409 repository_publish
+// PUBLICATION_ACTIVATION_CONFLICT with the prior revision retained.
+//
+// devReleaseCASFault is the dev-only repository sibling of the
+// prepareExplorerRelease fault (LOOM_DEV_ACTIVATION_CONFLICT_ONCE) below: it
+// is armed only through applyDevFaultOverrides, therefore only under the
+// local no-auth mode. Consumed exactly once, it corrupts the expected-revision
+// CAS input after a successful Active read so the release CAS legitimately
+// loses while the retained candidate release stays durable. The seam sits
+// above the store on purpose: the second, Explorer-side activation leg
+// (internal/explorer/arango/activation.go compositeActivationReadAQL guards
+// plus activateRevisionAndOwner) never yields dataset.ErrReleaseActivationConflict
+// — every guard on that leg produces only explorer.ErrDraftConflict or plain
+// faults — so the sentinel this contract classifies can only come from the
+// release CAS input computed here. A rival document could not be activated
+// instead: activateReleaseAQL's alreadyActive guard makes same-content
+// re-activation a zero-write no-op, so bumping the pointer revision would
+// require minting a competing release document that no publish flow created
+// (invented state) and would itself leave the dataset pointer on the rival
+// while the Explorer pointer stayed on the prior revision (split-brain).
+// The fault therefore corrupts one number instead: the store still decides
+// the outcome, zero writes happen on the loss, and no successful activation
+// is ever hidden behind a synthetic error.
+func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseService, devReleaseCASFault *atomic.Bool) func(context.Context, string, string, []publicationcontract.DataframeSelector) error {
+	return func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
+		expectedRevision := int64(0)
+		// Consume the one-shot arm at request entry, never conditionally: an
+		// armed request whose Active read has no pointer to corrupt must not
+		// leave the fault live to silently hijack a LATER publish request.
+		devFaultArmed := devReleaseCASFault != nil && devReleaseCASFault.CompareAndSwap(true, false)
+		active, err := releaseService.Active(ctx, project)
+		if err == nil {
+			expectedRevision = active.Revision
+			// Feed a stale expected revision so the real
+			// store CAS loses exactly once. Corrupt only after a successful
+			// Active read: with no prior pointer the store rejects on the
+			// missing-pointer precondition instead of the compare-and-swap.
+			if devFaultArmed {
+				expectedRevision++
+			}
+		} else if !errors.Is(err, publicationcontract.ErrNoActiveRelease) {
+			return err
+		}
+		_, err = releaseService.Activate(ctx, publicationcontract.ActivationRequest{
+			Project: project, Generation: generation, GitCommit: generation,
+			ExpectedRevision: expectedRevision, OptionalSelectors: selectors,
+		})
+		return err
+	}
+}
+
 func run(ctx context.Context, serverConfig Config) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
 	connOpts := arangostore.ConnectionOptions{
@@ -553,6 +612,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("create dataframe bundle store: %w", err)
 		}
+		bundleStore.SetActiveReleaseReader(lifecycleStore)
 		if err := bundleStore.Reconcile(ctx, time.Now().UTC().Add(-2*time.Minute)); err != nil {
 			degradation = recordDegradation(logger, degradation, "dataframe publication reconciliation", err)
 			publicationReady = false
@@ -565,20 +625,9 @@ func run(ctx context.Context, serverConfig Config) error {
 	releaseService := &publicationcontract.ReleaseService{Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
 	var activationConflictOnce atomic.Bool
 	activationConflictOnce.Store(serverConfig.Server.DevActivationConflictOnce)
-	activateExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
-		expectedRevision := int64(0)
-		active, err := releaseService.Active(ctx, project)
-		if err == nil {
-			expectedRevision = active.Revision
-		} else if !errors.Is(err, publicationcontract.ErrNoActiveRelease) {
-			return err
-		}
-		_, err = releaseService.Activate(ctx, publicationcontract.ActivationRequest{
-			Project: project, Generation: generation, GitCommit: generation,
-			ExpectedRevision: expectedRevision, OptionalSelectors: selectors,
-		})
-		return err
-	}
+	var repositoryActivationConflictOnce atomic.Bool
+	repositoryActivationConflictOnce.Store(serverConfig.Server.DevRepositoryActivationConflictOnce)
+	activateExplorerRelease := newExplorerReleaseActivator(releaseService, &repositoryActivationConflictOnce)
 	prepareExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) (publicationcontract.ProjectRelease, int64, error) {
 		expectedRevision := int64(0)
 		active, err := releaseService.Active(ctx, project)
@@ -869,6 +918,20 @@ func run(ctx context.Context, serverConfig Config) error {
 			case <-reconcilerDone:
 			case <-timer.C:
 				logger.Error("private ClickHouse artifact reconciler did not stop before shutdown deadline")
+			}
+		}()
+	}
+	if artifactStore != nil {
+		artifactReconcileCtx, cancelArtifactReconciler := context.WithCancel(ctx)
+		artifactReconcilerDone := startArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
+		defer func() {
+			cancelArtifactReconciler()
+			timer := time.NewTimer(cleanupTimeout)
+			defer timer.Stop()
+			select {
+			case <-artifactReconcilerDone:
+			case <-timer.C:
+				logger.Error("filesystem artifact reconciler did not stop before shutdown deadline")
 			}
 		}()
 	}

@@ -1,0 +1,471 @@
+package artifactfs
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/calypr/loom/internal/dataframe/published"
+	"github.com/calypr/loom/internal/explorer"
+)
+
+// Adversarial probes for Store.Reconcile (read-only review, worktree copy).
+
+func advRecord(execution, request string, expiresAt time.Time) explorer.ArtifactRecord {
+	record := explorer.ArtifactRecord{
+		Project: "study/project", ExplorerID: "explorer", RevisionID: "revision", OutputID: "patients",
+		ReceiptID: "receipt", ExecutionID: execution, IdempotencyKey: request,
+		DatasetGeneration: "generation", SchemaDigest: "schema", AuthorizationScopeDigest: "scope",
+		ExpiresAt: expiresAt, Format: published.ArtifactFormatCSV,
+	}
+	id, _ := explorer.ArtifactID(record)
+	record.ID = id
+	return record
+}
+
+func advComplete(t *testing.T, store *Store, execution, request string, expiresAt time.Time) explorer.ArtifactRecord {
+	t.Helper()
+	record := advRecord(execution, request, expiresAt)
+	stage, existing, err := store.Begin(context.Background(), record)
+	if err != nil || existing != nil || stage == nil {
+		t.Fatalf("begin: stage=%T existing=%v err=%v", stage, existing, err)
+	}
+	if _, err := stage.Write([]byte("archive-bytes")); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:x", Bytes: 13, Rows: 1, Features: 1})
+	if err != nil || completed.State != explorer.ArtifactComplete {
+		t.Fatalf("commit: %#v err=%v", completed, err)
+	}
+	return *completed
+}
+
+func advNewStore(t *testing.T) (*Store, string, *time.Time, time.Time) {
+	t.Helper()
+	root := t.TempDir()
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Truncate(time.Second)
+	clock := base
+	store.now = func() time.Time { return clock }
+	return store, root, &clock, base
+}
+
+// Probe 1: record expires mid-prepare; sweep removes .staging while the writer
+// holds an open os.File; writer keeps writing silently; Commit error class.
+func TestAdvSweepDuringPrepareOrphanFdAndCommitError(t *testing.T) {
+	store, root, clock, base := advNewStore(t)
+	record := advRecord("exec-p1", "key-p1", base.Add(time.Hour))
+	stage, _, err := store.Begin(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 1 {
+		t.Fatalf("sweep deleted=%d err=%v, want 1/<nil>", deleted, err)
+	}
+	_, writeErr := stage.Write([]byte("writes after sweep"))
+	if writeErr != nil {
+		t.Fatalf("orphan-fd Write errored=%v, want nil (POSIX unlink keeps fd writable)", writeErr)
+	}
+	_, commitErr := stage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:x", Bytes: 5, Rows: 1, Features: 1})
+	if commitErr == nil || !strings.Contains(commitErr.Error(), "finalize artifact archive") {
+		t.Fatalf("Commit err=%v want rename ENOENT class after staging removed", commitErr)
+	}
+	if got := diskSuffixes(t, root, record.ID); len(got) != 0 {
+		t.Errorf("files resurrected by failed Commit: %v", got)
+	}
+	if _, err := store.Get(context.Background(), record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Get err=%v want ErrNotExist", err)
+	}
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 0 {
+		t.Errorf("second sweep deleted=%d err=%v want 0/<nil>", deleted, err)
+	}
+}
+
+// Probe 2: Abort runs after the sweep already removed the set: record
+// resurrection is bounded by exactly one sweep.
+func TestAdvAbortAfterSweepResurrectsButConverges(t *testing.T) {
+	store, root, clock, base := advNewStore(t)
+	record := advRecord("exec-p2", "key-p2", base.Add(time.Hour))
+	stage, _, err := store.Begin(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	if _, err := store.Reconcile(context.Background(), *clock, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stage.Abort(context.Background(), "CANCELED"); err != nil {
+		t.Fatal(err)
+	}
+	got := diskSuffixes(t, root, record.ID)
+	if len(got) != 1 || got[0] != ".json" {
+		t.Fatalf("post-Abort disk = %v, want resurrected [.json]", got)
+	}
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 1 {
+		t.Fatalf("convergence sweep deleted=%d err=%v, want 1/<nil>", deleted, err)
+	}
+	if got := diskSuffixes(t, root, record.ID); len(got) != 0 {
+		t.Errorf("second sweep did not converge: %v", got)
+	}
+}
+
+// Probe 3: sweep unlinks mid-prepare, SAME-id Begin recreates .staging at the
+// same PATH, then the stale writer's Commit renames the fresh staging.
+func TestAdvStaleWriterRenewsFreshStagingPath(t *testing.T) {
+	store, _, clock, base := advNewStore(t)
+	first := advRecord("exec-p3", "key-p3", base.Add(time.Hour))
+	staleStage, _, err := store.Begin(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staleStage.Write([]byte("STALE")); err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 1 {
+		t.Fatalf("sweep deleted=%d err=%v", deleted, err)
+	}
+	fresh := advRecord("exec-p3", "key-p3", clock.Add(24*time.Hour))
+	freshStage, _, err := store.Begin(context.Background(), fresh)
+	if err != nil {
+		t.Fatalf("same-id retry Begin after sweep: %v", err)
+	}
+	if _, err := freshStage.Write([]byte("FRESH")); err != nil {
+		t.Fatal(err)
+	}
+	completed, commitErr := staleStage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:stale", Bytes: 5, Rows: 1, Features: 1})
+	if commitErr != nil {
+		t.Fatalf("stale Commit err=%v, want hijack-but-success (rename found the recreated path)", commitErr)
+	}
+	if completed.State != explorer.ArtifactComplete || completed.ArchiveSHA256 != "sha256:stale" {
+		t.Fatalf("stale commit record = %#v", completed)
+	}
+	if _, err := freshStage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:fresh", Bytes: 5, Rows: 1, Features: 1}); err == nil {
+		t.Fatal("fresh Commit should fail with rename ENOENT after its staging was hijacked")
+	}
+	if _, rec, err := store.Open(context.Background(), first.ID); !errors.Is(err, ErrArtifactUnavailable) || rec == nil {
+		t.Fatalf("Open stale-expired COMPLETE err=%v rec=%v; expiry gate must reject", err, rec)
+	}
+	live, err := store.Get(context.Background(), first.ID)
+	if err != nil || live.State != explorer.ArtifactComplete {
+		t.Fatalf("Get lies between hijack-Commit and next sweep: err=%v", err)
+	}
+	*clock = clock.Add(25 * time.Hour)
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 1 {
+		t.Fatalf("final sweep deleted=%d err=%v want full reclaim", deleted, err)
+	}
+}
+
+// Probe 3b: attribution control — same staging-path hijack WITHOUT Reconcile:
+// Begin #2's expired-replace unlink of the stale staging enables the identical
+// cross-writer rename. The hazard lives in path-keyed staging + unlocked
+// writer; Reconcile only adds a second unlink trigger.
+func TestAdvStagingHijackWithoutReconcile(t *testing.T) {
+	store, _, clock, base := advNewStore(t)
+	first := advRecord("exec-3b", "key-3b", base.Add(time.Hour))
+	staleStage, _, err := store.Begin(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := staleStage.Write([]byte("STALE")); err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	fresh := advRecord("exec-3b", "key-3b", clock.Add(24*time.Hour))
+	freshStage, _, err := store.Begin(context.Background(), fresh)
+	if err != nil {
+		t.Fatalf("replace-Path Begin: %v", err)
+	}
+	if _, err := freshStage.Write([]byte("FRESH")); err != nil {
+		t.Fatal(err)
+	}
+	if _, commitErr := staleStage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:stale", Bytes: 5, Rows: 1, Features: 1}); commitErr != nil {
+		t.Fatalf("stale Commit hijack without Reconcile err=%v", commitErr)
+	}
+	if _, err := freshStage.Commit(context.Background(), explorer.ArtifactCompletion{ArchiveSHA256: "sha256:fresh", Bytes: 5, Rows: 1, Features: 1}); err == nil {
+		t.Fatal("fresh Commit should have lost its staging to the stale writer")
+	}
+}
+
+// Probe 4a: zip removal fails, json still removed -> orphan zip unreclaimable.
+func TestAdvPartialFailureZipFailsJsonRemovedWedge(t *testing.T) {
+	store, root, clock, base := advNewStore(t)
+	record := advComplete(t, store, "exec-p4a", "key-p4a", base.Add(time.Hour))
+	zipPath := filepath.Join(root, record.ID+".zip")
+	if err := os.Remove(zipPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(zipPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(zipPath, "blocker"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	_, err := store.Reconcile(context.Background(), *clock, 10)
+	if err == nil || !strings.Contains(err.Error(), "reconcile artifact") {
+		t.Fatalf("zip-failure sweep err=%v, want firstErr class", err)
+	}
+	if _, err := store.Get(context.Background(), record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("json survived removal of .zip; want json gone: %v", err)
+	}
+	if err := os.RemoveAll(zipPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(zipPath, []byte("expired-archive-bytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deleted, rerr := store.Reconcile(context.Background(), clock.Add(720*time.Hour), 10)
+	if rerr != nil || deleted != 0 {
+		t.Fatalf("orphan re-sweep deleted=%d err=%v, want 0/<nil> (orphan skipped, not errored)", deleted, rerr)
+	}
+	if _, err := os.Stat(zipPath); err != nil {
+		t.Fatalf("orphan .zip reclaimed? %v", err)
+	}
+	t.Logf("WEDGE CONFIRMED: real expired .zip survives every future sweep after json removal (%s)", zipPath)
+}
+
+// Probe 4b: staging removal fails in preparing state, json still removed ->
+// orphan .staging (partial archive bytes) unreclaimable.
+func TestAdvPartialFailureStagingFailsJsonRemovedWedge(t *testing.T) {
+	store, root, clock, base := advNewStore(t)
+	record := advRecord("exec-p4b", "key-p4b", base.Add(time.Hour))
+	if _, _, err := store.Begin(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	stagingPath := filepath.Join(root, record.ID+".staging")
+	if err := os.Remove(stagingPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(stagingPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stagingPath, "blocker"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	if _, err := store.Reconcile(context.Background(), *clock, 10); err == nil {
+		t.Fatal("staging-failure sweep must surface firstErr")
+	}
+	if _, err := store.Get(context.Background(), record.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("json should have been removed despite staging failure: %v", err)
+	}
+	if err := os.RemoveAll(stagingPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagingPath, []byte("partial-archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := store.Reconcile(context.Background(), clock.Add(720*time.Hour), 10); err != nil || deleted != 0 {
+		t.Fatalf("orphan staging sweep deleted=%d err=%v", deleted, err)
+	}
+	if _, err := os.Stat(stagingPath); err != nil {
+		t.Fatalf("stale staging wrongly removed: %v", err)
+	}
+	t.Log("WEDGE CONFIRMED: orphan .staging with partial archive bytes survives every future sweep")
+}
+
+// Probe 4c: the post-state of "zip removed, json unlink failed" (zip first,
+// json last in removal order; unlink can fail per-inode on NFS/EROFS while
+// reads still succeed) must converge on the next sweep.
+func TestAdvPartialFailureJsonFailsConverges(t *testing.T) {
+	store, root, clock, base := advNewStore(t)
+	record := advComplete(t, store, "exec-p4c", "key-p4c", base.Add(time.Hour))
+	live, err := store.Get(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Disk state as left by a sweep pass where remove(.zip) succeeded and
+	// remove(.json) failed: only a readable expired .json remains.
+	if err := os.Remove(filepath.Join(root, record.ID+".zip")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, record.ID+".json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(2 * time.Hour)
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 1 {
+		t.Fatalf("converging sweep deleted=%d err=%v, want 1/<nil>", deleted, err)
+	}
+	if got := diskSuffixes(t, root, record.ID); len(got) != 0 {
+		t.Errorf("json-fail ordering not converged: %v", got)
+	}
+}
+
+// Probe 5: Begin expired-replace racing Reconcile for the same id; mutex must
+// serialize to exactly one live set.
+func TestAdvBeginReplaceRacesSweep(t *testing.T) {
+	for iteration := 0; iteration < 50; iteration++ {
+		store, root, clock, base := advNewStore(t)
+		advComplete(t, store, "exec-p5", "key-p5", base.Add(time.Hour))
+		*clock = base.Add(2 * time.Hour)
+		replacement := advRecord("exec-p5", "key-p5", clock.Add(24*time.Hour))
+		store.mu.Lock()
+		type sweepResult struct {
+			deleted int
+			err     error
+		}
+		sweepCh := make(chan sweepResult, 1)
+		beginCh := make(chan error, 1)
+		var stage explorer.ArtifactStage
+		go func() {
+			deleted, err := store.Reconcile(context.Background(), *clock, 10)
+			sweepCh <- sweepResult{deleted, err}
+		}()
+		go func() {
+			s, _, err := store.Begin(context.Background(), replacement)
+			stage = s
+			beginCh <- err
+		}()
+		runtime.Gosched()
+		store.mu.Unlock()
+		swept := <-sweepCh
+		beginErr := <-beginCh
+		if swept.err != nil {
+			t.Fatalf("iteration %d: reconcile err=%v", iteration, swept.err)
+		}
+		if beginErr != nil || stage == nil {
+			t.Fatalf("iteration %d: begin err=%v stage=%T", iteration, beginErr, stage)
+		}
+		if got := diskSuffixes(t, root, replacement.ID); len(got) != 2 || !strings.Contains(strings.Join(got, ","), ".json") || !strings.Contains(strings.Join(got, ","), ".staging") {
+			t.Fatalf("iteration %d: disk=%v want exactly .json+.staging (one live set), sweep-deleted=%d", iteration, got, swept.deleted)
+		}
+		if live, err := store.Get(context.Background(), replacement.ID); err != nil || live.State != explorer.ArtifactPreparing || !live.ExpiresAt.After(*clock) {
+			t.Fatalf("iteration %d live record broken: %#v err=%v", iteration, live, err)
+		}
+		_ = stage.Close()
+		if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 0 {
+			t.Fatalf("iteration %d: live set wrongly swept: deleted=%d err=%v", iteration, deleted, err)
+		}
+	}
+}
+
+// Probe 6: staging-only orphan (crash window between O_EXCL create and
+// writeRecord): Reconcile never reclaims and same-id Begin never recovers.
+func TestAdvStagingOnlyOrphanWedgesSameIdRetry(t *testing.T) {
+	store, root, clock, base := advNewStore(t)
+	record := advRecord("exec-p6", "key-p6", base.Add(time.Hour))
+	stagingPath := filepath.Join(root, record.ID+".staging")
+	if err := os.WriteFile(stagingPath, []byte("crash-leftover-partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	*clock = base.Add(720 * time.Hour)
+	if deleted, err := store.Reconcile(context.Background(), *clock, 10); err != nil || deleted != 0 {
+		t.Fatalf("orphan staging reconcile deleted=%d err=%v; unprovable set retained by policy", deleted, err)
+	}
+	if _, err := os.Stat(stagingPath); err != nil {
+		t.Fatalf("unprovable staging removed unexpectedly: %v", err)
+	}
+	stale := record
+	stale.ExpiresAt = clock.Add(time.Hour)
+	_, _, beginErr := store.Begin(context.Background(), stale)
+	if beginErr == nil || !strings.Contains(beginErr.Error(), "create artifact staging file") {
+		t.Fatalf("same-id retry err=%v, want EEXIST staging-create wedge", beginErr)
+	}
+	t.Logf("BEGIN WEDGE CONFIRMED: %v (stale expired partial bytes retained forever AND id unusable)", beginErr)
+}
+
+// Probe 7: under-lock re-read failure (EACCES stands in for EMFILE/EIO
+// transients) falls through to removal: pre-pass retains unreadable sets but
+// the delete pass destroys them. Target id sorts last so its removal happens
+// after the probe flips the bit; the first vanished peer proves the pre-pass
+// already read the target while readable.
+func TestAdvUnreadableUnderLockStillRemoved(t *testing.T) {
+	store, root, _, base := advNewStore(t)
+	const n = 5000
+	names := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		rec := advComplete(t, store, fmt.Sprintf("exec-n-%06d", i), "key-n", base.Add(time.Hour))
+		names = append(names, rec.ID)
+	}
+	targetExec := ""
+	for c := 0; ; c++ {
+		cand := advRecord(fmt.Sprintf("target-%06d", c), "key-n", base.Add(time.Hour))
+		last := true
+		for _, id := range names {
+			if cand.ID+".json" < id+".json" {
+				last = false
+				break
+			}
+		}
+		if last {
+			targetExec = cand.ExecutionID
+			break
+		}
+	}
+	target := advComplete(t, store, targetExec, "key-n", base.Add(time.Hour))
+	now := base.Add(2 * time.Hour)
+
+	type result struct {
+		deleted int
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		deleted, err := store.Reconcile(context.Background(), now, n+10)
+		done <- result{deleted, err}
+	}()
+	peer := filepath.Join(root, names[0]+".json")
+	targetJSON := filepath.Join(root, target.ID+".json")
+	deadline := time.Now().Add(60 * time.Second)
+	sawPeerGone := false
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(peer); errors.Is(err, os.ErrNotExist) {
+			sawPeerGone = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !sawPeerGone {
+		t.Fatal("delete loop never observed starting")
+	}
+	if err := os.Chmod(targetJSON, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	got := <-done
+	_ = os.Chmod(targetJSON, 0o600)
+	if got.err != nil {
+		t.Fatalf("reconcile err=%v", got.err)
+	}
+	if _, err := os.Stat(targetJSON); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted=%d but target survived read failure; race window missed", got.deleted)
+	}
+	if got.deleted != n+1 {
+		t.Fatalf("deleted=%d, want %d (unreadable-record target counted as removed via fail-open path)", got.deleted, n+1)
+	}
+	t.Logf("FAIL-OPEN CONFIRMED: under-lock read error -> removal + silent success (deleted=%d)", got.deleted)
+}
+
+// Probe 8: contrast arm — same 0o000 bit before the pre-pass makes the set
+// invisible to the queued pass and it is retained.
+func TestAdvUnreadablePrePassRetained(t *testing.T) {
+	store, root, _, base := advNewStore(t)
+	record := advComplete(t, store, "exec-pre", "key-pre", base.Add(time.Hour))
+	jsonPath := filepath.Join(root, record.ID+".json")
+	if err := os.Chmod(jsonPath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := store.Reconcile(context.Background(), base.Add(2*time.Hour), 10)
+	if err != nil || deleted != 0 {
+		t.Fatalf("pre-pass unreadable sweep deleted=%d err=%v want retained", deleted, err)
+	}
+	if _, err := os.Stat(jsonPath); err != nil {
+		t.Fatalf("pre-pass policy violated: %v", err)
+	}
+	_ = os.Chmod(jsonPath, 0o600)
+}

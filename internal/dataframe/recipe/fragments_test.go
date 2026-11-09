@@ -3,6 +3,7 @@ package recipe
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -25,6 +26,41 @@ func TestFragmentCycleRejected(t *testing.T) {
 	lib := FragmentLibrary{Fragments: map[string]Fragment{"a": {Name: "a", Version: "1", Expr: Expression{Call: "fragment:b"}}, "b": {Name: "b", Version: "1", Expr: Expression{Call: "fragment:a"}}}}
 	if _, err := lib.ExpandExpression(Expression{Call: "fragment:a"}); err == nil {
 		t.Fatal("expected fragment cycle")
+	}
+}
+
+// TestFragmentExpansionFailuresAreClassifiedValidationError pins that every
+// fragment-expansion user fault reaches the typed *ValidationError channel.
+// Before this repair these two legs escaped it as raw fmt.Errorf and the
+// register mutation wire-returned 500 INTERNAL_ERROR (parent RED log
+// verification/publication-bundle/evidence/recipe-revision/RED-fragment-expansion.log),
+// while the two control legs below already wire-returned 400 INVALID_REQUEST.
+func TestFragmentExpansionFailuresAreClassifiedValidationError(t *testing.T) {
+	classified := func(err error) bool {
+		var validation *ValidationError
+		return errors.As(err, &validation)
+	}
+	newBundle := func(fragments map[string]Fragment, fields []Field) Bundle {
+		return Bundle{RecipeSchemaVersion: 1, Name: "fragments", TranslationVersion: "v", Fragments: &FragmentLibrary{Fragments: fragments}, Outputs: []Output{{Name: "DocumentReference", RootResourceType: "DocumentReference", RowGrain: "document_reference", Fields: fields}}}
+	}
+	library := map[string]Fragment{"f": {Name: "f", Version: "1", Params: []string{"x"}, Expr: Expression{Select: "$x"}}}
+	for _, leg := range []struct {
+		name           string
+		bundle         Bundle
+		wantClassified bool
+	}{
+		{"unknown fragment", newBundle(library, []Field{{Name: "a", Expr: Expression{Call: "fragment:nope"}}}), true},
+		{"fragment arity", newBundle(library, []Field{{Name: "a", Expr: Expression{Call: "fragment:f"}}}), true},
+		{"empty fragment library", newBundle(map[string]Fragment{}, []Field{{Name: "a", Expr: Expression{Select: "root.a"}}}), true},
+		{"unsupported call", newBundle(library, []Field{{Name: "a", Expr: Expression{Call: "bogus_op"}}}), true},
+	} {
+		_, err := leg.bundle.ExpandFragments()
+		if err == nil {
+			t.Fatalf("leg %s: expected rejection", leg.name)
+		}
+		if got := classified(err); got != leg.wantClassified {
+			t.Fatalf("leg %s: classified=%v want %v (err=%v)", leg.name, got, leg.wantClassified, err)
+		}
 	}
 }
 

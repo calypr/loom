@@ -11,6 +11,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -30,6 +31,10 @@ func TestPreCohortDropStagesExcludeMissingPinnedMembersAgainstArango(t *testing.
 	}
 
 	project, generation := "loom_cohort_drop_"+uuid.NewString(), "cohort-drop-generation-"+uuid.NewString()
+	selectionProject := projectid.Canonical(project)
+	if selectionProject == project {
+		t.Fatal("fixture must exercise distinct selection and resource project identities")
+	}
 	owned := map[string][]string{}
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -70,29 +75,29 @@ func TestPreCohortDropStagesExcludeMissingPinnedMembersAgainstArango(t *testing.
 		revision, selection := project+"_"+caseName+"_revision", project+"_"+caseName+"_selection"
 		digest := "membership-" + caseName
 		insert("loom_explorer_explicit_group_revisions", map[string]any{
-			"_key": revision, "state": "COMPLETE", "project": project, "generation": generation,
+			"_key": revision, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 			"resourceType": "Patient", "sourceSelectionRevisionId": selection,
 			"scopeDigest": "scope-" + caseName, "sourceMembershipDigest": digest,
 		})
 		insert("loom_explorer_selections", map[string]any{
-			"_key": selection, "complete": true, "project": project, "generation": generation,
+			"_key": selection, "complete": true, "project": selectionProject, "generation": generation,
 			"resourceType": "Patient", "scopeDigest": "scope-" + caseName, "membershipDigest": digest,
 		})
 		insert("loom_explorer_explicit_group_definitions", map[string]any{
 			"_key": project + "_" + caseName + "_definition", "revisionId": revision,
-			"project": project, "groupId": "test", "label": "Test", "ordinal": 0,
+			"project": selectionProject, "groupId": "test", "label": "Test", "ordinal": 0,
 		})
 		selectionMembers := make([]map[string]any, 0, len(ids))
 		memberships := make([]map[string]any, 0, len(ids))
 		for _, id := range ids {
 			selectionMembers = append(selectionMembers, map[string]any{
 				"_key": project + "_" + caseName + "_selection_" + id, "selectionId": selection,
-				"project": project, "generation": generation, "resourceType": "Patient", "id": id,
+				"project": selectionProject, "generation": generation, "resourceType": "Patient", "id": id,
 			})
 			memberships = append(memberships, map[string]any{
 				"_key": project + "_" + caseName + "_membership_" + id, "revisionId": revision,
-				"project": project, "generation": generation, "resourceType": "Patient", "id": id, "groupId": "test",
-				"ref": map[string]any{"project": project, "generation": generation, "resourceType": "Patient", "id": id},
+				"project": selectionProject, "generation": generation, "resourceType": "Patient", "id": id, "groupId": "test",
+				"ref": map[string]any{"project": selectionProject, "generation": generation, "resourceType": "Patient", "id": id},
 			})
 		}
 		insert("loom_explorer_selection_members", selectionMembers...)
@@ -125,7 +130,7 @@ func TestPreCohortDropStagesExcludeMissingPinnedMembersAgainstArango(t *testing.
 	)
 
 	bindings := recipe.RuntimeBindings{
-		Project: project, SelectionProject: project, DatasetGeneration: generation,
+		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true,
 	}
 	rootFields := []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}}

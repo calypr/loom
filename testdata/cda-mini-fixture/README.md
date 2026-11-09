@@ -75,8 +75,8 @@ The script sets `LOOM_CDA_MINI_FIXTURE=1`, points `LOOM_DEV_FIXTURE_DIR` at this
 directory, and selects `verification/builder-interactions/cda-mini-journeys.json`.
 Reports and traces land in `.artifacts/builder-journey/cda-mini/`.
 
-The GitHub Actions workflow `.github/workflows/builder-cda-mini.yml` runs the
-same five journeys.
+These five browser journeys remain available as an optional local diagnostic.
+They are not part of the required CI test budget.
 
 The retained CDA Group edit/remove/reload branch is a manual-only entry in the
 same journey manifest. It has not been run and is not part of the fixed journey

@@ -238,6 +238,8 @@ paths:
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
+        '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
         '503': {$ref: '#/components/responses/AuthoringUnavailable'}
   /api/v1/projects/{project}/explorers/{explorerId}/authoring/v2/frame-source-options:
@@ -764,6 +766,7 @@ paths:
         '400': {$ref: '#/components/responses/AuthoringBadRequest'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '403': {$ref: '#/components/responses/AuthoringForbidden'}
+        '404': {$ref: '#/components/responses/AuthoringNotFound'}
         '409': {$ref: '#/components/responses/AuthoringConflict'}
         '422': {$ref: '#/components/responses/AuthoringUnprocessable'}
         '500': {$ref: '#/components/responses/AuthoringInternalError'}
@@ -1272,15 +1275,57 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/GraphQLBadRequest'}
+        '400':
+          description: The GraphQL HTTP request envelope or transport parameters are malformed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '409':
           description: The GraphQL operation used stale cursor, revision, or publication identity.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
-        '500': {$ref: '#/components/responses/GraphQLInternalError'}
+        '422':
+          description: The GraphQL document could not be parsed or validated for execution.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '403':
+          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '404':
+          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '413':
+          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '429':
+          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '499':
+          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '504':
+          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '500':
+          description: GraphQL execution failed before a normal GraphQL response could be produced.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '503':
           description: The GraphQL backend or authorization service is unavailable.
           content:
@@ -1301,15 +1346,57 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '400': {$ref: '#/components/responses/GraphQLBadRequest'}
+        '400':
+          description: The GraphQL HTTP request envelope or transport parameters are malformed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '401': {$ref: '#/components/responses/ServiceUnauthorized'}
         '409':
           description: The GraphQL operation used stale cursor, revision, or publication identity.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/RawJSON'}
-        '422': {$ref: '#/components/responses/GraphQLUnprocessable'}
-        '500': {$ref: '#/components/responses/GraphQLInternalError'}
+        '422':
+          description: The GraphQL document could not be parsed or validated for execution.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '403':
+          description: The operation resolved to a typed authorization denial (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '404':
+          description: The operation resolved to a typed not-found class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '413':
+          description: The operation resolved to a typed size-limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '429':
+          description: The operation resolved to a typed plan-cost limit class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '499':
+          description: The operation resolved to a typed client-cancellation class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '504':
+          description: The operation resolved to a typed preview/execution timeout class (see the errors extension code in the GraphQL envelope).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '500':
+          description: GraphQL execution failed before a normal GraphQL response could be produced.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
         '503':
           description: The GraphQL backend or authorization service is unavailable.
           content:
@@ -1544,21 +1631,6 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/ServiceErrorResponse'}
-    GraphQLBadRequest:
-      description: The GraphQL HTTP request envelope or transport parameters are malformed.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
-    GraphQLUnprocessable:
-      description: The GraphQL document could not be parsed or validated for execution.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
-    GraphQLInternalError:
-      description: GraphQL execution failed before a normal GraphQL response could be produced.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/RawJSON'}
     LegacyBadRequest:
       description: The legacy Explorer request is malformed or missing required input.
       content:
@@ -1818,6 +1890,10 @@ components:
         schemaDigest: {type: string}
         resolvedSchemaDigest: {type: string}
         state: {type: string}
+        error: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        errorRetryable: {type: boolean, nullable: true}
+        phase: {type: string, nullable: true}
         outputs:
           type: array
           items: {$ref: '#/components/schemas/RecipeExecutionOutput'}
@@ -1829,6 +1905,10 @@ components:
         name: {type: string}
         state: {type: string}
         rowCount: {type: integer, format: int64}
+        error: {type: string, nullable: true}
+        errorCode: {type: string, nullable: true}
+        errorRetryable: {type: boolean, nullable: true}
+        phase: {type: string, nullable: true}
         columns:
           type: array
           items: {$ref: '#/components/schemas/RecipeExecutionColumn'}
@@ -4116,6 +4196,17 @@ components:
         outputColumnId: {type: string, minLength: 1}
         ordinalColumnId: {type: string, minLength: 1}
         emptyPolicy: {type: string, enum: [ERROR, EXCLUDE, PRESERVE_PARENT]}
+        expandedField: {$ref: '#/components/schemas/ConstructionExpandedFieldSource'}
+    ConstructionExpandedFieldSource:
+      type: object
+      description: Server-signed shape of a direct-root EXPAND array source. The server derives and overwrites this payload; a client-authored value never survives proposal validation.
+      additionalProperties: false
+      required: [path, cardinality, logicalType]
+      properties:
+        path: {type: string, minLength: 1}
+        cardinality: {type: string, enum: [many]}
+        fhirType: {type: string, minLength: 1}
+        logicalType: {type: string, minLength: 1}
     ConstructionCombine:
       type: object
       additionalProperties: false
@@ -4450,10 +4541,134 @@ components:
           items: {$ref: '#/components/schemas/ConstructionGroupFieldScalarSourceOption'}
         sourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
         pivotSourceInput: {$ref: '#/components/schemas/ConstructionSourceInput'}
+        filterSourceInput: {$ref: '#/components/schemas/ConstructionFilterSourceInput'}
+        deriveSourceInput: {$ref: '#/components/schemas/ConstructionDeriveSourceInput'}
+        unpivotSourceInput: {$ref: '#/components/schemas/ConstructionUnpivotSourceInput'}
+        expandSourceInput: {$ref: '#/components/schemas/ConstructionExpandSourceInput'}
         sourceProjectionAvailability: {$ref: '#/components/schemas/ConstructionSourceProjectionAvailability'}
         workspaceInputs:
           type: array
           items: {$ref: '#/components/schemas/ConstructionWorkspaceInput'}
+    ConstructionFilterSourceInput:
+      type: object
+      additionalProperties: false
+      required: [supported, stageId, choices]
+      properties:
+        supported: {type: boolean}
+        stageId: {type: string, minLength: 1}
+        reasonCode: {type: string, minLength: 1}
+        reason: {type: string}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionFilterSourceChoice'}
+    ConstructionFilterSourceChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, fieldPath, label, logicalType, isPopulated, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string}
+        logicalType: {type: string, minLength: 1}
+        isPopulated: {type: boolean}
+        columnId: {type: string}
+    ConstructionFilterSourceSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+    ConstructionDeriveSourceInput:
+      type: object
+      additionalProperties: false
+      required: [supported, stageId, choices]
+      properties:
+        supported: {type: boolean}
+        stageId: {type: string, minLength: 1}
+        reasonCode: {type: string, minLength: 1}
+        reason: {type: string}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionDeriveSourceChoice'}
+    ConstructionDeriveSourceChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, fieldPath, label, logicalType, isPopulated, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string}
+        logicalType: {type: string, minLength: 1}
+        isPopulated: {type: boolean}
+        columnId: {type: string}
+    ConstructionDeriveSourceSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+    ConstructionUnpivotSourceInput:
+      type: object
+      additionalProperties: false
+      required: [supported, stageId, choices]
+      properties:
+        supported: {type: boolean}
+        stageId: {type: string, minLength: 1}
+        reasonCode: {type: string, minLength: 1}
+        reason: {type: string}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionUnpivotSourceChoice'}
+    ConstructionUnpivotSourceChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, fieldPath, label, logicalType, isPopulated, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string}
+        logicalType: {type: string, minLength: 1}
+        isPopulated: {type: boolean}
+        columnId: {type: string}
+    ConstructionUnpivotSourceSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
+    ConstructionExpandSourceInput:
+      type: object
+      additionalProperties: false
+      required: [supported, stageId, choices]
+      properties:
+        supported: {type: boolean}
+        stageId: {type: string, minLength: 1}
+        reasonCode: {type: string, minLength: 1}
+        reason: {type: string}
+        choices:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionExpandSourceChoice'}
+    ConstructionExpandSourceChoice:
+      type: object
+      additionalProperties: false
+      required: [choiceId, fieldPath, label, logicalType, isPopulated, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        fieldPath: {type: string, minLength: 1}
+        label: {type: string}
+        logicalType: {type: string, minLength: 1}
+        isPopulated: {type: boolean}
+        columnId: {type: string}
+    ConstructionExpandSourceSelection:
+      type: object
+      additionalProperties: false
+      required: [choiceId, columnId]
+      properties:
+        choiceId: {type: string, minLength: 1}
+        columnId: {type: string, minLength: 1}
     ConstructionGroupFieldChoice:
       oneOf:
         - $ref: '#/components/schemas/ConstructionGroupFieldScalarSourceOption'
@@ -4655,6 +4870,18 @@ components:
         pivotSources:
           type: array
           items: {$ref: '#/components/schemas/ConstructionPivotSourceSelection'}
+        filterSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionFilterSourceSelection'}
+        deriveSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionDeriveSourceSelection'}
+        unpivotSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionUnpivotSourceSelection'}
+        expandSources:
+          type: array
+          items: {$ref: '#/components/schemas/ConstructionExpandSourceSelection'}
         limit: {type: integer, minimum: 1, maximum: 1000}
     ConstructionPivotSourceSelection:
       type: object

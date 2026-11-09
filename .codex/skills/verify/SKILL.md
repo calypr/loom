@@ -5,6 +5,36 @@ description: Verify Loom Builder features in the real local browser, including b
 
 # Verify Loom development
 
+## Current executable routes
+
+For the opt-in Lightpanda engine experiment, read
+`docs/verification/lightpanda/README.md`. Its default pooled DOM lane uses private
+Lightpanda HTTP caches and independent worker processes; native compatibility
+mode also enables stylesheet loading. Read `POOLED_RESULTS.md` for current
+measurements. DOM checks do not replace native input/download acceptance. Do not
+count failed native interactions as coverage or replace them with injected events.
+
+Use the existing verification entry point and feature map:
+
+```sh
+node scripts/verify-builder-formal-core.mjs --phase inventory
+node scripts/verify-builder-formal-core.mjs --phase behavior --feature drafts
+node scripts/verify-builder-formal-core.mjs --phase api --feature restore
+```
+
+See `../builder-interaction-formal-verification/features/README.md` for the five frontend groups, current formal links, exact evidence and remaining boundaries. Run focused cases while editing; batch the full retained checks at coherent checkpoints. `make verify-fast`, `verify-api`, `verify-formal`, `verify-inventory`, and the Builder `verify-full` checkpoint now have real routes. Inventory is read-only discovery, not proof that tests passed.
+
+The core `scripts/loom-dev.mjs` commands load independently of retired browser helpers. Inspect `docker compose ls --all` first; use `make dev-doctor` only for the explicitly owned development identity. A stopped or missing project is blocked, not verified. No runtime is started by these instructions.
+
+For an already deployed authenticated target use `../verify-loom-ui/SKILL.md`. Run its doctor before drive, provide credentials only through its documented protected file/environment, and on Linux pass `--chrome /usr/bin/chromium` to drive. That harness currently proves Builder load; it does not establish every authoring/publication journey. Its native helper tests are connected to Node CI.
+
+Keep `features/README.md` and its four feature pages as user-guarantee requirements. Browser wiring, layout/drag/drop, exact composed results, and durable storage need their own proof. Component/API checks close only the boundaries they actually exercise. Do not run the canonical `acceptance-real` deployment command as a passive doctor or fast check.
+
+## Historical procedures retained for coverage review
+
+**The procedures below reference retired browser runners/specs and are not an executable recipe for this checkout. Do not run the old native bracket or journey commands.** Their behavioral requirements and historical evidence are retained while deleted coverage is assessed. Use the current routes above; never report an old Make no-op, skipped case, or historical report as a current pass.
+
+
 Use this skill for frontend and backend iterations against the development
 Compose project. It does not drive the canonical `loom-demo` deployment.
 
@@ -12,13 +42,24 @@ Compose project. It does not drive the canonical `loom-demo` deployment.
 
 One small change gets one focused test under 5 seconds. Run only the test or mutation probe for the edited behavior. Do not run a browser lifecycle or the integrated formal gate for a small change. Batch those at checkpoints.
 
-For the Builder formal loop, use `node scripts/run-builder-mutation-probe.mjs <probe-id> --force`. The `builder-interaction-formal-verification` skill documents the current probe set and cache behavior.
+For Builder ownership/reconcile changes, use the focused tests and current commands in `.codex/skills/builder-interaction-formal-verification/SKILL.md`. That skill owns the model → real-code replay → product refinement → regression/control loop. The retired `run-builder-mutation-probe.mjs` is not an executable gate.
 
 ## Development Compose identity
 
 Discover the running project with `docker compose ls --all`. Inspect it with `docker compose -f compose.dev.yaml -p <project> ps`. Always pass `-f compose.dev.yaml`. The default `compose.yaml` describes the canonical `loom-demo` deployment and will create the wrong containers under a development project name. Read the published ports from the running containers, not from a stale `dev-session.json`.
 
 ## Failure-loop discipline
+
+### First-failure capture
+
+Never re-run a full suite to reveal error output, and never run the whole suite
+for one tiny change. On a failing broad run: preserve the evidence directory,
+capture the complete log and the runner's exit code once, identify the first
+actionable failure, and inspect its cause. After a targeted fix, run the
+smallest relevant check, not the suite. Repeat the broad suite only when
+focused checks justify it. Delegate independent investigations when useful,
+but keep implementation ownership separate from investigation ownership. Do not
+change timeouts unless the failure is established to actually be a timeout.
 
 ### Batch scheduling
 

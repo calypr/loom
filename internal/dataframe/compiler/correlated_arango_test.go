@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/dataframe/unit"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/projectid"
 	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
@@ -142,6 +143,10 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	project, generation := "group_rows_"+uuid.NewString(), "generation_"+uuid.NewString()
+	selectionProject := projectid.Canonical(project)
+	if selectionProject == project {
+		t.Fatal("fixture must exercise distinct selection and resource project identities")
+	}
 	revisionID, selectionID := "grouprev_"+uuid.NewString(), "selection_"+uuid.NewString()
 	member1ID, member2ID := project+"-member-1", project+"-member-2"
 	missingMemberID, unrelatedID := project+"-member-missing", project+"-unrelated"
@@ -153,30 +158,30 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 	insertGroupRowsFixtureDocs(ctx, t, client, "Observation", resourceDocs)
 	scopeDigest, sourceMembershipDigest := "group-row-scope", "group-row-source-membership"
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_revisions", []map[string]any{{
-		"_key": revisionID, "id": revisionID, "project": project, "generation": generation, "resourceType": "Observation",
+		"_key": revisionID, "id": revisionID, "project": selectionProject, "generation": generation, "resourceType": "Observation",
 		"scopeDigest": scopeDigest, "sourceSelectionRevisionId": selectionID, "sourceMembershipDigest": sourceMembershipDigest, "definitionDigest": "definition-digest",
 		"membershipDigest": "membership-digest", "state": "COMPLETE",
 	}})
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_selections", []map[string]any{{
-		"_key": selectionID, "id": selectionID, "project": project, "generation": generation, "resourceType": "Observation",
+		"_key": selectionID, "id": selectionID, "project": selectionProject, "generation": generation, "resourceType": "Observation",
 		"scopeDigest": scopeDigest, "membershipDigest": sourceMembershipDigest, "complete": true,
 	}})
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_definitions", []map[string]any{
-		{"_key": "def-a-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-a", "label": "Alpha", "ordinal": 0},
-		{"_key": "def-b-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-b", "label": "Beta", "ordinal": 1},
-		{"_key": "def-empty-" + revisionID, "revisionId": revisionID, "project": project, "groupId": "group-empty", "label": "Empty", "ordinal": 2},
+		{"_key": "def-a-" + revisionID, "revisionId": revisionID, "project": selectionProject, "groupId": "group-a", "label": "Alpha", "ordinal": 0},
+		{"_key": "def-b-" + revisionID, "revisionId": revisionID, "project": selectionProject, "groupId": "group-b", "label": "Beta", "ordinal": 1},
+		{"_key": "def-empty-" + revisionID, "revisionId": revisionID, "project": selectionProject, "groupId": "group-empty", "label": "Empty", "ordinal": 2},
 	})
 	selectionIDs := []string{member1ID, member2ID, missingMemberID, project + "-member-unassigned"}
 	selectionMembers := make([]map[string]any, 0, len(selectionIDs))
 	for _, id := range selectionIDs {
-		selectionMembers = append(selectionMembers, map[string]any{"_key": "sel-" + revisionID + "-" + id, "selectionId": selectionID, "project": project, "generation": generation, "resourceType": "Observation", "id": id})
+		selectionMembers = append(selectionMembers, map[string]any{"_key": "sel-" + revisionID + "-" + id, "selectionId": selectionID, "project": selectionProject, "generation": generation, "resourceType": "Observation", "id": id})
 	}
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_selection_members", selectionMembers)
 	groupMemberships := []map[string]any{
-		groupRowsMembership(revisionID, project, generation, "group-a", member1ID),
-		groupRowsMembership(revisionID, project, generation, "group-a", member2ID),
-		groupRowsMembership(revisionID, project, generation, "group-a", missingMemberID),
-		groupRowsMembership(revisionID, project, generation, "group-b", member1ID),
+		groupRowsMembership(revisionID, selectionProject, generation, "group-a", member1ID),
+		groupRowsMembership(revisionID, selectionProject, generation, "group-a", member2ID),
+		groupRowsMembership(revisionID, selectionProject, generation, "group-a", missingMemberID),
+		groupRowsMembership(revisionID, selectionProject, generation, "group-b", member1ID),
 	}
 	insertGroupRowsFixtureDocs(ctx, t, client, "loom_explorer_explicit_group_memberships", groupMemberships)
 
@@ -217,7 +222,7 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 			if identity["id"] != wantMembers[index][memberIndex] {
 				t.Fatalf("group %q member order/identity = %#v, want %q", wantGroups[index], identity, wantMembers[index][memberIndex])
 			}
-			if identity["project"] != project || identity["generation"] != generation || identity["resource_type"] != "Observation" {
+			if identity["project"] != selectionProject || identity["generation"] != generation || identity["resource_type"] != "Observation" {
 				t.Fatalf("member exact source identity = %#v", identity)
 			}
 			if identity["id"] == missingMemberID && value["payload"] != nil {

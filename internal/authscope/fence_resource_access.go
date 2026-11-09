@@ -16,17 +16,33 @@ import (
 	"time"
 )
 
+// defaultFenceAccessCacheEntries bounds how many parsed Fence snapshots one
+// client retains. A snapshot only has to survive one TTL, so the useful working
+// set is the number of distinct bearer tokens seen within a TTL. Token churn
+// keeps minting sha256 keys that are never read again, and the TTL only decides
+// whether a snapshot is served, never whether its memory is released: the entry
+// cap is the memory bound, and the expiry sweeps on read and on insert are what
+// keep churned-away snapshots from holding slots. Past the cap the least
+// recently used token loses its slot and simply refetches.
+const defaultFenceAccessCacheEntries = 1024
+
 type FenceUserAccessClient struct {
-	client        *http.Client
-	trustedIssuer string
-	cacheTTL      time.Duration
-	mu            sync.Mutex
-	cache         map[string]cachedResourceAccess
+	client          *http.Client
+	trustedIssuer   string
+	cacheTTL        time.Duration
+	maxCacheEntries int
+	now             func() time.Time
+	mu              sync.Mutex
+	cache           map[string]cachedResourceAccess
+	accessSeq       uint64
 }
 
 type cachedResourceAccess struct {
 	snapshot  map[string][]resourceAccessRecord
 	expiresAt time.Time
+	// seq orders cache touches (inserts and served hits) so cap eviction is
+	// deterministic and never depends on map iteration order.
+	seq uint64
 }
 
 func NewFenceUserAccessClientWithTrustedIssuer(client *http.Client, trustedIssuer string, cacheTTL time.Duration) (*FenceUserAccessClient, error) {
@@ -44,13 +60,37 @@ func NewFenceUserAccessClientWithTrustedIssuer(client *http.Client, trustedIssue
 }
 
 func newFenceUserAccessClient(client *http.Client, trustedIssuer string, cacheTTL time.Duration) *FenceUserAccessClient {
+	return newFenceUserAccessClientWithCachePolicy(client, trustedIssuer, cacheTTL, defaultFenceAccessCacheEntries, nil)
+}
+
+// newFenceUserAccessClientWithCachePolicy is the seam used by tests to pin the
+// entry bound and the clock. A maxEntries below one disables retention
+// instead of admitting nothing.
+func newFenceUserAccessClientWithCachePolicy(client *http.Client, trustedIssuer string, cacheTTL time.Duration, maxEntries int, now func() time.Time) *FenceUserAccessClient {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	if cacheTTL <= 0 {
 		cacheTTL = 30 * time.Second
 	}
-	return &FenceUserAccessClient{client: client, trustedIssuer: trustedIssuer, cacheTTL: cacheTTL, cache: make(map[string]cachedResourceAccess)}
+	if maxEntries < 1 {
+		maxEntries = 1
+	}
+	return &FenceUserAccessClient{
+		client:          client,
+		trustedIssuer:   trustedIssuer,
+		cacheTTL:        cacheTTL,
+		maxCacheEntries: maxEntries,
+		now:             now,
+		cache:           make(map[string]cachedResourceAccess),
+	}
+}
+
+func (c *FenceUserAccessClient) currentTime() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
 }
 
 // ValidateTrustedFenceIssuer requires an absolute HTTP(S) issuer URL without
@@ -118,12 +158,21 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 	}
 	sum := sha256.Sum256([]byte(authHeader))
 	key := fmt.Sprintf("%x", sum[:])
-	now := time.Now()
+	now := c.currentTime()
 	c.mu.Lock()
-	if cached, ok := c.cache[key]; ok && now.Before(cached.expiresAt) {
-		snapshot := cloneResourceAccess(cached.snapshot)
-		c.mu.Unlock()
-		return snapshot, nil
+	if cached, ok := c.cache[key]; ok {
+		if now.Before(cached.expiresAt) {
+			snapshot := cloneResourceAccess(cached.snapshot)
+			// A served hit makes this snapshot the most recently used, so
+			// cap eviction discards churned-away tokens first.
+			cached.seq = c.nextAccessSeqLocked()
+			c.cache[key] = cached
+			c.mu.Unlock()
+			return snapshot, nil
+		}
+		// Expired entries are never served, so release the slot instead of
+		// leaving token churn to accumulate dead snapshots.
+		delete(c.cache, key)
 	}
 	c.mu.Unlock()
 	endpoint, err := fenceUserEndpoint(c.trustedIssuer)
@@ -162,9 +211,49 @@ func (c *FenceUserAccessClient) getResourceAccess(ctx context.Context, authoriza
 		return nil, fmt.Errorf("%w: invalid authorization snapshot response: %w", ErrAuthorizationBackendUnavailable, err)
 	}
 	c.mu.Lock()
-	c.cache[key] = cachedResourceAccess{snapshot: cloneResourceAccess(snapshot), expiresAt: time.Now().Add(c.cacheTTL)}
+	c.storeResourceAccessLocked(key, snapshot, c.currentTime())
 	c.mu.Unlock()
 	return snapshot, nil
+}
+
+// storeResourceAccessLocked installs a fresh snapshot valid until now+TTL and
+// holds the cache within maxCacheEntries: snapshots past their TTL are dropped
+// first (they can never be served again), then the least-recently-used entries
+// until the cap is met. Eviction removes whole per-token keys, so one token can
+// never lose grants belonging to another. Callers must hold c.mu.
+func (c *FenceUserAccessClient) storeResourceAccessLocked(key string, snapshot map[string][]resourceAccessRecord, now time.Time) {
+	c.cache[key] = cachedResourceAccess{snapshot: cloneResourceAccess(snapshot), expiresAt: now.Add(c.cacheTTL), seq: c.nextAccessSeqLocked()}
+	for token, entry := range c.cache {
+		if !now.Before(entry.expiresAt) {
+			delete(c.cache, token)
+		}
+	}
+	for len(c.cache) > c.maxCacheEntries {
+		victim, ok := c.leastRecentlyUsedCacheKeyLocked()
+		if !ok {
+			return
+		}
+		delete(c.cache, victim)
+	}
+}
+
+func (c *FenceUserAccessClient) nextAccessSeqLocked() uint64 {
+	c.accessSeq++
+	return c.accessSeq
+}
+
+func (c *FenceUserAccessClient) leastRecentlyUsedCacheKeyLocked() (string, bool) {
+	var victim string
+	var oldest uint64
+	found := false
+	for token, entry := range c.cache {
+		if !found || entry.seq < oldest {
+			victim = token
+			oldest = entry.seq
+			found = true
+		}
+	}
+	return victim, found
 }
 
 func cloneResourceAccess(in map[string][]resourceAccessRecord) map[string][]resourceAccessRecord {
@@ -219,6 +308,14 @@ func NormalizeAuthResourcePath(value string) string {
 	if value == "" {
 		return ""
 	}
+	// Control characters (including NUL) must never participate in scope
+	// paths: every scope-digest encoder joins normalized paths with \x00,
+	// so a NUL inside one declared path folds distinct restricted grant
+	// lists onto one digest (finding F-B22). Such declarations are refused
+	// at ingest; consumers already treat an empty normalization as absent.
+	if containsAuthPathControlChar(value) {
+		return ""
+	}
 	if key, ok := calyprProjectKeyFromResourcePath(value); ok {
 		return key
 	}
@@ -230,6 +327,9 @@ func authResourcePathsFromResources(resources []string) []string {
 	out := make([]string, 0, len(resources))
 	for _, resource := range resources {
 		if key, ok := calyprProjectKeyFromResourcePath(resource); ok {
+			if containsAuthPathControlChar(key) {
+				continue
+			}
 			if _, exists := seen[key]; exists {
 				continue
 			}
@@ -362,6 +462,9 @@ func cleanAccessToken(raw string) string {
 
 func calyprProjectKeyFromResourcePath(resource string) (string, bool) {
 	normalized := normalizeResourcePath(resource)
+	if containsAuthPathControlChar(normalized) {
+		return "", false
+	}
 	parts := strings.Split(normalized, "/")
 	if len(parts) < 5 {
 		return "", false
@@ -382,4 +485,24 @@ func normalizeResourcePath(resource string) string {
 	}
 	resource = "/" + strings.Trim(resource, "/")
 	return strings.TrimSuffix(resource, "/")
+}
+
+// NormalizeAuthResourcePaths is the exported view of ingest-time scope-path
+// normalization, for callers that build restricted read-scope paths without a
+// wired ScopeResolver. Entries normalizing to empty or containing control
+// characters are dropped (see the F-B22 note in NormalizeAuthResourcePath).
+func NormalizeAuthResourcePaths(paths []string) []string {
+	return normalizeAuthResourcePathList(paths)
+}
+
+// containsAuthPathControlChar reports whether value holds an ASCII control
+// byte (C0 range or DEL). Those bytes never legitimately appear in
+// authorization resource paths and they enable the F-B22 digest fold.
+func containsAuthPathControlChar(value string) bool {
+	for i := 0; i < len(value); i++ {
+		if value[i] < 0x20 || value[i] == 0x7f {
+			return true
+		}
+	}
+	return false
 }

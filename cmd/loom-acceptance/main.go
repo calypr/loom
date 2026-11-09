@@ -124,7 +124,7 @@ func main() {
 	}
 	runner, err := acceptance.New(acceptance.Config{
 		Target:  acceptance.StaticTarget{Conn: acceptance.Connections{LoomURL: *loomURL, ArangoURL: *arangoURL, ClickHouseURL: *clickhouseURL, ClickHouseUsername: *clickhouseUser, ClickHousePassword: *clickhousePassword}},
-		Fixture: acceptance.Fetcher{CacheDir: *cacheDir, Lock: lock, Limits: acceptance.DefaultLimits(), HTTPClient: &http.Client{Timeout: 45 * time.Second}},
+		Fixture: &acceptance.Fetcher{CacheDir: *cacheDir, Lock: lock, Limits: acceptance.DefaultLimits(), HTTPClient: &http.Client{Timeout: 45 * time.Second}},
 		Run:     acceptance.RunSpec{RunID: acceptance.RunID(*runID), Project: *project, Generation: *generation}, ArtifactDir: *artifactDir, WorkspacePath: *workspacePath, OraclePath: *oraclePath,
 		HTTPClient: &http.Client{Timeout: 2 * time.Minute}, SourceCommit: sourceCommit(),
 	})

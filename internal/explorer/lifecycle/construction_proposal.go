@@ -43,6 +43,10 @@ type ConstructionCapabilitiesResponse struct {
 	SelectedStage                  explorer.ReceiptConstructionStage         `json:"selectedStage"`
 	SourceInput                    ConstructionGroupSourceCapability         `json:"sourceInput"`
 	PivotSourceInput               ConstructionPivotSourceCapability         `json:"pivotSourceInput"`
+	FilterSourceInput              ConstructionFilterSourceCapability        `json:"filterSourceInput"`
+	DeriveSourceInput              ConstructionDeriveSourceCapability        `json:"deriveSourceInput"`
+	UnpivotSourceInput             ConstructionUnpivotSourceCapability       `json:"unpivotSourceInput"`
+	ExpandSourceInput              ConstructionExpandSourceCapability        `json:"expandSourceInput"`
 	GroupFieldChoices              []ConstructionGroupFieldChoice            `json:"groupFieldChoices"`
 	GroupFieldChoicesIncomplete    bool                                      `json:"groupFieldChoicesIncomplete,omitempty"`
 	GroupRowValueChoices           []ConstructionGroupFieldChoice            `json:"groupRowValueChoices"`
@@ -187,9 +191,13 @@ type ConstructionProposalRequest struct {
 	ChangedStepID         string
 	RemoveStepIDs         []string
 	CandidateConstruction authoringv2.Construction
-	GroupSources          []ConstructionGroupSourceSelection `json:"groupSources,omitempty"`
-	GroupSource           *ConstructionGroupSourceSelection  `json:"groupSource,omitempty"`
-	PivotSources          []ConstructionPivotSourceSelection `json:"pivotSources,omitempty"`
+	GroupSources          []ConstructionGroupSourceSelection   `json:"groupSources,omitempty"`
+	GroupSource           *ConstructionGroupSourceSelection    `json:"groupSource,omitempty"`
+	PivotSources          []ConstructionPivotSourceSelection   `json:"pivotSources,omitempty"`
+	FilterSources         []ConstructionFilterSourceSelection  `json:"filterSources,omitempty"`
+	DeriveSources         []ConstructionDeriveSourceSelection  `json:"deriveSources,omitempty"`
+	UnpivotSources        []ConstructionUnpivotSourceSelection `json:"unpivotSources,omitempty"`
+	ExpandSources         []ConstructionExpandSourceSelection  `json:"expandSources,omitempty"`
 	Limit                 int
 }
 
@@ -257,6 +265,18 @@ func (r ConstructionProposalRequest) Validate() error {
 		}
 	}
 	if err := validateConstructionPivotSourceSelections(r.PivotSources); err != nil {
+		return err
+	}
+	if err := validateConstructionFilterSourceSelections(r.FilterSources); err != nil {
+		return err
+	}
+	if err := validateConstructionDeriveSourceSelections(r.DeriveSources); err != nil {
+		return err
+	}
+	if err := validateConstructionUnpivotSourceSelections(r.UnpivotSources); err != nil {
+		return err
+	}
+	if err := validateConstructionExpandSourceSelections(r.ExpandSources); err != nil {
 		return err
 	}
 	for stepIndex, step := range r.CandidateConstruction.Steps {
@@ -370,6 +390,22 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 	if err != nil {
 		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile pivot source choices: %w", err)
 	}
+	filterSourceInput, err := s.constructionFilterSourceCapability(ctx, base, request.OutputID, selected.ID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile filter source choices: %w", err)
+	}
+	deriveSourceInput, err := s.constructionDeriveSourceCapability(ctx, base, request.OutputID, selected.ID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile derive source choices: %w", err)
+	}
+	unpivotSourceInput, err := s.constructionUnpivotSourceCapability(ctx, base, request.OutputID, selected.ID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile unpivot source choices: %w", err)
+	}
+	expandSourceInput, err := s.constructionExpandSourceCapability(ctx, base, request.OutputID, selected.ID)
+	if err != nil {
+		return ConstructionCapabilitiesResponse{}, fmt.Errorf("compile expand source choices: %w", err)
+	}
 	sourceProjectionAvailability := constructionSourceProjectionAvailability(base.construction, selected.ID)
 	workspaceInputs, err := constructionWorkspaceInputs(base, request.OutputID)
 	if err != nil {
@@ -379,6 +415,10 @@ func (s *Service) GetConstructionCapabilities(ctx context.Context, request Const
 		SnapshotToken: request.SnapshotToken, DraftVersion: base.owner.DraftVersion, DraftDigest: base.owner.DraftDigest,
 		OutputID: request.OutputID, StageID: request.StageID, BaseConstruction: base.construction,
 		Stages: stages, SelectedStage: *selected, SourceInput: sourceInput, PivotSourceInput: pivotSourceInput,
+		FilterSourceInput:              filterSourceInput,
+		DeriveSourceInput:              deriveSourceInput,
+		UnpivotSourceInput:             unpivotSourceInput,
+		ExpandSourceInput:              expandSourceInput,
 		GroupFieldChoices:              groupFieldChoices,
 		GroupFieldChoicesIncomplete:    groupFieldChoicesIncomplete,
 		GroupRowValueChoices:           groupRowValueChoices,
@@ -578,6 +618,22 @@ func (s *Service) ProposeConstruction(ctx context.Context, request ConstructionP
 	}
 	var authorizedPivotSourceHelpers map[string]bool
 	candidateConstruction, authorizedPivotSourceHelpers, err = s.constructionCandidateWithPivotSources(ctx, base, request, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateConstruction, err = s.constructionCandidateWithFilterSources(ctx, base, request, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateConstruction, err = s.constructionCandidateWithDeriveSources(ctx, base, request, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateConstruction, err = s.constructionCandidateWithUnpivotSources(ctx, base, request, candidateConstruction)
+	if err != nil {
+		return ConstructionProposalResponse{}, err
+	}
+	candidateConstruction, err = s.constructionCandidateWithExpandSources(ctx, base, request, candidateConstruction)
 	if err != nil {
 		return ConstructionProposalResponse{}, err
 	}
@@ -1590,6 +1646,42 @@ func (s *Service) prepareConstructionProposal(ctx context.Context, project, expl
 		reauthorized, reauthErr := s.resolveConstructionGroupFieldSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction)
 		if reauthErr != nil || !reflect.DeepEqual(reauthorized, *candidateDocument.Construction) {
 			return nil, nil, nil, conflict("commands", "STALE_GROUP_FIELD_BINDING", "the Group field binding no longer matches the live compiler-resolved source stage", nil, reauthErr)
+		}
+	}
+	if constructionHasFilterSourceInput(*candidateDocument.Construction) {
+		liveBase := constructionBase{
+			document: candidateDocument, construction: *candidateDocument.Construction,
+			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+		}
+		if reauthErr := s.reauthorizeConstructionFilterSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+			return nil, nil, nil, conflict("commands", "STALE_FILTER_SOURCE_BINDING", "the filter source binding no longer matches the live authorized root scalar field", nil, reauthErr)
+		}
+	}
+	if constructionHasDeriveSourceInput(*candidateDocument.Construction) {
+		liveBase := constructionBase{
+			document: candidateDocument, construction: *candidateDocument.Construction,
+			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+		}
+		if reauthErr := s.reauthorizeConstructionDeriveSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+			return nil, nil, nil, conflict("commands", "STALE_DERIVE_SOURCE_BINDING", "the derive source binding no longer matches the live authorized root scalar field", nil, reauthErr)
+		}
+	}
+	if constructionHasUnpivotSourceInput(*candidateDocument.Construction) {
+		liveBase := constructionBase{
+			document: candidateDocument, construction: *candidateDocument.Construction,
+			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+		}
+		if reauthErr := s.reauthorizeConstructionUnpivotSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+			return nil, nil, nil, conflict("commands", "STALE_UNPIVOT_SOURCE_BINDING", "the unpivot source binding no longer matches the live authorized root scalar field", nil, reauthErr)
+		}
+	}
+	if constructionHasExpandSourceInput(*candidateDocument.Construction) {
+		liveBase := constructionBase{
+			document: candidateDocument, construction: *candidateDocument.Construction,
+			snapshot: snapshot.Clone(), stages: receipt.ConstructionStages[command.OutputID],
+		}
+		if reauthErr := s.reauthorizeConstructionExpandSources(ctx, liveBase, command.OutputID, *candidateDocument.Construction); reauthErr != nil {
+			return nil, nil, nil, conflict("commands", "STALE_EXPAND_SOURCE_BINDING", "the expand source binding no longer matches the live authorized root array field", nil, reauthErr)
 		}
 	}
 	expectedDocument, impact, err := baseDocument.AnalyzeConstructionCandidate(*candidateDocument.Construction, binding.ChangedStepID, binding.RemoveStepIDs)

@@ -588,6 +588,13 @@ export type LoomOutputFilterOperator =
 export interface LoomOutputFilter {
   readonly column: string;
   readonly op: LoomOutputFilterOperator;
+  /**
+   * The reader ignores this value for `IS_NULL`, but the transports disagree
+   * about it: the `dataframeRows` GraphQL input declares `value: JSON!` and so
+   * rejects a null, while `ValidateTypedFilters` on the selection path rejects
+   * `IS_NULL` carrying any value at all. See the missingness contract in
+   * `features/ExplorerViewer/serialization.ts` for the encoding the Viewer uses.
+   */
   readonly value: unknown;
 }
 
@@ -915,14 +922,16 @@ const requestError = async (
   const payloadRequestId = typeof nested.requestId === 'string'
     ? nested.requestId
     : typeof record.requestId === 'string' ? record.requestId : undefined;
+  const details = isRecord(nested.details) ? nested.details : undefined;
+  const explicitRetryable = typeof details?.retryable === 'boolean' ? details.retryable : undefined;
   return {
     status: response.status,
     code,
     message,
     diagnostics: diagnosticsFrom(nested.diagnostics),
     requestId: responseRequestId?.trim() || payloadRequestId?.trim() || callerRequestId,
-    details: isRecord(nested.details) ? nested.details : undefined,
-    retryable: response.status === 408 || response.status === 429 || response.status >= 500,
+    details,
+    retryable: explicitRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),
   };
 };
 
@@ -1720,7 +1729,14 @@ export const createLoomClient = (options: LoomClientOptions = {}): LoomClient =>
       revisionId: args.revisionId,
       outputId: args.outputId,
       idempotencyKey: args.idempotencyKey,
-    }, signal)).then((value) => artifactSchema.parse(value));
+    }, signal)).then((value) => {
+      const artifact = artifactSchema.parse(value);
+      if (canonicalProject(artifact.project) !== canonicalProject(args.project) ||
+        artifact.explorerId !== args.explorerId || artifact.revisionId !== args.revisionId || artifact.outputId !== args.outputId) {
+        throw new Error('Prepared dataset artifact does not match the requested project, Explorer, revision, and output.');
+      }
+      return artifact;
+    });
   const artifactDownloadURL = (args: DownloadArtifactArgs): string =>
     urlFor(`${authoringPath(args, '/artifacts')}/${encodeURIComponent(args.artifactId)}`);
   const listInterpretationLibraries = (args: ExplorerAuthoringProjectArgs, signal?: AbortSignal) =>

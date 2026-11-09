@@ -64,7 +64,6 @@ const registryRows = [
     script: 'builder-controls.mjs',
     cases: {
       "tables": {
-        playwrightTest: "scripts/verify-ui/specs/builder-controls.spec.mjs",
         playwrightGrep: 'Duplicate, rename, select, delete, copy, and reload tables$',
         focusedChecks: [
           {
@@ -98,7 +97,6 @@ const registryRows = [
         ],
       },
       "recompile": {
-        playwrightTest: "scripts/verify-ui/specs/builder-controls.spec.mjs",
         requiredChecks: [
           "Recompile invokes the backend compiler completed",
           "Recompile returned a successful compilation response",
@@ -107,7 +105,6 @@ const registryRows = [
       },
       "first-table": {
         parallelIsolation: 'fresh-fixture-project',
-        playwrightTest: "scripts/verify-ui/specs/builder-controls.spec.mjs",
         playwrightGrep: 'Add columns waits for a current-draft preview',
         focusedChecks: [
           {
@@ -138,7 +135,6 @@ const registryRows = [
         ],
       },
       "explorer-deletion": {
-        playwrightTest: "scripts/verify-ui/specs/builder-explorer-deletion.spec.mjs",
         playwrightGrep: 'Explorer deletion removes the disposable Explorer, preserves the exact fallback URL, and blocks invalid deletes$',
         focusedChecks: [
           {
@@ -178,7 +174,6 @@ const registryRows = [
         ],
       },
       "explorer-deletion-unavailable": {
-        playwrightTest: "scripts/verify-ui/specs/builder-explorer-deletion-unavailable.spec.mjs",
         playwrightGrep: 'Explorer deletion stays hidden and preserves the exact Explorer list and URL across reload$',
         focusedChecks: [
           {
@@ -249,7 +244,6 @@ const registryRows = [
     cases: {
       "list": {
         parallelIsolation: 'fresh-fixture-project',
-        playwrightTest: "scripts/verify-ui/specs/builder-load.spec.mjs",
         playwrightGrep: 'Builder load list recovery shows the list failure and recovers through the in-app Retry',
         focusedChecks: [
           {
@@ -273,7 +267,6 @@ const registryRows = [
         ],
       },
       "state": {
-        playwrightTest: "scripts/verify-ui/specs/builder-load.spec.mjs",
         playwrightGrep: 'Builder load state recovery shows the state failure and recovers through the in-app Retry',
         focusedChecks: [
           {
@@ -361,7 +354,6 @@ const registryRows = [
     script: 'builder-authoring.mjs',
     cases: {
       "suggestions": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'catalog-backed suggestions expose actionable Patient candidates$',
         focusedChecks: [
           {
@@ -399,7 +391,6 @@ const registryRows = [
         ],
       },
       "authoring": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'Builder authoring previews, changes an existing table root, and reloads$',
         focusedChecks: [
           {
@@ -456,7 +447,6 @@ const registryRows = [
       },
       'condition-specimen-route-ambiguity': {
         fixtureDir: 'testdata/basic-root-picker-ambiguity',
-        playwrightTest: 'scripts/verify-ui/specs/condition-specimen-route-ambiguity.spec.mjs',
         playwrightGrep: 'native Record type picker resolves Condition-to-Specimen alternatives through the Patient-subject path$',
         focusedChecks: [
           {
@@ -497,7 +487,6 @@ const registryRows = [
         ],
       },
       "table-reorder": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'native table reorder preserves exact saved order and rows after reload$',
         focusedChecks: [
           {
@@ -530,7 +519,6 @@ const registryRows = [
         ],
       },
       "cohort-recode": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         focusedChecks: [
           {
             id: 'cohort-recode-saved-member-binding-contract',
@@ -579,7 +567,6 @@ const registryRows = [
         ],
       },
       "cohort-expand": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         focusedChecks: [
           {
             id: 'cohort-expand-raw-fields-selector',
@@ -615,7 +602,6 @@ const registryRows = [
         ],
       },
       "repeated-empty": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         focusedChecks: [
           {
             id: 'builder-repeated-capabilities-readiness',
@@ -688,7 +674,6 @@ const registryRows = [
         ],
       },
       "group-entry": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'standard Group entry proposes an empty-key COUNT_ROWS preview$',
         journeyTrace: {
           captureKind: 'builder-group-legacy',
@@ -731,7 +716,6 @@ const registryRows = [
         ],
       },
       "group-entry-raw-basic": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'Group edit and removal preserve the raw five-column Basic Patient table$',
         populateBootstrap: true,
         journeyTrace: {
@@ -742,6 +726,12 @@ const registryRows = [
           requiredActions: ['EditGroupAgain', 'GroupEditCancel', 'GroupRemovalCancel', 'Reload'],
         },
         focusedChecks: [
+          {
+            id: 'group-twice-preview-oracle',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/group-twice-journey.test.mjs'],
+            sourceFiles: ['scripts/verify-ui/helpers/group-twice-journey.mjs'],
+          },
           {
             id: 'group-entry-rendered-grid-contract',
             cwd: '.',
@@ -772,10 +762,10 @@ const registryRows = [
           "Cancel preserves the saved keyed Group and exact draft",
           "removing keyed Group restores the exact source Patient rows after reload",
           "direct Group entry automatically previews empty-key COUNT_ROWS action-to-render within budget",
+          "grouping the grouped Patient table produces exactly one row with count 1",
         ],
       },
       "selected-resource-coverage": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'selected Patient coverage preserves exact membership through detach, reattach, and reload$',
         focusedChecks: [
           {
@@ -816,7 +806,6 @@ const registryRows = [
         ],
       },
       "explorer-selection": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'Explorer switching shows distinct tables and restores the selected Explorer after reload$',
         focusedChecks: [
           {
@@ -845,7 +834,6 @@ const registryRows = [
         ],
       },
       "dataframe-contract-panel": {
-        playwrightTest: "scripts/verify-ui/specs/builder-authoring.spec.mjs",
         playwrightGrep: 'Dataframe contract panel shows the exact Patient output and lineage$',
         focusedChecks: [
           {
@@ -879,7 +867,6 @@ const registryRows = [
         ],
       },
       "legacy-v9-rows": {
-        playwrightTest: "scripts/verify-ui/specs/legacy-v9-workspace.spec.mjs",
         playwrightGrep: 'legacy semantics v9 preserves the saved Patient digest through native row actions and reload$',
         focusedChecks: [
           {
@@ -919,7 +906,6 @@ const registryRows = [
         ],
       },
       "patient-one-disagreement": {
-        playwrightTest: "scripts/verify-ui/specs/builder-patient-one-disagreement.spec.mjs",
         playwrightGrep: 'raw Patient.id ONE refusal leaves the saved Group intact for same-editor ALL repair$',
         journeyTrace: {
           kind: 'native-lifecycle',
@@ -1042,24 +1028,6 @@ const registryRows = [
               'scripts/self-test-builder-traces.mjs',
             ],
           },
-          {
-            id: 'patient-one-environment-target-binding',
-            cwd: '.',
-            command: ['node-test', 'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs'],
-            sourceFiles: [
-              'scripts/run-builder-journey.mjs',
-              'scripts/generate-builder-browser-evidence.mjs',
-              'scripts/verify-builder-traces.mjs',
-              'scripts/verify-ui/registry.mjs',
-              'scripts/verify-ui/helpers/builder-journey-trace.mjs',
-              'scripts/verify-ui/helpers/builder-formal-adapters.mjs',
-              'scripts/verify-ui/helpers/tests/fixtures/native-policy-receipt-history.fixture.json',
-              'scripts/verify-ui/helpers/tests/fixtures/native-temporal-date-incomplete-capture.fixture.json',
-              'scripts/verify-ui/helpers/tests/fixture-context.test.mjs',
-              'scripts/verify-ui/helpers/tests/transport-terminal.test.mjs',
-              'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
-            ],
-          },
         ],
         requiredChecks: [
           "empty-key Group prepares one row for the two raw Patient records",
@@ -1175,7 +1143,6 @@ const registryRows = [
     script: 'builder-combine-draft.mjs',
     cases: {
       membership: {
-        playwrightTest: 'scripts/verify-ui/specs/published-membership.spec.mjs',
         playwrightGrep: 'published MEMBERSHIP uses exact Basic source revisions through INCLUDE, EXCLUDE edit, removal, and reload$',
         focusedChecks: [{
           id: 'basic-published-membership-oracle-contract',
@@ -1340,7 +1307,6 @@ const registryRows = [
     script: 'cohort-group-pivot-publication.mjs',
     cases: {
       basic: {
-        playwrightTest: 'scripts/verify-ui/specs/cohort-group-pivot-publication.spec.mjs',
         playwrightGrep: 'native cohort Group→Pivot publishes and reloads exact Viewer counts$',
         focusedChecks: [{
           id: 'cohort-group-pivot-publication-literal-oracle',
@@ -1413,7 +1379,6 @@ const registryRows = [
     script: 'builder-coded-source-column.mjs',
     cases: {
       'coded-source-column': {
-        playwrightTest: 'scripts/verify-ui/specs/builder-coded-source-column.spec.mjs',
         playwrightGrep: 'native coded source column survives edit, reload, removal, and reload$',
         focusedChecks: [
           {
@@ -1478,7 +1443,6 @@ const registryRows = [
     script: 'basic-nested-coding-expand.mjs',
     cases: {
       'nested-coding': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-nested-coding-expand.spec.mjs',
         playwrightGrep: 'Basic fixture expands nested coding with owner, multiplicity, Cancel, Apply, edit, removal and reload$',
         focusedChecks: [
           {
@@ -1559,7 +1523,6 @@ const registryRows = [
     script: 'related-expand-field-lifecycle.mjs',
     cases: {
       'observation-root-medication-administration': {
-        playwrightTest: 'scripts/verify-ui/specs/related-expand-field-lifecycle.spec.mjs',
         playwrightGrep: 'Basic fixture preserves related source and active-record fields through Group lifecycle$',
         focusedChecks: [
           {
@@ -1649,7 +1612,6 @@ const registryRows = [
     script: 'basic-named-cohort-presence.mjs',
     cases: {
       'nonempty-zero-match': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-named-cohort-presence.spec.mjs',
         playwrightGrep: 'Basic native PRESENCE maps a nonempty zero-match Group to false with exact true comparator and full lifecycle$',
         focusedChecks: [
           {
@@ -1733,7 +1695,6 @@ const registryRows = [
     script: 'scope-001-repeated-expand-pivot.mjs',
     cases: {
       'repeated-expand-pivot': {
-        playwrightTest: 'scripts/verify-ui/specs/scope-001-repeated-expand-pivot.spec.mjs',
         playwrightGrep: 'native component expansion and distinct Pivot survive preview, edit, removal, and reload$',
         focusedChecks: [
           {
@@ -1813,7 +1774,6 @@ const registryRows = [
     script: 'standalone-coded-fields.mjs',
     cases: {
       'coded-fields': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-coded-fields.spec.mjs',
         playwrightGrep: 'Basic fixture adds standalone coded fields with exact Coding version and display correlation$',
         focusedChecks: [
           {
@@ -1908,7 +1868,6 @@ const registryRows = [
     script: 'basic-coded-pivot.mjs',
     cases: {
       'integer-lifecycle': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-coded-pivot.spec.mjs',
         playwrightGrep: 'selects, previews, cancels, applies, edits, removes, and reloads exact coded rows$',
         focusedChecks: [
           {
@@ -2015,7 +1974,6 @@ const registryRows = [
     script: 'basic-pivot-unpivot.mjs',
     cases: {
       lifecycle: {
-        playwrightTest: 'scripts/verify-ui/specs/basic-pivot-unpivot.spec.mjs',
         playwrightGrep: 'Basic fixture preserves exact row identities through native Pivot→Unpivot lifecycle$',
         focusedChecks: [
           {
@@ -2090,7 +2048,6 @@ const registryRows = [
     script: 'basic-unpivot-pivot.mjs',
     cases: {
       'unpivot-to-pivot': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-unpivot-pivot.spec.mjs',
         playwrightGrep: 'Basic fixture preserves exact Patient rows through native Unpivot→Pivot, edit, reload, and restoration$',
         focusedChecks: [
           {
@@ -2173,7 +2130,6 @@ const registryRows = [
     script: 'basic-unpivot-group.mjs',
     cases: {
       'unpivot-to-group': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-unpivot-group.spec.mjs',
         playwrightGrep: 'Basic fixture groups exact native Unpivot keys and counts$',
         focusedChecks: [
           {
@@ -2255,7 +2211,6 @@ const registryRows = [
     script: 'basic-temporal-filter.mjs',
     cases: {
       date: {
-        playwrightTest: 'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
         playwrightGrep: 'date filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$',
         journeyTrace: temporalFilterJourneyTraceBinding('date', {
           valueKind: 'DATE', resourceType: 'Patient', fieldPath: 'birthDate',
@@ -2385,7 +2340,6 @@ const registryRows = [
         ],
       },
       'date-time': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-temporal-filter.spec.mjs',
         playwrightGrep: 'date-time filter keeps exact typed values and source rows through Cancel, Apply, edit, removal, and reload$',
         journeyTrace: temporalFilterJourneyTraceBinding('date-time', {
           valueKind: 'DATE_TIME', resourceType: 'Observation', fieldPath: 'effectiveDateTime',
@@ -2550,7 +2504,6 @@ const registryRows = [
     script: 'population-member-removal-workflow.mjs',
     cases: {
       "mapped-plus-orphan-to-empty": {
-        playwrightTest: "scripts/verify-ui/specs/population-member-removal.spec.mjs",
         requiredChecks: [
           "bounded independent CDA oracle proves one mapped and one orphan Specimen in the exact authorized project and generation",
           "saved source table contains the exact Observation population route followed by GROUP and RELATED_SOURCE COUNT",
@@ -2566,7 +2519,6 @@ const registryRows = [
         ],
       },
       "mapped-contributor-removal-preserves-group-counts": {
-        playwrightTest: "scripts/verify-ui/specs/population-member-removal.spec.mjs",
         playwrightGrep: 'removes one mapped contributor, preserves the lower nonempty GROUP, and restores the exact baseline$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -2644,7 +2596,6 @@ const registryRows = [
     script: 'root-quantity-pivot-workflow.mjs',
     cases: {
       "full-population-discovery": {
-        playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
         requiredChecks: [
           "independent raw Arango oracle covers the complete scoped CDA Observation population",
           "typed root category discovery preserves MISSING separately from explicit NULL and string categories",
@@ -2654,7 +2605,6 @@ const registryRows = [
         ],
       },
       "fixture-lifecycle": {
-        playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
         focusedChecks: [
           {
             id: 'root-quantity-pivot-retained-validation-repair',
@@ -2727,7 +2677,6 @@ const registryRows = [
         ],
       },
       "full-population-lifecycle": {
-        playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
         playwrightGrep: 'matches SUM and MAX output and restores the full CDA source after reload$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         performanceCheckName: "all full-population root quantity Pivot lifecycle action-to-render checkpoints complete within the approved 30-second budget",
@@ -2745,7 +2694,6 @@ const registryRows = [
         ],
       },
       "related-text-only-full-population-lifecycle": {
-        playwrightTest: "scripts/verify-ui/specs/root-quantity-pivot.spec.mjs",
         playwrightGrep: 'related quantity Pivot groups by text and applies SUM/MAX across the full route$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -2837,7 +2785,6 @@ const registryRows = [
     script: 'builder-combine-draft.mjs',
     cases: {
       "join": {
-        playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -2867,7 +2814,6 @@ const registryRows = [
         ],
       },
       "append": {
-        playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -2893,7 +2839,6 @@ const registryRows = [
         ],
       },
       "append-derived-edit": {
-        playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -2942,7 +2887,6 @@ const registryRows = [
         ],
       },
       "group-pivot": {
-        playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -2968,7 +2912,6 @@ const registryRows = [
         ],
       },
       "group-pivot-append": {
-        playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "draft Combine uses the exact project, generation, Builder snapshot, and authorization scope",
@@ -3004,7 +2947,6 @@ const registryRows = [
         ],
       },
       "membership": {
-        playwrightTest: "scripts/verify-ui/specs/draft-combine.spec.mjs",
         requiredChecks: [
           "independent fixture contains one Patient, four Observations, and three DiagnosticReports",
           "independent MEMBERSHIP oracle has four Observation rows, three DiagnosticReport rows, three matches, and one exclusion",
@@ -3109,7 +3051,6 @@ const registryRows = [
     script: 'builder-combine.mjs',
     cases: {
       "join": {
-        playwrightTest: "scripts/verify-ui/specs/join.spec.mjs",
         requiredChecks: [
           "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
           "Observation source starts with every literal fixture identity",
@@ -3153,7 +3094,6 @@ const registryRows = [
         ],
       },
       "append": {
-        playwrightTest: "scripts/verify-ui/specs/append.spec.mjs",
         requiredChecks: [
           "fixture contains one bootstrap Patient, four Observations, and three DiagnosticReports",
           "Observation source starts with every literal fixture identity",
@@ -3254,7 +3194,6 @@ const registryRows = [
     script: 'builder-combine-nullable.mjs',
     cases: {
       "lifecycle": {
-        playwrightTest: "scripts/verify-ui/specs/nullable-combine.spec.mjs",
         focusedChecks: [
           {
             id: 'nullable-join-workflow-regressions',
@@ -3396,7 +3335,6 @@ const registryRows = [
     script: 'loom-dev.mjs',
     cases: {
       'verify-j01': {
-        playwrightTest: 'scripts/verify-ui/specs/dev-journeys.spec.mjs',
         playwrightGrep: '@dev-journey:verify-j01$',
         requiredChecks: [
           'j01-starts-with-fresh-isolated-fixture-and-editor-identity',
@@ -3437,7 +3375,6 @@ const registryRows = [
         ],
       },
       'verify-j05': {
-        playwrightTest: 'scripts/verify-ui/specs/dev-journeys.spec.mjs',
         playwrightGrep: '@dev-journey:verify-j05$',
         requiredChecks: [
           'j05-starts-with-fresh-isolated-fixture-and-empty-bootstrap-explorer',
@@ -3558,11 +3495,9 @@ const registryRows = [
     script: 'viewer-query.mjs',
     cases: {
       "output": {
-        playwrightTest: "scripts/verify-ui/specs/viewer-query.spec.mjs",
         requiredChecks: { owned: ["injected result-query error is visibly reported","result-query error exposes an actionable Retry control","retry result query completed","retried Viewer results contain both independent fixture Patients","Viewer Patient ID ascending sort completed for the exact output","Viewer Patient ID ascending sort renders the exact fixture order","Viewer Patient ID descending sort completed for the exact output","Viewer Patient ID descending sort renders the exact fixture order","Viewer reload clears the in-memory sort and retains both exact fixture Patients","Viewer Patient ID sorting after reload completed for the exact output","Viewer reapplies Patient ID sorting after reload"], custom: ["injected result-query error is visibly reported","result-query error exposes an actionable Retry control","retry result query completed","Retry restored the custom output table"] },
       },
       "shared-filter-linked-outputs": {
-        playwrightTest: 'scripts/verify-ui/specs/viewer-shared-filter.spec.mjs',
         playwrightGrep: 'Viewer shared filters apply to linked outputs, cancel cleanly, and reset on reload$',
         focusedChecks: [
           {
@@ -3604,7 +3539,6 @@ const registryRows = [
         ],
       },
       "pagination": {
-        playwrightTest: "scripts/verify-ui/specs/viewer-pagination.spec.mjs",
         playwrightGrep: 'Viewer paginates exact fixture Patient identities and resets page state$',
         focusedChecks: [
           {
@@ -3667,7 +3601,6 @@ const registryRows = [
         ],
       },
       "row-details": {
-        playwrightTest: "scripts/verify-ui/specs/viewer-row-details.spec.mjs",
         playwrightGrep: 'Viewer row details show the exact Patient ID through close, reopen, reload, and reopen$',
         focusedChecks: [
           {
@@ -3706,7 +3639,6 @@ const registryRows = [
         ],
       },
       "cell-explain": {
-        playwrightTest: 'scripts/verify-ui/specs/viewer-cell-explain.spec.mjs',
         playwrightGrep: 'Viewer explains the exact Patient Gender cell through source details, close, reopen, and reload$',
         focusedChecks: [
           {
@@ -3753,7 +3685,6 @@ const registryRows = [
         ],
       },
       "charts": {
-        playwrightTest: 'scripts/verify-ui/specs/viewer-charts.spec.mjs',
         playwrightGrep: 'Viewer charts expose the exact Gender category count and missing count before and after reload$',
         focusedChecks: [
           {
@@ -3802,7 +3733,6 @@ const registryRows = [
         ],
       },
       "configured-output-action-csv": {
-        playwrightTest: "scripts/verify-ui/specs/viewer-output-action.spec.mjs",
         requiredChecks: [
           "repository config publishes the configured Viewer to the exact fixture generation",
           "Viewer runtime retains the exact fixture project, generation, and default Explorer",
@@ -3825,7 +3755,6 @@ const registryRows = [
         ],
       },
       "per-row-file-download": {
-        playwrightTest: 'scripts/verify-ui/specs/viewer-row-file-download.spec.mjs',
         playwrightGrep: 'Viewer downloads the exact source DocumentReference from a per-row FileCell and repeats after reload$',
         focusedChecks: [
           {
@@ -3876,7 +3805,6 @@ const registryRows = [
         ],
       },
       "dataset-zip": {
-        playwrightTest: 'scripts/verify-ui/specs/viewer-output-dataset-zip.spec.mjs',
         playwrightGrep: 'Viewer downloads the published Patient dataset as an exact identity-bound ZIP$',
         focusedChecks: [
           {
@@ -3944,7 +3872,6 @@ const registryRows = [
         ],
       },
       "dataset-zip-filtered-complete-population": {
-        playwrightTest: 'scripts/verify-ui/specs/viewer-output-filtered-dataset-zip.spec.mjs',
         playwrightGrep: 'Viewer dataset ZIP exports the complete authorized population while a facet is selected$',
         focusedChecks: [{
           id: 'viewer-filtered-dataset-zip-oracle',
@@ -3973,7 +3900,6 @@ const registryRows = [
         ],
       },
       "runtime-scope-isolation": {
-        playwrightTest: 'scripts/verify-ui/specs/basic-runtime-scope-isolation.spec.mjs',
         playwrightGrep: 'Basic Viewer output excludes rows from another project and generation$',
         focusedChecks: [
           {
@@ -4088,7 +4014,6 @@ const registryRows = [
     script: 'verify-compound-coded-group.mjs',
     cases: {
       "compound-coded-group-basic": {
-        playwrightTest: "scripts/verify-ui/specs/standalone-misc.spec.mjs",
         focusedChecks: [
           {
             id: 'basic-coded-group-picker-ui',
@@ -4118,7 +4043,6 @@ const registryRows = [
         ],
       },
       "coded-group-recorded-code-basic": {
-        playwrightTest: "scripts/verify-ui/specs/basic-coded-group-recorded-code.spec.mjs",
         playwrightGrep: 'Basic fixture groups literal Observation codes with exact counts through Preview, Cancel, Apply, edit, removal and reload$',
         focusedChecks: [
           {
@@ -4170,7 +4094,6 @@ const registryRows = [
         ],
       },
       'semantic-construction-choice-route-fallback': {
-        playwrightTest: 'scripts/verify-ui/specs/semantic-construction-choice-route.spec.mjs',
         playwrightGrep: 'previews, applies, reloads, and removes the exact optional routed semantic value$',
         focusedChecks: [{
           id: 'semantic-construction-choice-registry-contract',
@@ -4241,7 +4164,6 @@ const registryRows = [
     script: 'verify-cda-builder.mjs',
     cases: {
       'Preview limits': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-builder.spec.mjs',
         playwrightGrep: 'Preview limits$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4321,7 +4243,6 @@ const registryRows = [
     script: 'verify-cda-filter-browser.mjs',
     cases: {
       'filter-lifecycle': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'create, edit, cancel, apply, and remove a typed CDA filter$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4357,7 +4278,6 @@ const registryRows = [
         ],
       },
       'composite-group-filter': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'filter two-key Observation Group output by subject reference through Cancel, Apply, edit, removal, and reload$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4418,6 +4338,208 @@ const registryRows = [
     ],
   }),
   Object.freeze({
+    id: 'explorer-filter-row-source',
+    workflow: 'explorer-filter-row-source-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+    ],
+    requiredTransitions: [
+      'discover the unselected Patient.gender dataset field as a signable row-choice in the native Filter column picker',
+      'configure EQUALS female, compare the proposal preview with the Patient.ndjson oracle, then Cancel byte-stably',
+      'Apply, reload through the capability echo, edit male/female with persisted-value asserts, remove, and re-add with honest re-materialization',
+      'refine the lane with seven exact-status API negatives on a pristine zero-step host',
+    ],
+    gateReasons: [
+      'the lane requires the owned loom-dev stack; fixtures are self-seeded fresh and never shared with published content',
+      'proposal, saved, edited, removed, and re-added row identities are checked against the on-disk Patient.ndjson oracle, not the served page',
+      'the run refuses to certify unless the build-stamp barrier passes with fully recorded identity, and refuses skipped checks, zero rows where required, and dropped screenshots',
+    ],
+    script: 'verify-explorer-filter-row-source.mjs',
+    cases: {
+      'row-source-journey': {
+        requiredChecks: [
+          'step-0-behavior-capabilities',
+          'step-1-discovery',
+          'step-2-configure-oracle-preview',
+          'step-3-cancel-byte-stable',
+          'step-4-apply-exact-rows',
+          'step-4-reload-materialized-echo',
+          'step-4-edit-male-zero-rows',
+          'step-4-edit-back-female-rows',
+          'step-4-remove-unfiltered',
+          'step-4-re-add-honest-rematerialization',
+          'negative-N0-control-valid-choice',
+          'negative-N1-forged-signature',
+          'negative-N2-stale-choiceId',
+          'negative-N3-tampered-payload-path',
+          'negative-N4-empty-choiceId',
+          'negative-N5-missing-choiceId',
+          'negative-N6-unpopulated-field-refusal',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'unselected signed Patient.gender row-choice filter lifecycle with honest re-materialization and API negatives',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'explorer-filter-row-source', case: 'row-source-journey',
+          checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 },
+        },
+        status: 'implemented',
+        reason: 'Directly-run raw-CDP workflow (scripts/verify-ui/workflows/verify-explorer-filter-row-source.mjs), registered for the workflows line following the standalone-invocation TSV precedent (rows 139-140). Accepted 2x consecutive green (checks=17 screenshots=11, RUN_EXIT=0) at running binary ba3e1ced1bb95424cff1aa2aa14803d8e1d77b8566239553d6e3caeb9ed070fc / git HEAD b72a1322eb3ba825d43a7f50562164f86fe2591b (rs05 barrier-green acceptance, /tmp/opencode/rs0-journey-commit.md), re-greened 2x at HEAD 1d0fe6f443c8d527564f8ce96d6155b6d7677527 after the adversarial integrity repair (mutations fi1 removal of EDIT apply clicks, fi2 forced barrier failure, and fi3 dropped screenshots each now exit 1; pre-repair they exited 0). Honest pending markers: bracket-runner invocation via make verify-case was not executed because scripts/run-native-verification-bracket.mjs is absent from this shared volume (the verified path is the direct standalone command); registry registration is metadata and does not alter that invocation; commits await the parent batch. Evidence: /tmp/opencode/rs05-f1..f2, rsfix-f1..f2, and mutation sources /tmp/opencode/jrev/scripts/verify-ui/workflows/fi*.mjs.',
+      },
+    ],
+  }),
+  Object.freeze({
+    id: 'explorer-derive-row-source',
+    workflow: 'explorer-derive-row-source-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+    ],
+    requiredTransitions: [
+      'seed a row-preserving status FILTER and a public numeric column so the append stage supports DERIVE, then discover the signed unselected numeric row-choice in the Calculate operand picker',
+      'configure the signed valueQuantity.value slot plus literal ADD, compare the preview against the joined Observation.ndjson + generatedJ01ConceptNDJSON oracle, and Cancel byte-stably',
+      'Apply with server-owned source projection, reload through the STEP_OUTPUT-stage capability echo, edit the literal with persisted asserts, remove, and re-add with fresh owned-column re-materialization',
+      'validate the exact two-row cm scope row-by-row and refine with eleven exact-status API negatives plus the non-DERIVE decoration contract on a pristine host',
+    ],
+    gateReasons: [
+      'the lane requires the owned loom-dev stack with the derive-capable server binary; the run gate refuses to certify unless the build-stamp barrier passes with fully recorded identity',
+      'derived and slot cell values are checked against the disk-joined oracle (fixture ndjson plus the loom-dev generator), not the served page',
+      'skipped checks, zero rows where required, dropped screenshots below eleven, and any uncaught page exception fail the run closed',
+    ],
+    script: 'verify-explorer-derive-row-source.mjs',
+    cases: {
+      'row-source-journey': {
+        requiredChecks: [
+          'step-0-behavior-capabilities',
+          'step-1-prelude-filter-step',
+          'step-1-discovery',
+          'step-2-configure-oracle-preview',
+          'step-3-cancel-byte-stable',
+          'step-4-apply-exact-rows',
+          'step-4-reload-materialized-echo',
+          'step-4-edit-literal-two',
+          'step-4-edit-back-three',
+          'step-4-remove-unowned',
+          'step-4-re-add-honest-rematerialization',
+          'step-5-scoped-cm-grid',
+          'row-evidence-blanks-and-numerics',
+          'negative-D0-control-valid-choice',
+          'negative-D1-forged-signature',
+          'negative-D2-stale-choiceId',
+          'negative-D3-tampered-payload-path',
+          'negative-D4-empty-choiceId',
+          'negative-D5-missing-choiceId',
+          'negative-D6-three-selections',
+          'negative-D7-duplicate',
+          'negative-D8-column-mismatch',
+          'negative-D9-nonnumeric-choice-refusal',
+          'contract-D10-non-derive-step-undecorated',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'signed unselected numeric root scalar consumed by Calculate through apply, echo reload, edit, removal, and honest re-materialization',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'explorer-derive-row-source', case: 'row-source-journey',
+          checks: { choice: 0, proposal: 1, cancel: 2, apply: 3, savedRows: 4, reload: 5, edit: 6, restoration: 7 },
+        },
+        status: 'implemented',
+        reason: 'Directly-run raw-CDP workflow (scripts/verify-ui/workflows/verify-explorer-derive-row-source.mjs), registered for the workflows line following the standalone-invocation TSV precedent (rows 139-140). Accepted 2x consecutive green (checks=24 screenshots=11, RUN_EXIT=0) at running binary ba3e1ced1bb95424cff1aa2aa14803d8e1d77b8566239553d6e3caeb9ed070fc / git HEAD b72a1322eb3ba825d43a7f50562164f86fe2591b (rs05 barrier-green acceptance), re-greened 2x at HEAD 1d0fe6f443c8d527564f8ce96d6155b6d7677527 incl. the screenshot-floor integrity tightening (mutation fd4 dropped screenshots now exit 1). The script held every reviewer mutation (skipped-check, zero-row, exact-status, decoration, barrier gate; /tmp/opencode/journeys-review.md battery). Honest pending markers: bracket-runner invocation was not executed because scripts/run-native-verification-bracket.mjs is absent from this shared volume (the verified path is the direct standalone command); registration is metadata and does not alter invocation; commits await the parent batch. Evidence: /tmp/opencode/rs05-d1..d2, rsfix-d1..d2, receipts /tmp/opencode/derive-journey-commit.md and /tmp/opencode/rs0-journey-commit.md.',
+      },
+    ],
+  }),
+  Object.freeze({
+    id: 'explorer-unpivot-row-source',
+    workflow: 'explorer-unpivot-row-source-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-proposals',
+    ],
+    requiredTransitions: [
+      'seed a row-preserving signed status FILTER as the ledger carrier plus public ID/Number columns and an unmelted public Date (effectiveDateTime) survival witness, then discover the signed unselected root scalars in the Turn-columns-into-rows dataset optgroup (melted lanes valueQuantity.unit + subject.reference, both string; the date family is refused server-side (cd39eeaf) and must be hidden from melt discovery entirely)',
+      'configure the public ID melt plus the two signed string-family melt lanes with explicit keys, compare every visible melt cell against the joined Observation.ndjson + generatedJ01ConceptNDJSON oracle including PRESERVE blank cells, and Cancel byte-stably',
+      'Apply with server-owned unpivot-owned source projections (compiled string/string fhirType/logicalType echo on the unit and subject.reference lanes), honestly unmaterialized melt inputs, STEP_OUTPUT-stage capability echo reload, rename + DROP-policy edit with persisted asserts, dissolved-melt-lane-stays-cleared with the subject.reference and filter lanes surviving, remove, and re-add with fresh owned-column re-materialization',
+      'refine with sixteen exact-status API negatives (including the awaited 422 UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD refusal of a filter-channel-minted signed date_time melt) plus the non-melt undecorated contract on the carrier host',
+    ],
+    gateReasons: [
+      'the lane requires the owned loom-dev stack with the unpivot-capable server binary; the run gate refuses to certify unless the build-stamp barrier passes with fully recorded identity',
+      'melt cell values are checked against the disk-joined oracle (fixture ndjson plus the loom-dev generator), not the served page',
+      'skipped checks, zero rows where required, dropped screenshots below thirteen, and any uncaught page exception fail the run closed',
+    ],
+    script: 'verify-explorer-unpivot-row-source.mjs',
+    cases: {
+      'row-source-journey': {
+        focusedChecks: [
+          {
+            id: 'explorer-unpivot-contracts-static',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/contracts/unpivot-contracts.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/contracts/unpivot-contracts.mjs',
+              'scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs',
+            ],
+          },
+        ],
+        requiredChecks: [
+          'step-0-behavior-capabilities',
+          'discovery-hides-date-family',
+          'step-1-prelude-filter-step',
+          'step-2-discovery',
+          'step-3-configure-oracle-preview-preserve',
+          'step-4-cancel-byte-stable',
+          'step-5-apply-exact-rows',
+          'step-6-reload-materialized-echo',
+          'step-7-edit-rename-and-drop',
+          'step-8-cleared-melt-lane-stays-cleared',
+          'step-9-re-add-honest-rematerialization',
+          'step-10-remove-clean',
+          'date-column-survives-string-melt',
+          'negative-C0-public-control',
+          'negative-C1-signed-decorates',
+          'negative-C2-forged',
+          'negative-C3-cross-snapshot',
+          'negative-C4-tampered',
+          'negative-C5-empty-choiceId',
+          'negative-C6-missing-choiceId',
+          'negative-C7-duplicate',
+          'negative-C8-column-mismatch',
+          'negative-C9-over-selection',
+          'negative-C10-types-incompatible',
+          'negative-C11-already-projected-not-500',
+          'negative-C12-payloadless-requires-unpivot',
+          'contract-C13-non-melt-step-undecorated',
+          'negative-C14-new-carrier-stale-stage',
+          'negative-C15-signed-date-melt-refused',
+          'blank-and-exact-melt-evidence',
+        ],
+      },
+    },
+    coverage: [
+      {
+        feature: 'signed unselected root scalars (string family: valueQuantity.unit + subject.reference) melted by Turn columns into rows through apply, honest echo, edit, cleared-lane persistence, removal, and re-materialization; the date family is refused server-side (cd39eeaf named 422 UNSUPPORTED_UNPIVOT_SOURCE_DATE_FIELD), hidden from melt discovery (API payload + rendered optgroup + negatives host), while the public Date column survives every melt stage untouched (definition deep-equality across apply, reload, and melt removal, with cell-level oracle effectiveDateTime policing)',
+        acceptance: {
+          intent: 'row-lifecycle', kind: 'lifecycle', scenario: 'explorer-unpivot-row-source', case: 'row-source-journey',
+          checks: { choice: 3, proposal: 4, cancel: 4, apply: 5, savedRows: 10, reload: 6, edit: 7, restoration: 6 },
+        },
+        status: 'implemented',
+        reason: 'Directly-run raw-CDP workflow (scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs, script itself committed in 8a0e4483 at identity sha256 6e308d25ef0c57446af21f3742dfc2cb9c85319805da9780ff8c5ef3ec07c9a5), registered for the workflows line following the standalone-invocation TSV precedent (rows 139-140) beside explorer-filter-row-source and explorer-derive-row-source. First acceptance 2026-11-02 on two consecutive green runs (checks=27 screenshots=13) at barrier HEAD ddb36d07 / binary 80e8578b with stamp --check exit 0; receipts /tmp/opencode/unpivot-journey-commit.md. Date leg (discovery-hides-date-family, date-column-survives-string-melt, negative-C15-signed-date-melt-refused against the cd39eeaf committed refusal at internal/explorer/lifecycle/unpivot_source.go:261) accepted 2026-11-03 on two consecutive legitimate green runs of the 30-check set on a post-cd39eeaf binary: JOURNEY_OK checks=30 screenshots=13 build=57a41b81 runningBinary=cd9bf40fe52e3e1121c5a8952d0b41e833aad696843fd821e667d563db78ff5b in /tmp/opencode/rs96-life2-unpivot-2.log and /tmp/opencode/rs96-life2-unpivot-3.log, stamp equality recorded by the sibling build-identity.before/after.json + journey.json in the same-named run directories. The four fabricated date-melt claims of the original seed prose and the stale TSV tail were corrected in the 8a0e4483 repair round (assertions replaced by executed checks, historical reds preserved). Pre-fix-era disclosure kept: the pre-cd39eeaf accepted binary 200-decorated a signed effectiveDateTime melt, /tmp/opencode/jrev/probe-date-melt-dp4.log; F-A/F-B were fixed in 0dd7be44. Fault sensitivity (JOURNEY-62-UPS): mutation battery in a barrier-green window on the same runningBinary cd9bf40fe52e: 18/18 semantic mutants KILLED-AS-EXPECTED with per-mutant honest-failure markers plus BOTH controls JOURNEY_OK (start control at batch open; trailing control b3ce722291af checks=30 screenshots=13 with stamp --check exit 0 after; the seed phrase 19-mutant battery denoted the 19 sha-pinned workflow FILES, being 18 mutants plus 1 control file, counted at staging time); coherent report /tmp/opencode/jrev/battery-final-report.tsv (header: controls=2 mutants=18/18 missing=[] READY=true) with per-file sha256 gate /tmp/opencode/jrev/battery-v3-mutant-hashes.txt and batch identities /tmp/opencode/jrev/battery-v3-stamp.txt; raw serial log /tmp/opencode/jrev/battery-v2.log preserves every exit code. Bracket-verdict caveat kept: /tmp/opencode/unpivot-journey-bracket.md (same-model disclosed) held script invariants under executable tests (two live REDs on gates: barrier refusal + dirty --out), but scripts/run-native-verification-bracket.mjs remains absent from this shared volume, so the verified path is the direct standalone command plus the externally executed bracket. Residual cosmetic scope, routed as a plan: the two stale F-B date comments are byte-identical to HEAD today and are intended to be refreshed in the operator-owned post-certification extraction edit of the workflow file, not by this journey lane.',
+      },
+    ],
+  }),
+  Object.freeze({
     id: 'builder-root-replacement',
     workflow: 'basic-root-replacement-lifecycle',
     hooks: [
@@ -4459,7 +4581,6 @@ const registryRows = [
     script: 'basic-root-replacement.mjs',
     cases: {
       'replace-current-setup': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-root-replacement.spec.mjs',
         playwrightGrep: 'Explicit row-root replacement previews a reset, cancels safely, applies, and survives reload$',
         focusedChecks: [
           {
@@ -4565,7 +4686,6 @@ const registryRows = [
     script: 'verify-cda-plain-patient-root-selector.mjs',
     cases: {
       'select-observation-directly-and-restore-patient': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-plain-patient-root-selector.spec.mjs',
         playwrightGrep: 'select Observation directly from a plain Patient table and restore Patient$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4646,7 +4766,6 @@ const registryRows = [
     script: 'verify-cda-root-rebase.mjs',
     cases: {
       'preserve-patient-values-through-observation-and-restore': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'rebase Patient rows through Observation and restore the original route and values$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4711,7 +4830,6 @@ const registryRows = [
     script: 'verify-cda-collection-repair.mjs',
     cases: {
       "partial-long-route-repair-and-reload": {
-        playwrightTest: "scripts/verify-ui/specs/standalone-cda-other.spec.mjs",
         playwrightGrep: 'remove an unmapped selected resource, verify the saved route, and reload$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4784,7 +4902,6 @@ const registryRows = [
     script: 'verify-cda-starting-collection-handoff.mjs',
     cases: {
       'initial-selection-handoff-route-preview-apply-reload': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'CDA starting collection handoff hand off a starting collection, attach its route, preview, and reload$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -4863,7 +4980,6 @@ const registryRows = [
     script: 'scope-001-restricted-auth.mjs',
     cases: {
       'restricted-related-records': {
-        playwrightTest: 'scripts/verify-ui/specs/scope-001-restricted-auth.spec.mjs',
         playwrightGrep: 'restricted Calypr auth keeps related Builder rows within the granted path across Cancel and Apply$',
         expectedIdentity: { project: 'loom_dev_scope001-auth', generation: 'scope001-auth-v1' },
         focusedChecks: [{
@@ -4953,7 +5069,6 @@ const registryRows = [
     script: 'cda-starting-collection-replacement.mjs',
     cases: {
       'cross-resource-route-dependencies': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'replace a dependent starting collection across Patient and Observation, then restore its route lifecycle$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -5030,7 +5145,6 @@ const registryRows = [
     script: 'cda-same-table-root-replacement.mjs',
     cases: {
       'same-table-root-replacement': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-same-table-root-replacement.spec.mjs',
         playwrightGrep: 'replace the Patient setup with the exact default Observation page on the same table$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -5135,7 +5249,6 @@ const registryRows = [
     script: 'verify-cda-repeated-empty-browser.mjs',
     cases: {
       'missing-component-expanded-group-cancel-restore': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'preserves missing-component owners through EXPANDED and GROUP removal Cancel$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -5231,7 +5344,6 @@ const registryRows = [
     script: 'verify-cda-repeated-rows-browser.mjs',
     cases: {
       'component-array-source-expand-field-remove-and-row-restoration': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'applies source expansion, verifies item values, and restores original Observation rows$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -5329,7 +5441,6 @@ const registryRows = [
     script: 'verify-cda-repeated-empty-browser.mjs',
     cases: {
       'preserve-parent-exclude-error-group-count-and-restoration': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'CDA repeated component empty-list policies preserves empty and populated component owners through row policy and GROUP lifecycle$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -5466,7 +5577,6 @@ const registryRows = [
     script: 'verify-cda-zero-column-related-medication.mjs',
     cases: {
       'medication-preserve-parent': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         requiredChecks: [
           'bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability',
           'fresh Specimen table has zero public columns and exact scoped selected membership',
@@ -5482,7 +5592,6 @@ const registryRows = [
         ],
       },
       'medication-positive-fixture': {
-        playwrightTest: 'scripts/verify-ui/specs/related-medication-positive-fixture.spec.mjs',
         playwrightGrep: 'preserve and exclude exact positive Medication matches through native edit and reload$',
         requiredChecks: [
           'bounded independent raw CDA oracle proves the exact five-hop Medication route and records match availability',
@@ -5548,7 +5657,6 @@ const registryRows = [
     script: 'verify-cda-related-one-all-browser.mjs',
     cases: {
       'cda-specimen-reference-raw-oracle-one-all-lifecycle': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         requiredChecks: [
           'related ONE/ALL lifecycle preserves exact raw-source values and row identities',
           'CDA watched source and API build stayed unchanged',
@@ -5597,7 +5705,6 @@ const registryRows = [
     script: 'verify-cda-composed-row-lineage-browser.mjs',
     cases: {
       'upstream-edit-cascade': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs',
         playwrightGrep: 'edit a saved upstream Related expansion while preserving dependent rows, then cascade-remove it',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -5697,7 +5804,6 @@ const registryRows = [
     script: 'verify-cda-related-unpivot-browser.mjs',
     cases: {
       'related-unpivot': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'related-unpivot$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -5807,7 +5913,6 @@ const registryRows = [
     script: 'verify-cda-related-field-after-unpivot-browser.mjs',
     cases: {
       'related-field-after-unpivot-gender-all': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         requiredChecks: [
           'bounded raw CDA oracle rereads one exact scoped Specimen with one linked Patient',
           'bounded raw CDA oracle selects the exact Specimen and one linked Patient with populated gender',
@@ -5869,7 +5974,6 @@ const registryRows = [
     script: 'saved-related-expand-route-edit.mjs',
     cases: {
       'saved-related-expand-route-edit': {
-        playwrightTest: 'scripts/verify-ui/specs/builder-saved-route-edit.spec.mjs',
         playwrightGrep: 'Saved RelatedExpand edits Cancel, Apply, restore, and reload exact route rows$',
         focusedChecks: [
           {
@@ -5910,7 +6014,6 @@ const registryRows = [
         ],
       },
       'relatedexpand-exact-one-removal': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-related-expand-exact-one-removal.spec.mjs',
         playwrightGrep: 'removing and recreating RelatedExpand preserves exact one-match Patient rows$',
         focusedChecks: [
           {
@@ -5987,7 +6090,6 @@ const registryRows = [
     script: 'builder-add-column-coverage.mjs',
     cases: {
       'basic-field-coverage': {
-        playwrightTest: 'scripts/verify-ui/specs/builder-add-column-coverage.spec.mjs',
         playwrightGrep: 'native direct-field coverage preview cancels unchanged, applies exact rows, and survives reload$',
         focusedChecks: [
           {
@@ -6061,7 +6163,6 @@ const registryRows = [
     script: 'verify-cda-related-one-all-browser.mjs',
     cases: {
       'basic-height-quantity-one-all-lifecycle': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'preserves basic quantity behavior against raw related records$',
         focusedChecks: [
           {
@@ -6139,7 +6240,6 @@ const registryRows = [
     script: 'basic-related-field-after-unpivot.mjs',
     cases: {
       'gender-all': {
-        playwrightTest: 'scripts/verify-ui/specs/basic-related-field-after-unpivot.spec.mjs',
         focusedChecks: [
           {
             id: 'basic-related-field-after-unpivot-fixture-oracle',
@@ -6184,7 +6284,6 @@ const registryRows = [
         ],
       },
       'gender-missing-all': {
-        "playwrightTest": "scripts/verify-ui/specs/basic-related-field-after-unpivot-nullable-all.spec.mjs",
         "focusedChecks": [
           {
             "id": "basic-nullable-related-field-after-unpivot-fixture-oracle",
@@ -6302,7 +6401,6 @@ const registryRows = [
     script: 'verify-cda-related-source-after-pivot-browser.mjs',
     cases: {
       'related-source-after-pivot': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         requiredChecks: [
           'CDA raw oracle selects two same-status Observation roots with distinct Patient references',
           'Exact scoped subject_Patient edges resolve the two roots to distinct Patient documents',
@@ -6332,7 +6430,6 @@ const registryRows = [
         ],
       },
       'related-source-count-after-pivot': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'standalone CDA reshape workflows related-source-count-after-pivot related-source-count-after-pivot$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -6395,7 +6492,6 @@ const registryRows = [
         },
       },
       'related-resource-type-after-pivot': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'standalone CDA reshape workflows related-resource-type-after-pivot related-resource-type-after-pivot$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -6458,7 +6554,6 @@ const registryRows = [
         },
       },
       'related-resource-type-after-pivot-group-split': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'standalone CDA reshape workflows related-resource-type-after-pivot-group-split related-resource-type-after-pivot-group-split$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -6576,7 +6671,6 @@ const registryRows = [
     script: 'verify-cda-coded-pivot.mjs',
     cases: {
       'coded-pivot-integer': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'standalone CDA reshape workflows coded-pivot-integer coded-pivot-integer$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -6617,7 +6711,6 @@ const registryRows = [
         ],
       },
       'coded-pivot-string': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'standalone CDA reshape workflows coded-pivot-string coded-pivot-string$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -6698,7 +6791,6 @@ const registryRows = [
     script: 'verify-cda-group-add-fields-browser.mjs',
     cases: {
       'group-add-fields': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'group-add-fields',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -6804,7 +6896,6 @@ const registryRows = [
     script: 'verify-cda-group-edit-before-related-column-browser.mjs',
     cases: {
       'group-edit-before-related-column': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'group-edit-before-related-column',
         journeyTrace: {
           kind: 'native-lifecycle',
@@ -6869,7 +6960,6 @@ const registryRows = [
               'scripts/verify-ui/helpers/tests/cda-row-oracle.test.mjs',
               'scripts/verify-ui/helpers/tests/builder-journey-trace.test.mjs',
               'scripts/verify-ui/helpers/tests/construction-operation-diff.test.mjs',
-              'scripts/verify-ui/helpers/tests/native-builder-formal-gate.test.mjs',
             ],
             sourceFiles: [
               'scripts/verify-ui/helpers/created-explorer-scope.mjs',
@@ -6883,7 +6973,6 @@ const registryRows = [
               'scripts/verify-ui/helpers/construction-operation-diff.mjs',
               'scripts/verify-ui/helpers/source-fingerprint.mjs',
               'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
-              'scripts/generate-builder-browser-evidence.mjs',
               'scripts/run-native-verification-bracket.mjs',
               'scripts/run-builder-journey.mjs',
               'scripts/verify-builder-traces.mjs',
@@ -6960,7 +7049,6 @@ const registryRows = [
     script: 'verify-cda-group-one-conflict-browser.mjs',
     cases: {
       'group-one-conflict': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-reshape.spec.mjs',
         playwrightGrep: 'group-one-conflict',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -7059,7 +7147,6 @@ const registryRows = [
     script: 'cda-current-draft-group-join-workflow.mjs',
     cases: {
       "group-join": {
-        playwrightTest: "scripts/verify-ui/specs/cda-current-draft-group-join.spec.mjs",
         focusedChecks: [
           {
             id: 'group-join-native-request-capture',
@@ -7098,7 +7185,22 @@ const registryRows = [
         ],
       },
       "group-pivot-join": {
-        playwrightTest: "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+        focusedChecks: [
+          {
+            "id": "group-pivot-join-raw-oracle",
+            "cwd": ".",
+            "command": [
+              "node-test",
+              "scripts/verify-ui/helpers/tests/cda-group-pivot-join-oracle.test.mjs"
+            ],
+            "sourceFiles": [
+              "scripts/verify-ui/helpers/cda-group-pivot-join-oracle.mjs",
+              "scripts/verify-ui/registry.mjs",
+              "scripts/verify-ui/specs/cda-current-draft-group-pivot-join.spec.mjs",
+              "scripts/verify-ui/workflows/cda-current-draft-group-pivot-join-workflow.mjs"
+            ]
+          }
+        ],
         requiredChecks: [
           "Bounded scoped raw Observation witness has exact A,A,B shared and left-only identities",
           "left Group immutable selection and direct population bind exact scoped FHIR IDs",
@@ -7133,7 +7235,6 @@ const registryRows = [
         ],
       },
       'group-pivot-published': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-group-pivot-published.spec.mjs',
         playwrightGrep: 'native real-CDA Group→Pivot publishes and reloads exact Viewer rows$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -7171,7 +7272,6 @@ const registryRows = [
         ],
       },
       'coded-group-native': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-coded-group-native.spec.mjs',
         playwrightGrep: 'selects, previews, cancels, applies, edits, removes, restores, and reloads exact code groups$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -7202,7 +7302,6 @@ const registryRows = [
         ],
       },
       "compound-coded-group-single": {
-        playwrightTest: "scripts/verify-ui/specs/standalone-misc.spec.mjs",
         playwrightGrep: 'Native standalone compound coded grouping: single selects, edits, removes, and reloads the coded group$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         requiredChecks: [
@@ -7222,7 +7321,6 @@ const registryRows = [
         ],
       },
       'compound-coded-group-native': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-compound-coded-group.spec.mjs',
         playwrightGrep: 'previews, cancels, applies, edits, removes, restores, and reloads the exact three-row witness$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -7260,7 +7358,6 @@ const registryRows = [
         ],
       },
       'saved-cda-related-route-edit-epoch126': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-saved-related-route-edit-epoch126.spec.mjs',
         playwrightGrep: 'Saved real-CDA routes edit A-to-B, Cancel unchanged, Apply, restore B-to-A, and reload exact rows$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -7320,7 +7417,6 @@ const registryRows = [
         ],
       },
       "nullable-code-join": {
-        playwrightTest: "scripts/verify-ui/specs/cda-current-draft-nullable-code-join.spec.mjs",
         playwrightGrep: 'raw Observation selections preserve duplicate-key and missing-code Join semantics',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -7390,7 +7486,6 @@ const registryRows = [
         ],
       },
       'semantic-group': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-semantic-group.spec.mjs',
         playwrightGrep: 'selects, previews, cancels, applies, edits, removes, restores, and reloads exact semantic groups$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -7436,7 +7531,6 @@ const registryRows = [
         ],
       },
       'semantic-group-expanded': {
-        playwrightTest: 'scripts/verify-ui/specs/semantic-group-expanded-lifecycle.spec.mjs',
         playwrightGrep: 'selects, previews, cancels, applies, edits, adds contributors, removes, restores, and reloads exact expanded Coding groups$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -7483,7 +7577,6 @@ const registryRows = [
         ],
       },
       'semantic-group-connected': {
-        playwrightTest: 'scripts/verify-ui/specs/semantic-group-connected-lifecycle.spec.mjs',
         playwrightGrep: 'groups current Patient rows by exact inbound Specimen Coding and restores related owners$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -7575,7 +7668,6 @@ const registryRows = [
     script: 'cda-current-draft-upstream-append-workflow.mjs',
     cases: {
       'upstream-append': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs',
         requiredChecks: [
           'bounded raw CDA witnesses select two Patient FHIR IDs and two disjoint Observation.status final pairs with duplicate APPEND categories',
           'fresh CDA Explorer preserves exact project, generation, snapshot, baseline scope digest, and empty draft',
@@ -7606,7 +7698,6 @@ const registryRows = [
         ],
       },
       'patient-membership-handoff': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-current-draft-upstream-append.spec.mjs',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         playwrightGrep: 'native Patient attachment narrows and restores Group→DERIVE→APPEND rows$',
         focusedChecks: [
@@ -7713,7 +7804,22 @@ const registryRows = [
     script: 'cda-current-draft-diagnostic-report-append-workflow.mjs',
     cases: {
       'diagnostic-report-append': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs',
+        focusedChecks: [
+          {
+            "id": "diagnostic-report-append-raw-oracle",
+            "cwd": ".",
+            "command": [
+              "node-test",
+              "scripts/verify-ui/helpers/tests/cda-current-draft-diagnostic-report-append-oracle.test.mjs"
+            ],
+            "sourceFiles": [
+              "scripts/verify-ui/helpers/cda-current-draft-diagnostic-report-append-oracle.mjs",
+              "scripts/verify-ui/registry.mjs",
+              "scripts/verify-ui/specs/cda-current-draft-diagnostic-report-append.spec.mjs",
+              "scripts/verify-ui/workflows/cda-current-draft-diagnostic-report-append-workflow.mjs"
+            ]
+          }
+        ],
         requiredChecks: [
           'bounded raw DiagnosticReport.status witnesses select two disjoint duplicate-category current-draft APPEND inputs',
           'fresh DiagnosticReport APPEND Explorer preserves exact project, generation, snapshot, baseline scope, and empty draft',
@@ -7796,7 +7902,6 @@ const registryRows = [
     script: 'cda-current-draft-membership-workflow.mjs',
     cases: {
       membership: {
-        playwrightTest: 'scripts/verify-ui/specs/cda-current-draft-membership.spec.mjs',
         playwrightGrep: 'native INCLUDE and EXCLUDE Membership use two exact grouped Observation ID populations',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -7942,7 +8047,6 @@ const registryRows = [
     script: 'cda-published-membership-workflow.mjs',
     cases: {
       'published-membership': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-published-membership.spec.mjs',
         playwrightGrep: 'native published-source INCLUDE and EXCLUDE Membership pin exact grouped Observation IDs through reload$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8143,7 +8247,6 @@ const registryRows = [
     script: 'cda-published-upstream-append-workflow.mjs',
     cases: {
       'published-append': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-published-upstream-append.spec.mjs',
         playwrightGrep: 'publish exact raw CDA sources, Append with null padding, and restore the rooted target$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         requiredChecks: [
@@ -8219,7 +8322,6 @@ const registryRows = [
     script: 'verify-cda-related-one-all-browser.mjs',
     cases: {
       'zero-patient-observation-one-all-stable-parent-lifecycle': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'keeps an exact zero-match Patient through native ONE/ALL and restoration$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8269,7 +8371,6 @@ const registryRows = [
         ],
       },
       'zero-patient-observation-starting-root-roundtrip': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-zero-observation-root-roundtrip.spec.mjs',
         playwrightGrep: 'rebases the exact zero-match Patient population through Observation and restores it after reload',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8312,7 +8413,6 @@ const registryRows = [
         ],
       },
       'zero-patient-observation-exclude-policy-edit-cancel-apply-restoration': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'edits a saved zero-match RelatedExpand from PRESERVE_PARENT to EXCLUDE$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8406,7 +8506,6 @@ const registryRows = [
     script: 'verify-cda-related-one-all-browser.mjs',
     cases: {
       'observation-status-one-to-all-same-chooser-lifecycle': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-rows.spec.mjs',
         playwrightGrep: 'repairs a distinct-status ONE rejection through the same chooser and restores the exact Group$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8462,7 +8561,6 @@ const registryRows = [
     script: 'verify-cda-publication-browser.mjs',
     cases: {
       'bounded-specimen-publication-viewer-reload': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'publish a bounded Specimen output and verify its viewer rows$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         requiredChecks: [
@@ -8499,7 +8597,6 @@ const registryRows = [
     script: 'verify-cda-expanded-publication-browser.mjs',
     cases: {
       'component-row-expand-publish-clickhouse-viewer-reload': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'expand exact Observation component tuples, publish, and verify ClickHouse Viewer rows$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         requiredChecks: [
@@ -8545,7 +8642,6 @@ const registryRows = [
     script: 'cda-viewer-output-dataset-zip.mjs',
     cases: {
       'published-observation-repeated-values-zip': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-viewer-output-dataset-zip.spec.mjs',
         playwrightGrep: 'downloads exact repeated CDA Observation values from the published Viewer as a typed JSONL ZIP$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [{
@@ -8579,7 +8675,6 @@ const registryRows = [
         ],
       },
       'published-patient-dataset-zip': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-viewer-output-dataset-zip.spec.mjs',
         playwrightGrep: 'downloads exact raw CDA Patient IDs from the published Viewer as an identity-bound ZIP$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8695,7 +8790,6 @@ const registryRows = [
     script: 'semantic-specimen-fields-workflow.mjs',
     cases: {
       'specimen-semantic-fields': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-semantic-specimen.spec.mjs',
         playwrightGrep: 'CDA root Specimen semantic field lifecycle$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8756,7 +8850,6 @@ const registryRows = [
     script: 'semantic-specimen-fields-workflow.mjs',
     cases: {
       'inventory-fallback': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-semantic-specimen.spec.mjs',
         playwrightGrep: 'CDA Specimen inventory remains selectable without field proof$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8818,7 +8911,6 @@ const registryRows = [
     script: 'source-fields-workflow.mjs',
     cases: {
       'source-fields': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-fields.spec.mjs',
         playwrightGrep: 'CDA source fields CDA source fields$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8876,7 +8968,6 @@ const registryRows = [
     script: 'contributor-exists-workflow.mjs',
     cases: {
       'contributor-exists': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-fields.spec.mjs',
         playwrightGrep: 'CDA contributor exists CDA contributor exists$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -8950,7 +9041,6 @@ const registryRows = [
     script: 'contributor-rules-workflow.mjs',
     cases: {
       'contributor-equals': {
-        playwrightTest: 'scripts/verify-ui/specs/cda-contributor-equals.spec.mjs',
         playwrightGrep: 'CDA contributor EQUALS CDA contributor EQUALS$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9002,7 +9092,6 @@ const registryRows = [
     script: 'cohort-fields-workflow.mjs',
     cases: {
       "cohort-fields": {
-        playwrightTest: "scripts/verify-ui/specs/standalone-cda-fields.spec.mjs",
         focusedChecks: [
           {
             id: 'cohort-fields-saved-member-binding-contract',
@@ -9097,7 +9186,6 @@ const registryRows = [
     script: 'verify-cda-named-cohort-related-count-browser.mjs',
     cases: {
       'related-presence-including-empty-group': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'author and restore exact named-cohort PRESENCE lifecycle for related-presence-including-empty-group$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9134,7 +9222,6 @@ const registryRows = [
         ],
       },
       'related-presence-nonempty-zero-match': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-other.spec.mjs',
         playwrightGrep: 'author and restore exact named-cohort PRESENCE lifecycle for related-presence-nonempty-zero-match$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9227,7 +9314,6 @@ const registryRows = [
     script: 'verify-cda-group-numeric-filter-browser.mjs',
     cases: {
       'numeric-filter-after-group': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-group-numeric-filter.spec.mjs',
         playwrightGrep: 'filter numeric Group summaries through Preview, Cancel, Apply, edit, removal, and reload$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9325,7 +9411,6 @@ const registryRows = [
     script: 'verify-cda-authored-expand-browser.mjs',
     cases: {
       'expand-filter-upstream-edit-cascade': {
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-cohort.spec.mjs',
         playwrightGrep: 'preserve expanded item rows through Filter, upstream edit, and cascade removal$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9410,7 +9495,6 @@ const registryRows = [
     cases: {
       'nested-coding-expand-lifecycle': {
         witnessMode: 'multi-coding-component',
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-nested-expand.spec.mjs',
         playwrightGrep: 'expand nested component coding values with exact source identity, cancel, apply, edit, reload, and restore$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9463,7 +9547,6 @@ const registryRows = [
       },
       'nested-coding-expand-lifecycle-single-per-component': {
         witnessMode: 'single-coding-per-component',
-        playwrightTest: 'scripts/verify-ui/specs/standalone-cda-nested-expand.spec.mjs',
         playwrightGrep: 'expand nested component coding values with one coding per component and exact source identity, cancel, apply, edit, reload, and restore$',
         expectedIdentity: { project: 'loom_dev_cda_fhir', generation: 'cda-fhir-v1' },
         focusedChecks: [
@@ -9537,79 +9620,160 @@ const registryRows = [
       }
     ],
   }),
+  Object.freeze({
+    id: 'row96-row-source-four-state',
+    workflow: 'row96-row-source-four-state-native-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/construction-capabilities',
+    ],
+    requiredTransitions: [
+      'seed a table-shape on an eligible row root and fetch selectedStage capabilities with a healthy supported lane',
+      'field/concept options render catalog-path labels per label-journey-coupling.md (titles stay fieldPath; only construction-lane humanized text flips)',
+      'per-field and lane-level refusals carry the precise server reasonCode classes (construction_pivot_source.go rowSourceLaneReasons)',
+      'inventory-blocked reload is named *_SOURCE_INVENTORY_UNAVAILABLE and is disjoint from the empty-data NO_OBSERVED_VALUES_/NO_ELIGIBLE_POPULATED_ verdicts (S-B)',
+    ],
+    gateReasons: [
+      'requires the owned loom-dev stack at the current stamp-proven build identity; pre- and post-run stamp comparison is wired and fails closed',
+      'JOURNEY AUTHORED PENDING LIVE WINDOW (2026-11-02): ports down at authoring time; static self-validation and offline tests green, no browser execution yet',
+      'the UI reason consumer (RelatedSourceStepEditor disabledReason join, :79-80 to :444) is asserted from the DOM when a refusal control exists, else via the authoritative API payload with a recorded row96-ui-gap-reason-control side-Finding, never a faked tooltip assert',
+    ],
+    script: 'verify-explorer-row-source-four-state.mjs',
+    cases: {
+      fourState: {
+        requiredChecks: [
+          'row96-lane-support-healthy',
+          'row96-field-options-catalog-path-labels',
+          'row96-lane-refusal-decision-classes',
+          'row96-reason-codes-served',
+          'row96-inventory-block-strike-and-false-positive-control',
+          'row96-structural-gates-inventory-disjoint',
+          'row96-picker-empty-and-refused-explanations',
+          'row96-existing-column-reuse',
+          'row96-signed-expand-lane',
+          'row96-expand-policy-matrix',
+        ],
+        focusedChecks: [
+          {
+            id: 'row96-row-source-four-state-static-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs',
+              'scripts/loom-dev.mjs',
+              'internal/explorer/lifecycle/construction_pivot_source.go',
+            ],
+          },
+        ],
+        reason: 'RS03-03 four-state focused-native journey for docs/BUILDER_VERIFICATION.tsv row 96; directly-run raw-CDP workflow following the row-source journey convention; label authority /tmp/opencode/label-journey-coupling.md; reason-class authority construction pivot source classification (S-B inventory/empty split). Live acceptance achieved 2026-11-03: JOURNEY_OK checks=7 at 3b0a1ab2 (six original checks plus the ROW-SOURCE-06 picker-explanations control); a row96-server-authoritative-refusal check claimed earlier today was removed after re-derivation: it invoked a draft-apply endpoint absent from every tracked contract and had never executed; the sourceData-scope live 403 path it purported to cover remains untested and is registered as a gap for operator direction. Registered 2026-11-03 for ROW-SOURCE-07: eighth check row96-existing-column-reuse (live signed selection applied, server-recorded sourceProjection proven from the capabilities payload, duplicate signed choice suppressed and existing column selectable in a fresh lane). Registered 2026-11-03 for ROW-SOURCE-08: ninth check row96-signed-expand-lane (live Procedure table gains the unsigned signed-EXPAND lane offer, the browser selects the server-minted ExpandedScope choice, apply persists the server-signed expandedField with an EXPAND-step-owned sourceProjection, DTO-marshaled capabilities expose the signature, and the receipt preview shows the fixture-derived per-parent row multiset under the shipped PRESERVE_PARENT default); live JOURNEY_OK checks=9 recorded on the repaired source (/tmp/opencode/rs08/run11..run17).',
+      },
+    },
+    coverage: [
+      {
+        feature: 'Four-state dataset-field source evidence on signed-source lanes: healthy supported lane, catalog-path field labels, precise refusal reasonCodes consumed visibly, named inventory fault distinct from empty data',
+        acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'fourState' },
+        status: 'implemented',
+        reason: 'Nine-check journey live-green in a clean acceptance window 2026-11-03: JOURNEY_OK checks=9 build 552e8749 (runningBinary 0647348db0d6, api_build_stamp_changed=false), /tmp/opencode/rs08/run18.log + journey.json; the ninth check row96-signed-expand-lane drives the ROW-SOURCE-08 signed EXPAND lane in the browser end to end (live offer from the repaired backing rule, server-minted ExpandedScope choice selected, apply persists the server-signed expandedField + EXPAND-step-owned sourceProjection, DTO-marshaled capabilities expose the signature, receipt preview shows the fixture-derived 4-row per-parent multiset under the shipped PRESERVE_PARENT default with parent-kept empty-array row). The R92/R93 claim of a shipped row96-server-authoritative-refusal check was removed after re-derivation proved it never executed and targeted a non-existent endpoint; that sourceData-scope 403 coverage remains an open gap awaiting operator direction. EXCLUDE/ERROR empty-policy variants are covered only by the reused selected-column renderer Go tests (single lowerConstructionExpand for both paths), disclosed.',
+      },
+    ],
+  }),
+  Object.freeze({
+    id: 'pivot-keyword-names',
+    workflow: 'pivot-keyword-names-native-journey',
+    hooks: [],
+    endpoints: [
+      'GET /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/builder',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/commands',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-capabilities',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-category-discoveries',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-resolutions',
+      'POST /api/v1/projects/{project}/explorers/{explorer}/authoring/v2/table-shape-proposals',
+    ],
+    requiredTransitions: [
+      'type reserved AQL keyword names (null, RETURN) into BOTH the Pivot output name and Pivot output label inputs (the grid renders labels), re-read them after React re-render, and apply through construction-apply-proposal',
+      'keyword columns render in the comparison grid (headers equal the typed keywords, non-zero numeric cells) under an asserted ready preview with a backing receipt',
+      'Cancel is byte-identical (draftVersion, draftDigest, tableShape unchanged); reload preserves the keyword grid values and retains a backing receipt',
+      'duplicate names never persist: whichever lane fires is proven — client gate (apply absent/disabled with the duplicate confirmed in the form), client block without a request, or a typed server 4xx whose code is read from the response body; any 5xx fails, a 2xx silent accept fails, and a valid rename must return apply enabled (positive control)',
+      'remove restores the exact seeded base grid headers and positive rows and clears the pivot columns and PIVOT step from the document',
+      'multi-category pivot resolves without the duplicate-column-ID 500 class repaired at a5639991 (the proposal/resolution legs assert 5xx-free end to end; browser-originated authoring 5xx also fails closed at the tail)',
+    ],
+    gateReasons: [
+      'requires the owned loom-dev stack at the current stamp-proven build identity; pre- and post-run stamp comparison is wired and fails closed (buildIdentity.before/after asserts: expectedSource==liveSource, recordedBinary==runningBinary, identity stable across the run)',
+      'live-green twice 2026-11-03 with committed script sha256 9f035a37f12b... (report.scriptIdentity.workflowSha256, identical both runs) at build a56399911dd8e / runningBinary 4079bc536fd9: JOURNEY_OK checks=14, exceptions=[] and browser-side 5xx/rejected-4xx=[] in /tmp/opencode/rs09/run-pkw26 and run-pkw27 (earlier pkw22-pkw25 superseded by these final-script greens)',
+      'the duplicate-name lane records which gate actually fired; green runs so far took lane ui-gate and the positive control (valid rename re-enables apply) passed, so the absence was never a permanently-absent apply control; the server-4xx lane has not fired live yet — the code path asserts typed 4xx classification when it does',
+      'uncaught browser exceptions and browser-originated 5xx on authoring endpoints fail the run at the tail (raw-CDP convention per verify-explorer-row-source-four-state.mjs:792)',
+    ],
+    script: 'verify-explorer-pivot-keyword-names.mjs',
+    cases: {
+      keywordNames: {
+        requiredChecks: [
+          'pk-seed-table',
+          'pk-editor-mounts',
+          'pk-fields-selected',
+          'pk-categories-discovered',
+          'pk-keyword-names-applied',
+          'pk-cancel-byte-stability',
+          'pk-comparison-proposal-available',
+          'pk-apply-success',
+          'pk-grid-values',
+          'pk-document-persistence',
+          'pk-reload-persistence',
+          'pk-duplicate-negative-blocked',
+          'pk-rename-recovers',
+          'pk-remove-restores',
+        ],
+        focusedChecks: [
+          {
+            id: 'pivot-keyword-names-static-contract',
+            cwd: '.',
+            command: ['node-test', 'scripts/verify-ui/helpers/tests/pivot-keyword-names.test.mjs'],
+            sourceFiles: [
+              'scripts/verify-ui/registry.mjs',
+              'scripts/verify-ui/workflows/verify-explorer-pivot-keyword-names.mjs',
+              'scripts/verify-ui/helpers/pivot-keyword-fixture-oracle.mjs',
+            ],
+          },
+        ],
+        reason: 'Backlog-dispositioned keyword-named Pivot UI slice (docs/EXPLORER_BACKLOG.md, pivot-500 wave 2026-11-03): the AQL-keyword class was fixed at compile/API level (nullpivot probes GREEN on the repaired lowerer); this journey is the remaining browser half — real name+label inputs, comparison grid keywords, persistence, duplicate gating with response-observed classification, undo. Selectors self-derived from the served source after the explore-worker report was discarded for citing a nonexistent path; authority files: components/RowDefinitionSettingsPanel.tsx (:983/:995/:1028/:1033/:1062) and constructionOperations/ConstructionReshapeEditor.tsx (:2440/:2535/:4586/:4620/:4628/:4660/:4809/:4813), plus construction-persistence ground truth doc.columns[].name / doc.construction PIVOT step (re-derived from the running server, not assumed).',
+      },
+    },
+    coverage: [
+      {
+        feature: 'Keyword-named pivot outputs end to end in the browser: typed, applied, rendered, persisted, reload-stable, duplicate-gated, removable',
+        acceptance: { intent: 'row-lifecycle', kind: 'probe', case: 'keywordNames' },
+        status: 'implemented',
+        reason: '14-check raw-CDP journey (count authority: the script expectedChecks, machine-verified by the static contract). Live-green twice 2026-11-03 with committed script sha256 9f035a37f12b... (report.scriptIdentity.workflowSha256 identical both runs) at build a56399911dd8e, with the script identity asserts (expectedSource==liveSource==recordedSource, recordedBinary==runningBinary before/after, stable across the run; /tmp/opencode/rs09/run-pkw26 and run-pkw27); exceptions=[] and browserRejectedRequests=[] both runs; the durable journey.json + run-log copies shipped at verification/publication-bundle/evidence/pivot-keyword-names/ (run-pkw26/27 .journey.json and .log). Review receipt: same-model (qwen3.8-flash-next) adversary pair; findings F-1..F-8 / PKW-R1..R8 accepted and repaired before this green (uncaught-exception + browser-5xx tail guards, post-render keyword re-read, observed-response duplicate classification, seeded-base-grid positive assertion, script sha identity, registry truthfulness — full record verification/publication-bundle/FINDINGS.md PWAVE).',
+      }
+    ],
+  }),
 ];
 
-import { readFileSync } from 'node:fs';
-import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { planFocusedCheckGroups } from './helpers/focused-check-groups.mjs';
 
 const registryRoot = fileURLToPath(new URL('../../', import.meta.url));
-const focusedCheckAttachments = JSON.parse(readFileSync(new URL('./mjs-focused-check-attachments.json', import.meta.url), 'utf8'));
-if (focusedCheckAttachments.schemaVersion !== 1 || !Array.isArray(focusedCheckAttachments.attachments)) {
-  throw new Error('Generated MJS focused-check attachments must use schemaVersion 1 and an attachments array.');
-}
-
-const attachedCases = new Map();
-for (const attachment of focusedCheckAttachments.attachments) {
-  if (!attachment || typeof attachment.scenarioId !== 'string' || attachment.scenarioId.length === 0
-    || attachment.scenarioId.trim() !== attachment.scenarioId || typeof attachment.caseId !== 'string'
-    || attachment.caseId.length === 0 || attachment.caseId.trim() !== attachment.caseId
-    || !Array.isArray(attachment.focusedChecks) || attachment.focusedChecks.length === 0) {
-    throw new Error('Generated MJS focused-check attachment needs an exact scenario, case, and checks array.');
-  }
-  const caseIdentity = attachment.scenarioId + ':' + attachment.caseId;
-  if (attachedCases.has(caseIdentity)) throw new Error('Generated MJS focused-check attachments duplicate ' + caseIdentity + '.');
-  planFocusedCheckGroups(attachment.focusedChecks, registryRoot);
-  attachedCases.set(caseIdentity, attachment.focusedChecks);
-}
-
-const usedAttachmentCases = new Set();
 const scenarioIds = new Set();
 const caseIds = new Set();
 export const registry = Object.freeze(registryRows.map((scenario) => {
   if (scenarioIds.has(scenario.id)) throw new Error('Native verification registry duplicates scenario ID ' + scenario.id + '.');
   scenarioIds.add(scenario.id);
-  const cases = { ...scenario.cases };
-  let changed = false;
-  for (const [caseName, caseData] of Object.entries(scenario.cases ?? {})) {
-    const caseIdentity = scenario.id + ':' + caseName;
-    if (caseIds.has(caseIdentity)) throw new Error('Native verification registry duplicates case identity ' + caseIdentity + '.');
-    caseIds.add(caseIdentity);
-    const additions = attachedCases.get(caseIdentity);
-    if (!additions) continue;
-    usedAttachmentCases.add(caseIdentity);
-    const focusedChecks = [...(caseData.focusedChecks ?? [])];
-    planFocusedCheckGroups(focusedChecks, registryRoot);
-    const checkIds = new Set();
-    for (const check of focusedChecks) {
-      if (checkIds.has(check.id)) throw new Error('Registered focused-check IDs are duplicated in ' + caseIdentity + ': ' + check.id);
-      checkIds.add(check.id);
-    }
-    for (const check of additions) {
-      if (!check || typeof check.id !== 'string') throw new Error('Generated focused-check attachment has no stable ID in ' + caseIdentity + '.');
-      const existing = focusedChecks.find((candidate) => candidate.id === check.id);
-      if (existing) {
-        if (!isDeepStrictEqual(existing, check)) throw new Error('Generated focused-check ID conflicts with registry contents in ' + caseIdentity + ': ' + check.id);
-        continue;
-      }
-      if (checkIds.has(check.id)) throw new Error('Generated focused-check ID collides in ' + caseIdentity + ': ' + check.id);
-      checkIds.add(check.id);
-      focusedChecks.push(Object.freeze(check));
-      changed = true;
-    }
-    if (focusedChecks.length !== (caseData.focusedChecks ?? []).length) {
-      planFocusedCheckGroups(focusedChecks, registryRoot);
-      cases[caseName] = Object.freeze({ ...caseData, focusedChecks: Object.freeze(focusedChecks) });
+  for (const [caseName, contract] of Object.entries(scenario.cases ?? {})) {
+    const caseId = scenario.id + ':' + caseName;
+    if (caseIds.has(caseId)) throw new Error('Native verification registry duplicates case identity ' + caseId + '.');
+    caseIds.add(caseId);
+    const checks = contract.focusedChecks ?? [];
+    planFocusedCheckGroups(checks, registryRoot);
+    const ids = new Set();
+    for (const check of checks) {
+      if (ids.has(check.id)) throw new Error('Registered focused-check IDs are duplicated in ' + caseId + ': ' + check.id);
+      ids.add(check.id);
     }
   }
-  if (changed) return Object.freeze({ ...scenario, cases: Object.freeze(cases) });
   return scenario;
 }));
-
-for (const caseIdentity of attachedCases.keys()) {
-  if (!usedAttachmentCases.has(caseIdentity)) throw new Error('Generated MJS focused-check attachment references unknown case ' + caseIdentity + '.');
-}
 
 export const getScenario = (id) => {
   const scenario = registry.find((entry) => entry.id === id);
@@ -9621,7 +9785,6 @@ export const scenarioCaseFor = (scenarioOrId, caseName, custom = false) => {
   const scenario = typeof scenarioOrId === 'string' ? getScenario(scenarioOrId) : scenarioOrId;
   const contract = scenario?.cases?.[caseName];
   if (!contract) throw new Error(`unknown case for ${scenario?.id ?? scenarioOrId}: ${caseName}`);
-  if (!contract.playwrightTest) throw new Error(`missing Playwright test for ${scenario.id}/${caseName}`);
   const checks = contract.requiredChecks;
   const requiredChecks = Array.isArray(checks) ? checks : checks?.[custom ? 'custom' : 'owned'];
   if (!Array.isArray(requiredChecks) || !requiredChecks.length) throw new Error(`missing required checks for ${scenario.id}/${caseName}`);

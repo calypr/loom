@@ -236,6 +236,107 @@ describe('construction operation families', () => {
     expect(catalogPanel).toHaveAttribute('data-source-reason', 'The current stage no longer has the source projection needed to add fields.');
   });
 
+  describe('operation-choice request failures', () => {
+    const jsonResponse = (body: unknown, status: number, headers: Record<string, string> = {}) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'content-type': 'application/json', ...headers },
+      });
+
+    const renderCalculate = (fetchImpl: typeof globalThis.fetch) =>
+      renderPanel({ family: 'CALCULATE', client: createLoomClient({ fetch: fetchImpl }) });
+
+    const capabilityError = async () => await screen.findByTestId('construction-operation-capability-error');
+
+    it('keeps loading separate from a request failure while the choices request is pending', async () => {
+      let release: ((value: Response) => void) | undefined;
+      const pending = new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockReturnValue(pending);
+      renderCalculate(fetchImpl as unknown as typeof globalThis.fetch);
+
+      expect(await screen.findByText('Checking the choices supported for this table…')).toBeInTheDocument();
+      expect(screen.queryByTestId('construction-operation-capability-error')).not.toBeInTheDocument();
+
+      release?.(jsonResponse(capabilities(), 200));
+      expect(await screen.findByTestId('construction-operation-available')).toBeInTheDocument();
+      expect(screen.queryByTestId('construction-operation-capability-error')).not.toBeInTheDocument();
+    });
+
+    it('explains a 401 as a sign-in problem and preserves the server message', async () => {
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        jsonResponse({ message: 'The session token expired.' }, 401),
+      );
+      renderCalculate(fetchImpl);
+
+      const alert = await capabilityError();
+      expect(alert.textContent).toMatch(/signed out/i);
+      expect(alert.textContent).toContain('The session token expired.');
+      expect(alert.textContent).not.toMatch(/permission/i);
+      expect(alert.textContent).not.toMatch(/right now|reached/i);
+    });
+
+    it('explains a 403 as a permission problem and preserves the server message', async () => {
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        jsonResponse({ message: 'The dataset policy blocks this table.' }, 403),
+      );
+      renderCalculate(fetchImpl);
+
+      const alert = await capabilityError();
+      expect(alert.textContent).toMatch(/permission/i);
+      expect(alert.textContent).toContain('The dataset policy blocks this table.');
+      expect(alert.textContent).not.toMatch(/signed out/i);
+      expect(alert.textContent).not.toMatch(/right now|reached/i);
+    });
+
+    it('explains a 5xx as an outage and keeps it distinct from sign-in, permission, and network copy', async () => {
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        jsonResponse({ message: 'The capability service restarted.' }, 503),
+      );
+      renderCalculate(fetchImpl);
+
+      const alert = await capabilityError();
+      expect(alert.textContent).toMatch(/right now/i);
+      expect(alert.textContent).toContain('The capability service restarted.');
+      expect(alert.textContent).not.toMatch(/signed out|permission|connection/i);
+    });
+
+    it('explains a network failure as unreachable and keeps it distinct from the 5xx copy', async () => {
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockRejectedValue(new TypeError('Failed to fetch'));
+      renderCalculate(fetchImpl);
+
+      const alert = await capabilityError();
+      expect(alert.textContent).toMatch(/could not be reached/i);
+      expect(alert.textContent).toMatch(/connection/i);
+      expect(alert.textContent).not.toMatch(/right now/i);
+      expect(alert.textContent).not.toMatch(/Failed to fetch/i);
+    });
+
+    it('keeps the shipped catch-all when Loom gives no request shape to classify', async () => {
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        jsonResponse({ unexpected: 'payload' }, 200),
+      );
+      renderCalculate(fetchImpl);
+
+      const alert = await capabilityError();
+      expect(alert.textContent).toBe(
+        'Could not check operation choices. Reload the table and try again.',
+      );
+    });
+
+    it('states that the no-cause line covers responses without a server message', async () => {
+      const fetchImpl = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+        new Response('', { status: 500 }),
+      );
+      renderCalculate(fetchImpl);
+
+      const alert = await capabilityError();
+      expect(alert.textContent).toMatch(/right now/i);
+      expect(alert.textContent).not.toMatch(/Loom said/i);
+    });
+  });
+
   it('enables calculated values only when the current server choices support them', async () => {
     const client = createLoomClient({
       fetch: async () => new Response(JSON.stringify(capabilities()), {

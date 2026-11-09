@@ -4,78 +4,49 @@ on:
   pull_request:
     paths:
       - '.github/workflows/builder-formal.yml'
-      - 'scripts/verify-builder-*.mjs'
-      - 'scripts/verify-ui/**'
-      - 'scripts/run-builder-journey.mjs'
-      - 'scripts/package.json'
-      - 'scripts/package-lock.json'
-      - 'scripts/run-builder-mutation-probe.mjs'
-      - 'scripts/generate-builder-route-ledger.mjs'
-      - 'scripts/self-test-builder-traces.mjs'
+      - 'scripts/verify-builder-formal-core.mjs'
+      - 'scripts/lib/formal-*.mjs'
+      - 'scripts/setup-formal-tools.mjs'
+      - 'scripts/browser/**'
       - 'verification/builder-interactions/**'
-      - 'docs/ui-contract-inventory/**'
-      - 'ui/packages/loom-ui/src/features/ExplorerBuilder/**'
-      - 'ui/packages/loom-ui/testSupport/formalTrace.ts'
-  schedule:
-    - cron: '17 4 * * *'
+      - '.codex/skills/builder-interaction-formal-verification/**'
+      - 'verification/builder-interactions/BuilderLifecycle.*'
+      - 'verification/builder-interactions/ReconcileLifecycle.*'
+      - 'verification/builder-interactions/ImplementationConformance.*'
+      - 'verification/builder-interactions/ApplySettlementRace.*'
+      - 'verification/builder-interactions/statechart.view.mjs'
+      - 'ui/packages/loom-ui/src/**'
+      - 'ui/packages/loom-ui/testSupport/**'
+      - 'ui/packages/loom-ui/vitest*'
+      - 'ui/package*.json'
+      - 'internal/explorer/**'
+      - 'internal/projectid/**'
+      - 'internal/authscope/**'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      browser:
+        description: Run opt-in native Chromium component checks
+        type: boolean
+        default: false
 
 jobs:
-  fast:
-    name: Fast formal gate
-    if: github.event_name == 'pull_request'
+  audit:
+    name: Formal models and generated replays
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version: 22.x
           cache: npm
-          cache-dependency-path: |
-            scripts/package-lock.json
-            ui/package-lock.json
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - name: Install UI dependencies
-        working-directory: ui
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install formal conformance test dependencies
-        working-directory: scripts
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Check retained browser evidence before formal models
-        run: >-
-          node scripts/generate-builder-browser-evidence.mjs
-          --from-evidence --check
-      - name: Run formal models, traces, and retained schedules
-        run: node scripts/verify-builder-formal.mjs --skip-go
-
-  full:
-    name: Full formal gate
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+          cache-dependency-path: ui/package-lock.json
       - uses: actions/setup-go@v5
         with:
           go-version: 1.26.5
           cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.x'
-          cache: npm
-          cache-dependency-path: |
-            scripts/package-lock.json
-            ui/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -83,12 +54,92 @@ jobs:
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Install formal conformance test dependencies
-        working-directory: scripts
+      - name: Bootstrap pinned formal tools
+        run: node scripts/setup-formal-tools.mjs
+      - name: Check models and every model fault control
+        run: node scripts/verify-builder-formal-core.mjs --self-test --models-only --out /tmp/loom-formal-ci/models
+      - name: Replay all generated schedules and population attachment cases
+        run: node scripts/verify-builder-formal-core.mjs --phase generated --out /tmp/loom-formal-ci/generated
+      - name: Check mounted traces and every trace fault control
+        run: node scripts/verify-builder-formal-core.mjs --phase trace-controls --out /tmp/loom-formal-ci/traces
+      - name: Check framework rejection paths
+        run: node --test scripts/lib/formal-framework.test.mjs
+      - name: Type-check UI tests
+        working-directory: ui/packages/loom-ui
+        run: ../../node_modules/.bin/tsc -p tsconfig.test.json
+      - name: Check reviewed UI source checkpoint
+        run: python3 scripts/verify_ui_contract_inventory.py --source-only
+      - name: Replay representative operation-history journeys
+        run: node scripts/verify-builder-formal-core.mjs --phase journey --feature operation-history-routine --out /tmp/loom-recovered-journeys-ci
+      - name: Preserve formal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-verification
+          path: |
+            /tmp/loom-formal-ci
+            /tmp/loom-recovered-journeys-ci
+          if-no-files-found: warn
+
+  source-proofs:
+    name: Source proofs (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install UI dependencies
+        working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Check retained browser evidence before formal models
-        run: >-
-          node scripts/generate-builder-browser-evidence.mjs
-          --from-evidence --check
-      - name: Run formal models, traces, schedules, and server contracts
-        run: node scripts/verify-builder-formal.mjs
+      - name: Bootstrap pinned formal tools
+        run: node scripts/setup-formal-tools.mjs
+      - name: Check assigned positive and negative source proofs
+        run: node scripts/verify-builder-formal-core.mjs --phase source-proofs --shard ${{ matrix.shard }}/4 --out /tmp/loom-source-proofs-${{ matrix.shard }}
+      - name: Preserve source-proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-source-proofs-${{ matrix.shard }}
+          path: /tmp/loom-source-proofs-${{ matrix.shard }}
+          if-no-files-found: warn
+
+  browser:
+    if: github.event_name == 'workflow_dispatch' && inputs.browser
+    name: Native Chromium component boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI build dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Drive actual components and verify downloads
+        run: node scripts/verify-builder-formal-core.mjs --phase browser --chrome "$(command -v google-chrome)" --out /tmp/loom-native-browser
+      - name: Preserve browser observations and cleanup proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-browser
+          path: /tmp/loom-native-browser
+          if-no-files-found: warn

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -103,15 +104,40 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		t.Fatalf("restore changed publication or missed CAS version: active=%q draftVersion=%d", updated.ActiveRevisionID, updated.DraftVersion)
 	}
 
-	builder := requestJSON(t, app, http.MethodGet, basePath+"/builder", "")
-	if builder.StatusCode != http.StatusOK || !containsJSONField(builder.Body, "previousDraftRevisionId", restored.PreviousDraftRevisionID) {
-		t.Fatalf("reload Builder state did not expose Undo target: status=%d body=%s", builder.StatusCode, builder.Body)
+	assertReload := func() {
+		t.Helper()
+		builder := requestJSON(t, app, http.MethodGet, basePath+"/builder", "")
+		if builder.StatusCode != http.StatusOK {
+			t.Fatalf("reload status=%d body=%s", builder.StatusCode, builder.Body)
+		}
+		var loaded struct {
+			Workspace               *authoringv2.Workspace `json:"workspace"`
+			DraftVersion            int64                  `json:"draftVersion"`
+			DraftDigest             string                 `json:"draftDigest"`
+			PreviousDraftRevisionID string                 `json:"previousDraftRevisionId"`
+		}
+		if err := json.Unmarshal([]byte(builder.Body), &loaded); err != nil {
+			t.Fatal(err)
+		}
+		if loaded.Workspace == nil || loaded.DraftVersion != 5 || loaded.DraftDigest != previousDigest || loaded.PreviousDraftRevisionID != restored.PreviousDraftRevisionID {
+			t.Fatalf("reload lost restored draft identity or Undo target: %#v", loaded)
+		}
+		actual, err := loaded.Workspace.CanonicalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(actual, previousRaw) {
+			t.Fatalf("fresh Builder read did not return the exact restored workspace: got=%s want=%s", actual, previousRaw)
+		}
 	}
+	assertReload()
 
 	replayed := requestJSON(t, app, http.MethodPost, basePath+"/commands", commandBody)
 	if replayed.StatusCode != http.StatusOK || !containsJSONField(replayed.Body, "draftVersion", "5") {
 		t.Fatalf("restore idempotency status=%d body=%s", replayed.StatusCode, replayed.Body)
 	}
+
+	assertReload() // Duplicate command must not advance or overwrite the restored draft.
 
 	staleCASBody := fmt.Sprintf(`{"commandId":"stale-restore-cas","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":4,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
 		authoringv2.CurrentSemanticsVersion, snapshot.Token, currentDigest, restored.PreviousDraftRevisionID)
@@ -119,6 +145,8 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	if staleCAS.StatusCode != http.StatusConflict || !strings.Contains(staleCAS.Body, `"code":"DRAFT_CONFLICT"`) {
 		t.Fatalf("stale restore CAS status=%d body=%s", staleCAS.StatusCode, staleCAS.Body)
 	}
+
+	assertReload() // A rejected compare-and-swap must leave the saved workspace intact.
 
 	store.mu.Lock()
 	key := testExplorerKey(owner.Project, owner.ExplorerID) + "\x00" + restored.PreviousDraftRevisionID
@@ -132,6 +160,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	if staleScope.StatusCode != http.StatusConflict || !strings.Contains(staleScope.Body, `"code":"STALE_DRAFT_SOURCE_CONTEXT"`) {
 		t.Fatalf("stale restore source scope status=%d body=%s", staleScope.StatusCode, staleScope.Body)
 	}
+	assertReload() // A rejected source-scope check must not write draft state.
 }
 
 func containsJSONField(raw, key, value string) bool {

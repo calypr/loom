@@ -58,7 +58,7 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 		if err != nil {
 			return Page{}, err
 		}
-		if cursor.Version != 1 || cursor.Binding == "" || cursor.Binding != binding {
+		if (cursor.Version != 1 && cursor.Version != 2) || cursor.Binding == "" || cursor.Binding != binding {
 			return Page{}, staleCursor()
 		}
 	}
@@ -106,7 +106,10 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 		if req.Sort.Desc {
 			direction = "DESC"
 		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_row_id` ASC", req.Sort.Column, direction)
+		// F-B24: NULLS LAST is pinned explicitly in BOTH directions so the
+		// engine default can never disagree with pageCursorPredicate's
+		// NULL-bucket ordering, and ordered pages stay total.
+		query += fmt.Sprintf(" ORDER BY `%s` %s NULLS LAST, `__loom_row_id` ASC", req.Sort.Column, direction)
 	} else {
 		query += " ORDER BY `__loom_row_id` ASC"
 	}
@@ -140,11 +143,13 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 	if hasNext && len(rows) > 0 {
 		last := rows[len(rows)-1]
 		var sortValue any
+		sortValueNull := false
 		if req.Sort != nil {
 			sortValue = last[req.Sort.Column]
-			if sortValue == nil {
-				return Page{}, invalidCursor()
-			}
+			// F-B24: a NULL last row parks the cursor inside the NULL bucket
+			// instead of failing the whole page (formerly invalidCursor, the
+			// latent second defect of the same root cause).
+			sortValueNull = sortValue == nil
 		}
 		if binding == "" {
 			binding, err = cursorFingerprint(materialization, req)
@@ -152,7 +157,7 @@ func (r *Reader) Page(ctx context.Context, materialization Materialization, req 
 				return Page{}, err
 			}
 		}
-		next = encodeBoundCursor(fmt.Sprint(last["__loom_row_id"]), sortValue, binding)
+		next = encodeBoundCursor(fmt.Sprint(last["__loom_row_id"]), sortValue, sortValueNull, binding)
 	}
 	rowIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -214,7 +219,10 @@ func (r *Reader) Stream(ctx context.Context, materialization Materialization, re
 		if req.Sort.Desc {
 			direction = "DESC"
 		}
-		query += fmt.Sprintf(" ORDER BY `%s` %s, `__loom_row_id` ASC", req.Sort.Column, direction)
+		// F-B24: NULLS LAST is pinned explicitly in BOTH directions so the
+		// engine default can never disagree with pageCursorPredicate's
+		// NULL-bucket ordering, and ordered pages stay total.
+		query += fmt.Sprintf(" ORDER BY `%s` %s NULLS LAST, `__loom_row_id` ASC", req.Sort.Column, direction)
 	} else {
 		query += " ORDER BY `__loom_row_id` ASC"
 	}
@@ -390,6 +398,12 @@ func pageCursorPredicate(cursor *pageCursor, sortBy *Sort) (string, []any, error
 	if sortBy == nil {
 		return "`__loom_row_id` > ?", []any{cursor.RowID}, nil
 	}
+	if cursor.SortValueNull {
+		// Cursor parked in the NULL bucket: everything after it is NULL rows
+		// ordered by row identity, in either direction (NULLs sort last and
+		// the tiebreak is always row-id ASC).
+		return fmt.Sprintf("(`%s` IS NULL AND `__loom_row_id` > ?)", sortBy.Column), []any{cursor.RowID}, nil
+	}
 	if cursor.SortValue == nil {
 		return "", nil, invalidCursor()
 	}
@@ -397,7 +411,11 @@ func pageCursorPredicate(cursor *pageCursor, sortBy *Sort) (string, []any, error
 	if sortBy.Desc {
 		op = "<"
 	}
-	return fmt.Sprintf("(`%s` %s ? OR (`%s` = ? AND `__loom_row_id` > ?))", sortBy.Column, op, sortBy.Column), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
+	// F-B24: NULL rows sit after every non-NULL row in this order (NULLS
+	// LAST, pinned in the ORDER BY), so they always satisfy "after a
+	// non-NULL cursor" and must be included; without this arm they were
+	// unreachable in both directions while TotalCount advertised them.
+	return fmt.Sprintf("(`%s` IS NULL OR `%s` %s ? OR (`%s` = ? AND `__loom_row_id` > ?))", sortBy.Column, sortBy.Column, op, sortBy.Column), []any{cursor.SortValue, cursor.SortValue, cursor.RowID}, nil
 }
 
 func hasColumn(columns []Column, name string) bool {

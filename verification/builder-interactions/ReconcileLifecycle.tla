@@ -1,376 +1,156 @@
----- MODULE ReconcileLifecycle ----
+--------------------------- MODULE ReconcileLifecycle ---------------------------
 EXTENDS Naturals, TLC
 
+(* CurrentRequest abstracts reconcileResultIsCurrent (generation/explorer/    *)
+(* workspace fingerprint). Incoming receipt fields and diagnostics are free  *)
+(* inputs, not correct fields fabricated by the model. Receipt variables log *)
+(* the NEW acceptance event for preview, not retained reducer storage.       *)
+Identities == {"A", "B"}
+Generations == 0..2
+Versions == 0..2
+NoIdentity == "none"
+Owners == Identities \cup {NoIdentity}
+Phases == {"idle", "requesting", "stale", "retryable", "succeeded", "repair"}
 MaxRetry == 2
 MaxStaleRefresh == 2
-
-RequestKeys == {"A", "B"}
-RequestStatuses == {"idle", "requesting", "accepted", "rejected", "ignored"}
-ReceiptIds == {"NONE", "R1", "R2"}
-OutputIds == {"O1", "O2"}
-WorkspaceKeys == {"W1", "W2", "W3", "W4"}
-
-WorkspaceFor(key) ==
-  IF key = "W1" THEN [
-    draft |-> 1,
-    digest |-> "D1",
-    snapshot |-> "S1",
-    outputKey |-> "O1",
-    explorer |-> "E1",
-    fingerprint |-> "F0"
-  ] ELSE IF key = "W2" THEN [
-    draft |-> 2,
-    digest |-> "D2",
-    snapshot |-> "S1",
-    outputKey |-> "O1",
-    explorer |-> "E1",
-    fingerprint |-> "F1"
-  ] ELSE IF key = "W3" THEN [
-    draft |-> 1,
-    digest |-> "D1",
-    snapshot |-> "S1",
-    outputKey |-> "O1",
-    explorer |-> "E1",
-    fingerprint |-> "F1"
-  ] ELSE [
-    draft |-> 1,
-    digest |-> "D1",
-    snapshot |-> "S1",
-    outputKey |-> "O1",
-    explorer |-> "E2",
-    fingerprint |-> "F0"
-  ]
-
-EmptyRequest == [status |-> "idle", workspace |-> "W1"]
-EmptyRequests == [key \in RequestKeys |-> EmptyRequest]
-EmptyReceipt == [id |-> "NONE", requestKey |-> "NONE", workspace |-> "W1", outputKey |-> "O1"]
-EmptyReturned == [requestKey |-> "NONE", id |-> "NONE", workspace |-> "W1", outputKey |-> "O1"]
-
-VARIABLES r, lastAction
-
-vars == <<r, lastAction>>
-
-TypeOK ==
-  /\ r.currentWorkspace \in WorkspaceKeys
-  /\ r.activeRequest \in RequestKeys \cup {"NONE"}
-  /\ r.requestLedger \in [RequestKeys -> [status : RequestStatuses, workspace : WorkspaceKeys]]
-  /\ r.phase \in {"idle", "requesting", "succeeded", "stale", "conflict", "invalid", "failed"}
-  /\ r.errorClass \in {"none", "stale", "conflict", "invalid", "retryable", "fatal"}
-  /\ r.receipt.id \in ReceiptIds
-  /\ r.receipt.requestKey \in RequestKeys \cup {"NONE"}
-  /\ r.receipt.workspace \in WorkspaceKeys
-  /\ r.receipt.outputKey \in OutputIds
-  /\ r.lastReturned.requestKey \in RequestKeys \cup {"NONE"}
-  /\ r.lastReturned.id \in ReceiptIds
-  /\ r.lastReturned.workspace \in WorkspaceKeys
-  /\ r.lastReturned.outputKey \in OutputIds
-  /\ r.retryCount \in 0..MaxRetry
-  /\ r.staleRefreshCount \in 0..MaxStaleRefresh
-  /\ r.tablesRooted \in BOOLEAN
-  /\ r.snapshotPresent \in BOOLEAN
-  /\ lastAction \in {
-       "Init",
-       "RequestReconcile(A)", "RequestReconcile(B)",
-       "RetryReconcile(A)", "RetryReconcile(B)",
-       "ReconcileSuccess(A)", "ReconcileSuccess(B)",
-       "LateReconcileIgnored(A)", "LateReconcileIgnored(B)",
-       "ReconcileStale", "ReconcileConflict", "ReconcileInvalid",
-       "ReconcileFailure(retryable)", "ReconcileFailure(fatal)",
-       "WorkspaceChangeStartsReconcile(B)",
-       "DraftChange", "AuthoredChange", "ChangeExplorer",
-       "SetTablesRooted", "SetSnapshotPresent", "ClearReceipt"
-     }
-
-ReceiptFor(requestKey) == IF requestKey = "A" THEN "R1" ELSE "R2"
-RequestActionLabel(requestKey) == IF requestKey = "A" THEN "RequestReconcile(A)" ELSE "RequestReconcile(B)"
-RetryActionLabel(requestKey) == IF requestKey = "A" THEN "RetryReconcile(A)" ELSE "RetryReconcile(B)"
-SuccessActionLabel(requestKey) == IF requestKey = "A" THEN "ReconcileSuccess(A)" ELSE "ReconcileSuccess(B)"
-LateActionLabel(requestKey) == IF requestKey = "A" THEN "LateReconcileIgnored(A)" ELSE "LateReconcileIgnored(B)"
-
-RequestMatchesCurrent(requestKey) ==
-  r.requestLedger[requestKey].workspace = r.currentWorkspace
-
+VARIABLES currentIdentity, generation, snapshotVersion, outputVersion,
+  requestOwner, requestGeneration, requestSnapshot, requestOutput,
+  phase, retryCount, staleRefreshCount,
+  receiptOwner, receiptGeneration, receiptSnapshot, receiptOutput,
+  newAcceptance, lastResponseMatched, lastResponseHadErrors, lastAction
+vars == <<currentIdentity, generation, snapshotVersion, outputVersion,
+  requestOwner, requestGeneration, requestSnapshot, requestOutput,
+  phase, retryCount, staleRefreshCount,
+  receiptOwner, receiptGeneration, receiptSnapshot, receiptOutput,
+  newAcceptance, lastResponseMatched, lastResponseHadErrors, lastAction>>
 Init ==
-  /\ r = [
-       currentWorkspace |-> "W1",
-       activeRequest |-> "NONE",
-       requestLedger |-> EmptyRequests,
-       phase |-> "idle",
-       errorClass |-> "none",
-       receipt |-> EmptyReceipt,
-       lastReturned |-> EmptyReturned,
-       retryCount |-> 0,
-       staleRefreshCount |-> 0,
-       tablesRooted |-> TRUE,
-       snapshotPresent |-> TRUE
-     ]
-  /\ lastAction = "Init"
-
-RequestReconcile(requestKey) ==
-  /\ requestKey \in RequestKeys
-  /\ r.phase = "idle"
-  /\ r.activeRequest = "NONE"
-  /\ r.requestLedger[requestKey].status = "idle"
-  /\ r.tablesRooted
-  /\ r.snapshotPresent
-  /\ r' = [r EXCEPT
-       !.requestLedger[requestKey] = [status |-> "requesting", workspace |-> r.currentWorkspace],
-       !.activeRequest = requestKey,
-       !.phase = "requesting",
-       !.errorClass = "none",
-       !.receipt = EmptyReceipt,
-       !.retryCount = 0,
-       !.staleRefreshCount = 0
-     ]
-  /\ lastAction' = RequestActionLabel(requestKey)
-
-RetryReconcile ==
-  LET requestKey == r.activeRequest
-  IN
-    /\ requestKey \in RequestKeys
-    /\ \/ (r.phase = "stale" /\ r.staleRefreshCount < MaxStaleRefresh)
-       \/ (r.phase = "failed" /\ r.errorClass = "retryable" /\ r.retryCount < MaxRetry)
-    /\ r' = [r EXCEPT
-         !.requestLedger[requestKey] = [status |-> "requesting", workspace |-> r.currentWorkspace],
-         !.phase = "requesting",
-         !.errorClass = "none",
-         !.receipt = EmptyReceipt,
-         !.retryCount = IF r.phase = "failed" THEN r.retryCount + 1 ELSE r.retryCount,
-         !.staleRefreshCount = IF r.phase = "stale" THEN r.staleRefreshCount + 1 ELSE r.staleRefreshCount
-       ]
-    /\ lastAction' = RetryActionLabel(requestKey)
-
-ReconcileSuccess(requestKey) ==
-  /\ requestKey \in RequestKeys
-  /\ r.activeRequest = requestKey
-  /\ r.requestLedger[requestKey].status = "requesting"
-  /\ RequestMatchesCurrent(requestKey)
-  /\ r' = [r EXCEPT
-       !.requestLedger[requestKey].status = "accepted",
-       !.phase = "succeeded",
-       !.errorClass = "none",
-       !.receipt = [id |-> ReceiptFor(requestKey), requestKey |-> requestKey,
-                    workspace |-> r.currentWorkspace,
-                    outputKey |-> WorkspaceFor(r.currentWorkspace).outputKey],
-       !.lastReturned = [requestKey |-> requestKey, id |-> ReceiptFor(requestKey),
-                         workspace |-> r.currentWorkspace,
-                         outputKey |-> WorkspaceFor(r.currentWorkspace).outputKey]
-     ]
-  /\ lastAction' = SuccessActionLabel(requestKey)
-
-LateReconcileIgnored(requestKey) ==
-  /\ requestKey \in RequestKeys
-  /\ r.requestLedger[requestKey].status = "requesting"
-  /\ \/ r.activeRequest # requestKey
-     \/ ~RequestMatchesCurrent(requestKey)
-  /\ r' = [r EXCEPT
-       !.requestLedger[requestKey].status = "ignored",
-       !.lastReturned = [requestKey |-> requestKey, id |-> ReceiptFor(requestKey),
-                         workspace |-> r.requestLedger[requestKey].workspace,
-                         outputKey |-> WorkspaceFor(r.requestLedger[requestKey].workspace).outputKey]
-     ]
-  /\ lastAction' = LateActionLabel(requestKey)
-
-ReconcileStale ==
-  /\ r.activeRequest \in RequestKeys
-  /\ r.phase = "requesting"
-  /\ r.requestLedger[r.activeRequest].status = "requesting"
-  /\ r' = [r EXCEPT
-       !.requestLedger[r.activeRequest].status = "rejected",
-       !.phase = "stale",
-       !.errorClass = "stale",
-       !.receipt = EmptyReceipt
-     ]
-  /\ lastAction' = "ReconcileStale"
-
-ReconcileConflict ==
-  /\ r.activeRequest \in RequestKeys
-  /\ r.phase = "requesting"
-  /\ r.requestLedger[r.activeRequest].status = "requesting"
-  /\ r' = [r EXCEPT
-       !.requestLedger[r.activeRequest].status = "rejected",
-       !.phase = "conflict",
-       !.errorClass = "conflict",
-       !.receipt = EmptyReceipt
-     ]
-  /\ lastAction' = "ReconcileConflict"
-
-ReconcileInvalid ==
-  /\ r.activeRequest \in RequestKeys
-  /\ r.phase = "requesting"
-  /\ r.requestLedger[r.activeRequest].status = "requesting"
-  /\ r' = [r EXCEPT
-       !.requestLedger[r.activeRequest].status = "rejected",
-       !.phase = "invalid",
-       !.errorClass = "invalid",
-       !.receipt = EmptyReceipt
-     ]
-  /\ lastAction' = "ReconcileInvalid"
-
-ReconcileFailure(retryable) ==
-  /\ retryable \in BOOLEAN
-  /\ r.activeRequest \in RequestKeys
-  /\ r.phase = "requesting"
-  /\ r.requestLedger[r.activeRequest].status = "requesting"
-  /\ r' = [r EXCEPT
-       !.requestLedger[r.activeRequest].status = "rejected",
-       !.phase = "failed",
-       !.errorClass = IF retryable THEN "retryable" ELSE "fatal",
-       !.receipt = EmptyReceipt
-     ]
-  /\ lastAction' = IF retryable
-       THEN "ReconcileFailure(retryable)"
-       ELSE "ReconcileFailure(fatal)"
-
-WorkspaceChangeStartsReconcile ==
-  /\ r.currentWorkspace = "W1"
-  /\ r.requestLedger["A"].status = "requesting"
-  /\ r.requestLedger["B"].status = "idle"
-  /\ r.tablesRooted
-  /\ r.snapshotPresent
-  /\ r' = [r EXCEPT
-       !.currentWorkspace = "W2",
-       !.activeRequest = "B",
-       !.requestLedger["B"] = [status |-> "requesting", workspace |-> "W2"],
-       !.phase = "requesting",
-       !.errorClass = "none",
-       !.receipt = EmptyReceipt,
-       !.retryCount = 0,
-       !.staleRefreshCount = 0
-     ]
-  /\ lastAction' = "WorkspaceChangeStartsReconcile(B)"
-
-DraftChange ==
-  /\ r.currentWorkspace # "W2"
-  /\ r' = [r EXCEPT
-       !.currentWorkspace = "W2",
-       !.activeRequest = "NONE",
-       !.phase = "idle",
-       !.errorClass = "none",
-       !.receipt = EmptyReceipt,
-       !.retryCount = 0,
-       !.staleRefreshCount = 0
-     ]
-  /\ lastAction' = "DraftChange"
-
-AuthoredChange ==
-  /\ r.currentWorkspace = "W1"
-  /\ r' = [r EXCEPT
-       !.currentWorkspace = "W3",
-       !.activeRequest = "NONE",
-       !.phase = "idle",
-       !.errorClass = "none",
-       !.receipt = EmptyReceipt,
-       !.retryCount = 0,
-       !.staleRefreshCount = 0
-     ]
-  /\ lastAction' = "AuthoredChange"
-
-ChangeExplorer ==
-  /\ r.currentWorkspace = "W1"
-  /\ r' = [r EXCEPT
-       !.currentWorkspace = "W4",
-       !.activeRequest = "NONE",
-       !.phase = "idle",
-       !.errorClass = "none",
-       !.receipt = EmptyReceipt,
-       !.retryCount = 0,
-       !.staleRefreshCount = 0
-     ]
-  /\ lastAction' = "ChangeExplorer"
-
-SetTablesRooted(value) ==
-  /\ value \in BOOLEAN
-  /\ r.phase = "idle"
-  /\ r' = [r EXCEPT !.tablesRooted = value]
-  /\ lastAction' = "SetTablesRooted"
-
-SetSnapshotPresent(value) ==
-  /\ value \in BOOLEAN
-  /\ r.phase = "idle"
-  /\ r' = [r EXCEPT !.snapshotPresent = value]
-  /\ lastAction' = "SetSnapshotPresent"
-
-ClearReceipt ==
-  /\ r' = [r EXCEPT
-       !.activeRequest = "NONE",
-       !.phase = "idle",
-       !.errorClass = "none",
-       !.receipt = EmptyReceipt,
-       !.retryCount = 0,
-       !.staleRefreshCount = 0
-     ]
-  /\ lastAction' = "ClearReceipt"
-
+  /\ currentIdentity = "A" /\ generation = 0
+  /\ snapshotVersion = 0 /\ outputVersion = 0
+  /\ requestOwner = NoIdentity /\ requestGeneration = 0
+  /\ requestSnapshot = 0 /\ requestOutput = 0
+  /\ phase = "idle" /\ retryCount = 0 /\ staleRefreshCount = 0
+  /\ receiptOwner = NoIdentity /\ receiptGeneration = 0
+  /\ receiptSnapshot = 0 /\ receiptOutput = 0
+  /\ newAcceptance = FALSE /\ lastResponseMatched = FALSE
+  /\ lastResponseHadErrors = FALSE /\ lastAction = "Init"
+CurrentRequest == requestOwner = currentIdentity /\ requestGeneration = generation
+StartReconcile ==
+  /\ phase \in {"idle", "succeeded", "repair"}
+  /\ requestOwner' = currentIdentity /\ requestGeneration' = generation
+  /\ requestSnapshot' = snapshotVersion /\ requestOutput' = outputVersion
+  /\ phase' = "requesting" /\ retryCount' = 0 /\ staleRefreshCount' = 0
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "StartReconcile"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       lastResponseMatched, lastResponseHadErrors>>
+ChangeWorkspace ==
+  /\ generation < 2
+  /\ currentIdentity' = IF currentIdentity = "A" THEN "B" ELSE "A"
+  /\ generation' = generation + 1
+  /\ phase' = IF phase = "requesting" THEN phase ELSE "idle"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "ChangeWorkspace"
+  /\ UNCHANGED <<snapshotVersion, outputVersion, requestOwner, requestGeneration,
+       requestSnapshot, requestOutput, retryCount, staleRefreshCount,
+       lastResponseMatched, lastResponseHadErrors>>
+ChangeSnapshot ==
+  /\ snapshotVersion' = (snapshotVersion + 1) % 3
+  /\ phase' = IF phase = "requesting" THEN phase ELSE "idle"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "ChangeSnapshot"
+  /\ UNCHANGED <<currentIdentity, generation, outputVersion, requestOwner,
+       requestGeneration, requestSnapshot, requestOutput, retryCount, staleRefreshCount,
+       lastResponseMatched, lastResponseHadErrors>>
+ChangeOutput ==
+  /\ outputVersion' = (outputVersion + 1) % 3
+  /\ phase' = IF phase = "requesting" THEN phase ELSE "idle"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "ChangeOutput"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, requestOwner,
+       requestGeneration, requestSnapshot, requestOutput, retryCount, staleRefreshCount,
+       lastResponseMatched, lastResponseHadErrors>>
+ResponseArrives(incomingSnapshot, incomingOutput, hasErrors) ==
+  /\ phase = "requesting"
+  /\ LET matched == incomingSnapshot = requestSnapshot /\ incomingOutput = requestOutput
+         accepted == CurrentRequest /\ matched /\ ~hasErrors
+     IN /\ lastResponseMatched' = matched
+        /\ lastResponseHadErrors' = hasErrors
+        /\ newAcceptance' = accepted
+        /\ phase' = IF ~CurrentRequest THEN "idle" ELSE IF accepted THEN "succeeded" ELSE "repair"
+        /\ receiptOwner' = IF accepted THEN requestOwner ELSE NoIdentity
+        /\ receiptGeneration' = IF accepted THEN requestGeneration ELSE 0
+        /\ receiptSnapshot' = IF accepted THEN incomingSnapshot ELSE 0
+        /\ receiptOutput' = IF accepted THEN incomingOutput ELSE 0
+  /\ lastAction' = "ResponseArrives"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       requestOwner, requestGeneration, requestSnapshot, requestOutput, retryCount, staleRefreshCount>>
+RetryableFailure ==
+  /\ phase = "requesting"
+  /\ phase' = IF CurrentRequest THEN "retryable" ELSE "idle"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "RetryableFailure"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       requestOwner, requestGeneration, requestSnapshot, requestOutput,
+       retryCount, staleRefreshCount, lastResponseMatched, lastResponseHadErrors>>
+StaleSnapshotFailure ==
+  /\ phase = "requesting"
+  /\ phase' = IF CurrentRequest THEN "stale" ELSE "idle"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "StaleSnapshotFailure"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       requestOwner, requestGeneration, requestSnapshot, requestOutput,
+       retryCount, staleRefreshCount, lastResponseMatched, lastResponseHadErrors>>
+Retry ==
+  /\ phase = "retryable" /\ retryCount + staleRefreshCount < MaxRetry
+  /\ retryCount' = retryCount + 1 /\ phase' = "requesting"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "Retry"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       requestOwner, requestGeneration, requestSnapshot, requestOutput, staleRefreshCount,
+       lastResponseMatched, lastResponseHadErrors>>
+RefreshAndRetry ==
+  /\ phase = "stale" /\ staleRefreshCount < MaxStaleRefresh
+  /\ staleRefreshCount' = staleRefreshCount + 1
+  /\ requestSnapshot' = snapshotVersion /\ phase' = "requesting"
+  /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "RefreshAndRetry"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       requestOwner, requestGeneration, requestOutput, retryCount,
+       lastResponseMatched, lastResponseHadErrors>>
+GiveUpForRepair ==
+  /\ \/ /\ phase = "retryable" /\ retryCount + staleRefreshCount >= MaxRetry
+     \/ /\ phase = "stale" /\ staleRefreshCount = MaxStaleRefresh
+  /\ phase' = "repair" /\ receiptOwner' = NoIdentity /\ receiptGeneration' = 0
+  /\ receiptSnapshot' = 0 /\ receiptOutput' = 0
+  /\ newAcceptance' = FALSE /\ lastAction' = "GiveUpForRepair"
+  /\ UNCHANGED <<currentIdentity, generation, snapshotVersion, outputVersion,
+       requestOwner, requestGeneration, requestSnapshot, requestOutput, retryCount, staleRefreshCount,
+       lastResponseMatched, lastResponseHadErrors>>
 Next ==
-  \/ \E requestKey \in RequestKeys: RequestReconcile(requestKey)
-  \/ RetryReconcile
-  \/ \E requestKey \in RequestKeys: ReconcileSuccess(requestKey)
-  \/ \E requestKey \in RequestKeys: LateReconcileIgnored(requestKey)
-  \/ ReconcileStale
-  \/ ReconcileConflict
-  \/ ReconcileInvalid
-  \/ \E retryable \in BOOLEAN: ReconcileFailure(retryable)
-  \/ WorkspaceChangeStartsReconcile
-  \/ DraftChange
-  \/ AuthoredChange
-  \/ ChangeExplorer
-  \/ \E value \in BOOLEAN: SetTablesRooted(value)
-  \/ \E value \in BOOLEAN: SetSnapshotPresent(value)
-  \/ ClearReceipt
-
+  \/ StartReconcile \/ ChangeWorkspace \/ ChangeSnapshot \/ ChangeOutput
+  \/ \E snapshot \in Versions, output \in Versions, errors \in BOOLEAN : ResponseArrives(snapshot, output, errors)
+  \/ RetryableFailure \/ StaleSnapshotFailure \/ Retry \/ RefreshAndRetry \/ GiveUpForRepair
 Spec == Init /\ [][Next]_vars
-
-Inv_RequestMatchesCurrent ==
-  lastAction \in {"RequestReconcile(A)", "RequestReconcile(B)", "RetryReconcile(A)", "RetryReconcile(B)"} =>
-    RequestMatchesCurrent(r.activeRequest)
-
-Inv_ActiveRequestMatchesCurrent ==
-  r.activeRequest \in RequestKeys => RequestMatchesCurrent(r.activeRequest)
-
-Inv_SuccessReceiptMatchesCurrent ==
-  r.phase = "succeeded" =>
-    /\ r.receipt.id # "NONE"
-    /\ r.receipt.requestKey = r.activeRequest
-    /\ r.receipt.workspace = r.currentWorkspace
-    /\ r.receipt.outputKey = WorkspaceFor(r.currentWorkspace).outputKey
-    /\ RequestMatchesCurrent(r.receipt.requestKey)
-
-Inv_LateResponseDoesNotReplaceCurrentReceipt ==
-  lastAction = "LateReconcileIgnored(A)" =>
-    /\ r.receipt.id # "R1"
-    /\ r.lastReturned.requestKey = "A"
-    /\ r.lastReturned.id = "R1"
-    /\ (r.receipt.id # "NONE" =>
-         /\ r.receipt.requestKey = "B"
-         /\ r.receipt.workspace = r.currentWorkspace
-         /\ r.receipt.outputKey = WorkspaceFor(r.currentWorkspace).outputKey)
-
-Inv_FailureHasNoReceipt ==
-  r.phase \in {"stale", "conflict", "invalid", "failed"} => r.receipt.id = "NONE"
-
-Inv_DraftChangeInvalidatesReceipt ==
-  lastAction \in {"DraftChange", "AuthoredChange", "ChangeExplorer"} =>
-    /\ r.receipt.id = "NONE"
-    /\ r.phase = "idle"
-
-Inv_WorkspaceChangeStartsReconcileEmpty ==
-  lastAction = "WorkspaceChangeStartsReconcile(B)" =>
-    /\ r.receipt.id = "NONE"
-    /\ r.phase = "requesting"
-    /\ r.activeRequest = "B"
-
-Inv_RetryBounded ==
-  /\ r.retryCount <= MaxRetry
-  /\ r.staleRefreshCount <= MaxStaleRefresh
-
-Inv_ReceiptOnlyWhenSucceeded ==
-  r.receipt.id # "NONE" => r.phase = "succeeded"
-
-Inv_ReconcileRequiresRootedTables ==
-  r.phase = "requesting" =>
-    /\ r.tablesRooted
-    /\ r.snapshotPresent
-    /\ r.activeRequest \in RequestKeys
-
-====
+TypeOK ==
+  /\ currentIdentity \in Identities /\ generation \in Generations
+  /\ snapshotVersion \in Versions /\ outputVersion \in Versions
+  /\ requestOwner \in Owners /\ requestGeneration \in Generations
+  /\ requestSnapshot \in Versions /\ requestOutput \in Versions
+  /\ phase \in Phases /\ retryCount \in 0..MaxRetry /\ staleRefreshCount \in 0..MaxStaleRefresh
+  /\ receiptOwner \in Owners /\ receiptGeneration \in Generations
+  /\ receiptSnapshot \in Versions /\ receiptOutput \in Versions
+  /\ newAcceptance \in BOOLEAN /\ lastResponseMatched \in BOOLEAN /\ lastResponseHadErrors \in BOOLEAN
+Inv_AcceptedReceiptIsCurrent == newAcceptance => receiptOwner = currentIdentity /\ receiptGeneration = generation
+Inv_AcceptedReceiptMatchesRequest == newAcceptance => receiptSnapshot = requestSnapshot
+Inv_ReceiptSelectsRequestedOutput == newAcceptance => receiptOutput = requestOutput
+Inv_NoNewAcceptanceOnFailure == newAcceptance => phase = "succeeded" /\ lastResponseMatched /\ ~lastResponseHadErrors
+Inv_RetryBounds == retryCount <= MaxRetry /\ staleRefreshCount <= MaxStaleRefresh
+=============================================================================

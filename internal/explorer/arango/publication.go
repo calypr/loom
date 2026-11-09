@@ -54,7 +54,7 @@ func (s *Store) PublishAuthoring(ctx context.Context, receipt explorer.Compilati
 		if err := tx.QueryRows(txCtx, `UPSERT { _key: @key } INSERT @doc UPDATE {} IN @@c RETURN NEW`, 1, map[string]any{"@c": RevisionsCollection, "key": revision.ID, "doc": revisionDoc}, func(map[string]any) error { return nil }); err != nil {
 			return err
 		}
-		if _, err := datasetarango.CompareAndSwapActivateRelease(txCtx, tx, release, expectedReleaseRevision); err != nil {
+		if _, err := datasetarango.CompareAndSwapPublishRelease(txCtx, tx, release, expectedReleaseRevision); err != nil {
 			return err
 		}
 		row, found, err := readActivationRow(txCtx, tx, activationReadAQL, map[string]any{"@explorers": ExplorersCollection, "@revisions": RevisionsCollection, "explorerKey": explorerKey(revision.Project, revision.ExplorerID), "revisionKey": revision.ID, "project": revision.Project, "explorerId": revision.ExplorerID, "management": management})

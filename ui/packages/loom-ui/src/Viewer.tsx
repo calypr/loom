@@ -48,9 +48,19 @@ type TracePages = readonly [CellTraceResponse, ...CellTraceResponse[]];
 type CellExplanationState =
   | { readonly kind: 'closed' }
   | { readonly kind: 'loading'; readonly coordinate: CellExplanationCoordinate }
-  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
-  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages }
+  | { readonly kind: 'loadingMore'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages; readonly moreError?: string }
+  | { readonly kind: 'ready'; readonly coordinate: CellExplanationCoordinate; readonly pages: TracePages; readonly moreError?: string }
   | { readonly kind: 'error'; readonly coordinate: CellExplanationCoordinate; readonly message: string };
+
+const tracePagesFor = (state: CellExplanationState): TracePages | undefined =>
+  state.kind === 'ready' || state.kind === 'loadingMore' ? state.pages : undefined;
+
+// Trace failures surface the upstream sentence verbatim, so a malformed message such as
+// "The cell trace could not not be loaded." would otherwise reach researchers as written.
+const explanationErrorCopy = (error: unknown, fallback: string): string => {
+  const message = error instanceof Error ? error.message.trim() : '';
+  return (message || fallback).replace(/\bnot(\s+not)+\b/gi, 'not');
+};
 
 type DatasetDownloadState =
   | { readonly kind: 'idle' }
@@ -58,8 +68,95 @@ type DatasetDownloadState =
   | { readonly kind: 'ready'; readonly outputId: string; readonly requestToken: number; readonly artifact: Artifact }
   | { readonly kind: 'error'; readonly outputId: string; readonly requestToken: number; readonly message: string };
 
+// One in-flight count per rendered action button, and one retained failure per button.
+type ActionRunState = {
+  readonly running: ReadonlyMap<string, number>;
+  readonly errors: ReadonlyMap<string, { readonly outputId: string; readonly message: string }>;
+};
+type ActionRunEvent =
+  | { readonly type: 'started'; readonly actionKey: string }
+  | { readonly type: 'succeeded'; readonly actionKey: string }
+  | { readonly type: 'failed'; readonly actionKey: string; readonly outputId: string; readonly message: string }
+  | { readonly type: 'dismissed'; readonly actionKey: string };
+
+const initialActionRunState: ActionRunState = { running: new Map(), errors: new Map() };
+
+const decrementRun = (running: ReadonlyMap<string, number>, actionKey: string): ReadonlyMap<string, number> => {
+  const inFlight = (running.get(actionKey) ?? 0) - 1;
+  const next = new Map(running);
+  if (inFlight > 0) next.set(actionKey, inFlight);
+  else next.delete(actionKey);
+  return next;
+};
+
+// Every run only ever touches its own button's entry, so a settling action cannot drop another action's loading
+// state or hide its failure, and starting one action cannot clear an error belonging to a different action.
+const actionRunReducer = (state: ActionRunState, event: ActionRunEvent): ActionRunState => {
+  switch (event.type) {
+    case 'started': {
+      const running = new Map(state.running).set(event.actionKey, (state.running.get(event.actionKey) ?? 0) + 1);
+      if (!state.errors.has(event.actionKey)) return { running, errors: state.errors };
+      const errors = new Map(state.errors);
+      errors.delete(event.actionKey);
+      return { running, errors };
+    }
+    case 'succeeded':
+      return { running: decrementRun(state.running, event.actionKey), errors: state.errors };
+    case 'failed':
+      return {
+        running: decrementRun(state.running, event.actionKey),
+        errors: new Map(state.errors).set(event.actionKey, { outputId: event.outputId, message: event.message }),
+      };
+    case 'dismissed': {
+      if (!state.errors.has(event.actionKey)) return state;
+      const errors = new Map(state.errors);
+      errors.delete(event.actionKey);
+      return { running: state.running, errors };
+    }
+  }
+};
+
+// Identity comes from the configured action itself, so a reordered action list keeps a running action's loading
+// state on its own button instead of moving it to whichever action happens to share the old position. Exact
+// duplicates are told apart by their occurrence order.
+const actionIdentity = (action: ViewerRuntimeAction): string =>
+  JSON.stringify([action.type, action.title, action.fileName ?? null, action.output ?? null,
+    action.columns ?? null, action.exportHeaders ?? null]);
+
+// The output id is part of each key so an action still running on a left-behind output can only ever mark that
+// output's own button, never the button of the output shown after a tab switch.
+const actionRunKeys = (outputId: string, actions: ReadonlyArray<ViewerRuntimeAction>): string[] => {
+  const occurrences = new Map<string, number>();
+  return actions.map((action) => {
+    const identity = actionIdentity(action);
+    const occurrence = occurrences.get(identity) ?? 0;
+    occurrences.set(identity, occurrence + 1);
+    return `${outputId}|${identity}|${occurrence}`;
+  });
+};
+
 const appendTracePage = (pages: TracePages, page: CellTraceResponse): TracePages =>
   [pages[0], ...pages.slice(1), page];
+
+type ResolvedActionTarget =
+  | { readonly kind: 'active' }
+  | { readonly kind: 'output'; readonly output: ExplorerRuntimeOutputV1 }
+  | { readonly kind: 'unresolved'; readonly target: string };
+
+// An action with no target exports the active output; an action that names one must resolve
+// to exactly one published output, never silently to another table. The target is matched
+// verbatim: trimming it would let ' patients ' export the 'patients' table, and a
+// whitespace-only target names no table even when one is published under that name.
+const resolveActionTarget = (runtime: ExplorerRuntimeV1, action: ViewerRuntimeAction): ResolvedActionTarget => {
+  if (action.output === undefined) return { kind: 'active' };
+  const named = action.output;
+  if (!named.trim()) return { kind: 'unresolved', target: named };
+  const byId = runtime.outputs.filter((candidate) => candidate.outputId === named);
+  const candidates = byId.length > 0 ? byId : runtime.outputs.filter((candidate) => candidate.name === named);
+  const [match, ...conflicts] = candidates;
+  if (match && conflicts.length === 0) return { kind: 'output', output: match };
+  return { kind: 'unresolved', target: named };
+};
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -87,11 +184,11 @@ const ViewerContent = ({ project, explorerId, activeOutputId, onActiveOutputChan
 
 const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlledOutputId, onActiveOutputChange, renderRowDetails, customActions, onRepairFeature }: { readonly project: string; readonly explorerId: string; readonly runtime: ExplorerRuntimeV1; readonly activeOutputId?: string; readonly onActiveOutputChange?: (outputId: string) => void; readonly renderRowDetails?: (row: ViewerRow) => React.ReactNode; readonly customActions?: LoomExplorerViewerProps['customActions']; readonly onRepairFeature?: LoomExplorerViewerProps['onRepairFeature'] }) => {
   const [state, dispatch] = useReducer(viewerReducer, runtime, (value) => createViewerReducerState(value, controlledOutputId));
-  const [pendingAction, setPendingAction] = useState<string>();
-  const [actionError, setActionError] = useState<string>();
+  const [actionRuns, dispatchActionRuns] = useReducer(actionRunReducer, initialActionRunState);
   const [datasetDownload, setDatasetDownload] = useState<DatasetDownloadState>({ kind: 'idle' });
   const datasetDownloadRequest = useRef(0);
   const [cellExplanation, setCellExplanation] = useState<CellExplanationState>({ kind: 'closed' });
+  const cellExplanationToken = useRef(0);
   const [traceCell] = useCellTraceMutation();
   const output = runtime.outputs.find((candidate) => candidate.outputId === controlledOutputId)
     ?? runtime.outputs.find((candidate) => candidate.outputId === state.activeOutputId)
@@ -109,6 +206,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
   const result = resultQuery.data ?? resultCache.current.get(outputId);
   const client = useLoomClient();
   if (!output || !request) return null;
+  const actionKeys = actionRunKeys(outputId, output.actions ?? []);
 
   const selectOutput = (nextOutputId: string | null) => {
     if (!nextOutputId) return;
@@ -139,21 +237,26 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
       setDatasetDownload({ kind: 'error', outputId: requestOutputId, requestToken, message: error instanceof Error ? error.message : 'The dataset download could not be prepared.' });
     }
   };
-  const runAction = async (action: ViewerRuntimeAction) => {
-    const actionKey = action.type;
-    setPendingAction(actionKey);
-    setActionError(undefined);
+  const runAction = async (action: ViewerRuntimeAction, actionKey: string) => {
+    dispatchActionRuns({ type: 'started', actionKey });
     try {
+      // Resolve before dispatching to either path, so an embedder handler cannot export a
+      // table the action never named; a missing, blank, or ambiguous target fails visibly.
+      const target = resolveActionTarget(runtime, action);
+      if (target.kind === 'unresolved') {
+        throw new Error(`The action "${action.title}" targets the output "${target.target || '(blank)'}", which is not exactly one published output of this Explorer. No table was exported.`);
+      }
+      const targetOutput = target.kind === 'output' ? target.output : output;
+      const targetRequest = targetOutput.outputId === output.outputId
+        ? request
+        : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
+      const targetResult = targetOutput.outputId === output.outputId
+        ? result
+        : resultCache.current.get(targetOutput.outputId);
       const customAction = customActions?.[action.type];
       if (customAction) {
-        await customAction({ project, runtime, output, action, request, result }, new AbortController().signal);
+        await customAction({ project, runtime, output: targetOutput, action, request: targetRequest, result: targetResult }, new AbortController().signal);
       } else {
-        const targetOutput = action.output
-          ? runtime.outputs.find((candidate) => candidate.outputId === action.output || candidate.name === action.output) ?? output
-          : output;
-        const targetRequest = targetOutput.outputId === output.outputId
-          ? request
-          : outputRequestFor(project, runtime, { ...state, activeOutputId: targetOutput.outputId }, targetOutput);
         const exportRequest = {
           ...targetRequest,
           ...(action.columns ? { columns: action.columns } : {}),
@@ -162,15 +265,18 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         const blob = await client.exportOutput(exportRequest);
         downloadBlob(blob, action.fileName ?? `${targetOutput.name || targetOutput.outputId}.csv`);
       }
+      dispatchActionRuns({ type: 'succeeded', actionKey });
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'The action could not be completed.');
-    } finally {
-      setPendingAction(undefined);
+      dispatchActionRuns({ type: 'failed', actionKey, outputId, message: error instanceof Error ? error.message : 'The action could not be completed.' });
     }
   };
   const overlay = state.overlay;
+  const qualityReportFor = (explainerOutputId: string) =>
+    runtime.qualityReports?.find((candidate) => candidate.output === explainerOutputId || candidate.output === output.name);
   const explainCell = async (coordinate: CellExplanationCoordinate) => {
-    const report = runtime.qualityReports?.find((candidate) => candidate.output === coordinate.outputId || candidate.output === output.name);
+    const token = cellExplanationToken.current + 1;
+    cellExplanationToken.current = token;
+    const report = qualityReportFor(coordinate.outputId);
     if (!report) {
       setCellExplanation({ kind: 'error', coordinate, message: 'This publication does not include receipt-bound quality evidence.' });
       return;
@@ -178,27 +284,40 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
     setCellExplanation({ kind: 'loading', coordinate });
     try {
       const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, limit: 25 }).unwrap();
+      if (cellExplanationToken.current !== token) return;
       setCellExplanation({ kind: 'ready', coordinate, pages: [response] });
     } catch (error) {
-      setCellExplanation({ kind: 'error', coordinate, message: error instanceof Error ? error.message : 'Loom could not explain this cell.' });
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'error', coordinate, message: explanationErrorCopy(error, 'Loom could not explain this cell.') });
     }
   };
   const loadMoreEvidence = async () => {
+    // A later-page failure stays 'ready' with its pages, so retry reuses the retained nextOffset.
     if (cellExplanation.kind !== 'ready') return;
-    const current = cellExplanation.pages[cellExplanation.pages.length - 1];
-    if (!current.trace.hasMore) return;
-    const report = runtime.qualityReports?.find((candidate) => candidate.output === cellExplanation.coordinate.outputId || candidate.output === output.name);
+    const coordinate = cellExplanation.coordinate;
+    const pages = cellExplanation.pages;
+    if (!pages[pages.length - 1].trace.hasMore) return;
+    const report = qualityReportFor(coordinate.outputId);
     if (!report) return;
-    const pending: CellExplanationState = { kind: 'loadingMore', coordinate: cellExplanation.coordinate, pages: cellExplanation.pages };
-    setCellExplanation(pending);
+    const offset = pages[pages.length - 1].trace.nextOffset;
+    const token = cellExplanationToken.current + 1;
+    cellExplanationToken.current = token;
+    setCellExplanation({ kind: 'loadingMore', coordinate, pages, moreError: cellExplanation.moreError });
     try {
-      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: cellExplanation.coordinate.outputId, rowId: cellExplanation.coordinate.rowId, column: cellExplanation.coordinate.column, offset: current.trace.nextOffset, limit: 25 }).unwrap();
-      setCellExplanation({ kind: 'ready', coordinate: cellExplanation.coordinate, pages: appendTracePage(cellExplanation.pages, response) });
+      const response = await traceCell({ project, explorerId, receiptId: report.receiptId, outputId: coordinate.outputId, rowId: coordinate.rowId, column: coordinate.column, offset, limit: 25 }).unwrap();
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({ kind: 'ready', coordinate, pages: appendTracePage(pages, response) });
     } catch (error) {
-      setCellExplanation({ kind: 'error', coordinate: cellExplanation.coordinate, message: error instanceof Error ? error.message : 'Loom could not load more source details.' });
+      if (cellExplanationToken.current !== token) return;
+      setCellExplanation({
+        kind: 'ready',
+        coordinate,
+        pages,
+        moreError: explanationErrorCopy(error, 'Loom could not load more source details.'),
+      });
     }
   };
-  const tracePages = cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.pages : undefined;
+  const tracePages = tracePagesFor(cellExplanation);
   const currentTracePage = tracePages ? tracePages[tracePages.length - 1] : undefined;
   const currentTrace = currentTracePage?.trace;
   const traceContributions = tracePages?.flatMap((page) => page.trace.contributions);
@@ -224,14 +343,20 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
           </div>
           <Group gap="xs" wrap="wrap">
             <Button loading={datasetDownload.kind === 'preparing' && datasetDownload.outputId === outputId} onClick={() => { void prepareDatasetDownload(); }}>Download dataset</Button>
-            {output.actions?.map((action, index) => (
-              <Button variant="default" key={`${action.type}-${index}`} loading={pendingAction === action.type} onClick={() => { void runAction(action); }}>
-                {action.title}
-              </Button>
-            ))}
+            {output.actions?.map((action, index) => {
+              const actionKey = actionKeys[index];
+              return (
+                <Button variant="default" key={actionKey} loading={actionRuns.running.has(actionKey)} onClick={() => { void runAction(action, actionKey); }}>
+                  {action.title}
+                </Button>
+              );
+            })}
           </Group>
         </Group>
-        {actionError ? <Alert color="red" title="Action failed" withCloseButton onClose={() => setActionError(undefined)} mb="md">{actionError}</Alert> : null}
+        {/* A failure stays retained while its output is left behind, so returning to that output restores its alert. */}
+        {[...actionRuns.errors].filter(([, failure]) => failure.outputId === outputId).map(([actionKey, failure]) => (
+          <Alert key={actionKey} color="red" title="Action failed" withCloseButton closeButtonLabel="Dismiss action failure" onClose={() => { dispatchActionRuns({ type: 'dismissed', actionKey }); }} mb="md">{failure.message}</Alert>
+        ))}
         {datasetDownload.kind === 'error' && datasetDownload.outputId === outputId && datasetDownload.requestToken === datasetDownloadRequest.current ? <Alert color="red" title="Dataset download failed" withCloseButton onClose={() => setDatasetDownload({ kind: 'idle' })} mb="md">{datasetDownload.message}</Alert> : null}
         <Tabs value={outputId} onChange={selectOutput}>
           <Tabs.List aria-label="Output tables" className="loom-viewer-tabs-list flex-nowrap overflow-x-auto">
@@ -271,7 +396,7 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         {overlay.kind === 'sharedFilterConfirmation' ? (
           <Stack>
             <Text size="sm">Apply <strong>{overlay.proposal.name}</strong> to every linked output?</Text>
-            <Group justify="flex-end"><Button variant="default" onClick={() => dispatch({ type: 'clearOverlay' })}>Cancel</Button><Button onClick={() => dispatch({ type: 'setSharedFilter', name: overlay.proposal.name, values: overlay.proposal.values })}>Apply filter</Button></Group>
+            <Group justify="flex-end"><Button variant="default" onClick={() => dispatch({ type: 'clearOverlay' })}>Cancel</Button><Button onClick={() => dispatch({ type: 'setSharedFilter', name: overlay.proposal.name, selection: overlay.proposal.selection })}>Apply filter</Button></Group>
           </Stack>
         ) : null}
       </Modal>
@@ -337,7 +462,11 @@ const ViewerSession = ({ project, explorerId, runtime, activeOutputId: controlle
         contributions={traceContributions}
         loading={cellExplanation.kind === 'loading' || cellExplanation.kind === 'loadingMore'}
         error={cellExplanation.kind === 'error' ? cellExplanation.message : undefined}
-        onClose={() => setCellExplanation({ kind: 'closed' })}
+        moreError={cellExplanation.kind === 'ready' || cellExplanation.kind === 'loadingMore' ? cellExplanation.moreError : undefined}
+        onClose={() => {
+          cellExplanationToken.current += 1;
+          setCellExplanation({ kind: 'closed' });
+        }}
         onLoadMore={() => { void loadMoreEvidence(); }}
         onRepair={onRepairFeature && currentTracePage ? (_coordinate, status) => onRepairFeature({
           outputId: currentTracePage.feature.outputId,

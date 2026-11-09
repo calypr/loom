@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -35,9 +36,9 @@ func (g RowGrain) Validate() error {
 		RowGrainObservation, RowGrainStudyEnrollment, RowGrainExpanded, RowGrainGroups:
 		return nil
 	case "":
-		return fmt.Errorf("row grain is required")
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "row grain is required", dataframeerrors.WithRetryable(false))
 	default:
-		return fmt.Errorf("unsupported row grain %q", g)
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, fmt.Sprintf("unsupported row grain %q", g), dataframeerrors.WithRetryable(false))
 	}
 }
 
@@ -104,14 +105,14 @@ func ValidateRootGrain(resourceType string, grain RowGrain) error {
 	}
 	canonical, ok := fhirschema.ConcreteResourceType(resourceType)
 	if !ok {
-		return fmt.Errorf("root resource type %q is not represented by the active generated FHIR schema", resourceType)
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, fmt.Sprintf("root resource type %q is not represented by the active generated FHIR schema", resourceType), dataframeerrors.WithRetryable(false))
 	}
 	expected, ok := RootResourceForGrain(grain)
 	if !ok {
 		return fmt.Errorf("unsupported row grain %q", grain)
 	}
 	if expected != "" && canonical != expected {
-		return fmt.Errorf("row grain %q requires root resource type %q, got %q", grain, expected, canonical)
+		return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, fmt.Sprintf("row grain %q requires root resource type %q, got %q", grain, expected, canonical), dataframeerrors.WithRetryable(false))
 	}
 	return nil
 }

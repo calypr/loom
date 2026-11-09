@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLoomClient, type LoomClient } from '../../api';
+import { createLoomClient, type LoomClient, type ApplyExplorerBuilderCommandsArgs } from '../../api';
 import type {
   Construction,
   ConstructionCapabilitiesResponse,
@@ -22,10 +22,10 @@ import {
   explorerBuilderStateSchema,
   explorerBuilderWorkspaceSchema,
 } from '../../types';
-import { peripheralAdapters } from './builderContractAdapters/peripheral';
-import { relationalAdapters } from './builderContractAdapters/relational';
-import { shapeCombineAdapters } from './builderContractAdapters/shapeCombine';
-import { coreAdapters } from './builderContractAdapters/core';
+import { peripheralAdapters } from '../../../testSupport/builderContractAdapters/peripheral';
+import { relationalAdapters } from '../../../testSupport/builderContractAdapters/relational';
+import { shapeCombineAdapters } from '../../../testSupport/builderContractAdapters/shapeCombine';
+import { coreAdapters } from '../../../testSupport/builderContractAdapters/core';
 import BuilderWorkspace from './BuilderWorkspace';
 
 type CapturedRequest = {
@@ -47,6 +47,8 @@ const harness = vi.hoisted(() => ({
   builderState: null as ExplorerBuilderState | null,
   capabilities: null as ConstructionCapabilitiesResponse | null,
   proposalStatus: 'NEEDS_REPAIR' as 'READY' | 'NEEDS_REPAIR',
+  mismatchProposalSnapshot: false,
+  applyCommands: vi.fn(),
   getSuggestions: vi.fn(() => ({
     unwrap: () => Promise.resolve({ snapshotToken: 'snapshot-ui-contract-capture', candidates: [] }),
   })),
@@ -60,7 +62,7 @@ vi.mock('../../react', async (importOriginal) => {
   return {
     ...actual,
     useLoomClient: () => client,
-    useApplyExplorerBuilderCommandsV2Mutation: mutation,
+    useApplyExplorerBuilderCommandsV2Mutation: () => [harness.applyCommands, { isLoading: false }],
     useAssessExplorerRowChangeMutation: mutation,
     useCreateExplorerAuthoringMutation: mutation,
     useDeleteExplorerAuthoringMutation: mutation,
@@ -317,10 +319,10 @@ const captureOutputPath = process.env.BUILDER_FULL_UI_UI_OBSERVATIONS;
 const centralTestSourcePath = 'ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.comprehensive.formal.test.tsx';
 const adapterImplementationPathById = new Map<string, string>([
   ...Object.keys(centralContractAdapters).map((id) => [id, centralTestSourcePath] as const),
-  ...Object.keys(coreAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/core.ts'] as const),
-  ...Object.keys(relationalAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/relational.ts'] as const),
-  ...Object.keys(shapeCombineAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/shapeCombine.ts'] as const),
-  ...Object.keys(peripheralAdapters).map((id) => [id, 'ui/packages/loom-ui/src/features/ExplorerBuilder/builderContractAdapters/peripheral.tsx'] as const),
+  ...Object.keys(coreAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/core.ts'] as const),
+  ...Object.keys(relationalAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/relational.ts'] as const),
+  ...Object.keys(shapeCombineAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/shapeCombine.ts'] as const),
+  ...Object.keys(peripheralAdapters).map((id) => [id, 'ui/packages/loom-ui/testSupport/builderContractAdapters/peripheral.tsx'] as const),
 ]);
 const hashNamedBytes = (files: ReadonlyArray<{ readonly path: string; readonly bytes: Buffer }>): string => {
   const hash = createHash('sha256');
@@ -456,7 +458,12 @@ const resetHarness = (): void => {
   harness.builderState = acceptedState;
   harness.capabilities = capabilities;
   harness.proposalStatus = 'NEEDS_REPAIR';
+  harness.mismatchProposalSnapshot = false;
   harness.getSuggestions.mockClear();
+  harness.applyCommands.mockReset();
+  harness.applyCommands.mockImplementation((args: ApplyExplorerBuilderCommandsArgs) => ({
+    unwrap: () => client.applyCommands(args),
+  }));
   capture.request = undefined;
   capture.requestArgs = undefined;
   client = createLoomClient({
@@ -469,6 +476,21 @@ const resetHarness = (): void => {
         body: typeof init?.body === 'string' ? init.body : null,
       };
       harness.requests.push(request);
+      if (url.pathname.endsWith('/commands')) {
+        const body = JSON.parse(request.body ?? 'null') as { commandId: string };
+        const workspace: ExplorerBuilderWorkspace = {
+          ...acceptedWorkspace,
+          documents: [{ ...acceptedDocument, construction: capture.requestArgs?.candidateConstruction ?? acceptedConstruction }],
+        };
+        return captureJsonResponse(request.url, {
+          commandId: body.commandId,
+          workspace,
+          draftVersion: 2,
+          draftDigest: 'sha256:applied-group-change',
+          results: [],
+          diagnostics: [],
+        });
+      }
       if (url.pathname.endsWith('/construction-capabilities')) {
         return captureJsonResponse(request.url, harness.capabilities);
       }
@@ -480,7 +502,7 @@ const resetHarness = (): void => {
         const proposalResponse: ConstructionProposalResponse = {
           ...(harness.proposalStatus === 'READY' ? { proposalId: 'proposal-ui-contract-fixture' } : {}),
           outputId: proposalRequest.outputId,
-          snapshotToken: proposalRequest.snapshotToken,
+          snapshotToken: harness.mismatchProposalSnapshot ? 'snapshot-other-owner' : proposalRequest.snapshotToken,
           draftVersion: proposalRequest.expectedDraftVersion,
           draftDigest: proposalRequest.expectedDraftDigest,
           baseDocumentDigest: 'sha256:synthetic-transport-response',
@@ -794,7 +816,7 @@ if (contractPhase === 'inventory') {
       writeFileSync(captureOutputPath, `${[header, ...rows].map((record) => JSON.stringify(record)).join('\n')}\n`);
     });
   });
-} else describe('mounted BuilderWorkspace UI contract capture smoke', () => {
+} else describe('mounted BuilderWorkspace UI contract behaviors', () => {
   beforeEach(resetHarness);
 
   afterEach(() => {
@@ -818,6 +840,102 @@ if (contractPhase === 'inventory') {
     expect(request.url).toContain(`/explorers/${explorerId}/authoring/v2/construction-proposals`);
     expect(constructionProposalRequestSchema.parse(JSON.parse(request.body ?? 'null'))).toEqual(body);
     expect(harness.requests.filter((entry) => entry.url.includes('/construction-proposals'))).toHaveLength(1);
-
+    await screen.findByTestId('construction-proposal-needs-repair');
+    expect(screen.queryByTestId('construction-apply-proposal')).toBeNull();
+    expect(harness.applyCommands).not.toHaveBeenCalled();
   });
+
+  const commandRequests = () => harness.requests.filter(request =>
+    new URL(request.url, 'https://ui-contract-capture.invalid').pathname.endsWith('/commands'));
+
+  const editGroup = async (operation: 'SUM' | 'MEAN' = 'MEAN') => {
+    harness.proposalStatus = 'READY';
+    render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
+    await relationalAdapters['builder.reshape.group_field'].drive({
+      uiAction: {
+        affordanceId: 'builder.reshape.group_field',
+        runnerActionId: 'builder.group-field.edit-aggregate',
+        values: { groupStepId, operation, inputColumnId: 'age-id' },
+      },
+      requestStep: null,
+    });
+    if (!capture.requestArgs) throw new Error('Group edit emitted no proposal request.');
+    return capture.requestArgs;
+  };
+
+  it.each(['SUM', 'MEAN'] as const)('serializes the %s editor change with its numeric input and preserved saved identifiers', async (operation) => {
+    const request = await editGroup(operation);
+    expect(request).toMatchObject({
+      outputId: 'patients', snapshotToken: 'snapshot-ui-contract-capture',
+      expectedDraftVersion: 1, expectedDraftDigest: 'sha256:accepted-group-count',
+      changedStepId: 'group-step',
+    });
+    expect(request.candidateConstruction.steps).toHaveLength(1);
+    expect(request.candidateConstruction.steps[0]).toMatchObject({
+      id: 'group-step', inputs: [{ kind: 'SOURCE_PROJECTION' }],
+      operation: { kind: 'GROUP', group: {
+        constructionId: 'group-step', missingKeyPolicy: 'GROUP',
+        keys: [{ inputColumnId: 'gender-id', outputColumnId: 'gender-group' }],
+        aggregates: [{ operation, inputColumnId: 'age-id', outputColumnId: 'row-count' }],
+      } },
+    });
+    expect(commandRequests()).toHaveLength(0);
+  });
+
+  it('rejects an unsupported aggregate before the adapter changes the editor or sends a request', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
+    await screen.findByTestId(`construction-history-step-${groupStepId}`);
+    await expect(relationalAdapters['builder.reshape.group_field'].drive({
+      uiAction: { affordanceId: 'builder.reshape.group_field', runnerActionId: 'builder.group-field.edit-aggregate',
+        values: { groupStepId, operation: 'NOT_AN_AGGREGATE' } }, requestStep: null,
+    })).rejects.toThrow('supported aggregate operation');
+    expect(screen.queryByTestId('construction-reshape-editor')).toBeNull();
+    expect(harness.requests.filter(request => request.url.endsWith('/construction-proposals'))).toHaveLength(0);
+    expect(harness.applyCommands).not.toHaveBeenCalled();
+  });
+
+  it('cancels a reviewed change without submitting a save command', async () => {
+    await editGroup();
+    await coreAdapters['builder.construction_proposal_apply_cancel_retry'].drive({
+      uiAction: { affordanceId: 'builder.construction_proposal_apply_cancel_retry', runnerActionId: 'core.driveConstructionProposalLifecycle', values: { localAction: 'cancel_construction_proposal' } },
+      requestStep: null,
+    });
+    await waitFor(() => expect(screen.queryByTestId('construction-proposal-ready')).toBeNull());
+    expect(harness.applyCommands).not.toHaveBeenCalled();
+    expect(commandRequests()).toHaveLength(0);
+    fireEvent.click(screen.getByTestId(`construction-history-step-${groupStepId}`));
+    expect((await screen.findByRole('combobox', { name: 'Summary 1' }) as HTMLSelectElement).value).toBe('COUNT_ROWS');
+  });
+
+  it('applies only the reviewed receipt through the real client with the current CAS identity', async () => {
+    await editGroup();
+    await coreAdapters['builder.construction_proposal_apply_cancel_retry'].drive({
+      uiAction: { affordanceId: 'builder.construction_proposal_apply_cancel_retry', runnerActionId: 'core.driveConstructionProposalLifecycle', values: {} },
+      requestStep: { actionId: 'accept_construction_proposal' },
+    });
+    await waitFor(() => expect(commandRequests()).toHaveLength(1));
+    const command = commandRequests()[0];
+    expect(command?.method).toBe('POST');
+    expect(JSON.parse(command?.body ?? 'null')).toMatchObject({
+      snapshotToken: 'snapshot-ui-contract-capture', expectedDraftVersion: 1,
+      expectedDraftDigest: 'sha256:accepted-group-count',
+      commands: [{ type: 'APPLY_CONSTRUCTION_PROPOSAL', outputId: 'patients', proposalId: 'proposal-ui-contract-fixture' }],
+    });
+    expect(harness.applyCommands).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByTestId('construction-reshape-editor')).toBeNull());
+  });
+
+  it('rejects a ready response for a different snapshot before exposing Apply', async () => {
+    harness.proposalStatus = 'READY';
+    harness.mismatchProposalSnapshot = true;
+    render(<BuilderWorkspace organization="HTAN_INT" project={project} explorerId={explorerId} />);
+    fireEvent.click(await screen.findByTestId(`construction-history-step-${groupStepId}`));
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Summary 1' }), { target: { value: 'MEAN' } });
+    await screen.findByTestId('construction-proposal-error');
+    expect(capture.requestArgs?.snapshotToken).toBe('snapshot-ui-contract-capture');
+    expect(screen.queryByTestId('construction-proposal-ready')).toBeNull();
+    expect(screen.queryByTestId('construction-apply-proposal')).toBeNull();
+    expect(harness.applyCommands).not.toHaveBeenCalled();
+  });
+
 });

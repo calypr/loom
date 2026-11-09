@@ -192,7 +192,7 @@ Search and pagination rules are mandatory. Searching a raw path must find its se
 
 Unknown/error states show usable raw fields and a short reason when relevant. Unsupported structures are available in coverage details, not advertised as addable columns. Do not fill the normal picker with disabled schema possibilities. Keep noncoded populated fields such as ID, dates, descriptions and supported references. Known primitive enums can use existing FIELD commands with meaningful labels and categorical presentation; no new coded-value binding is needed merely to display a native enum.
 
-Use the existing query and construction lifecycle owner for loading/cancellation. Peter mode prohibits adding `useEffect`. The touched `ConceptCatalog` flow currently contains effects for context/tab resets and initial selections. Replace synchronization in the touched flow with context-keyed state and explicit owning actions, plus the existing query subscription. Do not move it to `useLayoutEffect` or refactor unrelated effects. Late results must never group a field after source, output or draft context changes.
+Use the existing query and construction lifecycle owner for loading/cancellation. The touched `ConceptCatalog` flow currently contains effects for context/tab resets and initial selections. Replace synchronization in the touched flow with context-keyed state and explicit owning actions, plus the existing query subscription. Do not move it to `useLayoutEffect` or refactor unrelated effects. Late results must never group a field after source, output or draft context changes.
 
 ## 6. First complete increment and subsequent scope
 
@@ -364,7 +364,7 @@ Protect filters, groups, pivots, related-source projections and source expansion
 
 ## 10. Sol startup and completion checklist
 
-At startup, read this plan, its TSV, AGENTS.md, Peter mode and `regression-guard:verify-change`. The regression skill controls the implementation before/after bracket; this plan-only turn did not invoke a behavior-change verification run. Confirm `realpath`, branch and HEAD before writing. Preserve unrelated changes and create distinct worker/lead worktrees. Keep the accepted runtime checkout frozen during native verification. Do not merge into a watched checkout until the freeze ends. Update GitNexus after source changes before relying on it if the index is available; report its known limitation otherwise.
+At startup, read this plan, its TSV, AGENTS.md and `regression-guard:verify-change`. The regression skill controls the implementation before/after bracket; this plan-only turn did not invoke a behavior-change verification run. Confirm `realpath`, branch and HEAD before writing. Preserve unrelated changes and create distinct worker/lead worktrees. Keep the accepted runtime checkout frozen during native verification. Do not merge into a watched checkout until the freeze ends. Update GitNexus after source changes before relying on it if the index is available; report its known limitation otherwise.
 
 Use the current agreed integration branch, `feature/construction-workspace`, unless the parent/user explicitly changes it. A lead submits the exact diff/commit, tested source identity, commands and results, skipped checks, lifecycle report and remaining coverage reasons. Sol accepts or returns concrete corrections to that lead. The lead merges accepted work serially after verifying the target identity. Shared API generation, registry entries, worklist and coverage reports have one merge owner.
 

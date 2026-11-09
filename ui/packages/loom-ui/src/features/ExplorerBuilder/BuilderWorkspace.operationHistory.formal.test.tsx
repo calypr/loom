@@ -23,7 +23,7 @@ import type {
   ExplorerBuilderState,
   ExplorerBuilderWorkspace,
 } from '../../types';
-import { constructionProposalResponseSchema, constructionSchema, explorerBuilderPreviewResultSchema } from '../../types';
+import { constructionCapabilitiesResponseSchema, explorerBuilderStateSchema, explorerBuilderWorkspaceSchema, constructionProposalResponseSchema, constructionSchema, explorerBuilderPreviewResultSchema } from '../../types';
 import BuilderWorkspace from './BuilderWorkspace';
 import { ConstructionProposalPanel, constructionProposalIsApplicable } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionReshapeEditor } from './constructionOperations/ConstructionReshapeEditor';
@@ -355,17 +355,47 @@ const operationHistoryCandidateFileSchema = z.object({
   }).passthrough()),
 }).passthrough();
 
+// Finite production-UI schedule. These identities are test-owned inputs, not
+// claims that a compiler/Go replay produced them. External replay stays opt-in.
+const localOperationHistoryCases = [{
+  id: 'operation-history-count-to-mean-accepted-history-filter',
+  initial: {
+    sourceColumns: [
+      { id: 'gender-id', path: 'gender', label: 'Gender', type: 'string', role: 'KEY_A' },
+      { id: 'active-id', path: 'active', label: 'Active', type: 'boolean', role: 'KEY_B' },
+      { id: 'multiple-birth-integer-id', path: 'multipleBirthInteger', label: 'Multiple birth integer', type: 'integer', role: 'NUMERIC' },
+    ],
+    aggregate: 'COUNT_ROWS', numericInputPresent: true, keyA: true, keyB: true,
+    selectedKey: 'A', keyOutputId: groupKeyOutputId, aggregateOutputId,
+    groupStepId, downstream: [{ id: filterStep.id, kind: 'FILTER', dependency: 'aggregate', columnId: aggregateOutputId }],
+  },
+  actions: [
+    { kind: 'editAggregate', aggregate: 'MEAN' }, { kind: 'propose' },
+    { kind: 'cancel' }, { kind: 'editAggregate', aggregate: 'COUNT_ROWS' }, { kind: 'propose' },
+  ],
+  expectations: [
+    { actionIndex: 1, candidateActionIndex: 0, proposalStatus: 'READY',
+      stepIds: [groupStepId, filterStep.id], groupOutputTypes: { [groupKeyOutputId]: 'string', [aggregateOutputId]: 'decimal' },
+      downstreamInputTypes: {}, acceptedAggregate: 'COUNT_ROWS', candidateAggregate: 'MEAN', acceptedChangesOnApply: false,
+      groupKeyOutputRelation: 'SAME_AS_ACCEPTED', acceptedGroupKeyOutputId: groupKeyOutputId },
+    { actionIndex: 4, candidateActionIndex: 3, proposalStatus: 'READY',
+      stepIds: [groupStepId, filterStep.id], groupOutputTypes: { [groupKeyOutputId]: 'string', [aggregateOutputId]: 'integer' },
+      downstreamInputTypes: {}, acceptedAggregate: 'COUNT_ROWS', candidateAggregate: 'COUNT_ROWS', acceptedChangesOnApply: false,
+      groupKeyOutputRelation: 'SAME_AS_ACCEPTED', acceptedGroupKeyOutputId: groupKeyOutputId },
+  ],
+}];
+
 const operationHistoryTracePath = process.env.BUILDER_OPERATION_TRACES;
 const operationHistoryTraceFile = operationHistoryTracePath
   ? operationHistoryTraceFileSchema.parse(JSON.parse(readFileSync(operationHistoryTracePath, 'utf8')))
-  : operationHistoryTraceFileSchema.parse({ schemaVersion: 1, cases: [] });
+  : operationHistoryTraceFileSchema.parse({ schemaVersion: 1, cases: localOperationHistoryCases });
 const isSeedPreparation = process.env.BUILDER_OPERATION_PREPARE === '1';
 const isPanelCheck = process.env.BUILDER_OPERATION_PANEL_CHECK === '1';
 const unparsedSeedIdentities: unknown = process.env.BUILDER_OPERATION_SEED_IDENTITIES
   ? JSON.parse(readFileSync(process.env.BUILDER_OPERATION_SEED_IDENTITIES, 'utf8'))
   : undefined;
 const operationHistorySeedIdentities = unparsedSeedIdentities === undefined
-  ? undefined
+  ? operationHistoryTracePath ? undefined : operationHistorySeedIdentityFileSchema.parse({ schemaVersion: 1, cases: localOperationHistoryCases.map(trace => ({ id: trace.id, acceptedVersion: 1, acceptedDigest: acceptedState.draftDigest, snapshotToken: catalog.snapshotToken, outputId: 'table-1' })) })
   : operationHistorySeedIdentityFileSchema.parse(unparsedSeedIdentities);
 if (operationHistoryTracePath && !isSeedPreparation && !isPanelCheck) {
   if (!operationHistorySeedIdentities) {
@@ -700,7 +730,7 @@ const LifecycleEditorReplay = React.forwardRef<EditorReplayHandle, {
   );
 });
 
-describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history actual candidate capture', () => {
+describe('BuilderWorkspace operation history actual candidate capture', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
     harness.builderState = acceptedState;
@@ -708,7 +738,8 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
     harness.nextProposalStatus = 'READY';
     harness.proposalCounter = 0;
     harness.client.getConstructionCapabilities.mockReset().mockImplementation(async (args) => {
-      const response = harness.replayCapabilities ?? {
+      if (harness.replayCapabilities) return harness.replayCapabilities;
+      const response = {
         snapshotToken: args.snapshotToken,
         draftVersion: args.expectedDraftVersion,
         draftDigest: args.expectedDraftDigest,
@@ -755,11 +786,63 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
     vi.restoreAllMocks();
   });
 
+  it('keeps the saved Group operation and identifiers across remounts', async () => {
+    const localWorkspace = structuredClone(workspace);
+    localWorkspace.documents[0].output.id = 'patients';
+    for (const tab of localWorkspace.tabs) tab.outputId = 'patients';
+    const localBefore = { ...acceptedState, workspace: structuredClone(localWorkspace) };
+    const localConstruction = localWorkspace.documents[0].construction;
+    if (!localConstruction || localConstruction.steps[0].operation.kind !== 'GROUP') throw new Error('Local saved Group fixture missing');
+    localConstruction.steps[0].operation.group.aggregates = [{ operation: 'MEAN', inputColumnId: 'multiple-birth-integer-id', outputColumnId: aggregateOutputId }];
+    for (const step of localConstruction.steps) for (const column of step.outputs) if (column.id === aggregateOutputId) column.type = 'decimal';
+    const localSaved = { ...acceptedState, draftVersion: 2, draftDigest: `sha256:${'a'.repeat(64)}`, workspace: localWorkspace };
+    const localCapabilities = { snapshotToken: catalog.snapshotToken, draftVersion: 2, draftDigest: localSaved.draftDigest, outputId: 'patients', stageId: sourceStage.id, baseConstruction: localConstruction, stages: [sourceStage], selectedStage: sourceStage, semanticGroupChoices: [], groupFieldChoices: [], groupRowValueChoices: [], workspaceInputs: [] };
+    const file = process.env.BUILDER_OPERATION_RELOADS;
+    const artifact = z.object({ schemaVersion: z.literal(1), cases: z.array(z.object({ id: z.string().min(1), actionIndex: z.number().int().nonnegative(), outputId: z.string().min(1), stageId: z.string().min(1), before: explorerBuilderStateSchema, after: explorerBuilderStateSchema, storedWorkspace: explorerBuilderWorkspaceSchema, capabilities: constructionCapabilitiesResponseSchema }).strict()).length(1) }).strict().parse(file ? JSON.parse(readFileSync(file, 'utf8')) : { schemaVersion: 1, cases: [{ id: 'local-saved-group', actionIndex: 3, outputId: 'patients', stageId: sourceStage.id, before: localBefore, after: localSaved, storedWorkspace: localWorkspace, capabilities: localCapabilities }] });
+    const record = artifact.cases[0], saved = record.after, caps = record.capabilities;
+    expect(saved.draftVersion).toBe(record.before.draftVersion + 1);
+    expect(saved.draftDigest).not.toBe(record.before.draftDigest);
+    expect(saved.workspace).toEqual(record.storedWorkspace);
+    expect(caps.draftVersion).toBe(saved.draftVersion);
+    expect(caps.draftDigest).toBe(saved.draftDigest);
+    expect(caps.snapshotToken).toBe(saved.catalog.snapshotToken);
+    expect(caps.outputId).toBe(record.outputId);
+    expect(caps.stageId).toBe(record.stageId);
+    const construction = saved.workspace?.documents.find(document => document.output.id === record.outputId)?.construction;
+    const group = construction?.steps.find(step => step.id === groupStepId);
+    expect(group?.operation.kind).toBe('GROUP');
+    if (group?.operation.kind !== 'GROUP') throw new Error('Saved Group missing');
+    expect(group.operation.group.aggregates?.[0]?.operation).toBe('MEAN');
+    expect(construction?.steps.map(step => step.id)).toEqual([groupStepId, filterStep.id]);
+    expect(caps.baseConstruction).toEqual(construction);
+    for (let mount = 0; mount < 2; mount++) {
+      harness.builderState = saved;
+      harness.replayCapabilities = caps;
+      harness.client.getConstructionCapabilities.mockClear();
+      const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
+      fireEvent.click(await screen.findByTestId('construction-history-step-group-step'));
+      await screen.findByTestId('construction-reshape-editor');
+      expect((screen.getByRole('combobox', { name: 'Summary 1' }) as HTMLSelectElement).value).toBe('MEAN');
+      expect(harness.client.getConstructionCapabilities).toHaveBeenCalled();
+      for (const [request] of harness.client.getConstructionCapabilities.mock.calls) {
+        expect(request, JSON.stringify(request)).toMatchObject({
+          expectedDraftVersion: caps.draftVersion,
+          expectedDraftDigest: caps.draftDigest,
+          snapshotToken: caps.snapshotToken,
+          outputId: record.outputId,
+        });
+      }
+      expect(harness.client.getConstructionCapabilities.mock.calls.some(([request]) => request.stageId === record.stageId)).toBe(true);
+      expect(harness.client.proposeConstruction).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  });
+
   it('wires BuilderWorkspace history and the actual Group editor to its proposal request', async () => {
     if (isSeedPreparation || isPanelCheck) return;
     const trace = operationHistoryTraceFile.cases.find((candidate) => candidate.id === 'operation-history-count-to-mean-accepted-history-filter');
-    expect(trace, 'generated accepted-history Filter trace must be present').toBeDefined();
-    if (!trace) throw new Error('Generated accepted-history Filter trace is missing.');
+    expect(trace, 'accepted-history Filter schedule must be present').toBeDefined();
+    if (!trace) throw new Error('Accepted-history Filter schedule is missing.');
     const seedIdentity = operationHistorySeedIdentityById.get(trace.id);
     if (!seedIdentity) throw new Error(`${trace.id}: Go seed identity is missing.`);
     const traceConstruction = constructionForTrace(trace);
@@ -776,8 +859,8 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
       index === 1 && trace.actions[index - 1]?.kind === 'editAggregate' && trace.actions[index - 1].aggregate === 'MEAN');
     expect(proposalActionIndex, `actual replay expects editAggregate(MEAN) → propose, got ${JSON.stringify(trace.actions)}`).toBe(1);
     const proposalExpectation = trace.expectations.find((candidate) => candidate.actionIndex === proposalActionIndex);
-    expect(proposalExpectation, 'generated proposal expectation must exist after the MEAN edit').toBeDefined();
-    if (!proposalExpectation) throw new Error('Generated proposal expectation is missing after the MEAN edit.');
+    expect(proposalExpectation, 'proposal expectation must exist after the MEAN edit').toBeDefined();
+    if (!proposalExpectation) throw new Error('Proposal expectation is missing after the MEAN edit.');
     const actionSequence = ['editAggregate(MEAN)', 'propose'];
     render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="builder" />);
 
@@ -813,7 +896,7 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
     expect(harness.client.preview).not.toHaveBeenCalled();
   });
 
-  it.each(operationHistoryTraceFile.cases)('replays every generated operation trace through ConstructionReshapeEditor: $id', async (trace) => {
+  for (const trace of operationHistoryTraceFile.cases) it(`replays each operation schedule through ConstructionReshapeEditor: '${trace.id}'`, async () => {
     const construction = constructionForTrace(trace);
     const acceptedDocument = documentForTrace(trace, construction);
     const acceptedWorkspace = workspaceForTrace(trace, acceptedDocument);
@@ -1002,7 +1085,7 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
     capturedCandidates.set(trace.id, checkpoints);
   });
 
-  it('accounts for every generated trace and proposal checkpoint', () => {
+  it('accounts for every exercised schedule and proposal checkpoint', () => {
     if (isPanelCheck) {
       expect(operationHistoryProposalResponses?.cases).toHaveLength(operationHistoryTraceFile.cases.length);
       return;
@@ -1021,15 +1104,45 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
     expect(capturedCandidates.size).toBe(operationHistoryTraceFile.cases.length);
     expect([...capturedCandidates.keys()].sort()).toEqual(operationHistoryTraceFile.cases.map((trace) => trace.id).sort());
     expect(capturedCount).toBe(proposalCount);
-    console.info(`Operation-history actual replay: ${capturedCandidates.size} traces, ${capturedCount} proposal checkpoints, ${actualRequestFingerprints.size} exact request fingerprints; model has ${expectedFingerprintCount} fingerprints.`);
+    console.info(`Operation-history actual replay: ${capturedCandidates.size} schedules, ${capturedCount} proposal checkpoints, ${actualRequestFingerprints.size} exact request fingerprints${operationHistoryTracePath ? `; external model has ${expectedFingerprintCount} fingerprints` : "; local UI inputs, compiler not exercised"}.`);
   });
 
-  it('renders the Go-resolved key cascade before Apply and preserves the raw editor request', () => {
+  it('reviews proposed removals before explicit Apply', () => {
     if (isSeedPreparation) {
       expect(capturedSeeds.size).toBe(operationHistoryTraceFile.cases.length);
       return;
     }
-    if (!isPanelCheck) return;
+    if (!isPanelCheck) {
+      // The server boundary supplies the resolved cascade. This test checks the
+      // real review UI, not whether the server computes that cascade correctly.
+      const preview = previewFor('reviewed-cascade', 'table-1');
+      const response: ConstructionProposalResponse = {
+        proposalId: preview.receiptId, outputId: 'table-1', snapshotToken: catalog.snapshotToken,
+        draftVersion: 1, draftDigest: acceptedState.draftDigest,
+        baseDocumentDigest: 'sha256:accepted-document', candidateWorkspaceDigest: 'sha256:cascade',
+        changedStepId: groupStepId, candidateConstruction: { version: 1, steps: [groupStep] },
+        dependencyImpact: { affectedStepIds: [groupStepId, filterStep.id], removedStepIds: [filterStep.id] },
+        stages: [sourceStage], previewStatus: 'READY', previewDurationMs: 1, preview,
+      };
+      const onApply = vi.fn();
+      const onCancel = vi.fn();
+      const canApply = constructionProposalIsApplicable({ status: 'ready', response, preview }, {
+        outputId: 'table-1', snapshotToken: catalog.snapshotToken,
+        draftVersion: 1, draftDigest: acceptedState.draftDigest,
+      });
+      render(<ConstructionProposalPanel state={{ status: 'ready', response, preview }} canApply={canApply}
+        baseConstruction={acceptedConstruction} onApply={onApply} onCancel={onCancel} onRetry={vi.fn()} />);
+      const summary = screen.getByTestId('construction-removal-summary');
+      expect(summary).toHaveTextContent('This edit also removes 1 dependent step.');
+      expect(screen.getByTestId(`construction-removal-step-${filterStep.id}`)).toBeTruthy();
+      expect(onApply).not.toHaveBeenCalled();
+      const apply = screen.getByTestId('construction-apply-proposal');
+      expect(apply).not.toBeDisabled();
+      fireEvent.click(apply);
+      expect(onApply).toHaveBeenCalledOnce();
+      expect(onCancel).not.toHaveBeenCalled();
+      return;
+    }
     const responseFile = operationHistoryProposalResponses;
     if (!responseFile) throw new Error('Go proposal response file was not loaded.');
     if (!operationHistoryCandidatePath) throw new Error('Panel-check mode requires BUILDER_OPERATION_CANDIDATES.');
@@ -1186,6 +1299,7 @@ describe.skipIf(!operationHistoryTracePath)('BuilderWorkspace operation history 
   });
 
   afterAll(() => {
+    if (!operationHistoryTracePath) return;
     if (isSeedPreparation) {
       const seedPath = process.env.BUILDER_OPERATION_SEEDS;
       if (!seedPath) throw new Error('Seed preparation requires BUILDER_OPERATION_SEEDS.');

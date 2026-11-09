@@ -45,6 +45,10 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	if visit == nil {
 		return streamResult{}, fmt.Errorf("row visitor is required")
 	}
+	// A request the caller already abandoned must not open a backend cursor.
+	if err := contextError(ctx); err != nil {
+		return streamResult{}, err
+	}
 	columns := materializedColumns(compiled.Columns, compiled.PivotFields)
 	seenColumns := make(map[string]struct{}, len(columns))
 	for _, col := range columns {
@@ -59,6 +63,11 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 		return streamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
 	err := s.queryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+		// A backend adapter can keep visiting rows after the caller cancels;
+		// stop before materializing or delivering any further public row.
+		if err := contextError(ctx); err != nil {
+			return err
+		}
 		rowStarted := time.Now()
 		defer func() { rowMaterialization += time.Since(rowStarted) }()
 		flatRow := flattenPivotFields(cloneRow(row), compiled.PivotFields)
@@ -97,6 +106,11 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 		},
 	}
 	if err != nil {
+		return result, err
+	}
+	// An adapter can report a clean end of stream after losing its context;
+	// completion is only a success while the caller is still waiting.
+	if err := contextError(ctx); err != nil {
 		return result, err
 	}
 	return result, nil

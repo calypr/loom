@@ -79,7 +79,7 @@ func lowerConstructionGroupScalarSource(
 	if !metadataOK || metadata.Repeated || !primitiveOK {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar primitive %q", source.CanonicalPath, metadata.Primitive)
 	}
-	_, supported := tableReshapeScalarKind(string(expressionKind))
+	_, supported := TableReshapeScalarKind(string(expressionKind))
 	if !supported {
 		return CompiledOutputColumn{}, ir.PhysicalProjection{}, nil, fmt.Errorf("Group fieldSource path %q has unsupported scalar primitive %q", source.CanonicalPath, metadata.Primitive)
 	}

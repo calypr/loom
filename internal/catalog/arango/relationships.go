@@ -230,7 +230,10 @@ func (s *Store) RebuildRelationshipCatalog(ctx context.Context, opts catalog.Rel
 		return catalog.RelationshipRebuildSummary{}, err
 	}
 	vars := map[string]any{"project": opts.Project, "dataset_generation": generation(opts.DatasetGeneration), "auth_resource_paths": opts.AuthResourcePaths, "auth_resource_paths_unrestricted": catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted), "resource_types": fhirschema.ResourceTypes()}
-	if err := s.client.QueryRows(ctx, relationshipClearAQL, opts.CursorBatch, vars, func(map[string]any) error { return nil }); err != nil {
+	// Write-only drain: the query's RETURN 1 rows are scalar, which the
+	// cursor row decoder rejects (map[string]any), so this must not go
+	// through QueryRows.
+	if err := s.client.ExecuteAQL(ctx, relationshipClearAQL, vars); err != nil {
 		return catalog.RelationshipRebuildSummary{}, err
 	}
 	counts := map[catalog.RelationshipKey]int64{}

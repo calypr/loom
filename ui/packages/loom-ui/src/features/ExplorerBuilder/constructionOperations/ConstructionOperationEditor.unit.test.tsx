@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLoomClient } from '../../../api';
 import {
   constructionSchema,
+  constructionCapabilitiesResponseSchema,
   type Construction,
   type ConstructionCapabilitiesResponse,
   type ConstructionProposalResponse,
@@ -12,9 +13,22 @@ import {
   type ConstructionStageDescriptor,
   type ConstructionStep,
 } from '../../../types';
+import {
+  liveFilterSourceUnmaterializedProvenance,
+  liveFilterSourceUnmaterializedResponse,
+  liveFilterSourceUnmaterializedResponseJson,
+} from '../../../../testSupport/liveConstructionCapabilitiesFixtures';
 import { ConstructionOperationEditor } from './ConstructionOperationEditor';
 
-type CandidateIntent = Pick<ConstructionProposalRequest, 'candidateConstruction' | 'changedStepId' | 'removeStepIds'>;
+type CandidateIntent = Pick<
+  ConstructionProposalRequest,
+  'candidateConstruction' | 'changedStepId' | 'removeStepIds' | 'filterSources' | 'deriveSources'
+>;
+
+type FilterSourceInput = NonNullable<ConstructionCapabilitiesResponse['filterSourceInput']>;
+type FilterSourceChoice = FilterSourceInput['choices'][number];
+type DeriveSourceInput = NonNullable<ConstructionCapabilitiesResponse['deriveSourceInput']>;
+type DeriveSourceChoice = DeriveSourceInput['choices'][number];
 
 const columns: ConstructionStageDescriptor['columns'] = [
   { id: 'age-id', name: 'age', label: 'Age', type: 'integer' },
@@ -35,10 +49,17 @@ const sourceStage: ConstructionStageDescriptor = {
   ],
 };
 
+type GroupFieldChoice = ConstructionCapabilitiesResponse['groupFieldChoices'][number];
+type GroupRowValueChoice = ConstructionCapabilitiesResponse['groupRowValueChoices'][number];
+
 const capabilitiesFor = (
   construction: Construction = { version: 1, steps: [] },
   stages: ReadonlyArray<ConstructionStageDescriptor> = [sourceStage],
   selectedStage: ConstructionStageDescriptor = sourceStage,
+  filterSourceInput?: FilterSourceInput,
+  deriveSourceInput?: DeriveSourceInput,
+  groupFieldChoices: ReadonlyArray<GroupFieldChoice> = [],
+  groupRowValueChoices: ReadonlyArray<GroupRowValueChoice> = [],
 ): ConstructionCapabilitiesResponse => ({
   snapshotToken: 'snapshot-1',
   draftVersion: 1,
@@ -48,9 +69,11 @@ const capabilitiesFor = (
   baseConstruction: construction,
   stages: [...stages],
   selectedStage,
-  groupFieldChoices: [],
-  groupRowValueChoices: [],
+  groupFieldChoices: [...groupFieldChoices],
+  groupRowValueChoices: [...groupRowValueChoices],
   workspaceInputs: [],
+  ...(filterSourceInput ? { filterSourceInput } : {}),
+  ...(deriveSourceInput ? { deriveSourceInput } : {}),
 });
 
 const renderEditor = (args: {
@@ -60,6 +83,10 @@ const renderEditor = (args: {
   readonly selectedStage?: ConstructionStageDescriptor;
   readonly editingStep?: ConstructionStep;
   readonly selectedColumns?: ReadonlyArray<string>;
+  readonly filterSourceInput?: FilterSourceInput;
+  readonly deriveSourceInput?: DeriveSourceInput;
+  readonly groupFieldChoices?: ReadonlyArray<GroupFieldChoice>;
+  readonly groupRowValueChoices?: ReadonlyArray<GroupRowValueChoice>;
   readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
   readonly onEditStep?: (stepId: string) => void;
 }) => {
@@ -69,7 +96,7 @@ const renderEditor = (args: {
     <ConstructionOperationEditor
       family={args.family}
       construction={args.construction ?? { version: 1, steps: [] }}
-      capabilities={capabilitiesFor(args.construction, args.stages, args.selectedStage)}
+      capabilities={capabilitiesFor(args.construction, args.stages, args.selectedStage, args.filterSourceInput, args.deriveSourceInput, args.groupFieldChoices ?? [], args.groupRowValueChoices ?? [])}
       editingStep={args.editingStep}
       selectedColumns={args.selectedColumns}
       disabled={false}
@@ -79,6 +106,15 @@ const renderEditor = (args: {
   );
   return { onCandidateChange, onEditStep };
 };
+
+const filterSourceSelect = (): HTMLSelectElement => {
+  const control = screen.getByRole('combobox', { name: 'Column' });
+  if (!(control instanceof HTMLSelectElement)) throw new Error('Expected the filter column control to be a select.');
+  return control;
+};
+
+const sourceOptgroup = (select: HTMLSelectElement): HTMLOptGroupElement | null =>
+  select.querySelector('optgroup[label="Dataset fields (not in output)"]');
 
 const filterStep: ConstructionStep = {
   id: 'filter-saved',
@@ -468,5 +504,838 @@ describe('ConstructionOperationEditor', () => {
     expect(screen.getByTestId('construction-calculate-formula-error')).toHaveTextContent(/functions/i);
     expect(screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Formula' }).value).toBe('age + sqrt(2)');
     expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+  });
+
+  describe('filter rows on unselected dataset fields', () => {
+    const supportedSource = (choices: ReadonlyArray<FilterSourceChoice>): FilterSourceInput => ({
+      supported: true,
+      stageId: 'source_projection',
+      choices: [...choices],
+    });
+
+    const statusChoice: FilterSourceChoice = {
+      choiceId: 'choice-status',
+      fieldPath: 'root.status',
+      label: 'Observation.status',
+      logicalType: 'string',
+      isPopulated: true,
+    };
+
+    const optgroupValues = (group: HTMLOptGroupElement): ReadonlyArray<string> =>
+      Array.from(group.querySelectorAll('option')).map((option) => option.value);
+
+    it('offers only populated dataset fields with a prettified label and field-path tooltip', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        filterSourceInput: supportedSource([
+          { ...statusChoice, choiceId: 'choice-unpopulated', isPopulated: false },
+          statusChoice,
+        ]),
+      });
+
+      const select = filterSourceSelect();
+      expect(Array.from(select.options)
+        .map((option) => option.value)
+        .filter((value) => value !== '' && !value.startsWith('source:')))
+        .toEqual(['age-id', 'weight-id', 'status-id']);
+
+      const group = sourceOptgroup(select);
+      if (!group) throw new Error('Expected a Dataset fields (not in output) optgroup.');
+      expect(optgroupValues(group)).toEqual(['source:choice-status']);
+      const option = group.querySelector('option');
+      expect(option?.textContent).toBe('Observation · Status (string)');
+      expect(option?.getAttribute('title')).toBe('root.status');
+    });
+
+    it('emits the signed choice in proposal filterSources when a dataset field is chosen', async () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'KEEP_ROWS', onCandidateChange, filterSourceInput: supportedSource([statusChoice]) });
+
+      fireEvent.change(filterSourceSelect(), { target: { value: 'source:choice-status' } });
+      const columnId = filterSourceSelect().value;
+      expect(columnId).toMatch(/^filter-input_/);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'final' } });
+
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      if (!candidate) throw new Error('Expected a dataset-field filter candidate.');
+      expect(candidate.filterSources).toEqual([{ choiceId: 'choice-status', columnId }]);
+      expect(constructionSchema.parse(candidate.candidateConstruction)).toEqual(candidate.candidateConstruction);
+      expect(candidate.candidateConstruction.steps[0]).toMatchObject({
+        operation: {
+          kind: 'FILTER',
+          filter: { columnId, operator: 'EQUALS', values: [{ kind: 'STRING', string: 'final' }] },
+        },
+        outputs: expect.arrayContaining([
+          expect.objectContaining({ id: columnId, name: 'root_status', label: 'Observation.status', type: 'string' }),
+        ]),
+      });
+
+      const changedStepId = candidate.changedStepId;
+      if (!changedStepId) throw new Error('Expected a changed step ID.');
+      const proposalResponse: ConstructionProposalResponse = {
+        outputId: 'table-1',
+        snapshotToken: 'snapshot-1',
+        draftVersion: 1,
+        draftDigest: 'draft-digest-1',
+        baseDocumentDigest: 'document-1',
+        candidateWorkspaceDigest: 'workspace-1',
+        changedStepId,
+        candidateConstruction: candidate.candidateConstruction,
+        dependencyImpact: { changedStepId, affectedStepIds: [] },
+        stages: [sourceStage],
+        previewStatus: 'READY',
+        previewDurationMs: 0,
+      };
+      const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
+        new Response(JSON.stringify(proposalResponse), { status: 200 }),
+      );
+      await createLoomClient({ fetch }).proposeConstruction({
+        project: 'project-a',
+        explorerId: 'explorer-a',
+        snapshotToken: 'snapshot-1',
+        expectedDraftVersion: 1,
+        expectedDraftDigest: 'draft-digest-1',
+        outputId: 'table-1',
+        ...candidate,
+      });
+      expect(fetch).toHaveBeenCalledWith(
+        '/api/v1/projects/project-a/explorers/explorer-a/authoring/v2/construction-proposals',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      const [, requestInit] = fetch.mock.calls[0] ?? [];
+      const proposalBody = JSON.parse(String(requestInit?.body)) as {
+        changedStepId?: string;
+        filterSources?: ReadonlyArray<{ choiceId: string; columnId: string }>;
+      };
+      expect(proposalBody.changedStepId).toBe(changedStepId);
+      expect(proposalBody.filterSources).toEqual([{ choiceId: 'choice-status', columnId }]);
+    });
+
+    it('restores the saved dataset-field binding when a source-backed filter reopens', () => {
+      const savedSourceFilter: ConstructionStep = {
+        id: 'filter-source-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'filter-input_saved', operator: 'EXISTS' } },
+        outputs: [...columns, { id: 'filter-input_saved', name: 'root_status', label: 'Observation.status', type: 'string' }],
+      };
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'KEEP_ROWS',
+        construction: { version: 1, steps: [savedSourceFilter] },
+        stages: [sourceStage, { ...sourceStage, id: savedSourceFilter.id, inputStageId: sourceStage.id, operation: 'FILTER' }],
+        editingStep: savedSourceFilter,
+        onCandidateChange,
+        filterSourceInput: supportedSource([{ ...statusChoice, columnId: 'filter-input_saved' }]),
+      });
+
+      const select = filterSourceSelect();
+      expect(select.value).toBe('filter-input_saved');
+      const checked = select.querySelector('option:checked');
+      expect(checked?.textContent).toBe('Observation · Status (string)');
+      expect(checked?.getAttribute('title')).toBe('root.status');
+      expect(screen.queryByText(/saved condition column is no longer present/i)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'MISSING' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.filterSources).toEqual([{ choiceId: 'choice-status', columnId: 'filter-input_saved' }]);
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toEqual({
+        kind: 'FILTER', filter: { columnId: 'filter-input_saved', operator: 'MISSING' },
+      });
+    });
+
+    it('clears the filterSources contribution when the condition leaves the dataset field', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'KEEP_ROWS', onCandidateChange, filterSourceInput: supportedSource([statusChoice]) });
+
+      fireEvent.change(filterSourceSelect(), { target: { value: 'source:choice-status' } });
+      expect(filterSourceSelect().value).toMatch(/^filter-input_/);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'final' } });
+      expect(onCandidateChange.mock.lastCall?.[0]?.filterSources).toHaveLength(1);
+
+      fireEvent.change(filterSourceSelect(), { target: { value: 'age-id' } });
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Value' }), { target: { value: '21' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      if (!candidate) throw new Error('Expected a selected-column filter candidate.');
+      expect(candidate.filterSources).toBeUndefined();
+      expect(candidate.candidateConstruction.steps[0]?.operation).toEqual({
+        kind: 'FILTER', filter: { columnId: 'age-id', operator: 'EQUALS', values: [{ kind: 'INTEGER', integer: 21 }] },
+      });
+      expect(candidate.candidateConstruction.steps[0]?.outputs).toEqual(columns.map((column) => ({ ...column })));
+
+      const group = sourceOptgroup(filterSourceSelect());
+      if (!group) throw new Error('Expected the dataset field to be selectable again.');
+      expect(optgroupValues(group)).toEqual(['source:choice-status']);
+    });
+
+    it('shows the server reason verbatim when dataset-field filtering is unsupported', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        filterSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'FILTER_SOURCE_AFTER_GROUP',
+          reason: 'Loom cannot filter on unselected fields after rows are grouped.',
+          choices: [],
+        },
+      });
+
+      const status = screen.getByTestId('construction-filter-source-unavailable');
+      expect(status).toHaveTextContent('FILTER_SOURCE_AFTER_GROUP');
+      expect(status).toHaveTextContent('Loom cannot filter on unselected fields after rows are grouped.');
+      expect(sourceOptgroup(filterSourceSelect())).toBeNull();
+    });
+
+    it('does not invent a reason when the server reports unsupported dataset fields without one', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        filterSourceInput: { supported: false, stageId: 'source_projection', choices: [] },
+      });
+
+      const status = screen.getByTestId('construction-filter-source-unavailable');
+      expect(status).toHaveTextContent(
+        'Loom did not report why filtering on dataset fields is unavailable at this stage.',
+      );
+      expect(sourceOptgroup(filterSourceSelect())).toBeNull();
+    });
+
+    it('keeps the selected-column filter flow primary when dataset fields are offered', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'KEEP_ROWS',
+        selectedColumns: ['status-id'],
+        onCandidateChange,
+        filterSourceInput: supportedSource([
+          { ...statusChoice, choiceId: 'choice-note', fieldPath: 'root.note.text', label: 'Observation.note.text' },
+        ]),
+      });
+
+      fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'final' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      if (!candidate) throw new Error('Expected a selected-column filter candidate.');
+      expect(candidate.filterSources).toBeUndefined();
+      expect(candidate.candidateConstruction.steps[0]).toMatchObject({
+        operation: {
+          kind: 'FILTER',
+          filter: { columnId: 'status-id', operator: 'EQUALS', values: [{ kind: 'STRING', string: 'final' }] },
+        },
+      });
+
+      const select = filterSourceSelect();
+      expect(Array.from(select.options)
+        .map((option) => option.value)
+        .filter((value) => value !== '' && !value.startsWith('source:')))
+        .toEqual(['age-id', 'weight-id', 'status-id']);
+      const group = sourceOptgroup(select);
+      if (!group) throw new Error('Expected the dataset fields optgroup to be added, not to replace columns.');
+      expect(optgroupValues(group)).toEqual(['source:choice-note']);
+    });
+
+    const liveCapabilities = () => constructionCapabilitiesResponseSchema.parse(liveFilterSourceUnmaterializedResponse);
+
+    const liveChoiceIdByPath = (capabilities: ConstructionCapabilitiesResponse, fieldPath: string): string => {
+      const choice = capabilities.filterSourceInput?.choices.find((candidate) => candidate.fieldPath === fieldPath);
+      if (!choice) throw new Error(`Expected the live ${fieldPath} source choice.`);
+      return choice.choiceId;
+    };
+
+    // audit07 public-column reuse: a signed choice whose root field is already
+    // carried by a live public column (server-signed canonicalPath + inputColumnId,
+    // i.e. authoringv2 Column.Source.Field) is deduplicated to that column, so it
+    // must drop out of the dataset-fields group instead of minting a new binding.
+    const fieldsCarriedByPublicColumns = (capabilities: ConstructionCapabilitiesResponse): Set<string> => {
+      const stage = capabilities.selectedStage;
+      const carried = new Set<string>();
+      for (const field of [...capabilities.groupFieldChoices, ...capabilities.groupRowValueChoices]) {
+        if (field.kind !== 'FIELD_SOURCE' || field.valueKind !== 'SCALAR') continue;
+        if (field.sourceRole !== 'ROOT' || field.boundarySelector !== undefined) continue;
+        const columnId = field.inputColumnId ?? '';
+        if (columnId.trim() === '' || !stage.columns.some((column) => column.id === columnId)) continue;
+        carried.add(field.canonicalPath);
+      }
+      return carried;
+    };
+
+    const expectedSignedValues = (capabilities: ConstructionCapabilitiesResponse): string[] => {
+      const carried = fieldsCarriedByPublicColumns(capabilities);
+      return (capabilities.filterSourceInput?.choices ?? [])
+        .filter((choice) => !carried.has(choice.fieldPath))
+        .map((choice) => `source:${choice.choiceId}`);
+    };
+
+    const renderLive = (args: {
+      readonly capabilities: ConstructionCapabilitiesResponse;
+      readonly construction?: Construction;
+      readonly editingStep?: ConstructionStep;
+      readonly onCandidateChange?: (candidate: CandidateIntent | undefined) => void;
+    }) => {
+      const onCandidateChange = args.onCandidateChange ?? vi.fn();
+      render(
+        <ConstructionOperationEditor
+          family="KEEP_ROWS"
+          construction={args.construction ?? args.capabilities.baseConstruction}
+          capabilities={args.capabilities}
+          editingStep={args.editingStep}
+          disabled={false}
+          onCandidateChange={onCandidateChange}
+          onEditStep={vi.fn()}
+        />,
+      );
+      return { onCandidateChange };
+    };
+
+    it('mounts the picker from the live capabilities payload whose choices carry an empty columnId', () => {
+      expect(liveFilterSourceUnmaterializedResponseJson.match(/"columnId": ""/g)).toHaveLength(
+        liveFilterSourceUnmaterializedProvenance.unmaterializedChoiceCount,
+      );
+
+      const capabilities = liveCapabilities();
+      renderLive({ capabilities });
+
+      const select = filterSourceSelect();
+      expect(Array.from(select.options)
+        .map((option) => option.value)
+        .filter((value) => value !== '' && !value.startsWith('source:')))
+        .toEqual(['source_ef82eef4462a7f20fbcecfff']);
+
+      const group = sourceOptgroup(select);
+      if (!group) throw new Error('Expected the dataset fields optgroup from the live payload.');
+      expect(optgroupValues(group)).toEqual(expectedSignedValues(capabilities));
+      // The live stage carries Patient.id as an ordinary public column, so its
+      // signed twin must not be offered alongside it.
+      const carriedIdColumnId = capabilities.selectedStage.columns[0]!.id;
+      expect(fieldsCarriedByPublicColumns(capabilities)).toEqual(new Set(['id']));
+      expect(optgroupValues(group)).not.toContain(`source:${liveChoiceIdByPath(capabilities, 'id')}`);
+      expect(Array.from(select.options).some((option) => option.value === carriedIdColumnId)).toBe(true);
+      const gender = Array.from(group.querySelectorAll('option'))
+        .find((option) => option.getAttribute('title') === 'gender');
+      expect(gender?.textContent).toBe('Patient · Gender (string)');
+      const lastUpdated = Array.from(group.querySelectorAll('option'))
+        .find((option) => option.getAttribute('title') === 'meta.lastUpdated');
+      expect(lastUpdated?.textContent).toBe('Patient · Meta Last Updated (date_time)');
+    });
+
+    it('mints a column identity for a live unmaterialized choice instead of binding to the empty columnId', () => {
+      const capabilities = liveCapabilities();
+      const genderChoiceId = liveChoiceIdByPath(capabilities, 'gender');
+      const onCandidateChange = vi.fn();
+      renderLive({ capabilities, onCandidateChange });
+
+      fireEvent.change(filterSourceSelect(), { target: { value: `source:${genderChoiceId}` } });
+      const select = filterSourceSelect();
+      const columnId = select.value;
+      expect(columnId).toMatch(/^filter-input_/);
+      expect(columnId).not.toBe('');
+      expect(Array.from(select.options).some((option) => option.value === '')).toBe(false);
+      const bound = select.querySelector('option:checked');
+      expect(bound?.textContent).toBe('Patient · Gender (string)');
+      expect(bound?.getAttribute('title')).toBe('gender');
+
+      fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      if (!candidate) throw new Error('Expected a candidate from the live unmaterialized choice.');
+      expect(candidate.filterSources).toEqual([{ choiceId: genderChoiceId, columnId }]);
+      const step = candidate.candidateConstruction.steps[0];
+      expect(step?.operation).toEqual({
+        kind: 'FILTER',
+        filter: { columnId, operator: 'EQUALS', values: [{ kind: 'STRING', string: 'female' }] },
+      });
+      expect(step?.outputs).toContainEqual(expect.objectContaining({ id: columnId, name: 'gender', label: 'Patient.gender' }));
+      expect(step?.outputs.some((output: ConstructionStep['outputs'][number]) => output.id === '' || output.name === '')).toBe(false);
+    });
+
+    it('keeps a saved condition honest when its dataset field is no longer materialized', () => {
+      const capabilities = liveCapabilities();
+      const savedGoneFilter: ConstructionStep = {
+        id: 'filter-gender-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'filter-input_gone', operator: 'EXISTS' } },
+        outputs: [],
+      };
+      const onCandidateChange = vi.fn();
+      renderLive({
+        capabilities,
+        construction: { version: 1, steps: [savedGoneFilter] },
+        editingStep: savedGoneFilter,
+        onCandidateChange,
+      });
+
+      expect(screen.getByText('The saved condition column is no longer present in Loom’s predecessor stage.')).toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: 'Column' })).toBeNull();
+      expect(screen.queryAllByRole('option').filter((option) => option.getAttribute('value') === '')).toHaveLength(0);
+      expect(onCandidateChange).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it('saves a condition on an ordinary stage column without any source binding when choices are unmaterialized', () => {
+      const capabilities = liveCapabilities();
+      const identityColumnId = capabilities.selectedStage.columns[0]!.id;
+      const savedIdentityFilter: ConstructionStep = {
+        id: 'filter-identity-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: identityColumnId, operator: 'EXISTS' } },
+        outputs: [],
+      };
+      const onCandidateChange = vi.fn();
+      renderLive({
+        capabilities,
+        construction: { version: 1, steps: [savedIdentityFilter] },
+        editingStep: savedIdentityFilter,
+        onCandidateChange,
+      });
+
+      const select = filterSourceSelect();
+      expect(select.value).toBe(identityColumnId);
+      expect(Array.from(select.options).some((option) => option.value === '')).toBe(false);
+      // identityColumnId is the public Patient.id column, so the signed Patient.id
+      // choice is deduplicated to it (audit07) rather than offered as a duplicate.
+      expect(identityColumnId).toBe('source_ef82eef4462a7f20fbcecfff');
+      expect(optgroupValues(sourceOptgroup(select)!)).toEqual(expectedSignedValues(capabilities));
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'Condition' }), { target: { value: 'MISSING' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.filterSources).toBeUndefined();
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toEqual({
+        kind: 'FILTER', filter: { columnId: identityColumnId, operator: 'MISSING' },
+      });
+    });
+
+    it('treats a whitespace-only columnId as unmaterialized', () => {
+      const capabilities = liveCapabilities();
+      const genderChoiceId = liveChoiceIdByPath(capabilities, 'gender');
+      const blankColumnCapabilities: ConstructionCapabilitiesResponse = {
+        ...capabilities,
+        filterSourceInput: {
+          ...capabilities.filterSourceInput!,
+          choices: capabilities.filterSourceInput!.choices.map((choice) => ({ ...choice, columnId: '   ' })),
+        },
+      };
+      const onCandidateChange = vi.fn();
+      renderLive({ capabilities: blankColumnCapabilities, onCandidateChange });
+
+      fireEvent.change(filterSourceSelect(), { target: { value: `source:${genderChoiceId}` } });
+      const columnId = filterSourceSelect().value;
+      expect(columnId).toMatch(/^filter-input_/);
+      fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+      expect(onCandidateChange.mock.lastCall?.[0]?.filterSources).toEqual([{ choiceId: genderChoiceId, columnId }]);
+
+      const savedBlankFilter: ConstructionStep = {
+        id: 'filter-blank-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'filter-input_blank', operator: 'MISSING' } },
+        outputs: [],
+      };
+      const savedOnCandidateChange = vi.fn();
+      cleanup();
+      renderLive({
+        capabilities: blankColumnCapabilities,
+        construction: { version: 1, steps: [savedBlankFilter] },
+        editingStep: savedBlankFilter,
+        onCandidateChange: savedOnCandidateChange,
+      });
+      expect(screen.getByText('The saved condition column is no longer present in Loom’s predecessor stage.')).toBeInTheDocument();
+      expect(savedOnCandidateChange).toHaveBeenLastCalledWith(undefined);
+    });
+  });
+
+  describe('calculate with unselected dataset fields', () => {
+    const birthChoice: DeriveSourceChoice = {
+      choiceId: 'derive-choice-birth',
+      fieldPath: 'multipleBirthInteger',
+      label: 'Patient.multipleBirthInteger',
+      logicalType: 'integer',
+      isPopulated: true,
+      columnId: '',
+    };
+    const weightChoice: DeriveSourceChoice = {
+      choiceId: 'derive-choice-weight',
+      fieldPath: 'bodyWeight',
+      label: 'Patient.bodyWeight',
+      logicalType: 'decimal',
+      isPopulated: true,
+      columnId: '',
+    };
+    const unpopulatedChoice: DeriveSourceChoice = {
+      choiceId: 'derive-choice-unpopulated',
+      fieldPath: 'multipleBirthBoolean',
+      label: 'Patient.multipleBirthBoolean',
+      logicalType: 'integer',
+      isPopulated: false,
+      columnId: '',
+    };
+    const supported = (choices: DeriveSourceInput['choices']): DeriveSourceInput => ({
+      supported: true,
+      stageId: 'source_projection',
+      choices,
+    });
+
+    const operandColumn = (which: 'First' | 'Second'): HTMLSelectElement =>
+      screen.getByRole<HTMLSelectElement>('combobox', { name: `${which} value column` });
+
+    const setRightLiteral = (text: string) => {
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'literal' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value number type' }), { target: { value: 'INTEGER' } });
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: text } });
+    };
+
+    it('offers an unmaterialised dataset field as an arithmetic operand and signs the selection', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange, deriveSourceInput: supported([birthChoice, unpopulatedChoice]) });
+
+      setRightLiteral('2');
+      const first = operandColumn('First');
+      const group = sourceOptgroup(first);
+      expect(group).not.toBeNull();
+      expect(Array.from(group!.querySelectorAll('option')).map((option) => option.value)).toEqual([`source:${birthChoice.choiceId}`]);
+
+      fireEvent.change(first, { target: { value: `source:${birthChoice.choiceId}` } });
+      const columnId = operandColumn('First').value;
+      expect(columnId).toMatch(/^derive-input_/);
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toEqual([{ choiceId: birthChoice.choiceId, columnId }]);
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        kind: 'DERIVE',
+        derive: { left: { kind: 'COLUMN', columnId }, right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 2 } } },
+      });
+      expect(candidate?.candidateConstruction.steps[0]?.outputs).toContainEqual(
+        expect.objectContaining({ id: columnId, label: 'Patient.multipleBirthInteger', type: 'integer' }),
+      );
+    });
+
+    it('binds both operand slots to distinct dataset fields', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange, deriveSourceInput: supported([birthChoice, weightChoice]) });
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      fireEvent.change(operandColumn('First'), { target: { value: `source:${birthChoice.choiceId}` } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'column' } });
+      const second = operandColumn('Second');
+      const group = sourceOptgroup(second);
+      expect(group).not.toBeNull();
+      expect(Array.from(group!.querySelectorAll('option')).map((option) => option.value)).toEqual([`source:${weightChoice.choiceId}`]);
+      fireEvent.change(second, { target: { value: `source:${weightChoice.choiceId}` } });
+
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      const leftId = operandColumn('First').value;
+      const rightId = operandColumn('Second').value;
+      expect(candidate?.deriveSources).toEqual([
+        { choiceId: birthChoice.choiceId, columnId: leftId },
+        { choiceId: weightChoice.choiceId, columnId: rightId },
+      ]);
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        derive: {
+          left: { kind: 'COLUMN', columnId: leftId },
+          right: { kind: 'COLUMN', columnId: rightId },
+        },
+      });
+    });
+
+    it('drops the signed selection when the operand returns to a stage column', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange, deriveSourceInput: supported([birthChoice]) });
+
+      setRightLiteral('2');
+      fireEvent.change(operandColumn('First'), { target: { value: `source:${birthChoice.choiceId}` } });
+      expect(onCandidateChange.mock.lastCall?.[0]?.deriveSources).toHaveLength(1);
+
+      fireEvent.change(operandColumn('First'), { target: { value: 'weight-id' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toBeUndefined();
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        derive: { left: { kind: 'COLUMN', columnId: 'weight-id' } },
+      });
+      const group = sourceOptgroup(operandColumn('First'));
+      expect(Array.from(group!.querySelectorAll('option')).map((option) => option.value)).toEqual([`source:${birthChoice.choiceId}`]);
+    });
+
+    it('restores a saved operand that is backed by a materialised choice', () => {
+      const saved: ConstructionStep = {
+        id: 'derive-source-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: {
+          kind: 'DERIVE',
+          derive: {
+            constructionId: 'derive-source-saved',
+            outputColumnId: 'calculated-id',
+            operation: 'ADD',
+            left: { kind: 'COLUMN', columnId: 'derive-input_saved' },
+            right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 2 } },
+            missingInputPolicy: 'PROPAGATE_NULL',
+          },
+        },
+        outputs: [...columns, { id: 'calculated-id', name: 'birth_plus_two', label: 'Birth plus two', type: 'integer' }],
+      };
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        construction: { version: 1, steps: [saved] },
+        editingStep: saved,
+        deriveSourceInput: supported([{ ...birthChoice, columnId: 'derive-input_saved' }]),
+        onCandidateChange,
+      });
+
+      expect(operandColumn('First').value).toBe('derive-input_saved');
+      fireEvent.change(screen.getByRole('spinbutton', { name: 'Second value number' }), { target: { value: '3' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toEqual([{ choiceId: birthChoice.choiceId, columnId: 'derive-input_saved' }]);
+      expect(candidate?.changedStepId).toBe('derive-source-saved');
+    });
+
+    it('keeps plain selected-column calculations unchanged when no deriveSourceInput is returned', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({ family: 'CALCULATE', onCandidateChange });
+
+      setRightLiteral('5');
+      const candidate = onCandidateChange.mock.lastCall?.[0];
+      expect(candidate?.deriveSources).toBeUndefined();
+      expect(candidate?.candidateConstruction.steps[0]?.operation).toMatchObject({
+        derive: {
+          left: { kind: 'COLUMN', columnId: 'age-id' },
+          right: { kind: 'LITERAL', literal: { kind: 'INTEGER', integer: 5 } },
+        },
+      });
+      expect(sourceOptgroup(operandColumn('First'))).toBeNull();
+    });
+
+    it('explains why dataset-field operands are unavailable at the stage', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        deriveSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS',
+          reason: 'No populated numeric root scalar is available.',
+          choices: [],
+        },
+      });
+
+      expect(screen.getByTestId('construction-calculate-left-source-unavailable'))
+        .toHaveTextContent('NO_ELIGIBLE_POPULATED_DERIVE_SOURCE_FIELDS · No populated numeric root scalar is available.');
+      expect(sourceOptgroup(operandColumn('First'))).toBeNull();
+    });
+  });
+
+  describe('row-source picker empty and refused-field explanations (ROW-SOURCE-06)', () => {
+    const unpopulatedChoice = (choiceId: string, fieldPath: string): FilterSourceChoice => ({
+      choiceId,
+      fieldPath,
+      label: fieldPath,
+      logicalType: 'string',
+      isPopulated: false,
+    });
+
+    it('lists exactly the unpopulated dataset fields when nothing has values (filter lane)', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange: vi.fn(),
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [unpopulatedChoice('choice-status', 'root.status'), unpopulatedChoice('choice-note', 'root.note.text')],
+        },
+      });
+      const status = screen.getByTestId('source-picker-explanation');
+      expect(status.getAttribute('role')).toBe('status');
+      expect(status.textContent).toContain('contains values in this dataset yet');
+      const items = within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item');
+      expect(items.map((item) => item.getAttribute('title'))).toEqual(['root.status', 'root.note.text']);
+    });
+
+    it('explains that the API listed no dataset fields without inventing a reason (filter lane)', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange: vi.fn(),
+        filterSourceInput: { supported: true, stageId: 'source_projection', choices: [] },
+      });
+      expect(screen.getByTestId('source-picker-explanation').textContent)
+        .toBe('Loom has not listed any dataset fields for this step.');
+    });
+
+    it('shows no false all-bound explanation when the picker only holds its own saved selection (filter lane)', () => {
+      const savedSourceFilter: ConstructionStep = {
+        id: 'filter-source-saved',
+        inputs: [{ kind: 'SOURCE_PROJECTION' }],
+        operation: { kind: 'FILTER', filter: { columnId: 'filter-input_saved', operator: 'EXISTS' } },
+        outputs: [...columns, { id: 'filter-input_saved', name: 'root_status', label: 'Observation.status', type: 'string' }],
+      };
+      renderEditor({
+        family: 'KEEP_ROWS',
+        construction: { version: 1, steps: [savedSourceFilter] },
+        stages: [sourceStage, { ...sourceStage, id: savedSourceFilter.id, inputStageId: sourceStage.id, operation: 'FILTER' }],
+        editingStep: savedSourceFilter,
+        onCandidateChange: vi.fn(),
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [{ choiceId: 'choice-status', fieldPath: 'root.status', label: 'Observation.status', logicalType: 'string', isPopulated: true, columnId: 'filter-input_saved' }],
+        },
+      });
+      expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+    });
+
+    it('renders no explanation while eligible populated dataset fields exist (filter lane)', () => {
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange: vi.fn(),
+        filterSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [
+            { choiceId: 'choice-status', fieldPath: 'root.status', label: 'Observation status', logicalType: 'string', isPopulated: true, columnId: '' },
+            unpopulatedChoice('choice-note', 'root.note.text'),
+          ],
+        },
+      });
+      expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+    });
+
+    it('explains the unavailable dataset-field operand states in the derive numeric picker', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        selectedColumns: ['weight-id'],
+        deriveSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [unpopulatedChoice('choice-status', 'root.status')],
+        },
+      });
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      expect(screen.getByTestId('source-picker-explanation').textContent).toContain('contains values in this dataset yet');
+      expect(within(screen.getByTestId('source-picker-empty-list')).getAllByTestId('source-picker-empty-list-item')
+        .map((item) => item.getAttribute('title'))).toEqual(['root.status']);
+    });
+    it('explains that the API listed no dataset fields without inventing a reason (derive lane, ROW-SOURCE-06 audit)', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        selectedColumns: ['weight-id'],
+        deriveSourceInput: { supported: true, stageId: 'source_projection', choices: [] },
+      });
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      expect(screen.getByTestId('source-picker-explanation').textContent)
+        .toBe('Loom has not listed any dataset fields for this step.');
+      expect(screen.queryByTestId('source-picker-empty-list')).toBeNull();
+    });
+    it('renders one shared explanation for both derive numeric picker slots when both are column-bound', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'CALCULATE',
+        onCandidateChange,
+        selectedColumns: ['weight-id'],
+        deriveSourceInput: {
+          supported: true,
+          stageId: 'source_projection',
+          choices: [unpopulatedChoice('choice-status', 'root.status')],
+        },
+      });
+      fireEvent.change(screen.getByRole('combobox', { name: 'First value kind' }), { target: { value: 'column' } });
+      fireEvent.change(screen.getByRole('combobox', { name: 'Second value kind' }), { target: { value: 'column' } });
+      expect(screen.getAllByTestId('source-picker-explanation')).toHaveLength(1);
+    });
+
+    it('keeps the lane-level server refusal notice distinct from the zero-choice explanation', () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'KEEP_ROWS',
+        onCandidateChange,
+        filterSourceInput: {
+          supported: false,
+          stageId: 'source_projection',
+          reasonCode: 'FILTER_SOURCE_REQUIRES_SCALAR_KIND',
+          reason: 'Filters need scalar fields.',
+          choices: [],
+        },
+      });
+      expect(screen.getByTestId('construction-filter-source-unavailable').textContent)
+        .toContain('FILTER_SOURCE_REQUIRES_SCALAR_KIND');
+      expect(screen.queryByTestId('source-picker-explanation')).toBeNull();
+    });
+  });
+
+  // External audit 2026-11-03 (row-source-07): a normal PUBLIC column authored from
+  // authoringv2 Column.Source.Field is a legitimate carrier of the same root field
+  // a signed dataset choice names, yet it never appears in construction.sourceProjections
+  // (compilation/construction.go builds it separately). The picker must therefore offer
+  // ONE gender option and must never mint a filter-input_* binding for a field the
+  // stage already carries: the server refuses the duplicate name at compile time.
+  describe('audit07 public-column reuse', () => {
+    const AUDIT_GENDER_COLUMN = { id: 'gender-id', name: 'gender', label: 'Gender', type: 'string' };
+    const AUDIT_STAGE_COLUMNS: ConstructionStageDescriptor['columns'] = [
+      AUDIT_GENDER_COLUMN,
+      { id: 'status-id', name: 'status', label: 'Status', type: 'string' },
+    ];
+    const auditGenderChoice = {
+      choiceId: 'choice-audit-gender',
+      fieldPath: 'gender',
+      label: 'Patient.gender',
+      logicalType: 'string',
+      isPopulated: true,
+      columnId: '',
+    };
+    // Server-signed public-field identity: capabilities pair the canonical root
+    // field path with the live public column that already carries it.
+    const auditGenderPublicIdentity: GroupRowValueChoice = {
+      kind: 'FIELD_SOURCE',
+      valueKind: 'SCALAR',
+      fieldSource: { kind: 'CHOICE', choiceId: 'group-choice-audit-gender' },
+      label: 'Gender',
+      sourceStageId: 'source_projection',
+      sourceShapeId: 'group-source-shape-v1:audit',
+      candidateId: 'candidate-audit-gender',
+      sourceRole: 'ROOT',
+      occurrenceId: 'base',
+      resourceType: 'string',
+      ownerOccurrenceId: 'base',
+      ownerResourceType: 'Patient',
+      canonicalPath: 'gender',
+      valueType: 'string',
+      inputColumnId: 'gender-id',
+    };
+
+    const renderAudit = () => {
+      const onCandidateChange = vi.fn();
+      renderEditor({
+        family: 'KEEP_ROWS',
+        // No sourceProjections at all: the public column is the only carrier.
+        construction: { version: 1, steps: [] },
+        selectedStage: { ...sourceStage, columns: AUDIT_STAGE_COLUMNS },
+        filterSourceInput: { supported: true, stageId: 'source_projection', choices: [auditGenderChoice] },
+        groupFieldChoices: [auditGenderPublicIdentity],
+        onCandidateChange,
+      });
+      return onCandidateChange;
+    };
+
+    const genderOptions = (): HTMLOptionElement[] => Array.from(filterSourceSelect().options)
+      .filter((option) => option.value === AUDIT_GENDER_COLUMN.id || option.getAttribute('title') === 'gender');
+
+    it('offers no duplicate signed option while the public column carries the field', () => {
+      renderAudit();
+      const options = Array.from(filterSourceSelect().options);
+      expect(options.filter((option) => option.value.startsWith('source:'))).toEqual([]);
+      expect(genderOptions().map((option) => option.value)).toEqual([AUDIT_GENDER_COLUMN.id]);
+    });
+
+    it('reuses the existing public column id when the gender field is chosen, with no minted filter-input binding', () => {
+      const onCandidateChange = renderAudit();
+      const signed = Array.from(filterSourceSelect().options)
+        .find((option) => option.value === `source:${auditGenderChoice.choiceId}`);
+      const target = signed ?? genderOptions()[0];
+      if (!target) throw new Error('Expected the public gender column to stay offered.');
+      fireEvent.change(filterSourceSelect(), { target: { value: target.value } });
+      fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'female' } });
+      const candidate = onCandidateChange.mock.lastCall?.[0] as CandidateIntent | undefined;
+      if (!candidate) throw new Error('Expected a filter candidate.');
+      const bindings = candidate.filterSources ?? [];
+      expect(bindings.every((binding) => binding.columnId === AUDIT_GENDER_COLUMN.id)).toBe(true);
+      expect(bindings.some((binding) => /^filter-input_/.test(binding.columnId))).toBe(false);
+      const step = candidate.candidateConstruction.steps.at(-1);
+      expect(step?.operation.kind).toBe('FILTER');
+      expect(step?.operation.kind === 'FILTER' ? step.operation.filter.columnId : undefined).toBe(AUDIT_GENDER_COLUMN.id);
+      expect((step?.outputs ?? []).some((output) => /^filter-input_/.test(output.id))).toBe(false);
+    });
   });
 });

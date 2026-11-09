@@ -25,6 +25,31 @@ test('fingerprint changes when watched source changes', () => {
   }
 });
 
+test('local indexes, bytecode and filesystem metadata do not change source identity', () => {
+  const root = mkdtempSync(join(tmpdir(), 'loom-local-cache-fingerprint-'));
+  try {
+    mkdirSync(join(root, 'scripts'), { recursive: true });
+    const source = join(root, 'scripts', 'verify.mjs');
+    writeFileSync(source, 'real verifier source');
+    const before = sourceFingerprintWithManifest(root);
+    for (const relative of ['internal/.DS_Store', 'scripts/.DS_Store', 'scripts/.cache/index.json',
+      'scripts/__pycache__/verify.pyc', 'scripts/.pytest_cache/nodeids', 'scripts/legacy.pyc']) {
+      const parts = relative.split('/');
+      mkdirSync(join(root, ...parts.slice(0, -1)), { recursive: true });
+      writeFileSync(join(root, relative), 'machine-local output');
+    }
+    assert.deepEqual(sourceFingerprintWithManifest(root), before);
+    writeFileSync(source, 'changed verifier source');
+    const changed = sourceFingerprintWithManifest(root);
+    assert.notEqual(changed.fingerprint.sha256, before.fingerprint.sha256);
+    assert.deepEqual(sourceFingerprintChangedPaths(before.manifest, changed.manifest), [
+      { path: 'scripts/verify.mjs', change: 'modified' },
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('fingerprint includes verifier source and fixture inputs but excludes installed dependencies', () => {
   const root = mkdtempSync(join(tmpdir(), 'loom-verifier-fingerprint-'));
   try {

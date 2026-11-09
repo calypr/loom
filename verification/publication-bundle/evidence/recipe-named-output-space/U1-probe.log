@@ -1,0 +1,6 @@
+register-name-blank        400 INVALID_REQUEST      the request is invalid
+register-name-valid        400 INVALID_REQUEST      the request is invalid
+valid-registered-digest    NONE
+explain-name-blank         404 RECIPE_NOT_FOUND     the requested recipe was not found
+explain-name-valid         404 RECIPE_NOT_FOUND     the requested recipe was not found
+validate-name-blank        404 RECIPE_NOT_FOUND     the requested recipe was not found

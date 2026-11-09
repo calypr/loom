@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from scripts import normalize_ui_contract_inventory as normalizer
+from scripts import verify_ui_contract_inventory as verifier
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +41,8 @@ class NormalizeUiContractInventoryTest(unittest.TestCase):
         subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
         subprocess.run(["git", "-C", str(repository), "commit", "-q", "-m", message], check=True)
         subprocess.run(["python3", "scripts/normalize_ui_contract_inventory.py"], cwd=repository, check=True, capture_output=True, text=True)
-        return (repository / "docs/ui-contract-inventory/ui-supported-affordances.json").read_bytes()
+        result = subprocess.run(["python3", "scripts/normalize_ui_contract_inventory.py", "--expand"], cwd=repository, check=True, capture_output=True)
+        return result.stdout
 
     def test_identical_source_inputs_are_stable_across_verification_heads(self):
         with tempfile.TemporaryDirectory(prefix="ui-contract-head-a-") as first_dir, tempfile.TemporaryDirectory(prefix="ui-contract-head-b-") as second_dir:
@@ -104,6 +106,44 @@ class NormalizeUiContractInventoryTest(unittest.TestCase):
         normalized = normalizer.finalize_request_record(known, "test.known")
         self.assertEqual("POST", normalized["method"])
         self.assertEqual("object", normalized["requestContract"]["body"]["presence"])
+
+    def test_compact_manifest_preserves_pins_and_rejects_fragment_drift(self):
+        with tempfile.TemporaryDirectory(prefix="ui-contract-fragment-") as directory:
+            root = Path(directory)
+            self._copy_inputs(root)
+            manifest_path = root / "docs/ui-contract-inventory/ui-supported-affordances.json"
+            self.assertLess(manifest_path.stat().st_size, 64 * 1024)
+            manifest = normalizer.load_inventory(root)
+            self.assertEqual(57, len(manifest["affordances"]))
+            self.assertEqual(159, sum(len(item["requests"]) for item in manifest["affordances"]))
+            self.assertEqual([], verifier.validate_manifest(manifest, root, require_complete=False))
+            fragment = root / "docs/ui-contract-inventory/expression.fragment.json"
+            fragment.write_text(fragment.read_text() + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "inventory fragment changed"):
+                normalizer.load_inventory(root)
+
+    def test_expansion_keeps_original_source_pins_after_source_drift(self):
+        with tempfile.TemporaryDirectory(prefix="ui-contract-source-") as directory:
+            root = Path(directory)
+            self._copy_inputs(root)
+            original = normalizer.load_inventory(root)
+            source = root / "ui/packages/loom-ui/src/features/ExplorerBuilder/BuilderWorkspace.tsx"
+            source.write_text(source.read_text() + "\n", encoding="utf-8")
+            expanded = normalizer.load_inventory(root)
+            self.assertEqual(original["sourceCoverage"]["watchedFiles"], expanded["sourceCoverage"]["watchedFiles"])
+            errors = verifier.validate_manifest(expanded, root, require_complete=False)
+            self.assertTrue(any("source hash drift" in error for error in errors), errors)
+
+    def test_expansion_rejects_changed_contract_digest(self):
+        with tempfile.TemporaryDirectory(prefix="ui-contract-digest-") as directory:
+            root = Path(directory)
+            self._copy_inputs(root)
+            manifest_path = root / "docs/ui-contract-inventory/ui-supported-affordances.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["expandedSha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "inventory expansion changed"):
+                normalizer.load_inventory(root)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,5 @@
+=== RUN   TestPreFixExpiryGrowthWitness
+    growth_pre_fix_test.go:58: WITNESS 72h past TTL: zips=25 jsons=25 (read paths refuse expired; store offers no removal) — retention unbounded = CONFIRMED growth
+--- PASS: TestPreFixExpiryGrowthWitness (0.06s)
+PASS
+ok  	github.com/calypr/loom/internal/explorer/artifactfs	0.120s

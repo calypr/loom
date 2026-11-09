@@ -149,14 +149,19 @@ type pageCursor struct {
 	Binding   string `json:"binding,omitempty"`
 	RowID     string `json:"rowId"`
 	SortValue any    `json:"sortValue,omitempty"`
+	// SortValueNull marks a cursor parked inside the NULL bucket of a sorted
+	// page (F-B24): SortValue is then meaningless and ordering continues by
+	// row identity. Version 2 cursors carry this flag; Version 1 could never
+	// encode a NULL sort value.
+	SortValueNull bool `json:"sortValueNull,omitempty"`
 }
 
 func encodeCursor(rowID string, sortValue any) string {
-	return encodeBoundCursor(rowID, sortValue, "")
+	return encodeBoundCursor(rowID, sortValue, false, "")
 }
 
-func encodeBoundCursor(rowID string, sortValue any, binding string) string {
-	data, _ := json.Marshal(pageCursor{Version: 1, Binding: binding, RowID: rowID, SortValue: sortValue})
+func encodeBoundCursor(rowID string, sortValue any, sortValueNull bool, binding string) string {
+	data, _ := json.Marshal(pageCursor{Version: 2, Binding: binding, RowID: rowID, SortValue: sortValue, SortValueNull: sortValueNull})
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 

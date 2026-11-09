@@ -3,8 +3,10 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -31,6 +33,25 @@ func TestCellTraceValidatesReceiptAndReturnsBoundEvidence(t *testing.T) {
 	}
 	if result.Feature.OutputID != "patients" || result.Feature.Column != "patient_id" || result.Feature.AuthoredColumn != "patient_id" || result.Feature.OccurrenceID != "base" || result.Feature.Label != "Patient ID" {
 		t.Fatalf("unexpected feature descriptor: %#v", result.Feature)
+	}
+}
+
+func TestCellTraceMissingRowBecomesTypedNotFound(t *testing.T) {
+	snapshot := readySnapshot("project-a", "generation-a", "token", unrestrictedScope())
+	receipt := nativeReceipt(snapshot)
+	config := testConfig(snapshot)
+	config.CellTrace = func(_ context.Context, _ *explorer.CompilationReceipt, _ recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
+		return dataframeexecution.CellTraceResult{}, dataframeerrors.Wrap(
+			dataframeexecution.ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest,
+			fmt.Sprintf("published row %q was not found in output %q", request.RowID, request.Output),
+			dataframeerrors.WithDetails(map[string]any{"rowId": request.RowID, "output": request.Output}),
+		)
+	}
+	service := newTestService(t, &fakeStore{receipt: receipt}, config)
+	_, err := service.CellTrace(context.Background(), CellTraceRequest{Project: "project-a", ExplorerID: "patients", ReceiptID: receipt.ID, OutputID: "patients", RowID: "row-9", Column: "patient_id"})
+	var lifecycleErr *Error
+	if !errors.As(err, &lifecycleErr) || lifecycleErr.Code != "PREVIEW_ROW_NOT_FOUND" || lifecycleErr.Class != ClassNotFound {
+		t.Fatalf("a mistyped rowId must present as a non-server-fault not-found, got %v (%T)", err, err)
 	}
 }
 

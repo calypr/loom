@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -56,7 +57,11 @@ func fixGeneratedSource(source string) (string, error) {
 		}
 		source += jsonScalarHelpers
 	}
-	return source, nil
+	formatted, err := format.Source([]byte(source))
+	if err != nil {
+		return "", fmt.Errorf("format generated source: %w", err)
+	}
+	return string(formatted), nil
 }
 
 const jsonScalarHelpers = `

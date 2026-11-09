@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,6 +149,19 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	project := "loom_related_source_" + uuid.NewString()
 	generation := "generation-related-source"
 	patientKey := func(id string) string { return project + "_" + id }
+	// Root-grain traces preserve the same canonical project/key identity as Preview.
+	traceRootKey := func(row map[string]any, identityColumn string) string {
+		t.Helper()
+		parts, ok := row[identityColumn].([]any)
+		if !ok || len(parts) != 2 || parts[0] != project {
+			t.Fatalf("related-source trace identity = %#v, want [project, retained root key]", row[identityColumn])
+		}
+		key, ok := parts[1].(string)
+		if !ok || !strings.HasPrefix(key, project+"_") {
+			t.Fatalf("related-source trace root key = %#v, want project-scoped storage key", parts[1])
+		}
+		return key
+	}
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
@@ -304,11 +318,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
 	traces := make(map[string]map[string]any, len(traceRows))
 	for _, row := range traceRows {
-		parts, ok := row[trace.IdentityPartsColumn].([]any)
-		if !ok || len(parts) != 1 {
-			t.Fatalf("related-source trace identity = %#v, want one retained root key", row[trace.IdentityPartsColumn])
-		}
-		traces[fmt.Sprint(parts[0])] = row
+		traces[traceRootKey(row, trace.IdentityPartsColumn)] = row
 	}
 	for patient, expected := range map[string]struct {
 		status string
@@ -471,8 +481,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			}
 			traceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: trace.Query, BindVars: trace.BindVars})
 			for _, row := range traceRows {
-				parts, ok := row[trace.IdentityPartsColumn].([]any)
-				if !ok || len(parts) != 1 || fmt.Sprint(parts[0]) != patientKey("p1") {
+				if traceRootKey(row, trace.IdentityPartsColumn) != patientKey("p1") {
 					continue
 				}
 				contributors, ok := row[trace.ContributionsColumn].([]any)
@@ -514,14 +523,15 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 		existsByPatient[fmt.Sprint(row["patient_id"])] = row
 	}
 	existsStatuses, ok := existsByPatient["p1"]["observation_status"].([]any)
-	if !ok || len(existsStatuses) != 3 {
-		t.Fatalf("EXISTS p1 statuses = %#v, want both edges to o1 and one o2 status", existsByPatient["p1"]["observation_status"])
+	// ALL retains distinct source records even when multiple edges reach one record.
+	if !ok || len(existsStatuses) != 2 {
+		t.Fatalf("EXISTS p1 statuses = %#v, want one status per distinct eligible source record", existsByPatient["p1"]["observation_status"])
 	}
 	existsStatusSet := map[string]int{}
 	for _, status := range existsStatuses {
 		existsStatusSet[fmt.Sprint(status)]++
 	}
-	if existsStatusSet["registered"] != 2 || existsStatusSet["cancelled"] != 1 || existsStatusSet["stale-generation"] != 0 {
+	if existsStatusSet["registered"] != 1 || existsStatusSet["cancelled"] != 1 || existsStatusSet["stale-generation"] != 0 {
 		t.Fatalf("EXISTS p1 statuses = %#v, want only populated current-generation sources", existsStatuses)
 	}
 	existsSparse, ok := existsByPatient["p2"]["observation_status"].([]any)
@@ -534,13 +544,12 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	}
 	existsTraceRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: existsTrace.Query, BindVars: existsTrace.BindVars})
 	for _, row := range existsTraceRows {
-		parts, ok := row[existsTrace.IdentityPartsColumn].([]any)
-		if !ok || len(parts) != 1 || fmt.Sprint(parts[0]) != patientKey("p1") {
+		if traceRootKey(row, existsTrace.IdentityPartsColumn) != patientKey("p1") {
 			continue
 		}
 		contributors, ok := row[existsTrace.ContributionsColumn].([]any)
-		if !ok || len(contributors) != 3 || row[existsTrace.OmissionColumn] != "" {
-			t.Fatalf("EXISTS p1 trace = %#v, want the same three eligible route occurrences as its output", row)
+		if !ok || len(contributors) != 2 || row[existsTrace.OmissionColumn] != "" {
+			t.Fatalf("EXISTS p1 trace = %#v, want the same two distinct eligible source records as its output", row)
 		}
 		return
 	}

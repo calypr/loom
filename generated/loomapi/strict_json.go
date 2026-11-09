@@ -7,9 +7,11 @@ import (
 	"io"
 )
 
-// strictDecodeGenerated keeps mutation requests closed at the generated HTTP
-// boundary. The generated Fiber binder otherwise silently drops unknown JSON
-// members before the authoring domain can enforce its semantics-version guard.
+// strictDecodeGenerated keeps documented request bodies closed at the generated
+// HTTP boundary (mutation requests plus read/search POST bodies whose schemas
+// declare additionalProperties:false). The generated Fiber binder otherwise
+// silently drops unknown JSON members before the authoring domain can enforce
+// its semantics-version guard.
 func strictDecodeGenerated(raw []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -116,11 +118,27 @@ func (value *ContributorPredicate) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// LookupSource enforces the single-meaning pairing of authoringv2
+// (semantic_types.go) before a payload crosses into the domain. The typed
+// identifier binding mirrors the domain's writable shape: accepted alone (the
+// kind gate and ValidateIdentifierBinding stay the authority there) and
+// rejected in any mix, so a payload can never reach the decoder in a form
+// that one arm would silently drop or that a later revalidation would reject.
+// The arm is kept a notch narrower than the domain on pointer presence: an
+// explicit blank match/path alongside identifier is rejected here even though
+// the domain would TrimSpace it away.
 func (value *LookupSource) UnmarshalJSON(raw []byte) error {
 	type wire LookupSource
 	var decoded wire
 	if err := strictDecodeGenerated(raw, &decoded); err != nil {
 		return err
+	}
+	if decoded.Identifier != nil {
+		if decoded.Binding != nil || decoded.Key != nil || decoded.Match != nil || decoded.Path != nil || decoded.Extension != nil {
+			return errors.New("identifier lookup must not combine identifier with match, path, binding, key, or extension")
+		}
+		*value = LookupSource(decoded)
+		return nil
 	}
 	if decoded.Extension != nil {
 		if decoded.Binding != nil || decoded.Key != nil || decoded.Match != nil || decoded.Path != nil {
@@ -268,5 +286,318 @@ func (value *TableShapeOperandSelection) UnmarshalJSON(raw []byte) error {
 		return errors.New("unsupported table-shape operand kind")
 	}
 	*value = TableShapeOperandSelection(decoded)
+	return nil
+}
+
+func (value *ArtifactPrepareRequest) UnmarshalJSON(raw []byte) error {
+	type wire ArtifactPrepareRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ArtifactPrepareRequest(decoded)
+	return nil
+}
+
+func (value *ColumnSourceRequest) UnmarshalJSON(raw []byte) error {
+	type wire ColumnSourceRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ColumnSourceRequest(decoded)
+	return nil
+}
+
+func (value *ConfiguredColumnContextRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConfiguredColumnContextRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConfiguredColumnContextRequest(decoded)
+	return nil
+}
+
+func (value *ConstructionCapabilitiesRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionCapabilitiesRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConstructionCapabilitiesRequest(decoded)
+	return nil
+}
+
+func (value *ConstructionCategoryDiscoveryRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionCategoryDiscoveryRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConstructionCategoryDiscoveryRequest(decoded)
+	return nil
+}
+
+func (value *ConstructionChoiceProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionChoiceProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConstructionChoiceProposalRequest(decoded)
+	return nil
+}
+
+func (value *ConstructionChoiceSearchRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionChoiceSearchRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConstructionChoiceSearchRequest(decoded)
+	return nil
+}
+
+func (value *ConstructionInputsRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionInputsRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConstructionInputsRequest(decoded)
+	return nil
+}
+
+func (value *ConstructionProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire ConstructionProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ConstructionProposalRequest(decoded)
+	return nil
+}
+
+func (value *ExplicitGroupCreateRequest) UnmarshalJSON(raw []byte) error {
+	type wire ExplicitGroupCreateRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ExplicitGroupCreateRequest(decoded)
+	return nil
+}
+
+func (value *FrameSourceOptionsRequest) UnmarshalJSON(raw []byte) error {
+	type wire FrameSourceOptionsRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = FrameSourceOptionsRequest(decoded)
+	return nil
+}
+
+func (value *InterpretationPreviewRequest) UnmarshalJSON(raw []byte) error {
+	type wire InterpretationPreviewRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = InterpretationPreviewRequest(decoded)
+	return nil
+}
+
+func (value *InterpretationRevisionCreateRequest) UnmarshalJSON(raw []byte) error {
+	type wire InterpretationRevisionCreateRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = InterpretationRevisionCreateRequest(decoded)
+	return nil
+}
+
+func (value *InterpretationRevisionFromColumnRequest) UnmarshalJSON(raw []byte) error {
+	type wire InterpretationRevisionFromColumnRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = InterpretationRevisionFromColumnRequest(decoded)
+	return nil
+}
+
+func (value *PopulationRoutesRequest) UnmarshalJSON(raw []byte) error {
+	type wire PopulationRoutesRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = PopulationRoutesRequest(decoded)
+	return nil
+}
+
+func (value *RelatedExpandChoiceSearchRequest) UnmarshalJSON(raw []byte) error {
+	type wire RelatedExpandChoiceSearchRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = RelatedExpandChoiceSearchRequest(decoded)
+	return nil
+}
+
+func (value *RelatedExpandContributorChoiceSearchRequest) UnmarshalJSON(raw []byte) error {
+	type wire RelatedExpandContributorChoiceSearchRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = RelatedExpandContributorChoiceSearchRequest(decoded)
+	return nil
+}
+
+func (value *RelatedFieldChoiceSearchRequest) UnmarshalJSON(raw []byte) error {
+	type wire RelatedFieldChoiceSearchRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = RelatedFieldChoiceSearchRequest(decoded)
+	return nil
+}
+
+func (value *RowDefinitionProposalRequest) UnmarshalJSON(raw []byte) error {
+	type wire RowDefinitionProposalRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = RowDefinitionProposalRequest(decoded)
+	return nil
+}
+
+func (value *SchemaFieldSearchRequest) UnmarshalJSON(raw []byte) error {
+	type wire SchemaFieldSearchRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = SchemaFieldSearchRequest(decoded)
+	return nil
+}
+
+func (value *SemanticInventoryBrowseRequest) UnmarshalJSON(raw []byte) error {
+	type wire SemanticInventoryBrowseRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = SemanticInventoryBrowseRequest(decoded)
+	return nil
+}
+
+// Review follow-up (round 83 adversarial review F1): the remaining plain
+// request-body schemas bound by the generated strict adapter. The 9th gap
+// reported there, the update-explorer-config body, is an x-go-type alias of
+// authoringv2.Workspace whose strictness would also affect persisted-draft
+// decoding; closing that boundary needs a type-level decision and is waived
+// here with a backlog entry (docs/EXPLORER_BACKLOG.md).
+
+// AssessRowChangeRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *AssessRowChangeRequest) UnmarshalJSON(raw []byte) error {
+	type wire AssessRowChangeRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = AssessRowChangeRequest(decoded)
+	return nil
+}
+
+// CandidateSearchRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *CandidateSearchRequest) UnmarshalJSON(raw []byte) error {
+	type wire CandidateSearchRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = CandidateSearchRequest(decoded)
+	return nil
+}
+
+// CellTraceRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *CellTraceRequest) UnmarshalJSON(raw []byte) error {
+	type wire CellTraceRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = CellTraceRequest(decoded)
+	return nil
+}
+
+// PopulationMappingRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *PopulationMappingRequest) UnmarshalJSON(raw []byte) error {
+	type wire PopulationMappingRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = PopulationMappingRequest(decoded)
+	return nil
+}
+
+// PreviewRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *PreviewRequest) UnmarshalJSON(raw []byte) error {
+	type wire PreviewRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = PreviewRequest(decoded)
+	return nil
+}
+
+// PublishRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *PublishRequest) UnmarshalJSON(raw []byte) error {
+	type wire PublishRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = PublishRequest(decoded)
+	return nil
+}
+
+// ReconcileRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *ReconcileRequest) UnmarshalJSON(raw []byte) error {
+	type wire ReconcileRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = ReconcileRequest(decoded)
+	return nil
+}
+
+// RowLineageRequest keeps the documented additionalProperties:false contract at the
+// generated HTTP boundary; required-field validation stays in the handlers.
+func (value *RowLineageRequest) UnmarshalJSON(raw []byte) error {
+	type wire RowLineageRequest
+	var decoded wire
+	if err := strictDecodeGenerated(raw, &decoded); err != nil {
+		return err
+	}
+	*value = RowLineageRequest(decoded)
 	return nil
 }

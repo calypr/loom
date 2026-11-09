@@ -631,3 +631,70 @@ export const semanticCatalogItems = (
     item,
     constructionChoice: item.constructionChoice,
   }));
+
+export const REASON_DISPLAY_LIMIT = 200;
+
+export const sanitizeReasonText = (value: string): string => {
+  let stripped = '';
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (codePoint >= 0x20 && codePoint !== 0x7f) stripped += character;
+  }
+  return stripped.length > REASON_DISPLAY_LIMIT
+    ? `${stripped.slice(0, REASON_DISPLAY_LIMIT)}\u2026`
+    : stripped;
+};
+
+const reasonCodeCopy: Readonly<Record<string, string>> = {
+  NO_NUMERIC_COLUMN: 'Add a numeric field before creating a calculated value.',
+  INSUFFICIENT_SCALAR_COLUMNS: 'Pivot needs fields for the row, category, and value. Add or select those fields first.',
+  DIRECT_SOURCE_STAGE_REQUIRED: 'This coded row operation applies to the starting records before other row changes.',
+};
+
+export const copyForReasonCode = (reasonCode?: string, reason?: string): string => {
+  const serverReason = sanitizeReasonText(reason ?? '').trim();
+  if (serverReason !== '') return serverReason;
+  const code = reasonCode?.trim() ?? '';
+  if (code === '') return 'Loom did not report why this is unavailable.';
+  const mapped = reasonCodeCopy[code];
+  if (mapped) return mapped;
+  return `Loom reported that this is unavailable (${sanitizeReasonText(code)}) without an explanation.`;
+};
+
+export type OperationSummary = {
+  readonly label: string;
+  readonly detail: string;
+  readonly reasonCode?: string;
+  readonly causeReported: boolean;
+};
+
+export const operationSummary = (
+  label: string,
+  source: { readonly reasonCode?: string; readonly reason?: string },
+): OperationSummary => {
+  const code = source.reasonCode?.trim() ?? '';
+  const serverReason = source.reason?.trim() ?? '';
+  return {
+    label,
+    detail: copyForReasonCode(
+      code === '' ? undefined : code,
+      serverReason === '' ? undefined : serverReason,
+    ),
+    ...(code === '' ? {} : { reasonCode: code }),
+    causeReported: serverReason !== '' || code !== '',
+  };
+};
+
+export const unavailableOperationReason = (args: {
+  readonly stage: 'error' | 'checking' | 'ready';
+  readonly errorMessage: string;
+  readonly checkingMessage: string;
+  readonly label: string;
+  readonly capability?: { readonly reasonCode?: string; readonly reason?: string };
+}): string => {
+  if (args.stage === 'error') return sanitizeReasonText(args.errorMessage);
+  if (args.stage === 'checking') return args.checkingMessage;
+  if (!args.capability) return args.label;
+  const summary = operationSummary(args.label, args.capability);
+  return summary.causeReported ? summary.detail : `${args.label} Loom did not report a reason.`;
+};

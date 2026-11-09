@@ -261,23 +261,28 @@ func New(cfg Config) (*Engine, error) {
 	}, nil
 }
 
-func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
+// entry loads the addressed recipe revision when the bindings carry a
+// recipeDigest, otherwise the named default entry. Every control and run
+// surface must address recipes through this seam so a digest-addressed
+// request behaves identically across preview, run, explain, and validate.
+func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
-	var entry exec.Entry
-	var err error
 	if bindings.RecipeDigest != "" && e.revisions != nil {
-		revision, revisionErr := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
-		if revisionErr != nil {
-			return Resolved{}, revisionErr
-		}
-		entry = exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}
-	} else {
-		entry, err = e.registry.LoadRecipe(ctx, name)
+		revision, err := e.revisions.Get(ctx, bindings.Project, name, bindings.RecipeDigest)
 		if err != nil {
-			return Resolved{}, err
+			return exec.Entry{}, err
 		}
+		return exec.Entry{Bundle: revision.Bundle, Digest: revision.Digest}, nil
+	}
+	return e.registry.LoadRecipe(ctx, name)
+}
+
+func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Resolved, error) {
+	entry, err := e.entry(ctx, name, bindings)
+	if err != nil {
+		return Resolved{}, err
 	}
 	return e.resolveEntry(ctx, entry, bindings)
 }
@@ -298,7 +303,7 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 // intent.
 func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
@@ -314,7 +319,7 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 // Columns slice is an explicitly resolved, zero-column family and is valid.
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	digest, err := bundle.Digest()
 	if err != nil {
@@ -372,7 +377,7 @@ func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bu
 
 func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	bundle := entry.Bundle
 	storedRecipeDigest, err := bundle.Digest()
@@ -393,7 +398,7 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 // callers to accidentally rediscover catalog fields during compilation.
 func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
-		return Resolved{}, fmt.Errorf("recipe project is required")
+		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
 	}
 	if strings.TrimSpace(storedRecipeDigest) == "" {
 		var err error
@@ -540,7 +545,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 	selected := selectedOutputNames(resolved.Semantic.SemanticPlan.Bindings.OutputNames, resolved.Compiled.Outputs)
 	for _, name := range resolved.Semantic.SemanticPlan.Bindings.OutputNames {
 		if !selected[name] {
-			return nil, fmt.Errorf("requested recipe output %q was not found", name)
+			return nil, dataframeerrors.Wrap(fmt.Errorf("requested recipe output %q was not found", name), dataframeerrors.CodeInvalidRequest, "", dataframeerrors.WithDetails(map[string]any{"output": name}))
 		}
 	}
 	for _, output := range resolved.Compiled.Outputs {

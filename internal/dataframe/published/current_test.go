@@ -2,6 +2,7 @@ package published
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,9 +12,10 @@ import (
 
 type exactCurrentCatalog struct {
 	publication.BundleCatalog
-	execution  publication.BundleExecution
-	output     publication.BundleOutputRecord
-	executions map[string]publication.BundleExecution
+	execution       publication.BundleExecution
+	output          publication.BundleOutputRecord
+	executions      map[string]publication.BundleExecution
+	executionErrors map[string]error
 }
 
 func (c exactCurrentCatalog) FindExecutionBySelector(context.Context, string, string, publication.DataframeSelector) (publication.BundleExecution, publication.BundleOutputRecord, error) {
@@ -25,6 +27,9 @@ func (c exactCurrentCatalog) GetPointer(context.Context, string) (publication.Bu
 }
 
 func (c exactCurrentCatalog) GetExecution(_ context.Context, id string) (publication.BundleExecution, error) {
+	if err := c.executionErrors[id]; err != nil {
+		return publication.BundleExecution{}, err
+	}
 	return c.executions[id], nil
 }
 
@@ -112,5 +117,61 @@ func TestCurrentProjectDatasetUsesActiveReleaseExecutionWhenBundlePointerMoves(t
 	}
 	if value.Revision != active.ID || value.PhysicalTable != "patient_a" {
 		t.Fatalf("materialization = %#v, want active release execution %q", value, active.ID)
+	}
+}
+
+func TestCurrentProjectDatasetsSkipsBrokenOptionalReleaseBinding(t *testing.T) {
+	selector := DataframeSelector{Recipe: "healthy", TranslationVersion: "v1", Output: "out-a"}
+	verified := time.Now().UTC()
+	output := publication.BundleOutputRecord{Name: selector.Output, Selector: selector, PhysicalTable: "healthy_table", State: publication.BundlePublished, VerifiedAt: &verified}
+	healthy := publication.BundleExecution{ID: "healthy", BundleIdentity: publication.BundleIdentity{Project: "P1", DatasetGeneration: "generation"}, State: publication.BundlePublished, Outputs: []publication.BundleOutputRecord{output}}
+	catalog := exactCurrentCatalog{
+		executions:      map[string]publication.BundleExecution{healthy.ID: healthy},
+		executionErrors: map[string]error{"optional": publication.ErrBundleNotFound},
+	}
+	reader := Reader{
+		Catalog: catalog,
+		ActiveReleaseResolver: activeReleaseFixture{release: dataset.ActiveRelease{Release: dataset.ProjectRelease{
+			Project: "P1", Generation: "generation",
+			Publications: []dataset.ReleasePublication{
+				{Selector: selector, ExecutionID: healthy.ID, Generation: "generation", Required: true},
+				{Selector: DataframeSelector{Recipe: "optional", TranslationVersion: "v1", Output: "out-b"}, ExecutionID: "optional", Generation: "generation"},
+			},
+		}}},
+	}
+
+	values, err := reader.CurrentProjectDatasets(context.Background(), "P1")
+	if err != nil || len(values) != 1 || values[0].ID != healthy.ID+":"+selector.Output {
+		t.Fatalf("list with broken optional binding = %#v, %v; want healthy output only", values, err)
+	}
+	if _, err := reader.CurrentProjectDataset(context.Background(), "P1", DataframeSelector{Recipe: "optional", TranslationVersion: "v1", Output: "out-b"}); !errors.Is(err, publication.ErrBundleNotFound) {
+		t.Fatalf("single read for broken optional binding = %v, want its missing-execution error", err)
+	}
+}
+
+func TestCurrentProjectDatasetsFailsClosedForBrokenRequiredOrTransientBinding(t *testing.T) {
+	selector := DataframeSelector{Recipe: "required", TranslationVersion: "v1", Output: "out-a"}
+	transient := errors.New("catalog unavailable")
+	for _, tc := range []struct {
+		name     string
+		err      error
+		required bool
+	}{
+		{name: "required missing", err: publication.ErrBundleNotFound, required: true},
+		{name: "optional transient", err: transient},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := Reader{
+				Catalog: exactCurrentCatalog{executionErrors: map[string]error{"bad": tc.err}},
+				ActiveReleaseResolver: activeReleaseFixture{release: dataset.ActiveRelease{Release: dataset.ProjectRelease{
+					Project: "P1", Generation: "generation",
+					Publications: []dataset.ReleasePublication{{Selector: selector, ExecutionID: "bad", Generation: "generation", Required: tc.required}},
+				}}},
+			}
+			values, err := reader.CurrentProjectDatasets(context.Background(), "P1")
+			if err == nil || len(values) != 0 || !errors.Is(err, tc.err) {
+				t.Fatalf("list = %#v, %v; want fail-closed error %v", values, err, tc.err)
+			}
+		})
 	}
 }

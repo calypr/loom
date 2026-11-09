@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/dataset"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
@@ -66,6 +67,17 @@ func (s *Store) CompareAndSwapActivateRelease(ctx context.Context, release datas
 // CompareAndSwapActivateRelease commits the active Explorer revision and
 // matching dataset release in one Arango transaction.
 func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
+	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, false)
+}
+
+// CompareAndSwapPublishRelease activates a release produced by an Explorer
+// publication. The publication is only current when the active generation
+// pointer still identifies its source manifest.
+func CompareAndSwapPublishRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64) (dataset.ActiveRelease, error) {
+	return compareAndSwapActivateRelease(ctx, client, release, expectedRevision, true)
+}
+
+func compareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQueryer, release dataset.ProjectRelease, expectedRevision int64, requireCurrentGeneration bool) (dataset.ActiveRelease, error) {
 	releaseDocument, err := lifecycleDocument(release)
 	if err != nil {
 		return dataset.ActiveRelease{}, err
@@ -82,6 +94,7 @@ func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 	binds["active_release_key"] = activeReleaseDocumentKey(release.Project)
 	binds["expected_revision"] = expectedRevision
 	binds["next_revision"] = expectedRevision + 1
+	binds["require_current_generation"] = requireCurrentGeneration
 	binds["staged_state"] = string(dataset.StateStaged)
 	binds["ready_state"] = string(dataset.StateReady)
 	var active *dataset.ActiveRelease
@@ -94,6 +107,13 @@ func CompareAndSwapActivateRelease(ctx context.Context, client arangostore.RowQu
 		return nil
 	})
 	if err != nil {
+		// Concurrent release CAS operations can both observe the same revision
+		// before Arango serializes their pointer writes. Arango reports the loser
+		// as error 1200 (write-write conflict), so preserve the repository's
+		// typed CAS contract for callers instead of leaking a backend failure.
+		if shared.IsArangoErrorWithErrorNum(err, shared.ErrArangoConflict) {
+			return dataset.ActiveRelease{}, fmt.Errorf("%w: concurrent active-pointer update", dataset.ErrReleaseActivationConflict)
+		}
 		return dataset.ActiveRelease{}, fmt.Errorf("activate release: %w", err)
 	}
 	if active == nil {
@@ -132,8 +152,12 @@ func activeReleaseDocumentKey(project string) string { return documentKey("activ
 const saveReleaseAQL = `
 LET existing = DOCUMENT(@@lifecycle_collection, @key)
 LET activeRelease = DOCUMENT(@@lifecycle_collection, @active_release_key)
+// F-B15: re-saving a content-addressed release is a no-op ONLY when the
+// content matches; createdAt is the first-creation timestamp and is excluded
+// from the equality (a re-save keeps the ORIGINAL document untouched, so the
+// timestamp cannot drift). Any other field difference stays incompatible.
 LET compatible = existing != null AND existing.recordType == "project_release"
-  AND UNSET(existing, "_key", "_id", "_rev", "recordType") == UNSET(@candidate, "_key", "recordType")
+  AND UNSET(existing, "_key", "_id", "_rev", "recordType", "createdAt") == UNSET(@candidate, "_key", "recordType", "createdAt")
 FILTER existing == null OR compatible
 LET documents = APPEND(existing == null ? [@candidate] : [], activeRelease == null ? [@active_release_placeholder] : [])
 LET inserted = (FOR document IN documents INSERT document INTO @@lifecycle_collection RETURN NEW)
@@ -155,7 +179,7 @@ LET generationPointer = DOCUMENT(@@lifecycle_collection, @active_key)
 LET releasePointer = DOCUMENT(@@lifecycle_collection, @active_release_key)
 LET storedRelease = DOCUMENT(@@lifecycle_collection, @release_key)
 LET currentRevision = releasePointer == null ? 0 : releasePointer.revision
-LET alreadyActive = releasePointer != null AND releasePointer.releaseId == @release_id AND currentRevision == @expected_revision + 1
+LET alreadyActive = releasePointer != null AND releasePointer.releaseId == @release_id
 LET selectedRevision = alreadyActive ? currentRevision : @next_revision
 FILTER storedRelease != null AND storedRelease.recordType == "project_release"
 FILTER storedRelease.project == @project AND storedRelease.id == @release_id AND storedRelease.generation == @generation
@@ -163,16 +187,25 @@ FILTER manifest != null AND manifest.recordType == "manifest"
 FILTER manifest.dataset.project == @project AND manifest.dataset.generation == @generation
 FILTER manifest.state IN [@staged_state, @ready_state]
 FILTER generationPointer != null AND generationPointer.recordType == "active_generation"
+FILTER NOT @require_current_generation OR (
+  generationPointer.dataset.project == @project
+  AND generationPointer.dataset.generation == @generation
+  AND generationPointer.manifestKey == @manifest_key
+)
 FILTER releasePointer != null AND releasePointer.recordType == "active_project_release"
 FILTER currentRevision == @expected_revision OR alreadyActive
-LET updates = [
+// F-B15: with content-addressed release IDs an identical re-activation hits
+// alreadyActive and performs ZERO writes (no pointer re-patch, no revision
+// bump, not even an _rev churn), returning the current active release.
+LET updates = alreadyActive ? [] : [
   {document: releasePointer, patch: {releaseKey: @release_key, releaseId: @release_id, revision: selectedRevision}},
   {document: generationPointer, patch: {dataset: manifest.dataset, manifestKey: manifest._key, releaseId: @release_id, releaseRevision: selectedRevision}}
 ]
-FOR item IN updates
+LET patched = (FOR item IN updates
   UPDATE item.document WITH item.patch IN @@lifecycle_collection OPTIONS {ignoreRevs: false, mergeObjects: false}
-  FILTER item.document.recordType == "active_project_release"
-  RETURN {release: UNSET(storedRelease, "_key", "_id", "_rev", "recordType"), revision: selectedRevision}
+  RETURN 1)
+FILTER LENGTH(patched) == LENGTH(updates)
+RETURN {release: UNSET(storedRelease, "_key", "_id", "_rev", "recordType"), revision: selectedRevision}
 `
 
 var _ dataset.ReleaseRepository = (*Store)(nil)

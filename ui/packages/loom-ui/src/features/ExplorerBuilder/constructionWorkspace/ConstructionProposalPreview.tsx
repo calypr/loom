@@ -3,6 +3,31 @@ import type { ExplorerBuilderPreviewResult } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { formatPreviewCell, previewCellTitle, sortByPresentationOrder } from '../components/PreviewTable';
 
+// Counts and their noun stay together so a phrase can never grow a second unit.
+const formatCount = (count: number, noun: string) =>
+  `${count.toLocaleString()} ${noun}${count === 1 ? '' : 's'}`;
+
+// rowCount counts encoded preview rows. Only sampled=false proves the preview
+// exhausted the output and lets that returned count describe the proposal total.
+export const rowCountImpactSummary = (
+  preview: ExplorerBuilderPreviewResult,
+  impactLabel: string,
+  partialValidationMessage: string,
+) => {
+  const displayedCount = preview.rows === null
+    ? 'no rows'
+    : `${preview.rows.length.toLocaleString()} of those rows`;
+  const countClause = preview.sampled === false
+    ? `The proposed ${impactLabel} would produce ${formatCount(preview.rowCount, 'row')}.`
+    : preview.sampled === true
+    ? `This sampled preview returned ${formatCount(preview.rowCount, 'row')} and displays ${displayedCount}; the total the proposed ${impactLabel} produces is unknown.`
+    : `This preview returned ${formatCount(preview.rowCount, 'proposal row')} and displays ${displayedCount}; the response did not state whether that is the total the proposed ${impactLabel} produces.`;
+  const validationClause = preview.partialValidation
+    ? ` Preview validation is partial: ${partialValidationMessage}`
+    : '';
+  return `${countClause}${validationClause}`;
+};
+
 export const ConstructionProposalPreview = ({
   preview,
   presentationTable,

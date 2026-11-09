@@ -1055,11 +1055,54 @@ const (
 // ConstructionExpand replaces one public list column with its items and, if
 // requested, the zero-based position of each item.
 type ConstructionExpand struct {
-	ConstructionID  string                        `json:"constructionId"`
-	InputColumnID   string                        `json:"inputColumnId"`
-	OutputColumnID  string                        `json:"outputColumnId"`
-	OrdinalColumnID string                        `json:"ordinalColumnId,omitempty"`
-	EmptyPolicy     ConstructionExpandEmptyPolicy `json:"emptyPolicy,omitempty"`
+	ConstructionID  string                           `json:"constructionId"`
+	InputColumnID   string                           `json:"inputColumnId"`
+	OutputColumnID  string                           `json:"outputColumnId"`
+	OrdinalColumnID string                           `json:"ordinalColumnId,omitempty"`
+	EmptyPolicy     ConstructionExpandEmptyPolicy    `json:"emptyPolicy,omitempty"`
+	ExpandedField   *ConstructionExpandedFieldSource `json:"expandedField,omitempty"`
+}
+
+// ConstructionExpandedFieldSource records the server-derived root array field
+// facts that authorize an EXPAND step to consume an array column materialized
+// through SourceProjections. The lane sets it only after resolving the signed
+// row choice against the current capability snapshot; Apply re-authorization
+// re-derives it and refuses drift, and the compiler independently re-verifies
+// the path against the generated FHIR schema before treating the input column
+// as array-valued. Client-authored values beyond a structurally consistent
+// echo of the accepted proposal are never trusted.
+type ConstructionExpandedFieldSource struct {
+	Path        string `json:"path"`
+	Cardinality string `json:"cardinality"`
+	FHIRType    string `json:"fhirType,omitempty"`
+	LogicalType string `json:"logicalType"`
+}
+
+// ConstructionExpandedFieldCardinalityMany mirrors the lowercase cardinality
+// spelling of expression.Many ("many") used by every compiled payload gate
+// (precedent: related source cardinality checks compare the same strings in
+// the compilation package, not authoringv2).
+const ConstructionExpandedFieldCardinalityMany = "many"
+
+// ValidateConstructionExpandedFieldSource shape-checks a signed expanded
+// field payload. A nil payload is a valid absence (plain selected-column
+// EXPAND). Shape checks here are structural only; the compile path re-proves
+// the array facts against the generated FHIR schema and never trusts this
+// payload for cardinality.
+func ValidateConstructionExpandedFieldSource(field *ConstructionExpandedFieldSource) error {
+	if field == nil {
+		return nil
+	}
+	if !requiredID(field.Path) {
+		return fmt.Errorf("expandedField.path is required")
+	}
+	if field.Cardinality != ConstructionExpandedFieldCardinalityMany {
+		return fmt.Errorf("expandedField.cardinality must be many")
+	}
+	if !requiredID(field.LogicalType) {
+		return fmt.Errorf("expandedField.logicalType is required")
+	}
+	return nil
 }
 
 type ConstructionExpandEmptyPolicy string

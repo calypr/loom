@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/lineage"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -162,6 +163,18 @@ type DynamicColumnMetadata struct {
 	Discovered       bool
 }
 
+// outputSelectionError types a rejected caller-supplied output selection.
+// Selections arrive through request bindings, so the fault is a non-retryable
+// request defect; the requested identifier reaches transports only via the
+// typed details map, mirroring execution.previewAdmissionError.
+func outputSelectionError(message string, details map[string]any) error {
+	options := []dataframeerrors.ErrorOption{dataframeerrors.WithRetryable(false)}
+	if details != nil {
+		options = append(options, dataframeerrors.WithDetails(details))
+	}
+	return dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, message, options...)
+}
+
 // CompileResolvedRecipePlan lowers every resolved recipe output into the
 // canonical physical IR.  The optimizer and renderer are intentionally not
 // called here: callers can apply an explicit PhysicalOptimizationPolicy and
@@ -190,10 +203,10 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 	selected := map[string]bool{}
 	for _, name := range semanticPlan.Bindings.OutputNames {
 		if strings.TrimSpace(name) == "" {
-			return CompiledRecipe{}, fmt.Errorf("invalid output selection: output name is required")
+			return CompiledRecipe{}, outputSelectionError("invalid output selection: output name is required", nil)
 		}
 		if selected[name] {
-			return CompiledRecipe{}, fmt.Errorf("invalid output selection: duplicate output %q", name)
+			return CompiledRecipe{}, outputSelectionError(fmt.Sprintf("invalid output selection: duplicate output %q", name), map[string]any{"output": name})
 		}
 		selected[name] = true
 	}
@@ -204,7 +217,7 @@ func CompileResolvedRecipePlan(resolved semantic.ResolvedRecipePlan, policy ir.P
 		}
 		for name := range selected {
 			if _, ok := available[name]; !ok {
-				return CompiledRecipe{}, fmt.Errorf("invalid output selection: unknown output %q", name)
+				return CompiledRecipe{}, outputSelectionError(fmt.Sprintf("invalid output selection: unknown output %q", name), map[string]any{"output": name})
 			}
 		}
 	}

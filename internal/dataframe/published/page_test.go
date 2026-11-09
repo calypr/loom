@@ -116,7 +116,7 @@ func TestPageCursorAddsWhereForUnrestrictedTable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.After = encodeBoundCursor("1", nil, binding)
+	request.After = encodeBoundCursor("1", nil, false, binding)
 	_, err = (&Reader{ClickHouse: queryer}).Page(context.Background(), materialization, request)
 	if err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestPageRejectsCursorReplayedAgainstChangedQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	original.After = encodeBoundCursor("1", "alice", binding)
+	original.After = encodeBoundCursor("1", "alice", false, binding)
 	changed := original
 	changed.Filters = []Filter{{Column: "name", Op: "EQ", Value: "bob"}}
 	_, err = (&Reader{ClickHouse: queryer}).Page(context.Background(), materialization, changed)
@@ -193,7 +193,7 @@ func TestPageRejectsCursorWhenPublicationBindingChanges(t *testing.T) {
 				request.Sort = &sortCopy
 			}
 			materialization, request := test.change(baseMaterialization, request)
-			request.After = encodeBoundCursor("1", "alice", binding)
+			request.After = encodeBoundCursor("1", "alice", false, binding)
 			queryer := &pageQueryer{}
 			_, err := (&Reader{ClickHouse: queryer}).Page(context.Background(), materialization, request)
 			userErr, ok := dataframeerrors.AsUserError(err)
@@ -224,7 +224,7 @@ func TestPageReusesCursorWithFreshNarrowedAuthorizationScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	original.After = encodeBoundCursor("1", nil, binding)
+	original.After = encodeBoundCursor("1", nil, false, binding)
 
 	narrowed := original
 	narrowed.AuthResourcePaths = []string{"path-a"}
@@ -243,5 +243,53 @@ func TestPageReusesCursorWithFreshNarrowedAuthorizationScope(t *testing.T) {
 	}
 	if len(page.Rows) != 1 || page.Rows[0]["__loom_row_id"] != nil || !reflect.DeepEqual(page.RowIDs, []string{"2"}) {
 		t.Fatalf("page rows/IDs = %#v/%#v, want one sanitized row with opaque sidecar identity", page.Rows, page.RowIDs)
+	}
+}
+
+func TestPageCursorPredicateCoversNullBucket(t *testing.T) {
+	asc := &Sort{Column: "name"}
+	desc := &Sort{Column: "name", Desc: true}
+	where, args, err := pageCursorPredicate(&pageCursor{Version: 2, RowID: "7", SortValue: "g"}, asc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if where != "(`name` IS NULL OR `name` > ? OR (`name` = ? AND `__loom_row_id` > ?))" {
+		t.Fatalf("ASC null-aware predicate = %q", where)
+	}
+	if len(args) != 3 || args[0] != "g" || args[1] != "g" || args[2] != "7" {
+		t.Fatalf("ASC args = %v", args)
+	}
+	where, _, err = pageCursorPredicate(&pageCursor{Version: 2, RowID: "7", SortValue: "g"}, desc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if where != "(`name` IS NULL OR `name` < ? OR (`name` = ? AND `__loom_row_id` > ?))" {
+		t.Fatalf("DESC null-aware predicate = %q", where)
+	}
+	where, args, err = pageCursorPredicate(&pageCursor{Version: 2, RowID: "7", SortValue: nil, SortValueNull: true}, desc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if where != "(`name` IS NULL AND `__loom_row_id` > ?)" || len(args) != 1 || args[0] != "7" {
+		t.Fatalf("null-bucket predicate = %q args = %v", where, args)
+	}
+	if _, _, err := pageCursorPredicate(&pageCursor{Version: 1, RowID: "7", SortValue: nil}, asc); err == nil {
+		t.Fatalf("legacy cursor without sort value or null flag must be invalid")
+	}
+}
+
+func TestPageOrderPinsNullsLastAlongsidePredicate(t *testing.T) {
+	queryer := &pageQueryer{}
+	materialization := Materialization{
+		ID: "execution:Patient", Revision: "revision", Project: "project", DatasetGeneration: "generation",
+		PhysicalTable: "published_patient",
+		Columns:       []Column{{Name: "name", ClickHouse: "Nullable(String)"}},
+	}
+	request := PageRequest{Columns: []string{"name"}, First: 1, Unrestricted: true, Sort: &Sort{Column: "name"}}
+	if _, err := (&Reader{ClickHouse: queryer}).Page(context.Background(), materialization, request); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(queryer.queries[0], "ORDER BY `name` ASC NULLS LAST, `__loom_row_id` ASC") {
+		t.Fatalf("sorted page ORDER BY = %q, want pinned NULLS LAST with row-id tiebreak", queryer.queries[0])
 	}
 }

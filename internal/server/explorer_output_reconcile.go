@@ -16,6 +16,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
+	"github.com/calypr/loom/internal/explorer/lifecycle"
 )
 
 type authoredOutputColumn struct {
@@ -107,13 +108,14 @@ type constructedOutputQuality struct {
 const tableShapeMLReadinessUnassessed = "TABLE_SHAPE_ML_READINESS_UNASSESSED"
 
 func reconcileFinalOutputMetadata(translated explorercompilation.WorkspaceResult, resolved dataframeexecution.Resolved) (explorercompilation.WorkspaceResult, error) {
-	return reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil)
+	return reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, nil, capability.Snapshot{})
 }
 
 func reconcileFinalOutputMetadataWithCombineInputs(
 	translated explorercompilation.WorkspaceResult,
 	resolved dataframeexecution.Resolved,
 	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
+	rowSourceSnapshot capability.Snapshot,
 ) (explorercompilation.WorkspaceResult, error) {
 	if len(translated.Bundle.Outputs) != len(resolved.Bundle.Outputs) || len(resolved.Bundle.Outputs) != len(resolved.Compiled.Outputs) {
 		return explorercompilation.WorkspaceResult{}, fmt.Errorf("compiled output set does not match translated output set")
@@ -140,7 +142,7 @@ func reconcileFinalOutputMetadataWithCombineInputs(
 		}
 		compiledByOutput[output.Name] = output
 	}
-	documents, authoredColumns, err := authoredOutputColumnsWithCombineInputs(translated.Workspace, compiledByOutput, combineInputs)
+	documents, authoredColumns, err := authoredOutputColumnsWithCombineInputs(translated.Workspace, compiledByOutput, combineInputs, rowSourceSnapshot)
 	if err != nil {
 		return explorercompilation.WorkspaceResult{}, err
 	}
@@ -487,14 +489,57 @@ func explicitGroupEmissionID(revisionID, column string) string {
 	return "explicit-group:" + revisionID + ":" + column
 }
 
+// compiledFilterSourceSlotMatches ties a durable filter-owned projection to
+// the compiled source-stage column the accepted plan materialized: same ID,
+// derived public name, claimed FHIR path, logical kind, and label. Compiled
+// slots mirror the accepted claim, so a durable claim that drifted from the
+// compiled artifact of the plan that produced it fails here.
+func compiledFilterSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+	if len(compiledOutput.Stages) == 0 || compiledOutput.Stages[0].ID != recipe.ConstructionSourceProjectionID {
+		return false
+	}
+	for _, column := range compiledOutput.Stages[0].Columns {
+		if column.ID != projection.ColumnID {
+			continue
+		}
+		return !column.Internal && !column.Identity &&
+			column.Name == authoringv2.ConstructionSourceProjectionName(projection.ColumnID) &&
+			strings.TrimSpace(column.SemanticPath) == strings.TrimSpace(projection.FieldPath) &&
+			column.Kind == projection.LogicalType &&
+			strings.TrimSpace(column.Label) == strings.TrimSpace(projection.Label)
+	}
+	return false
+}
+
+// compiledDeriveSourceSlotMatches ties a durable derive-owned projection to
+// the compiled source-stage column the accepted plan materialized: same ID,
+// derived public name, claimed FHIR path, logical kind, and label. Compiled
+// slots mirror the accepted claim, so a durable claim that drifted from the
+// compiled artifact of the plan that produced it fails here. A signed source
+// projection compiles through the same source-stage slot contract as a filter
+// source, so both channels share one predicate.
+func compiledDeriveSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+	return compiledFilterSourceSlotMatches(compiledOutput, projection)
+}
+
+// compiledUnpivotSourceSlotMatches ties a durable unpivot-owned projection to
+// the compiled source-stage column the accepted plan materialized: same ID,
+// derived public name, claimed FHIR path, logical kind, and label. A signed
+// melt input compiles through the same source-stage slot contract as a filter
+// or derive source, so the channel shares the one slot predicate.
+func compiledUnpivotSourceSlotMatches(compiledOutput lower.CompiledRecipeOutput, projection authoringv2.ConstructionSourceProjection) bool {
+	return compiledFilterSourceSlotMatches(compiledOutput, projection)
+}
+
 func authoredOutputColumns(workspace authoringv2.Workspace) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
-	return authoredOutputColumnsWithCombineInputs(workspace, nil, nil)
+	return authoredOutputColumnsWithCombineInputs(workspace, nil, nil, capability.Snapshot{})
 }
 
 func authoredOutputColumnsWithCombineInputs(
 	workspace authoringv2.Workspace,
 	compiledOutputs map[string]lower.CompiledRecipeOutput,
 	combineInputs map[string]map[int]ir.ResolvedClickHouseTable,
+	rowSourceSnapshot capability.Snapshot,
 ) (map[string]authoringv2.Document, map[string]map[string]authoredOutputColumn, error) {
 	documents := make(map[string]authoringv2.Document, len(workspace.Documents))
 	columns := make(map[string]map[string]authoredOutputColumn, len(workspace.Documents))
@@ -608,7 +653,7 @@ func authoredOutputColumnsWithCombineInputs(
 			if needsCompiledCombine && !exists {
 				return nil, nil, fmt.Errorf("compiled output %q is missing for Combine construction metadata", outputID)
 			}
-			if err := authoredConstructionOutputsWithCombineInputs(document, columns[outputID], compiledOutput, combineInputs[outputID]); err != nil {
+			if err := authoredConstructionOutputsWithCombineInputs(document, columns[outputID], compiledOutput, combineInputs[outputID], rowSourceSnapshot); err != nil {
 				return nil, nil, fmt.Errorf("construction outputs for document %q: %w", outputID, err)
 			}
 		}
@@ -617,7 +662,7 @@ func authoredOutputColumnsWithCombineInputs(
 }
 
 func authoredConstructionOutputs(document authoringv2.Document, authored map[string]authoredOutputColumn) error {
-	return authoredConstructionOutputsWithCombineInputs(document, authored, lower.CompiledRecipeOutput{}, nil)
+	return authoredConstructionOutputsWithCombineInputs(document, authored, lower.CompiledRecipeOutput{}, nil, capability.Snapshot{})
 }
 
 func authoredConstructionOutputsWithCombineInputs(
@@ -625,6 +670,7 @@ func authoredConstructionOutputsWithCombineInputs(
 	authored map[string]authoredOutputColumn,
 	compiledOutput lower.CompiledRecipeOutput,
 	resolvedInputs map[int]ir.ResolvedClickHouseTable,
+	rowSourceSnapshot capability.Snapshot,
 ) error {
 	if document.Construction == nil {
 		return nil
@@ -956,6 +1002,58 @@ func authoredConstructionOutputsWithCombineInputs(
 			if err := addOutput(derive.OutputColumnID, derive.ConstructionID, inputs, quality); err != nil {
 				return err
 			}
+			for _, projection := range document.Construction.SourceProjections {
+				if projection.OwnerStepID != step.ID {
+					continue
+				}
+				consumed := false
+				for _, operand := range []authoringv2.ConstructionOperand{derive.Left, derive.Right} {
+					if operand.Kind == authoringv2.ConstructionColumnOperand && operand.ColumnID == projection.ColumnID {
+						consumed = true
+					}
+				}
+				if !consumed {
+					return fmt.Errorf("derive step %q carries source projection column %q it does not consume", step.ID, projection.ColumnID)
+				}
+				var declared *authoringv2.StageColumn
+				for outputIndex := range step.Outputs {
+					if step.Outputs[outputIndex].ID == projection.ColumnID {
+						declared = &step.Outputs[outputIndex]
+						break
+					}
+				}
+				if declared == nil || !requiredConstructionID(declared.ID) || strings.TrimSpace(declared.Name) == "" || strings.TrimSpace(declared.Label) == "" {
+					return fmt.Errorf("derive step %q source projection output %q is missing a declared stable ID, name, or label", step.ID, projection.ColumnID)
+				}
+				if prior[declared.ID] != declared.Name {
+					return fmt.Errorf("derive step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if !compiledDeriveSourceSlotMatches(compiledOutput, projection) {
+					return fmt.Errorf("derive step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
+					return fmt.Errorf("derive step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
+				}
+				derived, ok := lifecycle.ConstructionDeriveSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+				expected := authoringv2.ConstructionSourceProjection{
+					ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
+					OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
+					FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
+				}
+				if !ok || expected != projection {
+					return fmt.Errorf("derive step %q source projection output %q no longer matches the authorized derive source derivation for field %q", step.ID, declared.ID, projection.FieldPath)
+				}
+				if _, duplicate := nextAuthored[declared.Name]; duplicate {
+					return fmt.Errorf("construction output %q is duplicated for document %q", declared.Name, document.Output.ID)
+				}
+				nextAuthored[declared.Name] = authoredOutputColumn{
+					ConstructionID: declared.ID, Label: declared.Label, TypedStageOutput: true,
+					Quality: constructedOutputQuality{
+						Lossless: false, StructuralSuitability: "requires-review",
+						LossReasons: []string{"CONSTRUCTION_DERIVE_SOURCE_ARITHMETIC_FROM_UNSELECTED_FIELD"},
+					},
+				}
+			}
 		case authoringv2.ConstructionOperationPivot:
 			if step.Operation.Pivot == nil {
 				return fmt.Errorf("pivot step %q has no operation payload", step.ID)
@@ -1039,14 +1137,134 @@ func authoredConstructionOutputsWithCombineInputs(
 			if err != nil {
 				return fmt.Errorf("unpivot step %q: %w", step.ID, err)
 			}
+			for _, projection := range document.Construction.SourceProjections {
+				if projection.OwnerStepID != step.ID {
+					continue
+				}
+				audited := make([]string, 0, len(quality.LossReasons)+1)
+				audited = append(audited, quality.LossReasons...)
+				audited = append(audited, "CONSTRUCTION_UNPIVOT_SOURCE_ROWS_UNPIVOTED_FROM_UNSELECTED_FIELD")
+				quality.LossReasons = audited
+				break
+			}
 			for _, columnID := range []string{unpivot.KeyOutputColumnID, unpivot.ValueOutputColumnID} {
 				if err := addOutput(columnID, unpivot.ConstructionID, dependencies, quality); err != nil {
 					return err
 				}
 			}
+			for _, projection := range document.Construction.SourceProjections {
+				if projection.OwnerStepID != step.ID {
+					continue
+				}
+				consumed := false
+				for _, input := range unpivot.Inputs {
+					if input.ColumnID == projection.ColumnID {
+						consumed = true
+					}
+				}
+				if !consumed {
+					return fmt.Errorf("unpivot step %q carries source projection column %q it does not melt as an input", step.ID, projection.ColumnID)
+				}
+				var declared *authoringv2.StageColumn
+				for carrierIndex := 0; carrierIndex < stepIndex; carrierIndex++ {
+					for outputIndex := range document.Construction.Steps[carrierIndex].Outputs {
+						if document.Construction.Steps[carrierIndex].Outputs[outputIndex].ID == projection.ColumnID {
+							declared = &document.Construction.Steps[carrierIndex].Outputs[outputIndex]
+							break
+						}
+					}
+					if declared != nil {
+						break
+					}
+				}
+				if declared == nil && stepIndex == 0 && compiledUnpivotSourceSlotMatches(compiledOutput, projection) {
+					// Melt-first signed input: the compiler legitimately seeds the
+					// melt-owned projection into the SOURCE_PROJECTION stage, so no
+					// authored step can carry a column the melt itself consumes. Guard
+					// the compiler-materialized source slot instead of mislabelling it
+					// receipt corruption; genuine corruption still leaves declared nil.
+					for _, column := range compiledOutput.Stages[0].Columns {
+						if column.ID == projection.ColumnID && !column.Internal && !column.Identity {
+							declared = &authoringv2.StageColumn{ID: column.ID, Name: column.Name, Label: column.Label}
+							break
+						}
+					}
+				}
+				if declared == nil || !requiredConstructionID(declared.ID) || strings.TrimSpace(declared.Name) == "" || strings.TrimSpace(declared.Label) == "" {
+					return fmt.Errorf("unpivot step %q source projection output %q is missing a declared stable ID, name, or label", step.ID, projection.ColumnID)
+				}
+				if prior[declared.ID] != declared.Name {
+					return fmt.Errorf("unpivot step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if !compiledUnpivotSourceSlotMatches(compiledOutput, projection) {
+					return fmt.Errorf("unpivot step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
+					return fmt.Errorf("unpivot step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
+				}
+				derived, ok := lifecycle.ConstructionUnpivotSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+				expected := authoringv2.ConstructionSourceProjection{
+					ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
+					OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
+					FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
+				}
+				if !ok || expected != projection {
+					return fmt.Errorf("unpivot step %q source projection output %q no longer matches the authorized unpivot source derivation for field %q", step.ID, declared.ID, projection.FieldPath)
+				}
+				// Unlike Filter and Derive sources, an UNPIVOT melt input is
+				// consumed and never surfaces in the final table schema, so
+				// this channel validates identity and authorization but does
+				// not claim the slot as an authored table-shape output.
+			}
 		case authoringv2.ConstructionOperationFilter:
 			if step.Operation.Filter == nil {
 				return fmt.Errorf("filter step %q has no operation payload", step.ID)
+			}
+			for _, projection := range document.Construction.SourceProjections {
+				if projection.OwnerStepID != step.ID {
+					continue
+				}
+				if projection.ColumnID != step.Operation.Filter.ColumnID {
+					return fmt.Errorf("filter step %q carries source projection column %q it does not consume", step.ID, projection.ColumnID)
+				}
+				var declared *authoringv2.StageColumn
+				for outputIndex := range step.Outputs {
+					if step.Outputs[outputIndex].ID == projection.ColumnID {
+						declared = &step.Outputs[outputIndex]
+						break
+					}
+				}
+				if declared == nil || !requiredConstructionID(declared.ID) || strings.TrimSpace(declared.Name) == "" || strings.TrimSpace(declared.Label) == "" {
+					return fmt.Errorf("filter step %q source projection output %q is missing a declared stable ID, name, or label", step.ID, projection.ColumnID)
+				}
+				if prior[declared.ID] != declared.Name {
+					return fmt.Errorf("filter step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if !compiledFilterSourceSlotMatches(compiledOutput, projection) {
+					return fmt.Errorf("filter step %q source projection output %q does not carry the compiled source column identity", step.ID, declared.ID)
+				}
+				if strings.TrimSpace(rowSourceSnapshot.Token) == "" {
+					return fmt.Errorf("filter step %q source projection output %q cannot be claimed without an authorized capability snapshot", step.ID, declared.ID)
+				}
+				derived, ok := lifecycle.ConstructionFilterSourceFacts(rowSourceSnapshot, document.RootResourceType, projection.FieldPath)
+				expected := authoringv2.ConstructionSourceProjection{
+					ColumnID: projection.ColumnID, OwnerStepID: projection.OwnerStepID,
+					OccurrenceID: derived.OccurrenceID, FieldPath: derived.FieldPath,
+					FHIRType: derived.FHIRType, LogicalType: derived.LogicalType, Label: derived.Label,
+				}
+				if !ok || expected != projection {
+					return fmt.Errorf("filter step %q source projection output %q no longer matches the authorized filter source derivation for field %q", step.ID, declared.ID, projection.FieldPath)
+				}
+				if _, duplicate := nextAuthored[declared.Name]; duplicate {
+					return fmt.Errorf("construction output %q is duplicated for document %q", declared.Name, document.Output.ID)
+				}
+				nextAuthored[declared.Name] = authoredOutputColumn{
+					ConstructionID: declared.ID, Label: declared.Label, TypedStageOutput: true,
+					Quality: constructedOutputQuality{
+						Lossless: false, StructuralSuitability: "requires-review",
+						LossReasons: []string{"CONSTRUCTION_FILTER_SOURCE_ROWS_FILTERED"},
+					},
+				}
 			}
 		case authoringv2.ConstructionOperationCombine:
 			if step.Operation.Combine == nil {

@@ -34,6 +34,13 @@ func (d FieldDiscovery) Fields(ctx context.Context, scope schema.Scope, resource
 	case authscope.ReadScopeRestricted:
 		value := false
 		unrestricted = &value
+	default:
+		// Fail closed. authscope.Covers denies unknown modes, and a nil
+		// pointer here would silently fall through the catalog's legacy
+		// "empty paths mean unrestricted" compatibility rule — the two
+		// consumers of one persisted scope must agree on the fail posture.
+		value := false
+		unrestricted = &value
 	}
 	if d.Read == nil {
 		return nil, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))

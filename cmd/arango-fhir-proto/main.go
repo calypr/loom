@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 
+	driver "github.com/arangodb/go-driver/v2/arangodb"
+	"github.com/arangodb/go-driver/v2/connection"
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
@@ -39,31 +41,20 @@ func main() {
 		os.Exit(2)
 	}
 	ctx := context.Background()
-	var err error
-	switch os.Args[1] {
-	case "load-generation":
-		err = runLoadGeneration(ctx, os.Args[2:])
-	case "discover-populated-references":
-		err = runDiscoverPopulatedReferences(ctx, os.Args[2:])
-	case "discover-populated-fields":
-		err = runDiscoverPopulatedFields(ctx, os.Args[2:])
-	case "rebuild-relationship-catalog":
-		err = runRebuildRelationshipCatalog(ctx, os.Args[2:])
-	case "rebuild-resource-inventory":
-		err = runRebuildResourceInventory(ctx, os.Args[2:])
-	case "audit-relationship-edges":
-		err = runAuditRelationshipEdges(ctx, os.Args[2:])
-	case "repair-generation":
-		err = runRepairGeneration(ctx, os.Args[2:])
-	case "activate-generation":
-		err = runActivateGeneration(ctx, os.Args[2:])
-	case "backfill-semantic-inventory":
-		err = withBackfillSignalCancellation(ctx, func(ctx context.Context) error {
-			return runBackfillSemanticInventory(ctx, os.Args[2:])
-		})
-	default:
+	command := os.Args[1]
+	args := os.Args[2:]
+	handler, ok := commandRoutes()[command]
+	if !ok {
 		usage()
 		os.Exit(2)
+	}
+	var err error
+	if signalGuardedCommands()[command] {
+		err = withSignalCancellation(ctx, func(signalCtx context.Context) error {
+			return handler(signalCtx, args)
+		})
+	} else {
+		err = handler(ctx, args)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -71,7 +62,37 @@ func main() {
 	}
 }
 
-func withBackfillSignalCancellation(ctx context.Context, run func(context.Context) error) error {
+// commandRoutes is the single dispatch table shared by main() and its tests so
+// that command wiring stays observable without executing os.Exit.
+func commandRoutes() map[string]func(context.Context, []string) error {
+	return map[string]func(context.Context, []string) error{
+		"load":                          runLoad,
+		"load-generation":               runLoadGeneration,
+		"discover-populated-references": runDiscoverPopulatedReferences,
+		"discover-populated-fields":     runDiscoverPopulatedFields,
+		"rebuild-relationship-catalog":  runRebuildRelationshipCatalog,
+		"rebuild-resource-inventory":    runRebuildResourceInventory,
+		"audit-relationship-edges":      runAuditRelationshipEdges,
+		"repair-generation":             runRepairGeneration,
+		"activate-generation":           runActivateGeneration,
+		"backfill-semantic-inventory":   runBackfillSemanticInventory,
+	}
+}
+
+// signalGuardedCommands lists the commands that mutate a dataset lifecycle
+// manifest or an immutable generation. A cancelled run there can leave a
+// half-mutated manifest, so main() runs them under a context that cancels on
+// SIGINT/SIGTERM. Read and mutable-data commands stay unwrapped.
+func signalGuardedCommands() map[string]bool {
+	return map[string]bool{
+		"load-generation":             true,
+		"repair-generation":           true,
+		"activate-generation":         true,
+		"backfill-semantic-inventory": true,
+	}
+}
+
+func withSignalCancellation(ctx context.Context, run func(context.Context) error) error {
 	signalCtx, cancel := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	return run(signalCtx)
@@ -95,7 +116,38 @@ func runLoadGeneration(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireDatabaseExists(ctx, config.Options.URL, config.Options.Database); err != nil {
+		return err
+	}
 	return runConfiguredLoad(ctx, config)
+}
+
+func runLoad(ctx context.Context, args []string) error {
+	config, err := parseLoadMutableCommand(args, flag.ExitOnError)
+	if err != nil {
+		return err
+	}
+	if err := requireDatabaseExists(ctx, config.Options.URL, config.Options.Database); err != nil {
+		return err
+	}
+	return runConfiguredLoad(ctx, config)
+}
+
+func parseLoadMutableCommand(args []string, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
+	fs := flag.NewFlagSet("load", errorHandling)
+	config := loadCommandConfig{}
+	configureLoadFlagsCore(fs, &config)
+	if err := fs.Parse(args); err != nil {
+		return loadCommandConfig{}, err
+	}
+	if err := config.parseMemoryLimit(); err != nil {
+		return loadCommandConfig{}, err
+	}
+	// The mutable loader owns no dataset generation: it preserves the
+	// overwrite/upsert contract, so Dataset stays nil and ingest.Load selects
+	// loadResource (generation_orchestration.go:20-25).
+	config.Options.Dataset = nil
+	return config, nil
 }
 
 func parseLoadCommand(args []string, errorHandling flag.ErrorHandling) (loadCommandConfig, error) {
@@ -122,7 +174,17 @@ func parseLoadCommand(args []string, errorHandling flag.ErrorHandling) (loadComm
 	return config, nil
 }
 
+// configureLoadFlags registers every load flag, including the required
+// --generation, for the immutable generation loaders.
 func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig) {
+	configureLoadFlagsCore(fs, config)
+	fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
+}
+
+// configureLoadFlagsCore registers the load flags shared by the mutable and
+// immutable loaders. --generation is deliberately excluded so the mutable
+// `load` command cannot advertise a flag whose dataset reference it ignores.
+func configureLoadFlagsCore(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.StringVar(&config.CPUProfile, "cpu-profile", "", "Write CPU profile to file")
 	fs.StringVar(&config.MemProfile, "mem-profile", "", "Write heap profile to file at end of run")
 	fs.StringVar(&config.TraceProfile, "trace-profile", "", "Write runtime trace to file")
@@ -150,7 +212,6 @@ func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.BoolVar(&config.Options.FailFast, "fail-fast", false, "Stop on the first decode, validation, or edge conversion error")
 	fs.BoolVar(&config.Options.UseGeneric, "use-generic", false, "Use the generic jsonschema + jsonschemagraph validator and extractor")
 	fs.StringVar(&config.Options.WriteAPI, "write-api", "import", "Bulk write API: import or document")
-	fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
 }
 
 func (config *loadCommandConfig) parseMemoryLimit() error {
@@ -230,12 +291,43 @@ func parseMemoryBytes(raw string) (int64, error) {
 	return int64(value * factor), nil
 }
 
+// requireDatabaseExists refuses to operate against a database that has not been
+// created. It mirrors the refuse-missing-database precedent in
+// scripts/local-preview-index-migration.go:149-159 so an operator typo cannot
+// have the CLI silently auto-create an empty database. The store's Open keeps
+// auto-creating for the server/tests/harness; only the CLI adds this gate.
+func requireDatabaseExists(ctx context.Context, url, database string) error {
+	conn := connection.NewHttpConnection(connection.HttpConfiguration{
+		Endpoint: connection.NewRoundRobinEndpoints([]string{url}),
+	})
+	client := driver.NewClient(conn)
+	databaseExists, err := client.DatabaseExists(ctx, database)
+	if err != nil {
+		return fmt.Errorf("check existing database: %w", err)
+	}
+	if !databaseExists {
+		return fmt.Errorf("refusing to create missing database %q", database)
+	}
+	return nil
+}
+
+// openClientRequiringDatabase gates the CLI on an existing database before it
+// opens the shared store client. It never disables the store's auto-create; it
+// simply declines to open when the database is absent, so no CLI path creates
+// one implicitly.
+func openClientRequiringDatabase(ctx context.Context, url, database string) (*arangostore.Client, error) {
+	if err := requireDatabaseExists(ctx, url, database); err != nil {
+		return nil, err
+	}
+	return arangostore.Open(ctx, url, database)
+}
+
 func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 	opts, connection, err := parseDiscoverPopulatedReferenceOptions(args, flag.ExitOnError)
 	if err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -256,7 +348,7 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -286,7 +378,7 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -320,7 +412,7 @@ func runRebuildResourceInventory(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("--generation is required and must identify an immutable dataset: %w", err)
 	}
-	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -388,7 +480,7 @@ func runAuditRelationshipEdges(ctx context.Context, args []string) error {
 }
 
 func auditRelationshipEdges(ctx context.Context, connection arangostore.ConnectionOptions, opts catalog.RelationshipAuditOptions) (catalog.RelationshipAuditSummary, error) {
-	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return catalog.RelationshipAuditSummary{}, err
 	}
@@ -532,7 +624,7 @@ func runActivateGeneration(ctx context.Context, args []string) error {
 }
 
 func activateStagedGeneration(ctx context.Context, connection arangostore.ConnectionOptions, ref publication.Ref) error {
-	client, err := arangostore.Open(ctx, connection.URL, connection.Database)
+	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
@@ -588,7 +680,7 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client, err := arangostore.Open(ctx, config.Connection.URL, config.Connection.Database)
+	client, err := openClientRequiringDatabase(ctx, config.Connection.URL, config.Connection.Database)
 	if err != nil {
 		return err
 	}
@@ -636,6 +728,9 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	if err := fs.Parse(args); err != nil {
 		return catalog.PopulatedReferenceOptions{}, arangostore.ConnectionOptions{}, err
 	}
+	if opts.Mode != catalog.TraversalModeStorage && opts.Mode != catalog.TraversalModeBuilder {
+		return catalog.PopulatedReferenceOptions{}, arangostore.ConnectionOptions{}, fmt.Errorf("invalid --mode %q: must be %s or %s", opts.Mode, catalog.TraversalModeStorage, catalog.TraversalModeBuilder)
+	}
 	return opts, connection, nil
 }
 
@@ -667,6 +762,7 @@ func printJSON(value any) error {
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `usage:
+  arango-fhir-proto load [flags]  # mutable local load of a complete META directory (no dataset generation)
   arango-fhir-proto load-generation --generation OPAQUE_ID [flags]  # immutable complete META directory
   arango-fhir-proto discover-populated-references [flags]
   arango-fhir-proto discover-populated-fields [flags]

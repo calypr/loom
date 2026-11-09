@@ -196,7 +196,7 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 		combineInputSchemas[output.Name] = inputSchemas
 	}
 	contractBuildStarted := time.Now()
-	translated, err = reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas)
+	translated, err = reconcileFinalOutputMetadataWithCombineInputs(translated, resolved, combineInputSchemas, snapshot)
 	if err != nil {
 		return nil, receiptContractFailure(err)
 	}

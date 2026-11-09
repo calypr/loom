@@ -24,7 +24,7 @@ var recipeRichNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // selector pair is supported.
 func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []recipe.Pivot) ([]SemanticPivot, error) {
 	if !fhirschema.HasResource(resourceType) {
-		return nil, fmt.Errorf("pivot resource type %q is not represented by the active generated FHIR schema", resourceType)
+		return nil, structuralUserRejection(fmt.Sprintf("pivot resource type %q is not represented by the active generated FHIR schema", resourceType))
 	}
 	out := make([]SemanticPivot, 0, len(pivots))
 	seen := make(map[string]struct{}, len(pivots))
@@ -375,7 +375,7 @@ func selectorPath(input string) string {
 // metadata and the existing physical aggregate lowerer consumes that shape.
 func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggregates []recipe.Aggregate) ([]SemanticAggregate, error) {
 	if !fhirschema.HasResource(resourceType) {
-		return nil, fmt.Errorf("aggregate resource type %q is not represented by the active generated FHIR schema", resourceType)
+		return nil, structuralUserRejection(fmt.Sprintf("aggregate resource type %q is not represented by the active generated FHIR schema", resourceType))
 	}
 	out := make([]SemanticAggregate, 0, len(aggregates))
 	seen := make(map[string]struct{}, len(aggregates))
@@ -585,7 +585,7 @@ func selectorIterates(selector spec.Selector) bool {
 // fallback, and value-mode behavior.
 func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []recipe.RepresentativeSlice) ([]SemanticSlice, error) {
 	if !fhirschema.HasResource(resourceType) {
-		return nil, fmt.Errorf("slice resource type %q is not represented by the active generated FHIR schema", resourceType)
+		return nil, structuralUserRejection(fmt.Sprintf("slice resource type %q is not represented by the active generated FHIR schema", resourceType))
 	}
 	out := make([]SemanticSlice, 0, len(slices))
 	seen := make(map[string]struct{}, len(slices))

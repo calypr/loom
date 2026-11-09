@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
 )
 
@@ -24,6 +25,9 @@ func normalizeError(err error) error {
 			"generationErrors": incomplete.GenerationErrors,
 			"edgeErrors":       incomplete.EdgeErrors,
 		}))
+	}
+	if errors.Is(err, dataset.ErrGenerationNotReady) {
+		return dataframeerrors.Wrap(err, dataframeerrors.CodeGenerationNotReady, "")
 	}
 	var activation *ingest.ActivationOutcomeError
 	if errors.As(err, &activation) {

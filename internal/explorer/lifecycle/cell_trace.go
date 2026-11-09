@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -59,6 +60,9 @@ func (s *Service) CellTrace(ctx context.Context, request CellTraceRequest) (Cell
 		Offset: request.Offset, Limit: request.Limit,
 	})
 	if err != nil {
+		if errors.Is(err, dataframeexecution.ErrCellTraceRowNotFound) {
+			return CellTraceResult{}, notFound("cellTrace", "PREVIEW_ROW_NOT_FOUND", "rowId does not exist in the receipt output", err)
+		}
 		return CellTraceResult{}, err
 	}
 	return CellTraceResult{

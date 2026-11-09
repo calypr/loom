@@ -280,8 +280,20 @@ func (r *Registry) PublishExecution(ctx context.Context, name, expected string, 
 	if err := json.Unmarshal(data, &executionDoc); err != nil {
 		return err
 	}
-	updated := false
-	err = r.client.QueryRows(ctx, `LET pointer = DOCUMENT(@@pointers, @pointerKey)
+	// The state UPDATE and the pointer UPSERT execute inside ONE Arango
+	// transaction so no observer (the reconcile sweep above all) can ever see
+	// a PUBLISHED execution whose visibility pointer does not yet name it.
+	// A failed compare-and-swap -- or any mid-request failure -- rolls the
+	// whole thing back: F-B12/F-B16 (two-answers class) root repair.
+	txClient, ok := r.client.(arangostore.TransactionalRowClient)
+	if !ok {
+		return fmt.Errorf("bundle publish requires a transactional Arango client")
+	}
+	var updated bool
+	err = txClient.WithTransaction(ctx, arangostore.TransactionCollections{
+		Write: []string{BundleExecutionsCollection, BundlePointersCollection, BundleLeasesCollection},
+	}, func(txCtx context.Context, tx arangostore.RowQueryer) error {
+		return tx.QueryRows(txCtx, `LET pointer = DOCUMENT(@@pointers, @pointerKey)
 LET execution = DOCUMENT(@@executions, @executionKey)
 LET lease = DOCUMENT(@@leases, @leaseKey)
 FILTER execution != null
@@ -295,11 +307,12 @@ INSERT {_key: @pointerKey, name: @name, executionId: @executionKey, updatedAt: @
 UPDATE {executionId: @executionKey, updatedAt: @updatedAt}
 IN @@pointers
 RETURN {updated: true}`, r.batchSize, map[string]interface{}{
-		"@pointers": BundlePointersCollection, "@executions": BundleExecutionsCollection, "@leases": BundleLeasesCollection,
-		"pointerKey": pointerDocumentKey(name), "executionKey": execution.ID,
-		"leaseKey": execution.Key, "owner": execution.OwnerID, "now": time.Now().UTC(),
-		"name": name, "expected": expected, "updatedAt": execution.UpdatedAt, "execution": executionDoc,
-	}, func(map[string]any) error { updated = true; return nil })
+			"@pointers": BundlePointersCollection, "@executions": BundleExecutionsCollection, "@leases": BundleLeasesCollection,
+			"pointerKey": pointerDocumentKey(name), "executionKey": execution.ID,
+			"leaseKey": execution.Key, "owner": execution.OwnerID, "now": time.Now().UTC(),
+			"name": name, "expected": expected, "updatedAt": execution.UpdatedAt, "execution": executionDoc,
+		}, func(map[string]any) error { updated = true; return nil })
+	})
 	if err != nil {
 		return err
 	}

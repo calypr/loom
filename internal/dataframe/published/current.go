@@ -13,6 +13,8 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
+var errReleaseBindingUnavailable = errors.New("active release binding is unavailable")
+
 // CurrentProjectDataset returns the one pointer-visible, successful output for
 // a project and exact selector. Project identity is explicit at this boundary;
 // this reader never unions tables from different projects.
@@ -94,10 +96,13 @@ func (r *Reader) activeReleaseDataset(ctx context.Context, project string, selec
 func (r *Reader) releaseMaterialization(ctx context.Context, release publication.ProjectRelease, binding publication.ReleasePublication) (Materialization, error) {
 	execution, err := r.Catalog.GetExecution(ctx, binding.ExecutionID)
 	if err != nil {
+		if errors.Is(err, bundlepublication.ErrBundleNotFound) {
+			return Materialization{}, fmt.Errorf("%w: resolve active dataframe execution: %w", errReleaseBindingUnavailable, err)
+		}
 		return Materialization{}, fmt.Errorf("resolve active dataframe execution: %w", err)
 	}
 	if execution.ID != binding.ExecutionID || execution.Project != release.Project || execution.DatasetGeneration != binding.Generation || !execution.State.Successful() {
-		return Materialization{}, fmt.Errorf("active dataframe execution %q does not match release %q", binding.ExecutionID, release.ID)
+		return Materialization{}, fmt.Errorf("%w: active dataframe execution %q does not match release %q", errReleaseBindingUnavailable, binding.ExecutionID, release.ID)
 	}
 	for _, output := range execution.Outputs {
 		if output.Name != binding.Selector.Output || !output.Queryable() || outputSelector(execution, output.Name, output.Selector) != binding.Selector {
@@ -107,7 +112,7 @@ func (r *Reader) releaseMaterialization(ctx context.Context, release publication
 		result.Selector = binding.Selector
 		return result, nil
 	}
-	return Materialization{}, fmt.Errorf("active dataframe execution %q has no queryable output %q", binding.ExecutionID, binding.Selector.Output)
+	return Materialization{}, fmt.Errorf("%w: active dataframe execution %q has no queryable output %q", errReleaseBindingUnavailable, binding.ExecutionID, binding.Selector.Output)
 }
 
 func (r *Reader) currentMaterialization(ctx context.Context, execution bundlepublication.BundleExecution, output bundlepublication.BundleOutputRecord, selector DataframeSelector) (Materialization, bool, error) {
@@ -126,8 +131,9 @@ func (r *Reader) currentMaterialization(ctx context.Context, execution bundlepub
 	return result, true, nil
 }
 
-// CurrentProjectDatasets returns every current output for one project. Each
-// returned materialization is backed by one active ClickHouse table.
+// CurrentProjectDatasets returns every available current output for one
+// project. A broken optional release binding is omitted; a required binding or
+// transient catalog failure still aborts the list.
 func (r *Reader) CurrentProjectDatasets(ctx context.Context, project string) ([]Materialization, error) {
 	project = strings.TrimSpace(project)
 	if r == nil || r.Catalog == nil {
@@ -205,6 +211,9 @@ func (r *Reader) activeReleaseDatasets(ctx context.Context, project string) ([]M
 		}
 		value, err := r.releaseMaterialization(ctx, active.Release, binding)
 		if err != nil {
+			if !binding.Required && errors.Is(err, errReleaseBindingUnavailable) {
+				continue
+			}
 			return nil, err
 		}
 		result = append(result, value)

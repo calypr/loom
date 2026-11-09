@@ -1,0 +1,9 @@
+{
+  "Inv_VisibleReadyIsReviewed": ["Inv_ReadyProposalIsCurrent", "Inv_ReadyPreviewMatchesProposal"],
+  "Inv_ApplyRequiresReadyPreview": ["Inv_ApplyStartedFromReviewedCurrentPreview"],
+  "Inv_BeginApplyWasReviewed": ["Inv_ApplyStartedFromReviewedCurrentPreview"],
+  "Inv_LateResponseDoesNotReplaceOwner": ["Inv_LateResponseDoesNotReplaceOwner"],
+  "Inv_OldApplyDoesNotClearReplacement": ["Inv_OldReturnPreservesCurrentApply"],
+  "Inv_RenderedReconcileReceiptIsCurrent": ["Inv_AcceptedReceiptIsCurrent", "Inv_AcceptedReceiptMatchesRequest", "Inv_ReceiptSelectsRequestedOutput"],
+  "Inv_AcceptedCompletionOwnsCurrentContext": ["Inv_CompletionOwnsCurrentContext"]
+}

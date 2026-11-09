@@ -1,3 +1,5 @@
+> Current status: this map retains user guarantees. Its old native-bracket/browser journey commands are historical and blocked until a replacement is proven. Use the existing formal verification feature map and its behavior/API routes for executable checks; those do not by themselves close browser or durable-storage guarantees. Core development doctor commands have been repaired; retired browser journey commands reject explicitly.
+
 # Loom verification feature map
 
 This index describes verification entry points, not a claim that every Builder

@@ -1,0 +1,4 @@
+unknown-fragment    500 INTERNAL_ERROR    an unexpected internal error occurred while processing the data request
+fragment-arity      500 INTERNAL_ERROR    an unexpected internal error occurred while processing the data request
+ctrl-empty-fragments 400 INVALID_REQUEST   the request is invalid
+ctrl-bogus-op       400 INVALID_REQUEST   the request is invalid
