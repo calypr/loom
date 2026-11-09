@@ -34,6 +34,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/calypr/loom/internal/catalog"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
@@ -976,6 +977,109 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 		t.Fatalf("missing-row reason = %v", missingErr)
 	}
 	s.requireNoRow(t, "p", "never", catalog.SemanticInventoryBuildID("p", "never"), "advance created a row")
+}
+
+// TestSemanticInventoryBuildFailureTruncatesDiagnosticOnRuneBoundary pins
+// review finding 1: a >512-byte failure diagnostic whose 512-byte cut lands
+// inside a multi-byte rune must still record the failure. PostgreSQL
+// rejects a split rune with SQLSTATE 22021, so a naive byte cut loses the
+// failure entirely and leaves the build running with its lease live.
+func TestSemanticInventoryBuildFailureTruncatesDiagnosticOnRuneBoundary(t *testing.T) {
+	s := newSemanticBuildService(t)
+	repo := s.repository(t)
+	build := semanticBuildFixture("p", "utf8-truncation", "")
+	claimed, ok, err := repo.ClaimSemanticInventoryBackfill(s.ctx, build, "tok-owner", 30*time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim = claimed %v err %v", ok, err)
+	}
+	// 511 ASCII bytes, then euro signs: byte 512 is the lead byte of the
+	// first three-byte rune, so the raw cut ends mid-rune.
+	diagnostic := strings.Repeat("a", 511) + strings.Repeat("€", 30)
+	if err := repo.FailSemanticInventoryBackfill(s.ctx, claimed, "tok-owner", diagnostic); err != nil {
+		s.fail("FailSemanticInventoryBackfill with multi-byte diagnostic", err)
+	}
+	row, found := s.witnessBuild(t, "p", "utf8-truncation", claimed.BuildID)
+	if !found {
+		t.Fatal("multi-byte diagnostic failure did not record the build")
+	}
+	if row.State != "failed" || row.LeaseToken != "" || row.LeaseExpiresAt != 0 {
+		t.Fatalf("split-rune diagnostic lost the failure: %+v", row)
+	}
+	if len(row.Diagnostics) != 1 {
+		t.Fatalf("diagnostics = %#v, want exactly one", row.Diagnostics)
+	}
+	stored := row.Diagnostics[0]
+	if !utf8.ValidString(stored) {
+		t.Fatalf("stored diagnostic is not valid UTF-8: %d bytes", len(stored))
+	}
+	if len(stored) > 512 || stored != strings.Repeat("a", 511) {
+		t.Fatalf("stored diagnostic = %q (%d bytes), want the complete-rune 511-byte prefix", stored, len(stored))
+	}
+}
+
+// TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity pins review
+// finding 2: a whitespace-padded generation must not fork the primary key
+// against the clean spelling. The domain derives one build_id/build_key for
+// both spellings, and internal/catalog documents NormalizeDatasetGeneration
+// as the convention every catalog boundary applies; the Arango adapter
+// converges both spellings onto one _key, so the PostgreSQL repository must
+// converge them onto one row too.
+func TestSemanticInventoryBuildPaddedGenerationCannotForkIdentity(t *testing.T) {
+	s := newSemanticBuildService(t)
+	repo := s.repository(t)
+	const padded = " padded generation "
+	const clean = "padded generation"
+	// rawBuild carries the raw generation spelling, as a rehydrating caller
+	// does: the constructor normalizes, but the repository must not rely on
+	// every caller using it.
+	rawBuild := func(generation string) catalog.SemanticInventoryBuild {
+		b := catalog.NewSemanticInventoryBuild("p", generation, "")
+		b.SourceKind = catalog.SemanticInventorySourceRetained
+		b.DatasetGeneration = generation
+		return b
+	}
+
+	build := rawBuild(padded)
+	claimed, ok, err := repo.ClaimSemanticInventoryBackfill(s.ctx, build, "tok-owner", 30*time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim = claimed %v err %v", ok, err)
+	}
+
+	// The clean spelling is the SAME identity, not a new row: it must meet
+	// the live lease, never a corrupted-derivation refusal.
+	cleanBuild := rawBuild(clean)
+	if _, secondOk, secondErr := repo.ClaimSemanticInventoryBackfill(s.ctx, cleanBuild, "tok-other", 30*time.Minute); secondOk || !errors.Is(secondErr, ErrSemanticInventoryClaimed) {
+		t.Fatalf("clean-spelling claim = claimed %v err %v, want ErrSemanticInventoryClaimed", secondOk, secondErr)
+	}
+
+	// Every follow-up under EITHER spelling acts on the one row.
+	if _, found, readErr := repo.ReadSemanticInventoryBuild(s.ctx, "p", clean, claimed.BuildID); readErr != nil || !found {
+		t.Fatalf("clean-spelling read = found %v err %v", found, readErr)
+	}
+	zero := catalog.SemanticInventoryCheckpoint{}
+	first := catalog.SemanticInventoryCheckpoint{Collection: "Observation", Key: "obs-1"}
+	if _, advErr := repo.AdvanceSemanticInventoryBackfill(s.ctx, cleanBuild, "tok-owner", zero, first, 3, 30*time.Minute); advErr != nil {
+		t.Fatalf("clean-spelling advance: %v", advErr)
+	}
+	if _, compErr := repo.CompleteSemanticInventoryBackfill(s.ctx, build, "tok-owner", first, 3); compErr != nil {
+		t.Fatalf("padded-spelling complete: %v", compErr)
+	}
+
+	// Exactly one row exists across both spellings, stored normalized.
+	var rowCount int
+	var storedGeneration string
+	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*), COALESCE(MAX(dataset_generation), '') FROM "+s.buildFQN()+
+		" WHERE project = $1 AND dataset_generation IN ($2, $3)", "p", padded, clean).
+		Scan(&rowCount, &storedGeneration); err != nil {
+		s.fail("count padded-generation rows", err)
+	}
+	if rowCount != 1 || storedGeneration != clean {
+		t.Fatalf("padded generation forked identity: %d rows, stored %q", rowCount, storedGeneration)
+	}
+	row, found := s.witnessBuild(t, "p", clean, claimed.BuildID)
+	if !found || row.State != "complete" {
+		t.Fatalf("converged row missing or wrong state: found %v %+v", found, row)
+	}
 }
 
 // semanticBuildMigrationChecksum is the sha256sum of the exact bytes of

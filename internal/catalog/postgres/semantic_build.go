@@ -30,8 +30,12 @@
 // request shapes (for example a file-sourced claim, which this retained
 // backfill path never issues) are typed errors, never silent fallbacks. The
 // Arango adapter (internal/catalog/arango/semantic_inventory.go) remains the
-// behavioral reference. There is no cross-database atomicity and no backend
-// fallback: every failure is a named error the caller must surface.
+// behavioral reference, including its convergence of whitespace-padded
+// generations: every entry point normalizes the requested dataset generation
+// with catalog.NormalizeDatasetGeneration before any statement runs, so the
+// padded and clean spellings can never fork the primary key. There is no
+// cross-database atomicity and no backend fallback: every failure is a named
+// error the caller must surface.
 package postgres
 
 import (
@@ -41,6 +45,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/calypr/loom/internal/catalog"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
@@ -189,6 +194,7 @@ func (r *SemanticBuildRepository) ClaimSemanticInventoryBackfill(ctx context.Con
 	if err := validateSemanticInventoryBuildIdentity(build); err != nil {
 		return catalog.SemanticInventoryBuild{}, false, err
 	}
+	normalizeSemanticBuildRequest(&build)
 	if build.SourceKind != catalog.SemanticInventorySourceRetained {
 		return catalog.SemanticInventoryBuild{}, false, &SemanticInventoryUnsupportedError{
 			Case:   "source_kind",
@@ -289,6 +295,7 @@ func (r *SemanticBuildRepository) ReadSemanticInventoryBuild(ctx context.Context
 			Case: "scope", Detail: "project and build id are required for a scoped read",
 		}
 	}
+	datasetGeneration = catalog.NormalizeDatasetGeneration(datasetGeneration)
 	// Ordered parameters: $1 project, $2 generation, $3 build id.
 	sql := "SELECT " + semanticInventoryBuildColumns + " FROM " + r.buildFQN +
 		" WHERE project = $1 AND dataset_generation = $2 AND build_id = $3"
@@ -329,6 +336,7 @@ func (r *SemanticBuildRepository) AdvanceSemanticInventoryBackfill(ctx context.C
 	if err := validateSemanticInventoryTransitionRequest(build, token, lease, true); err != nil {
 		return catalog.SemanticInventoryBuild{}, err
 	}
+	normalizeSemanticBuildRequest(&build)
 	if err := validateSemanticInventoryCheckpoint(expected, "expected", false); err != nil {
 		return catalog.SemanticInventoryBuild{}, err
 	}
@@ -369,6 +377,7 @@ func (r *SemanticBuildRepository) CompleteSemanticInventoryBackfill(ctx context.
 	if err := validateSemanticInventoryTransitionRequest(build, token, 0, false); err != nil {
 		return catalog.SemanticInventoryBuild{}, err
 	}
+	normalizeSemanticBuildRequest(&build)
 	if err := validateSemanticInventoryCheckpoint(expected, "expected", false); err != nil {
 		return catalog.SemanticInventoryBuild{}, err
 	}
@@ -403,9 +412,17 @@ func (r *SemanticBuildRepository) FailSemanticInventoryBackfill(ctx context.Cont
 	if err := validateSemanticInventoryTransitionRequest(build, token, 0, false); err != nil {
 		return err
 	}
+	normalizeSemanticBuildRequest(&build)
 	if text := strings.TrimSpace(diagnostic); text != "" {
 		if len(text) > maxSemanticInventoryDiagnosticBytes {
-			text = text[:maxSemanticInventoryDiagnosticBytes]
+			// A raw byte cut can split a multi-byte rune, and PostgreSQL then
+			// rejects the whole UPDATE with SQLSTATE 22021, losing the failure
+			// record entirely; back off to the last complete rune.
+			cut := []byte(text[:maxSemanticInventoryDiagnosticBytes])
+			for len(cut) > 0 && !utf8.Valid(cut) {
+				cut = cut[:len(cut)-1]
+			}
+			text = string(cut)
 		}
 		diagnostic = text
 	} else {
@@ -544,6 +561,16 @@ func validateSemanticInventoryBuildIdentity(build catalog.SemanticInventoryBuild
 		return fmt.Errorf("%w: %v", ErrInvalidSemanticInventoryBuild, err)
 	}
 	return nil
+}
+
+// normalizeSemanticBuildRequest converges a whitespace-padded dataset
+// generation onto the normalized identity that the derived build key and
+// build id already use. catalog.NormalizeDatasetGeneration is the convention
+// every catalog boundary applies; without it here, the raw spelling would
+// fork the (project, dataset_generation, build_id) primary key against the
+// clean spelling while both share one build_key.
+func normalizeSemanticBuildRequest(build *catalog.SemanticInventoryBuild) {
+	build.DatasetGeneration = catalog.NormalizeDatasetGeneration(build.DatasetGeneration)
 }
 
 func validateSemanticInventoryTransitionRequest(build catalog.SemanticInventoryBuild, token string, lease time.Duration, requireLease bool) error {
