@@ -112,7 +112,7 @@ RESPONSIBILITIES = {
     "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
     "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
     "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
-    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, and scoped typed edge-occurrence repository.",
+    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, scoped typed edge-occurrence repository, publish-last inventory repository, and the ledgered idempotent COPY batch writer for resource and edge rows.",
     "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
 }
 
