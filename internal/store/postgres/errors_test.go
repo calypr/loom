@@ -554,6 +554,15 @@ func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.
 		// recognize FATAL: the old localized-only comparison would miss it.
 		{"fatal_v_on_internal_error_state", "SCHWERWIEGEND", "FATAL", "XX001", ConditionServerRejected},
 		{"english_severity_fallback", "FATAL", "", "XX001", ConditionServerRejected},
+		// Session-death SQLSTATE classes stay uncertain even when BOTH
+		// severity fields read non-fatal: these messages terminate the
+		// session by protocol definition, so the COMMIT outcome is unknown
+		// whatever the severity strings claim. Without this short-circuit a
+		// pure severity check would fall into translateSQLState and return
+		// a retryable advertisement for an unconfirmed commit.
+		{"session_end_57P01_nonfatal_severity", "SCHWERWIEGEND", "ERROR", sqlStateAdminShutdown, ConditionAdminShutdown},
+		{"session_end_08006_nonfatal_severity", "FEHLER", "ERROR", "08006", ConditionConnectionLost},
+		{"session_end_25P03_nonfatal_severity", "FEHLER", "ERROR", sqlStateIdleInTxTerminated18, ConditionSessionTerminated},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
