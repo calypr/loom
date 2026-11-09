@@ -57,6 +57,17 @@
 --     identity.
 --   - The DDL is idempotent (IF NOT EXISTS) because the runner records the
 --     ledger row after commit and must converge on retry.
+--
+-- Versioning: this migration is 000007, not 000006. Version 000006 is
+-- reserved for pg-catalog-04's semantic_inventory_build migration, so this
+-- history intentionally skips version 6 (the runner tolerates the gap).
+-- Hard dependency (runner contract): MigrationRunner.pending() refuses any
+-- pending migration whose version is below the highest already-recorded
+-- version (*OutOfOrderMigrationError, ErrMigrationOutOfOrder). Once 000007
+-- is applied to a database, 000006 can never be applied to that database.
+-- Therefore 000006 must merge first AND be applied to every database
+-- before 000007 reaches any database; the merge queue sequences catalog-04
+-- ahead of this ticket accordingly.
 CREATE TABLE IF NOT EXISTS fhir_field_profile (
     project                  text    NOT NULL COLLATE "C",
     dataset_generation       text    NOT NULL COLLATE "C",
