@@ -323,7 +323,7 @@ func (r *Registry) loadEntry(ctx context.Context, query string, args ...any) (ex
 	var payload []byte
 	err := r.db.QueryRow(ctx, query, args...).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return exec.Entry{}, fmt.Errorf("%w", exec.ErrRecipeNotFound)
+		return exec.Entry{}, exec.ErrRecipeNotFound
 	}
 	if err != nil {
 		return exec.Entry{}, fmt.Errorf("recipe exec postgres: load recipe: %w", err)

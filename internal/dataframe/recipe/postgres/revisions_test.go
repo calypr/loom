@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -54,6 +55,28 @@ func randomHex(t *testing.T) string {
 		t.Fatalf("generate isolation suffix: %v", err)
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// createdDatabases records every isolated database name this test binary
+// ever created. The zero-leftover audits count exactly these names: the
+// pgrecip01v1_it_* namespace is shared with the sibling recipe/exec/postgres
+// test binary, and pg_database is cluster-wide, so counting the whole
+// prefix would race live fixtures of the other binary whenever go test
+// runs packages in parallel (the default). Auditing the names this binary
+// owns is precise and parallel-safe; the service-database schema check
+// stays namespace-wide because neither binary ever creates a schema in the
+// service database, so it cannot see the other binary's isolated-database
+// schemas.
+var createdDatabases sync.Map // database name -> struct{}{}
+
+func snapshotCreatedDatabases() []string {
+	var names []string
+	createdDatabases.Range(func(k, _ any) bool {
+		names = append(names, k.(string))
+		return true
+	})
+	sort.Strings(names)
+	return names
 }
 
 type chainFixture struct {
@@ -127,6 +150,7 @@ func newChainFixture(t *testing.T) *chainFixture {
 	if !pgrecip01v1NameRe.MatchString(dbName) {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
+	createdDatabases.Store(dbName, struct{}{})
 
 	t.Cleanup(func() {
 		var mine int
@@ -136,12 +160,13 @@ func newChainFixture(t *testing.T) *chainFixture {
 		if mine != 0 {
 			t.Errorf("leftover audit: isolated database %s still exists", dbName)
 		}
-		var namespaceLeftovers int
-		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE 'pgrecip01v1_it_%'`).Scan(&namespaceLeftovers); err != nil {
-			t.Errorf("leftover audit: query database namespace: %s", scrub(err))
+		names := snapshotCreatedDatabases()
+		var mineLeftovers int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = ANY($1)`, names).Scan(&mineLeftovers); err != nil {
+			t.Errorf("leftover audit: query owned database set: %s", scrub(err))
 		}
-		if namespaceLeftovers != 0 {
-			t.Errorf("leftover audit: %d pgrecip01v1_it_* databases remain", namespaceLeftovers)
+		if mineLeftovers != 0 {
+			t.Errorf("leftover audit: %d databases created by this binary remain: %v", mineLeftovers, names)
 		}
 		var schemaLeftovers int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgrecip01v1_it_%'`).Scan(&schemaLeftovers); err != nil {
@@ -994,28 +1019,54 @@ func auditZeroLeftovers() error {
 		// No service was used; nothing can have been created.
 		return nil
 	}
+	// Scrub credential-bearing fragments before any audit error reaches
+	// stderr; the fixtures scrub the same strings on failure paths.
+	auditScrub := func(format string, args ...any) string {
+		message := fmt.Sprintf(format, args...)
+		secrets := []string{raw}
+		if u, err := url.Parse(raw); err == nil && u.User != nil {
+			secrets = append(secrets, u.User.String())
+			if pw, ok := u.User.Password(); ok && pw != "" {
+				secrets = append(secrets, pw)
+			}
+		}
+		for _, secret := range secrets {
+			if secret != "" {
+				message = strings.ReplaceAll(message, secret, "<redacted>")
+			}
+		}
+		return message
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
-		return fmt.Errorf("connect: %v", err)
+		return errors.New(auditScrub("connect: %v", err))
 	}
 	defer admin.Close()
+	// Audit the exact databases this binary created; the shared
+	// pgrecip01v1_it_* prefix belongs to two binaries under parallel
+	// go test, so a cluster-wide prefix count would race live sibling
+	// fixtures. See createdDatabases.
+	names := snapshotCreatedDatabases()
 	var databases int
 	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname LIKE 'pgrecip01v1_it_%'").Scan(&databases); err != nil {
-		return fmt.Errorf("count databases: %v", err)
+		"SELECT count(*) FROM pg_database WHERE datname = ANY($1)", names).Scan(&databases); err != nil {
+		return errors.New(auditScrub("count databases: %v", err))
 	}
 	if databases != 0 {
-		return fmt.Errorf("%d pgrecip01v1_it_* databases still exist", databases)
+		return errors.New(auditScrub("%d databases created by this binary still exist: %v", databases, names))
 	}
+	// Neither binary creates schemas in the service database (owned schemas
+	// live inside each isolated database and die with it), so a service-db
+	// namespace scan is race-free and catches accidental service-db writes.
 	var schemas int
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgrecip01v1_it_%'").Scan(&schemas); err != nil {
-		return fmt.Errorf("count schemas: %v", err)
+		return errors.New(auditScrub("count schemas: %v", err))
 	}
 	if schemas != 0 {
-		return fmt.Errorf("%d pgrecip01v1_it_* schemas still exist in the service database", schemas)
+		return errors.New(auditScrub("%d pgrecip01v1_it_* schemas still exist in the service database", schemas))
 	}
 	return nil
 }

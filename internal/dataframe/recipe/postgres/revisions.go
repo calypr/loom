@@ -306,14 +306,7 @@ func (r *RevisionRegistry) Register(ctx context.Context, project string, bundle 
 // Get reads one revision by exact project, name, and digest. Cross-project
 // reads report recipe.ErrRecipeRevisionNotFound; there is no fallback.
 func (r *RevisionRegistry) Get(ctx context.Context, project, name, digest string) (recipe.RecipeRevision, error) {
-	revision, err := r.scanRevision(ctx, r.db, project, name, digest)
-	if errors.Is(err, recipe.ErrRecipeRevisionNotFound) {
-		return recipe.RecipeRevision{}, err
-	}
-	if err != nil {
-		return recipe.RecipeRevision{}, err
-	}
-	return revision, nil
+	return r.scanRevision(ctx, r.db, project, name, digest)
 }
 
 // List returns every revision of one (project, name) chain in the

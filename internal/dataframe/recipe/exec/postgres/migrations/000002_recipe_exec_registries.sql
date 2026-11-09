@@ -47,11 +47,9 @@ CREATE TABLE IF NOT EXISTS recipe_exec_recipes (
     CONSTRAINT recipe_exec_recipes_payload_object CHECK (jsonb_typeof(payload) = 'object')
 );
 
--- LoadRecipe "current": highest translationVersion in byte order first. The
--- primary key already orders (recipe_name, translation_version); this index
--- exists so the LIMIT 1 current read descends the version spine directly.
-CREATE INDEX IF NOT EXISTS recipe_exec_recipes_current
-    ON recipe_exec_recipes (recipe_name, translation_version DESC);
+-- No extra index for LoadRecipe's "current" read: the primary key already
+-- orders (recipe_name, translation_version), so the LIMIT 1 highest-version
+-- read is a backward index scan of recipe_exec_recipes_pkey.
 
 CREATE TABLE IF NOT EXISTS recipe_exec_occurrences (
     recipe_name         text        NOT NULL COLLATE "C",
