@@ -217,6 +217,60 @@ jobs:
           ./internal/dataframe/published
           ./internal/store/clickhouse
 
+  pg-fixture:
+    name: PostgreSQL 18 opt-in fixture runner
+    runs-on: ubuntu-latest
+    # Aligned budget under the workflow-wide 10-minute job contract: the Go
+    # test timeout (180s) fires before the child kill (+30s), the runner only
+    # starts the Go phase when its eight-minute internal deadline still has
+    # kill + cleanup headroom, and the 540s step timeout leaves time for the
+    # runner's finally-cleanup and summary.json before GitHub can kill the job.
+    timeout-minutes: 10
+    services:
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_test
+          POSTGRES_USER: loom_test
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_test:loom_ci_test_only@127.0.0.1:5432/loom_test?sslmode=disable
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Run fixture runner coverage without any service
+        run: timeout 180s node --test scripts/run-postgres-integration.test.mjs
+      - name: Run owned-namespace real PostgreSQL acceptance
+        # Readiness, a uniquely owned pgfixture_* database, literal-row and
+        # negative checks, propagated LOOM_TEST_POSTGRES_URL with the merged
+        # pg-store-01 case executed (never skipped), and finally-cleanup of
+        # only its own namespace. The runner also verifies the compose
+        # contract offline-by-config; a compose-up alone is not acceptance.
+        run: timeout 540s node scripts/run-postgres-integration.mjs --out "$RUNNER_TEMP/pg-fixture"
+      - name: Preserve fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-fixture
+          path: ${{ runner.temp }}/pg-fixture
+          if-no-files-found: warn
+
   node-unit:
     name: Node unit tests
     runs-on: ubuntu-latest
