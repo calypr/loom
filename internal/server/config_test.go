@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -352,5 +354,352 @@ func TestCalyprAuthNoAuthBypassDoesNotRequireTrustedIssuer(t *testing.T) {
 				t.Fatalf("no-auth Calypr config unexpectedly failed validation: %v", err)
 			}
 		})
+	}
+}
+
+// postgresReadyConfig is a valid postgres-backend configuration for use in
+// failure-path tests: only the field under test is mutated afterwards.
+func postgresReadyConfig() Config {
+	cfg := DefaultConfig()
+	cfg.Server.Backend = sourceBackendPostgres
+	cfg.Server.ClickHouse.Enabled = false
+	cfg.Auth.AllowUnauthenticated = true
+	cfg.Server.PostgreSQL.Host = "db.internal"
+	cfg.Server.PostgreSQL.Database = "loom_pg"
+	cfg.Server.PostgreSQL.User = "loom"
+	return cfg
+}
+
+func writeServerConfigFile(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSourceBackendDefaultsToArangoForLegacyConfigs(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Server.Backend != sourceBackendArango {
+		t.Fatalf("default source backend = %q, want %q", cfg.Server.Backend, sourceBackendArango)
+	}
+	if cfg.Server.URL != defaultServerURL || cfg.Server.Database != defaultServerDatabase {
+		t.Fatalf("legacy Arango defaults changed: url=%q database=%q", cfg.Server.URL, cfg.Server.Database)
+	}
+	pg := cfg.Server.PostgreSQL
+	if pg.Port != defaultPostgresPort || pg.SSLMode != defaultPostgresSSLMode || pg.MaxOpenConns != defaultPostgresMaxOpenConns || pg.MaxIdleConns != defaultPostgresMaxIdleConns || pg.ConnMaxLifetime != defaultPostgresConnMaxLifetime {
+		t.Fatalf("postgres connection defaults = %#v", pg)
+	}
+
+	loaded, err := LoadConfig("")
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if loaded.Server.Backend != sourceBackendArango {
+		t.Fatalf("environment-loaded backend = %q", loaded.Server.Backend)
+	}
+
+	path := writeServerConfigFile(t, "server:\n  url: http://arango:8529\n  database: fhir_proto\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n")
+	legacy, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("legacy YAML LoadConfig() error = %v", err)
+	}
+	if legacy.Server.Backend != sourceBackendArango || legacy.Server.URL != "http://arango:8529" || legacy.Server.Database != "fhir_proto" {
+		t.Fatalf("legacy YAML resolution = %#v", legacy.Server)
+	}
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("legacy YAML Validate() error = %v", err)
+	}
+
+	options, err := parseServerOptions([]string{"--listen", ":19091", "--no-auth", "--dataframer-recipe", "recipe.json"}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("legacy CLI parseServerOptions() error = %v", err)
+	}
+	if options.Server.Backend != sourceBackendArango || options.Server.URL != defaultServerURL || options.Server.Database != defaultServerDatabase {
+		t.Fatalf("legacy CLI resolution = %#v", options.Server)
+	}
+}
+
+func TestLoadConfigExplicitArangoBackendParsesUnchanged(t *testing.T) {
+	path := writeServerConfigFile(t, "server:\n  backend: arango\n  url: http://arango:8529\n  database: custom_graph\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("explicit arango Validate() error = %v", err)
+	}
+	if cfg.Server.Backend != sourceBackendArango || cfg.Server.URL != "http://arango:8529" || cfg.Server.Database != "custom_graph" {
+		t.Fatalf("explicit arango resolution = %#v", cfg.Server)
+	}
+	if cfg.Server.PostgreSQL.Port != defaultPostgresPort || cfg.Server.PostgreSQL.SSLMode != defaultPostgresSSLMode {
+		t.Fatalf("explicit arango changed postgres defaults: %#v", cfg.Server.PostgreSQL)
+	}
+}
+
+func TestLoadConfigPostgresBackendParsesConnectionSettings(t *testing.T) {
+	path := writeServerConfigFile(t, "server:\n  backend: postgres\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n  postgresql:\n    host: db.internal\n    port: 5433\n    database: loom_pg\n    user: loom\n    password: yaml-pg-secret-canary\n    sslmode: verify-full\n    max_open_conns: 20\n    max_idle_conns: 8\n    conn_max_lifetime: 15m\n")
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("postgres Validate() error = %v", err)
+	}
+	pg := cfg.Server.PostgreSQL
+	if pg.Host != "db.internal" || pg.Port != 5433 || pg.Database != "loom_pg" || pg.User != "loom" || pg.Password != "yaml-pg-secret-canary" || pg.SSLMode != "verify-full" || pg.MaxOpenConns != 20 || pg.MaxIdleConns != 8 || pg.ConnMaxLifetime != 15*time.Minute {
+		t.Fatalf("postgres settings = %#v", pg)
+	}
+	if cfg.Server.Backend != sourceBackendPostgres {
+		t.Fatalf("backend = %q", cfg.Server.Backend)
+	}
+	// Legacy Arango fields remain at their Arango defaults and are preserved.
+	if cfg.Server.URL != defaultServerURL || cfg.Server.Database != defaultServerDatabase {
+		t.Fatalf("postgres selection changed legacy Arango fields: url=%q database=%q", cfg.Server.URL, cfg.Server.Database)
+	}
+}
+
+func TestLoadConfigRejectsUnknownPostgresField(t *testing.T) {
+	path := writeServerConfigFile(t, "server:\n  backend: postgres\n  postgresql:\n    host: db.internal\n    ssl_mode: require\n")
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("unknown postgres field unexpectedly accepted")
+	}
+}
+
+func TestValidateRejectsUnknownSourceBackendBeforeStartup(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Backend = "cockroachdb"
+	cfg.Auth.AllowUnauthenticated = true
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "server.backend must be arango or postgres") {
+		t.Fatalf("unknown backend Validate() error = %v", err)
+	}
+
+	if _, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json", "--backend", "graphdb"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "invalid server config: server.backend must be arango or postgres") {
+		t.Fatalf("unknown backend CLI error = %v", err)
+	}
+
+	path := writeServerConfigFile(t, "server:\n  backend: mongodb\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n")
+	loaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "server.backend must be arango or postgres") {
+		t.Fatalf("unknown YAML backend Validate() error = %v", err)
+	}
+}
+
+func TestValidateRequiresCompletePostgresConnectionSettings(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{name: "missing host", mutate: func(c *Config) { c.Server.PostgreSQL.Host = "" }, want: "server.postgresql.host"},
+		{name: "missing database", mutate: func(c *Config) { c.Server.PostgreSQL.Database = "" }, want: "server.postgresql.database"},
+		{name: "missing user", mutate: func(c *Config) { c.Server.PostgreSQL.User = "" }, want: "server.postgresql.user"},
+		{name: "zero port", mutate: func(c *Config) { c.Server.PostgreSQL.Port = 0 }, want: "server.postgresql.port"},
+		{name: "port out of range", mutate: func(c *Config) { c.Server.PostgreSQL.Port = 70000 }, want: "server.postgresql.port"},
+		{name: "unknown sslmode", mutate: func(c *Config) { c.Server.PostgreSQL.SSLMode = "needed" }, want: "server.postgresql.sslmode"},
+		{name: "blank sslmode", mutate: func(c *Config) { c.Server.PostgreSQL.SSLMode = "" }, want: "server.postgresql.sslmode"},
+		{name: "zero max open conns", mutate: func(c *Config) { c.Server.PostgreSQL.MaxOpenConns = 0 }, want: "server.postgresql.max_open_conns"},
+		{name: "negative max open conns", mutate: func(c *Config) { c.Server.PostgreSQL.MaxOpenConns = -3 }, want: "server.postgresql.max_open_conns"},
+		{name: "idle above open", mutate: func(c *Config) { c.Server.PostgreSQL.MaxOpenConns = 4; c.Server.PostgreSQL.MaxIdleConns = 5 }, want: "server.postgresql.max_idle_conns"},
+		{name: "negative idle", mutate: func(c *Config) { c.Server.PostgreSQL.MaxIdleConns = -1 }, want: "server.postgresql.max_idle_conns"},
+		{name: "negative lifetime", mutate: func(c *Config) { c.Server.PostgreSQL.ConnMaxLifetime = -time.Second }, want: "server.postgresql.conn_max_lifetime"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := postgresReadyConfig()
+			test.mutate(&cfg)
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Validate() error = %v, want mention of %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsPostgresWithoutPasswordAndWithZeroLifetime(t *testing.T) {
+	cfg := postgresReadyConfig()
+	cfg.Server.PostgreSQL.Password = ""
+	cfg.Server.PostgreSQL.ConnMaxLifetime = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("passwordless postgres Validate() error = %v", err)
+	}
+}
+
+func TestArangoBackendIgnoresPostgresContract(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Auth.AllowUnauthenticated = true
+	cfg.Server.ClickHouse.Enabled = false
+	cfg.Server.PostgreSQL.Port = 0
+	cfg.Server.PostgreSQL.SSLMode = "nonsense"
+	cfg.Server.PostgreSQL.MaxIdleConns = 99
+	cfg.Server.PostgreSQL.MaxOpenConns = -2
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("arango backend must not validate postgres contract: %v", err)
+	}
+}
+
+func TestPostgresBackendRejectsConflictingArangoSettings(t *testing.T) {
+	t.Run("customized yaml url", func(t *testing.T) {
+		cfg := postgresReadyConfig()
+		cfg.Server.URL = "http://arango:8529"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "server.url") {
+			t.Fatalf("customized url with postgres error = %v", err)
+		}
+	})
+	t.Run("customized yaml database", func(t *testing.T) {
+		cfg := postgresReadyConfig()
+		cfg.Server.Database = "legacy_graph"
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "server.database") {
+			t.Fatalf("customized database with postgres error = %v", err)
+		}
+	})
+	base := []string{"--no-auth", "--dataframer-recipe", "recipe.json", "--backend", "postgres", "--pg-host", "db.internal", "--pg-database", "loom_pg", "--pg-user", "loom"}
+	for _, test := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "explicit url", args: []string{"--url", "http://arango:8529"}, want: "--url"},
+		{name: "explicit url default value", args: []string{"--url", defaultServerURL}, want: "--url"},
+		{name: "explicit database", args: []string{"--database", "other_db"}, want: "--database"},
+		{name: "explicit database default value", args: []string{"--database", defaultServerDatabase}, want: "--database"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := append(append([]string{}, base...), test.args...)
+			if _, err := parseServerOptions(args, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("postgres + %s error = %v, want mention of %q", test.name, err, test.want)
+			}
+		})
+	}
+	t.Run("config path explicit url", func(t *testing.T) {
+		path := writeServerConfigFile(t, "server:\n  backend: postgres\n  clickhouse:\n    enabled: false\n  allow_unauthenticated: true\n  postgresql:\n    host: db.internal\n    database: loom_pg\n    user: loom\n")
+		if _, err := parseServerOptions([]string{"--config", path, "--url", "http://arango:8529"}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "--url") {
+			t.Fatalf("--config postgres + explicit --url error = %v", err)
+		}
+	})
+	t.Run("arango backend keeps customized url", func(t *testing.T) {
+		options, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json", "--url", "http://arango:8529"}, flag.ContinueOnError)
+		if err != nil {
+			t.Fatalf("arango backend customized url error = %v", err)
+		}
+		if options.Server.URL != "http://arango:8529" {
+			t.Fatalf("customized url = %q", options.Server.URL)
+		}
+	})
+}
+
+func TestParseServerOptionsPostgresBackendFromFlags(t *testing.T) {
+	options, err := parseServerOptions([]string{
+		"--no-auth", "--dataframer-recipe", "recipe.json",
+		"--backend", "Postgres",
+		"--pg-host", "db.internal", "--pg-port", "5433", "--pg-database", "loom_pg", "--pg-user", "loom",
+		"--pg-password", "cli-secret", "--pg-sslmode", "require",
+		"--pg-max-open-conns", "25", "--pg-max-idle-conns", "10", "--pg-conn-max-lifetime", "45m",
+	}, flag.ContinueOnError)
+	if err != nil {
+		t.Fatalf("postgres CLI parseServerOptions() error = %v", err)
+	}
+	if options.Server.Backend != sourceBackendPostgres {
+		t.Fatalf("backend = %q", options.Server.Backend)
+	}
+	pg := options.Server.PostgreSQL
+	if pg.Host != "db.internal" || pg.Port != 5433 || pg.Database != "loom_pg" || pg.User != "loom" || pg.Password != "cli-secret" || pg.SSLMode != "require" || pg.MaxOpenConns != 25 || pg.MaxIdleConns != 10 || pg.ConnMaxLifetime != 45*time.Minute {
+		t.Fatalf("postgres CLI settings = %#v", pg)
+	}
+	if options.Server.URL != defaultServerURL || options.Server.Database != defaultServerDatabase {
+		t.Fatalf("postgres selection changed legacy Arango fields: url=%q database=%q", options.Server.URL, options.Server.Database)
+	}
+}
+
+func TestRunRefusesPostgresBackendBeforeOpeningStores(t *testing.T) {
+	cfg := postgresReadyConfig()
+	if err := run(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "postgres") || !strings.Contains(err.Error(), "not wired") {
+		t.Fatalf("run() with postgres backend error = %v", err)
+	}
+
+	cfg.Server.Backend = "graphdb"
+	if err := run(context.Background(), cfg); err == nil || !strings.Contains(err.Error(), "server.backend must be arango or postgres") {
+		t.Fatalf("run() with unknown backend error = %v", err)
+	}
+}
+
+func TestPostgresCredentialsNeverAppearInConfigRenderingOrErrors(t *testing.T) {
+	const credentialCanary = "Sup3r-Secret-Pa55w0rd"
+	pgPassword := "postgres://loom:" + credentialCanary + "@db.internal"
+
+	renderedConfig := func() Config {
+		cfg := postgresReadyConfig()
+		cfg.Server.PostgreSQL.Password = pgPassword
+		cfg.Server.ClickHouse.Enabled = true
+		cfg.Server.ClickHouse.Password = "clickhouse-" + credentialCanary
+		cfg.Auth.Basic.Username = "loom"
+		cfg.Auth.Basic.Password = "basic-" + credentialCanary
+		cfg.Server.PopulationMappingCursorSecret = "cursor-" + credentialCanary
+		cfg.Server.URL = "http://root:url" + credentialCanary + "@127.0.0.1:8529"
+		return cfg
+	}
+
+	renders := map[string]func(Config) string{
+		"%v":     func(c Config) string { return fmt.Sprintf("%v", c) },
+		"%s":     func(c Config) string { return fmt.Sprintf("%s", c) },
+		"%+v":    func(c Config) string { return fmt.Sprintf("%+v", c) },
+		"Sprint": func(c Config) string { return fmt.Sprint(c) },
+		"errorf": func(c Config) string { return fmt.Errorf("startup config: %w", fmt.Errorf("%v", c)).Error() },
+	}
+	for verb, render := range renders {
+		out := render(renderedConfig())
+		if strings.Contains(out, credentialCanary) {
+			t.Fatalf("%s rendering leaked credential: %s", verb, out)
+		}
+		if strings.Contains(out, "postgres://") || strings.Contains(out, "root:") {
+			t.Fatalf("%s rendering leaked DSN or URL credentials: %s", verb, out)
+		}
+		if !strings.Contains(out, redactedConfigSecret) {
+			t.Fatalf("%s rendering lost redaction marker: %s", verb, out)
+		}
+	}
+
+	// Every postgres validation failure path must reject without echoing
+	// the password, including DSN-shaped values.
+	for _, mutate := range []func(*Config){
+		func(c *Config) { c.Server.PostgreSQL.Host = "" },
+		func(c *Config) { c.Server.PostgreSQL.Database = "" },
+		func(c *Config) { c.Server.PostgreSQL.User = "" },
+		func(c *Config) { c.Server.PostgreSQL.Port = 0 },
+		func(c *Config) { c.Server.PostgreSQL.SSLMode = "needed" },
+		func(c *Config) { c.Server.PostgreSQL.MaxOpenConns = 0 },
+		func(c *Config) { c.Server.PostgreSQL.MaxIdleConns = 99 },
+		func(c *Config) { c.Server.PostgreSQL.ConnMaxLifetime = -time.Second },
+		func(c *Config) { c.Server.URL = "http://arango:8529" },
+		func(c *Config) { c.Server.Database = "legacy_graph" },
+	} {
+		cfg := postgresReadyConfig()
+		cfg.Server.PostgreSQL.Password = pgPassword
+		mutate(&cfg)
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatalf("expected validation failure for a postgres contract mutation")
+		}
+		if strings.Contains(err.Error(), credentialCanary) || strings.Contains(err.Error(), "postgres://") {
+			t.Fatalf("validation error leaked credential: %v", err)
+		}
+	}
+
+	// CLI failure path: incomplete postgres settings with a password set.
+	if _, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json", "--backend", "postgres", "--pg-host", "db.internal", "--pg-database", "loom_pg", "--pg-password", pgPassword}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "server.postgresql.user") {
+		t.Fatalf("incomplete postgres CLI error = %v", err)
+	} else if strings.Contains(err.Error(), credentialCanary) || strings.Contains(err.Error(), "postgres://") {
+		t.Fatalf("CLI validation error leaked credential: %v", err)
+	}
+
+	// YAML failure path: an unknown field next to a DSN-shaped password must
+	// reject without echoing the file contents.
+	path := writeServerConfigFile(t, "server:\n  backend: postgres\n  postgresql:\n    host: db.internal\n    database: loom_pg\n    user: loom\n    password: "+pgPassword+"\n    typo_field: true\n")
+	if _, err := LoadConfig(path); err == nil {
+		t.Fatal("unknown postgres field with password unexpectedly accepted")
+	} else if strings.Contains(err.Error(), credentialCanary) || strings.Contains(err.Error(), "postgres://") {
+		t.Fatalf("YAML decode error leaked credential: %v", err)
 	}
 }
