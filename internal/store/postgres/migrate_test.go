@@ -48,6 +48,29 @@ func migrationSet(t *testing.T, base []Migration, extra map[string]string) []Mig
 	return set
 }
 
+// ledgerHistory returns only the ledger bootstrap from the embedded history.
+// Runner-behavior tests layer synthetic migrations at versions 2..4 on top
+// of it, so they must not depend on how many feature migrations the history
+// currently carries (000002 is reserved for pg-store-04, 000003 is
+// pg-store-03's dataset generation manifest, ...). The full embedded history
+// is exercised end-to-end through MigrateSchema in
+// TestMigrationEmbeddedBootstrapAppliesIdempotently and inside each feature
+// ticket's own suite.
+func ledgerHistory(t *testing.T) []Migration {
+	t.Helper()
+	history := mustEmbeddedMigrations(t)
+	var out []Migration
+	for _, m := range history {
+		if m.Version == 1 {
+			out = append(out, m)
+		}
+	}
+	if len(out) != 1 || out[0].Name != "ledger" {
+		t.Fatalf("embedded history does not start with exactly one version-1 row named ledger: %+v", history)
+	}
+	return out
+}
+
 type stubConnSource struct{}
 
 func (stubConnSource) Acquire(context.Context) (*pgxpool.Conn, error) {
@@ -108,11 +131,23 @@ func TestMigrationLoadRejectsInvalidFiles(t *testing.T) {
 }
 
 func TestEmbeddedMigrationsBootstrapsTheLedger(t *testing.T) {
-	migrations := mustEmbeddedMigrations(t)
-	if len(migrations) != 1 {
-		t.Fatalf("embedded history has %d migrations, want exactly the ledger bootstrap", len(migrations))
+	history := mustEmbeddedMigrations(t)
+	if len(history) == 0 {
+		t.Fatal("embedded history is empty")
 	}
-	m := migrations[0]
+	// The history may grow with feature migrations (pg-store-04's 000002,
+	// pg-store-03's 000003, ...). Whatever it contains must be a strictly
+	// ascending, uniquely-named sequence whose every checksum matches its
+	// SQL, beginning with the ledger bootstrap the runner reads.
+	for i, m := range history {
+		if i > 0 && m.Version <= history[i-1].Version {
+			t.Fatalf("history not strictly ascending at index %d: %+v", i, history)
+		}
+		if m.Checksum != migrationChecksum(m.SQL) {
+			t.Errorf("migration %d (%s) checksum does not match its SQL", m.Version, m.Name)
+		}
+	}
+	m := history[0]
 	if m.Version != 1 || m.Name != "ledger" {
 		t.Fatalf("bootstrap migration = {Version:%d Name:%q}, want {1 ledger}", m.Version, m.Name)
 	}
@@ -405,7 +440,7 @@ func assertLedgerEquals(t *testing.T, got []LedgerRecord, want []Migration) {
 
 func TestMigrationConcurrentCallersApplyExactlyOnce(t *testing.T) {
 	svc := newMigrationService(t)
-	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	set := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql":  "CREATE TABLE alpha (id bigint PRIMARY KEY);\n",
 		"000003_sleepy.sql": "SELECT pg_catalog.pg_sleep(0.75);\nCREATE TABLE beta (id bigint);\n",
 	})
@@ -484,7 +519,7 @@ func TestMigrationConcurrentCallersApplyExactlyOnce(t *testing.T) {
 
 func TestMigrationIdempotentReapplyReturnsSameState(t *testing.T) {
 	svc := newMigrationService(t)
-	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	set := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_gamma.sql": "CREATE TABLE gamma (id int);\n",
 		"000003_note.sql":  "ALTER TABLE gamma ADD COLUMN note text;\nCREATE INDEX gamma_note_idx ON gamma (note);\n",
 	})
@@ -507,8 +542,8 @@ func TestMigrationEditedChecksumFailsBeforeApply(t *testing.T) {
 	svc := newMigrationService(t)
 	const plainSQL = "CREATE TABLE keep_me (id int);\n"
 	const editedSQL = "CREATE TABLE keep_me (id int);\nCREATE TABLE edited_marker (id int);\n"
-	applied := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{"000002_plain.sql": plainSQL})
-	edited := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{"000002_plain.sql": editedSQL})
+	applied := migrationSet(t, ledgerHistory(t), map[string]string{"000002_plain.sql": plainSQL})
+	edited := migrationSet(t, ledgerHistory(t), map[string]string{"000002_plain.sql": editedSQL})
 
 	svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), applied))
 
@@ -541,14 +576,14 @@ func TestMigrationEditedChecksumFailsBeforeApply(t *testing.T) {
 
 func TestMigrationFutureSchemaVersionFailsBeforeApply(t *testing.T) {
 	svc := newMigrationService(t)
-	full := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	full := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 		"000003_beta.sql":  "CREATE TABLE beta (id int);\n",
 	})
 	svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), full))
 
 	// This binary only knows versions 1..2 while the ledger holds 3.
-	outdated := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	outdated := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 	})
 	_, err := svc.newRunner(t, svc.openClient(t), outdated).Migrate(svc.ctx)
@@ -568,14 +603,14 @@ func TestMigrationFutureSchemaVersionFailsBeforeApply(t *testing.T) {
 
 func TestMigrationMissingEmbeddedFileFails(t *testing.T) {
 	svc := newMigrationService(t)
-	applied := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	applied := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 		"000003_beta.sql":  "CREATE TABLE beta (id int);\n",
 	})
 	svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), applied))
 
 	// Version 3 vanished from the history; version 4 would be pending.
-	shuffled := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	shuffled := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 		"000004_delta.sql": "CREATE TABLE delta (id int);\n",
 	})
@@ -594,13 +629,13 @@ func TestMigrationMissingEmbeddedFileFails(t *testing.T) {
 
 func TestMigrationOutOfOrderFails(t *testing.T) {
 	svc := newMigrationService(t)
-	applied := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	applied := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 		"000004_delta.sql": "CREATE TABLE delta (id int);\n",
 	})
 	svc.mustMigrate(t, svc.newRunner(t, svc.openClient(t), applied))
 
-	amended := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	amended := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_alpha.sql": "CREATE TABLE alpha (id int);\n",
 		"000003_beta.sql":  "CREATE TABLE beta (id int);\n",
 		"000004_delta.sql": "CREATE TABLE delta (id int);\n",
@@ -620,7 +655,7 @@ func TestMigrationOutOfOrderFails(t *testing.T) {
 
 func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 	svc := newMigrationService(t)
-	failing := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	failing := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_ok.sql": "CREATE TABLE audit_ok (id int);\nINSERT INTO audit_ok VALUES (1);\n",
 		"000003_bad.sql": "CREATE TABLE rollback_probe (id int);\n" +
 			"INSERT INTO no_such_table VALUES (1);\n",
@@ -653,14 +688,14 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 	if got := svc.regclass(t, "audit_ok"); got == "" {
 		t.Error("audit_ok absent; the prior committed migration was disturbed")
 	}
-	prior := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	prior := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_ok.sql": "CREATE TABLE audit_ok (id int);\nINSERT INTO audit_ok VALUES (1);\n",
 	})
 	assertLedgerEquals(t, svc.readLedger(t), prior)
 
 	// Correcting the history converges: version 3 applies, version 2 is not
 	// re-run (its inserted row count proves exactly-once).
-	fixed := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	fixed := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_ok.sql":  "CREATE TABLE audit_ok (id int);\nINSERT INTO audit_ok VALUES (1);\n",
 		"000003_bad.sql": "CREATE TABLE rollback_probe (id int);\n",
 	})
@@ -692,7 +727,7 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 // alone cannot detect).
 func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 	svc := newMigrationService(t)
-	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	set := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_surrender.sql": "SELECT pg_catalog.pg_advisory_unlock_all();\nCREATE TABLE surrendered (id int);\n",
 	})
 	// MinConns 0 keeps the discard observable: a destroyed connection is
@@ -735,7 +770,7 @@ func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 // must still propagate to the caller.
 func TestMigrationPanicUnderLockReleasesLockAndLeaksNothing(t *testing.T) {
 	svc := newMigrationService(t)
-	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	set := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_item.sql": "CREATE TABLE panicked_on (id int);\n",
 	})
 	injected := errors.New("injected panic under the migration lock")
@@ -803,7 +838,7 @@ func waitAdvisoryLock(t *testing.T, svc *migrationService, present bool) {
 // from the aborted attempt.
 func TestMigrationContendedAcquireDeadlineIsNamed(t *testing.T) {
 	svc := newMigrationService(t)
-	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
+	set := migrationSet(t, ledgerHistory(t), map[string]string{
 		"000002_slow.sql": "SELECT pg_catalog.pg_sleep(3);\nCREATE TABLE slow_one (id int);\n",
 	})
 
@@ -870,12 +905,15 @@ func TestMigrationSchemaMustExist(t *testing.T) {
 
 func TestMigrationEmbeddedBootstrapAppliesIdempotently(t *testing.T) {
 	svc := newMigrationService(t)
+	history := mustEmbeddedMigrations(t)
 	first, err := MigrateSchema(svc.ctx, svc.openClient(t), svc.schema)
 	if err != nil {
 		svc.fail("MigrateSchema", err)
 	}
-	if first.LatestVersion != 1 || len(first.Applied) != 1 {
-		t.Fatalf("bootstrap result = %+v, want one version-1 row", first)
+	wantLatest := history[len(history)-1].Version
+	if first.LatestVersion != wantLatest || len(first.Applied) != len(history) {
+		t.Fatalf("bootstrap result = {LatestVersion:%d Applied:%d}, want {%d %d} from the full embedded history",
+			first.LatestVersion, len(first.Applied), wantLatest, len(history))
 	}
 	second, err := MigrateSchema(svc.ctx, svc.openClient(t), svc.schema)
 	if err != nil {
@@ -884,7 +922,7 @@ func TestMigrationEmbeddedBootstrapAppliesIdempotently(t *testing.T) {
 	if !reflect.DeepEqual(first, second) {
 		t.Errorf("bootstrap re-apply changed the result:\n1st: %+v\n2nd: %+v", first, second)
 	}
-	assertLedgerEquals(t, svc.readLedger(t), mustEmbeddedMigrations(t))
+	assertLedgerEquals(t, svc.readLedger(t), history)
 }
 
 // TestMigrationNoLeftovers runs after every other migration test in this
