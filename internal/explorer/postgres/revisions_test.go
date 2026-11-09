@@ -997,6 +997,19 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 		t.Fatalf("smuggled mutation refused by the wrong guard: %s", pgErr.Message)
 	}
 
+	// DELETE is refused while the trigger is live: insert-once is DB
+	// enforcement, not only the Go-side claim reread -- a DELETE followed
+	// by a re-INSERT would otherwise fire no guard on the fresh row.
+	if _, err := f.iso.Exec(f.ctx,
+		"DELETE FROM "+f.revisionTable()+" WHERE id = $1", revision.ID); err == nil {
+		t.Fatal("DELETE of a revision accepted while the guard is live")
+	} else {
+		pgErr := requirePgErrPGState02(t, err, "23514", "live insert-once DELETE guard")
+		if !strings.Contains(pgErr.Message, "insert-once") {
+			t.Fatalf("DELETE refusal did not come from the insert-once branch: %s", pgErr.Message)
+		}
+	}
+
 	// Guard removal: the identical violating writes now succeed, with
 	// literal witnesses proving the row actually changed.
 	if _, err := f.iso.Exec(f.ctx,
@@ -1028,6 +1041,21 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 	if row := f.revisionLiteralRow(t, resurrect.ID); row.Status != "READY" {
 		t.Fatalf("guard-removal resurrection did not persist: status = %q", row.Status)
 	}
+	// With the trigger dropped, DELETE succeeds and the row really goes --
+	// this is the exact hole the trigger closes, so the probe proves the
+	// vulnerability as well as the guard.
+	if _, err := f.iso.Exec(f.ctx,
+		"DELETE FROM "+f.revisionTable()+" WHERE id = $1", resurrect.ID); err != nil {
+		f.fail("DELETE without the trigger must succeed", err)
+	}
+	var remaining int
+	if err := f.iso.QueryRow(f.ctx,
+		"SELECT count(*) FROM "+f.revisionTable()+" WHERE id = $1", resurrect.ID).Scan(&remaining); err != nil {
+		f.fail("read post-delete row count", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("guard-removal DELETE did not persist: %d rows remain", remaining)
+	}
 
 	// Restore the guard from the migration's own text: identical writes are
 	// refused again.
@@ -1054,6 +1082,18 @@ func TestPostgresRevisionFrozenGuardProvenNonVacuous(t *testing.T) {
 		pgErr := requirePgErrPGState02(t, err, "23514", "restored state machine")
 		if !strings.Contains(pgErr.Message, "status transition") {
 			t.Fatalf("restored state-machine refusal came from something else: %s", pgErr.Message)
+		}
+	}
+	// Deletion is refused again once the guard is restored from the
+	// migration's own text: insert-once travels with the migration, not
+	// just with the first apply.
+	if _, err := f.iso.Exec(f.ctx,
+		"DELETE FROM "+f.revisionTable()+" WHERE id = $1", restoredProbe.ID); err == nil {
+		t.Fatal("DELETE accepted after the guard was restored")
+	} else {
+		pgErr := requirePgErrPGState02(t, err, "23514", "restored insert-once DELETE guard")
+		if !strings.Contains(pgErr.Message, "insert-once") {
+			t.Fatalf("restored DELETE refusal did not come from the insert-once branch: %s", pgErr.Message)
 		}
 	}
 }

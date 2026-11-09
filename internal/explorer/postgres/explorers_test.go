@@ -468,7 +468,7 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{1, "ledger", "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086"},
 		{2, "explorer_owner", "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056"},
 		{5, "explorer_compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
-		{6, "explorer_revision", "ee9775ad8e8a16696a3613c7cd8f0655bb717b40ea5bf3fbf5f340040a21f526"},
+		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
 	}
 	for i, m := range migrations {
 		if m.Version != want[i].version || m.Name != want[i].name {

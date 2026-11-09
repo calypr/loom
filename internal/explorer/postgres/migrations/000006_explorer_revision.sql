@@ -7,11 +7,13 @@
 -- -- the exact immutable boundary the Arango adapter enforces only by
 -- refusing an overwrite in Go (internal/explorer/arango/revisions.go
 -- sameRevisionContent). Here the DB enforces it too: the row-level BEFORE
--- UPDATE trigger loom_explorer_revision_guard raises a check_violation
+-- UPDATE OR DELETE trigger loom_explorer_revision_guard refuses deletion
+-- outright (insert-once against direct SQL -- a DELETE plus re-INSERT would
+-- otherwise fire no guard on a fresh row) and raises a check_violation
 -- (SQLSTATE 23514) whenever a frozen column changes, so no direct SQL can
--- rewrite frozen content. Tests prove the guard non-vacuously: with the
--- trigger dropped the same violating UPDATE succeeds, and recreating it from
--- this migration's text blocks it again.
+-- rewrite or remove frozen content. Tests prove the guard non-vacuously:
+-- with the trigger dropped the same violating UPDATE and a DELETE succeed,
+-- and recreating it from this migration's text blocks both again.
 --
 -- Lifecycle transitions are a guarded monotone state machine, also enforced
 -- here: only READY->ACTIVE, READY->FAILED, ACTIVE->SUPERSEDED and
@@ -105,6 +107,19 @@ CREATE INDEX IF NOT EXISTS explorer_revisions_project_explorer
 CREATE OR REPLACE FUNCTION loom_explorer_revision_guard() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- Insert-once against direct SQL: a DELETE followed by a re-INSERT of
+    -- different frozen content would fire no guard on the fresh row, so
+    -- deletions are refused outright. NEW is NULL in a BEFORE DELETE row
+    -- trigger, so the no-op shortcut and the frozen-column comparisons
+    -- below cannot be relied on for deletes; the refusal carries its own
+    -- message instead.
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION
+            'explorer_revisions is insert-once: DELETE of revision % is refused',
+            OLD.id
+            USING ERRCODE = '23514';
+    END IF;
+
     -- A true no-op (every column identical) changes nothing and stays legal.
     IF ROW(NEW.*) IS NOT DISTINCT FROM ROW(OLD.*) THEN
         RETURN NEW;
@@ -151,6 +166,6 @@ $$;
 
 DROP TRIGGER IF EXISTS explorer_revisions_guard ON explorer_revisions;
 CREATE TRIGGER explorer_revisions_guard
-    BEFORE UPDATE ON explorer_revisions
+    BEFORE UPDATE OR DELETE ON explorer_revisions
     FOR EACH ROW
     EXECUTE FUNCTION loom_explorer_revision_guard();
