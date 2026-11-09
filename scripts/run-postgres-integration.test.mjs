@@ -402,7 +402,7 @@ test('an admin URL that pins dbname fails closed before any service contact', as
   const evidence = await runPostgres(out, {
     env: { LOOM_TEST_POSTGRES_URL: `${ADMIN_URL}&dbname=production_data` },
     compose: () => ({ status: 'blocked-missing-runtime' }),
-    probe: async command => { calls.push(command); return { ok: true }; },
+    probe: async command => { calls.push(command); return { ok: true, command, databases: [] }; },
     goTest: () => { throw new Error('go test must not start for a rejected URL'); },
   });
   assert.equal(evidence.status, 'failed');
@@ -411,7 +411,8 @@ test('an admin URL that pins dbname fails closed before any service contact', as
   assert.deepEqual(evidence.cleanup, []);
 });
 
-test('a missing LOOM_TEST_POSTGRES_URL is a recorded blocker, never a pass', async () => {  const out = mkdtempSync(join(tmpdir(), 'loom-pgfixture-test-'));
+test('a missing LOOM_TEST_POSTGRES_URL is a recorded blocker, never a pass', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'loom-pgfixture-test-'));
   const evidence = await runPostgres(out, {
     env: {},
     compose: () => ({ status: 'blocked-missing-runtime' }),
