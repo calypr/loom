@@ -12,12 +12,20 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// ExecutionCheckpointsTable stores owner-conditional checkpoint records.
-// The lease rows they fence live in BundleLeasesTable (owned by
-// 000004_publication_bundle_catalog.sql); the records themselves are created
-// by tests/migrations-leases/000006_publication_lease_checkpoints.sql applied
-// through the pg-store-02 MigrationRunner. This file contains no DDL.
-const ExecutionCheckpointsTable = "publication_execution_checkpoints"
+const (
+	// ExecutionCheckpointsTable stores owner-conditional checkpoint records.
+	// The lease rows they fence live in BundleLeasesTable (owned by
+	// 000004_publication_bundle_catalog.sql); the records themselves are
+	// created by
+	// tests/migrations-leases/000006_publication_lease_checkpoints.sql
+	// applied through the pg-store-02 MigrationRunner. This file contains no DDL.
+	ExecutionCheckpointsTable = "publication_execution_checkpoints"
+	// LeaseGrantsTable stores the per-key generation high-water every
+	// committed Acquire bumps, so retired fencing tokens are never reissued
+	// across lease-row deletion. Created by the same 000006 migration; only
+	// AcquireLease writes it, and it is never deleted.
+	LeaseGrantsTable = "publication_lease_grants"
+)
 
 // ErrInvalidLeaseKey reports an Acquire with an empty lease key or owner.
 // Unlike a lost fence (publication.ErrBundleLeaseLost), it marks a caller
@@ -46,10 +54,17 @@ type CheckpointRecord struct {
 // Registry:
 //
 //   - Acquire claims a free or expired key, or re-grants a key already held
-//     by the same owner. Every grant bumps epoch, so the returned generation
-//     is a monotonic fencing token per key (repeated-owner correlation), and
-//     a claim of an expired key is a takeover that retires the previous
-//     grant.
+//     by the same owner. Every committed grant bumps a per-key high-water in
+//     LeaseGrantsTable and writes that value as the lease epoch, so the
+//     returned generation is a strictly monotonic fencing token per key
+//     (repeated-owner correlation) across the whole lifetime of the key --
+//     even after the lease row itself is deleted by ReleaseLease,
+//     Registry.ReleaseBundleLease, or anything else: a retired token can
+//     never be reissued while its previous holder may still be alive. A
+//     claim of an expired key is a takeover that retires the previous grant.
+//     (Registry's own Arango-parity lease methods keep their baseline epoch
+//     behaviour and do not participate in this high-water protocol; epochs
+//     written by Registry.AcquireBundleLease are not keeper fencing tokens.)
 //   - Renew and Expire require the exact owner AND generation AND an
 //     unexpired lease: an expired lease can never be renewed or resurrected
 //     by its old owner. (Registry.RenewBundleLease keeps the Arango
@@ -72,15 +87,16 @@ type CheckpointRecord struct {
 type FencedLeases struct {
 	db          DB
 	leases      string
+	grants      string
 	checkpoints string
 }
 
 // NewLeaseKeeper binds a fenced-lease keeper to one schema of a PostgreSQL
 // 18 database served by pool. The schema must already contain the
 // publication bundle lease table (000004, via Registry's history) and the
-// checkpoint records table (000006); NewLeaseKeeper never runs DDL and
-// never falls back when either is missing -- the first statement surfaces
-// the failure.
+// grant high-water and checkpoint records tables (000006); NewLeaseKeeper
+// never runs DDL and never falls back when any is missing -- the first
+// statement surfaces the failure.
 func NewLeaseKeeper(pool DB, schema string) (*FencedLeases, error) {
 	if pool == nil {
 		return nil, errors.New("publication postgres: nil pool")
@@ -91,34 +107,63 @@ func NewLeaseKeeper(pool DB, schema string) (*FencedLeases, error) {
 	return &FencedLeases{
 		db:          pool,
 		leases:      pgx.Identifier{schema, BundleLeasesTable}.Sanitize(),
+		grants:      pgx.Identifier{schema, LeaseGrantsTable}.Sanitize(),
 		checkpoints: pgx.Identifier{schema, ExecutionCheckpointsTable}.Sanitize(),
 	}, nil
 }
 
 // AcquireLease claims a lease key when it is free, expired (a takeover), or
 // already held by owner (a regrant, e.g. after the owner let its own lease
-// lapse). Every grant bumps the epoch and returns it as the generation
-// fencing token the caller must present to Renew, Expire, Release, and
-// Checkpoint. held=false means another owner currently holds an unexpired
-// lease on the key.
-func (k *FencedLeases) AcquireLease(ctx context.Context, key, owner string, expires time.Time) (generation int64, held bool, err error) {
+// lapse). Every committed grant bumps the per-key high-water in
+// LeaseGrantsTable inside one transaction and writes that value as the
+// lease epoch, then returns it as the generation fencing token the caller
+// must present to Renew, Expire, Release, and Checkpoint. Because the
+// high-water row is never deleted, generations are strictly monotonic per
+// key across lease-row deletion: after a release (by ReleaseLease or
+// Registry.ReleaseBundleLease alike), the same owner id re-acquiring the
+// key receives a strictly newer generation, so a straggler carrying a
+// retired token can never match the live grant. held=false means another
+// owner currently holds an unexpired lease on the key; the high-water bump
+// is rolled back with the failed transaction, so no generation is burned.
+// Concurrent acquires serialize on the high-water row, then the lease row --
+// a fixed order that cannot cycle against other keepers.
+func (k *FencedLeases) AcquireLease(ctx context.Context, key, owner string, expires time.Time) (int64, bool, error) {
 	if key == "" || owner == "" {
 		return 0, false, fmt.Errorf("%w: got key %q owner %q", ErrInvalidLeaseKey, key, owner)
 	}
 	now := time.Now().UTC()
-	err = k.db.QueryRow(ctx,
+	tx, err := k.db.Begin(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("publication postgres: begin acquire fenced lease: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var highWater int64
+	if err := tx.QueryRow(ctx,
+		"INSERT INTO "+k.grants+" (key, last_generation) VALUES ($1, 1)"+
+			" ON CONFLICT (key) DO UPDATE SET last_generation = "+LeaseGrantsTable+".last_generation + 1"+
+			" RETURNING last_generation",
+		key).Scan(&highWater); err != nil {
+		return 0, false, fmt.Errorf("publication postgres: bump fenced lease high-water: %w", err)
+	}
+
+	var generation int64
+	err = tx.QueryRow(ctx,
 		"INSERT INTO "+k.leases+" (key, owner_id, expires_at, acquired_at, epoch)"+
-			" VALUES ($1, $2, $3, $4, 1)"+
+			" VALUES ($1, $2, $3, $4, $5)"+
 			" ON CONFLICT (key) DO UPDATE SET owner_id = $2, expires_at = $3, acquired_at = $4,"+
-			" epoch = "+BundleLeasesTable+".epoch + 1"+
+			" epoch = $5"+
 			" WHERE "+BundleLeasesTable+".expires_at < $4 OR "+BundleLeasesTable+".owner_id = $2"+
 			" RETURNING epoch",
-		key, owner, expires, now).Scan(&generation)
+		key, owner, expires, now, highWater).Scan(&generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, fmt.Errorf("publication postgres: acquire fenced lease: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, false, fmt.Errorf("publication postgres: commit acquire fenced lease: %w", err)
 	}
 	return generation, true, nil
 }
@@ -179,6 +224,23 @@ func (k *FencedLeases) ReleaseLease(ctx context.Context, key, owner string, gene
 	return tag.RowsAffected() == 1, nil
 }
 
+// jsonKind names the leading JSON token of a rejected encoding for the
+// refusal message, without echoing payload bytes into the error.
+func jsonKind(encoded []byte) string {
+	switch encoded[0] {
+	case '[':
+		return "a JSON array"
+	case '"':
+		return "a JSON string"
+	case 't', 'f':
+		return "a JSON bool"
+	case 'n':
+		return "JSON null"
+	default:
+		return "a JSON number"
+	}
+}
+
 // Checkpoint writes one progress record for the execution-owner or
 // reconciler identified by (key, owner, generation). The owner, generation,
 // and unexpired comparisons run inside the INSERT itself, evaluated at the
@@ -199,8 +261,12 @@ func (k *FencedLeases) Checkpoint(ctx context.Context, key, owner string, genera
 	if err != nil {
 		return 0, fmt.Errorf("publication postgres: marshal checkpoint payload: %w", err)
 	}
-	if string(encoded) == "null" {
-		return 0, errors.New("publication postgres: checkpoint payload must be a JSON object")
+	// The stored row must be a JSON object (000006 CHECK). json.Marshal of a
+	// scalar, array, or null succeeds, so the object shape is enforced here
+	// at the boundary -- a caller bug is refused without touching the server,
+	// the same discipline as ErrInvalidLeaseKey, and never as a wrapped 23514.
+	if len(encoded) == 0 || encoded[0] != '{' {
+		return 0, fmt.Errorf("publication postgres: checkpoint payload must be a JSON object, got %s", jsonKind(encoded))
 	}
 	now := time.Now().UTC()
 	var sequence int64

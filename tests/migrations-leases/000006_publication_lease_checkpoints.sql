@@ -19,6 +19,19 @@
 --   * sequence is the per-key monotonic position assigned inside the same
 --     guarded write that applies the checkpoint, so ordering across
 --     ownership changes is gap-free and a stale token cannot pre-fill it.
+-- Grant high-water: the FencedLeases keeper consults and bumps this row on
+-- every committed Acquire, so a generation it has handed out is never
+-- reissued even after the lease row itself is deleted (by ReleaseLease, by
+-- Registry.ReleaseBundleLease, or by any other path). The row is never
+-- deleted; last_generation only increases, which is what makes the keeper's
+-- generation a monotonic fencing token per key across the lease row's whole
+-- lifetime. Registry's own Arango-parity lease methods keep their baseline
+-- epoch behaviour and do not participate in this protocol.
+CREATE TABLE IF NOT EXISTS publication_lease_grants (
+    key             text    PRIMARY KEY,
+    last_generation bigint  NOT NULL DEFAULT 0 CHECK (last_generation >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS publication_execution_checkpoints (
     key             text        NOT NULL,
     sequence        bigint      NOT NULL,

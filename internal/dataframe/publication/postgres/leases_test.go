@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -702,6 +703,110 @@ var (
 )
 
 // ---------------------------------------------------------------------------
+// Fencing-token monotonicity across lease-row deletion: a generation handed
+// out by a committed Acquire is never reissued, however the lease row died
+// (ReleaseLease or the sibling Registry.ReleaseBundleLease alike), so a
+// straggler carrying a retired token can never match a later grant -- even
+// under the same owner id.
+// ---------------------------------------------------------------------------
+
+func TestReleasedGenerationIsNeverReissued(t *testing.T) {
+	s := newLeaseService(t)
+	const key = "exec-aba"
+
+	first := s.acquire(t, s.keeperA, key, "reconciler", futureExpiry())
+	if first != 1 {
+		t.Fatalf("first grant = %d, want 1", first)
+	}
+	s.checkpoint(t, s.keeperA, key, "reconciler", first, map[string]any{"episode": 1})
+
+	// The owner releases cleanly: the lease row is gone.
+	if released, err := s.keeperA.ReleaseLease(s.ctx, key, "reconciler", first); err != nil || !released {
+		s.fail("release first grant", fmt.Errorf("released=%v err=%w", released, err))
+	}
+	if n := s.execCount(t, "SELECT count(*) FROM "+s.qualified(BundleLeasesTable)+" WHERE key = $1", key); n != 0 {
+		t.Fatalf("lease rows after release = %d, want 0", n)
+	}
+
+	// The SAME owner id re-acquires (a reconciler restart, e.g.). The token
+	// must be strictly newer than the retired one, never a reissue.
+	second := s.acquire(t, s.keeperA, key, "reconciler", futureExpiry())
+	if second <= first {
+		t.Fatalf("re-acquire after release reissued generation %d (retired %d); want strictly greater", second, first)
+	}
+	if second != 2 {
+		t.Fatalf("re-acquire generation = %d, want 2 (high-water survives deletion)", second)
+	}
+
+	// The straggler still holding (reconciler, first) is inert against the
+	// live grant in every fenced operation, and writes nothing.
+	if _, err := s.keeperB.Checkpoint(s.ctx, key, "reconciler", first, map[string]any{"episode": "straggler"}); !errors.Is(err, publication.ErrBundleLeaseLost) {
+		t.Fatalf("straggler checkpoint with re-issued-looking token = %v, want ErrBundleLeaseLost", err)
+	}
+	if renewed, err := s.keeperB.RenewLease(s.ctx, key, "reconciler", first, futureExpiry()); err != nil || renewed {
+		t.Fatalf("straggler renew = %v, %v; want false, nil", renewed, err)
+	}
+	if expired, err := s.keeperB.ExpireLease(s.ctx, key, "reconciler", first); err != nil || expired {
+		t.Fatalf("straggler expire = %v, %v; want false, nil", expired, err)
+	}
+	if released, err := s.keeperB.ReleaseLease(s.ctx, key, "reconciler", first); err != nil || released {
+		t.Fatalf("straggler release = %v, %v; want false, nil", released, err)
+	}
+	if owner, epoch := s.leaseRow(t, key); owner != "reconciler" || epoch != second {
+		t.Fatalf("lease after straggler attempts = {%s %d}, want the untouched {reconciler %d}", owner, epoch, second)
+	}
+	// The audit table keeps the episodes distinct: exactly one row, under
+	// the retired generation, and nothing under it can be added again.
+	if n := s.checkpointCount(t, key); n != 1 {
+		t.Fatalf("checkpoint rows = %d, want 1 (straggler wrote nothing)", n)
+	}
+	if gen := s.mustWitnessInt64(t,
+		"SELECT generation FROM "+s.qualified(ExecutionCheckpointsTable)+" WHERE key = $1 AND sequence = 1", key); gen != first {
+		t.Fatalf("episode-1 row generation = %d, want %d", gen, first)
+	}
+
+	// A second full cycle, this time deleted by the SIBLING registry path,
+	// must also be unable to reopen the high-water.
+	if err := s.registry.ReleaseBundleLease(s.ctx, key, "reconciler"); err != nil {
+		s.fail("sibling release", err)
+	}
+	if n := s.execCount(t, "SELECT count(*) FROM "+s.qualified(BundleLeasesTable)+" WHERE key = $1", key); n != 0 {
+		t.Fatalf("lease rows after sibling release = %d, want 0", n)
+	}
+	third := s.acquire(t, s.keeperA, key, "reconciler", futureExpiry())
+	if third <= second {
+		t.Fatalf("re-acquire after sibling release reissued generation %d (retired %d); want strictly greater", third, second)
+	}
+	if third != 3 {
+		t.Fatalf("third grant generation = %d, want 3", third)
+	}
+	if _, err := s.keeperA.Checkpoint(s.ctx, key, "reconciler", second, map[string]any{"episode": "late-second"}); !errors.Is(err, publication.ErrBundleLeaseLost) {
+		t.Fatalf("checkpoint on retired second token = %v, want ErrBundleLeaseLost", err)
+	}
+	sequence := s.checkpoint(t, s.keeperA, key, "reconciler", third, map[string]any{"episode": 3})
+	if sequence != 2 {
+		t.Fatalf("episode-3 checkpoint sequence = %d, want 2", sequence)
+	}
+	if gen := s.mustWitnessInt64(t,
+		"SELECT generation FROM "+s.qualified(ExecutionCheckpointsTable)+" WHERE key = $1 AND sequence = $2", key, 2); gen != third {
+		t.Fatalf("episode-3 row generation = %d, want %d", gen, third)
+	}
+
+	// Failed acquires burn no generations: a refused claim rolls its
+	// high-water bump back with its transaction.
+	if _, held, err := s.keeperB.AcquireLease(s.ctx, key, "challenger", futureExpiry()); err != nil || held {
+		t.Fatalf("challenger acquire against live owner = held %v err %v; want false, nil", held, err)
+	}
+	if owner, epoch := s.leaseRow(t, key); owner != "reconciler" || epoch != third {
+		t.Fatalf("lease after refused challenger = {%s %d}, want the untouched {reconciler %d}", owner, epoch, third)
+	}
+	if hw := s.mustWitnessInt64(t,
+		"SELECT last_generation FROM "+s.qualified(LeaseGrantsTable)+" WHERE key = $1", key); hw != third {
+		t.Fatalf("high-water after refused acquire = %d, want %d (bump rolled back, not burned)", hw, third)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Payload discipline: missing versus JSON-null stays distinct inside jsonb,
 // and malformed payloads never reach the table.
 // ---------------------------------------------------------------------------
@@ -759,8 +864,38 @@ func TestCheckpointPayloadPreservesMissingVersusJSONNull(t *testing.T) {
 	if _, err := s.keeperA.Checkpoint(s.ctx, "exec-null", "writer-a", generation, any(nil)); err == nil {
 		t.Fatal("typed nil payload = nil error, want rejection")
 	}
+
+	// Every non-object encoding is refused cleanly at the Go boundary -- the
+	// promised "must be a JSON object" message, never a wrapped 23514 -- with
+	// no stored row and no burned sequence.
+	for name, nonObject := range map[string]any{
+		"number": 42,
+		"string": "just text",
+		"array":  []any{1, 2},
+		"bool":   true,
+		"null":   json.RawMessage("null"),
+	} {
+		_, err := s.keeperA.Checkpoint(s.ctx, "exec-null", "writer-a", generation, nonObject)
+		if err == nil {
+			t.Fatalf("payload %s = nil error, want rejection", name)
+		}
+		if !strings.Contains(err.Error(), "must be a JSON object") {
+			t.Fatalf("payload %s error = %v, want the promised must-be-a-JSON-object message", name, err)
+		}
+		if strings.Contains(err.Error(), "23514") {
+			t.Fatalf("payload %s surfaced a raw CHECK violation: %v", name, err)
+		}
+	}
 	if n := s.checkpointCount(t, "exec-null"); n != 1 {
 		t.Fatalf("checkpoint rows after refused payloads = %d, want 1", n)
+	}
+	// No burn: the next valid checkpoint is sequence 2, gap-free.
+	sequence, err = s.keeperA.Checkpoint(s.ctx, "exec-null", "writer-a", generation, map[string]any{"stage": "next"})
+	if err != nil || sequence != 2 {
+		s.fail("post-refusal checkpoint", fmt.Errorf("sequence=%d err=%w", sequence, err))
+	}
+	if n := s.checkpointCount(t, "exec-null"); n != 2 {
+		t.Fatalf("checkpoint rows = %d, want 2", n)
 	}
 }
 
@@ -848,6 +983,7 @@ func TestCheckpointSchemaCompositionIsMetadataOnly(t *testing.T) {
 		"publication_bundle_leases",
 		"publication_bundle_pointers",
 		"publication_execution_checkpoints",
+		"publication_lease_grants",
 		"schema_migrations",
 	}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
