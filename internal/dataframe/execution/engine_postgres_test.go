@@ -1006,3 +1006,36 @@ func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing
 		t.Fatalf("internal source-id column leaked into the public row: %v", public[0])
 	}
 }
+
+// The third PostgreSQL preview failure-marker site: the context is
+// cancelled after the row stream exhausted cleanly, so the post-loop
+// context check (not the visitor or the stream error) is what aborts the
+// preview. That path must also strip both completion markers.
+func TestPostgreSQLPreviewPostLoopCancellationNeverMarksComplete(t *testing.T) {
+	spies := &dispatchSpies{}
+	config := spies.arangoEngine()
+	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{
+		Command: exec02TestCommand(t),
+		Columns: []string{"id", "name"},
+	}, nil)
+	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, []map[string]any{
+		{"id": "patient-one", "name": "Ada"},
+	})
+	engine, err := New(config)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	summary, err := engine.PreviewOutput(ctx, exec02TestResolved(),
+		PreviewRequest{Output: "resources", Limit: 5}, func(map[string]any) error {
+			cancel()
+			return nil
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("post-exhaustion cancellation must report the context cause: %v", err)
+	}
+	if summary.Complete || summary.Truncated {
+		t.Fatalf("post-loop cancelled preview emitted a completion marker: %+v", summary)
+	}
+}
