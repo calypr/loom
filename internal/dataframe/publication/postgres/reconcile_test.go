@@ -50,6 +50,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/calypr/loom/internal/dataframe/publication"
 	"github.com/calypr/loom/internal/dataset"
@@ -244,7 +245,7 @@ func (s *rprService) newReconciler(t *testing.T, releases dataset.ActiveReleaseR
 	if err != nil {
 		t.Fatalf("new reconciler: %v", err)
 	}
-	rc.reconcilerID = "reconciler-test"
+	rc.fixIdentity("reconciler-test")
 	rc.heartbeatTTL = 2 * time.Minute
 	rc.renewalEvery = 0 // renewal exercised explicitly by its own test
 	return rc
@@ -745,7 +746,7 @@ func TestReconcilePublisherRace(t *testing.T) {
 		wg.Add(2)
 		drops := newRPRDrops()
 		rc := s.newReconciler(t, nil)
-		rc.reconcilerID = fmt.Sprintf("reconciler-race-%02d", round)
+		rc.fixIdentity(fmt.Sprintf("reconciler-race-%02d", round))
 		var decisionMu sync.Mutex
 		var decisions []ReconcileDecision
 		rc.OnDecision = func(d ReconcileDecision) {
@@ -943,7 +944,7 @@ func TestReconcileCrashWindows(t *testing.T) {
 		// sweep reaches the claim guard and must name its refusal.
 		time.Sleep(120 * time.Millisecond)
 		foreign := s.newReconciler(t, nil)
-		foreign.reconcilerID = "reconciler-foreign"
+		foreign.fixIdentity("reconciler-foreign")
 		if err := foreign.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); !errors.Is(err, publication.ErrExecutionReadPinActive) {
 			t.Fatalf("foreign sweep over the live abandoned claim = %v, want named refusal", err)
 		}
@@ -954,7 +955,7 @@ func TestReconcileCrashWindows(t *testing.T) {
 				" SET expires_at = $1 WHERE execution_id = $2", rprPast, id2)
 		drops4 := newRPRDrops()
 		foreign2 := s.newReconciler(t, nil)
-		foreign2.reconcilerID = "reconciler-foreign-2"
+		foreign2.fixIdentity("reconciler-foreign-2")
 		if err := foreign2.SweepStale(ctx, time.Now().UTC(), drops4.hook); err != nil {
 			t.Fatalf("foreign post-expiry convergence: %v", err)
 		}
@@ -1063,6 +1064,392 @@ func TestReconcileFirstErrorWins(t *testing.T) {
 // resources. TestMain additionally invokes the same audit after the whole
 // package (registry_test.go) so the required zero-leftover and
 // pg_database==baseline checks still execute under filtered -run invocations.
+func eqStatementLists(t *testing.T, label string, want, got []string) {
+	t.Helper()
+	if len(want) != len(got) {
+		t.Fatalf("%s: statement count = %d, want %d\ngot:  %#v\nwant: %#v", label, len(got), len(want), got, want)
+	}
+	for i := range want {
+		if want[i] != got[i] {
+			t.Fatalf("%s: statement[%d] mismatch\ngot:  %s\nwant: %s", label, i, got[i], want[i])
+		}
+	}
+}
+
+// TestReconcileGoldenClaimStatements pins the literal statement set of the
+// claim transaction -- the one transaction that grants the right to delete
+// physical tables -- for the granted path and each refusal path, including
+// the pointer-before-anchor lock order. Sibling audits exist for the publish
+// commit (goldenPublishStatements) and the pin transitions
+// (TestReadPinsGoldenStatements); this closes the third destructive path.
+func TestReconcileGoldenClaimStatements(t *testing.T) {
+	locks := func(s *rprService) (pointer, ensure, anchor, active, read, gc, grant, touch string) {
+		q := func(table string) string { return pgx.Identifier{s.schema, table}.Sanitize() }
+		pointer = "SELECT execution_id FROM " + q(BundlePointersTable) + " WHERE pointer_key = $1 FOR UPDATE"
+		ensure = "INSERT INTO " + q(ExecutionRetentionTable) + " (execution_id, updated_at) VALUES ($1, $2) ON CONFLICT (execution_id) DO NOTHING"
+		anchor = "SELECT true FROM " + q(ExecutionRetentionTable) + " WHERE execution_id = $1 FOR UPDATE"
+		active = "SELECT EXISTS (SELECT 1 FROM " + q(ExecutionReadPinsTable) + " WHERE execution_id = $1 AND expires_at >= $2)"
+		read = "SELECT owner_id, expires_at FROM " + q(ExecutionCleanupClaimsTable) + " WHERE execution_id = $1"
+		gc = "DELETE FROM " + q(ExecutionReadPinsTable) + " WHERE execution_id = $1 AND expires_at < $2"
+		grant = "INSERT INTO " + q(ExecutionCleanupClaimsTable) + " (execution_id, owner_id, expires_at, updated_at)" +
+			" VALUES ($1, $2, $3, $4) ON CONFLICT (execution_id) DO UPDATE SET owner_id = $2, expires_at = $3, updated_at = $4"
+		touch = "UPDATE " + q(ExecutionRetentionTable) + " SET updated_at = $2 WHERE execution_id = $1"
+		return
+	}
+
+	runCapture := func(t *testing.T, prepare func(s *rprService, id string), wantOutcome ReconcileOutcome, wantErr bool) {
+		t.Helper()
+		s := newRPRService(t)
+		ctx := s.ctx
+		defer setReconcileGates(nil, nil)
+		pointer, ensure, anchor, active, read, gc, grant, touch := locks(s)
+		var attempts []reconcileClaimAttempt
+		setReconcileGates(func(a reconcileClaimAttempt) error {
+			attempts = append(attempts, a)
+			return nil
+		}, nil)
+		const id = "exec-golden-claim"
+		s.seedStaleExecution(t, rprExecution(id, "proj-a", "recipe-golden", publication.BundleRunning, 1))
+		if prepare != nil {
+			prepare(s, id)
+		}
+		rc := s.newReconciler(t, nil)
+		err := rc.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook)
+		if wantErr && !errors.Is(err, publication.ErrExecutionReadPinActive) {
+			t.Fatalf("sweep error = %v, want named refusal", err)
+		}
+		if !wantErr && err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+		if len(attempts) != 1 {
+			t.Fatalf("claim attempts = %d, want exactly one: %#v", len(attempts), attempts)
+		}
+		a := attempts[0]
+		if a.ExecutionID != id || a.Outcome != wantOutcome {
+			t.Fatalf("attempt = %s/%v, want %s/%v", a.ExecutionID, a.Outcome, id, wantOutcome)
+		}
+		if a.ReconcilerID != "reconciler-test" {
+			t.Fatalf("attempt identity = %q, want reconciler-test", a.ReconcilerID)
+		}
+		if a.BackendPID == 0 {
+			t.Fatal("claim attempt carries no backend witness")
+		}
+		switch wantOutcome {
+		case reconcileClaimGranted:
+			eqStatementLists(t, "granted", []string{pointer, ensure, anchor, active, read, gc, grant, touch}, a.Statements)
+		case ReconcileRefusedPinActive:
+			eqStatementLists(t, "refused-pin", []string{pointer, ensure, anchor, active}, a.Statements)
+		case ReconcileRefusedCleanupOwned:
+			eqStatementLists(t, "refused-claim", []string{pointer, ensure, anchor, active, read}, a.Statements)
+		case ReconcileSkippedPointer:
+			eqStatementLists(t, "vetoed-pointer", []string{pointer, ensure, anchor}, a.Statements)
+		}
+	}
+
+	t.Run("granted", func(t *testing.T) { runCapture(t, nil, reconcileClaimGranted, false) })
+	t.Run("refused_by_active_pin", func(t *testing.T) {
+		runCapture(t, func(s *rprService, id string) {
+			if granted, err := s.pinsW.AcquireExecutionReadPin(s.ctx, id, "reader-1", rprFarFuture); err != nil || !granted {
+				t.Fatalf("seed pin: %v %v", granted, err)
+			}
+		}, ReconcileRefusedPinActive, true)
+	})
+	t.Run("refused_by_foreign_claim", func(t *testing.T) {
+		runCapture(t, func(s *rprService, id string) {
+			if granted, err := s.pinsW.ClaimExecutionCleanup(s.ctx, id, "worker-foreign"); err != nil || !granted {
+				t.Fatalf("seed claim: %v %v", granted, err)
+			}
+		}, ReconcileRefusedCleanupOwned, true)
+	})
+	t.Run("vetoed_by_in_transaction_pointer", func(t *testing.T) {
+		runCapture(t, func(s *rprService, id string) {
+			execution := rprExecution(id, "proj-a", "recipe-golden", publication.BundleRunning, 1)
+			if err := s.regW.CompareAndSwapPointer(s.ctx, execution.PointerName(), "", "exec-golden-other"); err != nil {
+				t.Fatalf("seed pointer: %v", err)
+			}
+			setBeforeClaim(func(executionID string) {
+				if executionID != id {
+					return
+				}
+				if err := s.regB.CompareAndSwapPointer(s.ctx, execution.PointerName(), "exec-golden-other", id); err != nil {
+					t.Errorf("pre-claim pointer move: %v", err)
+				}
+			})
+		}, ReconcileSkippedPointer, false)
+		defer setBeforeClaim(nil)
+	})
+}
+
+// TestReconcileTerminalReleaseSurvivesSlowDrop proves the terminal record
+// and cleanup-claim release are detached from the pre-claim deadline (the
+// ClickHouse baseline detaches its claim release the same way): a drop
+// phase that consumes the whole call budget must not strand a live claim
+// owned by this sweeper, which would refuse every foreign sweep until the
+// claim expires.
+func TestReconcileTerminalReleaseSurvivesSlowDrop(t *testing.T) {
+	s := newRPRService(t)
+	ctx := s.ctx
+	defer setReconcileGates(nil, nil)
+	const id = "exec-slowdrop"
+	s.seedStaleExecution(t, rprExecution(id, "proj-a", "recipe-slowdrop", publication.BundleRunning, 1))
+	rc := s.newReconciler(t, nil)
+	rc.callTimeout = 250 * time.Millisecond
+	drops := newRPRDrops()
+	slowDrop := func(ctx context.Context, table string) error {
+		time.Sleep(450 * time.Millisecond) // overruns the pre-claim deadline
+		return drops.hook(ctx, table)
+	}
+	if err := rc.SweepStale(ctx, time.Now().UTC(), slowDrop); err != nil {
+		t.Fatalf("sweep with slow drop: %v", err)
+	}
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("cleanup claim stranded live after a slow drop: %q", claim)
+	}
+	state, payload := s.executionRow(t, id)
+	if state != string(publication.BundleFailed) || !strings.Contains(payload, `"error":"stale execution reconciled"`) {
+		t.Fatalf("terminal record not written through the slow drop: %q %s", state, payload)
+	}
+	if got := drops.snapshot(); len(got) != 1 || got[0] != "tbl-"+id+"-0" {
+		t.Fatalf("drops = %v", got)
+	}
+	if s.leaseRow(t, "key-"+id) != "" {
+		t.Fatal("bundle lease stranded after a slow drop")
+	}
+}
+
+// TestReconcileSweepsAreMutuallyExclusive drives two concurrent sweeps of
+// ONE unfixed Reconciler against one abandoned execution. With the baseline
+// per-sweep identity, the bundle lease excludes the second sweep cleanly;
+// with a shared identity the first finish would strip the lease and claim
+// from the second, whose heartbeat renewal and fenced terminal write then
+// fail and abort that whole sweep.
+func TestReconcileSweepsAreMutuallyExclusive(t *testing.T) {
+	s := newRPRService(t)
+	ctx := s.ctx
+	defer setReconcileGates(nil, nil)
+	const id = "exec-concur"
+	s.seedStaleExecution(t, rprExecution(id, "proj-a", "recipe-concur", publication.BundleRunning, 1))
+	rc, err := NewReconciler(s.regA, s.pinsA, nil)
+	if err != nil {
+		t.Fatalf("new reconciler: %v", err)
+	}
+	rc.heartbeatTTL = 30 * time.Second
+	rc.renewalEvery = 20 * time.Millisecond // identity stays unfixed: production shape
+	delayedDrop := func(d *rprDrops) PhysicalDropTable {
+		return func(ctx context.Context, table string) error {
+			time.Sleep(300 * time.Millisecond) // forces the two sweeps to overlap
+			return d.hook(ctx, table)
+		}
+	}
+	dropsA, dropsB := newRPRDrops(), newRPRDrops()
+	start := make(chan struct{})
+	var errA, errB error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		errA = rc.SweepStale(ctx, time.Now().UTC(), delayedDrop(dropsA))
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		errB = rc.SweepStale(ctx, time.Now().UTC(), delayedDrop(dropsB))
+	}()
+	close(start)
+	wg.Wait()
+	if errA != nil || errB != nil {
+		t.Fatalf("concurrent sweeps of one instance must exclude through the lease, not abort each other: A=%v B=%v", errA, errB)
+	}
+	total := append(dropsA.snapshot(), dropsB.snapshot()...)
+	if len(total) != 1 || total[0] != "tbl-"+id+"-0" {
+		t.Fatalf("drops = %v, want exactly one physical drop across both sweeps", total)
+	}
+	if state, _ := s.executionRow(t, id); state != string(publication.BundleFailed) {
+		t.Fatalf("execution state = %q, want FAILED", state)
+	}
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("claim not consumed: %q", claim)
+	}
+	if s.leaseRow(t, "key-"+id) != "" {
+		t.Fatal("lease not consumed")
+	}
+}
+
+// TestReconcileMintsFreshIdentityPerSweep witnesses the baseline parity at
+// bundle_store.go:1082: two sweeps of one unfixed instance carry different
+// reconciler identities, so a live lease or claim held by one can never be
+// refreshed by the other.
+func TestReconcileMintsFreshIdentityPerSweep(t *testing.T) {
+	s := newRPRService(t)
+	ctx := s.ctx
+	defer setReconcileGates(nil, nil)
+	var attempts []reconcileClaimAttempt
+	setReconcileGates(func(a reconcileClaimAttempt) error {
+		attempts = append(attempts, a)
+		return nil
+	}, nil)
+	rc, err := NewReconciler(s.regA, s.pinsA, nil)
+	if err != nil {
+		t.Fatalf("new reconciler: %v", err)
+	}
+	s.seedStaleExecution(t, rprExecution("exec-id-a", "proj-a", "recipe-ida", publication.BundleRunning, 1))
+	if err := rc.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); err != nil {
+		t.Fatalf("sweep 1: %v", err)
+	}
+	s.seedStaleExecution(t, rprExecution("exec-id-b", "proj-a", "recipe-idb", publication.BundleRunning, 1))
+	if err := rc.SweepStale(ctx, time.Now().UTC(), newRPRDrops().hook); err != nil {
+		t.Fatalf("sweep 2: %v", err)
+	}
+	// Sweep 2 may legitimately re-sweep the FAILED exec-id-a; the identity
+	// that FIRST claimed it is the one sweep 1 minted.
+	var first, second string
+	for _, a := range attempts {
+		switch a.ExecutionID {
+		case "exec-id-a":
+			if first == "" {
+				first = a.ReconcilerID
+			}
+		case "exec-id-b":
+			second = a.ReconcilerID
+		}
+	}
+	if first == "" || second == "" {
+		t.Fatalf("claim attempts missing a sweep target: %v", attempts)
+	}
+	if first == second || !strings.HasPrefix(first, "reconciler-") || !strings.HasPrefix(second, "reconciler-") {
+		t.Fatalf("sweep identities must be freshly minted per call: %q vs %q", first, second)
+	}
+}
+
+// unsafeDB is a DB implementation whose dynamic type is NOT comparable:
+// interface equality on it panics, so the reconciler constructor must
+// reject it through reflect before ever using ==/!=.
+type unsafeDB struct {
+	inner DB
+	junk  map[string]string
+}
+
+func (u unsafeDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return u.inner.Exec(ctx, sql, args...)
+}
+
+func (u unsafeDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return u.inner.Query(ctx, sql, args...)
+}
+
+func (u unsafeDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return u.inner.QueryRow(ctx, sql, args...)
+}
+
+func (u unsafeDB) Begin(ctx context.Context) (pgx.Tx, error) {
+	return u.inner.Begin(ctx)
+}
+
+func TestNewReconcilerRejectsUnsafeOrMismatchedBindings(t *testing.T) {
+	s := newRPRService(t)
+
+	junk := map[string]string{"canary": "value"}
+	regU, err := New(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	pinsU, err := NewReadPins(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new pins: %v", err)
+	}
+	regU.db = unsafeDB{inner: s.w, junk: junk}
+	pinsU.db = unsafeDB{inner: s.w, junk: junk}
+	if _, err := NewReconciler(regU, pinsU, nil); err == nil {
+		t.Fatal("non-comparable database bindings accepted")
+	} else if !strings.Contains(err.Error(), "not comparable") {
+		t.Fatalf("non-comparable binding error = %v, want the comparable refusal", err)
+	}
+
+	regM, err := New(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	pinsM, err := NewReadPins(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new pins: %v", err)
+	}
+	regM.db = s.w
+	pinsM.db = s.b
+	if _, err := NewReconciler(regM, pinsM, nil); err == nil {
+		t.Fatal("mismatched comparable pools accepted")
+	}
+
+	regC, err := New(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	pinsC, err := NewReadPins(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new pins: %v", err)
+	}
+	if _, err := NewReconciler(regC, pinsC, nil); err != nil {
+		t.Fatalf("matched bindings rejected: %v", err)
+	}
+}
+
+// TestBundleCatalogDelegatesPinArbitration shows the composition seam that
+// production consumers rely on: the catalog value itself satisfies
+// publication.ExecutionReadPinCatalog (the assertion in
+// internal/dataframe/published/export.go, internal/dataframe/published/
+// read_pins.go, and clickhouse/bundle_store.go), and every one of the six
+// methods reaches the same tables the ReadPins arbiter uses.
+func TestBundleCatalogDelegatesPinArbitration(t *testing.T) {
+	s := newRPRService(t)
+	ctx := s.ctx
+	cat, err := NewBundleCatalog(s.w, s.schema)
+	if err != nil {
+		t.Fatalf("new bundle catalog: %v", err)
+	}
+	if _, ok := any(cat).(publication.ExecutionReadPinCatalog); !ok {
+		t.Fatal("consumers cannot discover read pins on the bundle catalog value")
+	}
+	const id = "exec-catalog-delegation"
+	granted, err := cat.AcquireExecutionReadPin(ctx, id, "reader-1", rprFarFuture)
+	if err != nil || !granted {
+		t.Fatalf("catalog acquire pin = %v, %v", granted, err)
+	}
+	if rows := s.pinsRows(t, s.w, id); len(rows) != 1 || !strings.HasPrefix(rows[0], "reader-1|") {
+		t.Fatalf("acquire not delegated to the arbiter: %v", rows)
+	}
+	if _, err := cat.RenewExecutionReadPin(ctx, id, "reader-1", rprFarFuture.Add(time.Hour)); err != nil {
+		t.Fatalf("catalog renew pin: %v", err)
+	}
+	if claimed, err := cat.ClaimExecutionCleanup(ctx, id, "cleanup-1"); err != nil || claimed {
+		t.Fatalf("catalog claim over a live pin = %v, %v, want (false, nil) baseline refusal", claimed, err)
+	}
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("refused catalog claim minted a claim row: %q", claim)
+	}
+	if err := cat.ReleaseExecutionReadPin(ctx, id, "reader-1"); err != nil {
+		t.Fatalf("catalog release pin: %v", err)
+	}
+	if rows := s.pinsRows(t, s.w, id); len(rows) != 0 {
+		t.Fatalf("release not delegated: %v", rows)
+	}
+	granted, err = cat.ClaimExecutionCleanup(ctx, id, "cleanup-1")
+	if err != nil || !granted {
+		t.Fatalf("catalog claim after release = %v, %v", granted, err)
+	}
+	if _, err := cat.RenewExecutionCleanup(ctx, id, "cleanup-1", rprFarFuture); err != nil {
+		t.Fatalf("catalog renew cleanup: %v", err)
+	}
+	if err := cat.ReleaseExecutionCleanup(ctx, id, "cleanup-1"); err != nil {
+		t.Fatalf("catalog release cleanup: %v", err)
+	}
+	if claim := s.claimRow(t, s.w, id); claim != "" {
+		t.Fatalf("catalog release cleanup not delegated: %q", claim)
+	}
+	if cat.Pins() == nil {
+		t.Fatal("catalog does not expose its bound arbiter for reconciler wiring")
+	}
+}
+
 func TestZZZeroLeftoverReadPinsFixtures(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		t.Skip("no service configured; nothing could have been created")

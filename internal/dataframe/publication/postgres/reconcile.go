@@ -64,6 +64,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -152,12 +153,13 @@ type Reconciler struct {
 	pins     *ReadPins
 	releases dataset.ActiveReleaseResolver
 
-	reconcilerID string
-	pageSize     int
-	leaseTTL     time.Duration
-	heartbeatTTL time.Duration
-	renewalEvery time.Duration
-	callTimeout  time.Duration
+	reconcilerID  string
+	identityFixed bool
+	pageSize      int
+	leaseTTL      time.Duration
+	heartbeatTTL  time.Duration
+	renewalEvery  time.Duration
+	callTimeout   time.Duration
 
 	// OnDecision, when non-nil, receives every per-execution decision. It
 	// is a value-only observer hook, called from the sweep goroutine.
@@ -168,12 +170,27 @@ type Reconciler struct {
 // write), a ReadPins arbiter (pin/cleanup arbitration), and optionally an
 // active-release reader. With releases nil the PUBLISHED janitor arm is never
 // enumerated and binding checks are not consulted -- the same wiring rule
-// the ClickHouse store enforces. The reconciler identity is minted once so a
-// claim this sweeper abandoned can be refreshed by it, while any other
-// sweeper must wait for the claim to expire.
+// the ClickHouse store enforces. The registry and the arbiter must bind the
+// same database handle: the comparison is done through reflect because DB
+// is an exported injection seam whose dynamic type a caller chooses, and
+// interface inequality on a non-comparable dynamic type would panic here
+// rather than return an error. Sweep identity is minted per SweepStale call
+// (ClickHouse baseline parity, bundle_store.go:1082), which keeps the bundle
+// lease and cleanup claim as the mutual-exclusion point between concurrent
+// sweeps of one instance; fixIdentity pins it for tests.
 func NewReconciler(registry *Registry, pins *ReadPins, releases dataset.ActiveReleaseResolver) (*Reconciler, error) {
 	if registry == nil || pins == nil {
 		return nil, errors.New("publication postgres: reconciler requires a registry and a pins arbiter")
+	}
+	registryType, pinsType := reflect.TypeOf(registry.db), reflect.TypeOf(pins.db)
+	if registryType == nil || pinsType == nil {
+		return nil, errors.New("publication postgres: reconciler registry and pins require a database handle")
+	}
+	if registryType != pinsType {
+		return nil, errors.New("publication postgres: reconciler registry and pins bind different database handles")
+	}
+	if !registryType.Comparable() {
+		return nil, fmt.Errorf("publication postgres: reconciler database handle type %s is not comparable; bind a comparable handle (for example *pgxpool.Pool)", registryType)
 	}
 	if registry.db != pins.db {
 		return nil, errors.New("publication postgres: reconciler registry and pins must bind the same database")
@@ -182,13 +199,24 @@ func NewReconciler(registry *Registry, pins *ReadPins, releases dataset.ActiveRe
 		registry:     registry,
 		pins:         pins,
 		releases:     releases,
-		reconcilerID: "reconciler-" + uuid.NewString(),
 		pageSize:     defaultReconcilePageSize,
 		leaseTTL:     defaultReconcileLeaseTTL,
 		heartbeatTTL: defaultCleanupHeartbeatTTL,
 		renewalEvery: defaultCleanupRenewal,
 		callTimeout:  defaultReconcileCallTimeout,
 	}, nil
+}
+
+// fixIdentity pins the sweep identity for every SweepStale call on this
+// instance. It is the test seam for same-sweeper claim refresh and
+// foreign-owner scenarios; production never calls it, so each sweep mints a
+// fresh "reconciler-"+uuid identity and two concurrent sweeps of one
+// instance exclude each other through the bundle lease and cleanup claim
+// exactly as the ClickHouse baseline does by minting a per-Reconcile
+// identity.
+func (rc *Reconciler) fixIdentity(identity string) {
+	rc.reconcilerID = identity
+	rc.identityFixed = true
 }
 
 // SweepStale walks every swept state's stale executions (updated strictly
@@ -198,6 +226,10 @@ func NewReconciler(registry *Registry, pins *ReadPins, releases dataset.ActiveRe
 func (rc *Reconciler) SweepStale(ctx context.Context, olderThan time.Time, drop PhysicalDropTable) error {
 	if drop == nil {
 		return errors.New("publication postgres: reconciler requires a physical drop hook")
+	}
+	sweepID := rc.reconcilerID
+	if !rc.identityFixed {
+		sweepID = "reconciler-" + uuid.NewString()
 	}
 	states := []publication.BundleState{
 		publication.BundleRunning,
@@ -210,7 +242,7 @@ func (rc *Reconciler) SweepStale(ctx context.Context, olderThan time.Time, drop 
 	for _, state := range states {
 		process := func(executions []publication.BundleExecution) error {
 			for _, execution := range executions {
-				if err := rc.reconcileOne(ctx, execution, drop); err != nil {
+				if err := rc.reconcileOne(ctx, execution, sweepID, drop); err != nil {
 					return err
 				}
 			}
@@ -229,7 +261,7 @@ func (rc *Reconciler) decide(execution publication.BundleExecution, outcome Reco
 	}
 }
 
-func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.BundleExecution, drop PhysicalDropTable) error {
+func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.BundleExecution, sweepID string, drop PhysicalDropTable) error {
 	superseded := execution.State.Canonical() == publication.BundlePublished
 	if superseded {
 		// Pre-claim janitor filter: a PUBLISHED execution its pointer still
@@ -260,7 +292,7 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 		}
 	}
 
-	claimed, err := rc.registry.AcquireBundleLease(ctx, execution.Key, rc.reconcilerID, time.Now().UTC().Add(rc.leaseTTL))
+	claimed, err := rc.registry.AcquireBundleLease(ctx, execution.Key, sweepID, time.Now().UTC().Add(rc.leaseTTL))
 	if err != nil {
 		rc.decide(execution, "", err)
 		return err
@@ -270,7 +302,12 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 		return nil
 	}
 	releaseLease := func() error {
-		return rc.registry.ReleaseBundleLease(context.WithoutCancel(ctx), execution.Key, rc.reconcilerID)
+		// Baseline parity with executionCleanupLease.release: detached from
+		// cancellation but bounded, so a hung release cannot outlive the
+		// sweep.
+		releaseCtx, cancelRelease := context.WithTimeout(context.WithoutCancel(ctx), rc.callTimeout)
+		defer cancelRelease()
+		return rc.registry.ReleaseBundleLease(releaseCtx, execution.Key, sweepID)
 	}
 
 	// Pre-claim pointer check: an execution its pointer already names is
@@ -291,7 +328,7 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 		(*hook)(execution.ID)
 	}
 
-	outcome, claimErr := rc.claimCleanup(ctx, execution)
+	outcome, claimErr := rc.claimCleanup(ctx, execution, sweepID)
 	if claimErr != nil {
 		return errors.Join(claimErr, releaseLease())
 	}
@@ -315,7 +352,7 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 
 	releaseClaimAndLease := func() error {
 		return errors.Join(
-			rc.pins.ReleaseExecutionCleanup(context.WithoutCancel(ctx), execution.ID, rc.reconcilerID),
+			rc.pins.ReleaseExecutionCleanup(context.WithoutCancel(ctx), execution.ID, sweepID),
 			releaseLease(),
 		)
 	}
@@ -357,7 +394,7 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 		cancel:      cancelDrop,
 		done:        make(chan struct{}),
 		executionID: execution.ID,
-		owner:       rc.reconcilerID,
+		owner:       sweepID,
 		ttl:         rc.heartbeatTTL,
 		every:       rc.renewalEvery,
 	}
@@ -380,7 +417,7 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 	if gate := reconcileFinalizeGate.Load(); gate != nil {
 		attempt := reconcileFinalizeAttempt{
 			ExecutionID:   execution.ID,
-			ReconcilerID:  rc.reconcilerID,
+			ReconcilerID:  sweepID,
 			DroppedTables: dropped,
 			Remaining:     tableNames(remaining),
 		}
@@ -406,8 +443,15 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 	updated.Outputs = remaining
 	updated.OwnerID = ""
 	updated.LeaseExpiresAt = nil
-	first = errors.Join(first, rc.registry.SaveExecution(cleanupCtx, updated, rc.reconcilerID))
-	first = errors.Join(first, rc.pins.ReleaseExecutionCleanup(cleanupCtx, execution.ID, rc.reconcilerID))
+	// The terminal record and the claim release are detached from the
+	// pre-claim deadline (baseline parity with executionCleanupLease.release
+	// and the boundedBundleCleanupContext releases): a drop phase that
+	// consumes the pre-claim budget must not strand a live claim owned by
+	// this identity, which would refuse every foreign sweep until expiry.
+	terminalCtx, cancelTerminal := context.WithTimeout(context.WithoutCancel(ctx), rc.callTimeout)
+	defer cancelTerminal()
+	first = errors.Join(first, rc.registry.SaveExecution(terminalCtx, updated, sweepID))
+	first = errors.Join(first, rc.pins.ReleaseExecutionCleanup(terminalCtx, execution.ID, sweepID))
 	first = errors.Join(first, releaseLease())
 	if first != nil {
 		rc.decide(execution, "", first)
@@ -426,7 +470,7 @@ func (rc *Reconciler) reconcileOne(ctx context.Context, execution publication.Bu
 // against the newest committed pin state (pin acquire is blocked on the
 // same anchor for the whole window). Lock order is documented at the top of
 // this file.
-func (rc *Reconciler) claimCleanup(ctx context.Context, execution publication.BundleExecution) (ReconcileOutcome, error) {
+func (rc *Reconciler) claimCleanup(ctx context.Context, execution publication.BundleExecution, sweepID string) (ReconcileOutcome, error) {
 	now := time.Now().UTC()
 	tx, err := rc.registry.db.Begin(ctx)
 	if err != nil {
@@ -434,7 +478,7 @@ func (rc *Reconciler) claimCleanup(ctx context.Context, execution publication.Bu
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	attempt := reconcileClaimAttempt{ExecutionID: execution.ID, ReconcilerID: rc.reconcilerID}
+	attempt := reconcileClaimAttempt{ExecutionID: execution.ID, ReconcilerID: sweepID}
 	if conn := tx.Conn(); conn != nil {
 		attempt.BackendPID = conn.PgConn().PID()
 	}
@@ -506,7 +550,7 @@ func (rc *Reconciler) claimCleanup(ctx context.Context, execution publication.Bu
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("publication postgres: reconcile claim read claim: %w", err)
 	}
-	if claimFound && !claimExpires.Before(now) && claimOwner != rc.reconcilerID {
+	if claimFound && !claimExpires.Before(now) && claimOwner != sweepID {
 		attempt.Outcome = ReconcileRefusedCleanupOwned
 		return rc.finishClaim(ctx, tx, attempt)
 	}
@@ -522,7 +566,7 @@ func (rc *Reconciler) claimCleanup(ctx context.Context, execution publication.Bu
 		" VALUES ($1, $2, $3, $4)" +
 		" ON CONFLICT (execution_id) DO UPDATE SET owner_id = $2, expires_at = $3, updated_at = $4"
 	record(grantSQL)
-	if _, err := tx.Exec(ctx, grantSQL, execution.ID, rc.reconcilerID, now.Add(rc.heartbeatTTL), now); err != nil {
+	if _, err := tx.Exec(ctx, grantSQL, execution.ID, sweepID, now.Add(rc.heartbeatTTL), now); err != nil {
 		return "", fmt.Errorf("publication postgres: reconcile claim grant: %w", err)
 	}
 	touchSQL := "UPDATE " + rc.pins.retention + " SET updated_at = $2 WHERE execution_id = $1"

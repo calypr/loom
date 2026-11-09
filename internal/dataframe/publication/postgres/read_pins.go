@@ -140,6 +140,72 @@ type ReadPins struct {
 
 var _ publication.ExecutionReadPinCatalog = (*ReadPins)(nil)
 
+// BundleCatalog is the catalog value for one schema of the PostgreSQL
+// control plane: the bundle Registry and the ReadPins arbiter bound to the
+// same database and schema. Production consumers discover pin arbitration by
+// type-asserting the catalog value they hold -- internal/dataframe/published
+// (export and read-pin seams) and the ClickHouse bundle store each assert
+// publication.ExecutionReadPinCatalog on it -- so in the PostgreSQL shape
+// this type is what those assertions must find; a bare Registry would make
+// the reader seams hard-fail and the ClickHouse reconciler silently skip
+// pin arbitration.
+type BundleCatalog struct {
+	*Registry
+	pins *ReadPins
+}
+
+var (
+	_ publication.BundleCatalog           = (*BundleCatalog)(nil)
+	_ publication.ExactExecutionCatalog   = (*BundleCatalog)(nil)
+	_ publication.PagedBundleCatalog      = (*BundleCatalog)(nil)
+	_ publication.ExecutionReadPinCatalog = (*BundleCatalog)(nil)
+)
+
+// NewBundleCatalog binds both halves to the same pool and schema, so pin
+// arbitration and bundle visibility can never straddle databases or schemas.
+func NewBundleCatalog(pool DB, schema string) (*BundleCatalog, error) {
+	registry, err := New(pool, schema)
+	if err != nil {
+		return nil, err
+	}
+	pins, err := NewReadPins(pool, schema)
+	if err != nil {
+		return nil, err
+	}
+	return &BundleCatalog{Registry: registry, pins: pins}, nil
+}
+
+// Pins returns the bound arbiter for wiring that needs it directly, such as
+// NewReconciler.
+func (c *BundleCatalog) Pins() *ReadPins { return c.pins }
+
+// ExecutionReadPinCatalog delegation to the bound arbiter. All six methods
+// forward verbatim; BundleCatalog adds no policy of its own.
+
+func (c *BundleCatalog) AcquireExecutionReadPin(ctx context.Context, executionID, ownerID string, expiresAt time.Time) (bool, error) {
+	return c.pins.AcquireExecutionReadPin(ctx, executionID, ownerID, expiresAt)
+}
+
+func (c *BundleCatalog) RenewExecutionReadPin(ctx context.Context, executionID, ownerID string, expiresAt time.Time) (bool, error) {
+	return c.pins.RenewExecutionReadPin(ctx, executionID, ownerID, expiresAt)
+}
+
+func (c *BundleCatalog) ReleaseExecutionReadPin(ctx context.Context, executionID, ownerID string) error {
+	return c.pins.ReleaseExecutionReadPin(ctx, executionID, ownerID)
+}
+
+func (c *BundleCatalog) ClaimExecutionCleanup(ctx context.Context, executionID, ownerID string) (bool, error) {
+	return c.pins.ClaimExecutionCleanup(ctx, executionID, ownerID)
+}
+
+func (c *BundleCatalog) RenewExecutionCleanup(ctx context.Context, executionID, ownerID string, expiresAt time.Time) (bool, error) {
+	return c.pins.RenewExecutionCleanup(ctx, executionID, ownerID, expiresAt)
+}
+
+func (c *BundleCatalog) ReleaseExecutionCleanup(ctx context.Context, executionID, ownerID string) error {
+	return c.pins.ReleaseExecutionCleanup(ctx, executionID, ownerID)
+}
+
 // NewReadPins binds an arbiter to one schema of a PostgreSQL 18 database
 // served by pool. The schema must already contain the retention tables
 // (tests/migrations-readpins/000009_publication_read_pins.sql via the
