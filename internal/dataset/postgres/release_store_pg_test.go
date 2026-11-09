@@ -13,7 +13,18 @@ package postgres
 // Expected rows are asserted literally through a witness pool that is a
 // third, physically distinct backend connection, and stale-writer proofs run
 // over two single-connection pools with provably distinct pg_backend_pid
-// values. A skipped test proves nothing: the CI runner fails on skips.
+// values. Skip discipline: no test in this file runs green on a skip --
+// every assertion requires the live service, and a run presented as
+// acceptance evidence fails if any test here skipped. Note the CI wiring
+// honestly: the go-unit lane runs this package WITHOUT
+// LOOM_TEST_POSTGRES_URL, so its PG-gated tests skip green there, and the
+// pg-fixture job (scripts/run-postgres-integration.mjs) pins its Go phase
+// to the pg-store-01 suite in ./internal/store/postgres only. This suite's
+// acceptance is therefore live PG18 runs (recipe, command, full log, and
+// exit status attached to the PR's evidence comment); extending the owned
+// namespace runner to cover ./internal/dataset/postgres with the
+// never-skipped assertion is a shared-infra change held for the
+// coordinator.
 // CAS schedule tests run serially (no t.Parallel anywhere). The TestZZ
 // zero-leftover audit is ownership-scoped to pgpubrel01_it_* only: sibling
 // suites sweep their own prefixes in their own files, and concurrent
