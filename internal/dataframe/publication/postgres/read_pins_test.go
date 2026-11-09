@@ -486,13 +486,25 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store-space migrate: %v", err)
 	}
-	if storeResult.LatestVersion != 9 || len(storeResult.Applied) != len(embedded) {
-		t.Fatalf("store-space result latest = %d applied = %d, want 9 and %d", storeResult.LatestVersion, len(storeResult.Applied), len(embedded))
+	// The store set belongs to internal/store/postgres and grows whenever
+	// a ticket adds a migration there; the expectation is DERIVED from the
+	// loaded slice (as the migrate helper derives the ledger bootstrap),
+	// never pinned to the current ceiling, so a future 000010 cannot fail
+	// this pins test. The version 9 membership below is the coexistence
+	// witness proper; the ceiling assertions follow maxEntry.
+	maxVersion, maxEntry := embedded[0].Version, embedded[0]
+	for _, m := range embedded {
+		if m.Version > maxVersion {
+			maxVersion, maxEntry = m.Version, m
+		}
+	}
+	if storeResult.LatestVersion != maxVersion || len(storeResult.Applied) != len(embedded) {
+		t.Fatalf("store-space result latest = %d applied = %d, want %d and %d", storeResult.LatestVersion, len(storeResult.Applied), maxVersion, len(embedded))
 	}
 	last := storeResult.Applied[len(storeResult.Applied)-1]
-	if last.Version != 9 || last.Name != "semantic_inventory_contribution" || last.Checksum != store9.Checksum {
-		t.Fatalf("store-space last applied = {Version:%d Name:%q Checksum:%q}, want {Version:9 Name:%q Checksum:%q}",
-			last.Version, last.Name, last.Checksum, "semantic_inventory_contribution", store9.Checksum)
+	if last.Version != maxEntry.Version || last.Name != maxEntry.Name || last.Checksum != maxEntry.Checksum {
+		t.Fatalf("store-space last applied = {Version:%d Name:%q Checksum:%q}, want the maximum embedded entry {Version:%d Name:%q Checksum:%q}",
+			last.Version, last.Name, last.Checksum, maxEntry.Version, maxEntry.Name, maxEntry.Checksum)
 	}
 
 	// Dual existence in one database: both ledgers hold a version 9 row,
@@ -526,8 +538,17 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	if pubLedger[2] != fmt.Sprintf("9|publication_read_pins|%s", retention[0].Checksum) {
 		t.Fatalf("publication ledger version 9 = %q, want publication_read_pins with the load checksum", pubLedger[2])
 	}
-	if storeLedger[len(storeLedger)-1] != fmt.Sprintf("9|semantic_inventory_contribution|%s", store9.Checksum) {
-		t.Fatalf("store ledger version 9 = %q, want semantic_inventory_contribution with the load checksum", storeLedger[len(storeLedger)-1])
+	store9Row := ""
+	for _, row := range storeLedger {
+		if strings.HasPrefix(row, "9|") {
+			store9Row = row
+		}
+	}
+	if store9Row != fmt.Sprintf("9|semantic_inventory_contribution|%s", store9.Checksum) {
+		t.Fatalf("store ledger version 9 = %q, want semantic_inventory_contribution with the load checksum (dual existence against the publication ledger's version 9)", store9Row)
+	}
+	if tail := storeLedger[len(storeLedger)-1]; tail != fmt.Sprintf("%d|%s|%s", maxEntry.Version, maxEntry.Name, maxEntry.Checksum) {
+		t.Fatalf("store ledger tail = %q, want the maximum embedded entry %d|%s|...", tail, maxEntry.Version, maxEntry.Name)
 	}
 	for _, probe := range []struct {
 		schema, table string

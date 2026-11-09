@@ -440,9 +440,14 @@ func TestReconcileDropFailureConvergesIdempotently(t *testing.T) {
 		t.Fatalf("failed-drop sweep left pin rows: %v", got)
 	}
 
-	// Convergence run: the next sweep -- fresh identity, production shape
-	// -- finishes the job idempotently.
-	rc2 := s.newReconciler(t, nil)
+	// Convergence run: the next sweep of a Reconciler built the way
+	// production builds one -- NewReconciler, no fixIdentity seam, so a
+	// minted identity foreign to the crashed sweep -- finishes the job
+	// idempotently.
+	rc2, err := NewReconciler(s.regA, s.pinsA, nil)
+	if err != nil {
+		t.Fatalf("new unfixed reconciler: %v", err)
+	}
 	converged := newRPRDrops()
 	if err := rc2.SweepStale(ctx, time.Now().UTC(), converged.hook); err != nil {
 		t.Fatalf("converging sweep: %v", err)
