@@ -93,6 +93,33 @@ export const RESOURCE_WRITER_INTEGRATION_TESTS = [
   'TestPostgresResourceWriterCanonicalPayloadEncoding',
   'TestZZZeroLeftoverIngestPostgresResourceWriterFixtures',
 ];
+// The pg-ingest-02 edge-writer suite (the store EdgeWriter facade and the
+// ingest PostgresEdgeWriter) runs as a fifth never-skipped lane over both
+// packages, mirroring the resource-writer lane's filter pattern: the store
+// package holds every other PG-gated suite, so the explicit -run filter
+// (matching exactly the TestPostgresEdgeWriter* acceptance cases plus both
+// packages' TestZZ fixture-cleanup audits) keeps this lane scoped to the
+// edge surface while checkGoEvents' zero-skip assertion makes every matched
+// case mandatory. The anchors prove the duplicate-reference exact-column
+// commit, ledger replay, seam-level failure injection, the two-connection
+// one-winner race, the commit-visibility race, the refusal matrix, and both
+// cleanup cores actually executed on the real server.
+export const EDGE_WRITER_INTEGRATION_PACKAGES = ['./internal/ingest', './internal/store/postgres'];
+export const EDGE_WRITER_INTEGRATION_FILTER = '^(TestPostgresEdgeWriter\\w*|TestZZZeroLeftoverEdgeWriterFixtures|TestZZZeroLeftoverIngestPostgresEdgeFixtures)$';
+export const EDGE_WRITER_INTEGRATION_TESTS = [
+  'TestPostgresEdgeWriterWritesDuplicateReferenceOccurrencesWithExactColumns',
+  'TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted',
+  'TestPostgresEdgeWriterInjectedFailureAtEverySeamLeavesNoRowsOrMarker',
+  'TestPostgresEdgeWriterConcurrentIdenticalBatchCommitsOnceTwoConnections',
+  'TestZZZeroLeftoverEdgeWriterFixtures',
+  'TestPostgresEdgeWriterPersistsOccurrencesEndToEndWithExactRows',
+  'TestPostgresEdgeWriterCommitmentToLiteralConvertedBatch',
+  'TestPostgresEdgeWriterTargetResolutionIsScopeExact',
+  'TestPostgresEdgeWriterRefusalMatrix',
+  'TestPostgresEdgeWriterConcurrentIdenticalEdgeBatchCommitsOnce',
+  'TestPostgresEdgeWriterCountsChangeOnlyAtCommit',
+  'TestZZZeroLeftoverIngestPostgresEdgeFixtures',
+];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -724,6 +751,26 @@ export async function runPostgres(output, deps = {}) {
       propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
       anchors: [...RESOURCE_WRITER_INTEGRATION_TESTS],
       passes: resourceWriterPasses,
+    };
+    budget(goTestBudgetMs + 30_000 + 90_000);
+    evidence.phases.push('edge-writer-integration');
+    // Same owned-service propagation and explicit-filter pattern as the
+    // resource-writer lane: a matched case that skips is a failure here,
+    // never a pass, and the other PG-gated store suites keep their own
+    // lanes and budgets.
+    const edgeWriterArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', EDGE_WRITER_INTEGRATION_FILTER, ...EDGE_WRITER_INTEGRATION_PACKAGES];
+    const edgeWriter = await Promise.resolve(goTest(edgeWriterArgs, childEnv));
+    writeFileSync(join(directory, 'edge-writer-integration.jsonl'), scrubSecrets(edgeWriter.stdout || '', secrets));
+    writeFileSync(join(directory, 'edge-writer-integration.stderr'), scrubSecrets(edgeWriter.stderr || '', secrets));
+    assert.equal(edgeWriter.status, 0, `edge-writer real-PG suites failed: ${scrubSecrets(edgeWriter.error?.message || edgeWriter.stderr || '', secrets)}`);
+    const edgeWriterPasses = checkGoEvents(edgeWriter.stdout, EDGE_WRITER_INTEGRATION_TESTS).passes;
+    evidence.edgeWriterIntegration = {
+      status: 'passed',
+      packages: [...EDGE_WRITER_INTEGRATION_PACKAGES],
+      command: ['go', 'test', '-count=1', '-run', EDGE_WRITER_INTEGRATION_FILTER, ...EDGE_WRITER_INTEGRATION_PACKAGES],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...EDGE_WRITER_INTEGRATION_TESTS],
+      passes: edgeWriterPasses,
     };
     evidence.status = 'passed';
   } catch (error) {
