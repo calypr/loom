@@ -3549,6 +3549,64 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 		t.Fatalf("digest page shape %v, want first page %d and last page 1", pages, explicitGroupMembershipPageSize)
 	}
 
+	// The plan-shape witness (review follow-up): the bounded page query
+	// must be served by an ordered index scan -- ORDER BY exactly the
+	// keyset predicate's (group_id, resource_id) is provably the visit
+	// index's own order, so no Sort node appears. The control restores
+	// the old trailing scope columns (not in the visit index, and no
+	// unique constraint on (revision_id, group_id, resource_id) justifies
+	// pathkey truncation): that plan MUST carry a Sort, proving the
+	// no-Sort assertion is not vacuous. enable_seqscan is off so the
+	// comparison isolates pathkey provability from small-table cost
+	// accidents.
+	tx, err := f.witness.Begin(f.ctx)
+	if err != nil {
+		f.fail("begin plan-witness transaction", err)
+	}
+	defer tx.Rollback(f.ctx)
+	if _, err := tx.Exec(f.ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+		f.fail("disable seqscan for plan witness", err)
+	}
+	if _, err := tx.Exec(f.ctx, `ANALYZE `+f.membershipsTable()); err != nil {
+		f.fail("analyze memberships for plan witness", err)
+	}
+	explainPlan := func(sql string) string {
+		t.Helper()
+		rows, err := tx.Query(f.ctx, `EXPLAIN (FORMAT TEXT) `+sql, string(revision.ID), "", "", 50)
+		if err != nil {
+			f.fail("explain membership page", err)
+		}
+		defer rows.Close()
+		var plan strings.Builder
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				f.fail("scan plan line", err)
+			}
+			plan.WriteString(line)
+			plan.WriteByte('\n')
+		}
+		if err := rows.Err(); err != nil {
+			f.fail("read plan lines", err)
+		}
+		return plan.String()
+	}
+	fixedPlan := explainPlan(f.store.memberStmts.memberPage)
+	if !strings.Contains(fixedPlan, "explorer_explicit_group_memberships_visit") {
+		t.Fatalf("bounded page does not use the visit index:\n%s", fixedPlan)
+	}
+	if strings.Contains(fixedPlan, "Sort") {
+		t.Fatalf("bounded page carries a Sort node -- the ORDER BY is not proven by the visit index:\n%s", fixedPlan)
+	}
+	tailedPlan := explainPlan(strings.Replace(f.store.memberStmts.memberPage,
+		"ORDER BY group_id, resource_id", "ORDER BY group_id, resource_id, project, generation, resource_type", 1))
+	if !strings.Contains(tailedPlan, "Sort") {
+		t.Fatalf("plan-shape control: the trailing-scope-column page planned WITHOUT a Sort node -- the no-Sort witness proves nothing:\n%s", tailedPlan)
+	}
+	if err := tx.Commit(f.ctx); err != nil {
+		f.fail("commit plan-witness transaction", err)
+	}
+
 	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, total,
 		time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)); err != nil {
 		f.fail("large completion", err)
@@ -3581,9 +3639,9 @@ func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.
 	if len(seen) != total {
 		t.Fatalf("full visit yielded %d members, want %d", len(seen), total)
 	}
-	// The walk order is the keyset order (group_id, resource_id, ...):
-	// every group-a ref ascending, then every group-b ref ascending --
-	// NOT the append order.
+	// The walk order is the keyset order (group_id, resource_id): every
+	// group-a ref ascending, then every group-b ref ascending -- NOT the
+	// append order.
 	var wantOrder []explorer.ExplicitGroupMembership
 	for _, group := range []explorer.ExplicitGroupID{grpmGroupA, grpmGroupB} {
 		for _, m := range batch {

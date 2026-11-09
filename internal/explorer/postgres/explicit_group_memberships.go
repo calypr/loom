@@ -142,10 +142,15 @@ type explicitGroupMembershipStatements struct {
 	// memberPage streams one bounded page in byte-order (group_id,
 	// resource_id) -- the composite continuation cursor of the Arango
 	// adapter's membership visit, over COLLATE "C" columns so this is the
-	// adapter's byte-order SORT. The trailing key columns are pure
-	// tiebreakers: the trigger-pinned parent scope makes
-	// (group_id, resource_id) unique within a revision, but the full-key
-	// tail keeps the order total no matter what a bypassing writer did.
+	// adapter's byte-order SORT. The ORDER BY is deliberately exactly the
+	// keyset predicate's columns so the visit index proves the order and
+	// each page is an ordered index scan, never a Sort over the remaining
+	// range: the trigger-pinned parent scope makes (group_id,
+	// resource_id) unique within a revision (the PK minus the pinned
+	// constants), and a bypassing writer's scope-varying rows are refused
+	// by read-side validation as corruption, so trailing key columns
+	// would only defeat the plan (as selection_members' memberVisitPage/
+	// memberDigestPage already avoid for the same reason).
 	memberPage string
 	// memberDeleteRevision removes one revision's whole membership set
 	// (owner abort, under the abort-token GUC).
@@ -189,7 +194,7 @@ func newExplicitGroupMembershipStatements(schema string) explicitGroupMembership
 		memberPage: "SELECT " + scols + " FROM " + members +
 			" WHERE revision_id = $1" +
 			" AND (group_id > $2 OR (group_id = $2 AND resource_id > $3))" +
-			" ORDER BY group_id, resource_id, project, generation, resource_type" +
+			" ORDER BY group_id, resource_id" +
 			" LIMIT $4",
 		memberDeleteRevision: "DELETE FROM " + members + " WHERE revision_id = $1",
 		memberDeleteBatch:    "DELETE FROM " + members + " WHERE revision_id = ANY($1::text[])",
@@ -807,9 +812,14 @@ func (s *ExplicitGroupStore) CompleteExplicitGroupRevision(ctx context.Context, 
 // bounded to explicitGroupMembershipPageSize however large the request
 // is, and the walk is cancellation-aware: a cancelled call stops between
 // members and returns the cursor of the last member the visitor actually
-// saw, so resuming continues with no gap and no duplicate. The cursor is
-// stable under key ties because the page order is the full primary-key
-// order and the membership set is insert-once under the header lock.
+// saw, so resuming continues with no gap and no duplicate. The walk is
+// total and deterministic because the page order is exactly the keyset
+// predicate's (group_id, resource_id) -- provably the visit index's own
+// order -- which is unique within a revision because the trigger pins
+// every row's scope to the parent header, the membership set is
+// insert-once under the header lock, and any scope-varying row a
+// bypassing writer smuggled past the (dropped) trigger is refused by
+// read-side validation rather than silently ordered.
 func (s *ExplicitGroupStore) VisitExplicitGroupMemberships(ctx context.Context, project string, revisionID explorer.ExplicitGroupRevisionID, after explorer.ExplicitGroupMembershipCursor, pageSize int, visit func(explorer.ExplicitGroupMembership) error) (explorer.ExplicitGroupMembershipCursor, error) {
 	if visit == nil {
 		return after, fmt.Errorf("explicit group membership visitor is required")
