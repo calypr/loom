@@ -306,10 +306,15 @@ func newMigrationService(t *testing.T) *migrationService {
 // database, so a caller gets its own physical connections.
 func (s *migrationService) openClient(t *testing.T) *Client {
 	t.Helper()
+	return s.openClientWithBounds(t, 1, 3)
+}
+
+func (s *migrationService) openClientWithBounds(t *testing.T, minConns, maxConns int32) *Client {
+	t.Helper()
 	client, err := Open(s.ctx, Config{
 		DSN:            s.dsn,
-		MaxConns:       3,
-		MinConns:       1,
+		MaxConns:       maxConns,
+		MinConns:       minConns,
 		AcquireTimeout: 10 * time.Second,
 	})
 	if err != nil {
@@ -682,13 +687,23 @@ func TestMigrationFailingDDLRollsBackAndKeepsLedgerIntact(t *testing.T) {
 // connection's lock state is unproven and must be discarded rather than
 // pooled. The run must surface the unconfirmed release as an error even
 // though the migration itself applied and was recorded, and the pool must
-// not retain the poisoned connection.
+// prove the discard: with MinConns 0 the physical connection count drops
+// (a mere return-to-pool would leave it in place, which AcquiredConns
+// alone cannot detect).
 func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 	svc := newMigrationService(t)
 	set := migrationSet(t, mustEmbeddedMigrations(t), map[string]string{
 		"000002_surrender.sql": "SELECT pg_catalog.pg_advisory_unlock_all();\nCREATE TABLE surrendered (id int);\n",
 	})
-	client := svc.openClient(t)
+	// MinConns 0 keeps the discard observable: a destroyed connection is
+	// never replaced in the background, so the pool's physical total drops
+	// exactly when the unproven connection was discarded rather than
+	// returned to the pool. AcquiredConns alone cannot tell the two apart.
+	client := svc.openClientWithBounds(t, 0, 3)
+	before := client.pool.Stat().TotalConns()
+	if before == 0 {
+		t.Fatal("Open's readiness ping must have warmed the pool before the run")
+	}
 
 	_, err := svc.newRunner(t, client, set).Migrate(svc.ctx)
 	if err == nil || !strings.Contains(err.Error(), "already unlocked") {
@@ -696,9 +711,14 @@ func TestMigrationUnconfirmedUnlockDiscardsConnection(t *testing.T) {
 	}
 	// The migration still applied and recorded exactly once.
 	assertLedgerEquals(t, svc.readLedger(t), set)
-	// The unproven connection was discarded, not returned to the pool.
+	// The unproven connection was discarded, not returned to the pool: it
+	// holds no acquired connection AND the pool's physical total dropped.
 	if acquired := client.pool.Stat().AcquiredConns(); acquired != 0 {
 		t.Errorf("pool still holds %d acquired connections; the poisoned connection was not discarded", acquired)
+	}
+	if total := client.pool.Stat().TotalConns(); total >= before {
+		t.Errorf("pool physical conns = %d after the unconfirmed unlock, want a drop below the pre-run %d: "+
+			"the unproven connection was returned to the pool instead of discarded", total, before)
 	}
 	// The pool is still usable for migrations on this schema.
 	again := svc.mustMigrate(t, svc.newRunner(t, client, set))
