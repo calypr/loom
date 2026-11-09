@@ -85,6 +85,10 @@ test('parseAdminUrl accepts an owned postgresql service and rejects substitutes'
   assert.throws(() => parseAdminUrl('not a url at all'), /postgresql:\/\/ connection URL/);
   assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h/db?x=1#frag'.replace('pwd4test', '')), /test password/);
   assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h/'), /maintenance database/);
+  // pgconn lets a query dbname outrank the URL path; the runner must refuse it.
+  assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h:5432/db?sslmode=disable&dbname=other'), /must not pin a database in the query string/);
+  assert.throws(() => parseAdminUrl('postgresql://u:pwd4test@h/db?database=other'), /must not pin a database in the query string/);
+  assert.ok(parseAdminUrl('postgresql://u:pwd4test@h:5432/db?sslmode=disable').database === 'db');
 });
 
 test('the owned namespace pattern is enforced before any probe sees a name', () => {
@@ -158,8 +162,36 @@ test('the embedded probe keeps its credential and namespace guards', () => {
   assert.ok(!PROBE_SOURCE.includes('s3cret-test-password'));
   assert.ok(PROBE_SOURCE.includes('WITH (FORCE)'), 'cleanup must be able to finish against idle connections');
   assert.ok(PROBE_SOURCE.includes('23505') && PROBE_SOURCE.includes('22P02'), 'negative checks must classify SQLSTATEs');
-  assert.equal(REQUIRED_MAJOR_VERSION, 18);
+  // The version constant is interpolated from the runner, so runner, probe and
+  // the Go package mirror one value.
+  assert.ok(PROBE_SOURCE.includes(`const requiredMajor = ${REQUIRED_MAJOR_VERSION}`), 'probe version constant must be interpolated');
+  // The effective-target guard must run before any fixture write.
+  assert.ok(PROBE_SOURCE.includes('current_database()'), 'probe must prove the effective target database');
+  assert.ok(PROBE_SOURCE.indexOf('current_database()') < PROBE_SOURCE.indexOf('CREATE TABLE loom_fixture_rows'), 'target guard must precede writes');
+  assert.ok(PROBE_SOURCE.includes("ESCAPE 'x'"), 'leftover audit must escape LIKE wildcards');
   assert.equal(NAMESPACE_PREFIX, 'pgfixture_');
+});
+
+test('a cleanup or audit failure never overwrites the primary failure message', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'loom-pgfixture-test-'));
+  const evidence = await runPostgres(out, {
+    env: { LOOM_TEST_POSTGRES_URL: ADMIN_URL },
+    runId: '173000000000000042_0123456789ab',
+    compose: () => ({ status: 'blocked-missing-runtime' }),
+    probe: async (command, args) => {
+      if (command === 'ping') return { ok: true, major: 18, versionNum: 180006, version: '18.6' };
+      if (command === 'create') return { ok: true, database: args[0] };
+      if (command === 'acceptance') return { ok: false, op: 'acceptance', error: 'literal row mismatch' };
+      if (command === 'drop') throw new Error('drop transport failed');
+      if (command === 'list') return { ok: true, databases: ['pgfixture_173000000000000042_0123456789ab'] };
+      throw new Error(`unexpected ${command}`);
+    },
+  });
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /literal row mismatch/, 'the primary failure must survive');
+  assert.match(evidence.error, /cleanup: drop transport failed/);
+  assert.match(evidence.error, /leftover audit: Owned namespace still present/);
+  assert.equal(evidence.cleanup.length, 1);
 });
 
 test('a full owned-namespace run passes with finally-cleanup of only its namespace', async () => {
@@ -176,6 +208,8 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
+  assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 300),
+    'the Go test timeout must be bounded at or below the aligned 300s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
@@ -318,7 +352,7 @@ test('credentials never reach evidence or summary output on failure paths', asyn
       // Probe failures leak the DSN; the runner must scrub before recording.
       return { ok: false, op: command, error: `authentication failed for ${ADMIN_URL}` };
     },
-    goTest: () => ({ status: 1, stdout: '', stderr: `pool dial failed for ${ADMIN_URL}` }),
+    goTest: () => ({ status: 1, stdout: `panic: pool dial failed for ${ADMIN_URL}\n`, stderr: `pool dial failed for ${ADMIN_URL}` }),
   });
   assert.equal(evidence.status, 'failed');
   const dump = JSON.stringify(evidence);
@@ -326,6 +360,10 @@ test('credentials never reach evidence or summary output on failure paths', asyn
   assert.ok(!dump.includes(ADMIN_URL), 'evidence must never carry the raw URL');
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'));
+  // Every evidence file on disk is scrubbed, including the Go event stream.
+  const stdoutEvidence = readFileSync(join(out, 'integration.jsonl'), 'utf8');
+  assert.ok(!stdoutEvidence.includes('s3cret-test-password'), 'integration.jsonl must be credential-free');
+  assert.ok(stdoutEvidence.includes('[redacted]'), 'integration.jsonl must record the redaction');
   assert.ok(readFileSync(join(out, 'integration.stderr'), 'utf8').includes('[redacted]'));
 });
 
@@ -358,8 +396,22 @@ test('a broken compose contract fails closed', async () => {
   assert.ok(!('readiness' in evidence), 'compose contract failure must stop the run before touching the service');
 });
 
-test('a missing LOOM_TEST_POSTGRES_URL is a recorded blocker, never a pass', async () => {
+test('an admin URL that pins dbname fails closed before any service contact', async () => {
   const out = mkdtempSync(join(tmpdir(), 'loom-pgfixture-test-'));
+  const calls = [];
+  const evidence = await runPostgres(out, {
+    env: { LOOM_TEST_POSTGRES_URL: `${ADMIN_URL}&dbname=production_data` },
+    compose: () => ({ status: 'blocked-missing-runtime' }),
+    probe: async command => { calls.push(command); return { ok: true }; },
+    goTest: () => { throw new Error('go test must not start for a rejected URL'); },
+  });
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /must not pin a database/);
+  assert.deepEqual(calls, ['list'], 'only the read-only leftover audit may run; no mutation, no service writes');
+  assert.deepEqual(evidence.cleanup, []);
+});
+
+test('a missing LOOM_TEST_POSTGRES_URL is a recorded blocker, never a pass', async () => {  const out = mkdtempSync(join(tmpdir(), 'loom-pgfixture-test-'));
   const evidence = await runPostgres(out, {
     env: {},
     compose: () => ({ status: 'blocked-missing-runtime' }),

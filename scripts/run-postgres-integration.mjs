@@ -19,7 +19,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { goTestTimeout } from './lib/verification-budget.mjs';
+import { verificationTimeoutMs } from './lib/verification-budget.mjs';
+
+// Aligned CI budget: the Go test timeout never exceeds the child kill, the
+// child kill never exceeds the workflow step timeout, and the step timeout
+// (840s) plus the two-minute evidence margin fits the job timeout.
+const goTestBudgetMs = Math.min(verificationTimeoutMs, 300_000);
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const composeFile = resolve(root, 'experimental', 'docker-compose.yml');
@@ -66,7 +71,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-const requiredMajor = 18
+const requiredMajor = ${REQUIRED_MAJOR_VERSION}
 
 var ownedName = regexp.MustCompile("^pgfixture_[0-9]+_[0-9a-f]{12}$")
 var tokenPattern = regexp.MustCompile("^[0-9a-f][0-9a-f-]+$")
@@ -115,6 +120,12 @@ func emit(op string, fields map[string]any, err error) {
 }
 
 func fail(op string, err error) { emit(op, nil, err) }
+
+// escapeLike neutralizes LIKE wildcards with a custom escape character so the
+// owned-name audit matches literally (underscore is a single-char wildcard).
+func escapeLike(s string) string {
+	return strings.NewReplacer("x", "xx", "%", "x%", "_", "x_").Replace(s)
+}
 
 func connect(ctx context.Context, dsn string) *pgx.Conn {
 	conn, err := pgx.Connect(ctx, dsn)
@@ -177,7 +188,7 @@ func list(ctx context.Context, raw string, prefix string) {
 	}
 	conn := connect(ctx, raw)
 	defer conn.Close(ctx)
-	rows, err := conn.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE $1 ORDER BY datname", prefix+"%")
+	rows, err := conn.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE $1 ESCAPE 'x' ORDER BY datname", escapeLike(prefix)+"%")
 	if err != nil {
 		fail("list", err)
 	}
@@ -219,6 +230,16 @@ func acceptance(ctx context.Context, raw string, name string, token string) {
 	u.Path = "/" + name
 	conn := connect(ctx, u.String())
 	defer conn.Close(ctx)
+	// Prove the effective target before any write: pgconn lets a dbname query
+	// parameter outrank the URL path, so the connection itself is the
+	// authority on which database receives the fixture writes.
+	var effective string
+	if err := conn.QueryRow(ctx, "SELECT current_database()").Scan(&effective); err != nil {
+		fail("acceptance", err)
+	}
+	if effective != name {
+		fail("acceptance", fmt.Errorf("effective target database %s is not the owned fixture %s", effective, name))
+	}
 	num, version := serverInfo(ctx, conn)
 	if int(num/10000) != requiredMajor {
 		fail("acceptance", fmt.Errorf("server version %s is not PostgreSQL %d", version, requiredMajor))
@@ -389,6 +410,11 @@ export function parseAdminUrl(raw) {
   assert.ok(url.password !== '', 'LOOM_TEST_POSTGRES_URL must carry the test password');
   const database = decodeURIComponent(url.pathname.replace(/^\//, ''));
   assert.ok(database !== '', 'LOOM_TEST_POSTGRES_URL must name the maintenance database');
+  // pgconn lets a dbname query parameter outrank the URL path (see the
+  // client_test.go precedent in internal/store/postgres): rejecting it here
+  // covers every probe call, so fixture writes can never redirect outside
+  // the owned namespace. The probe additionally asserts current_database().
+  assert.ok(!url.searchParams.has('dbname') && !url.searchParams.has('database'), 'LOOM_TEST_POSTGRES_URL must not pin a database in the query string; the runner owns the fixture namespace');
   return { raw: raw.trim(), host: url.hostname, port: url.port || '5432', username: decodeURIComponent(url.username), database };
 }
 
@@ -489,7 +515,8 @@ function defaultGoTest(args, env) {
     cwd: root,
     env,
     encoding: 'utf8',
-    timeout: 300_000,
+    // The Go test timeout must fire first; the spawn kill is the backstop.
+    timeout: goTestBudgetMs + 30_000,
     maxBuffer: 64 * 1024 * 1024,
     detached: true,
   });
@@ -499,7 +526,6 @@ function defaultGoTest(args, env) {
 
 export async function runPostgres(output, deps = {}) {
   const env = deps.env ?? process.env;
-  const probe = deps.probe ?? createProbeRunner();
   const goTest = deps.goTest ?? defaultGoTest;
   const now = deps.now ?? (() => Date.now());
   const uuid = deps.uuid ?? randomUUID;
@@ -510,6 +536,9 @@ export async function runPostgres(output, deps = {}) {
   mkdirSync(directory, { recursive: true });
   const runId = deps.runId ?? makeRunId(now());
   const database = ownedDatabaseName(runId);
+  // Created after every pre-flight assertion so a throw below can never
+  // strand the private temporary probe directory.
+  const probe = deps.probe ?? createProbeRunner();
   const deadline = performance.now() + 8 * 60 * 1000;
   const evidence = {
     schema: 'loom-postgres-fixture/1',
@@ -563,9 +592,11 @@ export async function runPostgres(output, deps = {}) {
     // this run passed it; without it the required case skips, which is a
     // failure above, never a pass.
     const childEnv = { ...env, GOTOOLCHAIN: 'local', GOMAXPROCS: '2', LOOM_TEST_POSTGRES_URL: rawUrl };
-    const goArgs = ['test', '-json', '-count=1', `-timeout=${goTestTimeout}`, '-run', `^${REQUIRED_INTEGRATION_TEST}$`, './internal/store/postgres'];
+    const goArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', `^${REQUIRED_INTEGRATION_TEST}$`, './internal/store/postgres'];
     const go = await Promise.resolve(goTest(goArgs, childEnv));
-    writeFileSync(join(directory, 'integration.jsonl'), go.stdout || '');
+    // Every evidence file is scrubbed before it lands on disk; checkGoEvents
+    // still parses the in-memory stdout, so behavior is unchanged.
+    writeFileSync(join(directory, 'integration.jsonl'), scrubSecrets(go.stdout || '', secrets));
     writeFileSync(join(directory, 'integration.stderr'), scrubSecrets(go.stderr || '', secrets));
     assert.equal(go.status, 0, `${REQUIRED_INTEGRATION_TEST} failed: ${scrubSecrets(go.error?.message || go.stderr || '', secrets)}`);
     const { passes } = checkGoEvents(go.stdout, REQUIRED_INTEGRATION_TEST);
@@ -587,7 +618,9 @@ export async function runPostgres(output, deps = {}) {
         evidence.cleanup.push({ database: name, status: 'dropped' });
       } catch (cleanupError) {
         evidence.status = 'failed';
-        evidence.cleanup.push({ database: name, error: scrubSecrets(cleanupError.message, secrets) });
+        const dropMessage = scrubSecrets(cleanupError.message, secrets);
+        evidence.error = evidence.error ? `${evidence.error}; cleanup: ${dropMessage}` : dropMessage;
+        evidence.cleanup.push({ database: name, error: dropMessage });
       }
     }
     try {
@@ -599,7 +632,9 @@ export async function runPostgres(output, deps = {}) {
       assert.deepEqual(audit.databases, [], `Owned namespace still present after cleanup: ${audit.databases.join(', ')}`);
     } catch (auditError) {
       evidence.status = 'failed';
-      evidence.error = scrubSecrets(auditError.message, secrets);
+      const auditMessage = scrubSecrets(auditError.message, secrets);
+      // Keep the primary failure visible; the audit failure is appended.
+      evidence.error = evidence.error ? `${evidence.error}; leftover audit: ${auditMessage}` : auditMessage;
     }
     evidence.finishedAt = new Date(now()).toISOString();
     probe.dispose?.();
