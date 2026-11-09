@@ -1,0 +1,779 @@
+// Package postgres renders validated physical IR plans into parameterized
+// PostgreSQL 18 statements for the source store (pg-ir-02).
+//
+// The renderer input is a physical plan plus an ir.PostgresStorageBinding.
+// The binding is the only source of SQL identifiers: table and column names
+// come from the compiler-owned allowlist in internal/dataframe/compiler/ir
+// (postgres_storage.go), and an unregistered or hand-assembled identifier is
+// rejected with ErrUnregisteredPostgresIdentifier. Everything else the plan
+// carries — project, dataset generation, auth resource paths, resource
+// types, edge labels, filter values, payload paths, limit values, and output
+// column names — is runtime data and is passed to the driver as ordered,
+// typed $n parameters. No plan string is ever interpolated into SQL text.
+//
+// Unsupported plans fail closed with ErrUnsupportedPostgresPlan; there is no
+// fallback to the AQL renderer and no AQL-to-SQL conversion anywhere in this
+// package. The rendered result is a compiler.RenderedPostgresPhysicalPlan,
+// which additionally refuses AQL bind syntax and placeholder/argument
+// mismatch at construction.
+//
+// The v1 supported surface is the scoped read spine: one direct root
+// resource scan, typed scope predicates (explicit project, dataset
+// generation, and an explicit auth mode), direct comparison filters over
+// typed columns or JSONB payload paths, depth-one typed edge-occurrence
+// joins, one column sort with deterministic identity tie-breaks, one bound
+// limit, and one positional return projection. Population/cohort roots,
+// endpoint-lookup traversals, selector extraction, sets, unnest, subplans,
+// graph returns, group rows, pivots, unpivots, stage sequences, and
+// ClickHouse payloads are capability gaps that return typed errors.
+package postgres
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+)
+
+// ErrUnsupportedPostgresPlan reports a physical plan outside the closed v1
+// PostgreSQL render surface. Callers must surface it as a capability gap;
+// the renderer never falls back to AQL and never converts AQL to SQL.
+var ErrUnsupportedPostgresPlan = errors.New("postgres renderer: unsupported physical plan")
+
+// ErrInvalidPostgresPlanScope reports a plan whose explicit scope binds are
+// missing or contradictory (blank project, absent auth mode flags, or an
+// unrestricted mode carrying paths). Scope is never inferred and never
+// widened.
+var ErrInvalidPostgresPlanScope = errors.New("postgres renderer: invalid plan scope")
+
+// Plan-level bind keys shared with the canonical lowering path
+// (internal/dataframe/compiler/lower): every scoped plan carries these
+// scope binds, and the PostgreSQL renderer re-reads them instead of trusting
+// plan-authored predicates.
+const (
+	projectBindKey        = "project"
+	datasetGenerationBind = "dataset_generation"
+	authPathsBindKey      = "auth_resource_paths"
+	authUnrestrictedBind  = "auth_resource_paths_unrestricted"
+)
+
+// renderer-owned filterable column policy: single-segment document paths
+// that map onto typed columns of the resource table. Any other path is a
+// JSONB payload path and is bound as one whole text-path parameter. Storage
+// identity sequences (resource_seq, edge_seq) are reserved for
+// renderer-generated ordering and are never user-addressable columns.
+var resourceFilterColumns = map[string]bool{
+	"project":            true,
+	"dataset_generation": true,
+	"resource_type":      true,
+	"logical_id":         true,
+	"auth_resource_path": true,
+	"recorded_at":        true,
+}
+
+// RenderPhysicalPlan renders a validated physical plan onto the trusted
+// PostgreSQL storage binding. The result is deterministic: the same plan and
+// binding always yield byte-identical SQL and value-identical ordered
+// arguments, and it never aliases plan data (every bound value is copied or
+// re-encoded).
+func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+	if err := storage.Validate(); err != nil {
+		return compiler.RenderedPostgresPhysicalPlan{}, err
+	}
+	if err := plan.Validate(); err != nil {
+		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
+	}
+	if plan.Engine != "" && plan.Engine != ir.PhysicalEngineAQL {
+		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+			"%w: engine %q has no PostgreSQL source; the source graph IR is backend-neutral and ClickHouse plans are not PostgreSQL-rendered",
+			ErrUnsupportedPostgresPlan, string(plan.Engine))
+	}
+	if plan.ClickHouseCombine != nil || plan.ClickHousePrefix != nil {
+		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+			"%w: ClickHouse combine/prefix payloads have no PostgreSQL rendering", ErrUnsupportedPostgresPlan)
+	}
+	if plan.StageSequence != nil {
+		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+			"%w: staged row-operator sequences are not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
+	}
+	if plan.PreviewSourceWindowByRootID {
+		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+			"%w: preview source windowing is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
+	}
+	if len(plan.DeferredExpressionLets) != 0 {
+		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+			"%w: completed plans must not carry deferred expression lets", ErrUnsupportedPostgresPlan)
+	}
+
+	renderer := &planRenderer{
+		storage:    storage,
+		rows:       map[string]rowScope{},
+		parameters: map[string]int{},
+	}
+	if err := renderer.loadScope(plan); err != nil {
+		return compiler.RenderedPostgresPhysicalPlan{}, err
+	}
+	if err := renderer.renderOperations(plan); err != nil {
+		return compiler.RenderedPostgresPhysicalPlan{}, err
+	}
+	sql := renderer.assemble()
+	return compiler.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
+}
+
+// rowScope records the renderer-owned SQL placement of one plan variable.
+// The plan-authored variable name is used only as an internal map key; it
+// never reaches SQL text.
+type rowScope struct {
+	alias        string
+	resourceType string
+}
+
+type planRenderer struct {
+	storage ir.PostgresStorageBinding
+	args    []compiler.PostgreSQLParameter
+	// parameters deduplicates identical scalar scope binds (project,
+	// generation, resource types, label, auth array) so repeated predicates
+	// reference one placeholder.
+	parameters map[string]int
+	rows       map[string]rowScope
+
+	projectIndex    int
+	generationIndex int
+	authPathsIndex  int // 0 when unrestricted mode was explicit
+	rootAlias       string
+	edgeAliases     []string
+	where           []string
+	joins           []string
+	selects         []string
+	outputColumns   []string
+	orderBy         []string
+	limitClause     string
+}
+
+// addParameter appends one ordered argument and returns its $n index. A
+// non-empty cacheKey deduplicates equal scalar bindings.
+func (r *planRenderer) addParameter(parameter compiler.PostgreSQLParameter, cacheKey string) int {
+	if cacheKey != "" {
+		if index, ok := r.parameters[cacheKey]; ok {
+			return index
+		}
+	}
+	r.args = append(r.args, parameter)
+	index := len(r.args)
+	if cacheKey != "" {
+		r.parameters[cacheKey] = index
+	}
+	return index
+}
+
+func (r *planRenderer) textParameter(value, cacheKey string) int {
+	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: value}, cacheKey)
+}
+
+func (r *planRenderer) jsonbParameter(raw json.RawMessage) int {
+	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterJSONB, Value: append(json.RawMessage(nil), raw...)}, "")
+}
+
+// loadScope binds the explicit plan scope. Scope binds must be present with
+// their canonical types; nothing is defaulted.
+func (r *planRenderer) loadScope(plan ir.PhysicalPlan) error {
+	project, ok := plan.BindVars[projectBindKey].(string)
+	if !ok || strings.TrimSpace(project) == "" {
+		return fmt.Errorf("%w: %q bind must be a non-empty string", ErrInvalidPostgresPlanScope, projectBindKey)
+	}
+	generation, ok := plan.BindVars[datasetGenerationBind].(string)
+	if !ok {
+		return fmt.Errorf("%w: %q bind must be a string (the empty string is the legacy namespace)",
+			ErrInvalidPostgresPlanScope, datasetGenerationBind)
+	}
+	unrestricted, ok := plan.BindVars[authUnrestrictedBind].(bool)
+	if !ok {
+		return fmt.Errorf("%w: %q bind must be set explicitly; there is no implicit auth scope",
+			ErrInvalidPostgresPlanScope, authUnrestrictedBind)
+	}
+	paths, ok := plan.BindVars[authPathsBindKey].([]string)
+	if !ok {
+		return fmt.Errorf("%w: %q bind must be a []string", ErrInvalidPostgresPlanScope, authPathsBindKey)
+	}
+	if unrestricted && len(paths) != 0 {
+		return fmt.Errorf("%w: unrestricted mode must not carry auth resource paths (%d given)",
+			ErrInvalidPostgresPlanScope, len(paths))
+	}
+
+	r.projectIndex = r.textParameter(project, "text:"+project)
+	r.generationIndex = r.textParameter(generation, "text:"+generation)
+	if !unrestricted {
+		copied := append([]string(nil), paths...)
+		raw, err := json.Marshal(copied)
+		if err != nil {
+			return fmt.Errorf("%w: auth resource paths are not JSON-encodable: %v", ErrInvalidPostgresPlanScope, err)
+		}
+		// A restricted scope with no authorized paths must read nothing, not
+		// error: an empty Go slice marshals to JSON null when nil, which is
+		// not an array. Bind the empty set literally.
+		if string(raw) == "null" {
+			raw = json.RawMessage("[]")
+		}
+		r.authPathsIndex = r.jsonbParameter(raw)
+	}
+	return nil
+}
+
+// scopedResourcePredicate renders the scope equality chain for one resource
+// row, including the explicit auth mode. Restricted mode binds the exact
+// authorized path set (an empty set reads nothing and never widens);
+// unrestricted mode was explicitly requested and adds no path predicate.
+func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) string {
+	var builder strings.Builder
+	builder.WriteString(alias + "." + r.storage.Resource.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.projectIndex))
+	builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("dataset_generation").SQLText() + " = $" + strconv.Itoa(r.generationIndex))
+	if r.authPathsIndex != 0 {
+		builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("auth_resource_path").SQLText())
+		builder.WriteString(" = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.authPathsIndex) + "::jsonb))")
+	}
+	if typeIndex != 0 {
+		builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("resource_type").SQLText() + " = $" + strconv.Itoa(typeIndex))
+	}
+	return builder.String()
+}
+
+func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
+	if len(plan.Operations) == 0 {
+		return fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
+	}
+	phase := 0 // 0 = source ops, 1 = window ops, 2 = return terminal
+	sawSort, sawLimit := false, false
+	for index, operation := range plan.Operations {
+		last := index == len(plan.Operations)-1
+		switch operation.Kind {
+		case ir.PhysicalRootScanOp:
+			if phase != 0 || index != 0 {
+				return fmt.Errorf("%w: exactly one leading ROOT_SCAN is required", ErrUnsupportedPostgresPlan)
+			}
+			if err := r.renderRootScan(plan, *operation.RootScan); err != nil {
+				return err
+			}
+		case ir.PhysicalFilterOp:
+			if phase != 0 {
+				return fmt.Errorf("%w: filters must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			clause, err := r.renderFilter(plan, *operation.Filter)
+			if err != nil {
+				return err
+			}
+			r.where = append(r.where, clause)
+		case ir.PhysicalTraversalOp:
+			if phase != 0 {
+				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			if err := r.renderTraversal(plan, *operation.Traversal); err != nil {
+				return err
+			}
+		case ir.PhysicalSortOp:
+			if sawSort || phase > 1 || (phase == 1 && sawLimit) {
+				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
+			}
+			if err := r.renderSort(*operation.Sort); err != nil {
+				return err
+			}
+			sawSort, phase = true, 1
+		case ir.PhysicalLimitOp:
+			if sawLimit || phase > 1 {
+				return fmt.Errorf("%w: at most one LIMIT", ErrUnsupportedPostgresPlan)
+			}
+			if err := r.renderLimit(plan, *operation.Limit); err != nil {
+				return err
+			}
+			sawLimit, phase = true, 1
+		case ir.PhysicalReturnOp:
+			if !last || phase > 1 {
+				return fmt.Errorf("%w: RETURN must be the final operation", ErrUnsupportedPostgresPlan)
+			}
+			if err := r.renderReturn(*operation.Return); err != nil {
+				return err
+			}
+			phase = 2
+		default:
+			return fmt.Errorf("%w: operation %q is not part of the v1 PostgreSQL render surface",
+				ErrUnsupportedPostgresPlan, string(operation.Kind))
+		}
+	}
+	if phase != 2 {
+		return fmt.Errorf("%w: plan requires a RETURN terminal", ErrUnsupportedPostgresPlan)
+	}
+	return nil
+}
+
+func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) error {
+	if scan.Population != nil || scan.CohortSource != nil || scan.PageCandidateSeed != nil {
+		return fmt.Errorf("%w: population, cohort, and candidate-seed roots are not yet implemented for PostgreSQL",
+			ErrUnsupportedPostgresPlan)
+	}
+	resourceType, ok := plan.BindVars[scan.CollectionBindKey].(string)
+	if !ok || strings.TrimSpace(resourceType) == "" {
+		return fmt.Errorf("%w: root collection bind %q must name one resource type as a non-empty string",
+			ErrUnsupportedPostgresPlan, scan.CollectionBindKey)
+	}
+	r.rootAlias = "r0"
+	r.rows[scan.Variable] = rowScope{alias: r.rootAlias, resourceType: resourceType}
+	r.where = append(r.where, r.scopedResourcePredicate(r.rootAlias,
+		r.textParameter(resourceType, "text:"+resourceType)))
+	return nil
+}
+
+func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
+	source, ok := r.rows[traversal.SourceVariable]
+	if !ok {
+		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables and set variables are not readable)",
+			ErrUnsupportedPostgresPlan, traversal.SourceVariable)
+	}
+	switch traversal.Direction {
+	case ir.PhysicalOutbound, ir.PhysicalInbound:
+	case ir.PhysicalAny:
+		return fmt.Errorf("%w: ANY-direction traversal has no proven PostgreSQL contract", ErrUnsupportedPostgresPlan)
+	default:
+		return fmt.Errorf("%w: unknown traversal direction %q", ErrUnsupportedPostgresPlan, string(traversal.Direction))
+	}
+	if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
+		return fmt.Errorf("%w: endpoint-lookup strategy has no proven PostgreSQL contract yet; native typed-identity joins are the only registered shape",
+			ErrUnsupportedPostgresPlan)
+	}
+	if traversal.Strategy != "" && traversal.Strategy != ir.PhysicalTraversalNative {
+		return fmt.Errorf("%w: unknown traversal strategy %q", ErrUnsupportedPostgresPlan, string(traversal.Strategy))
+	}
+	// The same direction-aware discriminator proof lower/storage_route.go
+	// requires of Arango routes: without it the typed-identity join cannot be
+	// attributed to a proven storage direction.
+	expectedField := "to_type"
+	if traversal.Direction == ir.PhysicalInbound {
+		expectedField = "from_type"
+	}
+	if traversal.EdgeTargetTypeField != expectedField {
+		return fmt.Errorf("%w: %s traversal must carry EdgeTargetTypeField %q, got %q",
+			ErrUnsupportedPostgresPlan, string(traversal.Direction), expectedField, traversal.EdgeTargetTypeField)
+	}
+	label, ok := plan.BindVars[traversal.EdgeLabelBindKey].(string)
+	if !ok || strings.TrimSpace(label) == "" {
+		return fmt.Errorf("%w: edge label bind %q must be a non-empty string", ErrUnsupportedPostgresPlan, traversal.EdgeLabelBindKey)
+	}
+	targetType, ok := plan.BindVars[traversal.TargetTypeBindKey].(string)
+	if !ok || strings.TrimSpace(targetType) == "" {
+		return fmt.Errorf("%w: traversal target type bind %q must be a non-empty string",
+			ErrUnsupportedPostgresPlan, traversal.TargetTypeBindKey)
+	}
+	if traversal.SourceTypeBindKey != "" {
+		if bound, ok := plan.BindVars[traversal.SourceTypeBindKey].(string); !ok || bound != source.resourceType {
+			return fmt.Errorf("%w: traversal source type bind does not match the current row resource type %q",
+				ErrUnsupportedPostgresPlan, source.resourceType)
+		}
+	}
+
+	edgeAlias := "e" + strconv.Itoa(len(r.edgeAliases)+1)
+	targetAlias := "r" + strconv.Itoa(len(r.edgeAliases)+1)
+	edgeTable := r.storage.Edge.Identifier().SQLText()
+	resourceTable := r.storage.Resource.Identifier().SQLText()
+
+	edgeColumns := r.storage.Edge
+	edgeScope := edgeAlias + "." + edgeColumns.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.projectIndex) +
+		" AND " + edgeAlias + "." + edgeColumns.MustColumn("dataset_generation").SQLText() + " = $" + strconv.Itoa(r.generationIndex)
+	if r.authPathsIndex != 0 {
+		edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("auth_resource_path").SQLText() +
+			" = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.authPathsIndex) + "::jsonb))"
+	}
+	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("label").SQLText() +
+		" = $" + strconv.Itoa(r.textParameter(label, "text:"+label))
+
+	// The reached endpoint is the one whose typed identity the join carries
+	// toward the resource table; the anchored endpoint equality preserves the
+	// exact source row identity on the other side.
+	var anchoredTypeColumn, anchoredIDColumn, reachedTypeColumn, reachedIDColumn string
+	if traversal.Direction == ir.PhysicalOutbound {
+		anchoredTypeColumn, anchoredIDColumn = "source_resource_type", "source_logical_id"
+		reachedTypeColumn, reachedIDColumn = "target_resource_type", "target_logical_id"
+	} else {
+		anchoredTypeColumn, anchoredIDColumn = "target_resource_type", "target_logical_id"
+		reachedTypeColumn, reachedIDColumn = "source_resource_type", "source_logical_id"
+	}
+	sourceTypeIndex := r.textParameter(source.resourceType, "text:"+source.resourceType)
+	targetTypeIndex := r.textParameter(targetType, "text:"+targetType)
+	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredTypeColumn).SQLText() + " = $" + strconv.Itoa(sourceTypeIndex)
+	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredIDColumn).SQLText() +
+		" = " + source.alias + "." + r.storage.Resource.MustColumn("logical_id").SQLText()
+	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(reachedTypeColumn).SQLText() + " = $" + strconv.Itoa(targetTypeIndex)
+
+	join := "INNER JOIN " + edgeTable + " AS " + edgeAlias + " ON " + edgeScope
+	join += " INNER JOIN " + resourceTable + " AS " + targetAlias + " ON " +
+		r.scopedResourcePredicate(targetAlias, targetTypeIndex) +
+		" AND " + targetAlias + "." + r.storage.Resource.MustColumn("logical_id").SQLText() +
+		" = " + edgeAlias + "." + edgeColumns.MustColumn(reachedIDColumn).SQLText()
+	r.joins = append(r.joins, join)
+	r.edgeAliases = append(r.edgeAliases, edgeAlias)
+	r.rows[traversal.TargetVariable] = rowScope{alias: targetAlias, resourceType: targetType}
+	return nil
+}
+
+// resolveValue maps one plan value onto either a trusted column expression
+// or a parameterized JSONB payload path over its row alias.
+func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
+	scope, ok := r.rows[value.Variable]
+	if !ok {
+		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
+	}
+	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
+		return scope.alias + "." + r.storage.Resource.MustColumn(value.Path[0]).SQLText(), nil
+	}
+	// PostgreSQL 18 defines #> only for text[] paths. The whole document path
+	// is bound as one text[] parameter (a validated array literal), so paths
+	// never become SQL text. Segments were already frozen by ir.Validate; the
+	// renderer re-checks them so a future loosening upstream cannot make an
+	// array literal ambiguous.
+	for _, segment := range value.Path {
+		if !payloadPathSegmentPattern.MatchString(segment) {
+			return "", fmt.Errorf("%w: payload path segment %q is not renderer-safe", ErrUnsupportedPostgresPlan, segment)
+		}
+	}
+	pathLiteral := "{" + strings.Join(value.Path, ",") + "}"
+	return scope.alias + "." + r.storage.Resource.MustColumn("payload").SQLText() +
+		" #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
+}
+
+// payloadPathSegmentPattern re-checks the frozen ir path contract at the
+// renderer boundary.
+var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func (r *planRenderer) renderFilter(plan ir.PhysicalPlan, filter ir.PhysicalFilter) (string, error) {
+	if filter.Expression != nil {
+		return r.renderPredicateExpression(plan, *filter.Expression)
+	}
+	return r.renderComparison(plan, filter.Predicate)
+}
+
+func (r *planRenderer) renderPredicateExpression(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (string, error) {
+	fragment, err := r.renderPredicateFragment(plan, predicate)
+	if err != nil {
+		return "", err
+	}
+	return fragment.sql, nil
+}
+
+// predicateFragment carries rendered SQL plus whether the predicate can
+// evaluate to SQL NULL. A three-valued predicate under NOT drops rows that
+// AQL keeps (AQL coerces NOT(null) to true), so negation must know.
+type predicateFragment struct {
+	sql          string
+	mayYieldNull bool
+}
+
+func (r *planRenderer) renderPredicateFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (predicateFragment, error) {
+	switch predicate.Kind {
+	case ir.PhysicalComparisonPredicate:
+		if predicate.Comparison == nil {
+			return predicateFragment{}, fmt.Errorf("%w: COMPARISON predicate has no payload", ErrUnsupportedPostgresPlan)
+		}
+		return r.renderComparisonFragment(plan, *predicate.Comparison)
+	case ir.PhysicalNotPredicate:
+		if len(predicate.Children) != 1 {
+			return predicateFragment{}, fmt.Errorf("%w: NOT requires exactly one child", ErrUnsupportedPostgresPlan)
+		}
+		child, err := r.renderPredicateFragment(plan, predicate.Children[0])
+		if err != nil {
+			return predicateFragment{}, err
+		}
+		if child.mayYieldNull {
+			return predicateFragment{sql: "COALESCE(NOT (" + child.sql + "), true)"}, nil
+		}
+		return predicateFragment{sql: "NOT (" + child.sql + ")"}, nil
+	case ir.PhysicalAllPredicate:
+		if len(predicate.Children) == 0 {
+			return predicateFragment{}, fmt.Errorf("%w: ALL requires at least one child", ErrUnsupportedPostgresPlan)
+		}
+		parts := make([]string, 0, len(predicate.Children))
+		mayYieldNull := false
+		for _, child := range predicate.Children {
+			part, err := r.renderPredicateFragment(plan, child)
+			if err != nil {
+				return predicateFragment{}, err
+			}
+			mayYieldNull = mayYieldNull || part.mayYieldNull
+			parts = append(parts, "("+part.sql+")")
+		}
+		return predicateFragment{sql: strings.Join(parts, " AND "), mayYieldNull: mayYieldNull}, nil
+	default:
+		return predicateFragment{}, fmt.Errorf("%w: predicate kind %q is not yet implemented for PostgreSQL",
+			ErrUnsupportedPostgresPlan, string(predicate.Kind))
+	}
+}
+
+func (r *planRenderer) renderComparison(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (string, error) {
+	fragment, err := r.renderComparisonFragment(plan, predicate)
+	if err != nil {
+		return "", err
+	}
+	return fragment.sql, nil
+}
+
+func (r *planRenderer) renderComparisonFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (predicateFragment, error) {
+	if predicate.Correlation != nil || predicate.LeftExpression != nil {
+		return predicateFragment{}, fmt.Errorf("%w: selector-expression and correlated predicates are not yet implemented for PostgreSQL",
+			ErrUnsupportedPostgresPlan)
+	}
+	if predicate.Quantifier != "" {
+		return predicateFragment{}, fmt.Errorf("%w: array quantifier %q is not yet implemented for PostgreSQL",
+			ErrUnsupportedPostgresPlan, string(predicate.Quantifier))
+	}
+	if predicate.Left.BindKey != "" {
+		return predicateFragment{}, fmt.Errorf("%w: filter left side must be a row path, not a bind value", ErrUnsupportedPostgresPlan)
+	}
+	left, err := r.resolveValue(predicate.Left)
+	if err != nil {
+		return predicateFragment{}, err
+	}
+	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
+	switch operator {
+	case "EXISTS", "MISSING":
+		if predicate.Right != nil {
+			return predicateFragment{}, fmt.Errorf("%w: %s must not carry a right value", ErrUnsupportedPostgresPlan, operator)
+		}
+		if isPayloadExpression(left) {
+			presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
+			if operator == "EXISTS" {
+				return predicateFragment{sql: presence + " <> 'null'"}, nil
+			}
+			return predicateFragment{sql: presence + " = 'null'"}, nil
+		}
+		// Registered storage columns are stored NOT NULL and jsonb_typeof has
+		// no text/timestamptz input, so column presence is nullability itself;
+		// emitting jsonb_typeof over a column would only fail at execution.
+		if operator == "EXISTS" {
+			return predicateFragment{sql: left + " IS NOT NULL"}, nil
+		}
+		return predicateFragment{sql: left + " IS NULL"}, nil
+	case "EQUALS", "NOT_EQUALS", "GT", "GTE", "LT", "LTE", "IN":
+	default:
+		return predicateFragment{}, fmt.Errorf("%w: filter operator %q is not part of the v1 PostgreSQL surface",
+			ErrUnsupportedPostgresPlan, predicate.Operator)
+	}
+	if predicate.Right == nil || predicate.Right.BindKey == "" {
+		return predicateFragment{}, fmt.Errorf("%w: %s requires a bind-backed right value", ErrUnsupportedPostgresPlan, operator)
+	}
+	value, ok := plan.BindVars[predicate.Right.BindKey]
+	if !ok {
+		return predicateFragment{}, fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
+	}
+	if !isPayloadExpression(left) {
+		return r.renderColumnComparison(left, operator, value)
+	}
+	return r.renderPayloadComparison(left, operator, value)
+}
+
+func isPayloadExpression(expression string) bool { return strings.Contains(expression, " #> $") }
+
+// renderColumnComparison binds comparisons against typed columns. Values
+// arrive in their canonical Go types; anything else fails closed rather
+// than being stringified into the statement or silently coerced.
+func (r *planRenderer) renderColumnComparison(left, operator string, value any) (predicateFragment, error) {
+	if operator == "IN" {
+		paths, ok := value.([]string)
+		if !ok {
+			return predicateFragment{}, fmt.Errorf("%w: column IN requires a []string bind value", ErrUnsupportedPostgresPlan)
+		}
+		raw, err := json.Marshal(append([]string(nil), paths...))
+		if err != nil {
+			return predicateFragment{}, fmt.Errorf("%w: column IN values are not JSON-encodable: %v", ErrUnsupportedPostgresPlan, err)
+		}
+		if string(raw) == "null" {
+			// An empty (or nil) slice marshals to JSON null, and
+			// jsonb_array_elements_text over a jsonb null scalar raises
+			// "cannot extract elements from a scalar". Binding an empty array
+			// makes ANY read zero rows, so the predicate is false, matching
+			// the AQL reading of x IN [].
+			raw = []byte("[]")
+		}
+		return predicateFragment{sql: left + " = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.jsonbParameter(raw)) + "::jsonb))"}, nil
+	}
+	switch {
+	case strings.HasSuffix(left, "."+r.storage.Resource.MustColumn("recorded_at").SQLText()):
+		timestamp, ok := value.(time.Time)
+		if !ok {
+			return predicateFragment{}, fmt.Errorf("%w: recorded_at comparisons require a time.Time bind value", ErrUnsupportedPostgresPlan)
+		}
+		index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
+		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(index)}, nil
+	default:
+		text, ok := value.(string)
+		if !ok {
+			return predicateFragment{}, fmt.Errorf("%w: typed column comparisons require a string bind value, got %T",
+				ErrUnsupportedPostgresPlan, value)
+		}
+		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(r.textParameter(text, "text:"+text))}, nil
+	}
+}
+
+// renderPayloadComparison binds JSONB path comparisons. The whole document
+// path is one bound parameter and the value is one bound JSONB parameter,
+// so paths and values never become SQL text. MISSING/EXISTS semantics keep
+// present-but-JSON-null and missing indistinguishable, matching the AQL
+// null-or-missing reading; SQL NULL, JSON null, and missing remain distinct
+// in storage (migration 000002) and in this renderer they are only ever
+// bound, never flattened.
+func (r *planRenderer) renderPayloadComparison(left, operator string, value any) (predicateFragment, error) {
+	if operator == "IN" {
+		return predicateFragment{}, fmt.Errorf("%w: payload-path IN is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return predicateFragment{}, fmt.Errorf("%w: filter value %T is not JSON-encodable: %v", ErrUnsupportedPostgresPlan, value, err)
+	}
+	switch value.(type) {
+	case string, bool, int, int64, float64, json.RawMessage:
+	default:
+		return predicateFragment{}, fmt.Errorf("%w: payload comparisons accept string, bool, number, or raw JSON values, got %T",
+			ErrUnsupportedPostgresPlan, value)
+	}
+	if string(raw) == "null" {
+		// AQL reads a missing key and a stored JSON null alike as null, and
+		// AQL sorts null below every other value. Rendering the presence
+		// test for every operator would invert LT/LTE and over-select for
+		// GTE, so the null literal maps operator by operator; the two pure
+		// constants fail closed as dead-parameter shapes.
+		presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
+		switch operator {
+		case "EQUALS", "LTE":
+			return predicateFragment{sql: presence + " = 'null'"}, nil
+		case "NOT_EQUALS", "GT":
+			// GT coincides with the presence test: x > null holds exactly
+			// when x is present and not null.
+			return predicateFragment{sql: presence + " <> 'null'"}, nil
+		case "LT", "GTE":
+			// AQL constants these to false and true, but a bare constant
+			// would strand the resolved path parameter, and the plan
+			// contract requires every bound parameter to be referenced.
+			// The v1 surface fails these closed instead.
+			return predicateFragment{}, fmt.Errorf("%w: payload ordering %s against a JSON null literal is not part of the v1 PostgreSQL surface",
+				ErrUnsupportedPostgresPlan, operator)
+		default:
+			return predicateFragment{}, fmt.Errorf("%w: payload operator %q against a JSON null literal is not part of the v1 PostgreSQL surface",
+				ErrUnsupportedPostgresPlan, operator)
+		}
+	}
+	index := r.jsonbParameter(raw)
+	if operator == "NOT_EQUALS" {
+		return predicateFragment{sql: "(" + left + ") IS DISTINCT FROM ($" + strconv.Itoa(index) + "::jsonb)"}, nil
+	}
+	// The path extraction is SQL NULL for a missing key, so these comparisons
+	// are three-valued; NOT over them must be guarded for AQL parity.
+	return predicateFragment{sql: "(" + left + ") " + sqlComparison(operator) + " ($" + strconv.Itoa(index) + "::jsonb)", mayYieldNull: true}, nil
+}
+
+func sqlComparison(operator string) string {
+	switch operator {
+	case "EQUALS":
+		return "="
+	case "NOT_EQUALS":
+		// Identical to != over the NOT NULL storage columns and never NULL
+		// for nullable ones, mirroring the payload-path reading.
+		return "IS DISTINCT FROM"
+	case "GT":
+		return ">"
+	case "GTE":
+		return ">="
+	case "LT":
+		return "<"
+	case "LTE":
+		return "<="
+	default:
+		return ""
+	}
+}
+
+func (r *planRenderer) renderSort(sort ir.PhysicalSort) error {
+	for _, key := range sort.Keys {
+		scope, ok := r.rows[key.Variable]
+		if !ok {
+			return fmt.Errorf("%w: sort variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, key.Variable)
+		}
+		if key.BindKey != "" || len(key.Path) != 1 || !resourceFilterColumns[key.Path[0]] {
+			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
+				ErrUnsupportedPostgresPlan)
+		}
+		r.orderBy = append(r.orderBy, scope.alias+"."+r.storage.Resource.MustColumn(key.Path[0]).SQLText()+" ASC")
+	}
+	return nil
+}
+
+func (r *planRenderer) renderLimit(plan ir.PhysicalPlan, limit ir.PhysicalLimit) error {
+	value, ok := plan.BindVars[limit.BindKey].(int)
+	if !ok || value <= 0 {
+		return fmt.Errorf("%w: limit bind %q must be a positive int", ErrUnsupportedPostgresPlan, limit.BindKey)
+	}
+	index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterBigint, Value: int64(value)}, "")
+	r.limitClause = " LIMIT $" + strconv.Itoa(index)
+	return nil
+}
+
+func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
+	if len(ret.Projections) == 0 {
+		return fmt.Errorf("%w: RETURN requires at least one projection", ErrUnsupportedPostgresPlan)
+	}
+	for _, projection := range ret.Projections {
+		if strings.TrimSpace(projection.Name) == "" {
+			return fmt.Errorf("%w: projection names are required output metadata (never SQL text)", ErrUnsupportedPostgresPlan)
+		}
+		if projection.Presence != nil || projection.PresenceOutput || projection.Hidden {
+			return fmt.Errorf("%w: presence sidecars and hidden projections are not yet implemented for PostgreSQL",
+				ErrUnsupportedPostgresPlan)
+		}
+		var value *ir.PhysicalValue
+		if projection.Expression != nil {
+			hasDirectValue := projection.Value.Variable != "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 0
+			if projection.Expression.Kind != ir.PhysicalValueExpression || projection.Expression.Value == nil || hasDirectValue {
+				return fmt.Errorf("%w: projection expressions must be exactly one VALUE expression", ErrUnsupportedPostgresPlan)
+			}
+			value = projection.Expression.Value
+		} else if projection.Value.Variable != "" || projection.Value.BindKey != "" || len(projection.Value.Path) != 0 {
+			value = &projection.Value
+		}
+		if value == nil || value.BindKey != "" {
+			return fmt.Errorf("%w: projection %q must read exactly one typed row value", ErrUnsupportedPostgresPlan, projection.Name)
+		}
+		expression, err := r.resolveValue(*value)
+		if err != nil {
+			return fmt.Errorf("projection %q: %w", projection.Name, err)
+		}
+		if isPayloadExpression(expression) {
+			expression = "(" + expression + ")"
+		}
+		r.selects = append(r.selects, expression+` AS "c`+strconv.Itoa(len(r.selects))+`"`)
+		r.outputColumns = append(r.outputColumns, projection.Name)
+	}
+	return nil
+}
+
+func (r *planRenderer) assemble() string {
+	var builder strings.Builder
+	builder.WriteString("SELECT ")
+	builder.WriteString(strings.Join(r.selects, ", "))
+	builder.WriteString(" FROM " + r.storage.Resource.Identifier().SQLText() + " AS " + r.rootAlias)
+	for _, join := range r.joins {
+		builder.WriteString(" " + join)
+	}
+	if len(r.where) > 0 {
+		builder.WriteString(" WHERE " + strings.Join(r.where, " AND "))
+	}
+	// Deterministic total order: plan sort keys first, then the storage
+	// identities so repeated rows from parallel edge occurrences order the
+	// same way on every execution.
+	order := append(append([]string{}, r.orderBy...), r.rootAlias+"."+r.storage.Resource.MustColumn("resource_seq").SQLText()+" ASC")
+	for _, edgeAlias := range r.edgeAliases {
+		order = append(order, edgeAlias+"."+r.storage.Edge.MustColumn("edge_seq").SQLText()+" ASC")
+	}
+	builder.WriteString(" ORDER BY " + strings.Join(order, ", "))
+	builder.WriteString(r.limitClause)
+	return builder.String()
+}
