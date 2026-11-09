@@ -2,14 +2,16 @@ package postgres
 
 // Staged selection revisions on PostgreSQL (pg-state-selection-revision-owner-v1).
 //
-// This file is the relational counterpart of internal/explorer/arango/
-// selections.go: BeginSelection canonicalizes and validates the revision
-// identity, reclaims only expired staging leases, then binds the
-// project-scoped idempotency key. A matching retry is idempotent; another
-// identity or an active writer conflicts. Membership (append/digest/visit),
-// completion CAS, owner-conditional abort, and bounded staging cleanup
-// mirror the Arango adapter method for method so TestSelectionStorage-
-// AgainstPostgres can hold the same guarantees against real PG18.
+// This file is the header/owner half of the relational counterpart of
+// internal/explorer/arango/selections.go: BeginSelection canonicalizes and
+// validates the revision identity, reclaims only expired staging leases,
+// then binds the project-scoped idempotency key. A matching retry is
+// idempotent; another identity or an active writer conflicts. GetSelection,
+// owner-conditional abort, and bounded staging cleanup mirror the Arango
+// adapter method for method so TestSelectionStorage-AgainPostgres can hold
+// the same guarantees against real PG18. The membership half -- the
+// insert-once batch Append, the paged Digest, the fenced finalize Complete,
+// and the keyset Visit -- lives in selection_members.go.
 //
 // Database-enforced invariants (DDL in
 // tests/migrations-selections/000008_selection_revisions.sql; this file
@@ -17,19 +19,14 @@ package postgres
 //   - selection_revisions PRIMARY KEY (id) mirrors Arango's global document
 //     key, so one selection ID is exactly one revision.
 //   - UNIQUE (project, idempotency_key) is the project-scoped idempotency
-//     arbiter: competing same-key begins converge on the winner's row.
-//   - selection_members PRIMARY KEY (selection_id, member_key) plus UNIQUE
-//     (selection_id, project, generation, resource_type, id) make member
-//     staging insert-once and retries idempotent, exactly like Arango's
-//     immutable member keys.
+//     arbiter: competing same-key/same-content begins converge on the
+//     winner's row.
 //   - Guard triggers abort identity tampering and completed-fact tampering
 //     on the header, and any UPDATE of a staged member, with SQLSTATE
 //     45501 before the write runs.
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,24 +54,7 @@ const (
 	// selectionCleanupLimit bounds one staging-cleanup batch, as Arango's
 	// startup callers budget cleanup work rather than scanning everything.
 	selectionCleanupLimit = 100
-	// selectionDigestPageSize pages membership streaming for
-	// DigestSelectionMembers, matching Arango's 1000-row pages.
-	selectionDigestPageSize = 1000
 )
-
-// selectionMemberKey derives the immutable member key for one reference
-// under one selection. It reproduces the Arango adapter's
-// selectionMemberKey byte for byte (selectionID + "_" + the shared key()
-// hash over project, generation, resource type, and id), so a member carries
-// the same identity on either backend.
-func selectionMemberKey(selectionID string, ref explorer.ResourceRef) string {
-	h := sha256.New()
-	for _, part := range []string{ref.Project, ref.Generation, ref.ResourceType, ref.ID} {
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(part))
-	}
-	return selectionID + "_" + hex.EncodeToString(h.Sum(nil))
-}
 
 // selectionColumns is the single source of truth for the header read/write
 // column order. Ordered SQL parameters ($1..$N) therefore match each call's
@@ -109,16 +89,6 @@ var selectionWriteColumns = append([]string{"state", "writer_token", "writer_exp
 // writer columns the lifecycle checks inspect (never surfaced to callers).
 var selectionReadColumns = append(append([]string{}, selectionColumns...), "writer_token", "writer_expires_at")
 
-// memberColumns is the single source of truth for member read/write order.
-var memberColumns = []string{
-	"member_key",
-	"project",
-	"generation",
-	"resource_type",
-	"id",
-	"ordinal",
-}
-
 // selectionSQL is the ordered, schema-qualified statement set the selection
 // lifecycle executes. Statements are built once in New for the schema the
 // Store targets and reuse the column-order sources above.
@@ -145,25 +115,10 @@ type selectionSQL struct {
 	// writer_expires_at < $now at write time, so an unexpired writer can
 	// never be claimed no matter which caller races.
 	leaseClaim string
-	// headerForAppend locks the header for the append transaction so
-	// cleanup and abort cannot yank the row (or its members) mid-batch.
+	// headerForAppend locks the header for the append and fenced-complete
+	// transactions so cleanup and abort cannot yank the row (or its
+	// members) mid-batch. selection_members.go drives it from both.
 	headerForAppend string
-	// memberInsert stages one member insert-once; a returning row means
-	// this call created it, no row means the key already existed.
-	memberInsert string
-	// leaseRenew extends the writer lease only for the matching writer on
-	// a still-staged row, mirroring Arango's writer-token filter.
-	leaseRenew string
-	// completeCAS is the completion CAS: it flips a row to COMPLETE with
-	// its membership facts only while it is still STAGING under the
-	// calling writer's token.
-	completeCAS string
-	// memberDigestPage streams one membership frame page in byte-order id
-	// (COLLATE "C" columns, so this is Arango's byte-order SORT).
-	memberDigestPage string
-	// memberVisitPage pages members by byte-order member_key, mirroring
-	// Arango's m._key > @after walk.
-	memberVisitPage string
 	// cleanupVictims selects expired STAGING headers bounded by limit,
 	// locking them so abort/append/complete cannot interleave mid-batch.
 	cleanupVictims string
@@ -184,10 +139,6 @@ func newSelectionSQL(schema string) selectionSQL {
 	for i := range selectionWriteColumns {
 		writePlaceholders[i] = fmt.Sprintf("$%d", i+1)
 	}
-	memberPlaceholders := make([]string, len(memberColumns)+2)
-	for i := range memberPlaceholders {
-		memberPlaceholders[i] = fmt.Sprintf("$%d", i+1)
-	}
 	return selectionSQL{
 		beginInsert: "INSERT INTO " + headers + " (" + strings.Join(selectionWriteColumns, ", ") + ") VALUES (" +
 			strings.Join(writePlaceholders, ", ") + ") ON CONFLICT DO NOTHING",
@@ -201,23 +152,6 @@ func newSelectionSQL(schema string) selectionSQL {
 			" RETURNING " + readCols,
 		headerForAppend: "SELECT writer_token, state, complete, project, generation, resource_type" +
 			" FROM " + headers + " WHERE id = $1 FOR UPDATE",
-		memberInsert: "INSERT INTO " + members +
-			" (selection_id, member_key, project, generation, resource_type, id, ordinal)" +
-			" VALUES (" + strings.Join(memberPlaceholders[:len(memberColumns)+1], ", ") + ")" +
-			" ON CONFLICT (selection_id, member_key) DO NOTHING" +
-			" RETURNING " + strings.Join(memberColumns, ", "),
-		leaseRenew: "UPDATE " + headers + " SET writer_expires_at = $2" +
-			" WHERE id = $1 AND writer_token = $3 AND state = '" + selectionStagingState + "'",
-		completeCAS: "UPDATE " + headers + " SET state = '" + selectionCompleteState + "', complete = true," +
-			" membership_digest = $2, member_count = $3, member_bytes = $4, completed_at = $5" +
-			" WHERE id = $1 AND state = '" + selectionStagingState + "' AND writer_token = $6" +
-			" RETURNING " + readCols,
-		memberDigestPage: "SELECT project, generation, resource_type, id FROM " + members +
-			" WHERE selection_id = $1 AND project = $2 AND generation = $3 AND resource_type = $4 AND id > $5" +
-			" ORDER BY id LIMIT $6",
-		memberVisitPage: "SELECT " + strings.Join(memberColumns, ", ") + " FROM " + members +
-			" WHERE selection_id = $1 AND project = $2 AND member_key > $3" +
-			" ORDER BY member_key LIMIT $4",
 		cleanupVictims: "SELECT id FROM " + headers +
 			" WHERE state = '" + selectionStagingState + "' AND created_at < $1 AND writer_expires_at < $2" +
 			" ORDER BY created_at, id LIMIT $3 FOR UPDATE",
@@ -450,263 +384,6 @@ func (s *Store) BeginSelection(ctx context.Context, selection explorer.Selection
 	return &revision, nil
 }
 
-// AppendSelectionMembers stages a bounded member batch under the writer's
-// lease, exact counterpart of the Arango adapter. Everything happens in ONE
-// transaction: the header row is locked FOR UPDATE, its writer token and
-// staging state are verified, every member's derived immutable key is
-// checked, and only then are the insert-once member rows written and the
-// lease renewed for the matching writer. A failed validation or any fault
-// after the first member insert (see the afterMemberInsert seam) aborts the
-// transaction, so a partially applied batch never leaks members and never
-// renews a lease it did not earn (post-abort convergence, pinned against
-// real PG18).
-func (s *Store) AppendSelectionMembers(ctx context.Context, selectionID, writerToken string, members []explorer.SelectionMember) ([]explorer.SelectionMember, error) {
-	selectionID = strings.TrimSpace(selectionID)
-	writerToken = strings.TrimSpace(writerToken)
-	if selectionID == "" {
-		return nil, fmt.Errorf("selection id is required")
-	}
-	if writerToken == "" {
-		return nil, explorer.ErrSelectionConflict
-	}
-	if len(members) == 0 {
-		return nil, nil
-	}
-
-	conn, err := s.client.Acquire(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("postgres explorer store: acquire append-members connection: %w", err)
-	}
-	defer conn.Release()
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("postgres explorer store: begin append members %q: %w", selectionID, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	var storedToken, state string
-	var complete bool
-	var project, generation, resourceType string
-	err = tx.QueryRow(ctx, s.selections.headerForAppend, selectionID).
-		Scan(&storedToken, &state, &complete, &project, &generation, &resourceType)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, explorer.ErrSelectionNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("postgres explorer store: lock selection header %q: %w", selectionID, err)
-	}
-	if strings.TrimSpace(storedToken) != writerToken {
-		return nil, explorer.ErrSelectionConflict
-	}
-	if complete || (state != "" && state != selectionStagingState) {
-		return nil, explorer.ErrSelectionConflict
-	}
-
-	// Build and validate the whole batch before the first insert, as the
-	// Arango adapter does: a mixed-project member is refused before any
-	// row of the batch can exist.
-	type pendingMember struct {
-		memberKey string
-		member    explorer.SelectionMember
-	}
-	batch := make([]pendingMember, 0, len(members))
-	for _, raw := range members {
-		member := raw.Canonical()
-		expectedMemberKey := selectionMemberKey(selectionID, member.Ref)
-		if member.MemberKey != "" && member.MemberKey != expectedMemberKey {
-			return nil, explorer.ErrSelectionConflict
-		}
-		member.MemberKey = expectedMemberKey
-		if err := member.Ref.Validate(project, generation, resourceType); err != nil {
-			return nil, err
-		}
-		batch = append(batch, pendingMember{memberKey: expectedMemberKey, member: member})
-	}
-
-	inserted := make([]explorer.SelectionMember, 0, len(batch))
-	for _, entry := range batch {
-		var (
-			memberKey, mProject, mGeneration, mResourceType, mID string
-			ordinal                                              int64
-		)
-		err := tx.QueryRow(ctx, s.selections.memberInsert,
-			selectionID, entry.memberKey, entry.member.Ref.Project, entry.member.Ref.Generation,
-			entry.member.Ref.ResourceType, entry.member.Ref.ID, entry.member.Ordinal).
-			Scan(&memberKey, &mProject, &mGeneration, &mResourceType, &mID, &ordinal)
-		if errors.Is(err, pgx.ErrNoRows) {
-			// The key already existed: an idempotent retry, not a new
-			// member. This call did not create it.
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("postgres explorer store: stage member %q of selection %q: %w",
-				entry.memberKey, selectionID, err)
-		}
-		if memberKey != entry.memberKey || mProject != entry.member.Ref.Project ||
-			mGeneration != entry.member.Ref.Generation || mResourceType != entry.member.Ref.ResourceType ||
-			mID != entry.member.Ref.ID || ordinal != entry.member.Ordinal {
-			// The stored row disagrees with what was written in the same
-			// statement: an integrity failure of the storage itself.
-			return nil, fmt.Errorf("postgres explorer store: staged member %q of selection %q reread mismatch",
-				entry.memberKey, selectionID)
-		}
-		inserted = append(inserted, entry.member)
-	}
-
-	// Test-only seam: exercises faults and interleavings after the real
-	// member inserts and before the lease renewal inside this same live
-	// transaction. Always nil in production (unexported, never assigned
-	// outside selections_test.go); an error here aborts the transaction,
-	// so both the member rows and the renewal vanish together.
-	if s.afterMemberInsert != nil {
-		if err := s.afterMemberInsert(ctx, tx); err != nil {
-			return nil, fmt.Errorf("postgres explorer store: append members %q after member insert: %w",
-				selectionID, err)
-		}
-	}
-
-	renewAt := time.Now().UTC().Add(selectionWriterLease)
-	tag, err := tx.Exec(ctx, s.selections.leaseRenew, selectionID, renewAt, writerToken)
-	if err != nil {
-		return nil, fmt.Errorf("postgres explorer store: renew selection writer lease %q: %w", selectionID, err)
-	}
-	if tag.RowsAffected() != 1 {
-		// Unreachable while the FOR UPDATE lock is held; if it ever fires
-		// the batch is not the writer's and must not commit.
-		return nil, explorer.ErrSelectionConflict
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("postgres explorer store: commit append members %q: %w", selectionID, err)
-	}
-	return inserted, nil
-}
-
-// DigestSelectionMembers streams the membership digest, count, and byte
-// total for a revision, mirroring the Arango adapter's indexed paging:
-// byte-order id walk with 1000-row pages, the shared WriteMembershipFrame
-// framing, and the same 8+len(value) byte accounting. A COMPLETE revision
-// returns its frozen facts without re-streaming, so the digest the
-// completion CAS stored is exactly what readers get back.
-func (s *Store) DigestSelectionMembers(ctx context.Context, project, selectionID string) (string, int64, int64, error) {
-	selectionID = strings.TrimSpace(selectionID)
-	project = strings.TrimSpace(project)
-	if selectionID == "" || project == "" {
-		return "", 0, 0, explorer.ErrSelectionNotFound
-	}
-	conn, err := s.client.Acquire(ctx)
-	if err != nil {
-		return "", 0, 0, fmt.Errorf("postgres explorer store: acquire digest-members connection: %w", err)
-	}
-	defer conn.Release()
-
-	header, err := s.readSelectionRow(ctx, conn, s.selections.headerScoped, selectionID, project)
-	if err != nil {
-		return "", 0, 0, err
-	}
-	if header.revision.Complete {
-		return header.revision.MembershipDigest, header.revision.MemberCount, header.revision.MemberBytes, nil
-	}
-
-	hash := sha256.New()
-	var count, byteTotal int64
-	afterID := ""
-	for {
-		pageCount := 0
-		rows, err := conn.Query(ctx, s.selections.memberDigestPage,
-			selectionID, project, header.revision.Generation, header.revision.ResourceType,
-			afterID, selectionDigestPageSize)
-		if err != nil {
-			return "", 0, 0, fmt.Errorf("postgres explorer store: stream selection members %q: %w", selectionID, err)
-		}
-		for rows.Next() {
-			var ref explorer.ResourceRef
-			if err := rows.Scan(&ref.Project, &ref.Generation, &ref.ResourceType, &ref.ID); err != nil {
-				rows.Close()
-				return "", 0, 0, fmt.Errorf("postgres explorer store: scan selection member %q: %w", selectionID, err)
-			}
-			ref = ref.Canonical()
-			explorer.WriteMembershipFrame(hash, ref)
-			for _, value := range []string{ref.Project, ref.Generation, ref.ResourceType, ref.ID} {
-				byteTotal += int64(8 + len(value))
-			}
-			count++
-			pageCount++
-			afterID = ref.ID
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return "", 0, 0, fmt.Errorf("postgres explorer store: iterate selection members %q: %w", selectionID, err)
-		}
-		rows.Close()
-		if pageCount < selectionDigestPageSize {
-			break
-		}
-	}
-	return hex.EncodeToString(hash.Sum(nil)), count, byteTotal, nil
-}
-
-// CompleteSelection is the completion CAS, exact counterpart of the Arango
-// adapter: a row flips to COMPLETE with its membership facts only while it
-// is still STAGING under the calling writer's token. A zero-row CAS is not
-// blindly a failure -- the stored row is reread and classified: already
-// COMPLETE with identical facts is idempotent success; COMPLETE with
-// different facts is a conflict; still STAGING under this writer is
-// ErrSelectionIncomplete (the membership was never completed); anything
-// else is a conflict. The guard trigger makes a completed row's facts and
-// the STAGING/COMPLETE flip irreversible at the database.
-func (s *Store) CompleteSelection(ctx context.Context, selectionID, writerToken, digest string, count, bytes int64, completedAt time.Time) (*explorer.SelectionRevision, error) {
-	selectionID = strings.TrimSpace(selectionID)
-	writerToken = strings.TrimSpace(writerToken)
-	if selectionID == "" || strings.TrimSpace(digest) == "" || count < 0 || bytes < 0 {
-		return nil, explorer.ErrSelectionIncomplete
-	}
-	if writerToken == "" {
-		return nil, explorer.ErrSelectionConflict
-	}
-	if completedAt.IsZero() {
-		completedAt = time.Now().UTC()
-	}
-
-	conn, err := s.client.Acquire(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("postgres explorer store: acquire complete-selection connection: %w", err)
-	}
-	defer conn.Release()
-
-	winner, err := s.readSelectionRowTx(ctx, conn, s.selections.completeCAS,
-		selectionID, digest, count, bytes, completedAt.UTC(), writerToken)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
-	}
-	if err == nil {
-		if err := winner.revision.Validate(); err != nil {
-			return nil, err
-		}
-		revision := winner.revision
-		return &revision, nil
-	}
-
-	stored, err := s.readSelectionRow(ctx, conn, s.selections.headerByID, selectionID)
-	if err != nil {
-		// Missing row surfaces ErrSelectionNotFound exactly as the Arango
-		// adapter's post-CAS reread does; nothing was completed.
-		return nil, err
-	}
-	if stored.revision.Complete {
-		if stored.revision.MembershipDigest != digest ||
-			stored.revision.MemberCount != count || stored.revision.MemberBytes != bytes {
-			return nil, explorer.ErrSelectionConflict
-		}
-		revision := stored.revision
-		return &revision, nil
-	}
-	if strings.TrimSpace(stored.writerToken) != writerToken {
-		return nil, explorer.ErrSelectionConflict
-	}
-	return nil, explorer.ErrSelectionIncomplete
-}
-
 // AbortSelection removes an owned staging revision with its members, exact
 // counterpart of the Arango adapter's owner-conditional query: ownership
 // means the row exists, is not COMPLETE, and carries the calling writer's
@@ -787,73 +464,6 @@ func (s *Store) GetSelection(ctx context.Context, project, selectionID string) (
 	}
 	revision := stored.revision
 	return &revision, nil
-}
-
-// VisitSelectionMembers visits at most one page of COMPLETE membership per
-// call -- exactly one page of at most pageSize members, mirroring
-// arango.VisitSelectionMembers, whose callers (lifecycle readSelectionIntent
-// and appendSelectionRevision) gate their own batching on that per-call
-// bound: the caller drives the walk and re-invokes with the returned
-// cursor; an empty page returns after unchanged. Members are paged in
-// byte-order member_key (the member key starts with the selection id, so
-// the walk is Arango's m._key > @after over the same 64-hex suffix space).
-// A STAGING revision is
-// ErrSelectionIncomplete: streaming membership that was never finalized
-// into a digest would let callers publish facts no completion CAS ever
-// froze.
-func (s *Store) VisitSelectionMembers(ctx context.Context, project, selectionID, after string, pageSize int, visit func(explorer.SelectionMember) error) (string, error) {
-	if visit == nil {
-		return "", fmt.Errorf("selection member visitor is required")
-	}
-	header, err := s.GetSelection(ctx, project, selectionID)
-	if err != nil {
-		return "", err
-	}
-	if !header.Complete {
-		return "", explorer.ErrSelectionIncomplete
-	}
-	if pageSize <= 0 {
-		pageSize = selectionDigestPageSize
-	}
-
-	conn, err := s.client.Acquire(ctx)
-	if err != nil {
-		return "", fmt.Errorf("postgres explorer store: acquire visit-members connection: %w", err)
-	}
-	defer conn.Release()
-
-	last := strings.TrimSpace(after)
-	page := make([]explorer.SelectionMember, 0, pageSize)
-	keys := make([]string, 0, pageSize)
-	rows, err := conn.Query(ctx, s.selections.memberVisitPage, selectionID, strings.TrimSpace(project), last, pageSize)
-	if err != nil {
-		return last, fmt.Errorf("postgres explorer store: page selection members %q: %w", selectionID, err)
-	}
-	for rows.Next() {
-		var member explorer.SelectionMember
-		if err := rows.Scan(&member.MemberKey, &member.Ref.Project, &member.Ref.Generation,
-			&member.Ref.ResourceType, &member.Ref.ID, &member.Ordinal); err != nil {
-			rows.Close()
-			return last, fmt.Errorf("postgres explorer store: scan selection member page %q: %w", selectionID, err)
-		}
-		member = member.Canonical()
-		page = append(page, member)
-		keys = append(keys, member.MemberKey)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return last, fmt.Errorf("postgres explorer store: iterate selection member page %q: %w", selectionID, err)
-	}
-	rows.Close()
-	// One page per call, like the Arango adapter: visiting stops at
-	// pageSize members and the caller resumes from the returned cursor.
-	for i, member := range page {
-		if err := visit(member); err != nil {
-			return last, err
-		}
-		last = keys[i]
-	}
-	return last, nil
 }
 
 // CleanupSelectionStaging removes bounded abandoned staging revisions --
