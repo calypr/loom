@@ -608,53 +608,53 @@ var pubvisPayloadGoldenSHA256 = map[string]string{
 	"pubvis-exec-b2":      "385596457a9ba6c88d57f76ee4135d8b1bcd924ef97b6e3126697b0d89eaac8f",
 	"pubvis-exec-b3":      "3796e938f6cc0b28ea8c59e13843482c60f251908c074251afaf6924158b3664",
 	"pubvis-exec-d-r01-a": "8da08c6f92cbdbfc0a3f53a8fadb068b44080a3f3fbbe38bb65367de615881c8",
-	"pubvis-exec-d-r01-b": "cf606df21b0e8a4e314ef922d38ea50ba50af8993e1cb9e04195e0d048709d8d",
+	"pubvis-exec-d-r01-b": "d650cc34b4bb1d13ee79802d804f8a9b65cf9509825a3667b16fd5827246c346",
 	"pubvis-exec-d-r02-a": "f546f7824de877ff6ed622bbf7a0a6665759d4a67c485f9d276c36eed3d4c1c3",
-	"pubvis-exec-d-r02-b": "e2f8f29dd10beeeb2c6020e705dc49e79c7371e83052e275eaa6b60d087891e9",
+	"pubvis-exec-d-r02-b": "5bf186433d3bc4358f88b04a506838c2f57857239b8838dbf1b5812df3ffda52",
 	"pubvis-exec-d-r03-a": "d4b838da0f93a0de5559fa9a8381f82c904cf5af88d20e84458b8aab47a704ea",
-	"pubvis-exec-d-r03-b": "db8eee38a5bbacd7ba4d828761d39a6fafaf666f86d0c248dda7843a727f4114",
+	"pubvis-exec-d-r03-b": "8c98b91fd65e62c74e0d28169d2f990ed46799eff831211454ecf6f1d0d7d024",
 	"pubvis-exec-d-r04-a": "d6ae7732cb28c360872518977de7dada5dad563c216942a3cf31ac1b5a27fb0b",
-	"pubvis-exec-d-r04-b": "5fae985aace95d5c4b7db30059366d35d9ad3140a5b25fd7e4d0fc1ae5e4e08c",
+	"pubvis-exec-d-r04-b": "a732ad412e6d4ff130e9253685f94cda13e9a53c7acf28fdc9450c89457fdf0f",
 	"pubvis-exec-d-r05-a": "79ee74d1088eddc9eda84fc6956223bc0e350672578cedf188630c2926959ded",
-	"pubvis-exec-d-r05-b": "f59c2e7024705b7b8dba3a70092c77e8e2eb8a615ed60f39921f9eebf235ad37",
+	"pubvis-exec-d-r05-b": "dce5589bb3b5b97edf14efa81b435778871b6c464fb424b8ffe53a9f76ea4059",
 	"pubvis-exec-d-r06-a": "6e3a46f762070040617809991c07d797db7750d929594d7b800f670dbd18d398",
-	"pubvis-exec-d-r06-b": "670cd67c113db78710de0c99161e897987b6d0260a2c8119ae766914178ea7b0",
+	"pubvis-exec-d-r06-b": "20a4c962bdd6e93c2a28e8524e7ef91ea3dc9487a59336a1847ffeea1a7efac1",
 	"pubvis-exec-d-r07-a": "239dab003d9159f9fcba733cba8db936a6cf7230372a9a0aab2482582e4bd9c6",
-	"pubvis-exec-d-r07-b": "89d772c32fe35fe1011dd6216e204765b8c8b5c4b45418c0b5b10c9319ca6981",
+	"pubvis-exec-d-r07-b": "f315246bf2489e9e4af3a3ed977d1b2269dabdce4ac3affaee22a68e8d17c5a8",
 	"pubvis-exec-d-r08-a": "b448df7ab59c4e11476bc44746731c9f009092163f74f0f70fca630283996b42",
-	"pubvis-exec-d-r08-b": "65cc837fa21b1296b417093350ee49ccf1ad1dabbfba95605f3d8c8185aedff2",
+	"pubvis-exec-d-r08-b": "45d13ce4c82ab1ac17ba278b8b3cf8a9c252286d8b6aeb0ec3063ab9c6192d72",
 	"pubvis-exec-d-r09-a": "d07aee22f1b2002c908b47ee4e494f90cc5e17d24746b92fe1caf6ee7237884c",
-	"pubvis-exec-d-r09-b": "66a1602ed8abf1d0089fb8f460fed57f140acd6905921914d846d286d101bd87",
+	"pubvis-exec-d-r09-b": "4b504423b063e03e84581ef582852dfbe33479bd140e66482b649537810deab8",
 	"pubvis-exec-d-r10-a": "9b70eb587481cd1c07d2e7e69db2c9be529b27649cedfcd72051b9da47614388",
-	"pubvis-exec-d-r10-b": "ba021e28ee79d16297a5a6d2aad43159ac472314f707bf9b4eef5d93b2988df8",
+	"pubvis-exec-d-r10-b": "ad22c26f50014d80ef24720f9d8eec4d898e7dfae01a5be227cc68cf76105207",
 	"pubvis-exec-d-r11-a": "b11d5fe6eb7f2a545da01a7cc594d5586945db7aa94403055d1e97e36acfe258",
-	"pubvis-exec-d-r11-b": "82d5872d366c35435c37dc2175e34ccaee40fe4a40f895387753ec50ee73bf54",
+	"pubvis-exec-d-r11-b": "e41cf9e81d0cbdc5e3da0a1bcde14c5f0433e68fbe30ccbdfc0ac1008bc74b59",
 	"pubvis-exec-d-r12-a": "45ba181aafc8ca1aeb41916afd4cbb4d9191aa8834bb6b6b3b225f39df7c8173",
-	"pubvis-exec-d-r12-b": "e4e056aa1f0ad8e43b3b52449310be87f88188093782c485bfd72000a6d43d34",
+	"pubvis-exec-d-r12-b": "b47944c243ce7ea639d415fcbb060ab4e6175059130950b338c57d01ffeb3a83",
 	"pubvis-exec-d-s01-a": "73e1555e6ce658e4f7f44ca484993d6345b0e934e0a771d2e80e7e920727fce1",
-	"pubvis-exec-d-s01-b": "027ee049e104ea847b28f23188766fa8a40c00dc6a2ff1065bcf793b131254a3",
+	"pubvis-exec-d-s01-b": "1287f1a519c1be245f73815b89e510d34f2d162edd5e8fd57cfdcc2d950af008",
 	"pubvis-exec-d-s02-a": "fd6d82ba3c0f6586aa3240a9a73019e3056f39ad948412924e87e9f82a3ee1ee",
-	"pubvis-exec-d-s02-b": "b276ce7699008ee91b49991bb75a90eb919581c76daec56b3d791ad8661f2bc3",
+	"pubvis-exec-d-s02-b": "56c58b81a2d89db7128bbd99b5f57efb069fc5ed7dd6d3f6f763c5107f2fdb5b",
 	"pubvis-exec-d-s03-a": "02f39fdda136ea21a1c59500674be16f6f86418e8c1dd8eafd6633b168976ac2",
-	"pubvis-exec-d-s03-b": "3ef413c5f05d4354dc3e72eb734f61730aa2aefeba1a7abbe12b8857ddac4fb9",
+	"pubvis-exec-d-s03-b": "2c3e77ab1a129c4eaf40a0bce682b234f8188a4aabfa47bcd14d6cd47a88a5e2",
 	"pubvis-exec-d-s04-a": "20d47c404f0e6cf80e8c4292ed490d20bdda26a577d7b0ffdc49e10b68c91f31",
-	"pubvis-exec-d-s04-b": "ad22860c12e895ef42a41f38e95cedd71faa23f48e6b13290af84a3d27098704",
+	"pubvis-exec-d-s04-b": "e301115f4f7b8cd8917deec689662b8e21924864f0fd4d458a6082243a4ea215",
 	"pubvis-exec-d-s05-a": "13e56112bf5e904f40c04a800e8a7d6a09b634f83376d8a9b2e05d75f3a819ff",
-	"pubvis-exec-d-s05-b": "3aa16846981370bad5be5e6f059d3d7943dee4297dc4c60c0fe07880b965ef52",
+	"pubvis-exec-d-s05-b": "75ee1b8cb6fedd26934af686fe0521dece6f04eb10f784f8f2dd4fb99678b358",
 	"pubvis-exec-d-s06-a": "728926b87c14895d0efd2e92b6606eaac1faa957fc252da4e064eff4a9fc6c5a",
-	"pubvis-exec-d-s06-b": "950b6241b8dce93061c31c2bdefc5967cb0c1931247b9af75eb841024692b5f6",
+	"pubvis-exec-d-s06-b": "12f094813346d4a949406edcbc8a1862290870ba22779339c6401fe0d4cafc62",
 	"pubvis-exec-d-s07-a": "6dea14edc91ce2502ae8223d4fd291e5115d34caacebfe507f9bbfd2900547b7",
-	"pubvis-exec-d-s07-b": "1403de5ad7b6a5c7a6d6c8676f9a09542d685ca9ea693b695a6ebdd7848487fc",
+	"pubvis-exec-d-s07-b": "c452d0d6022891ecb32adcf29d93c2ba32c1e1087066595bc5aa1117e66deeb2",
 	"pubvis-exec-d-s08-a": "d3a34af0f8d4e046bf9a138863e08b44695d6d37c09891e1cb39002ded3adf29",
-	"pubvis-exec-d-s08-b": "5f095473027fe699ce3b7e48d24fa19ad5ddc3d3f3db1e957b1fc74afe757b2c",
+	"pubvis-exec-d-s08-b": "7ca472316f45b25b9c737e14bcfe05fc1b79d717a1e81706a7d07854f22b085a",
 	"pubvis-exec-d-s09-a": "aa599df3947a7a5e70ff5706738362659ac5e6f7d30b90d10e18b5f27c09f6b8",
-	"pubvis-exec-d-s09-b": "3a901cac60d281abf3cee98aefc8c823cf5f3b9b87687edc2830261920139262",
+	"pubvis-exec-d-s09-b": "01e226c23fa91f4061d5bb736a8e986ddf88b28829cc237b69b80aacc0339528",
 	"pubvis-exec-d-s10-a": "63d3d533bec74ce87d8b16b020e1468d091110abef4b4d4de7c5eafc4c81bdf6",
-	"pubvis-exec-d-s10-b": "c574422048e41a6df5712b49d645d39d31ee4cce143a0765c095f6114ccd8f8a",
+	"pubvis-exec-d-s10-b": "fab861cad1a8be4fd57f18002166ef5a5b89d725eb0d1426e2e952a7f808e470",
 	"pubvis-exec-d-s11-a": "135716f27fca7695a8f535979b93d89426207003c609a76128ae7b00515ad0af",
-	"pubvis-exec-d-s11-b": "38c2636b311b6cd78f1a6b0a7a333f8a1a1e6658ef8bf3cdb890d1e412e393bd",
+	"pubvis-exec-d-s11-b": "6170e40cd3ae993091f25bcfef93509fb5b1fafab49cfa60a165729295a1aff2",
 	"pubvis-exec-d-s12-a": "acb66f303fd581f82512d8d60415b71eda822a83584a77f48286e03e8a42425e",
-	"pubvis-exec-d-s12-b": "b6567112f5d7f02feba91e8c53139d321dffb94d7a60967012547c9963dbfa52",
+	"pubvis-exec-d-s12-b": "14334971ccc4dfd4d6fb890f4a2c64f095286d6a4352e4c3b03dcc8936c8864d",
 }
 
 func pubvisWantPayloadSHA(t *testing.T, id string) string {
@@ -1387,6 +1387,43 @@ func TestPublishExecutionAtomicity(t *testing.T) {
 			t.Fatalf("repaired publish pointer row = %+v, want %q", row, id)
 		}
 		pubvisExpectExactPublished(t, s, published)
+	})
+
+	t.Run("G_payload_goldens_are_load_bearing", func(t *testing.T) {
+		// Every d-* golden pin is asserted POSITIVELY: publishing the
+		// canonical execution through the production write path with its
+		// round-D owner binding (a->owner-a, b->owner-b) must store a
+		// payload whose sha256 equals the pin. Negative-only usage (D's
+		// loser control) can never redden on pin drift -- this closes that
+		// gap: a future payload change or a wrong-owner pin fails here by
+		// name.
+		s := newPubvisService(t)
+		pinned := 0
+		for _, p := range []string{"r", "s"} {
+			for i := 1; i <= 12; i++ {
+				tag := fmt.Sprintf("%s%02d", p, i)
+				for _, suffix := range []string{"a", "b"} {
+					id := "pubvis-exec-d-" + tag + "-" + suffix
+					owner := pubvisOwnerA
+					if suffix == "b" {
+						owner = pubvisOwnerB
+					}
+					name := pubvisPointerName() + "|g" + tag + suffix
+					s.seed(t, s.regA, owner, id)
+					published := pubvisExecution(id, true, owner)
+					if err := s.regA.PublishExecution(s.ctx, name, "", published); err != nil {
+						s.fail("G publish "+id, err)
+					}
+					if got := pubvisSHA256Hex(s.payloadText(t, id)); got != pubvisWantPayloadSHA(t, id) {
+						t.Fatalf("%s: production-published payload digest = %s, want golden %s -- the pin no longer tracks the write path (owner binding or payload drift)",
+							id, got, pubvisWantPayloadSHA(t, id))
+					}
+					pubvisExpectExactPublished(t, s, published)
+					pinned++
+				}
+			}
+		}
+		t.Logf("OBS G: %d d-* payload golden pins asserted positively against the production write path (owner-correct bindings)", pinned)
 	})
 }
 
