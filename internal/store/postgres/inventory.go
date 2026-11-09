@@ -331,10 +331,16 @@ func (r *InventoryRepository) insertCountChunk(ctx context.Context, chunk []cata
 		args = append(args, row.Key, row.BuildID, row.Project, row.DatasetGeneration,
 			row.ResourceType, row.AuthResourcePath, row.DocumentCount)
 	}
-	// A conflicting row updates nothing unless the stored row already holds
-	// the identical document count and count key. Non-matching conflicts are
-	// excluded from RETURNING and surfaced as typed conflicts below, so the
-	// stored content-addressed row is never replaced.
+	// The same-value guard: a conflicting row is re-applied (so it appears
+	// in RETURNING and the repeat is provably a no-op) only when the stored
+	// row already holds BOTH the identical document count and the identical
+	// count key; PostgreSQL omits WHERE-excluded conflicts from SET and from
+	// RETURNING, and the follow-up below turns any such omission into a
+	// typed conflict naming the diverged column. The stored content-
+	// addressed row — including its ric_ key — is therefore never replaced:
+	// a same-document_count reinsert carrying a forged count_key is refused
+	// as a count_key conflict, and a fully identical reinsert writes the
+	// same values it already has.
 	sql.WriteString(" ON CONFLICT (build_id, project, dataset_generation, resource_type, auth_resource_path)" +
 		" DO UPDATE SET document_count = EXCLUDED.document_count" +
 		" WHERE " + inventoryCountTableName + ".document_count = EXCLUDED.document_count" +
@@ -451,6 +457,7 @@ func (r *InventoryRepository) PublishBuild(ctx context.Context, build catalog.Re
 	if err != nil {
 		return fmt.Errorf("postgres: inventory publish guard coverage check: %w", err)
 	}
+	defer rows.Close()
 	present := make(map[string]struct{}, len(declared))
 	for rows.Next() {
 		var resourceType string

@@ -392,6 +392,39 @@ func TestInventoryInsertCountsIsRepeatStableAndRejectsDivergence(t *testing.T) {
 		t.Fatalf("stored count = %d, want the tampered 99 (insert must never replace)", stored)
 	}
 
+	// Same document_count, forged count_key: the same-value guard must not
+	// silently overwrite the ric_ identity. PostgreSQL omits WHERE-excluded
+	// conflicts from SET and RETURNING; the repository turns that omission
+	// into a typed count_key conflict and the stored key survives.
+	forged := catalog.ResourceInventoryCount{
+		Key: "ric_forged_samecount", RecordType: catalog.ResourceInventoryCountRecordType,
+		BuildID: counts[0].BuildID, Project: counts[0].Project, DatasetGeneration: counts[0].DatasetGeneration,
+		AuthResourcePath: counts[0].AuthResourcePath, ResourceType: counts[0].ResourceType,
+		DocumentCount: counts[0].DocumentCount,
+	}
+	err = repo.InsertCounts(s.ctx, []catalog.ResourceInventoryCount{forged}, 10)
+	var keyConflict *InventoryCountConflictError
+	if !errors.As(err, &keyConflict) || keyConflict.Field != "count_key" ||
+		keyConflict.Stored != counts[0].Key || keyConflict.Requested != "ric_forged_samecount" {
+		t.Fatalf("forged-key reinsert error = %v, want typed count_key conflict", err)
+	}
+	var storedKey string
+	if err := s.iso.QueryRow(s.ctx, "SELECT count_key FROM "+pgx.Identifier{s.schema, inventoryCountTableName}.Sanitize()+
+		" WHERE build_id = $1 AND project = $2 AND dataset_generation = $3 AND resource_type = $4 AND auth_resource_path = $5",
+		counts[0].BuildID, counts[0].Project, counts[0].DatasetGeneration, counts[0].ResourceType, counts[0].AuthResourcePath,
+	).Scan(&storedKey); err != nil {
+		s.fail("read stored key", err)
+	}
+	if storedKey != counts[0].Key {
+		t.Fatalf("stored count key = %q, want the authentic %q (never replaced)", storedKey, counts[0].Key)
+	}
+
+	// A fully identical reinsert is still the proven no-op that returns its
+	// rows (WHERE-matching conflicts appear in RETURNING).
+	if err := repo.InsertCounts(s.ctx, []catalog.ResourceInventoryCount{counts[0]}, 10); err != nil {
+		t.Fatalf("identical single-row reinsert: %v", err)
+	}
+
 	// Argument contracts fail before any round trip.
 	if err := repo.InsertCounts(s.ctx, nil, 2); !errors.Is(err, ErrInvalidInventoryRow) {
 		t.Fatalf("empty insert error = %v, want ErrInvalidInventoryRow", err)
