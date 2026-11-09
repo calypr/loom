@@ -25,8 +25,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
@@ -447,94 +445,4 @@ func containsJSONValue(value any, expected string) bool {
 		}
 	}
 	return false
-}
-
-// TestConfiguredQueryErrorMappingClassifiesPostgresFailures proves the
-// server-side composition of the PostgreSQL runtime error boundary: driver
-// and server failures arriving through the store adapter classify into the
-// existing typed preview semantics (no new public codes), while Arango
-// classification stays untouched (those tests remain unchanged and green).
-func TestConfiguredQueryErrorMappingClassifiesPostgresFailures(t *testing.T) {
-	const rebBait = "SELECT reb_server_canary FROM reb_bait_schema.reb_bait_table WHERE x='reb_bind_canary'"
-
-	pgErr := func(severity, code string) *pgconn.PgError {
-		return &pgconn.PgError{
-			Severity: severity, Code: code,
-			Message:        "leak bait " + rebBait,
-			Detail:         rebBait,
-			SchemaName:     "reb_bait_schema",
-			TableName:      "reb_bait_table",
-			ConstraintName: "reb_bait_ux",
-		}
-	}
-	assertClean := func(where, text string) {
-		t.Helper()
-		for _, forbidden := range []string{"reb_server_canary", "reb_bait_schema", "reb_bait_table", "reb_bait_ux", "reb_bind_canary", "SELECT"} {
-			if strings.Contains(text, forbidden) {
-				t.Fatalf("%s leaks forbidden token %q: %s", where, forbidden, text)
-			}
-		}
-	}
-
-	t.Run("connect failure presents safe 503", func(t *testing.T) {
-		failure := &storepostgres.ConnectError{Op: "acquire", Err: errors.New("dial rebhost:5432 reb refused")}
-		classified := classifyDataframeQueryError(failure)
-		translated, ok := classified.(*storepostgres.TranslatedError)
-		if !ok || translated.Condition != storepostgres.ConditionConnectionFailure {
-			t.Fatalf("classified = %#v, want TranslatedError(connection_failure)", classified)
-		}
-		mapped := preserveConfiguredQueryError(failure)
-		var authoringErr *explorer.AuthoringError
-		if !errors.As(mapped, &authoringErr) || authoringErr.Status != http.StatusServiceUnavailable ||
-			authoringErr.Diagnostic.Code != string(dataframeerrors.CodeBackendUnavailable) {
-			t.Fatalf("mapped = %#v, want 503 BACKEND_UNAVAILABLE authoring error", mapped)
-		}
-		assertClean("authoring error", authoringErr.Error())
-		assertClean("translated", classified.Error())
-	})
-
-	t.Run("query canceled presents safe 503 limit", func(t *testing.T) {
-		failure := fmt.Errorf("seam: %w", pgErr("ERROR", "57014"))
-		mapped := preserveConfiguredQueryError(failure)
-		var authoringErr *explorer.AuthoringError
-		if !errors.As(mapped, &authoringErr) || authoringErr.Status != http.StatusServiceUnavailable ||
-			authoringErr.Diagnostic.Code != string(dataframeerrors.CodeQueryResourceLimitExceeded) {
-			t.Fatalf("mapped = %#v, want 503 QUERY_RESOURCE_LIMIT_EXCEEDED", mapped)
-		}
-		assertClean("57014 mapping", authoringErr.Error())
-	})
-
-	t.Run("serialization failure presents safe internal error", func(t *testing.T) {
-		failure := fmt.Errorf("seam: %w", pgErr("ERROR", "40001"))
-		mapped := preserveConfiguredQueryError(failure)
-		var authoringErr *explorer.AuthoringError
-		if !errors.As(mapped, &authoringErr) || authoringErr.Status != http.StatusInternalServerError {
-			t.Fatalf("mapped = %#v, want 500 internal presentation", mapped)
-		}
-		if userErr, ok := dataframeerrors.AsUserError(mapped); ok && userErr.Retryable() {
-			t.Fatal("serialization failure must not be presented retryable")
-		}
-		assertClean("40001 mapping", authoringErr.Error())
-	})
-
-	t.Run("acquire deadline stays lifecycle-classifiable", func(t *testing.T) {
-		failure := &storepostgres.ConnectError{Op: "acquire", Err: context.DeadlineExceeded}
-		mapped := preserveConfiguredQueryError(failure)
-		if !errors.Is(mapped, context.DeadlineExceeded) {
-			t.Fatalf("mapped = %v, want DeadlineExceeded preserved for lifecycle", mapped)
-		}
-	})
-
-	t.Run("non-postgres errors keep existing behavior", func(t *testing.T) {
-		// Guard-drop non-vacuity at the server: a foreign error must stay
-		// exactly the original error (Arango paths rely on this).
-		foreign := errors.New("private arango-adjacent detail")
-		if got := classifyDataframeQueryError(foreign); got != foreign {
-			t.Fatalf("foreign error mutated: %v", got)
-		}
-		canceled := fmt.Errorf("query canceled: %w", context.Canceled)
-		if got := classifyDataframeQueryError(canceled); got != canceled {
-			t.Fatalf("context cancellation must pass through the classifier unchanged: %v", got)
-		}
-	})
 }

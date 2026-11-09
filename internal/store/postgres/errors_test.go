@@ -531,6 +531,68 @@ type rebSafeToRetryError struct{ error }
 
 func (rebSafeToRetryError) SafeToRetry() bool { return true }
 
+// TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous pins the
+// ambiguous-COMMIT guarantee against localized server sessions: PostgreSQL
+// translates the protocol Severity field (S) under non-English lc_messages
+// while SeverityUnlocalized (V) stays English, so classification must read
+// V. A localized "SCHWERWIEGEND" (FATAL) at COMMIT must still be ambiguous
+// and never retryable, never falling through to the retryable admin-shutdown
+// advertisement.
+func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.T) {
+	tests := []struct {
+		name          string
+		severity      string
+		unlocalized   string
+		sqlState      string
+		wantCondition DriverCondition
+	}{
+		{"german_fatal", "SCHWERWIEGEND", "FATAL", sqlStateAdminShutdown, ConditionAdminShutdown},
+		{"plain_fatal", "FATAL", "FATAL", sqlStateAdminShutdown, ConditionAdminShutdown},
+		{"localized_severity_with_panic_v", "PANIK", "PANIC", sqlStateAdminShutdown, ConditionAdminShutdown},
+		{"unlocalized_missing_falls_back", "SCHWERWIEGEND", "", sqlStateAdminShutdown, ConditionAdminShutdown},
+		// On a non-session-end SQLSTATE only the unlocalized field can
+		// recognize FATAL: the old localized-only comparison would miss it.
+		{"fatal_v_on_internal_error_state", "SCHWERWIEGEND", "FATAL", "XX001", ConditionServerRejected},
+		{"english_severity_fallback", "FATAL", "", "XX001", ConditionServerRejected},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pgErr := rebSecretPgError(test.severity, test.sqlState)
+			pgErr.SeverityUnlocalized = test.unlocalized
+			translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
+			if !ok {
+				t.Fatal("localized commit failure not translated")
+			}
+			translatedErr := translated.(*TranslatedError)
+			if !translatedErr.AmbiguousCommit || !errors.Is(translated, ErrCommitOutcomeUnknown) {
+				t.Fatalf("localized severity defeated the ambiguous-COMMIT guarantee: %#v", translatedErr)
+			}
+			if translatedErr.Condition != test.wantCondition {
+				t.Fatalf("condition = %s, want %s", translatedErr.Condition, test.wantCondition)
+			}
+			if userErr := rebUserErr(t, translated); userErr.Retryable() {
+				t.Fatalf("localized FATAL severity produced a retryable advertisement for an unconfirmed commit: %#v", userErr)
+			}
+			_, mapped := rebHttpJSON(t, translated)
+			if mapped.Body.Error.Retryable {
+				t.Fatal("HTTP must not advertise retry for a localized FATAL mid-commit failure")
+			}
+			rebAssertSafeRendering(t, translated)
+		})
+	}
+	// Non-vacuity: an unlocalized ERROR severity must NOT be ambiguous —
+	// the server answered the commit.
+	pgErr := rebSecretPgError("FEHLER", sqlStateUniqueViolation)
+	pgErr.SeverityUnlocalized = "ERROR"
+	translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
+	if !ok {
+		t.Fatal("localized commit ERROR not translated")
+	}
+	if translatedErr := translated.(*TranslatedError); translatedErr.AmbiguousCommit || errors.Is(translated, ErrCommitOutcomeUnknown) {
+		t.Fatalf("localized ERROR severity wrongly flagged ambiguous: %#v", translatedErr)
+	}
+}
+
 func TestTranslatePostgresErrorCommitClassification(t *testing.T) {
 	t.Run("fatal mid-commit is ambiguous", func(t *testing.T) {
 		raw := fmt.Errorf("commit: %w", rebSecretPgError("FATAL", sqlStateAdminShutdown))

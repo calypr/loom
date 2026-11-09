@@ -13,11 +13,16 @@ package postgres
 // driver failures wrapped by adapter envelopes as long as the identity
 // stays reachable through errors.Is/errors.As.
 //
-// The raw driver cause is retained unexported for server-side logging via
-// Cause only. It is deliberately absent from Unwrap, so Is/As and every
-// rendered form of a translated error expose only curated, secret-free
-// sentinels: ErrConnect, pgconn.ErrConnClosed, context sentinels,
-// ErrCommitOutcomeUnknown, and the embedded safe typed error.
+// The raw driver cause is retained unexported and reachable only through
+// Cause, never through Unwrap, errors.Is/errors.As, or any rendered form.
+// No production logging call site consumes Cause yet: the server diagnostic
+// logger currently has no PostgreSQL failure path (the server refuses to
+// start against a PostgreSQL backend and the PG row-executor composition
+// lands in a later ticket), so this package intentionally ships as the
+// boundary API. The composition ticket must route translated failures into
+// the existing diagnostic logger — reading Cause behind the redaction and
+// length guards there — before the raw cause reaches any log; until then
+// translated failures carry only the stable condition and SQLSTATE.
 
 import (
 	"context"
@@ -151,9 +156,12 @@ func (e *TranslatedError) Unwrap() []error {
 	return e.unwraps
 }
 
-// Cause returns the raw driver or server error for server-side logging. It
-// can contain SQL text, constraint names, or DSN material and must never be
-// rendered into a client-visible surface.
+// Cause returns the raw driver or server error. It can contain SQL text,
+// constraint names, or DSN material and must never be rendered into a
+// client-visible surface; a consumer must confine it to server-side logging
+// behind redaction and length guards. No production consumer exists yet
+// (see the file header); this accessor keeps the information lossless for
+// the composition ticket that adds one.
 func (e *TranslatedError) Cause() error {
 	if e == nil {
 		return nil
@@ -289,7 +297,7 @@ func translate(err error, commitPhase bool) (error, bool) {
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
-		if commitPhase && strings.EqualFold(pgErr.Severity, "FATAL") {
+		if commitPhase && commitOutcomeIsUncertain(pgErr) {
 			// The session died mid-commit. The COMMIT may or may not have
 			// been applied: leave the outcome ambiguous, never infer
 			// rollback, never mark retryable.
@@ -372,8 +380,42 @@ func translateSQLState(pgErr *pgconn.PgError, raw error) (error, bool) {
 	}
 }
 
-// shutdownCondition maps a FATAL SQLSTATE observed mid-commit to its stable
-// condition name.
+// commitOutcomeIsUncertain reports whether a server error answered COMMIT
+// in a way that leaves the transaction outcome unknown. The session-death
+// SQLSTATE classes (08*, 57P01/02/03, 25P01/25P03) terminate the session by
+// protocol definition, so the commit may or may not have been applied even
+// if the severity field reads otherwise. Severity is classified on the
+// unlocalized field (V) first because the localized Severity field (S) is
+// translated under non-English lc_messages (e.g. "SCHWERWIEGEND" for FATAL):
+// matching English text on S would defeat the ambiguous-COMMIT guarantee
+// and violate the structural-classification rule. Severity is consulted
+// only when the server sent no unlocalized severity.
+func commitOutcomeIsUncertain(pgErr *pgconn.PgError) bool {
+	if isSessionEndSQLState(pgErr.Code) {
+		return true
+	}
+	severity := pgErr.SeverityUnlocalized
+	if severity == "" {
+		severity = pgErr.Severity
+	}
+	return strings.EqualFold(severity, "FATAL") || strings.EqualFold(severity, "PANIC")
+}
+
+// isSessionEndSQLState reports SQLSTATEs whose messages terminate the
+// session: connection exceptions (class 08) and the shutdown/idle-kill
+// classes.
+func isSessionEndSQLState(code string) bool {
+	switch code {
+	case sqlStateAdminShutdown, sqlStateCrashShutdown, sqlStateCannotConnectNow,
+		sqlStateIdleInTxTerminated, sqlStateIdleInTxTerminated18:
+		return true
+	default:
+		return strings.HasPrefix(code, "08")
+	}
+}
+
+// shutdownCondition maps a session-death SQLSTATE observed mid-commit to its
+// stable condition name.
 func shutdownCondition(code string) DriverCondition {
 	switch code {
 	case sqlStateAdminShutdown:

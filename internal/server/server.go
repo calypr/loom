@@ -50,7 +50,6 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 )
 
 // Run starts the Loom HTTP server using the process command-line flags.
@@ -132,13 +131,6 @@ func classifyDataframeQueryError(err error) error {
 			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "memory"}),
 		)
 	default:
-		// PostgreSQL driver and server failures classify through the store
-		// adapter boundary; anything not PostgreSQL-owned (including every
-		// Arango error) is returned unchanged so existing classification
-		// behavior is untouched.
-		if translated, ok := storepostgres.TranslateError(err); ok {
-			return translated
-		}
 		return err
 	}
 }
