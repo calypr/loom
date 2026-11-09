@@ -321,6 +321,7 @@ func scopedPlan(project, generation string, paths []string, unrestricted bool) i
 			"dataset_generation":               generation,
 			"auth_resource_paths":              paths,
 			"auth_resource_paths_unrestricted": unrestricted,
+			"scope_allowed":                    true,
 		},
 		Operations: []ir.PhysicalOperation{
 			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
@@ -584,6 +585,7 @@ func TestPG18InboundTraversalBindsReverseIdentity(t *testing.T) {
 			"dataset_generation":               itGeneration,
 			"auth_resource_paths":              []string{"FHIR/Specimen", "FHIR/Observation"},
 			"auth_resource_paths_unrestricted": false,
+			"scope_allowed":                    true,
 			"edge_collection":                  "fhir_edge",
 			"edge_label":                       "focus-specimen",
 			"target_type":                      "Observation",

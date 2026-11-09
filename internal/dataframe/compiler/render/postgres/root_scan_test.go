@@ -73,6 +73,7 @@ func pgsq01Plan(project, generation string, paths []string, unrestricted bool, r
 			"dataset_generation":               generation,
 			"auth_resource_paths":              paths,
 			"auth_resource_paths_unrestricted": unrestricted,
+			"scope_allowed":                    true,
 		},
 		Operations: []ir.PhysicalOperation{
 			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},

@@ -10,14 +10,16 @@
 // silent backend fallback: every failure is returned for the caller to
 // surface, and no Arango path is wired in here.
 //
-// This history covers the owner record, the draft CAS with exact preimage
-// history (drafts.go), and the state slice added by
-// pg-state-receipt-revision-immutable-v1: compilation receipts
-// (receipts.go) and immutable Explorer revisions (revisions.go), each with
-// its own migration under migrations/ and its methods in its own file. The
-// remaining explorer.Store methods (publication/activation, selections,
-// ...) arrive with the later state tickets that depend on this foundation,
-// extending this same history and adding methods beside these.
+// This slice implements the owner record, the draft CAS with exact
+// preimage history (drafts.go), the state slice added by
+// pg-state-receipt-revision-immutable-v1 (compilation receipts in
+// receipts.go, immutable Explorer revisions in revisions.go), and the
+// selection lifecycle (selections.go: staged identity, project-scoped
+// idempotency, expiring writer owner, insert-once membership, completion
+// CAS, owner-conditional abort, bounded staging cleanup). The remaining
+// explorer.Store methods (publication/activation, ...) arrive with the
+// later state tickets that depend on this foundation, extending this same
+// history and adding methods beside these.
 //
 // Schema ownership (pinned by TestPostgresExplorerOwnerMixedHistoryIsRefused):
 // every MigrationRunner keys its ledger -- and therefore its authoritative
@@ -147,9 +149,20 @@ type Store struct {
 	// drafts holds the draft CAS/preimage statement set (drafts.go),
 	// built once for the same schema the owner statements target.
 	drafts draftSQL
+	// selections holds the selection lifecycle statement set
+	// (selections.go), built once for the same schema.
+	selections selectionSQL
 	// afterHistoryInsert is the test-only fault/interleaving seam of
 	// SaveDraft (see drafts.go). Production never assigns it.
 	afterHistoryInsert func(context.Context, pgx.Tx) error
+	// afterMemberInsert is the test-only fault/interleaving seam of
+	// AppendSelectionMembers (see selections.go). Production never
+	// assigns it.
+	afterMemberInsert func(context.Context, pgx.Tx) error
+	// beforeCleanupCommit is the test-only fault seam of
+	// CleanupSelectionStaging (see selections.go). Production never
+	// assigns it.
+	beforeCleanupCommit func(context.Context, pgx.Tx) error
 }
 
 // New builds a Store for one Explorer control-plane schema of the database
@@ -170,8 +183,9 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	table := sanitizeTableRef(schema, OwnerTable)
 	cols := strings.Join(ownerColumns, ", ")
 	return &Store{
-		client: client,
-		drafts: newDraftSQL(schema),
+		client:     client,
+		drafts:     newDraftSQL(schema),
+		selections: newSelectionSQL(schema),
 		insert: "INSERT INTO " + table + " (" + cols + ") VALUES (" + ownerPlaceholders() + ") " +
 			"ON CONFLICT (project, explorer_id) DO NOTHING RETURNING " + cols,
 		get:      "SELECT " + cols + " FROM " + table + " WHERE project = $1 AND explorer_id = $2",
