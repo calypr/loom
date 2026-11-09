@@ -1243,15 +1243,15 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 }
 
 // TestPostgresExplorerStateMigrationsRerunConverges proves the extended
-// history (ledger + owner + receipts + revisions) reruns as a no-op that
-// preserves all state and keeps the ledger pinned to the six
-// composed checksums (five embedded + the #81-owned capability fixture at
-// version 4).
+// history (ledger + owner + receipts + revisions + explicit groups) reruns
+// as a no-op that preserves all state and keeps the ledger pinned to the
+// seven composed checksums (six embedded + the #81-owned capability fixture
+// at version 4).
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	f := newPGState02Fixture(t)
 	first := f.migrate(t)
-	if len(first.Applied) != 6 || first.LatestVersion != 6 {
-		t.Fatalf("first migration result = %+v, want 6 ledger rows ending at version 6 (the shared ledger includes the #81 capability fixture at version 4)", first)
+	if len(first.Applied) != 7 || first.LatestVersion != 9 {
+		t.Fatalf("first migration result = %+v, want 7 ledger rows ending at version 9 (the shared ledger includes the #81 capability fixture at version 4)", first)
 	}
 
 	writer := f.newStore(t)
@@ -1269,8 +1269,8 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 
 	second := f.migrate(t)
-	if len(second.Applied) != 6 || second.LatestVersion != 6 {
-		t.Fatalf("rerun result = %+v, want the identical 6-row ledger ending at version 6 (all recorded, nothing re-run)", second)
+	if len(second.Applied) != 7 || second.LatestVersion != 9 {
+		t.Fatalf("rerun result = %+v, want the identical 7-row ledger ending at version 9 (all recorded, nothing re-run)", second)
 	}
 
 	rows, err := f.iso.Query(f.ctx, `SELECT version, name, checksum FROM `+
@@ -1312,8 +1312,8 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 
 	// Double-apply witness: print the ledger rows verified after the second
-	// migrate, so the merged Explorer ledger [1 2 3 5 6] appears literally in
-	// the test output (version/name -- convergence target of the rerun).
+	// migrate, so the merged Explorer ledger [1 2 3 5 6 9] appears literally
+	// in the test output (version/name -- convergence target of the rerun).
 	var witness []string
 	for _, rec := range ledger {
 		witness = append(witness, fmt.Sprintf("%d/%s", rec.version, rec.name))

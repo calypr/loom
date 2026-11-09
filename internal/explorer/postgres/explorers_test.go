@@ -452,8 +452,8 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
 	}
-	if len(migrations) != 5 {
-		t.Fatalf("migration count = %d, want 5 (ledger bootstrap + owner table + draft revision history + receipts + revisions)", len(migrations))
+	if len(migrations) != 6 {
+		t.Fatalf("migration count = %d, want 6 (ledger bootstrap + owner table + draft revision history + receipts + revisions + explicit groups)", len(migrations))
 	}
 	// Literal checksum pins (the pg-store-02 wantEmbeddedChecksums
 	// convention): the sha256 of each file's exact bytes. Editing any
@@ -472,6 +472,7 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{3, "explorer_draft_revision", "4bf4fe35485cb7adc6ea46812b0ae004e89ff935a14f14dd80a300bb3cc86c3f"},
 		{5, "explorer_compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
 		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
+		{9, "explorer_explicit_groups", "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"},
 	}
 	for i, m := range migrations {
 		if m.Version != want[i].version || m.Name != want[i].name {
@@ -839,8 +840,8 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	f := newOwnerFixture(t)
 
 	first := f.migrate(t)
-	if first.LatestVersion != 6 || len(first.Applied) != 5 {
-		t.Fatalf("first migrate = %+v, want latest 6 with 5 applied rows (ledger, owner, draft history, receipts, revisions; version 4 is the capability ticket's reserved slot)", first)
+	if first.LatestVersion != 9 || len(first.Applied) != 6 {
+		t.Fatalf("first migrate = %+v, want latest 9 with 6 applied rows (ledger, owner, draft history, receipts, revisions, explicit groups; version 4 is the capability ticket's reserved slot)", first)
 	}
 
 	store := f.newStore(t)
@@ -981,8 +982,8 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger after refused run", err)
 	}
-	if len(ledgerVersions) != 5 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 || ledgerVersions[2] != 3 || ledgerVersions[3] != 5 || ledgerVersions[4] != 6 {
-		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 3 5 6] (this package's full history; version 4 is the capability ticket's reserved slot; refused before applying)", ledgerVersions)
+	if len(ledgerVersions) != 6 || ledgerVersions[0] != 1 || ledgerVersions[1] != 2 || ledgerVersions[2] != 3 || ledgerVersions[3] != 5 || ledgerVersions[4] != 6 || ledgerVersions[5] != 9 {
+		t.Fatalf("ledger versions after refused source-store run = %v, want [1 2 3 5 6 9] (this package's full history; version 4 is the capability ticket's reserved slot; refused before applying)", ledgerVersions)
 	}
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_ownership", "exp_keep")
