@@ -6,9 +6,13 @@ package postgres
 // (internal/explorer/arango/revisions.go immutableRevision): definition,
 // recipe, digests, source generation, frozen materialization mappings,
 // emitted columns, dataset metadata, quality reports, and the authoring
-// payloads. InsertRevision is insert-once; same ID + same frozen content
-// (same content digest) replays idempotently, and same ID + different
-// frozen content is the typed explorer.ErrImmutableRevision refusal. The
+// payloads, decided equal the same way the adapter decides it: quality
+// reports are normalized through publication.CloneQualityReports (nil and
+// empty are one content), and the omitempty-tagged raw authoring payloads
+// collapse missing-vs-empty while an explicit JSON null stays distinct.
+// InsertRevision is insert-once; same ID + same frozen content (same
+// content digest) replays idempotently, and same ID + different frozen
+// content is the typed explorer.ErrImmutableRevision refusal. The
 // DB enforces the boundary independently of Go: migration
 // 000006_explorer_revision.sql freezes every frozen column and admits only
 // the monotone lifecycle transitions READY->ACTIVE, READY->FAILED,
@@ -27,6 +31,7 @@ package postgres
 // typed for the caller to surface.
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -152,14 +157,51 @@ type frozenRevision struct {
 	QualityReports       []publication.QualityReport
 }
 
-func frozenRevisionContent(revision explorer.Revision) frozenRevision {
+// digestableRaw maps one omitempty-tagged json.RawMessage payload
+// (Config, AuthoringBundle, PublicOutputContract) onto the equivalence
+// classes the Arango adapter's document round-trip produces: a nil and an
+// empty RawMessage are both dropped by omitempty and decode back as
+// missing, so they digest together; the four bytes null survive the
+// round-trip and remain distinct from missing (reflect.DeepEqual on the
+// adapter side); every other document keeps raw-byte identity (compacted,
+// so semantically identical whitespace still digests together but key
+// order, like the adapter's raw byte-for-byte comparison, is content).
+// The class tag can never collide with a document because document bytes
+// sit under the value key.
+func digestableRaw(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(`{"loomRaw":"missing"}`), nil
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return nil, fmt.Errorf("invalid raw payload %q: %w", string(raw), err)
+	}
+	if compact.String() == "null" {
+		return json.RawMessage(`{"loomRaw":"null"}`), nil
+	}
+	return json.RawMessage(`{"loomRaw":"document","value":` + compact.String() + `}`), nil
+}
+
+func frozenRevisionContent(revision explorer.Revision) (frozenRevision, error) {
+	config, err := digestableRaw(revision.Config)
+	if err != nil {
+		return frozenRevision{}, fmt.Errorf("config: %w", err)
+	}
+	authoring, err := digestableRaw(revision.AuthoringBundle)
+	if err != nil {
+		return frozenRevision{}, fmt.Errorf("authoringBundle: %w", err)
+	}
+	publicContract, err := digestableRaw(revision.PublicOutputContract)
+	if err != nil {
+		return frozenRevision{}, fmt.Errorf("publicOutputContract: %w", err)
+	}
 	return frozenRevision{
 		ID: revision.ID, Project: revision.Project, ExplorerID: revision.ExplorerID,
-		Config:               append(json.RawMessage(nil), revision.Config...),
-		AuthoringBundle:      append(json.RawMessage(nil), revision.AuthoringBundle...),
+		Config:               config,
+		AuthoringBundle:      authoring,
 		IntentDigest:         revision.IntentDigest,
 		CompilationReceiptID: revision.CompilationReceiptID,
-		PublicOutputContract: append(json.RawMessage(nil), revision.PublicOutputContract...),
+		PublicOutputContract: publicContract,
 		Recipe:               revision.Recipe,
 		RecipeDigest:         revision.RecipeDigest,
 		ResolvedSchemaDigest: revision.ResolvedSchemaDigest,
@@ -167,24 +209,31 @@ func frozenRevisionContent(revision explorer.Revision) frozenRevision {
 		Materializations:     append([]explorer.Materialization(nil), revision.Materializations...),
 		EmittedColumns:       append([]explorer.EmittedColumn(nil), revision.EmittedColumns...),
 		Dataset:              revision.Dataset,
-		// A shallow copy preserves the nil-vs-empty distinction
-		// reflect.DeepEqual (and therefore the Arango adapter) applies to
-		// the slice itself; publication.CloneQualityReports would collapse
-		// nil into an empty slice.
-		QualityReports: append([]publication.QualityReport(nil), revision.QualityReports...),
-	}
+		// CloneQualityReports is the adapter's own normalization, applied
+		// before it compares: it collapses a nil slice into an empty one,
+		// so a nil-vs-empty replay is the same content here exactly as it
+		// is in Arango (idempotent), while a populated report still moves
+		// the digest.
+		QualityReports: publication.CloneQualityReports(revision.QualityReports),
+	}, nil
 }
 
 // revisionContentDigest is the sha256 content identity of the frozen column
 // set. encoding/json emits struct fields in declaration order and sorts map
-// keys, and json.RawMessage is compacted but otherwise passed through
-// byte-exactly, so two revisions digest identically exactly when the Arango
-// adapter would consider their immutable content equal (raw-byte equality
-// of the authoring payloads included). Canonical packets are the caller's
-// contract, mirroring the Arango adapter, which DeepEquals the same raw
-// bytes.
+// keys, and the raw authoring payloads enter through digestableRaw, so two
+// revisions digest identically exactly when the Arango adapter would
+// consider their immutable content equal: documents compare byte-exactly
+// (compact-normalized, key order significant), missing and empty collapse,
+// an explicit JSON null is its own class, and quality reports pass through
+// publication.CloneQualityReports. Canonical packets are the caller's
+// contract, mirroring the Arango adapter, which DeepEquals the same
+// normalized content.
 func revisionContentDigest(revision explorer.Revision) (string, error) {
-	raw, err := json.Marshal(frozenRevisionContent(revision))
+	frozen, err := frozenRevisionContent(revision)
+	if err != nil {
+		return "", fmt.Errorf("encode frozen revision content: %w", err)
+	}
+	raw, err := json.Marshal(frozen)
 	if err != nil {
 		return "", fmt.Errorf("encode frozen revision content: %w", err)
 	}

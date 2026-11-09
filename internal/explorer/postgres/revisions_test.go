@@ -344,6 +344,63 @@ func TestPostgresRevisionContentDigestBoundaries(t *testing.T) {
 	}
 }
 
+// TestPostgresRevisionTriStateArangoParityReplay drives both digest parity
+// boundaries through the full store path on live PostgreSQL:
+//   - an explicit JSON-null raw payload stored in the row refuses a
+//     missing-payload replay with ErrImmutableRevision, witnessed
+//     unchanged by direct SQL (the class the Arango adapter refuses,
+//     where reflect.DeepEqual separates a decoded nil from null bytes);
+//   - the byte-exact null replay, a nil-vs-empty quality-report replay
+//     (publication.CloneQualityReports collapses them), and an
+//     empty-RawMessage replay of a stored missing payload all return the
+//     first stored row idempotently, matching Arango.
+func TestPostgresRevisionTriStateArangoParityReplay(t *testing.T) {
+	f := newPGState02Fixture(t)
+	f.migrate(t)
+	writer := f.newStore(t)
+
+	nullish := pgstate02Revision("rev_tri_null", "tri")
+	nullish.Config = json.RawMessage("null")
+	nullish.QualityReports = nil
+	if _, err := writer.InsertRevision(f.ctx, nullish); err != nil {
+		f.fail("insert explicit-null revision", err)
+	}
+	before := f.rowSnapshot(t, f.revisionTable(), "id = $1", nullish.ID)
+
+	missingReplay := nullish
+	missingReplay.Config = nil
+	if _, err := writer.InsertRevision(f.ctx, missingReplay); !errors.Is(err, explorer.ErrImmutableRevision) {
+		t.Fatalf("missing-payload replay against stored JSON-null error = %v, want ErrImmutableRevision (Arango parity)", err)
+	}
+	if after := f.rowSnapshot(t, f.revisionTable(), "id = $1", nullish.ID); after != before {
+		t.Fatalf("refused tri-state replay mutated the stored row:\n before %s\n after  %s", before, after)
+	}
+
+	exact := nullish
+	stored, err := writer.InsertRevision(f.ctx, exact)
+	if err != nil {
+		f.fail("byte-exact explicit-null replay was refused", err)
+	}
+	requireRevisionEqual(t, nullish, *stored, "explicit-null idempotent replay")
+
+	emptyQR := nullish
+	emptyQR.QualityReports = []publication.QualityReport{}
+	if _, err := writer.InsertRevision(f.ctx, emptyQR); err != nil {
+		t.Fatalf("nil-vs-empty quality-report replay was refused: %v (Arango replays this idempotently via CloneQualityReports)", err)
+	}
+
+	missingRow := pgstate02Revision("rev_tri_missing", "tri")
+	missingRow.Config = nil
+	if _, err := writer.InsertRevision(f.ctx, missingRow); err != nil {
+		f.fail("insert missing-payload revision", err)
+	}
+	emptyRaw := missingRow
+	emptyRaw.Config = json.RawMessage{}
+	if _, err := writer.InsertRevision(f.ctx, emptyRaw); err != nil {
+		t.Fatalf("empty RawMessage replay against a stored missing payload was refused: %v (omitempty collapses both classes in Arango)", err)
+	}
+}
+
 func TestPostgresRevisionFailTokenAndIDValidation(t *testing.T) {
 	store, err := New(&pgstore.Client{}, "loom_control")
 	if err != nil {
