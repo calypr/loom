@@ -128,6 +128,7 @@ func TestPostgresParityFixture(t *testing.T) {
 				"dataset_generation":               "parity-generation",
 				"auth_resource_paths":              []string{"FHIR/Patient"},
 				"auth_resource_paths_unrestricted": false,
+				"scope_allowed":                    true,
 			},
 			Operations: []ir.PhysicalOperation{
 				{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
