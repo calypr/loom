@@ -841,6 +841,121 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 	}
 }
 
+// TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive proves the
+// array-literal null-keyword guard at its real server-side point of risk.
+// ir schema-gates selector steps today, so the shared encoding is exercised
+// through its ungated consumer — filter payload paths via resolveValue —
+// and the presence expression is executed verbatim on this server through
+// the same emitter the selector renderers call. For every case the naive
+// unquoted {null} binding (which PostgreSQL parses as a SQL NULL path
+// element) reads nothing while the rendered quoted binding reads the stored
+// value, so the quoting is proven load-bearing, not decorative.
+func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
+	svc := newPGSQ03Service(t)
+	for _, state := range []struct{ logicalID, payload string }{
+		{"k-value", `{"null": "stored-value"}`},
+		{"k-jsonnull", `{"null": null}`},
+		{"k-absent", `{"gender": "female"}`},
+		{"k-nested", `{"null": {"x": 7}}`},
+		{"k-nestedarray", `{"null": ["x"]}`},
+	} {
+		svc.insertResource(t, "Patient", state.logicalID, json.RawMessage(state.payload))
+		svc.expectStored(t, state.logicalID, state.payload)
+	}
+
+	filterPlan := func(path []string, bindKey string, value any) ir.PhysicalPlan {
+		plan := pgsq03LivePlan([]string{pgsq03Path}, false, true,
+			ir.PhysicalProjection{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}})
+		plan.BindVars[bindKey] = value
+		predicate := ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: path},
+			Right: &ir.PhysicalValue{BindKey: bindKey},
+		}}}
+		plan.Operations = append(plan.Operations[:1], append([]ir.PhysicalOperation{predicate}, plan.Operations[1:]...)...)
+		return plan
+	}
+	runWithNaivePath := func(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan, pathIndex int) [][]string {
+		t.Helper()
+		naive := append([]compiler.PostgreSQLParameter(nil), rendered.Args...)
+		text, ok := naive[pathIndex].Value.(string)
+		if !ok || text[0] != '{' {
+			t.Fatalf("argument %d is not an array literal: %#v", pathIndex, naive[pathIndex])
+		}
+		naive[pathIndex].Value = strings.ReplaceAll(strings.ReplaceAll(text, `"null"`, "null"), `"NULL"`, "NULL")
+		return svc.runRendered(t, compiler.RenderedPostgresPhysicalPlan{SQL: rendered.SQL, Args: naive})
+	}
+
+	binding := bindingFor(t, svc.schema)
+
+	// Single segment: only k-value stores the string under a key named
+	// null; a stored JSON null under that key never equals the string.
+	rendered, err := RenderPhysicalPlan(filterPlan([]string{"null"}, "null_value", "stored-value"), binding)
+	if err != nil {
+		t.Fatalf("null-key filter render: %v", err)
+	}
+	if text, ok := rendered.Args[4].Value.(string); !ok || text != `{"null"}` {
+		t.Fatalf("null-key path arg = %#v, want {\"null\"}", rendered.Args[4])
+	}
+	if got := svc.runRendered(t, rendered); !reflect.DeepEqual(got, [][]string{{"k-value"}}) {
+		t.Fatalf("null-key filter rows = %v, want [k-value]", got)
+	}
+	if got := runWithNaivePath(t, rendered, 4); len(got) != 0 {
+		t.Fatalf("the same statement with the naive unquoted {null} element must read nothing, got %v", got)
+	}
+
+	// Nested: k-nested stores 7 under null.x; the array-contains decoy
+	// under the same null-named parent must not match.
+	nested, err := RenderPhysicalPlan(filterPlan([]string{"null", "x"}, "seven_value", float64(7)), binding)
+	if err != nil {
+		t.Fatalf("nested null-key filter render: %v", err)
+	}
+	if text, ok := nested.Args[4].Value.(string); !ok || text != `{"null",x}` {
+		t.Fatalf("nested null-key path arg = %#v, want {\"null\",x}", nested.Args[4])
+	}
+	if got := svc.runRendered(t, nested); !reflect.DeepEqual(got, [][]string{{"k-nested"}}) {
+		t.Fatalf("nested null-key filter rows = %v, want [k-nested]", got)
+	}
+	if got := runWithNaivePath(t, nested, 4); len(got) != 0 {
+		t.Fatalf("the same nested statement with a naive unquoted prefix must read nothing, got %v", got)
+	}
+
+	// The presence expression, rendered by the exact emitter the selector
+	// renderers call and executed verbatim on this server: presence through
+	// the null-named parent is true only for k-nested — and with the naive
+	// unquoted prefix every row, including k-nested, proves absent, so the
+	// quote is what carries the answer.
+	r := &planRenderer{storage: binding, parameters: map[string]int{}, rows: map[string]rowScope{}}
+	presence, err := r.propertyPresenceExpression("r0", []string{"null", "x"})
+	if err != nil {
+		t.Fatalf("null-key presence render: %v", err)
+	}
+	if len(r.args) != 2 {
+		t.Fatalf("presence bound %d args, want quoted prefix + key", len(r.args))
+	}
+	if text, ok := r.args[0].Value.(string); !ok || text != `{"null"}` {
+		t.Fatalf("presence prefix arg = %#v, want {\"null\"}", r.args[0])
+	}
+	if text, ok := r.args[1].Value.(string); !ok || text != "x" {
+		t.Fatalf("presence key arg = %#v, want x", r.args[1])
+	}
+	presenceSQL := `SELECT logical_id, ` + presence + ` FROM "` + svc.schema + `".fhir_resource AS r0` +
+		` WHERE r0."project"=$3 AND r0."dataset_generation"=$4 AND r0."resource_type"='Patient' ORDER BY r0."resource_seq"`
+	got := svc.witness(t, presenceSQL, r.args[0].Value, r.args[1].Value, pgsq03Project, pgsq03Gen)
+	want := [][]string{
+		{"k-value", "false"}, {"k-jsonnull", "false"}, {"k-absent", "false"},
+		{"k-nested", "true"}, {"k-nestedarray", "false"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("null-key presence rows = %v, want %v", got, want)
+	}
+	naive := svc.witness(t, presenceSQL, "{null}", r.args[1].Value, pgsq03Project, pgsq03Gen)
+	for _, row := range naive {
+		if row[1] != "false" {
+			t.Fatalf("with the naive unquoted prefix no row may prove presence, got %v", naive)
+		}
+	}
+}
+
 // TestPGSQ03DenyPathsReadZeroRowsWithStoredDecoys proves the deny paths are
 // real zero-row witnesses, not empty stores: rows exist for the exact
 // scope tuple, and the two legitimate deny states (canonical

@@ -64,7 +64,10 @@ package postgres
 // emitter: the whole document path is bound as one text[] parameter (and a
 // presence probe binds its parent prefix plus the terminal key as separate
 // bound text parameters), segments are re-checked against the frozen ir
-// path contract at this boundary, and no plan string ever becomes SQL text.
+// path contract at this boundary, elements matching the case-insensitive
+// null array-literal keyword are quoted so no pattern-legal segment can
+// change meaning under array-literal parsing, and no plan string ever
+// becomes SQL text.
 // The 'null'::jsonb and '""'::jsonb coercions are renderer-owned contract
 // constants fixed by this file, never plan data and never parameters.
 
@@ -87,7 +90,9 @@ func (r *planRenderer) documentColumn(alias string) string {
 // parameter (deduplicated by its literal) exactly as resolveValue binds
 // payload comparisons, so selector paths never reach SQL text. Every
 // segment is re-checked against the frozen ir path contract here, so a
-// future loosening upstream cannot make an array literal ambiguous.
+// future loosening upstream cannot make an array literal ambiguous — and
+// the whole-path array literal is composed so no pattern-legal segment can
+// change meaning when PostgreSQL parses it (see arrayLiteralElement).
 func (r *planRenderer) documentPathExpression(alias string, path []string) (string, error) {
 	if len(path) == 0 {
 		return "", fmt.Errorf("%w: a document path must have at least one segment", ErrUnsupportedPostgresPlan)
@@ -97,8 +102,29 @@ func (r *planRenderer) documentPathExpression(alias string, path []string) (stri
 			return "", fmt.Errorf("%w: payload path segment %q is not renderer-safe", ErrUnsupportedPostgresPlan, segment)
 		}
 	}
-	pathLiteral := "{" + strings.Join(path, ",") + "}"
+	elements := make([]string, len(path))
+	for index, segment := range path {
+		elements[index] = arrayLiteralElement(segment)
+	}
+	pathLiteral := "{" + strings.Join(elements, ",") + "}"
 	return r.documentColumn(alias) + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
+}
+
+// arrayLiteralElement renders one validated path segment as a PostgreSQL
+// text[] array-literal element. Every segment the frozen
+// payloadPathSegmentPattern admits round-trips unquoted except one:
+// PostgreSQL parses an unquoted, case-insensitive null element as a SQL
+// NULL path element rather than the key literally named null, which would
+// make a document storing that key read as ABSENT — erasing the
+// PRESENT-VALUE row of this file's behavior table. Such elements are
+// double-quoted, which pins them to the exact-case string; the pattern
+// admits no double quote or backslash, so quoting needs no escaping and
+// the case-insensitive keyword is the only rewrite required here.
+func arrayLiteralElement(segment string) string {
+	if strings.EqualFold(segment, "null") {
+		return `"` + segment + `"`
+	}
+	return segment
 }
 
 // scalarExtractValueExpression renders the typed jsonb value of one
