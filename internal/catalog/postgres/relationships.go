@@ -93,8 +93,10 @@ var relationshipEvidenceSchemaPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,6
 
 // ErrInvalidRelationshipScope reports a scope or scan argument this adapter
 // refuses before any statement runs: a blank project, a missing unrestricted
-// flag, an unrestricted scope carrying paths, or a blank requested resource
-// type. There is no implicit-unrestricted mode and no silent correction.
+// flag, or an unrestricted scope carrying paths. Requested resource types
+// are not a repository argument any more — the adapter canonicalizes and
+// filters them in Go. There is no implicit-unrestricted mode and no silent
+// correction.
 var ErrInvalidRelationshipScope = errors.New("postgres catalog: invalid relationship scope")
 
 // RelationshipScope binds one occurrence aggregation to exactly one
@@ -366,9 +368,9 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 			// inspectable occurrence row: nothing here rewrites it. Under a
 			// requested-type read such a row can never be in the set (only
 			// concrete canonical names are), so it is skipped without a
-			// diagnostic — the same posture as the Arango adapter's SQL
-			// "IN" list, where rows outside the requested types are
-			// neither evidence nor diagnostics.
+			// diagnostic — the same posture as the Arango adapter's AQL
+			// `FILTER ... IN @resource_types`, where rows outside the
+			// requested types are neither evidence nor diagnostics.
 			if !requestedTypes {
 				result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{
 					Code:            "INVALID_RELATIONSHIP_ENDPOINT",
