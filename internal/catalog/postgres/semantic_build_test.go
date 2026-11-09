@@ -12,10 +12,19 @@ package postgres
 // TestZZ audit is ownership-scoped — it checks each name this file created
 // by exact match, never a global scan, so sibling workers sweeping their
 // own prefixes run concurrently without interference.
+//
+// Per the coordinator's migration conditions, this file also proves the
+// 000006 live contract on real PG18: a double-apply idempotency probe with
+// the ledger row pinned to its own sha256sum, and per-constraint negative
+// tests that each named CHECK and identity constraint REJECTS a violating
+// literal row (with a valid control row succeeding alongside, so a missing
+// constraint cannot let a test pass vacuously).
 
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -29,6 +38,7 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -285,6 +295,28 @@ func (s *semanticBuildService) seedSemanticBuildLiteral(t *testing.T, w semantic
 		w.InventorySchema, w.EntryIndexVersion, w.RuleVersion, w.SourceKind, w.SourceAvailability,
 		w.AuthResourcePath, w.ScannedResources, w.Checkpoint, w.CheckpointCollection, w.CheckpointKey,
 		w.LeaseToken, w.LeaseExpiresAt, diagnostics)
+}
+
+// trySeedSemanticBuild runs the same literal INSERT as
+// seedSemanticBuildLiteral but returns the error instead of failing, so
+// constraint negative tests can name the exact rejection.
+func (s *semanticBuildService) trySeedSemanticBuild(t *testing.T, w semanticBuildRow) error {
+	t.Helper()
+	diagnostics := w.Diagnostics
+	if diagnostics == nil {
+		diagnostics = []string{}
+	}
+	_, err := s.iso.Exec(s.ctx, "INSERT INTO "+s.buildFQN()+
+		" (build_key, project, dataset_generation, build_id, state, observation_schema,"+
+		" inventory_schema, entry_index_version, rule_version, source_kind, source_availability,"+
+		" auth_resource_path, scanned_resources, checkpoint, checkpoint_collection, checkpoint_key,"+
+		" lease_token, lease_expires_at, diagnostics)"+
+		" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::text[])",
+		w.BuildKey, w.Project, w.DatasetGeneration, w.BuildID, w.State, w.ObservationSchema,
+		w.InventorySchema, w.EntryIndexVersion, w.RuleVersion, w.SourceKind, w.SourceAvailability,
+		w.AuthResourcePath, w.ScannedResources, w.Checkpoint, w.CheckpointCollection, w.CheckpointKey,
+		w.LeaseToken, w.LeaseExpiresAt, diagnostics)
+	return err
 }
 
 // semanticBuildFixture is a valid retained-vertex claim build for one scope.
@@ -944,6 +976,213 @@ func TestSemanticInventoryBuildUnsupportedRequestsAreTypedRefusals(t *testing.T)
 		t.Fatalf("missing-row reason = %v", missingErr)
 	}
 	s.requireNoRow(t, "p", "never", catalog.SemanticInventoryBuildID("p", "never"), "advance created a row")
+}
+
+// semanticBuildMigrationChecksum is the sha256sum of the exact bytes of
+// internal/store/postgres/migrations/000006_semantic_inventory_build.sql,
+// pinned independently of the runner. The store package's
+// wantEmbeddedChecksums gate pins the same literal.
+const semanticBuildMigrationChecksum = "e69d0dfdd3fc67438b65df7da73ea12edb61324ec8356cbdc4abc1ae5172af3c"
+
+// TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally
+// is the runner-contract probe the coordinator required: applying the
+// embedded history twice to the live schema must be idempotent, and the
+// ledger must record migration 6 exactly once under the literal name and
+// checksum matching the file's own sha256sum. It also witnesses that every
+// named constraint of the table exists, which is the schema-level half of
+// the negative-test non-vacuity below.
+func TestSemanticInventoryBuildMigrationDoubleAppliesAndRecordsLedgerLiterally(t *testing.T) {
+	s := newSemanticBuildService(t) // first apply happened during service setup
+
+	first, err := storepostgres.MigrateSchema(s.ctx, s.openClient(t), s.schema)
+	if err != nil {
+		s.fail("MigrateSchema (probe apply 1)", err)
+	}
+	second, err := storepostgres.MigrateSchema(s.ctx, s.openClient(t), s.schema)
+	if err != nil {
+		s.fail("MigrateSchema (probe apply 2)", err)
+	}
+	if second.LatestVersion != first.LatestVersion {
+		t.Fatalf("re-apply latest version = %d, want idempotent %d", second.LatestVersion, first.LatestVersion)
+	}
+	if len(first.Applied) != len(second.Applied) {
+		t.Fatalf("re-apply recorded %d rows, want the idempotent %d", len(second.Applied), len(first.Applied))
+	}
+	for i := range first.Applied {
+		a, b := first.Applied[i], second.Applied[i]
+		if a.Version != b.Version || a.Name != b.Name || a.Checksum != b.Checksum || !a.AppliedAt.Equal(b.AppliedAt) {
+			t.Fatalf("re-apply rewrote ledger row %d: %+v vs %+v", i, a, b)
+		}
+	}
+
+	// The ledger holds migration 6 exactly once, literally, and the pinned
+	// checksum agrees with the sha256sum of the actual file bytes.
+	var ledgerRows int
+	var name, checksum string
+	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*), COALESCE(MAX(name), ''), COALESCE(MAX(checksum), '') FROM "+
+		pgx.Identifier{s.schema, storepostgres.LedgerTable}.Sanitize()+" WHERE version = $1", int64(6)).
+		Scan(&ledgerRows, &name, &checksum); err != nil {
+		s.fail("read ledger for version 6", err)
+	}
+	if ledgerRows != 1 {
+		t.Fatalf("ledger holds %d rows for version 6, want exactly one", ledgerRows)
+	}
+	if name != "semantic_inventory_build" {
+		t.Fatalf("ledger name = %q, want semantic_inventory_build", name)
+	}
+	if checksum != semanticBuildMigrationChecksum {
+		t.Fatalf("ledger checksum = %s, want the pinned %s", checksum, semanticBuildMigrationChecksum)
+	}
+	fileBytes, err := os.ReadFile("../../store/postgres/migrations/000006_semantic_inventory_build.sql")
+	if err != nil {
+		t.Fatalf("read migration file: %v", err)
+	}
+	sum := sha256.Sum256(fileBytes)
+	if got := hex.EncodeToString(sum[:]); got != checksum {
+		t.Fatalf("file sha256sum %s disagrees with ledger checksum %s", got, checksum)
+	}
+
+	// Every constraint the contract and the negative tests rely on is
+	// actually present on the live table.
+	wantConstraints := []string{
+		"fhir_semantic_inventory_build_pkey",
+		"fhir_semantic_inventory_build_key_ux",
+		"fhir_semantic_inventory_build_key_shape",
+		"fhir_semantic_inventory_build_project_present",
+		"fhir_semantic_inventory_build_build_present",
+		"fhir_semantic_inventory_build_build_shape",
+		"fhir_semantic_inventory_build_state_known",
+		"fhir_semantic_inventory_build_versions_sane",
+		"fhir_semantic_inventory_build_source_kind_known",
+		"fhir_semantic_inventory_build_availability_known",
+		"fhir_semantic_inventory_build_scanned_nonnegative",
+		"fhir_semantic_inventory_build_checkpoint_paired",
+		"fhir_semantic_inventory_build_lease_paired",
+		"fhir_semantic_inventory_build_lease_expiry_nonnegative",
+	}
+	present := map[string]bool{}
+	rows, err := s.iso.Query(s.ctx, "SELECT conname FROM pg_constraint WHERE conrelid = $1::regclass", s.buildFQN())
+	if err != nil {
+		s.fail("read table constraints", err)
+	}
+	for rows.Next() {
+		var conname string
+		if err := rows.Scan(&conname); err != nil {
+			rows.Close()
+			s.fail("read table constraints", err)
+		}
+		present[conname] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		s.fail("read table constraints", err)
+	}
+	for _, conname := range wantConstraints {
+		if !present[conname] {
+			t.Fatalf("constraint %s is absent from the live table", conname)
+		}
+	}
+}
+
+// TestSemanticInventoryBuildMigrationConstraintsRejectViolations proves, per
+// constraint, that a violating literal row is REFUSED by the named
+// PostgreSQL constraint and stores nothing. Every negative is paired with a
+// valid control row that succeeds in the same run, so a dropped or renamed
+// constraint cannot let the test pass vacuously.
+func TestSemanticInventoryBuildMigrationConstraintsRejectViolations(t *testing.T) {
+	s := newSemanticBuildService(t)
+
+	const (
+		checkViolation  = "23514"
+		uniqueViolation = "23505"
+	)
+	base := func(generation string) semanticBuildRow {
+		row := literalBuildRowFor("p", generation, "running")
+		row.LeaseToken = "tok-live"
+		row.LeaseExpiresAt = time.Now().Add(time.Hour).UnixMilli()
+		return row
+	}
+	cases := []struct {
+		name           string
+		mutate         func(*semanticBuildRow)
+		wantCode       string
+		wantConstraint string
+	}{
+		{"checkpoint collection without key", func(r *semanticBuildRow) { r.CheckpointCollection = "Patient"; r.CheckpointKey = "" },
+			checkViolation, "fhir_semantic_inventory_build_checkpoint_paired"},
+		{"checkpoint key without collection", func(r *semanticBuildRow) { r.CheckpointCollection = ""; r.CheckpointKey = "p-1" },
+			checkViolation, "fhir_semantic_inventory_build_checkpoint_paired"},
+		{"lease token with zero expiry", func(r *semanticBuildRow) { r.LeaseToken = "tok-x"; r.LeaseExpiresAt = 0 },
+			checkViolation, "fhir_semantic_inventory_build_lease_paired"},
+		{"lease expiry without token", func(r *semanticBuildRow) { r.LeaseToken = ""; r.LeaseExpiresAt = time.Now().Add(time.Hour).UnixMilli() },
+			checkViolation, "fhir_semantic_inventory_build_lease_paired"},
+		{"negative lease expiry under a token", func(r *semanticBuildRow) { r.LeaseToken = "tok-x"; r.LeaseExpiresAt = -5 },
+			checkViolation, "fhir_semantic_inventory_build_lease_expiry_nonnegative"},
+		{"unknown state", func(r *semanticBuildRow) { r.State = "queued" },
+			checkViolation, "fhir_semantic_inventory_build_state_known"},
+		{"unknown source kind", func(r *semanticBuildRow) { r.SourceKind = "stream" },
+			checkViolation, "fhir_semantic_inventory_build_source_kind_known"},
+		{"unknown source availability", func(r *semanticBuildRow) { r.SourceAvailability = "probably" },
+			checkViolation, "fhir_semantic_inventory_build_availability_known"},
+		{"negative scanned_resources", func(r *semanticBuildRow) { r.ScannedResources = -1 },
+			checkViolation, "fhir_semantic_inventory_build_scanned_nonnegative"},
+		{"malformed build_key", func(r *semanticBuildRow) { r.BuildKey = "sib_short" },
+			checkViolation, "fhir_semantic_inventory_build_key_shape"},
+		{"blank project", func(r *semanticBuildRow) { r.Project = "" },
+			checkViolation, "fhir_semantic_inventory_build_project_present"},
+		{"malformed build_id", func(r *semanticBuildRow) { r.BuildID = strings.Repeat("z", 64) },
+			checkViolation, "fhir_semantic_inventory_build_build_shape"},
+		{"zero observation_schema", func(r *semanticBuildRow) { r.ObservationSchema = 0 },
+			checkViolation, "fhir_semantic_inventory_build_versions_sane"},
+	}
+	for i, tc := range cases {
+		bad := base(fmt.Sprintf("neg%d", i))
+		tc.mutate(&bad)
+		// Non-vacuity control: the identical row WITHOUT the violation must
+		// insert successfully in this same run and scope family.
+		control := base(fmt.Sprintf("ctrl%d", i))
+		s.seedSemanticBuildLiteral(t, control)
+		if _, found := s.witnessBuild(t, control.Project, control.DatasetGeneration, control.BuildID); !found {
+			t.Fatalf("%s: control row did not insert — the harness is not proving anything", tc.name)
+		}
+		err := s.trySeedSemanticBuild(t, bad)
+		var pgErr *pgconn.PgError
+		if err == nil {
+			t.Fatalf("%s: violating row was ACCEPTED — constraint missing or renamed", tc.name)
+		}
+		if !errors.As(err, &pgErr) {
+			t.Fatalf("%s: violating row failed with a non-database error: %v", tc.name, err)
+		}
+		if pgErr.Code != tc.wantCode || pgErr.ConstraintName != tc.wantConstraint {
+			t.Fatalf("%s: rejected by code=%s constraint=%s, want code=%s constraint=%s",
+				tc.name, pgErr.Code, pgErr.ConstraintName, tc.wantCode, tc.wantConstraint)
+		}
+		s.requireNoRow(t, bad.Project, bad.DatasetGeneration, bad.BuildID, tc.name)
+	}
+
+	// Identity arbitration lives in the database: the primary key refuses a
+	// second row for one (project, dataset_generation, build_id), and the
+	// UNIQUE build_key refuses a sib_ identity reused across scopes.
+	dup := base("dup-pk")
+	s.seedSemanticBuildLiteral(t, dup)
+	rewritten := dup
+	rewritten.ScannedResources = 999
+	err := s.trySeedSemanticBuild(t, rewritten)
+	var pgErr *pgconn.PgError
+	if err == nil || !errors.As(err, &pgErr) || pgErr.Code != uniqueViolation || pgErr.ConstraintName != "fhir_semantic_inventory_build_pkey" {
+		t.Fatalf("duplicate identity accepted or misattributed: %v", err)
+	}
+	if row, _ := s.witnessBuild(t, dup.Project, dup.DatasetGeneration, dup.BuildID); row.ScannedResources != 42 {
+		t.Fatalf("duplicate identity replaced the stored row: %+v", row)
+	}
+	other := base("dup-key")
+	stolen := other
+	stolen.BuildKey = base("dup-pk").BuildKey
+	err = s.trySeedSemanticBuild(t, stolen)
+	if err == nil || !errors.As(err, &pgErr) || pgErr.Code != uniqueViolation || pgErr.ConstraintName != "fhir_semantic_inventory_build_key_ux" {
+		t.Fatalf("reused sib_ build_key accepted or misattributed: %v", err)
+	}
+	s.requireNoRow(t, other.Project, other.DatasetGeneration, other.BuildID, "reused build_key")
 }
 
 // TestZZZeroLeftoverSemanticInventoryBuildFixtures is the ownership-scoped
