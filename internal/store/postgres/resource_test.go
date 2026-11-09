@@ -809,14 +809,21 @@ func TestResourceExactReadBindsScope(t *testing.T) {
 // scope with decoys from other projects, generations, and paths interleaved
 // by storage identity, and asserts the walk returns exactly the authorized
 // rows in ascending storage order.
+//
+// Seeding is deliberate: the logical ids' lexical order (k1<k2<k3<k4<k5) and
+// the authorized paths' array order both CONTRADICT the insertion/storage
+// order (k3, k1, k5, k2, k4, with pr-1 and pr-2 rows interleaved). So a
+// regression that drops ORDER BY resource_seq (which would let a multi-path
+// ANY scan return rows grouped by path) or orders by logical id instead
+// fails the literal page expectations below.
 func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
 	repo := svc.newRepository(t)
 
 	inScope := []catalog.PGResourceRow{
-		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k1", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k1"}`)},
-		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k2", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"k2"}`)},
+		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k1", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"k1"}`)},
+		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k2", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k2"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k3", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k3"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Observation", LogicalID: "k4", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"k4"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k5", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k5"}`)},
@@ -830,32 +837,50 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k7", AuthResourcePath: "practitioner/pr-forbidden", Payload: json.RawMessage(`{"id":"k7"}`)},
 		{Project: "proj-x", DatasetGeneration: "gen-2", ResourceType: "Patient", LogicalID: "x2", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"x2"}`)},
 	}
-	// Interleave: in-scope rows land at odd positions in storage order.
-	wantSeqs := make([]int64, 0, len(inScope))
+	// Storage order deliberately contradicts the lexical id order and the
+	// authorized path list order: k3(pr-1), k1(pr-2), k5(pr-1), k2(pr-1),
+	// k4(pr-2), with decoys interleaved.
 	insertOrder := []catalog.PGResourceRow{
-		inScope[0], decoys[0], inScope[1], decoys[1], inScope[2], decoys[2], inScope[3], decoys[3], inScope[4],
+		inScope[2], decoys[0], inScope[0], decoys[1], inScope[4], decoys[2], inScope[1], decoys[3], inScope[3],
 	}
-	var allSeqs []int64
 	for _, rec := range insertOrder {
-		seq := svc.mustInsert(t, repo, rec)
-		allSeqs = append(allSeqs, seq)
+		svc.mustInsert(t, repo, rec)
 	}
+	wantSeqs := make([]int64, 0, len(inScope))
 	for _, rec := range inScope {
 		got := svc.mustGet(t, repo, restrictedScope("proj-k", "gen-1", "practitioner/pr-1", "practitioner/pr-2"), rec.ResourceType, rec.LogicalID)
 		wantSeqs = append(wantSeqs, got.ResourceSeq)
 	}
 	if len(wantSeqs) != len(inScope) {
-		t.Fatalf("seeded %d in-scope rows, witnessed %d", len(inScope), len(wantSeqs))
+		t.Fatalf("seeded %d in-scope rows, witnessed %d", len(inScope), len(inScope))
+	}
+	// The witnessed storage identities must actually contradict the lexical
+	// id order, or the seeding below has silently become order-compatible.
+	if !(wantSeqs[2] < wantSeqs[0] && wantSeqs[0] < wantSeqs[4] && wantSeqs[4] < wantSeqs[1] && wantSeqs[1] < wantSeqs[3]) {
+		t.Fatalf("seed storage order %+v is not k3<k1<k5<k2<k4; the contradiction this test relies on is gone", wantSeqs)
 	}
 
 	// Page the restricted scope: limit 2 with an explicit path list that
-	// excludes the forbidden decoy path.
+	// excludes the forbidden decoy path. Literal expected page contents in
+	// storage order.
+	wantPages := [][]string{{"k3", "k1"}, {"k5", "k2"}, {"k4"}}
 	scope := restrictedScope("proj-k", "gen-1", "practitioner/pr-1", "practitioner/pr-2")
 	var walked []catalog.PGResourceRow
 	cursor := int64(0)
 	pages := 0
 	for {
 		rows, hasMore := svc.mustRead(t, repo, scope, cursor, 2)
+		if pages < len(wantPages) {
+			if len(rows) != len(wantPages[pages]) {
+				t.Fatalf("page %d returned %d rows, want %d", pages, len(rows), len(wantPages[pages]))
+			}
+			for i, rec := range rows {
+				if rec.LogicalID != wantPages[pages][i] {
+					t.Fatalf("page %d position %d returned %q, want %q: the read is not ordered by storage identity (lexical/page-array order leaked in)",
+						pages, i, rec.LogicalID, wantPages[pages][i])
+				}
+			}
+		}
 		pages++
 		if pages > 10 {
 			t.Fatal("keyset walk did not terminate within 10 pages")
@@ -882,8 +907,8 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 			break
 		}
 	}
-	if pages != 3 {
-		t.Errorf("walked %d pages, want 3 (five in-scope rows at limit 2)", pages)
+	if pages != len(wantPages) {
+		t.Errorf("walked %d pages, want %d (five in-scope rows at limit 2)", pages, len(wantPages))
 	}
 	if len(walked) != len(inScope) {
 		t.Fatalf("walk returned %d rows, want %d: %+v", len(walked), len(inScope), walked)
@@ -891,10 +916,19 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 
 	// Literal expected rows: every in-scope row exactly once, in ascending
 	// storage identity order, with its exact scope and payload.
+	seenID := make(map[string]int, len(walked))
 	for i, rec := range walked {
-		if rec.ResourceSeq != wantSeqs[i] {
-			t.Fatalf("walk position %d has storage identity %d, want %d (ascending order)",
-				i, rec.ResourceSeq, wantSeqs[i])
+		seenID[rec.ResourceType+"/"+rec.LogicalID]++
+		// The row must agree with its own independently witnessed storage
+		// identity, and the walk must be strictly ascending.
+		witness := svc.mustGet(t, repo, restrictedScope("proj-k", "gen-1", "practitioner/pr-1", "practitioner/pr-2"), rec.ResourceType, rec.LogicalID)
+		if rec.ResourceSeq != witness.ResourceSeq {
+			t.Fatalf("walk position %d has storage identity %d, want the witnessed %d for %s/%s",
+				i, rec.ResourceSeq, witness.ResourceSeq, rec.ResourceType, rec.LogicalID)
+		}
+		if i > 0 && walked[i-1].ResourceSeq >= rec.ResourceSeq {
+			t.Fatalf("walk is not strictly ascending by storage identity at position %d: %d then %d",
+				i, walked[i-1].ResourceSeq, rec.ResourceSeq)
 		}
 		var want catalog.PGResourceRow
 		for _, cand := range inScope {
@@ -908,6 +942,12 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 		}
 		assertRowScope(t, rec, want)
 		assertPayloadEqual(t, rec.Payload, string(want.Payload))
+	}
+	for _, rec := range inScope {
+		if seenID[rec.ResourceType+"/"+rec.LogicalID] != 1 {
+			t.Errorf("in-scope row %s/%s walked %d times, want exactly once",
+				rec.ResourceType, rec.LogicalID, seenID[rec.ResourceType+"/"+rec.LogicalID])
+		}
 	}
 
 	// Past the end: empty page, no more rows.
@@ -943,6 +983,11 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 // storage identity is immutable, so rows inserted while a walk is in flight
 // never shift the page boundary — every row that existed before the walk
 // returns exactly once, and new rows land at the end.
+//
+// As in the scope test, logical ids are inserted in an order that
+// contradicts their lexical order (w3, w1, w4, w2, then w6, w5), so an
+// implementation that ordered by logical id instead of resource_seq fails
+// the literal page expectations.
 func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
@@ -956,7 +1001,8 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 			Payload: json.RawMessage(`{"id":"` + id + `"}`),
 		}
 	}
-	firstFour := []catalog.PGResourceRow{mk("w1"), mk("w2"), mk("w3"), mk("w4")}
+	// Storage order: w3, w1, w4, w2 (all four land before the walk starts).
+	firstFour := []catalog.PGResourceRow{mk("w3"), mk("w1"), mk("w4"), mk("w2")}
 	for _, rec := range firstFour {
 		svc.mustInsert(t, repo, rec)
 	}
@@ -965,10 +1011,15 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	if len(page1) != 2 || !hasMore {
 		t.Fatalf("page1 = %d rows (hasMore=%t), want 2 rows more=true", len(page1), hasMore)
 	}
+	if page1[0].LogicalID != "w3" || page1[1].LogicalID != "w1" {
+		t.Fatalf("page1 returned %s,%s, want w3,w1: the read is not ordered by storage identity (lexical order leaked in)",
+			page1[0].LogicalID, page1[1].LogicalID)
+	}
 	cursor := page1[1].ResourceSeq
 
-	// Insert while the walk is in flight (higher storage identities).
-	lastTwo := []catalog.PGResourceRow{mk("w5"), mk("w6")}
+	// Insert while the walk is in flight (higher storage identities), again
+	// contradicting lexical order: w6 then w5.
+	lastTwo := []catalog.PGResourceRow{mk("w6"), mk("w5")}
 	for _, rec := range lastTwo {
 		svc.mustInsert(t, repo, rec)
 	}
@@ -977,10 +1028,10 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	if len(page2) != 2 || !hasMore {
 		t.Fatalf("page2 = %d rows (hasMore=%t), want 2 rows more=true", len(page2), hasMore)
 	}
-	// The pre-walk rows w3 and w4 return exactly once; the page boundary
+	// The pre-walk rows w4 and w2 return exactly once; the page boundary
 	// did not shift under the concurrent inserts.
-	if page2[0].LogicalID != "w3" || page2[1].LogicalID != "w4" {
-		t.Fatalf("page2 returned %s,%s, want w3,w4: the page boundary shifted under concurrent inserts",
+	if page2[0].LogicalID != "w4" || page2[1].LogicalID != "w2" {
+		t.Fatalf("page2 returned %s,%s, want w4,w2: the page boundary shifted under concurrent inserts",
 			page2[0].LogicalID, page2[1].LogicalID)
 	}
 	cursor = page2[1].ResourceSeq
@@ -989,8 +1040,8 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	if len(page3) != 2 || hasMore {
 		t.Fatalf("page3 = %d rows (hasMore=%t), want 2 rows more=false", len(page3), hasMore)
 	}
-	if page3[0].LogicalID != "w5" || page3[1].LogicalID != "w6" {
-		t.Fatalf("page3 returned %s,%s, want w5,w6 (new rows must land at the end)",
+	if page3[0].LogicalID != "w6" || page3[1].LogicalID != "w5" {
+		t.Fatalf("page3 returned %s,%s, want w6,w5 (new rows must land at the end in storage order)",
 			page3[0].LogicalID, page3[1].LogicalID)
 	}
 

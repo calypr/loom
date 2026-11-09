@@ -122,6 +122,23 @@ func TestMigrationLoadRejectsInvalidFiles(t *testing.T) {
 	}
 }
 
+// wantEmbeddedChecksums pins, per migration version, the expected name and
+// the SHA-256 hex of the migration file's exact bytes, computed
+// independently of the runner (sha256sum of the file under migrations/).
+// The embedded loader computes every Checksum with migrationChecksum, so
+// comparing against migrationChecksum again would be self-referential;
+// these literals fail the bootstrap test if anyone edits migration SQL
+// without intending to. A ticket that appends a new migration must add its
+// entry here (the deliberate edit gate); the runner's edited-checksum test
+// covers the same drift against a stale ledger at apply time.
+var wantEmbeddedChecksums = map[int64]struct {
+	name     string
+	checksum string
+}{
+	1: {"ledger", "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+	2: {"fhir_resource", "d6c737db696eea1f9e9b8cd02158d14f98dfae9d9cc1d406b3c03bcc1b9fdaf0"},
+}
+
 func TestEmbeddedMigrationsBootstrapsTheLedger(t *testing.T) {
 	migrations := mustEmbeddedMigrations(t)
 	if len(migrations) == 0 {
@@ -131,7 +148,7 @@ func TestEmbeddedMigrationsBootstrapsTheLedger(t *testing.T) {
 	// ledger bootstrap. Feature tickets (pg-store-04 resources, pg-store-03
 	// edges, ...) append migrations through this runner, so the count is
 	// deliberately not pinned here; the bootstrap identity, the ordering,
-	// and the checksum consistency of every entry are.
+	// and the pinned per-file checksums are.
 	first := migrations[0]
 	if first.Version != 1 || first.Name != "ledger" {
 		t.Fatalf("bootstrap migration = {Version:%d Name:%q}, want {1 ledger}", first.Version, first.Name)
@@ -140,12 +157,32 @@ func TestEmbeddedMigrationsBootstrapsTheLedger(t *testing.T) {
 		t.Fatalf("bootstrap SQL does not create %s", LedgerTable)
 	}
 	for i, m := range migrations {
-		if m.Checksum != migrationChecksum(m.SQL) {
-			t.Errorf("migration %d (%s) checksum does not match its SQL", m.Version, m.Name)
-		}
 		if i > 0 && migrations[i-1].Version >= m.Version {
 			t.Fatalf("history is not strictly ascending at index %d: version %d then %d",
 				i, migrations[i-1].Version, m.Version)
+		}
+		want, pinned := wantEmbeddedChecksums[m.Version]
+		if !pinned {
+			t.Errorf("migration %d (%s) has no pinned checksum; add sha256sum of its exact bytes to wantEmbeddedChecksums",
+				m.Version, m.Name)
+			continue
+		}
+		if m.Name != want.name || m.Checksum != want.checksum {
+			t.Errorf("migration %d = {Name:%q Checksum:%q}, want {Name:%q Checksum:%q}: migration SQL drifted",
+				m.Version, m.Name, m.Checksum, want.name, want.checksum)
+		}
+	}
+	for version, want := range wantEmbeddedChecksums {
+		found := false
+		for _, m := range migrations {
+			if m.Version == version {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("wantEmbeddedChecksums pins version %d (%s) which is absent from the embedded history",
+				version, want.name)
 		}
 	}
 }
