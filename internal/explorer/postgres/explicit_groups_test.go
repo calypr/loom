@@ -30,6 +30,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1987,8 +1989,19 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'COMPLETE', $8, now())`,
 		string(complete.ID), complete.Project, complete.Generation, complete.ScopeDigest, complete.ResourceType,
 		complete.SourceSelectionRevisionID, complete.SourceMembershipDigest, complete.IdempotencyKey)
-	requirePgErrConstraintPGState06(t, err, pgstate06CheckViolation,
-		explicitGroupRevisionStateConstraint, "COMPLETE header refused by the named completion-gate CHECK")
+	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
+		"explorer_explicit_group_revisions guard",
+		"COMPLETE header INSERT refused by the guard: headers are born STAGING (000010 INSERT branch)")
+
+	bogusState := pgstate06Revision(source, "check-bogus-"+pgstate06RandomHex(t))
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.revisionTable()+` (id, project, generation, scope_digest,
+		resource_type, source_selection_revision_id, source_membership_digest, state, idempotency_key, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'BOGUS', $8, now())`,
+		string(bogusState.ID), bogusState.Project, bogusState.Generation, bogusState.ScopeDigest, bogusState.ResourceType,
+		bogusState.SourceSelectionRevisionID, bogusState.SourceMembershipDigest, bogusState.IdempotencyKey)
+	requirePgErrTriggerPGState06(t, err, pgstate06CheckViolation,
+		"explorer_explicit_group_revisions guard",
+		"BOGUS header INSERT refused at the door by the guard (with the trigger in place no UPDATE or INSERT ever reaches the lifecycle CHECK on state; that CHECK's named classification is witnessed in the membership suite's completion-machine test)")
 
 	stagingWithCompletion := pgstate06Revision(source, "check-staging-values-"+pgstate06RandomHex(t))
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.revisionTable()+` (id, project, generation, scope_digest,
@@ -1999,7 +2012,7 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 		stagingWithCompletion.SourceSelectionRevisionID, stagingWithCompletion.SourceMembershipDigest,
 		stagingWithCompletion.IdempotencyKey)
 	requirePgErrConstraintPGState06(t, err, pgstate06CheckViolation,
-		explicitGroupRevisionStagingValuesCK, "staging header with completion values refused by the named CHECK")
+		explicitGroupRevisionLifecycleValuesCheck, "staging header with completion values refused by the named lifecycle CHECK")
 
 	blankField := pgstate06Revision(source, "check-required-"+pgstate06RandomHex(t))
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.revisionTable()+` (id, project, generation, scope_digest,
@@ -2018,9 +2031,9 @@ func TestPostgresExplicitGroupDefinitionsHeaderDatabaseGuards(t *testing.T) {
 	}
 	requirePgErrTriggerPGState06(t, frozenUpdate(`UPDATE `+f.revisionTable()+` SET project = 'hijacked' WHERE id = $1`, string(guarded.ID)),
 		pgstate06CheckViolation, "explorer_explicit_group_revisions guard", "frozen column UPDATE names its trigger")
-	requirePgErrConstraintPGState06(t, frozenUpdate(`UPDATE `+f.revisionTable()+` SET state = 'COMPLETE' WHERE id = $1`, string(guarded.ID)),
-		pgstate06CheckViolation, explicitGroupRevisionStateConstraint,
-		"direct completion refused by the named completion-gate CHECK")
+	requirePgErrTriggerPGState06(t, frozenUpdate(`UPDATE `+f.revisionTable()+` SET state = 'COMPLETE' WHERE id = $1`, string(guarded.ID)),
+		pgstate06CheckViolation, "explorer_explicit_group_revisions guard",
+		"direct completion refused by the guarded transition: no writer token held")
 	requirePgErrTriggerPGState06(t, frozenUpdate(`UPDATE `+f.revisionTable()+` SET completed_at = now() WHERE id = $1`, string(guarded.ID)),
 		pgstate06CheckViolation, "explorer_explicit_group_revisions guard", "completed_at is frozen content")
 	requirePgErrTriggerPGState06(t, frozenUpdate(`UPDATE `+f.revisionTable()+` SET writer_expires_at = now() + interval '1 hour' WHERE id = $1`, string(guarded.ID)),
@@ -2203,4 +2216,2107 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 		t.Fatalf("definitions after probes = %q, want the witnessed rewrite only", got)
 	}
 	_ = want
+}
+
+// ===========================================================================
+// pg-state-explicit-group-members-v1: membership batching, streaming, and
+// the guarded STAGING -> COMPLETE transition.
+//
+// The suite below shares this file's real-PostgreSQL-18 discipline with one
+// OWNED namespace of its own -- verify_grpm_* databases and schemas, with
+// its own creation registry and ownership-scoped zero-leftover audit --
+// so concurrent sibling suites sweeping their own prefixes can never
+// break it and it never runs a global baseline. Source selections are
+// staged through the MERGED selection lifecycle (Begin/Append/Digest/
+// Complete on *Store) into the same schema: the membership migration
+// composes onto the Explorer control-plane ledger (versions
+// [1 2 3 5 6 8 9 10]) exactly as a full deployment composes it, so the
+// append/completion boundary checks run against real stored
+// selection_revisions and selection_members rows, never mocks. Every
+// expected row is asserted literally through the witness connection;
+// races run over two dedicated single-connection stores with witnessed
+// distinct pg_backend_pid values, at least ten rounds per surface, with
+// positive overlap witnesses (a race that cannot prove it raced fails),
+// and zero-churn controls that must show the witnesses going quiet.
+// ===========================================================================
+
+const (
+	// grpmMigrationVersion is this ticket's slot in the shared Explorer
+	// control-plane ledger (coordinator allocation continued: 7
+	// interpretations, 8 selections, 9 explicit-group definitions, 10
+	// explicit-group memberships).
+	grpmMigrationVersion = int64(10)
+	// grpmMigrationName is the embedded migration file's ledger name.
+	grpmMigrationName = "explorer_explicit_group_memberships"
+	// grpmMigrationChecksum is the byte-frozen SHA-256 of the membership
+	// migration SQL. The test recomputes it from the embedded bytes and
+	// refuses drift in either direction.
+	grpmMigrationChecksum = "e3bba3c5b1556a11d3f3cdb0f38679694d76f85874dac64b09b0b64b49b17ead"
+	// grpmSelectionsFixture* pins the composed selections migration --
+	// version 8 of the shared ledger, owned by the merged
+	// selection-revision-owner ticket and byte-frozen here the way the
+	// pgstate02 capability fixture is.
+	grpmSelectionsFixtureDir      = "tests/migrations-selections"
+	grpmSelectionsFixtureFile     = "000008_selection_revisions"
+	grpmSelectionsFixtureName     = "selection_revisions"
+	grpmSelectionsFixtureVersion  = int64(8)
+	grpmSelectionsFixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
+
+	grpmCheckViolation = "23514"
+
+	grpmProject      = "verify-grpm-p"
+	grpmGeneration   = "generation-a"
+	grpmResourceType = "Patient"
+
+	grpmGroupA = explorer.ExplicitGroupID("verify-grpm-group-a")
+	grpmGroupB = explorer.ExplicitGroupID("verify-grpm-group-b")
+
+	// grpmRaceRounds is the per-surface race floor (two real PG
+	// connections, provably distinct backends, >= 10 rounds).
+	grpmRaceRounds = 10
+	// grpmSeamTimeout bounds every in-transaction seam wait so a broken
+	// race schedule fails loudly instead of hanging.
+	grpmSeamTimeout = 5 * time.Second
+)
+
+var grpmNameRe = regexp.MustCompile(`^verify_grpm_[0-9]+_[0-9a-f]+$`)
+
+// Creation registry: every database/schema this suite creates is recorded
+// before the first write, so the ownership-scoped audit can prove both
+// "nothing registered survives" and "nothing unregistered survives under
+// the verify_grpm_* prefix" -- never a global baseline.
+var (
+	grpmRegistryMu sync.Mutex
+	grpmOwnedRes   = map[string]string{} // database -> owned schema
+)
+
+func grpmRegisterResource(dbName, schema string) {
+	grpmRegistryMu.Lock()
+	defer grpmRegistryMu.Unlock()
+	grpmOwnedRes[dbName] = schema
+}
+
+func grpmDeRegisterResource(dbName string) {
+	grpmRegistryMu.Lock()
+	defer grpmRegistryMu.Unlock()
+	delete(grpmOwnedRes, dbName)
+}
+
+func grpmSnapshotRegistry() map[string]string {
+	grpmRegistryMu.Lock()
+	defer grpmRegistryMu.Unlock()
+	owned := make(map[string]string, len(grpmOwnedRes))
+	for k, v := range grpmOwnedRes {
+		owned[k] = v
+	}
+	return owned
+}
+
+type grpmFixture struct {
+	ctx    context.Context
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dbName string
+	schema string
+	dsn    string
+	scrub  func(any) string
+	fail   func(step string, err error)
+
+	store     *ExplicitGroupStore
+	selStore  *Store
+	witness   *pgxpool.Pool
+	witnessID int32
+}
+
+func newGRPMFixture(t *testing.T) *grpmFixture {
+	t.Helper()
+	raw := pgstate06TestPostgresURL(t)
+
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
+	}
+
+	var secrets []string
+	secrets = append(secrets, raw)
+	if u.User != nil {
+		secrets = append(secrets, u.User.String())
+		if pw, ok := u.User.Password(); ok && pw != "" {
+			secrets = append(secrets, pw)
+		}
+	}
+	scrub := func(v any) string {
+		s := fmt.Sprintf("%v", v)
+		for _, secret := range secrets {
+			if secret != "" {
+				s = strings.ReplaceAll(s, secret, "<redacted>")
+			}
+		}
+		return s
+	}
+	fail := func(step string, err error) {
+		t.Fatalf("%s: %s", step, scrub(err))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 360*time.Second)
+	t.Cleanup(cancel)
+
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		fail("connect to test service", err)
+	}
+	t.Cleanup(admin.Close)
+
+	dbName := fmt.Sprintf("verify_grpm_%d_%s", time.Now().UnixNano(), pgstate06RandomHex(t))
+	if !grpmNameRe.MatchString(dbName) {
+		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
+	}
+
+	// Ownership-scoped zero-leftover audit (runs with the admin pool
+	// still open): registry first, then the prefix scan over THIS
+	// suite's own namespace only. Concurrent sibling suites own their
+	// prefixes and must never break this scan.
+	t.Cleanup(func() {
+		var mine int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
+			t.Errorf("leftover audit: query database catalog: %s", scrub(err))
+		}
+		if mine != 0 {
+			t.Errorf("leftover audit: isolated database %s still exists", dbName)
+		}
+		var namespaceLeftovers int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\_grpm\_%' ESCAPE '\'`).Scan(&namespaceLeftovers); err != nil {
+			t.Errorf("leftover audit: query database namespace: %s", scrub(err))
+		}
+		if namespaceLeftovers != 0 {
+			t.Errorf("leftover audit: %d verify_grpm_* databases remain", namespaceLeftovers)
+		}
+		var schemaLeftovers int
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'verify\_grpm\_%' ESCAPE '\'`).Scan(&schemaLeftovers); err != nil {
+			t.Errorf("leftover audit: query schema namespace: %s", scrub(err))
+		}
+		if schemaLeftovers != 0 {
+			t.Errorf("leftover audit: %d verify_grpm_* schemas remain in the service database", schemaLeftovers)
+		}
+		grpmDeRegisterResource(dbName)
+	})
+
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.WithoutCancel(ctx),
+			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
+			t.Errorf("drop isolated database: %s", scrub(err))
+		}
+	})
+
+	if q := u.Query(); q.Get("dbname") != "" {
+		q.Del("dbname")
+		u.RawQuery = q.Encode()
+	}
+	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
+		fail("create isolated database", err)
+	}
+	u.Path = "/" + dbName
+	dsn := u.String()
+	secrets = append(secrets, dsn)
+	if probe, err := url.Parse(dsn); err != nil ||
+		probe.Query().Get("dbname") != "" || probe.Path != "/"+dbName {
+		t.Fatal("isolated test DSN does not provably target the isolated database")
+	}
+
+	iso, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		fail("connect to isolated database", err)
+	}
+	t.Cleanup(iso.Close)
+
+	schema := fmt.Sprintf("verify_grpm_%d_%s", time.Now().UnixNano(), pgstate06RandomHex(t))
+	if !grpmNameRe.MatchString(schema) {
+		t.Fatalf("owned schema name %q does not match the required pattern", schema)
+	}
+	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
+		fail("create owned schema", err)
+	}
+	grpmRegisterResource(dbName, schema)
+	t.Cleanup(func() {
+		if _, err := iso.Exec(context.WithoutCancel(ctx),
+			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
+			t.Errorf("drop owned schema: %s", scrub(err))
+		}
+	})
+
+	f := &grpmFixture{ctx: ctx, admin: admin, iso: iso, dbName: dbName, schema: schema, dsn: dsn, scrub: scrub, fail: fail}
+	f.witness, f.witnessID = f.newDedicatedPool(t)
+	f.store, err = f.newStore(t)
+	if err != nil {
+		f.fail("build explicit-group store", err)
+	}
+	selClient, err := pgstore.Open(f.ctx, pgstore.Config{DSN: f.dsn, MaxConns: 4, MinConns: 0, AcquireTimeout: 10 * time.Second})
+	if err != nil {
+		f.fail("open selection pool", err)
+	}
+	t.Cleanup(selClient.Close)
+	f.selStore, err = New(selClient, f.schema)
+	if err != nil {
+		f.fail("build selection store", err)
+	}
+	return f
+}
+
+// migrateWithSelections applies the composed Explorer control-plane
+// history through the real pg-store-02 runner: this package's embedded
+// owner history (which now includes 000010) plus the byte-frozen
+// selections fixture migration, so the one shared ledger carries
+// [1 2 3 5 6 8 9 10] exactly as a fully composed deployment does. The
+// selections fixture is self-recomputed from the file bytes, never
+// trusted from the loader's self-report.
+func (f *grpmFixture) migrateWithSelections(t *testing.T) pgstore.MigrateResult {
+	t.Helper()
+	client, err := pgstore.Open(f.ctx, pgstore.Config{
+		DSN:            f.dsn,
+		MaxConns:       2,
+		MinConns:       0,
+		AcquireTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		f.fail("open migration pool", err)
+	}
+	defer client.Close()
+	owner, err := OwnerMigrations()
+	if err != nil {
+		f.fail("owner migrations", err)
+	}
+	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), grpmSelectionsFixtureDir)
+	if err != nil {
+		f.fail("load selections fixture migrations", err)
+	}
+	if len(fixture) != 1 || fixture[0].Version != grpmSelectionsFixtureVersion ||
+		fixture[0].Name != grpmSelectionsFixtureName {
+		t.Fatalf("selections fixture history = %+v, want exactly version %d %s",
+			fixture, grpmSelectionsFixtureVersion, grpmSelectionsFixtureName)
+	}
+	diskBytes, err := os.ReadFile("../../../" + grpmSelectionsFixtureDir + "/" + grpmSelectionsFixtureFile + ".sql")
+	if err != nil {
+		f.fail("read selections fixture file", err)
+	}
+	diskSum := sha256.Sum256(diskBytes)
+	if hex.EncodeToString(diskSum[:]) != fixture[0].Checksum ||
+		fixture[0].Checksum != grpmSelectionsFixtureChecksum {
+		t.Fatalf("selections fixture checksum %s != disk recompute %s or the frozen pin %s: the #85-owned fixture drifted",
+			fixture[0].Checksum, hex.EncodeToString(diskSum[:]), grpmSelectionsFixtureChecksum)
+	}
+	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
+	runner, err := pgstore.NewMigrationRunner(client, f.schema, history)
+	if err != nil {
+		f.fail("new migration runner", err)
+	}
+	result, err := runner.Migrate(f.ctx)
+	if err != nil {
+		f.fail("migrate composed schema", err)
+	}
+	return result
+}
+
+func (f *grpmFixture) newStore(t *testing.T) (*ExplicitGroupStore, error) {
+	t.Helper()
+	client, err := pgstore.Open(f.ctx, pgstore.Config{
+		DSN:            f.dsn,
+		MaxConns:       4,
+		MinConns:       0,
+		AcquireTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(client.Close)
+	return NewExplicitGroupStore(client, f.schema)
+}
+
+// newDedicatedStore opens a MaxConns=1 pool -- one single physical backend
+// connection -- warms it, and returns the store plus that backend's
+// pg_backend_pid. Two dedicated stores are the two real PG connections
+// for the race proofs.
+func (f *grpmFixture) newDedicatedStore(t *testing.T) (*ExplicitGroupStore, int32) {
+	t.Helper()
+	client, err := pgstore.Open(f.ctx, pgstore.Config{
+		DSN:            f.dsn,
+		MaxConns:       1,
+		MinConns:       1,
+		AcquireTimeout: 10 * time.Second,
+	})
+	if err != nil {
+		f.fail("open dedicated pg-store pool", err)
+	}
+	t.Cleanup(client.Close)
+	conn, err := client.Acquire(f.ctx)
+	if err != nil {
+		f.fail("acquire dedicated pg-store connection", err)
+	}
+	var pid int32
+	if err := conn.QueryRow(f.ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+		conn.Release()
+		f.fail("witness dedicated pg-store backend pid", err)
+	}
+	conn.Release()
+	if pid == 0 {
+		t.Fatal("dedicated pg-store pool reported backend pid 0")
+	}
+	store, err := NewExplicitGroupStore(client, f.schema)
+	if err != nil {
+		f.fail("build dedicated explicit-group store", err)
+	}
+	return store, pid
+}
+
+// newDedicatedPool is the raw-SQL sibling: one physical backend connection
+// for direct SQL with its pid witnessed up front.
+func (f *grpmFixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32) {
+	t.Helper()
+	poolConfig, err := pgxpool.ParseConfig(f.dsn)
+	if err != nil {
+		f.fail("parse dedicated raw pool config", err)
+	}
+	poolConfig.MaxConns = 1
+	poolConfig.MinConns = 1
+	pool, err := pgxpool.NewWithConfig(f.ctx, poolConfig)
+	if err != nil {
+		f.fail("open dedicated raw pool", err)
+	}
+	t.Cleanup(pool.Close)
+	var pid int32
+	if err := pool.QueryRow(f.ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+		f.fail("witness dedicated raw backend pid", err)
+	}
+	if pid == 0 {
+		t.Fatal("dedicated raw pool reported backend pid 0")
+	}
+	return pool, pid
+}
+
+func requireDistinctBackendsGRPM(t *testing.T, pids map[string]int32) {
+	t.Helper()
+	seen := map[int32]string{}
+	for label, pid := range pids {
+		if pid == 0 {
+			t.Fatalf("%s reported backend pid 0", label)
+		}
+		if other, clash := seen[pid]; clash {
+			t.Fatalf("%s and %s share backend pid %d, want provably distinct PG connections", label, other, pid)
+		}
+		seen[pid] = label
+	}
+}
+
+func (f *grpmFixture) revisionTable() string {
+	return sanitizeTableRef(f.schema, ExplicitGroupRevisionsTable)
+}
+
+func (f *grpmFixture) definitionsTable() string {
+	return sanitizeTableRef(f.schema, ExplicitGroupDefinitionsTable)
+}
+
+func (f *grpmFixture) membershipsTable() string {
+	return sanitizeTableRef(f.schema, ExplicitGroupMembershipsTable)
+}
+
+// grpmHeaderSnapshot renders one stored header row as one deterministic
+// text value covering every column, byte-identical snapshots being the
+// witness that a refused operation wrote nothing.
+func (f *grpmFixture) grpmHeaderSnapshot(t *testing.T, revisionID string) string {
+	t.Helper()
+	var out string
+	err := f.witness.QueryRow(f.ctx, `SELECT concat_ws(E'\x1f',
+		id, project, generation, scope_digest, resource_type,
+		source_selection_revision_id, source_membership_digest,
+		definition_digest, membership_digest,
+		group_count::text, member_count::text, state, idempotency_key,
+		to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'),
+		COALESCE(to_char(completed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), '<sql-null>'),
+		COALESCE(writer_token, '<sql-null>'),
+		COALESCE(to_char(writer_expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'), '<sql-null>'))
+	FROM `+f.revisionTable()+` WHERE id = $1`, revisionID).Scan(&out)
+	if err != nil {
+		f.fail("header snapshot of "+revisionID, err)
+	}
+	return out
+}
+
+// membershipSnapshot renders the whole membership set of one revision in
+// walk order as one deterministic text value: group|project|generation|
+// type|resource rows joined below.
+func (f *grpmFixture) membershipSnapshot(t *testing.T, revisionID string) string {
+	t.Helper()
+	rows, err := f.witness.Query(f.ctx, `SELECT group_id, project, generation, resource_type, resource_id FROM `+
+		f.membershipsTable()+` WHERE revision_id = $1`+
+		` ORDER BY group_id, resource_id, project, generation, resource_type`, revisionID)
+	if err != nil {
+		f.fail("memberships snapshot of "+revisionID, err)
+	}
+	defer rows.Close()
+	var parts []string
+	for rows.Next() {
+		var groupID, project, generation, resourceType, resourceID string
+		if err := rows.Scan(&groupID, &project, &generation, &resourceType, &resourceID); err != nil {
+			f.fail("scan memberships snapshot of "+revisionID, err)
+		}
+		parts = append(parts, strings.Join([]string{groupID, project, generation, resourceType, resourceID}, "|"))
+	}
+	if err := rows.Err(); err != nil {
+		f.fail("memberships snapshot of "+revisionID, err)
+	}
+	return strings.Join(parts, "\x1e")
+}
+
+// membershipCtidSnapshot additionally carries the physical tuple location,
+// so an idempotent retry proving byte-identical ctids proves no row was
+// rewritten -- not merely re-read.
+func (f *grpmFixture) membershipCtidSnapshot(t *testing.T, revisionID string) string {
+	t.Helper()
+	rows, err := f.witness.Query(f.ctx, `SELECT ctid::text, group_id, resource_id FROM `+
+		f.membershipsTable()+` WHERE revision_id = $1 ORDER BY group_id, resource_id`, revisionID)
+	if err != nil {
+		f.fail("ctid memberships snapshot of "+revisionID, err)
+	}
+	defer rows.Close()
+	var parts []string
+	for rows.Next() {
+		var ctid, groupID, resourceID string
+		if err := rows.Scan(&ctid, &groupID, &resourceID); err != nil {
+			f.fail("scan ctid memberships snapshot of "+revisionID, err)
+		}
+		parts = append(parts, ctid+"@"+groupID+"/"+resourceID)
+	}
+	if err := rows.Err(); err != nil {
+		f.fail("ctid memberships snapshot of "+revisionID, err)
+	}
+	return strings.Join(parts, "\x1e")
+}
+
+func (f *grpmFixture) countMembers(t *testing.T, revisionID string) int {
+	t.Helper()
+	return f.countRowsOn(t, f.membershipsTable(), "revision_id = $1", revisionID)
+}
+
+func (f *grpmFixture) countRowsOn(t *testing.T, table, where string, args ...any) int {
+	t.Helper()
+	var count int
+	if err := f.witness.QueryRow(f.ctx, `SELECT count(*) FROM `+table+` WHERE `+where, args...).Scan(&count); err != nil {
+		f.fail("count rows in "+table, err)
+	}
+	return count
+}
+
+func requirePgErrGRPM(t *testing.T, err error, sqlstate, step string) *pgconn.PgError {
+	t.Helper()
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		t.Fatalf("%s: error = %v (%T), want *pgconn.PgError", step, err, err)
+	}
+	if pgErr.Code != sqlstate {
+		t.Fatalf("%s: sqlstate = %s, want %s (error: %v)", step, pgErr.Code, sqlstate, err)
+	}
+	return pgErr
+}
+
+func requirePgErrConstraintGRPM(t *testing.T, err error, sqlstate, constraint, step string) *pgconn.PgError {
+	t.Helper()
+	pgErr := requirePgErrGRPM(t, err, sqlstate, step)
+	if pgErr.ConstraintName != constraint {
+		t.Fatalf("%s: constraint = %q, want the named guard %q (message: %s)", step, pgErr.ConstraintName, constraint, pgErr.Message)
+	}
+	return pgErr
+}
+
+func requirePgErrTriggerGRPM(t *testing.T, err error, sqlstate, trigger, step string) *pgconn.PgError {
+	t.Helper()
+	pgErr := requirePgErrGRPM(t, err, sqlstate, step)
+	if !strings.Contains(pgErr.Message, trigger) {
+		t.Fatalf("%s: message %q does not name the guard %q", step, pgErr.Message, trigger)
+	}
+	return pgErr
+}
+
+// rerunMigrationGRPM applies one embedded migration's exact SQL text again
+// through direct SQL, the same convergent-rerun witness the definitions
+// suite uses: the text that created a guard is what re-blocks the
+// violating write after a guard-drop probe.
+func (f *grpmFixture) rerunMigrationGRPM(t *testing.T, version int64) {
+	t.Helper()
+	migrations, err := OwnerMigrations()
+	if err != nil {
+		f.fail("load migrations for rerun", err)
+	}
+	for _, m := range migrations {
+		if m.Version == version {
+			conn, err := f.iso.Acquire(f.ctx)
+			if err != nil {
+				f.fail("acquire connection for migration rerun", err)
+			}
+			defer conn.Release()
+			tx, err := conn.Begin(f.ctx)
+			if err != nil {
+				f.fail("begin migration rerun transaction", err)
+			}
+			if _, err := tx.Exec(f.ctx,
+				"SET LOCAL search_path TO "+sanitizeSchema(f.schema)); err != nil {
+				tx.Rollback(f.ctx)
+				f.fail("set search_path for migration rerun", err)
+			}
+			if _, err := tx.Exec(f.ctx, m.SQL); err != nil {
+				tx.Rollback(f.ctx)
+				f.fail(fmt.Sprintf("rerun migration %d/%s", m.Version, m.Name), err)
+			}
+			if err := tx.Commit(f.ctx); err != nil {
+				f.fail("commit migration rerun", err)
+			}
+			return
+		}
+	}
+	t.Fatalf("migration version %d is absent from the embedded history", version)
+}
+
+func (f *grpmFixture) dropTriggerGRPM(t *testing.T, table, trigger string) {
+	t.Helper()
+	if _, err := f.witness.Exec(f.ctx, `DROP TRIGGER `+trigger+` ON `+table); err != nil {
+		f.fail("drop trigger "+trigger+" on "+table, err)
+	}
+}
+
+func (f *grpmFixture) execOnGRPM(t *testing.T, pool *pgxpool.Pool, step, sql string, args ...any) {
+	t.Helper()
+	if _, err := pool.Exec(f.ctx, sql, args...); err != nil {
+		f.fail(step+": "+scrubSQLForTest(sql), err)
+	}
+}
+
+func (f *grpmFixture) setGUC(t *testing.T, name string, value any) {
+	t.Helper()
+	if _, err := f.witness.Exec(f.ctx, `SELECT set_config($1, $2, false)`, name, value); err != nil {
+		f.fail("set GUC "+name, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// membership fixtures
+// ---------------------------------------------------------------------------
+
+func grpmRef(resourceID string) explorer.ResourceRef {
+	return explorer.ResourceRef{Project: grpmProject, Generation: grpmGeneration, ResourceType: grpmResourceType, ID: resourceID}
+}
+
+func grpmMembership(group explorer.ExplicitGroupID, resourceID string) explorer.ExplicitGroupMembership {
+	return explorer.ExplicitGroupMembership{GroupID: group, Ref: grpmRef(resourceID)}
+}
+
+// stageSelection drives the MERGED selection lifecycle -- Begin, Append,
+// Digest, Complete -- so the source selection the explicit-group store
+// revalidates on every append and completion is a real stored COMPLETE
+// revision with real stored member rows, not a synthetic bind. The stored
+// frozen facts are returned for the header binding.
+func (f *grpmFixture) stageSelection(t *testing.T, suffix string, resourceIDs ...string) explorer.SelectionRevision {
+	t.Helper()
+	selectionID := "verify-grpm-sel-" + suffix
+	staging := explorer.SelectionRevision{
+		ID:           selectionID,
+		Project:      grpmProject,
+		Generation:   grpmGeneration,
+		ResourceType: grpmResourceType,
+		Rule:         explorer.SelectionRule{Kind: explorer.SelectionRuleExplicit},
+		Source:       explorer.SelectionSource{Kind: explorer.SelectionSourceExplicit},
+		ScopeDigest:  "verify-grpm-scope",
+		RuleDigest:   "verify-grpm-rule",
+		CreatedAt:    time.Now().UTC(),
+	}
+	token := "grpm-sel-writer-" + suffix
+	if _, err := f.selStore.BeginSelection(f.ctx, staging, token); err != nil {
+		f.fail("begin source selection "+selectionID, err)
+	}
+	if len(resourceIDs) > 0 {
+		members := make([]explorer.SelectionMember, 0, len(resourceIDs))
+		for _, id := range resourceIDs {
+			members = append(members, explorer.SelectionMember{Ref: grpmRef(id)})
+		}
+		if _, err := f.selStore.AppendSelectionMembers(f.ctx, selectionID, token, members); err != nil {
+			f.fail("stage source members for "+selectionID, err)
+		}
+	}
+	digest, count, bytes, err := f.selStore.DigestSelectionMembers(f.ctx, grpmProject, selectionID)
+	if err != nil {
+		f.fail("digest source selection "+selectionID, err)
+	}
+	if _, err := f.selStore.CompleteSelection(f.ctx, selectionID, token, digest, count, bytes,
+		time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)); err != nil {
+		f.fail("complete source selection "+selectionID, err)
+	}
+	stored, err := f.selStore.GetSelection(f.ctx, grpmProject, selectionID)
+	if err != nil {
+		f.fail("read stored source selection "+selectionID, err)
+	}
+	if !stored.Complete || stored.MembershipDigest != digest || stored.MemberCount != count {
+		t.Fatalf("stored source selection %q = %+v, want COMPLETE with frozen digest %s and count %d",
+			selectionID, stored, digest, count)
+	}
+	return *stored
+}
+
+func grpmRevision(source explorer.SelectionRevision, key string) explorer.ExplicitGroupRevision {
+	return explorer.ExplicitGroupRevision{
+		ID:                        explorer.ExplicitGroupRevisionIDFor(grpmProject, key),
+		Project:                   grpmProject,
+		Generation:                source.Generation,
+		ScopeDigest:               source.ScopeDigest,
+		ResourceType:              source.ResourceType,
+		SourceSelectionRevisionID: source.ID,
+		SourceMembershipDigest:    source.MembershipDigest,
+		State:                     explorer.ExplicitGroupRevisionStaging,
+		IdempotencyKey:            key,
+		CreatedAt:                 time.Now().UTC(),
+	}
+}
+
+func grpmDefinitions() []explorer.ExplicitGroupDefinition {
+	return []explorer.ExplicitGroupDefinition{
+		{ID: grpmGroupA, Label: "Group A", Ordinal: 0},
+		{ID: grpmGroupB, Label: "Group B", Ordinal: 1},
+	}
+}
+
+// beginGroupRevision stages one explicit-group revision honestly through
+// the store against a stored source selection.
+func (f *grpmFixture) beginGroupRevision(t *testing.T, source explorer.SelectionRevision, key, token string) explorer.ExplicitGroupRevision {
+	t.Helper()
+	revision := grpmRevision(source, key)
+	if _, err := f.store.BeginExplicitGroupRevision(f.ctx, revision, source, token); err != nil {
+		f.fail("begin group revision "+key, err)
+	}
+	return revision
+}
+
+func (f *grpmFixture) putDefinitions(t *testing.T, revisionID explorer.ExplicitGroupRevisionID, token string) {
+	t.Helper()
+	if err := f.store.PutExplicitGroupDefinitions(f.ctx, revisionID, token, grpmDefinitions()); err != nil {
+		f.fail("put definitions for "+string(revisionID), err)
+	}
+}
+
+// stagedGroupFixture produces a fully honest staging revision: stored
+// COMPLETE source selection over the given refs, a begun header, and the
+// two declared groups.
+func (f *grpmFixture) stagedGroupFixture(t *testing.T, suffix string, refs ...string) (explorer.ExplicitGroupRevision, string, explorer.SelectionRevision) {
+	t.Helper()
+	source := f.stageSelection(t, suffix, refs...)
+	token := "grpm-writer-" + suffix
+	revision := f.beginGroupRevision(t, source, "grpm-key-"+suffix, token)
+	f.putDefinitions(t, revision.ID, token)
+	return revision, token, source
+}
+
+// rawInsertMembership seeds one membership row through direct SQL for
+// guard probes the store API cannot itself produce.
+func (f *grpmFixture) rawInsertMembership(t *testing.T, pool *pgxpool.Pool, revisionID, groupID, project, generation, resourceType, resourceID string) {
+	t.Helper()
+	f.execOnGRPM(t, pool, "raw insert membership",
+		`INSERT INTO `+f.membershipsTable()+` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+			` VALUES ($1, $2, $3, $4, $5, $6)`,
+		revisionID, groupID, project, generation, resourceType, resourceID)
+}
+
+// rawInsertDefinition seeds one definition row through direct SQL.
+func (f *grpmFixture) rawInsertDefinition(t *testing.T, pool *pgxpool.Pool, revisionID, groupID, label string, ordinal int64) {
+	t.Helper()
+	f.execOnGRPM(t, pool, "raw insert definition",
+		`INSERT INTO `+f.definitionsTable()+` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
+		revisionID, groupID, label, ordinal)
+}
+
+// grpmFrameDigest independently re-derives the membership digest from
+// explicit 8-byte big-endian length-prefixed frames built inline, without
+// calling any explorer digest helper: domain tag field, then per member
+// (group, project, generation, resource type, resource id). The expected
+// hex is pinned separately in the test and BOTH must agree, so a framing
+// drift in production breaks against a literal, not against its mirror.
+func grpmFrameDigest(t *testing.T, pairs ...[2]string) string {
+	t.Helper()
+	hash := sha256.New()
+	writeField := func(value string) {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
+		if _, err := hash.Write(length[:]); err != nil {
+			t.Fatalf("frame digest length write: %v", err)
+		}
+		if _, err := hash.Write([]byte(value)); err != nil {
+			t.Fatalf("frame digest value write: %v", err)
+		}
+	}
+	writeField("loom-explicit-group-membership-v1")
+	for _, pair := range pairs {
+		writeField(pair[0])
+		writeField(grpmProject)
+		writeField(grpmGeneration)
+		writeField(grpmResourceType)
+		writeField(pair[1])
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// grpmRow renders one expected membership row in the suite's snapshot
+// format: group|project|generation|type|resource.
+func grpmRow(group, resourceID string) string {
+	return strings.Join([]string{group, grpmProject, grpmGeneration, grpmResourceType, resourceID}, "|")
+}
+
+func grpmRows(rows ...string) string {
+	return strings.Join(rows, "\x1e")
+}
+
+// grpmSeam blocks in-transaction until released, failing the seam (and
+// aborting the live transaction) if the race schedule breaks.
+func grpmSeam(release <-chan struct{}) func(context.Context, pgx.Tx) error {
+	return func(ctx context.Context, tx pgx.Tx) error {
+		select {
+		case <-release:
+			return nil
+		case <-time.After(grpmSeamTimeout):
+			return errors.New("grpm seam deadline exceeded: race schedule broken")
+		}
+	}
+}
+
+// grpmWatchLockWait samples pg_stat_activity for backend pid and reports
+// (via the returned stop/close functions) whether the backend was ever
+// observed blocked on a lock -- the positive overlap witness.
+func (f *grpmFixture) grpmWatchLockWait(pid int32) (sawLockWait func() bool, stop func()) {
+	var (
+		mu   sync.Mutex
+		seen bool
+		done = make(chan struct{})
+		wg   sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			var waiting int
+			if err := f.admin.QueryRow(f.ctx,
+				`SELECT count(*) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type IN ('Lock', 'Transaction')`,
+				pid).Scan(&waiting); err == nil && waiting > 0 {
+				mu.Lock()
+				seen = true
+				mu.Unlock()
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	return func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return seen
+		}, func() {
+			close(done)
+			wg.Wait()
+		}
+}
+
+func (f *grpmFixture) rawInsertHeaderGRPM(t *testing.T, pool *pgxpool.Pool, revision explorer.ExplicitGroupRevision, writerToken string, writerExpiresAt *time.Time) {
+	t.Helper()
+	f.execOnGRPM(t, pool, "raw insert header",
+		`INSERT INTO `+f.revisionTable()+` (id, project, generation, scope_digest, resource_type,`+
+			` source_selection_revision_id, source_membership_digest, definition_digest, membership_digest,`+
+			` group_count, member_count, state, idempotency_key, created_at, completed_at, writer_token, writer_expires_at)`+
+			` VALUES ($1, $2, $3, $4, $5, $6, $7, '', '', 0, 0, 'STAGING', $8, $9, NULL, $10, $11)`,
+		string(revision.ID), revision.Project, revision.Generation, revision.ScopeDigest, revision.ResourceType,
+		revision.SourceSelectionRevisionID, revision.SourceMembershipDigest, revision.IdempotencyKey,
+		revision.CreatedAt, writerToken, writerExpiresAt)
+}
+
+// ---------------------------------------------------------------------------
+// append: overlap across groups, idempotent retry, project scope
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsAppendOverlapRetryAndScope(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	revision, token, _ := f.stagedGroupFixture(t, "scope", "r-both", "r-a", "r-b")
+
+	batch := []explorer.ExplicitGroupMembership{
+		grpmMembership(grpmGroupA, "r-both"),
+		grpmMembership(grpmGroupA, "r-both"), // intra-batch duplicate: collapses
+		grpmMembership(grpmGroupB, "r-both"), // overlap: a DISTINCT row
+		grpmMembership(grpmGroupA, "r-a"),
+		grpmMembership(grpmGroupB, "r-b"),
+	}
+	inserted, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, batch)
+	if err != nil {
+		f.fail("append overlapping batch", err)
+	}
+	if len(inserted) != 4 {
+		t.Fatalf("first append reported %d created, want 4: %+v", len(inserted), inserted)
+	}
+	// The primary key carries the group ID: r-both is TWO rows, one per
+	// group; the duplicate of a/r-both created nothing. Walk order is the
+	// keyset order (group_id, resource_id, ...).
+	want := grpmRows(
+		grpmRow(string(grpmGroupA), "r-a"),
+		grpmRow(string(grpmGroupA), "r-both"),
+		grpmRow(string(grpmGroupB), "r-b"),
+		grpmRow(string(grpmGroupB), "r-both"),
+	)
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != want {
+		t.Fatalf("membership rows = %q, want %q", got, want)
+	}
+	ctidsBefore := f.membershipCtidSnapshot(t, string(revision.ID))
+
+	// Insert-once retry: the exact same batch again -- no duplicates, no
+	// error, nothing reported as newly created, and not one byte moved
+	// (identical ctids prove no rewrite, not merely an identical re-read).
+	retry, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, batch)
+	if err != nil {
+		f.fail("retry overlapping batch", err)
+	}
+	if len(retry) != 0 {
+		t.Fatalf("retry reported %d created, want 0 (insert-once): %+v", len(retry), retry)
+	}
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != want {
+		t.Fatalf("membership rows after retry = %q, want %q", got, want)
+	}
+	if got := f.membershipCtidSnapshot(t, string(revision.ID)); got != ctidsBefore {
+		t.Fatalf("ctids after retry = %q, want byte-identical %q", got, ctidsBefore)
+	}
+
+	// Empty batch is the adapter's no-op: nil, nil, nothing touched.
+	empty, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, nil)
+	if err != nil || empty != nil {
+		t.Fatalf("empty batch = (%v, %v), want (nil, nil)", empty, err)
+	}
+	if got := f.membershipCtidSnapshot(t, string(revision.ID)); got != ctidsBefore {
+		t.Fatalf("ctids after empty batch moved: %q", got)
+	}
+
+	// Every accepted write renewed the writer lease forward.
+	var expires time.Time
+	if err := f.witness.QueryRow(f.ctx,
+		`SELECT writer_expires_at FROM `+f.revisionTable()+` WHERE id = $1`, string(revision.ID)).Scan(&expires); err != nil {
+		f.fail("read writer lease", err)
+	}
+	if expires.Before(time.Now().UTC().Add(explicitGroupWriterLease / 2)) {
+		t.Fatalf("writer lease %v was not renewed forward by the accepted append", expires)
+	}
+
+	// Tenant scope: cross-project reads of the same revision ID are the
+	// typed NotFound -- the membership paths gate on the header first.
+	mustErr(t, "digest under foreign project", func() error {
+		_, _, _, _, err := f.store.DigestExplicitGroupRevision(f.ctx, "verify-grpm-other", revision.ID)
+		return err
+	}, explorer.ErrExplicitGroupRevisionNotFound)
+	mustErr(t, "visit under foreign project", func() error {
+		_, err := f.store.VisitExplicitGroupMemberships(f.ctx, "verify-grpm-other", revision.ID,
+			explorer.ExplicitGroupMembershipCursor{}, 10, func(explorer.ExplicitGroupMembership) error { return nil })
+		return err
+	}, explorer.ErrExplicitGroupRevisionNotFound)
+}
+
+// ---------------------------------------------------------------------------
+// append refusals: wrong writer, completed revision, source membership
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsAppendWriterStateAndSourceGuards(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	revision, token, _ := f.stagedGroupFixture(t, "guards", "r-a")
+	emptyBefore := f.membershipSnapshot(t, string(revision.ID))
+	headerBefore := f.grpmHeaderSnapshot(t, string(revision.ID))
+
+	// Wrong writer token: typed conflict, zero rows written.
+	mustErr(t, "append with foreign writer token", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token+"-wrong",
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	// Blank token and blank revision: typed conflict before any database touch.
+	mustErr(t, "append with blank token", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, " ",
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	mustErr(t, "append to blank revision", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, "  ", token,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	mustErr(t, "append to absent revision", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, "verify-grpm-absent-revision", token,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")})
+		return err
+	}, explorer.ErrExplicitGroupRevisionNotFound)
+	// Every refusal wrote nothing at all -- rows and header unchanged.
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != emptyBefore {
+		t.Fatalf("refused appends wrote rows: %q", got)
+	}
+	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); got != headerBefore {
+		t.Fatalf("refused appends moved the header: %q != %q", got, headerBefore)
+	}
+
+	// Source membership guard: a resource that is not in the stored source
+	// selection is refused with the typed error BEFORE anything stages.
+	mustErr(t, "append resource absent from source selection", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-not-in-source")})
+		return err
+	}, explorer.ErrExplicitGroupMemberNotInSelection)
+	// ... and a batch mixing good and bad members is refused atomically.
+	mustErr(t, "append mixed good/bad batch", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+			[]explorer.ExplicitGroupMembership{
+				grpmMembership(grpmGroupA, "r-a"),
+				grpmMembership(grpmGroupB, "r-not-in-source"),
+			})
+		return err
+	}, explorer.ErrExplicitGroupMemberNotInSelection)
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != emptyBefore {
+		t.Fatalf("refused source-guard appends wrote rows: %q", got)
+	}
+
+	// Declared-group guard: a group the revision never declared is the
+	// canonicalization refusal (and the database's compound foreign key
+	// is the backstop -- witnessed in DatabaseGuards).
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(explorer.ExplicitGroupID("verify-grpm-group-ghost"), "r-a")}); err == nil ||
+		!strings.Contains(err.Error(), "undeclared explicit group") {
+		t.Fatalf("append under undeclared group error = %v, want the undeclared-group refusal", err)
+	}
+
+	// Foreign-scope reference: Ref.Validate rejects it as a domain error
+	// (not a PG error) before any write.
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{{GroupID: grpmGroupA, Ref: explorer.ResourceRef{
+			Project: "verify-grpm-other", Generation: grpmGeneration, ResourceType: grpmResourceType, ID: "r-a"}}}); err == nil {
+		t.Fatal("append with foreign project reference was accepted")
+	} else if errors.Is(err, explorer.ErrExplicitGroupRevisionConflict) || errors.Is(err, explorer.ErrExplicitGroupMemberNotInSelection) {
+		t.Fatalf("foreign-scope reference got conflict-class error %v, want the domain validation error", err)
+	}
+
+	// Mutation probe: the legal control -- the honest member the source
+	// selection DOES contain, under a declared group, with the right
+	// writer -- appends green.
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+		f.fail("legal control append", err)
+	}
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(grpmRow(string(grpmGroupA), "r-a")) {
+		t.Fatalf("legal control wrote %q", got)
+	}
+
+	// Completing the revision closes the door: the store refuses append
+	// with the typed conflict...
+	completed, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+		"0711212b6e8e2eee92a289bec97557775e4435545972b8f21c93f03e532f3321",
+		grpmFrameDigest(t, [2]string{string(grpmGroupA), "r-a"}), 2, 1,
+		time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
+	if err != nil || completed == nil || completed.State != explorer.ExplicitGroupRevisionComplete {
+		f.fail("complete before append-after-complete probe", err)
+	}
+	mustErr(t, "append after completion", func() error {
+		_, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupB, "r-a")})
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	// ... and even bypassing the store, the database refuses: a completed
+	// revision can never gain members by direct SQL.
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
+		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+		` VALUES ($1, $2, $3, $4, $5, $6)`, string(revision.ID), string(grpmGroupB),
+		grpmProject, grpmGeneration, grpmResourceType, "r-a")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "explorer_explicit_group_memberships guard",
+		"direct insert under COMPLETE parent")
+}
+
+// ---------------------------------------------------------------------------
+// digest + fenced completion
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsDigestFrozenAndFencedComplete(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	revision, token, _ := f.stagedGroupFixture(t, "digest", "r-1", "r-2")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
+		grpmMembership(grpmGroupA, "r-1"), grpmMembership(grpmGroupB, "r-1"),
+		grpmMembership(grpmGroupA, "r-2"), grpmMembership(grpmGroupB, "r-2"),
+	}); err != nil {
+		f.fail("seed append", err)
+	}
+	const defDigest = "0711212b6e8e2eee92a289bec97557775e4435545972b8f21c93f03e532f3321"
+	// The r-1/r-2 membership set is digested by the independent frame
+	// re-derivation (the PINNED literals for other membership sets are the
+	// golden-facts test's job; here the second witness is the byte-frame
+	// re-derivation, so a framing drift breaks here and nowhere mirrored).
+	memDigest := grpmFrameDigest(t,
+		[2]string{string(grpmGroupA), "r-1"}, [2]string{string(grpmGroupA), "r-2"},
+		[2]string{string(grpmGroupB), "r-1"}, [2]string{string(grpmGroupB), "r-2"})
+	// STAGING digest recomputes from stored children -- both digests, both
+	// counts.
+	gotDef, gotMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+	if err != nil {
+		f.fail("staging digest", err)
+	}
+	if gotDef != defDigest || gotMem != memDigest || groups != 2 || members != 4 {
+		t.Fatalf("staging digest = (%s, %s, %d, %d), want (%s, %s, 2, 4)",
+			gotDef, gotMem, groups, members, defDigest, memDigest)
+	}
+
+	// Invalid claims are the typed Incomplete before any database touch.
+	for name, call := range map[string]func() error{
+		"blank token": func() error {
+			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, "", defDigest, memDigest, 2, 4, time.Now().UTC())
+			return err
+		},
+		"blank digests": func() error {
+			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, "", "", 2, 4, time.Now().UTC())
+			return err
+		},
+		"zero groups": func() error {
+			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 0, 4, time.Now().UTC())
+			return err
+		},
+		"negative members": func() error {
+			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, -1, time.Now().UTC())
+			return err
+		},
+	} {
+		mustErr(t, "complete with "+name, call, explorer.ErrExplicitGroupRevisionIncomplete)
+	}
+	// Wrong writer is the typed conflict; wrong claimed facts are the
+	// typed conflict AND leave the revision usable as STAGING.
+	mustErr(t, "complete with foreign token", func() error {
+		_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token+"-wrong", defDigest, memDigest, 2, 4, time.Now().UTC())
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	mustErr(t, "complete with wrong membership digest", func() error {
+		_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, strings.Repeat("0", 64), 2, 4, time.Now().UTC())
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	if got, _, _, _, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID); err != nil || got != defDigest {
+		t.Fatalf("digest after refused completion broke: %s (%v)", got, err)
+	}
+	if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fSTAGING\x1f") {
+		t.Fatalf("header after refused completion is no longer STAGING: %q", state)
+	}
+	mustErr(t, "complete under foreign project id", func() error {
+		_, err := f.store.CompleteExplicitGroupRevision(f.ctx, "verify-grpm-nope", token, defDigest, memDigest, 2, 4, time.Now().UTC())
+		return err
+	}, explorer.ErrExplicitGroupRevisionNotFound)
+
+	// Honest fenced completion. Zero completedAt becomes the current UTC
+	// instant rather than the zero time.
+	completed, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, 4, time.Time{})
+	if err != nil || completed == nil {
+		f.fail("honest completion", err)
+	}
+	if completed.State != explorer.ExplicitGroupRevisionComplete ||
+		completed.CompletedAt == nil || completed.CompletedAt.IsZero() {
+		t.Fatalf("completed revision = %+v", completed)
+	}
+	// COMPLETE digest returns the FROZEN facts (the CAS stored exactly
+	// what the caller claimed and the database re-verified).
+	if gotDef, gotMem, groups, members, err = f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID); err != nil ||
+		gotDef != defDigest || gotMem != memDigest || groups != 2 || members != 4 {
+		t.Fatalf("frozen digest = (%s, %s, %d, %d, %v)", gotDef, gotMem, groups, members, err)
+	}
+	// Idempotent retry: identical facts return the stored revision.
+	retry, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, 4,
+		time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC))
+	if err != nil || retry == nil {
+		f.fail("idempotent completion retry", err)
+	}
+	if retry.CompletedAt == nil || completed.CompletedAt == nil || !retry.CompletedAt.Equal(*completed.CompletedAt) {
+		t.Fatalf("idempotent retry moved completed_at: %v != %v", retry.CompletedAt, completed.CompletedAt)
+	}
+	// Different facts on a COMPLETE row are the typed conflict -- history
+	// cannot be re-written by re-completing it.
+	mustErr(t, "complete COMPLETE row with different facts", func() error {
+		_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, strings.Repeat("a", 64), 2, 4, time.Now().UTC())
+		return err
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	// Abort of a COMPLETE revision is the typed conflict and removes nothing.
+	mustErr(t, "abort COMPLETE revision", func() error {
+		return f.store.AbortExplicitGroupRevision(f.ctx, revision.ID, token)
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	if got := f.countMembers(t, string(revision.ID)); got != 4 {
+		t.Fatalf("members after refused abort = %d, want 4", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// golden literals: break-one probes
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsGoldenFactsAndBreakOne(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	// The golden revision: two groups (labels/ordinals pinned to the
+	// definition digest literal) and one resource under EACH (overlap).
+	revision, token, source := f.stagedGroupFixture(t, "golden", "r-gold-1", "r-gold-2")
+	if source.ID != "verify-grpm-sel-golden" || source.MembershipDigest == "" || source.MemberCount != 2 {
+		t.Fatalf("golden source = %+v", source)
+	}
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
+		grpmMembership(grpmGroupA, "r-gold-1"), grpmMembership(grpmGroupA, "r-gold-2"),
+		grpmMembership(grpmGroupB, "r-gold-1"), grpmMembership(grpmGroupB, "r-gold-2"),
+	}); err != nil {
+		f.fail("golden append", err)
+	}
+
+	const (
+		defDigest = "0711212b6e8e2eee92a289bec97557775e4435545972b8f21c93f03e532f3321"
+		memDigest = "15a005684f311244c87000d13ecbd9f4aa7cde4d4248d6a81c519b82dbbd6e28"
+	)
+	if gotDef, gotMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID); err != nil ||
+		gotDef != defDigest || gotMem != memDigest || groups != 2 || members != 4 {
+		t.Fatalf("golden digest = (%s, %s, %d, %d, %v), want the pinned literals", gotDef, gotMem, groups, members, err)
+	}
+	if derived := grpmFrameDigest(t,
+		[2]string{string(grpmGroupA), "r-gold-1"}, [2]string{string(grpmGroupA), "r-gold-2"},
+		[2]string{string(grpmGroupB), "r-gold-1"}, [2]string{string(grpmGroupB), "r-gold-2"}); derived != memDigest {
+		t.Fatalf("golden independent re-derivation %s != literal %s", derived, memDigest)
+	}
+
+	completedAt := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, 4, completedAt); err != nil {
+		f.fail("golden completion", err)
+	}
+	// The COMPLETE header lands exactly as pinned, column for column.
+	want := strings.Join([]string{
+		string(revision.ID), grpmProject, grpmGeneration, "verify-grpm-scope", grpmResourceType,
+		"verify-grpm-sel-golden", source.MembershipDigest,
+		defDigest, memDigest,
+		"2", "4", "COMPLETE", "grpm-key-golden",
+		"<any-created-at>", "2026-09-19 00:00:00.000000", token, "<any-lease>",
+	}, "\x1f")
+	got := f.grpmHeaderSnapshot(t, string(revision.ID))
+	parts := strings.Split(got, "\x1f")
+	wantParts := strings.Split(want, "\x1f")
+	for i := range wantParts {
+		if wantParts[i] == "<any-created-at>" || wantParts[i] == "<any-lease>" {
+			continue
+		}
+		if parts[i] != wantParts[i] {
+			t.Fatalf("COMPLETE header field %d = %q, want %q (full: %q)", i, parts[i], wantParts[i], got)
+		}
+	}
+
+	// Break-one probes on the digest literals: flipping one hex character
+	// must break completion (and every digest is pinned independently of
+	// the frame re-derivation above).
+	flip := func(hexDigest string, pos int) string {
+		bad := []byte(hexDigest)
+		if bad[pos] == 'f' {
+			bad[pos] = '0'
+		} else {
+			bad[pos] = 'f'
+		}
+		return string(bad)
+	}
+	breakCases := []struct {
+		name     string
+		claimDef string
+		claimMem string
+	}{
+		{"membership digest flipped", defDigest, flip(memDigest, 40)},
+		{"definition digest flipped", flip(defDigest, 7), memDigest},
+	}
+	for _, broken := range breakCases {
+		broken := broken
+		mustErr(t, "completion with "+broken.name, func() error {
+			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, broken.claimDef, broken.claimMem, 2, 4, completedAt)
+			return err
+		}, explorer.ErrExplicitGroupRevisionConflict)
+	}
+	// A revision with ONLY the overlap member pair under one group
+	// digests differently -- the digest is over the full relation set.
+	singleRev, singleToken, _ := f.stagedGroupFixture(t, "golden-single", "r-single")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, singleRev.ID, singleToken,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-single")}); err != nil {
+		f.fail("single append", err)
+	}
+	const singleDigest = "f728a0b986129118326ccdd7345695544660bbadc19933c1373c9975a1329338"
+	if _, gotMem, _, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, singleRev.ID); err != nil ||
+		gotMem != singleDigest || members != 1 {
+		t.Fatalf("single digest = (%s, %d, %v), want (%s, 1, nil)", gotMem, members, err, singleDigest)
+	}
+	if derived := grpmFrameDigest(t, [2]string{string(grpmGroupA), "r-single"}); derived != singleDigest {
+		t.Fatalf("single independent re-derivation %s != literal %s", derived, singleDigest)
+	}
+
+	// The overlap pair itself is its own literal -- membership identity
+	// includes the group, so this differs from every single-group digest.
+	overlapRev, overlapToken, _ := f.stagedGroupFixture(t, "golden-overlap", "r-both")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, overlapRev.ID, overlapToken,
+		[]explorer.ExplicitGroupMembership{
+			grpmMembership(grpmGroupA, "r-both"), grpmMembership(grpmGroupB, "r-both"),
+		}); err != nil {
+		f.fail("overlap append", err)
+	}
+	const overlapDigest = "2b30fa23d892241d12586ab15fc7bec37bbe975c77538ceda3d3eea1ff7b966d"
+	if _, gotMem, _, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, overlapRev.ID); err != nil ||
+		gotMem != overlapDigest || members != 2 {
+		t.Fatalf("overlap digest = (%s, %d, %v), want (%s, 2, nil)", gotMem, members, err, overlapDigest)
+	}
+
+	// The empty membership set over two declared groups completes with the
+	// empty digest and zero members: group_count > 0 is required,
+	// member_count >= 0 is admitted.
+	emptyRev, emptyToken, _ := f.stagedGroupFixture(t, "golden-empty")
+	const emptyDigest = "51a9413396bfc791022568e5db6dbc5001629854b2c17d7b07dfdb35a820ec09"
+	if _, gotMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, emptyRev.ID); err != nil ||
+		gotMem != emptyDigest || groups != 2 || members != 0 {
+		t.Fatalf("empty digest = (%s, %d, %d, %v), want (%s, 2, 0, nil)", gotMem, groups, members, err, emptyDigest)
+	}
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, emptyRev.ID, emptyToken, defDigest, emptyDigest, 2, 0, completedAt); err != nil {
+		f.fail("complete zero-member revision", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// visit: bounded pages, stable resumption, cancellation
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsVisitBoundedResumableCancel(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	// 1001 members: one page beyond the cap -- the real boundedness
+	// witness, not a small-set simulation.
+	const total = 1001
+	refs := make([]string, 0, total)
+	for i := 0; i < total; i++ {
+		refs = append(refs, fmt.Sprintf("r-%04d", i))
+	}
+	revision, token, _ := f.stagedGroupFixture(t, "visit", refs...)
+	batch := make([]explorer.ExplicitGroupMembership, 0, total)
+	for i, ref := range refs {
+		group := grpmGroupA
+		if i%2 == 1 {
+			group = grpmGroupB
+		}
+		batch = append(batch, grpmMembership(group, ref))
+	}
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, batch); err != nil {
+		f.fail("append 1001 members", err)
+	}
+
+	// STAGING is not streamable: the public gate refuses with Incomplete.
+	mustErr(t, "visit STAGING revision", func() error {
+		_, err := f.store.VisitExplicitGroupMemberships(f.ctx, grpmProject, revision.ID,
+			explorer.ExplicitGroupMembershipCursor{}, 10, func(explorer.ExplicitGroupMembership) error { return nil })
+		return err
+	}, explorer.ErrExplicitGroupRevisionIncomplete)
+	// Nil visitor is an argument error.
+	if _, err := f.store.VisitExplicitGroupMemberships(f.ctx, grpmProject, revision.ID,
+		explorer.ExplicitGroupMembershipCursor{}, 10, nil); err == nil ||
+		!strings.Contains(err.Error(), "visitor is required") {
+		t.Fatalf("nil-visitor error = %v, want the required-visitor refusal", err)
+	}
+
+	// The bounded page witness: the digest walk of the 1001-member set
+	// streamed exactly [1000, 1] -- the cap is real and the walk never
+	// buffers more than one page.
+	var pages []int
+	f.store.membershipPageStreamed = func(rows int) { pages = append(pages, rows) }
+	defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+	f.store.membershipPageStreamed = nil
+	if err != nil {
+		f.fail("large digest", err)
+	}
+	if groups != 2 || members != total {
+		t.Fatalf("large digest counts = (%d, %d), want (2, %d)", groups, members, total)
+	}
+	if len(pages) == 0 {
+		t.Fatal("digest streamed no pages")
+	}
+	for _, n := range pages {
+		if n > explicitGroupMembershipPageSize {
+			t.Fatalf("digest page of %d exceeded the cap %d", n, explicitGroupMembershipPageSize)
+		}
+	}
+	if pages[0] != explicitGroupMembershipPageSize || pages[len(pages)-1] != 1 {
+		t.Fatalf("digest page shape %v, want first page %d and last page 1", pages, explicitGroupMembershipPageSize)
+	}
+
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, defDigest, memDigest, 2, total,
+		time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)); err != nil {
+		f.fail("large completion", err)
+	}
+
+	// Visit: one bounded page per call no matter how large the request;
+	// resumption from the returned cursor covers the set exactly once --
+	// no gaps, no duplicates -- in the keyset walk order.
+	var seen []explorer.ExplicitGroupMembership
+	cursor := explorer.ExplicitGroupMembershipCursor{}
+	calls := 0
+	for {
+		calls++
+		if calls > total {
+			t.Fatal("visit resumption never terminated")
+		}
+		next, err := f.store.VisitExplicitGroupMemberships(f.ctx, grpmProject, revision.ID, cursor, 100000,
+			func(membership explorer.ExplicitGroupMembership) error {
+				seen = append(seen, membership)
+				return nil
+			})
+		if err != nil {
+			f.fail("visit page", err)
+		}
+		if next == cursor {
+			break
+		}
+		cursor = next
+	}
+	if len(seen) != total {
+		t.Fatalf("full visit yielded %d members, want %d", len(seen), total)
+	}
+	// The walk order is the keyset order (group_id, resource_id, ...):
+	// every group-a ref ascending, then every group-b ref ascending --
+	// NOT the append order.
+	var wantOrder []explorer.ExplicitGroupMembership
+	for _, group := range []explorer.ExplicitGroupID{grpmGroupA, grpmGroupB} {
+		for _, m := range batch {
+			if m.GroupID == group {
+				wantOrder = append(wantOrder, m)
+			}
+		}
+	}
+	if len(wantOrder) != total {
+		t.Fatalf("expected walk set = %d, want %d", len(wantOrder), total)
+	}
+	for i, want := range wantOrder {
+		if seen[i].GroupID != want.GroupID || seen[i].Ref.ID != want.Ref.ID {
+			t.Fatalf("visit order diverged at %d: got %s/%s want %s/%s", i,
+				seen[i].GroupID, seen[i].Ref.ID, want.GroupID, want.Ref.ID)
+		}
+	}
+
+	// Cancellation mid-visit: the walk stops between members and the
+	// returned cursor names the LAST member the visitor actually saw --
+	// resuming continues with no gap and no duplicate. The page must hold
+	// more members than are visited before the cancel, so the walk is
+	// genuinely interrupted mid-page.
+	visCtx, cancel := context.WithCancel(f.ctx)
+	visited := 0
+	var partial []explorer.ExplicitGroupMembership
+	cancelledCursor, err := f.store.VisitExplicitGroupMemberships(visCtx, grpmProject, revision.ID,
+		explorer.ExplicitGroupMembershipCursor{}, 5, func(membership explorer.ExplicitGroupMembership) error {
+			visited++
+			partial = append(partial, membership)
+			if visited == 3 {
+				cancel()
+			}
+			return nil
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled visit error = %v, want context.Canceled", err)
+	}
+	if len(partial) != 3 {
+		t.Fatalf("cancelled visit called the visitor %d times, want exactly 3", len(partial))
+	}
+	if cancelledCursor.GroupID != partial[2].GroupID || cancelledCursor.ResourceID != partial[2].Ref.ID {
+		t.Fatalf("cancelled cursor = %+v, want the last visited member %+v", cancelledCursor, partial[2])
+	}
+	resumed := append([]explorer.ExplicitGroupMembership(nil), partial...)
+	cursor = cancelledCursor
+	for {
+		next, err := f.store.VisitExplicitGroupMemberships(f.ctx, grpmProject, revision.ID, cursor, 100000,
+			func(membership explorer.ExplicitGroupMembership) error {
+				resumed = append(resumed, membership)
+				return nil
+			})
+		if err != nil {
+			f.fail("resumed visit", err)
+		}
+		if next == cursor {
+			break
+		}
+		cursor = next
+	}
+	if len(resumed) != total {
+		t.Fatalf("resumed visit total = %d, want %d (no gap, no duplicate)", len(resumed), total)
+	}
+	for i := range resumed {
+		if resumed[i].GroupID != seen[i].GroupID || resumed[i].Ref.ID != seen[i].Ref.ID {
+			t.Fatalf("resumed walk diverged from full walk at %d", i)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// database guards: insert-once, scope, FK, CHECKs, and guard non-vacuity
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	revision, token, _ := f.stagedGroupFixture(t, "guardsdb", "r-a", "r-b")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+		f.fail("seed append", err)
+	}
+	stored := grpmRows(grpmRow(string(grpmGroupA), "r-a"))
+
+	// Write-once: every real UPDATE is refused by name; a true no-op
+	// UPDATE is legal (mutation probe against the same trigger).
+	_, err := f.witness.Exec(f.ctx, `UPDATE `+f.membershipsTable()+` SET resource_id = 'r-c'`+
+		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
+		string(revision.ID), string(grpmGroupA), "r-a")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "write-once", "membership UPDATE mutation")
+	if _, err := f.witness.Exec(f.ctx, `UPDATE `+f.membershipsTable()+` SET resource_id = 'r-a'`+
+		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
+		string(revision.ID), string(grpmGroupA), "r-a"); err != nil {
+		f.fail("no-op membership UPDATE probe", err)
+	}
+
+	// Un-authorized DELETE is refused; the row survives.
+	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+
+		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
+		string(revision.ID), string(grpmGroupA), "r-a")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "owner-abort or expired-writer-cleanup",
+		"unauthorized membership DELETE")
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != stored {
+		t.Fatalf("refused DELETE moved rows: %q", got)
+	}
+
+	// Scope guard: a reference that does not repeat the parent scope is
+	// refused by the trigger, before the FK even sees it.
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
+		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+		` VALUES ($1, $2, $3, $4, $5, $6)`,
+		string(revision.ID), string(grpmGroupB), "verify-grpm-other", grpmGeneration, grpmResourceType, "r-b")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "does not repeat the parent scope",
+		"foreign-scope membership insert")
+
+	// Absent parent: the trigger refuses before the revision FK fires.
+	orphan := "verify-grpm-orphan-revision"
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
+		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+		` VALUES ($1, $2, $3, $4, $5, $6)`,
+		orphan, string(grpmGroupA), grpmProject, grpmGeneration, grpmResourceType, "r-x")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "parent revision is absent", "orphan membership insert")
+
+	// Declared-group compound FK: STAGING parent, correct scope, group
+	// never declared -- the trigger's INSERT branch passes and the
+	// compound foreign key decides: 23503 naming group_fkey.
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
+		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+		` VALUES ($1, $2, $3, $4, $5, $6)`,
+		string(revision.ID), "verify-grpm-group-ghost", grpmProject, grpmGeneration, grpmResourceType, "r-b")
+	requirePgErrConstraintGRPM(t, err, explicitGroupMembershipForeignKeyState,
+		explicitGroupMembershipGroupFK, "undeclared-group membership insert")
+
+	// CHECK guards on the empty-string identity columns.
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
+		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+		` VALUES ($1, $2, $3, $4, $5, $6)`,
+		string(revision.ID), "", grpmProject, grpmGeneration, grpmResourceType, "r-b")
+	requirePgErrConstraintGRPM(t, err, grpmCheckViolation,
+		"explorer_explicit_group_memberships_group_id_present", "empty group_id insert")
+
+	// NOT NULL guards are 23502 on the named column.
+	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
+		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
+		` VALUES ($1, $2, $3, $4, $5, NULL)`,
+		string(revision.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType)
+	requirePgErrGRPM(t, err, "23502", "NULL resource_id insert")
+
+	// Mutation probe: the honest row the trigger should admit does land.
+	f.rawInsertMembership(t, f.witness, string(revision.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType, "r-b")
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(stored, grpmRow(string(grpmGroupB), "r-b")) {
+		t.Fatalf("mutation-probe insert produced %q", got)
+	}
+
+	// Non-vacuity at the database: drop the membership guard trigger and
+	// the very DELETE that was refused now lands -- then the migration's
+	// own text recreates the identical guard and refuses it again.
+	f.dropTriggerGRPM(t, f.membershipsTable(), "explorer_explicit_group_memberships_guard")
+	f.execOnGRPM(t, f.witness, "guard-dropped delete", `DELETE FROM `+f.membershipsTable()+
+		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
+		string(revision.ID), string(grpmGroupB), "r-b")
+	f.rerunMigrationGRPM(t, grpmMigrationVersion)
+	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+
+		` WHERE revision_id = $1 AND group_id = $2 AND resource_id = $3`,
+		string(revision.ID), string(grpmGroupA), "r-a")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "owner-abort or expired-writer-cleanup",
+		"membership DELETE after guard rerun")
+}
+
+// ---------------------------------------------------------------------------
+// completion machine at the database: born STAGING, tokened transition,
+// verified counts, lifecycle CHECK, guard non-vacuity with rerun
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsCompletionMachineDatabaseFacts(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	revision, token, source := f.stagedGroupFixture(t, "machine", "r-a", "r-b")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{
+			grpmMembership(grpmGroupA, "r-a"), grpmMembership(grpmGroupB, "r-b"),
+		}); err != nil {
+		f.fail("machine seed append", err)
+	}
+	headerBefore := f.grpmHeaderSnapshot(t, string(revision.ID))
+
+	// Born STAGING: a direct COMPLETE INSERT is refused by the header
+	// guard's INSERT branch.
+	_, err := f.witness.Exec(f.ctx, `INSERT INTO `+f.revisionTable()+
+		` (id, project, generation, scope_digest, resource_type, source_selection_revision_id,`+
+		` source_membership_digest, definition_digest, membership_digest, group_count, member_count,`+
+		` state, idempotency_key, created_at, completed_at, writer_token, writer_expires_at)`+
+		` VALUES ('verify-grpm-born-complete', $1, $2, 's', 'Patient', 'src', 'md',`+
+		` 'd', 'm', 1, 1, 'COMPLETE', 'k', now(), now(), 'w', now())`,
+		grpmProject, grpmGeneration)
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "born STAGING", "direct COMPLETE header INSERT")
+
+	// The transition demands the row's own writer token GUC...
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
+		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
+		` group_count = 2, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "writer token", "completion without the token GUC")
+	f.setGUC(t, "loom.explorer_explicit_group_writer_token", token+"-wrong")
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
+		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
+		` group_count = 2, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "writer token", "completion with the wrong token GUC")
+
+	// ... and the claimed counts must equal the child rows actually
+	// stored: the transition VERIFIES the membership set at the database.
+	f.setGUC(t, "loom.explorer_explicit_group_writer_token", token)
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
+		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
+		` group_count = 2, member_count = 3, completed_at = now() WHERE id = $1`, string(revision.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "claims member_count 3 but 2", "completion claiming a false member_count")
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
+		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
+		` group_count = 5, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "claims group_count 5 but 2", "completion claiming a false group_count")
+	// Every refusal left the header byte-identical.
+	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); got != headerBefore {
+		t.Fatalf("refused direct completions moved the header: %q != %q", got, headerBefore)
+	}
+
+	// Mutation probe on the transition channel: honest counts complete
+	// through the guarded UPDATE (the digests are content-addressed and
+	// verified by the store; the database verifies the transition).
+	f.execOnGRPM(t, f.witness, "honest guarded direct completion",
+		`UPDATE `+f.revisionTable()+
+			` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
+			` group_count = 2, member_count = 2, completed_at = now() WHERE id = $1`, string(revision.ID))
+	if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fCOMPLETE\x1f") {
+		t.Fatalf("honest guarded completion did not land: %q", state)
+	}
+	// COMPLETE is frozen history: any non-noop UPDATE is refused by name,
+	// a true no-op UPDATE is legal.
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+` SET membership_digest = 'tampered' WHERE id = $1`, string(revision.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "COMPLETE history", "tampering with COMPLETE history")
+	f.execOnGRPM(t, f.witness, "no-op UPDATE probe", `UPDATE `+f.revisionTable()+` SET state = 'COMPLETE' WHERE id = $1`, string(revision.ID))
+
+	// The lifecycle CHECK is classifiable by name once the trigger is
+	// dropped -- the guard is not the only closed shape, and the rerun
+	// restores the identical guard.
+	f.dropTriggerGRPM(t, f.revisionTable(), "explorer_explicit_group_revisions_guard")
+	f.execOnGRPM(t, f.witness, "set up bogus-state probe", `UPDATE `+f.revisionTable()+
+		` SET writer_expires_at = writer_expires_at WHERE id = $1`, string(revision.ID))
+	// A fresh staging header smuggled to BOGUS with no trigger: the
+	// lifecycle CHECK refuses with its exact name.
+	bogusHeader := grpmRevision(source, "machine-bogus")
+	bogus := string(bogusHeader.ID)
+	f.rawInsertHeaderGRPM(t, f.witness, bogusHeader, "bogus-writer", nil)
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+` SET state = 'BOGUS' WHERE id = $1`, bogus)
+	requirePgErrConstraintGRPM(t, err, grpmCheckViolation, explicitGroupRevisionLifecycleValuesCheck,
+		"BOGUS state under the lifecycle CHECK (trigger dropped)")
+	f.rerunMigrationGRPM(t, grpmMigrationVersion)
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+` SET state = 'BOGUS' WHERE id = $1`, bogus)
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "the only admitted transition", "BOGUS state after guard rerun")
+	// The rerun also restored the completion gate itself: the same token-
+	// less direct completion is refused again.
+	f.setGUC(t, "loom.explorer_explicit_group_writer_token", "")
+	other, _, _ := f.stagedGroupFixture(t, "machine-other", "r-a")
+	_, err = f.witness.Exec(f.ctx, `UPDATE `+f.revisionTable()+
+		` SET state = 'COMPLETE', definition_digest = 'd', membership_digest = 'm',`+
+		` group_count = 2, member_count = 0, completed_at = now() WHERE id = $1`, string(other.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "writer token", "tokenless completion after guard rerun")
+}
+
+// ---------------------------------------------------------------------------
+// abort and expired-writer cleanup cascade through the membership table
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsAbortCleanupCascade(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	// Abort: header, definitions, AND memberships vanish together.
+	revision, token, _ := f.stagedGroupFixture(t, "abort", "r-a", "r-b")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
+		grpmMembership(grpmGroupA, "r-a"), grpmMembership(grpmGroupB, "r-b"), grpmMembership(grpmGroupA, "r-b"),
+	}); err != nil {
+		f.fail("abort seed append", err)
+	}
+	if got := f.countMembers(t, string(revision.ID)); got != 3 {
+		t.Fatalf("abort seed count = %d, want 3", got)
+	}
+	mustErr(t, "abort with the wrong token", func() error {
+		return f.store.AbortExplicitGroupRevision(f.ctx, revision.ID, token+"-wrong")
+	}, explorer.ErrExplicitGroupRevisionConflict)
+	if got := f.countMembers(t, string(revision.ID)); got != 3 {
+		t.Fatalf("refused abort moved memberships: %d", got)
+	}
+	if err := f.store.AbortExplicitGroupRevision(f.ctx, revision.ID, token); err != nil {
+		f.fail("owner abort", err)
+	}
+	if got := f.countMembers(t, string(revision.ID)); got != 0 {
+		t.Fatalf("memberships after abort = %d, want 0 (cascade)", got)
+	}
+	if got := f.countRowsOn(t, f.definitionsTable(), "revision_id = $1", string(revision.ID)); got != 0 {
+		t.Fatalf("definitions after abort = %d, want 0 (cascade)", got)
+	}
+	if got := f.countRowsOn(t, f.revisionTable(), "id = $1", string(revision.ID)); got != 0 {
+		t.Fatalf("header after abort = %d, want 0", got)
+	}
+
+	// Expired-writer cleanup reaps memberships too; the active writer and
+	// its memberships are untouched. The expired revision is seeded
+	// AFTER the live fixture: BeginExplicitGroupRevision's internal
+	// expired-row reaper must not find the bait pre-planted.
+	live, liveToken, _ := f.stagedGroupFixture(t, "cleanup-live", "r-a")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, live.ID, liveToken,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+		f.fail("cleanup live seed append", err)
+	}
+	expiredLease := time.Now().UTC().Add(-time.Minute)
+	source := f.stageSelection(t, "cleanup", "r-a")
+	expired := grpmRevision(source, "grpm-key-cleanup-expired")
+	f.rawInsertHeaderGRPM(t, f.witness, expired, "grpm-cleanup-writer", &expiredLease)
+	f.rawInsertDefinition(t, f.witness, string(expired.ID), string(grpmGroupA), "Group A", 0)
+	f.rawInsertDefinition(t, f.witness, string(expired.ID), string(grpmGroupB), "Group B", 1)
+	f.rawInsertMembership(t, f.witness, string(expired.ID), string(grpmGroupA), grpmProject, grpmGeneration, grpmResourceType, "r-a")
+	f.rawInsertMembership(t, f.witness, string(expired.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType, "r-a")
+
+	// Direct DELETE of a membership without the cleanup channels is
+	// refused -- cleanup is the ONLY retirement path besides owner abort.
+	_, err := f.witness.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`, string(expired.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "owner-abort or expired-writer-cleanup",
+		"unauthorized membership DELETE on expired staging")
+
+	if err := f.store.CleanupExplicitGroupStaging(f.ctx, time.Now().UTC(), 100); err != nil {
+		f.fail("expired-writer cleanup", err)
+	}
+	if got := f.countRowsOn(t, f.revisionTable(), "id = $1", string(expired.ID)); got != 0 {
+		t.Fatalf("expired header survived cleanup: %d", got)
+	}
+	if got := f.countMembers(t, string(expired.ID)); got != 0 {
+		t.Fatalf("expired memberships survived cleanup: %d", got)
+	}
+	if got := f.countRowsOn(t, f.definitionsTable(), "revision_id = $1", string(expired.ID)); got != 0 {
+		t.Fatalf("expired definitions survived cleanup: %d", got)
+	}
+	if got := f.countMembers(t, string(live.ID)); got != 1 {
+		t.Fatalf("active writer's memberships were swept: %d, want 1", got)
+	}
+	if got := f.countRowsOn(t, f.revisionTable(), "id = $1", string(live.ID)); got != 1 {
+		t.Fatalf("active writer's header was swept")
+	}
+	// The RESTRICT foreign-key chain is witnessed at the database: with
+	// the abort GUC channel open (so the child DELETEs are themselves
+	// authorized), the header cannot be deleted while children remain,
+	// and the definitions cannot be deleted while MEMBERSHIPS remain --
+	// the membership rows pin both the group they name and, transitively,
+	// their header. The store's delete order (memberships, then
+	// definitions, then header) is the only order the database admits.
+	f.setGUC(t, "loom.explorer_explicit_group_abort_token", liveToken)
+	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(live.ID))
+	pgErr := requirePgErrGRPM(t, err, "23001", "authorized header DELETE while children remain")
+	if !strings.Contains(pgErr.Message, "explorer_explicit_group_definitions_revision_fkey") &&
+		!strings.Contains(pgErr.Message, explicitGroupMembershipRevisionFK) {
+		t.Fatalf("header DELETE refusal %q names neither child RESTRICT foreign key", pgErr.Message)
+	}
+	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.definitionsTable()+` WHERE revision_id = $1`, string(live.ID))
+	pgErr = requirePgErrGRPM(t, err, "23001", "authorized definition DELETE while memberships remain")
+	if !strings.Contains(pgErr.Message, explicitGroupMembershipGroupFK) {
+		t.Fatalf("definition DELETE refusal %q does not name the membership group RESTRICT foreign key", pgErr.Message)
+	}
+	// The admitted order lands cleanly.
+	f.execOnGRPM(t, f.witness, "authorized membership delete", `DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`, string(live.ID))
+	f.execOnGRPM(t, f.witness, "authorized definition delete", `DELETE FROM `+f.definitionsTable()+` WHERE revision_id = $1`, string(live.ID))
+	f.execOnGRPM(t, f.witness, "authorized header delete", `DELETE FROM `+f.revisionTable()+` WHERE id = $1`, string(live.ID))
+	f.setGUC(t, "loom.explorer_explicit_group_abort_token", "")
+}
+
+// ---------------------------------------------------------------------------
+// fault seams: a crash mid-append or mid-complete leaves zero
+// half-applied state
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsFaultSeamRollback(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	// Seam inside Append, after the real inserts: the rows are genuinely
+	// present to the live transaction (witnessed), then the fault aborts
+	// everything -- rows AND lease renewal vanish together.
+	revision, token, _ := f.stagedGroupFixture(t, "fault-append", "r-a", "r-b")
+	headerBefore := f.grpmHeaderSnapshot(t, string(revision.ID))
+	storeA, _ := f.newDedicatedStore(t)
+	var insideRows int64
+	storeA.afterMembershipsInserted = func(ctx context.Context, tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+f.membershipsTable()+
+			` WHERE revision_id = $1`, string(revision.ID)).Scan(&insideRows); err != nil {
+			return err
+		}
+		return errors.New("injected crash after membership inserts")
+	}
+	_, err := storeA.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
+		grpmMembership(grpmGroupA, "r-a"), grpmMembership(grpmGroupB, "r-b"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected crash") {
+		t.Fatalf("append fault error = %v, want the injected crash", err)
+	}
+	if insideRows != 2 {
+		t.Fatalf("the seam saw %d rows inside the transaction, want 2 (the inserts were real)", insideRows)
+	}
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != "" {
+		t.Fatalf("crashed append leaked rows: %q", got)
+	}
+	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); got != headerBefore {
+		t.Fatalf("crashed append moved the header: %q != %q", got, headerBefore)
+	}
+	// Mutation probe: the identical honest append lands once the fault is gone.
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token, []explorer.ExplicitGroupMembership{
+		grpmMembership(grpmGroupA, "r-a"), grpmMembership(grpmGroupB, "r-b"),
+	}); err != nil {
+		f.fail("honest append after fault", err)
+	}
+
+	// Seam inside Complete, after the CAS, before commit: the flip is
+	// real inside the transaction and absent after the rollback; the
+	// revision stays STAGING and completable.
+	storeB, _ := f.newDedicatedStore(t)
+	var flippedState string
+	storeB.beforeCompleteCommit = func(ctx context.Context, tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT state FROM `+f.revisionTable()+
+			` WHERE id = $1`, string(revision.ID)).Scan(&flippedState); err != nil {
+			return err
+		}
+		return errors.New("injected crash before complete commit")
+	}
+	defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+	if err != nil {
+		f.fail("pre-fault digest", err)
+	}
+	if _, err := storeB.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+		defDigest, memDigest, groups, members, time.Now().UTC()); err == nil ||
+		!strings.Contains(err.Error(), "injected crash") {
+		t.Fatalf("complete fault error = %v, want the injected crash", err)
+	}
+	if flippedState != "COMPLETE" {
+		t.Fatalf("the seam saw state %q inside the transaction, want COMPLETE (the CAS was real)", flippedState)
+	}
+	if got := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(got, "\x1fSTAGING\x1f") {
+		t.Fatalf("crashed completion left the header non-STAGING: %q", got)
+	}
+	// The membership rows themselves were untouched by the crashed
+	// complete (they were committed by the earlier honest append).
+	if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(
+		grpmRow(string(grpmGroupA), "r-a"), grpmRow(string(grpmGroupB), "r-b")) {
+		t.Fatalf("crashed completion disturbed memberships: %q", got)
+	}
+	// Retry-after-crash: the honest completion still works exactly once.
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+		defDigest, memDigest, groups, members, time.Now().UTC()); err != nil {
+		f.fail("completion after crash", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// the fenced completion races the append under the header lock
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	storeA, pidA := f.newDedicatedStore(t)
+	storeB, pidB := f.newDedicatedStore(t)
+	requireDistinctBackendsGRPM(t, map[string]int32{"appender": pidA, "completer": pidB, "witness": f.witnessID})
+
+	var appendBlocks, completeBlocks, staleConflicts atomic.Int64
+	for round := 0; round < grpmRaceRounds; round++ {
+		roundStr := fmt.Sprintf("race-%d", round)
+		revision, token, _ := f.stagedGroupFixture(t, roundStr, "r-a", "r-b", "r-c")
+		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+			f.fail("race seed append", err)
+		}
+
+		// The appender holds the header lock AFTER staging its row and
+		// before renewal/commit; the completer arrives inside that
+		// window, so the two really contend on the same row.
+		releaseAppend := make(chan struct{})
+		appendEntered := make(chan struct{})
+		var appendOnce sync.Once
+		storeA.afterMembershipsInserted = func(context.Context, pgx.Tx) error {
+			appendOnce.Do(func() { close(appendEntered) })
+			<-releaseAppend
+			return nil
+		}
+		watchB, stopB := f.grpmWatchLockWait(pidB)
+		type appendOutcome struct {
+			err error
+		}
+		appendDone := make(chan appendOutcome, 1)
+		go func() {
+			_, err := storeA.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+				[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupB, "r-b")})
+			appendDone <- appendOutcome{err}
+		}()
+		<-appendEntered
+
+		// The completer claims the digest of the pre-race state (one
+		// member). Whichever order the lock decides, the frozen contract
+		// holds: COMPLETE iff the stored set matches the claimed facts.
+		staleDef, staleMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+		if err != nil {
+			f.fail("race stale digest", err)
+		}
+		completeDone := make(chan error, 1)
+		go func() {
+			_, err := storeB.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+				staleDef, staleMem, groups, members, time.Now().UTC())
+			completeDone <- err
+		}()
+
+		// Wait until the completer is genuinely queued behind the
+		// appender's row lock (or has already raced through), then let
+		// the appender commit.
+		locked := false
+		deadline := time.Now().Add(grpmSeamTimeout)
+		for !locked && time.Now().Before(deadline) {
+			locked = watchB()
+			if locked {
+				appendBlocks.Add(1)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		close(releaseAppend)
+		if err := (<-appendDone).err; err != nil {
+			f.fail("race append commit", err)
+		}
+		completeErr := <-completeDone
+		stopB()
+		if !watchB() {
+			t.Fatalf("round %d: the completer was never observed blocked on the header lock -- the race never actually raced", round)
+		}
+		completeBlocks.Add(1)
+
+		if completeErr == nil {
+			// The completer won: it froze the one-member set it claimed,
+			// which is only legal if the appender's row landed BEFORE the
+			// completer's verification pass saw the set -- impossible
+			// here because the completer's claim pre-dates the lock
+			// window AND its verification re-derives under the lock.
+			// Reaching nil means the verification saw exactly the claimed
+			// one-member set; the appender must then have committed AFTER
+			// the flip -- which the header lock forbids (the appender
+			// claims FOR UPDATE first and holds the row lock through the
+			// seam). A success therefore means the append's claim
+			// serialized AFTER completion: the append's renewal CAS then
+			// missed and the append itself is the conflict. Re-check the
+			// actual invariant instead of assuming the schedule:
+			state := f.grpmHeaderSnapshot(t, string(revision.ID))
+			if !strings.Contains(state, "\x1fCOMPLETE\x1f") {
+				t.Fatalf("round %d: completer succeeded on a non-COMPLETE header: %q", round, state)
+			}
+			if _, _, _, frozenMembers, derr := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID); derr != nil || frozenMembers != members {
+				t.Fatalf("round %d: COMPLETE frozen member_count %d != claimed %d", round, frozenMembers, members)
+			}
+			// The appender that serialized after the flip must have been
+			// refused -- its lease CAS cannot hit a COMPLETE row.
+			continue
+		}
+		if !errors.Is(completeErr, explorer.ErrExplicitGroupRevisionConflict) {
+			f.fail("race completion", completeErr)
+		}
+		staleConflicts.Add(1)
+		// The conflict must have left the revision usable: STAGING, with
+		// the appender's row (committed first) present and digestible.
+		state := f.grpmHeaderSnapshot(t, string(revision.ID))
+		if !strings.Contains(state, "\x1fSTAGING\x1f") {
+			t.Fatalf("round %d: conflicted completion left state: %q", round, state)
+		}
+		if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(
+			grpmRow(string(grpmGroupA), "r-a"), grpmRow(string(grpmGroupB), "r-b")) {
+			t.Fatalf("round %d: post-race membership set = %q", round, got)
+		}
+		// The stale claim conflicts while the honest retry completes --
+		// exactly once.
+		mustErr(t, "race stale retry", func() error {
+			_, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token, strings.Repeat("0", 64), staleMem, groups, members, time.Now().UTC())
+			return err
+		}, explorer.ErrExplicitGroupRevisionConflict)
+		honestDef, honestMem, honestGroups, honestMembers, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+		if err != nil {
+			f.fail("race honest digest", err)
+		}
+		if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+			honestDef, honestMem, honestGroups, honestMembers, time.Now().UTC()); err != nil {
+			f.fail("race honest completion", err)
+		}
+		if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+			honestDef, honestMem, honestGroups, honestMembers, time.Now().UTC()); err != nil {
+			f.fail("race idempotent completion", err)
+		}
+		storeA.afterMembershipsInserted = nil
+	}
+	if appendBlocks.Load() == 0 {
+		t.Fatalf("no round ever witnessed the completer blocked behind the appender's lock -- zero-churn control failed")
+	}
+	if staleConflicts.Load() == 0 {
+		t.Fatalf("no round produced the stale-claim conflict -- the completion never fenced a real append")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// the membership migration composes onto the shared ledger and converges
+// ---------------------------------------------------------------------------
+
+func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T) {
+	f := newGRPMFixture(t)
+	result := f.migrateWithSelections(t)
+
+	var versions []int64
+	for _, rec := range result.Applied {
+		versions = append(versions, rec.Version)
+	}
+	wantVersions := []int64{1, 2, 3, 5, 6, 8, 9, 10}
+	if len(versions) != len(wantVersions) {
+		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
+	}
+	for i := range wantVersions {
+		if versions[i] != wantVersions[i] {
+			t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
+		}
+	}
+	for _, rec := range result.Applied {
+		switch rec.Version {
+		case grpmMigrationVersion:
+			if rec.Name != grpmMigrationName {
+				t.Fatalf("ledger version %d name = %q, want %q", rec.Version, rec.Name, grpmMigrationName)
+			}
+			if rec.Checksum != grpmMigrationChecksum {
+				t.Fatalf("ledger checksum for %d = %s, want the frozen pin %s",
+					rec.Version, rec.Checksum, grpmMigrationChecksum)
+			}
+		case grpmSelectionsFixtureVersion:
+			if rec.Checksum != grpmSelectionsFixtureChecksum {
+				t.Fatalf("ledger checksum for %d = %s, want the frozen pin %s",
+					rec.Version, rec.Checksum, grpmSelectionsFixtureChecksum)
+			}
+		}
+	}
+
+	// The embedded bytes recompute to the pin independently of the
+	// runner's bookkeeping.
+	migrations, err := OwnerMigrations()
+	if err != nil {
+		f.fail("owner migrations for convergence", err)
+	}
+	var found bool
+	for _, m := range migrations {
+		if m.Version == grpmMigrationVersion {
+			found = true
+			sum := sha256.Sum256([]byte(m.SQL))
+			if hex.EncodeToString(sum[:]) != grpmMigrationChecksum || m.Name != grpmMigrationName {
+				t.Fatalf("embedded membership migration drifted: name %q checksum %s", m.Name, hex.EncodeToString(sum[:]))
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the membership migration is absent from the embedded owner history")
+	}
+
+	// Convergent rerun through the real runner: zero new applications,
+	// the ledger unchanged, and the guards still bite afterwards.
+	client, err := pgstore.Open(f.ctx, pgstore.Config{DSN: f.dsn, MaxConns: 2, MinConns: 0, AcquireTimeout: 10 * time.Second})
+	if err != nil {
+		f.fail("open rerun pool", err)
+	}
+	defer client.Close()
+	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), grpmSelectionsFixtureDir)
+	if err != nil {
+		f.fail("load fixture for rerun", err)
+	}
+	owner, err := OwnerMigrations()
+	if err != nil {
+		f.fail("owner migrations for rerun", err)
+	}
+	runner, err := pgstore.NewMigrationRunner(client, f.schema, append(append([]pgstore.Migration{}, owner...), fixture[0]))
+	if err != nil {
+		f.fail("new rerun runner", err)
+	}
+	rerun, err := runner.Migrate(f.ctx)
+	if err != nil {
+		f.fail("convergent rerun", err)
+	}
+	if len(rerun.Applied) != len(result.Applied) {
+		t.Fatalf("rerun ledger length = %d, want %d", len(rerun.Applied), len(result.Applied))
+	}
+	var ledgerRows int
+	if err := f.witness.QueryRow(f.ctx, `SELECT count(*) FROM `+sanitizeTableRef(f.schema, "schema_migrations")).Scan(&ledgerRows); err != nil {
+		f.fail("count ledger rows", err)
+	}
+	if ledgerRows != len(result.Applied) {
+		t.Fatalf("ledger holds %d rows, want %d after a convergent rerun", ledgerRows, len(result.Applied))
+	}
+
+	// The guards the rerun re-created still refuse the violating write.
+	revision, token, _ := f.stagedGroupFixture(t, "converge", "r-a")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+		f.fail("seed append before guard probe", err)
+	}
+	_, err = f.witness.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`, string(revision.ID))
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "owner-abort or expired-writer-cleanup",
+		"membership DELETE after convergent rerun")
+}
+
+// TestZZZeroLeftoverVerifyGrpmFixtures is the suite-wide ownership-scoped
+// zero-leftover audit for this ticket's namespace: every database this
+// suite registered must be deregistered and gone, and NO verify_grpm_*
+// database may exist in the service. It never sweeps other suites'
+// prefixes.
+func TestZZZeroLeftoverVerifyGrpmFixtures(t *testing.T) {
+	raw := pgstate06TestPostgresURL(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect for leftover audit: %v", err)
+	}
+	defer admin.Close()
+	var dbLeftovers int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\_grpm\_%' ESCAPE '\'`).Scan(&dbLeftovers); err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if dbLeftovers != 0 {
+		t.Fatalf("%d verify_grpm_* databases survive the suite", dbLeftovers)
+	}
+	if owned := grpmSnapshotRegistry(); len(owned) != 0 {
+		t.Fatalf("creation registry still holds %d entries: %v", len(owned), owned)
+	}
 }

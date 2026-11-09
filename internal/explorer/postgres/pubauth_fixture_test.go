@@ -305,10 +305,10 @@ func pubauthRootFixture(t *testing.T, dir, name string, version int64, sha strin
 	return fixture[0]
 }
 
-// migrate applies the composed control-plane ledger [1..9] to ctlSchema and
-// the composed lane ledger [1,3,8] to lanesSchema, each twice: the second
-// apply witnesses ledger-identical no-op convergence on the FULL merged
-// version space.
+// migrate applies the composed control-plane ledger [1..10] to ctlSchema
+// and the composed lane ledger [1,3,8] to lanesSchema, each twice: the
+// second apply witnesses ledger-identical no-op convergence on the FULL
+// merged version space.
 func (f *pubAuthFixture) migrate(t *testing.T) {
 	t.Helper()
 	owner, err := OwnerMigrations()
@@ -351,10 +351,10 @@ func (f *pubAuthFixture) migrate(t *testing.T) {
 	}
 	defer client.Close()
 
-	ctl := f.migrateHistory(t, client, f.ctlSchema, ctlHistory, 9, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9})
+	ctl := f.migrateHistory(t, client, f.ctlSchema, ctlHistory, 10, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10})
 	lanes := f.migrateHistory(t, client, f.lanesSchema, lanesHistory, 8, []int64{1, 3, 8})
-	if ctl.LatestVersion != 9 || lanes.LatestVersion != 8 {
-		t.Fatalf("ledger tops = %d/%d, want 9/8", ctl.LatestVersion, lanes.LatestVersion)
+	if ctl.LatestVersion != 10 || lanes.LatestVersion != 8 {
+		t.Fatalf("ledger tops = %d/%d, want 10/8", ctl.LatestVersion, lanes.LatestVersion)
 	}
 }
 
