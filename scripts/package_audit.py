@@ -70,7 +70,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/compiler/lower": "Lower logical FHIR dataframe plans into storage-aware physical IR.",
     "internal/dataframe/compiler/optimize": "Apply explainable semantics-preserving rewrites to validated physical IR.",
     "internal/dataframe/compiler/render/aql": "Render validated physical IR as deterministic parameterized AQL.",
-    "internal/dataframe/compiler/render/postgres": "Render the supported physical IR read spine onto allowlisted PostgreSQL storage bindings as deterministic parameterized SQL with ordered typed arguments, failing closed on every unsupported plan shape.",
+    "internal/dataframe/compiler/render/postgres": "Render the supported physical IR read spine and typed selector extractions with two-valued JSONB path-presence evidence onto allowlisted PostgreSQL storage bindings as deterministic parameterized SQL with ordered typed arguments, failing closed on every unsupported plan shape.",
     "internal/dataframe/compiler/render/clickhouse": "Render typed Combine plans and resolved published or private table inputs as deterministic ClickHouse SQL.",
     "internal/dataframe/errors": "Define and normalize stable structured dataframe errors for transport presentation.",
     "internal/dataframe/execution": "Prepare, authorize, execute, explain, and post-process compiled dataframe requests.",
