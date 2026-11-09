@@ -45,9 +45,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/catalog"
 	postgresstore "github.com/calypr/loom/internal/store/postgres"
-	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -909,14 +909,14 @@ func ing01RefusalCases(t *testing.T, goodScope PGResourceBatchScope, goodRows []
 	}
 	return []ing01Refusal{
 		{name: "blank batch id",
-			scope:    PGResourceBatchScope{BatchID: " ", Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
-			rows:     goodRows, scopeErr: true, field: "batch id", contains: "blank"},
+			scope: PGResourceBatchScope{BatchID: " ", Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
+			rows:  goodRows, scopeErr: true, field: "batch id", contains: "blank"},
 		{name: "over-long batch id",
-			scope:    PGResourceBatchScope{BatchID: strings.Repeat("x", postgresstore.MaxBatchIDLength+1), Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
-			rows:     goodRows, scopeErr: true, field: "batch id", contains: "at most 255"},
+			scope: PGResourceBatchScope{BatchID: strings.Repeat("x", postgresstore.MaxBatchIDLength+1), Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
+			rows:  goodRows, scopeErr: true, field: "batch id", contains: "at most 255"},
 		{name: "blank project",
-			scope:    PGResourceBatchScope{BatchID: "ing01-ing/refuse/project", Project: " ", DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
-			rows:     goodRows, scopeErr: true, field: "project", contains: "blank"},
+			scope: PGResourceBatchScope{BatchID: "ing01-ing/refuse/project", Project: " ", DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
+			rows:  goodRows, scopeErr: true, field: "project", contains: "blank"},
 		{name: "empty batch",
 			scope: goodScope, rows: nil, scopeErr: true, field: "rows", contains: "no rows"},
 		{name: "over capacity",
@@ -924,38 +924,38 @@ func ing01RefusalCases(t *testing.T, goodScope PGResourceBatchScope, goodRows []
 			rows:  overCapacity, scopeErr: true, field: "rows", contains: "at most 1000"},
 		{name: "vertex project mismatch", scope: goodScope,
 			rows: []rowBuildResult{replaceFieldDirect(t, ing01GoodVertex(), "project", json.RawMessage(`"wrong-project"`))},
-			row: 0, column: "project", contains: "does not match the batch project"},
+			row:  0, column: "project", contains: "does not match the batch project"},
 		{name: "vertex project_id missing", scope: goodScope,
 			rows: []rowBuildResult{dropFieldDirect(t, ing01GoodVertex(), "project_id")},
-			row: 0, column: "project_id", contains: "missing project_id"},
+			row:  0, column: "project_id", contains: "missing project_id"},
 		{name: "vertex project_id mismatch", scope: goodScope,
 			rows: []rowBuildResult{replaceFieldDirect(t, ing01GoodVertex(), "project_id", json.RawMessage(`"other-project"`))},
-			row: 0, column: "project_id", contains: "does not match the batch project"},
+			row:  0, column: "project_id", contains: "does not match the batch project"},
 		{name: "missing generation stamp", scope: goodScope,
 			rows: []rowBuildResult{dropFieldDirect(t, ing01GoodVertex(), "dataset_generation")},
-			row: 0, column: "dataset_generation", contains: "no dataset_generation stamp"},
+			row:  0, column: "dataset_generation", contains: "no dataset_generation stamp"},
 		{name: "generation stamp mismatch", scope: goodScope,
 			rows: []rowBuildResult{replaceFieldDirect(t, ing01GoodVertex(), "dataset_generation", json.RawMessage(`"gen-other"`))},
-			row: 0, column: "dataset_generation", contains: "does not match the batch generation"},
+			row:  0, column: "dataset_generation", contains: "does not match the batch generation"},
 		{name: "stamped row under legacy batch",
 			scope: PGResourceBatchScope{BatchID: "ing01-ing/refuse/legacy", Project: ing01IngestProject},
 			rows:  []rowBuildResult{ing01GoodVertex()},
 			row:   0, column: "dataset_generation", contains: "legacy (unversioned) namespace"},
 		{name: "blank resource type", scope: goodScope,
 			rows: []rowBuildResult{replaceFieldDirect(t, ing01GoodVertex(), "resourceType", json.RawMessage(`" "`))},
-			row: 0, column: "resourceType", contains: "resourceType must be a non-empty string"},
+			row:  0, column: "resourceType", contains: "resourceType must be a non-empty string"},
 		{name: "blank logical id", scope: goodScope,
 			rows: []rowBuildResult{replaceFieldDirect(t, ing01GoodVertex(), "id", json.RawMessage(`""`))},
-			row: 0, column: "id", contains: "id must be a non-empty string"},
+			row:  0, column: "id", contains: "id must be a non-empty string"},
 		{name: "auth path mismatch", scope: goodScope,
 			rows: []rowBuildResult{replaceFieldDirect(t, ing01GoodVertex(), "auth_resource_path", json.RawMessage(`"/other"`))},
-			row: 0, column: "auth_resource_path", contains: "does not match the batch auth path"},
+			row:  0, column: "auth_resource_path", contains: "does not match the batch auth path"},
 		{name: "missing auth key under scoped batch", scope: goodScope,
 			rows: []rowBuildResult{dropFieldDirect(t, ing01GoodVertex(), "auth_resource_path")},
-			row: 0, column: "auth_resource_path", contains: "no auth_resource_path"},
+			row:  0, column: "auth_resource_path", contains: "no auth_resource_path"},
 		{name: "undecodable vertex", scope: goodScope,
 			rows: []rowBuildResult{{vertex: json.RawMessage(`{"broken":`)}},
-			row: 0, column: "vertex", contains: "undecodable"},
+			row:  0, column: "vertex", contains: "undecodable"},
 	}
 }
 

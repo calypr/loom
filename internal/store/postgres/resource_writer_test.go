@@ -1212,11 +1212,11 @@ func TestPostgresResourceWriterConcurrentIdentityReuseDifferentContentRefusesOne
 		// Exactly one side committed; the other got the typed identity
 		// conflict naming the committed digest versus its own.
 		type side struct {
-			outcome      ing01RaceOutcome
-			ownBatch     ResourceBatch
-			ownDigest    string
-			otherDigest  string
-			ownPayload   string
+			outcome        ing01RaceOutcome
+			ownBatch       ResourceBatch
+			ownDigest      string
+			otherDigest    string
+			ownPayload     string
 			ownFingerprint string
 		}
 		sides := []side{
@@ -1315,9 +1315,9 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 		// natural identity, so its fate isolates whole-batch rollback:
 		// the loser's own companion must be gone.
 		type side struct {
-			outcome     ing01RaceOutcome
-			batch       ResourceBatch
-			payloadText string
+			outcome      ing01RaceOutcome
+			batch        ResourceBatch
+			payloadText  string
 			ownCompanion string
 		}
 		sides := []side{
