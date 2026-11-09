@@ -130,19 +130,8 @@ func NewPostgreSQLCommand(sql string, args []PostgreSQLParameter) (CompiledComma
 	if strings.TrimSpace(sql) == "" {
 		return CompiledCommand{}, fmt.Errorf("PostgreSQL compiled command requires rendered statement SQL")
 	}
-	for index, argument := range args {
-		if !argument.Type.registered() {
-			return CompiledCommand{}, fmt.Errorf("PostgreSQL compiled command argument %d has unregistered parameter type %q", index+1, string(argument.Type))
-		}
-		if argument.Type == PostgreSQLParameterNull {
-			if argument.Value != nil {
-				return CompiledCommand{}, fmt.Errorf("PostgreSQL compiled command argument %d is typed SQL null but carries a value", index+1)
-			}
-			continue
-		}
-		if argument.Value == nil {
-			return CompiledCommand{}, fmt.Errorf("PostgreSQL compiled command argument %d is typed %q but carries a nil value; use %q for SQL NULL", index+1, string(argument.Type), string(PostgreSQLParameterNull))
-		}
+	if err := validatePostgreSQLParameters(args); err != nil {
+		return CompiledCommand{}, err
 	}
 	var copied []PostgreSQLParameter
 	if len(args) != 0 {
