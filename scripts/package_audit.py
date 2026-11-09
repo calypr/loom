@@ -61,7 +61,7 @@ RESPONSIBILITIES = {
     "internal/authscope": "Represent request principals and resolve authorized project, generation, and resource scopes.",
     "internal/catalog": "Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.",
     "internal/catalog/arango": "Persist and retrieve catalog facts in ArangoDB.",
-    "internal/catalog/postgres": "Persist and retrieve catalog facts in PostgreSQL 18: publish-last generation-scoped resource inventory builds and leased, compare-and-swap-guarded semantic inventory build state.",
+    "internal/catalog/postgres": "Persist and retrieve catalog facts in PostgreSQL 18: publish-last generation-scoped resource inventory builds, bounded field-profile records with completeness and truncation metadata, and leased, compare-and-swap-guarded semantic inventory build state.",
     "internal/ci": "Exercise repository-wide Go formatting and vet gates, including injected fault detection.",
     "internal/dataframe/columntransform": "Define closed, backend-neutral transformations over one selected output column value.",
     "internal/dataframe/compiler": "Orchestrate semantic planning, physical lowering, optimization, rendering, and compiled-query assembly.",
@@ -113,7 +113,7 @@ RESPONSIBILITIES = {
     "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
     "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
     "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
-    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, and scoped typed edge-occurrence repository.",
+    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, scoped typed edge-occurrence repository, and scoped bounded field-profile record persistence.",
     "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
 }
 
