@@ -2422,3 +2422,129 @@ func TestSemanticContributionLargeBatchClampsChunkCeiling(t *testing.T) {
 		}
 	}
 }
+
+// TestSemanticContributionForgedKeyCrossSlotSkipIsClassified mirrors the
+// independent verifier's deterministic repro
+// (TestV93S1ReplayConflict/forged-key-cross-slot-skip-classification):
+// two contributions sharing one forged (well-formed hex) contribution_key
+// in DIFFERENT slots within one batch. The insert statement skips the
+// second row on the global contribution-key unique index, so the chunk's
+// RowsAffected is short — and every short row must be classified in Go.
+// A typed conflict is required; a nil return with only the first row
+// stored is a silent drop and fails the module contract.
+//
+// The cross-batch positive control pins that the classification path was
+// never the broken part: the same forged key in two separate batches with
+// differing payloads already refused with the typed conflict. Only the
+// in-batch insert-count gate conflated the in-statement skip with a full
+// insert. The honest-replay subtest pins the non-regression the fix must
+// preserve: byte-identical replays (including an offered slot whose row is
+// held by exactly its own key) must keep returning nil, never a false
+// conflict, and must never move the stored row.
+func TestSemanticContributionForgedKeyCrossSlotSkipIsClassified(t *testing.T) {
+	s := newPgcat05Service(t)
+	repo := s.contributionRepository(t)
+
+	forgedKey := fmt.Sprintf("%x", sha256.Sum256([]byte("pgcat05-forged-key")))
+	g := pgcat05Goldens["obs-a"]
+
+	// emitInProject runs the real emitter for the golden payload under a
+	// fresh project scope, then forges the caller-supplied key.
+	emitInProject := func(project, sourceID string) catalog.SemanticInventoryContribution {
+		emitted := pgcat05EmitContribution(t, project, "g1", g.authPath, g.resourceType, sourceID, g.payload)
+		if len(emitted) != 1 {
+			t.Fatalf("%s: emitter produced %d contributions, want exactly 1", project, len(emitted))
+		}
+		c := emitted[0]
+		c.Key = forgedKey
+		return c
+	}
+	countIn := func(project string) int64 {
+		var n int64
+		if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.contributionFQN()+" WHERE project = $1", project).Scan(&n); err != nil {
+			s.fail("count rows for "+project, err)
+		}
+		return n
+	}
+
+	t.Run("in-batch-forged-key-across-slots-refuses-with-typed-conflict", func(t *testing.T) {
+		a := emitInProject("pgcat05-fk-inbatch-a", "retained:Observation/fk")
+		b := emitInProject("pgcat05-fk-inbatch-b", "retained:Observation/fk")
+		err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{a, b}, 0)
+		var conflict *SemanticInventoryContributionConflictError
+		if err == nil {
+			w, _ := s.witnessContribution(t, forgedKey)
+			t.Fatalf("SILENT DROP: two distinct-slot contributions under one forged key returned nil; "+
+				"only this row stored (count-a=%d count-b=%d row=%+v) — the second payload vanished without a typed conflict",
+				countIn("pgcat05-fk-inbatch-a"), countIn("pgcat05-fk-inbatch-b"), w)
+		}
+		if !errors.As(err, &conflict) && !errors.Is(err, ErrSemanticInventoryContributionConflict) {
+			t.Fatalf("forged-key in-batch write returned unclassified error: %v", err)
+		}
+		// The winning row keeps its stored content; the refused slot stored
+		// nothing. (The first VALUES row inserts, the second is skipped by
+		// the global key index, and classification names the refusal.)
+		if n := countIn("pgcat05-fk-inbatch-b"); n != 0 {
+			t.Fatalf("forged-key batch wrote into the refused slot: %d rows", n)
+		}
+		w, found := s.witnessContribution(t, forgedKey)
+		if !found {
+			t.Fatal("forged-key row missing after refused in-batch write")
+		}
+		first := a
+		if w.Project != first.Project {
+			first = b // the statement's row ordering is not part of the contract; either may win
+		}
+		firstObs, err := json.Marshal(first.Observation)
+		if err != nil {
+			t.Fatalf("encode winning observation: %v", err)
+		}
+		if w.PayloadDigest != semanticContributionPayloadDigest(first, firstObs) {
+			t.Fatalf("winning stored row digest = %s, want the winning contribution's digest", w.PayloadDigest)
+		}
+	})
+
+	t.Run("cross-batch-forged-key-positive-control", func(t *testing.T) {
+		otherForged := fmt.Sprintf("%x", sha256.Sum256([]byte("pgcat05-forged-key-cross-batch")))
+		a := emitInProject("pgcat05-fkx-1", "retained:Observation/kx")
+		a.Key = otherForged
+		b := emitInProject("pgcat05-fkx-2", "retained:Observation/kx")
+		b.Key = otherForged
+		if err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{a}, 0); err != nil {
+			t.Fatalf("first forged write: %v", err)
+		}
+		err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{b}, 0)
+		if !errors.Is(err, ErrSemanticInventoryContributionConflict) {
+			t.Fatalf("cross-batch forged key with differing payload = %v, want typed conflict", err)
+		}
+		if _, ok := s.witnessContribution(t, otherForged); !ok {
+			t.Fatal("stored forged row vanished")
+		}
+		if n := countIn("pgcat05-fkx-2"); n != 0 {
+			t.Fatalf("conflicting forged row was written: %d", n)
+		}
+	})
+
+	t.Run("honest-replay-still-nil-no-false-conflict", func(t *testing.T) {
+		c := pgcat05EmitContribution(t, "pgcat05-fk-replay", "g1", g.authPath, g.resourceType,
+			"retained:Observation/replay", g.payload)[0]
+		if err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{c}, 0); err != nil {
+			t.Fatalf("first honest write: %v", err)
+		}
+		before, ok := s.witnessContribution(t, c.Key)
+		if !ok {
+			t.Fatal("honest row missing after first write")
+		}
+		if err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{c}, 0); err != nil {
+			t.Fatalf("honest replay returned %v, want nil (offered slot is held by exactly its own key)", err)
+		}
+		after, ok := s.witnessContribution(t, c.Key)
+		if !ok {
+			t.Fatal("honest row missing after replay")
+		}
+		before.RecordedAt, after.RecordedAt = time.Time{}, time.Time{}
+		if before != after {
+			t.Fatalf("replay moved the stored row:\n before %+v\n after  %+v", before, after)
+		}
+	})
+}

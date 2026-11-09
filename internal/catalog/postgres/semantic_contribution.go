@@ -370,8 +370,14 @@ type preparedContribution struct {
 	digest       string
 }
 
-// writeChunk inserts one chunk with a single statement and classifies keys
-// skipped by the conflict target by comparing digests in Go.
+// writeChunk inserts one chunk with a single statement. Every row the
+// statement skips on either unique index is classified per row in Go on
+// both axes — the stored digest of the row's content key and the holder of
+// the row's slot identity — so no skipped row can be mistaken for a
+// successful insert: not a replay, not a content conflict, not a slot
+// squat, and not a second slot claiming one content key under a forged
+// caller-supplied key. Nothing is ever overwritten; conflicts are named
+// with the offered row's identity.
 func (r *SemanticContributionRepository) writeChunk(ctx context.Context, chunk []preparedContribution) error {
 	var sql strings.Builder
 	sql.WriteString("INSERT INTO " + r.contributionFQN +
@@ -381,7 +387,7 @@ func (r *SemanticContributionRepository) writeChunk(ctx context.Context, chunk [
 	sql.WriteString(" VALUES ")
 	args := make([]any, 0, len(chunk)*14)
 	distinctKeys := make([]string, 0, len(chunk))
-	offered := make(map[string]preparedContribution, len(chunk))
+	seenKey := make(map[string]struct{}, len(chunk))
 	parameter := 0
 	for i := range chunk {
 		c := chunk[i].contribution
@@ -401,9 +407,9 @@ func (r *SemanticContributionRepository) writeChunk(ctx context.Context, chunk [
 			c.Key, c.Project, c.DatasetGeneration, c.BuildID, c.SourceKind,
 			c.AuthResourcePath, c.ResourceType, c.SourceID, c.Ordinal,
 			c.ConceptID, c.BindingID, c.Example, chunk[i].digest, chunk[i].observation)
-		if _, dup := offered[c.Key]; !dup {
+		if _, dup := seenKey[c.Key]; !dup {
 			distinctKeys = append(distinctKeys, c.Key)
-			offered[c.Key] = chunk[i]
+			seenKey[c.Key] = struct{}{}
 		}
 	}
 	// Unqualified DO NOTHING skips conflicts on either unique index (the
@@ -425,86 +431,94 @@ func (r *SemanticContributionRepository) writeChunk(ctx context.Context, chunk [
 	if err != nil {
 		return fmt.Errorf("postgres: write semantic inventory contributions: %w", err)
 	}
-	if tag.RowsAffected() == int64(len(distinctKeys)) {
+	// The gate compares against the chunk's ROW count, not its distinct
+	// key count: a caller-forged content key can repeat across different
+	// slots, making the statement skip a row on the global key index while
+	// every distinct key still looks fully inserted. Every short row is
+	// then classified per row, on BOTH unique axes — the stored digest of
+	// the content key and the holder of the row's slot — so no skip is
+	// ever mistaken for a successful insert, and nothing is overwritten.
+	if tag.RowsAffected() == int64(len(chunk)) {
 		return nil
 	}
-	// At least one key was skipped as a conflict: classify every offered
-	// key by what the database actually stores — first by content key,
-	// then by slot identity for keys that are not stored.
 	stored, err := r.readContributionDigests(ctx, conn, distinctKeys)
 	if err != nil {
 		return err
 	}
-	var missingKeys []string
-	for _, key := range distinctKeys {
-		want, have := stored[key]
-		if !have {
-			missingKeys = append(missingKeys, key)
-			continue
-		}
-		if want != offered[key].digest {
-			c := offered[key].contribution
+	holders, err := r.readContributionSlotHolders(ctx, conn, chunk)
+	if err != nil {
+		return err
+	}
+	for i := range chunk {
+		p := &chunk[i]
+		c := p.contribution
+		storedDigest, keyStored := stored[c.Key]
+		holder, slotHeld := holders[semanticContributionSlotKey(c)]
+		if !keyStored {
+			if !slotHeld || holder == c.Key {
+				// A concurrent writer that had claimed the identity rolled
+				// back between this statement and the classification read:
+				// nothing owns the identity, and this batch must not
+				// proceed half-written — the caller retries.
+				return fmt.Errorf(
+					"postgres: semantic inventory contribution %s vanished between insert and classification; retry the batch",
+					c.Key)
+			}
+			// The slot is held by a different contribution key.
 			return &SemanticInventoryContributionConflictError{
 				Project: c.Project, DatasetGeneration: c.DatasetGeneration,
 				BuildID: c.BuildID, SourceKind: c.SourceKind,
 				SourceID: c.SourceID, Ordinal: c.Ordinal,
-				ContributionKey: key,
-				StoredDigest:    want, ProvidedDigest: offered[key].digest,
+				ContributionKey: c.Key, Slot: true,
 			}
 		}
-	}
-	if len(missingKeys) == 0 {
-		return nil
-	}
-	// A skipped key with no stored row means its slot was taken by a
-	// different contribution key (the insert was skipped on the primary
-	// key), or the winning concurrent writer aborted before the
-	// classification read. The slot lookup decides which, on exact
-	// identity, and never overwrites the stored row either way.
-	holders, err := r.readContributionSlotHolders(ctx, conn, missingKeys, offered)
-	if err != nil {
-		return err
-	}
-	for _, key := range missingKeys {
-		holder, have := holders[key]
-		if !have || holder == key {
-			// A concurrent writer that had claimed the identity rolled
-			// back between this statement and the classification read:
-			// nothing owns the identity, and this batch must not
-			// proceed half-written — the caller retries.
-			return fmt.Errorf(
-				"postgres: semantic inventory contribution %s vanished between insert and classification; retry the batch",
-				key)
+		if storedDigest != p.digest {
+			return &SemanticInventoryContributionConflictError{
+				Project: c.Project, DatasetGeneration: c.DatasetGeneration,
+				BuildID: c.BuildID, SourceKind: c.SourceKind,
+				SourceID: c.SourceID, Ordinal: c.Ordinal,
+				ContributionKey: c.Key,
+				StoredDigest:    storedDigest, ProvidedDigest: p.digest,
+			}
 		}
-		c := offered[key].contribution
-		return &SemanticInventoryContributionConflictError{
-			Project: c.Project, DatasetGeneration: c.DatasetGeneration,
-			BuildID: c.BuildID, SourceKind: c.SourceKind,
-			SourceID: c.SourceID, Ordinal: c.Ordinal,
-			ContributionKey: key, Slot: true,
+		if !slotHeld || holder != c.Key {
+			// The content key is stored with exactly this row's digest,
+			// yet this row's own slot holds nothing (or another key): the
+			// row was skipped on the global key index because a DIFFERENT
+			// slot already committed this content key. A second slot
+			// claiming one content identity is a refusal, not a replay:
+			// the offered slot must not silently hold nothing.
+			return &SemanticInventoryContributionConflictError{
+				Project: c.Project, DatasetGeneration: c.DatasetGeneration,
+				BuildID: c.BuildID, SourceKind: c.SourceKind,
+				SourceID: c.SourceID, Ordinal: c.Ordinal,
+				ContributionKey: c.Key, Slot: true,
+				StoredDigest: storedDigest, ProvidedDigest: p.digest,
+			}
 		}
 	}
 	return nil
 }
 
-// readContributionSlotHolders fetches the contribution key stored at each
-// named key's exact slot identity (project, dataset generation, build,
-// source kind, source id, ordinal) in one statement. A key absent from the
-// result owns no slot row at all.
+// readContributionSlotHolders fetches, in one statement, the contribution
+// key stored at every chunk row's exact slot identity (project, dataset
+// generation, build, source kind, source id, ordinal). The result is keyed
+// by the length-prefixed slot identity; a slot absent from the result holds
+// no row at all.
 func (r *SemanticContributionRepository) readContributionSlotHolders(
-	ctx context.Context, conn *pgxpool.Conn, keys []string, offered map[string]preparedContribution,
+	ctx context.Context, conn *pgxpool.Conn, chunk []preparedContribution,
 ) (map[string]string, error) {
 	var query strings.Builder
 	query.WriteString("SELECT project, dataset_generation, build_id, source_kind, source_id, ordinal, contribution_key FROM " +
 		r.contributionFQN +
 		" WHERE (project, dataset_generation, build_id, source_kind, source_id, ordinal) IN (VALUES ")
-	args := make([]any, 0, len(keys)*6)
+	args := make([]any, 0, len(chunk)*6)
 	parameter := 0
-	for i, key := range keys {
+	for i := range chunk {
 		if i > 0 {
 			query.WriteString(", ")
 		}
-		c := offered[key].contribution
+		c := chunk[i].contribution
 		query.WriteString("(")
 		for field := 0; field < 6; field++ {
 			if field > 0 {
@@ -527,7 +541,7 @@ func (r *SemanticContributionRepository) readContributionSlotHolders(
 		return nil, fmt.Errorf("postgres: classify semantic inventory contribution slots: %w", err)
 	}
 	defer rows.Close()
-	holders := make(map[string]string, len(keys))
+	holders := make(map[string]string, len(chunk))
 	for rows.Next() {
 		var c catalog.SemanticInventoryContribution
 		var heldKey string
@@ -535,14 +549,7 @@ func (r *SemanticContributionRepository) readContributionSlotHolders(
 			&c.SourceID, &c.Ordinal, &heldKey); err != nil {
 			return nil, fmt.Errorf("postgres: scan semantic inventory contribution slot: %w", err)
 		}
-		// Map the holder back to the offered key whose identity it
-		// matches; identities are unique in a chunk, so one holder can
-		// only answer one offered key.
-		for _, key := range keys {
-			if semanticContributionSlotKey(offered[key].contribution) == semanticContributionSlotKey(c) {
-				holders[key] = heldKey
-			}
-		}
+		holders[semanticContributionSlotKey(c)] = heldKey
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("postgres: read semantic inventory contribution slots: %w", err)
