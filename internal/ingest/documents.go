@@ -141,9 +141,12 @@ func collectionID(resourceType, id string) string {
 // into its resource type and logical id. SanitizeKey never emits "/", so a
 // well-formed endpoint carries exactly one separator. Malformed input — no
 // separator, a blank half, or an embedded extra "/" — reports ok=false and
-// must be refused, not guessed at. The PostgreSQL edge store
-// (internal/store/postgres) mirrors this contract with its own copy to keep
-// the storage layer independent of the ingest adapter.
+// must be refused, not guessed at. This is the endpoint-parsing counterpart
+// for a future PostgreSQL edge write path that converts EdgeDocument
+// endpoints into the typed edge store's endpoint identity columns; the
+// current EdgeRepository (internal/store/postgres) takes those typed
+// identities directly and does not parse endpoints, so no mirror exists
+// there yet.
 func SplitCollectionID(value string) (resourceType, logicalID string, ok bool) {
 	resourceType, logicalID, found := strings.Cut(strings.TrimSpace(value), "/")
 	if !found {
