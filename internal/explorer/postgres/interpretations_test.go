@@ -1826,8 +1826,6 @@ func TestInterpretationSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	}
 }
 
-func ptr[T any](value T) *T { return &value }
-
 // ---------------------------------------------------------------------------
 // The CAS classification does not depend on the preflight alone, and no
 // path silently falls back: typed errors everywhere, zero writes on

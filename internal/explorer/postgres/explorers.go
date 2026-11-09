@@ -5,16 +5,19 @@
 // control persistence; Arango remains supported and ClickHouse remains the
 // publication data plane. This package adds no second driver, pool, fixture,
 // or migration runner: it reuses internal/store/postgres (pg-store-01 pool,
-// pg-store-02 runner) and adds only the Explorer-owner relational schema and
-// its Create/Get/List behavior. There is no silent backend fallback: every
-// failure is returned for the caller to surface, and no Arango path is wired
-// in here.
+// pg-store-02 runner) and adds only the Explorer-owner, compilation-receipt,
+// and immutable-revision relational schemas and their methods. There is no
+// silent backend fallback: every failure is returned for the caller to
+// surface, and no Arango path is wired in here.
 //
-// This slice implements the owner record and the draft CAS with exact
-// preimage history (drafts.go). The remaining explorer.Store methods
-// (receipts, revisions, selections, ...) arrive with the state tickets that
-// depend on this foundation, adding their own migrations under migrations/
-// and methods beside these.
+// This history covers the owner record, the draft CAS with exact preimage
+// history (drafts.go), and the state slice added by
+// pg-state-receipt-revision-immutable-v1: compilation receipts
+// (receipts.go) and immutable Explorer revisions (revisions.go), each with
+// its own migration under migrations/ and its methods in its own file. The
+// remaining explorer.Store methods (publication/activation, selections,
+// ...) arrive with the later state tickets that depend on this foundation,
+// extending this same history and adding methods beside these.
 //
 // Schema ownership (pinned by TestPostgresExplorerOwnerMixedHistoryIsRefused):
 // every MigrationRunner keys its ledger -- and therefore its authoritative
@@ -124,16 +127,23 @@ var ownerColumns = []string{
 	"updated_at",
 }
 
-// Store persists Explorer owner records in one schema of a PostgreSQL 18
-// database reachable through the shared pg-store-01 pool. Create, Get, and
-// List are the methods implemented by this foundation slice; they mirror the
-// Arango adapter's owner semantics (insert-once, scoped reads, byte-order
-// listing) with relational typed columns and lossless JSONB payloads.
+// Store persists Explorer control-plane records in one schema of a
+// PostgreSQL 18 database reachable through the shared pg-store-01 pool.
+// Create, Get, and List manage owner records; SaveDraft and its history
+// reads manage the draft CAS with exact preimage history (drafts.go);
+// InsertCompilationReceipt and GetCompilationReceiptForExplorer manage
+// receipts (receipts.go); InsertRevision, GetRevision,
+// GetRevisionForExplorer, FailRevision, and FailRevisionFrom manage
+// immutable revisions (revisions.go). They mirror the Arango adapter's
+// semantics (insert-once, scoped reads, byte-order listing) with relational
+// typed columns and lossless JSONB payloads.
 type Store struct {
-	client *pgstore.Client
-	insert string // backend-tagged INSERT ... ON CONFLICT DO NOTHING RETURNING
-	get    string // backend-tagged SELECT ... WHERE project = $1 AND explorer_id = $2
-	list   string // backend-tagged SELECT ... WHERE project = $1 ORDER BY explorer_id
+	client   *pgstore.Client
+	insert   string             // backend-tagged INSERT ... ON CONFLICT DO NOTHING RETURNING
+	get      string             // backend-tagged SELECT ... WHERE project = $1 AND explorer_id = $2
+	list     string             // backend-tagged SELECT ... WHERE project = $1 ORDER BY explorer_id
+	receipt  receiptStatements  // backend-tagged receipt claim/read statements
+	revision revisionStatements // backend-tagged revision claim/read/CAS statements
 	// drafts holds the draft CAS/preimage statement set (drafts.go),
 	// built once for the same schema the owner statements target.
 	drafts draftSQL
@@ -157,25 +167,45 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	if !schemaNamePattern.MatchString(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
-	table := pgx.Identifier{schema, OwnerTable}.Sanitize()
+	table := sanitizeTableRef(schema, OwnerTable)
 	cols := strings.Join(ownerColumns, ", ")
 	return &Store{
 		client: client,
 		drafts: newDraftSQL(schema),
 		insert: "INSERT INTO " + table + " (" + cols + ") VALUES (" + ownerPlaceholders() + ") " +
 			"ON CONFLICT (project, explorer_id) DO NOTHING RETURNING " + cols,
-		get:  "SELECT " + cols + " FROM " + table + " WHERE project = $1 AND explorer_id = $2",
-		list: "SELECT " + cols + " FROM " + table + " WHERE project = $1 ORDER BY explorer_id",
+		get:      "SELECT " + cols + " FROM " + table + " WHERE project = $1 AND explorer_id = $2",
+		list:     "SELECT " + cols + " FROM " + table + " WHERE project = $1 ORDER BY explorer_id",
+		receipt:  newReceiptStatements(schema),
+		revision: newRevisionStatements(schema),
 	}, nil
+}
+
+// sanitizeTableRef renders the pre-qualified, sanitized table reference for
+// one table of the store's schema; every statement the Store runs binds this
+// reference, never a caller-supplied string.
+func sanitizeTableRef(schema, table string) string {
+	return pgx.Identifier{schema, table}.Sanitize()
+}
+
+// sanitizeSchema renders the sanitized schema identifier, the same form the
+// pg-store-02 runner uses for SET LOCAL search_path.
+func sanitizeSchema(schema string) string {
+	return pgx.Identifier{schema}.Sanitize()
+}
+
+// orderedPlaceholders renders $1..$N for N ordered parameters.
+func orderedPlaceholders(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = fmt.Sprintf("$%d", i+1)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ownerPlaceholders renders $1..$N for len(ownerColumns) ordered parameters.
 func ownerPlaceholders() string {
-	parts := make([]string, len(ownerColumns))
-	for i := range ownerColumns {
-		parts[i] = fmt.Sprintf("$%d", i+1)
-	}
-	return strings.Join(parts, ", ")
+	return orderedPlaceholders(len(ownerColumns))
 }
 
 // ownerArgs maps an Explorer to its column values in ownerColumns order.
