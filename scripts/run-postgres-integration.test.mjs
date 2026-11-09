@@ -13,6 +13,9 @@ import {
   PROBE_SOURCE,
   REQUIRED_INTEGRATION_TEST,
   REQUIRED_MAJOR_VERSION,
+  RESOURCE_WRITER_INTEGRATION_FILTER,
+  RESOURCE_WRITER_INTEGRATION_PACKAGES,
+  RESOURCE_WRITER_INTEGRATION_TESTS,
   checkGoEvents,
   extractSecrets,
   inspectComposeContract,
@@ -28,7 +31,16 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.at(-1) === DATASET_INTEGRATION_PACKAGE
+  stdout: events(args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
+    ? [
+      ...RESOURCE_WRITER_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'resourcewriterpkg', Test: name },
+        { Action: 'pass', Package: 'resourcewriterpkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'ingestpkg' },
+      { Action: 'pass', Package: 'postgrespkg' },
+    ]
+    : args.at(-1) === DATASET_INTEGRATION_PACKAGE
     ? [
       ...DATASET_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'datasetpkg', Test: name },
@@ -224,14 +236,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 3, 'the pg-store-01, dataset, and explorer lanes must all run');
+  assert.equal(goCalls.length, 4, 'the pg-store-01, dataset, explorer, and resource-writer lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -246,12 +258,25 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.ok(goCalls[2].args.includes('-json') && goCalls[2].args.includes('-count=1'));
   assert.deepEqual(evidence.explorerIntegration.anchors, [...EXPLORER_INTEGRATION_TESTS]);
   for (const name of EXPLORER_INTEGRATION_TESTS) assert.ok(evidence.explorerIntegration.passes.includes(name));
+  // The resource-writer lane carries an explicit -run filter over both
+  // packages (never whole-package: the store package holds every other
+  // PG-gated suite), and the filter itself is the never-skipped guarantee.
+  assert.equal(goCalls[3].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
+  assert.ok(goCalls[3].args.includes('-run'), 'the resource-writer lane must carry its never-skipped -run filter');
+  assert.ok(goCalls[3].args.includes(RESOURCE_WRITER_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
+  assert.deepEqual(goCalls[3].args.slice(-2), RESOURCE_WRITER_INTEGRATION_PACKAGES);
+  assert.ok(goCalls[3].args.includes('-json') && goCalls[3].args.includes('-count=1'));
+  assert.ok(goCalls[3].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
+    'the resource-writer lane stays within the aligned 180s Go budget');
+  assert.deepEqual(evidence.resourceWriterIntegration.anchors, [...RESOURCE_WRITER_INTEGRATION_TESTS]);
+  for (const name of RESOURCE_WRITER_INTEGRATION_TESTS) assert.ok(evidence.resourceWriterIntegration.passes.includes(name));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
   assert.ok(readFileSync(join(out, 'integration.jsonl'), 'utf8').includes(REQUIRED_INTEGRATION_TEST));
   assert.ok(readFileSync(join(out, 'dataset-integration.jsonl'), 'utf8').includes(DATASET_INTEGRATION_TESTS[0]));
   assert.ok(readFileSync(join(out, 'explorer-integration.jsonl'), 'utf8').includes(EXPLORER_INTEGRATION_TESTS[0]));
+  assert.ok(readFileSync(join(out, 'resource-writer-integration.jsonl'), 'utf8').includes(RESOURCE_WRITER_INTEGRATION_TESTS[0]));
 });
 
 test('a failing dataset lane fails the run and its evidence is still scrubbed', async () => {
@@ -341,6 +366,54 @@ test('an explorer lane that never runs an anchor case fails the run', async () =
   const { out, run } = harness({
     go: args => args.at(-1) === EXPLORER_INTEGRATION_PACKAGE
       ? { status: 0, stdout: events([{ Action: 'pass', Package: 'explorerpkg' }]), stderr: '' }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /did not run/);
+});
+
+test('a failing resource-writer lane fails the run and its evidence is still scrubbed', async () => {
+  const { goCalls, out, run } = harness({
+    go: args => args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
+      ? { status: 1, stdout: events([{ Action: 'fail', Package: 'postgrespkg' }]), stderr: `connection refused for ${ADMIN_URL}` }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /resource-writer real-PG suites failed/);
+  assert.equal(goCalls.length, 4, 'the resource-writer lane must actually be attempted after the explorer lane passes');
+  assert.ok(!('resourceWriterIntegration' in evidence), 'a failed lane records no pass evidence');
+  assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');
+  const stderr = readFileSync(join(out, 'resource-writer-integration.stderr'), 'utf8');
+  assert.ok(!stderr.includes('s3cret-test-password'), 'resource-writer lane evidence must be credential-free');
+  assert.ok(stderr.includes('[redacted]'), 'resource-writer lane evidence must record the redaction');
+});
+
+test('a resource-writer lane that skips any matched case is a blocker, never acceptance', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
+      ? {
+        status: 0,
+        stdout: events([
+          { Action: 'run', Package: 'postgrespkg', Test: RESOURCE_WRITER_INTEGRATION_TESTS[0] },
+          { Action: 'skip', Package: 'postgrespkg', Test: RESOURCE_WRITER_INTEGRATION_TESTS[0] },
+          { Action: 'pass', Package: 'postgrespkg' },
+          { Action: 'pass', Package: 'ingestpkg' },
+        ]),
+        stderr: '',
+      }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed', 'a skipped resource-writer case cannot masquerade as real-PG acceptance');
+  assert.match(evidence.error, new RegExp(RESOURCE_WRITER_INTEGRATION_TESTS[0]));
+});
+
+test('a resource-writer lane that never runs an anchor case fails the run', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(RESOURCE_WRITER_INTEGRATION_FILTER)
+      ? { status: 0, stdout: events([{ Action: 'pass', Package: 'postgrespkg' }, { Action: 'pass', Package: 'ingestpkg' }]), stderr: '' }
       : passingGo(args),
   });
   const evidence = await run();

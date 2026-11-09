@@ -107,13 +107,13 @@ RESPONSIBILITIES = {
     "internal/explorer/tableshapecap": "Define immutable table-shape capability and resolution artifacts plus their create-once repository contract.",
     "internal/fhir/schema": "Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR metadata.",
     "internal/fhir/semantic": "Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.",
-    "internal/ingest": "Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts.",
+    "internal/ingest": "Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts, and commit built resource-row batches to the PostgreSQL source store through the ledgered batch writer with scope verification and canonical payload encoding.",
     "internal/projectid": "Define canonical and legacy-compatible public project identity normalization.",
     "internal/repositoryseed": "Validate repository metadata and configuration, produce a source manifest, and refuse unmaterialized inputs before launch.",
     "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
     "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
     "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
-    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, scoped typed edge-occurrence repository, publish-last inventory repository, scoped bounded field-profile record persistence, and the ledgered idempotent COPY batch writer for resource and edge rows.",
+    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, scoped typed edge-occurrence repository, publish-last inventory repository, scoped bounded field-profile record persistence, the ledgered idempotent COPY batch writer for resource and edge rows, and a resource-only batch facade over that writer.",
     "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
 }
 
