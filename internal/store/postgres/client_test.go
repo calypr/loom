@@ -197,10 +197,32 @@ func randomHex(t *testing.T) string {
 // dropped; the shared service database is never modified.
 func TestPostgres18PoolIntegration(t *testing.T) {
 	raw := testPostgresURL(t)
-	// The service DSN carries credentials; scrub it from every failure message.
+
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
+	}
+
+	// The service DSN carries credentials. Scrub every credential-bearing
+	// string that can appear in a failure message: the raw service URL, the
+	// rewritten isolated-database URL added below, the userinfo component,
+	// and the bare password.
+	var secrets []string
+	secrets = append(secrets, raw)
+	if u.User != nil {
+		secrets = append(secrets, u.User.String())
+		if pw, ok := u.User.Password(); ok && pw != "" {
+			secrets = append(secrets, pw)
+		}
+	}
 	scrub := func(v any) string {
 		s := fmt.Sprintf("%v", v)
-		return strings.ReplaceAll(s, raw, "<test-postgres-url>")
+		for _, secret := range secrets {
+			if secret != "" {
+				s = strings.ReplaceAll(s, secret, "<redacted>")
+			}
+		}
+		return s
 	}
 	fail := func(step string, err error) {
 		t.Fatalf("%s: %s", step, scrub(err))
@@ -210,11 +232,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	// need a live context.
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
-		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
-	}
 
 	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
@@ -241,8 +258,21 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		}
 	})
 
+	// pgconn gives a dbname query parameter precedence over the URL path, so
+	// drop any dbname the service URL carries; otherwise the pool could keep
+	// talking to the shared service database while this test only *claims*
+	// isolation.
+	if q := u.Query(); q.Get("dbname") != "" {
+		q.Del("dbname")
+		u.RawQuery = q.Encode()
+	}
 	u.Path = "/" + dbName
 	testDSN := u.String()
+	secrets = append(secrets, testDSN)
+	if probe, err := url.Parse(testDSN); err != nil ||
+		probe.Query().Get("dbname") != "" || probe.Path != "/"+dbName {
+		t.Fatal("isolated test DSN does not provably target the isolated database")
+	}
 
 	// Open the bounded pool; the eager readiness ping doubles as the version
 	// check, so a successful Open proves the service reports PostgreSQL 18.
@@ -293,6 +323,51 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatalf("service reports server_version_num %d, want a PostgreSQL 18 build", versionNum)
 	}
 
+	// Prove end-to-end that the pool talks only to the isolated database:
+	// create a marker table through the pool, then verify from an
+	// independently constructed keyword/value connection that the marker
+	// landed in the isolated database rather than the shared service
+	// database (a leaked dbname parameter would fail this check).
+	marker := "pgstore01_marker_" + randomHex(t)
+	markerConn, err := client.Acquire(ctx)
+	if err != nil {
+		fail("acquire marker connection", err)
+	}
+	_, err = markerConn.Exec(ctx, "CREATE TABLE public."+marker+" (id int)")
+	markerConn.Release()
+	if err != nil {
+		fail("create marker table through pool", err)
+	}
+	host, port := u.Hostname(), u.Port()
+	if port == "" {
+		port = "5432"
+	}
+	user, pw := "", ""
+	if u.User != nil {
+		user = u.User.Username()
+		pw, _ = u.User.Password()
+	}
+	sslmode := u.Query().Get("sslmode")
+	if sslmode == "" {
+		sslmode = "prefer"
+	}
+	witnessDSN := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		host, port, user, pw, dbName, sslmode)
+	secrets = append(secrets, witnessDSN)
+	witness, err := pgxpool.New(ctx, witnessDSN)
+	if err != nil {
+		fail("connect isolated-database witness", err)
+	}
+	defer witness.Close()
+	var markerVisible bool
+	if err := witness.QueryRow(ctx,
+		"SELECT to_regclass('public."+marker+"') IS NOT NULL").Scan(&markerVisible); err != nil {
+		fail("witness query on isolated database", err)
+	}
+	if !markerVisible {
+		t.Fatalf("marker table is absent from isolated database %s: the pool may not target the isolated database", dbName)
+	}
+
 	// A cancelled context must cancel an acquire and stay classifiable.
 	canceledCtx, canceledCancel := context.WithCancel(ctx)
 	canceledCancel()
@@ -305,11 +380,16 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	}
 
 	// An exhausted bounded pool must fail within AcquireTimeout, not block.
+	// pgxpool dials lazily, so Open and the sole reuse-acquire run under a
+	// generous bound: the eager ping already established the one physical
+	// connection, and the reuse then pulls that idle resource instantly. The
+	// tight 75ms bound is installed only around the deliberately exhausted
+	// second acquire, which is a pure wait on the capped pool (no dial).
 	bounded, err := Open(ctx, Config{
 		DSN:            testDSN,
 		MaxConns:       1,
 		MinConns:       0,
-		AcquireTimeout: 75 * time.Millisecond,
+		AcquireTimeout: 5 * time.Second,
 	})
 	if err != nil {
 		fail("open bounded pool", err)
@@ -319,6 +399,7 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	if err != nil {
 		fail("acquire sole bounded connection", err)
 	}
+	bounded.cfg.AcquireTimeout = 75 * time.Millisecond
 	started := time.Now()
 	_, err = bounded.Acquire(ctx)
 	waited := time.Since(started)
