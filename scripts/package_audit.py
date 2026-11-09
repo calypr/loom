@@ -90,6 +90,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/unit": "Define unit identity, dimensional compatibility, and approved conversion rules for quantity values.",
     "internal/dataset": "Define immutable dataset generation manifests, releases, active pointers, and lifecycle validation.",
     "internal/dataset/arango": "Persist immutable dataset generation lifecycle state in ArangoDB.",
+    "internal/dataset/postgres": "Persist dataset generation manifests and the active-generation compare-and-swap pointer in PostgreSQL 18.",
     "internal/explorer": "Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, and core service operations.",
     "internal/explorer/arango": "Persist Explorer drafts, revisions, receipts, publications, capabilities, and repository state in ArangoDB.",
     "internal/explorer/artifactfs": "Persist and serve immutable Explorer training artifacts from a dedicated filesystem root.",
@@ -97,6 +98,7 @@ RESPONSIBILITIES = {
     "internal/explorer/capability": "Build the immutable compiler-backed capability contract exposed to Explorer Builder.",
     "internal/explorer/compilation": "Translate validated Explorer authoring intent into native recipe and compilation artifacts.",
     "internal/explorer/lifecycle": "Coordinate transport-neutral Explorer authoring, preview, publication, query, and policy operations.",
+    "internal/explorer/postgres": "Persist Explorer owner records in PostgreSQL 18 with unique project/Explorer identity, typed columns, and lossless JSONB draft payloads on the shared pg-store pool and migration runner.",
     "internal/explorer/tableshapecap": "Define immutable table-shape capability and resolution artifacts plus their create-once repository contract.",
     "internal/fhir/schema": "Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR metadata.",
     "internal/fhir/semantic": "Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.",
@@ -106,7 +108,7 @@ RESPONSIBILITIES = {
     "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
     "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
     "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
-    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source-store connection pool with readiness ping and classifiable connection errors.",
+    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, and scoped typed edge-occurrence repository.",
     "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
 }
 
