@@ -509,6 +509,12 @@ func TestResourceMigrationCreatesTypedResourceTable(t *testing.T) {
 			`CREATE UNIQUE INDEX fhir_resource_pkey ON ` + svc.schema + `.fhir_resource USING btree (resource_seq)`},
 		{"fhir_resource_scope_seq_ix",
 			`CREATE INDEX fhir_resource_scope_seq_ix ON ` + svc.schema + `.fhir_resource USING btree (project, dataset_generation, auth_resource_path, resource_seq)`},
+		// pg-catalog-05 appends this index in its own migration 000009;
+		// it backs the semantic-inventory keyset page walk and must stay
+		// COLLATE "C" on logical_id to match the Go byte order the page
+		// contract promises.
+		{"fhir_resource_semantic_keyset_ix",
+			`CREATE INDEX fhir_resource_semantic_keyset_ix ON ` + svc.schema + `.fhir_resource USING btree (project, dataset_generation, resource_type, logical_id COLLATE "C")`},
 	}
 	if !reflect.DeepEqual(indexes, wantIndexes) {
 		t.Fatalf("fhir_resource indexes = %+v, want %+v", indexes, wantIndexes)
