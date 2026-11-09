@@ -122,15 +122,15 @@ func TestRelationshipEvidenceAggregateSQLGoldens(t *testing.T) {
 		},
 		{
 			name:     "restricted multiple paths with type filter",
-			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "", AuthResourcePathsUnrestricted: &falseValue, AuthResourcePaths: []string{"clinic/a", "clinic/b"}, ResourceTypes: []string{"Condition", "Patient"}},
-			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = ANY($3::text[]) AND source_resource_type = ANY($4::text[]) AND target_resource_type = ANY($4::text[])` + groupedTail,
-			wantArgs: []any{"proj", "", []string{"clinic/a", "clinic/b"}, []string{"Condition", "Patient"}},
+			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "", AuthResourcePathsUnrestricted: &falseValue, AuthResourcePaths: []string{"clinic/a", "clinic/b"}, ResourceTypes: []string{"condition", "patient"}},
+			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = ANY($3::text[]) AND lower(btrim(source_resource_type)) = ANY($4::text[]) AND lower(btrim(target_resource_type)) = ANY($4::text[])` + groupedTail,
+			wantArgs: []any{"proj", "", []string{"clinic/a", "clinic/b"}, []string{"condition", "patient"}},
 		},
 		{
 			name:     "unrestricted with type filter",
-			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: &trueValue, ResourceTypes: []string{"Patient"}},
-			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND source_resource_type = ANY($3::text[]) AND target_resource_type = ANY($3::text[])` + groupedTail,
-			wantArgs: []any{"proj", "g1", []string{"Patient"}},
+			scope:    RelationshipScope{Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: &trueValue, ResourceTypes: []string{"patient"}},
+			wantSQL:  `SELECT auth_resource_path, source_resource_type, label, target_resource_type, COUNT(*) AS occurrence_count FROM "rel_it"."fhir_edge_occurrence" WHERE project = $1 AND dataset_generation = $2 AND lower(btrim(source_resource_type)) = ANY($3::text[]) AND lower(btrim(target_resource_type)) = ANY($3::text[])` + groupedTail,
+			wantArgs: []any{"proj", "g1", []string{"patient"}},
 		},
 	}
 	for _, tc := range cases {
@@ -463,6 +463,32 @@ func TestRelationshipEvidenceRepeatedOccurrencesAndDirectionsStaySeparate(t *tes
 	}
 }
 
+// TestRelationshipEvidenceReadAliasDelegates pins the capability-boundary
+// alias: ReadRelationshipObservations is DiscoverRelationshipObservations.
+func TestRelationshipEvidenceReadAliasDelegates(t *testing.T) {
+	stub := &stubRelationshipStore{groups: []RelationshipOccurrenceGroup{
+		{AuthResourcePath: "clinic/a", StorageSourceResourceType: "Condition", Label: "subject_Patient", StorageTargetResourceType: "Patient", OccurrenceCount: 1},
+	}}
+	store := stubStore(t, stub)
+	opts := catalog.RelationshipObservationOptions{
+		Project: "proj", DatasetGeneration: "g1", AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
+	}
+	direct, err := store.DiscoverRelationshipObservations(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	aliased, err := store.ReadRelationshipObservations(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("alias: %v", err)
+	}
+	if stub.calls != 2 {
+		t.Fatalf("alias must delegate a real read, calls = %d", stub.calls)
+	}
+	if direct.Digest != aliased.Digest || len(aliased.Values) != 1 || aliased.Values[0].EdgeCount != 1 {
+		t.Fatalf("alias result diverges: %q vs %q", direct.Digest, aliased.Digest)
+	}
+}
+
 func TestRelationshipEvidenceUnavailablePropagatesError(t *testing.T) {
 	cause := errors.New("synthetic scan failure")
 	stub := &stubRelationshipStore{err: cause}
@@ -498,8 +524,10 @@ func TestRelationshipEvidenceTypeRequestCanonicalizesAndDiagnoses(t *testing.T) 
 		t.Fatalf("DiscoverRelationshipObservations: %v", err)
 	}
 	got := stub.scopes[0]
-	if got.ResourceTypes == nil || len(got.ResourceTypes) != 1 || got.ResourceTypes[0] != "Condition" {
-		t.Fatalf("bound types = %#v, want exactly [Condition]", got.ResourceTypes)
+	// The bound list is the canonical set lowercased to agree with the
+	// SQL-side lower(btrim(...)) comparison over raw stored columns.
+	if got.ResourceTypes == nil || len(got.ResourceTypes) != 1 || got.ResourceTypes[0] != "condition" {
+		t.Fatalf("bound types = %#v, want exactly [condition]", got.ResourceTypes)
 	}
 	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "INVALID_RESOURCE_TYPE" || result.Diagnostics[0].ResourceType != "NotAThing" {
 		t.Fatalf("diagnostics = %+v, want one INVALID_RESOURCE_TYPE for NotAThing", result.Diagnostics)

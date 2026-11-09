@@ -36,7 +36,11 @@
 // canonicalized with fhirschema.ConcreteResourceType before the registry
 // lookup — an occurrence stores the endpoints the writer supplied, and the
 // Arango catalog row they correspond to was canonicalized at ingest — so a
-// casing-only variance is a canonicalization, not a misdiagnosis.
+// casing-only variance is a canonicalization, not a misdiagnosis. A
+// requested-type read pushes the same canonicalization into SQL
+// (lower(btrim(column)) against the lowercased canonical list) so a
+// filtered read never silently drops a case-variant row that the
+// unfiltered read would return as evidence.
 //
 // Invalid generated FHIR endpoint types are diagnosed
 // (INVALID_RELATIONSHIP_ENDPOINT) and excluded from Builder capability
@@ -116,8 +120,12 @@ type RelationshipScope struct {
 	// ResourceTypes is nil (or absent) to aggregate every stored endpoint
 	// type — including types the generated registry cannot classify, which
 	// the discovery step must be able to diagnose. A non-nil list binds
-	// both endpoints to those exact canonical concrete types; an empty
-	// non-nil list matches nothing.
+	// both endpoints in canonical form: the caller supplies lowercase
+	// concrete FHIR type names (as evidenceResourceTypes plus
+	// strings.ToLower produce them) and the SQL compares them against
+	// lower(btrim(column)), so a row the writer stored in any casing of a
+	// requested type matches — exactly the rows the unfiltered read would
+	// canonicalize into evidence. An empty non-nil list matches nothing.
 	ResourceTypes []string
 }
 
@@ -230,8 +238,17 @@ func bindRelationshipAggregate(tableFQN string, scope RelationshipScope) (relati
 		args = append(args, scope.AuthResourcePaths)
 	}
 	if scope.ResourceTypes != nil {
-		sql += " AND source_resource_type = ANY($" + fmt.Sprint(len(args)+1) + "::text[])" +
-			" AND target_resource_type = ANY($" + fmt.Sprint(len(args)+1) + "::text[])"
+		// Canonicalize both sides of the comparison: stored endpoint
+		// columns are writer-supplied raw strings (store-05 validates only
+		// non-blank at insert), while classification canonicalizes them
+		// with fhirschema.ConcreteResourceType (trim plus case-fold).
+		// Comparing raw strings here would silently drop case-variant rows
+		// that the unfiltered read returns as evidence. lower(btrim(...))
+		// against the caller's lowercase canonical list matches those rows
+		// because generated FHIR type names never collide
+		// case-insensitively.
+		sql += " AND lower(btrim(source_resource_type)) = ANY($" + fmt.Sprint(len(args)+1) + "::text[])" +
+			" AND lower(btrim(target_resource_type)) = ANY($" + fmt.Sprint(len(args)+1) + "::text[])"
 		args = append(args, scope.ResourceTypes)
 	}
 	sql += " GROUP BY auth_resource_path, source_resource_type, label, target_resource_type" +
@@ -330,14 +347,18 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 		scope.AuthResourcePaths = append([]string(nil), opts.AuthResourcePaths...)
 	}
 	if len(opts.ResourceTypes) > 0 {
-		// Bind the canonical subset; an all-invalid request binds an empty
-		// non-nil list and matches nothing, exactly as the Arango adapter's
-		// "IN []" filter behaves. Request-level INVALID_RESOURCE_TYPE
-		// diagnostics were already recorded above. The copy is explicit so
-		// an empty canonical list stays non-nil (append(nil) of zero
-		// elements would silently widen the read by dropping the filter).
+		// Bind the canonical subset lowercased to agree with the SQL-side
+		// lower(btrim(...)) comparison over the raw stored columns; an
+		// all-invalid request binds an empty non-nil list and matches
+		// nothing, exactly as the Arango adapter's "IN []" filter behaves.
+		// Request-level INVALID_RESOURCE_TYPE diagnostics were already
+		// recorded above. The copy is explicit so an empty canonical list
+		// stays non-nil (append(nil) of zero elements would silently widen
+		// the read by dropping the filter).
 		scope.ResourceTypes = make([]string, len(resourceTypes))
-		copy(scope.ResourceTypes, resourceTypes)
+		for i, resourceType := range resourceTypes {
+			scope.ResourceTypes[i] = strings.ToLower(resourceType)
+		}
 	}
 
 	groups, err := s.relationships.ScanRelationshipOccurrences(ctx, scope)

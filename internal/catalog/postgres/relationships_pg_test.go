@@ -703,6 +703,75 @@ func TestRelationshipObservationsInvalidEndpointsDiagnosedRawRowsRemain(t *testi
 	}
 }
 
+// TestRelationshipObservationsFilteredReadKeepsCaseVariantRows pins the
+// filtered/unfiltered reconciliation: store-05 stores writer-supplied
+// endpoint strings, and classification canonicalizes them, so a
+// requested-type read must return exactly the rows the unfiltered read
+// returns — a row stored as "condition" or "PatIent" may be silently
+// dropped by a raw string pushdown and must not be.
+func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) {
+	s := newRelationshipEvidenceService(t)
+	store := s.newStore(t)
+	const project, generation = "pgcat03-case", "g1"
+
+	s.seedResource(t, project, generation, "condition", "cond-lower", "clinic/a")
+	s.seedResource(t, project, generation, "Condition", "cond-mixed", "clinic/a")
+	s.seedOccurrence(t, project, generation, "clinic/a", "condition", "cond-lower", "subject_Patient", "Patient", "pat-x", "", 0)
+	s.seedOccurrence(t, project, generation, "clinic/a", "condition", "cond-lower", "subject_Patient", "Patient", "pat-x", "", 1)
+	s.seedOccurrence(t, project, generation, "clinic/a", "Condition", "cond-mixed", "subject_Patient", "PatIent", "pat-x", "", 0)
+
+	want := []catalog.RelationshipObservation{
+		observation(project, generation, "clinic/a", "Condition", "subject_Patient", "Patient", 3, "Patient", "Condition", "INBOUND"),
+	}
+
+	unfiltered, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil))
+	if err != nil {
+		t.Fatalf("unfiltered read: %v", err)
+	}
+	requireValuesByteIdentical(t, unfiltered.Values, want)
+
+	// Canonical and caller-casing requests both keep the case-variant rows.
+	for _, requested := range [][]string{{"Condition", "Patient"}, {"condition", "patient"}} {
+		filtered, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+			catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, requested...))
+		if err != nil {
+			t.Fatalf("filtered read %v: %v", requested, err)
+		}
+		requireValuesByteIdentical(t, filtered.Values, want)
+		for _, d := range filtered.Diagnostics {
+			if d.Code != "INVALID_RESOURCE_TYPE" {
+				t.Fatalf("filtered read %v diagnosed rows it should match: %+v", requested, d)
+			}
+		}
+	}
+
+	// The filter is still a filter: a request that cannot match returns
+	// nothing even though every row canonicalizes to Condition->Patient.
+	missed, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
+		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, "BodyStructure", "Patient"))
+	if err != nil {
+		t.Fatalf("non-matching filter: %v", err)
+	}
+	if len(missed.Values) != 0 || missed.Status != catalog.EvidenceEmpty {
+		t.Fatalf("non-matching filter returned %+v status %s, want empty", missed.Values, missed.Status)
+	}
+
+	// The raw stored spellings are untouched by the read.
+	var lowerSources, mixedTargets int
+	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.edgeTable()+
+		" WHERE project = $1 AND dataset_generation = $2 AND source_resource_type = 'condition'", project, generation).Scan(&lowerSources); err != nil {
+		s.fail("raw lower witness", err)
+	}
+	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.edgeTable()+
+		" WHERE project = $1 AND dataset_generation = $2 AND target_resource_type = 'PatIent'", project, generation).Scan(&mixedTargets); err != nil {
+		s.fail("raw mixed witness", err)
+	}
+	if lowerSources != 2 || mixedTargets != 1 {
+		t.Fatalf("raw spellings rewritten: lower=%d mixed=%d, want 2/1", lowerSources, mixedTargets)
+	}
+}
+
 // TestRelationshipObservationsBuilderDirectionDerivedFromRegistryOnRealPostgreSQL
 // drives the full path: occurrences written by the real store-05
 // EdgeRepository are read back as observations whose physical storage
