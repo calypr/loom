@@ -149,20 +149,32 @@ type Store struct {
 	// drafts holds the draft CAS/preimage statement set (drafts.go),
 	// built once for the same schema the owner statements target.
 	drafts draftSQL
-	// selections holds the selection lifecycle statement set
+	// selections holds the selection header/owner statement set
 	// (selections.go), built once for the same schema.
 	selections selectionSQL
+	// selectionMembers holds the selection membership statement set
+	// (selection_members.go), built once for the same schema.
+	selectionMembers selectionMemberSQL
 	// afterHistoryInsert is the test-only fault/interleaving seam of
 	// SaveDraft (see drafts.go). Production never assigns it.
 	afterHistoryInsert func(context.Context, pgx.Tx) error
 	// afterMemberInsert is the test-only fault/interleaving seam of
-	// AppendSelectionMembers (see selections.go). Production never
+	// AppendSelectionMembers (see selection_members.go). Production never
 	// assigns it.
 	afterMemberInsert func(context.Context, pgx.Tx) error
 	// beforeCleanupCommit is the test-only fault seam of
 	// CleanupSelectionStaging (see selections.go). Production never
 	// assigns it.
 	beforeCleanupCommit func(context.Context, pgx.Tx) error
+	// beforeCompleteCommit is the test-only fault seam of the fenced
+	// CompleteSelection (see selection_members.go). Production never
+	// assigns it.
+	beforeCompleteCommit func(context.Context, pgx.Tx) error
+	// memberPageStreamed is the test-only observer of every fetched page
+	// of the paged member stream (see selection_members.go); it is how
+	// the suite proves the digest/finalize walk is bounded and
+	// keyset-driven. Production never assigns it.
+	memberPageStreamed func(rows int)
 }
 
 // New builds a Store for one Explorer control-plane schema of the database
@@ -183,9 +195,10 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	table := sanitizeTableRef(schema, OwnerTable)
 	cols := strings.Join(ownerColumns, ", ")
 	return &Store{
-		client:     client,
-		drafts:     newDraftSQL(schema),
-		selections: newSelectionSQL(schema),
+		client:           client,
+		drafts:           newDraftSQL(schema),
+		selections:       newSelectionSQL(schema),
+		selectionMembers: newSelectionMemberSQL(schema),
 		insert: "INSERT INTO " + table + " (" + cols + ") VALUES (" + ownerPlaceholders() + ") " +
 			"ON CONFLICT (project, explorer_id) DO NOTHING RETURNING " + cols,
 		get:      "SELECT " + cols + " FROM " + table + " WHERE project = $1 AND explorer_id = $2",
