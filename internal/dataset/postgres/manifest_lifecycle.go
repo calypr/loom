@@ -262,8 +262,10 @@ WHERE p.project = $1`,
 //     can never become active, even if the caller hands over a staged
 //     manifest value read before the row moved.
 //   - Re-activating the exact manifest the pointer already names is
-//     idempotent: err=nil, zero writes.
-//   - A pointer whose current value differs from expected yields
+//     idempotent: err=nil, zero writes. This rule takes precedence over the
+//     expected value: when the pointer already names the validated
+//     candidate, expected is not compared.
+//   - Otherwise a pointer whose current value differs from expected yields
 //     ErrActivationConflict and leaves the pointer untouched.
 //
 // The pointer's previous value is compared, never ignored: this is the CAS

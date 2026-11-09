@@ -17,6 +17,15 @@
 -- DDL is retryable (IF NOT EXISTS) per the pg-store-02 runner contract: a
 -- crash between a migration's commit and its ledger record must converge on
 -- re-application.
+--
+-- Version-window note: 000002 is reserved for the concurrent pg-store-04
+-- ticket, so this history step is 000003. The runner refuses an out-of-order
+-- pending migration below the highest recorded version, so any long-lived
+-- schema that records version 3 BEFORE 000002 exists can never apply a later
+-- added 000002; pg-store-04's 000002 must land on the integration branch
+-- before any persistent (non per-test-isolated) schema is migrated with this
+-- history, or the coordinator must renumber one of the two steps. Per-test
+-- fixtures always start from an empty ledger and are unaffected.
 CREATE TABLE IF NOT EXISTS dataset_generation_manifest (
     project         text        NOT NULL,
     generation      text        NOT NULL,

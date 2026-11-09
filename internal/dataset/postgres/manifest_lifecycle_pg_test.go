@@ -112,7 +112,12 @@ func newPGService(t *testing.T) *pgService {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		if _, err := admin.Exec(context.WithoutCancel(ctx),
+		// Drop with a fresh bounded context: cleanup must be able to
+		// converge and report a failure even when the test context has
+		// burned its budget.
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelCleanup()
+		if _, err := admin.Exec(cleanupCtx,
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
@@ -142,7 +147,10 @@ func newPGService(t *testing.T) *pgService {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		if _, err := iso.Exec(context.WithoutCancel(ctx),
+		// Drop with a fresh bounded context (see the database cleanup above).
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelCleanup()
+		if _, err := iso.Exec(cleanupCtx,
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
 			t.Errorf("drop owned schema: %s", scrub(err))
 		}
@@ -976,6 +984,10 @@ func TestZZNoLeftoverOwnedResources(t *testing.T) {
 		`SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgstore03\_it\_%' ESCAPE '\'`).Scan(&leftoverSchemas); err != nil {
 		t.Fatalf("count leftover schemas: %v", err)
 	}
+	// This second probe guards a different leak than the database check:
+	// owned schemas are only ever created inside the isolated databases and
+	// vanish when those databases are dropped, so a hit here can only mean a
+	// pgstore03_it_* schema leaked into the shared service database itself.
 	if leftoverSchemas != 0 {
 		t.Fatalf("%d owned schemas left behind in the service database", leftoverSchemas)
 	}
