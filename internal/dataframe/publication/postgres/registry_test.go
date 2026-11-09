@@ -1397,6 +1397,14 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit failed: %v\n", err)
 		code = 1
 	}
+	// The publish-atomicity suite (publish_atomicity_test.go) owns the
+	// verify_pubvis_it_* resources; auditing here keeps the required
+	// zero-leftover and pg_database==baseline checks alive under the
+	// filtered -run of the ticket's check-2.
+	if err := auditPublishVisibilityLeftovers(); err != nil {
+		fmt.Fprintf(os.Stderr, "publish-visibility zero-leftover audit failed: %v\n", err)
+		code = 1
+	}
 	os.Exit(code)
 }
 
