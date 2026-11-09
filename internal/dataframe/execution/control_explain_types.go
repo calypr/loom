@@ -14,11 +14,82 @@ type PhysicalExplanation struct {
 }
 
 type PhysicalOutputExplanation struct {
-	Name            string
+	Name string
+	// PlanFingerprint identifies the exact compiled command the assessment
+	// describes: the AQL-shape digest for AQL-tagged outputs and the
+	// PostgreSQL command fingerprint for PostgreSQL-tagged ones, matching the
+	// fingerprint the corresponding stream reports for the same output.
 	PlanFingerprint string
 	Columns         []string
 	Diagnostics     ir.CompilerPlanDiagnostics
-	Live            *ExplainAssessment
+	// Live carries the Arango assessment for an AQL-tagged output and is nil
+	// otherwise.
+	Live *ExplainAssessment
+	// LivePostgreSQL carries the sanitized PostgreSQL assessment for a
+	// PostgreSQL-tagged output and is nil otherwise. Tag dispatch makes the
+	// two live fields mutually exclusive; an output never carries both.
+	LivePostgreSQL *PostgreSQLPlanAssessment
+}
+
+// PostgreSQLScanKind names the closed scan classifications a sanitized
+// PostgreSQL plan may report.
+const (
+	PostgreSQLScanSequential = "sequential"
+	PostgreSQLScanIndex      = "index"
+)
+
+// PostgreSQLPlanAssessment is a transport-neutral, sanitized summary of one
+// PostgreSQL 18 EXPLAIN (FORMAT JSON) plan produced through the typed
+// command boundary. It deliberately exposes only the agreed backend/node/
+// estimate fields: the producing backend tag, plan node types with their
+// ordinal structure, closed scan classifications, and numeric cost
+// estimates. It never carries statement SQL, bound parameter values, plan
+// text strings (relation names, index names, aliases, filters, join
+// conditions, sort keys, output lists), DSN/host/schema internals, or any
+// other identifier from user data; the sanitizer drops every JSON key it
+// does not explicitly recognize and pattern-gates the node types it keeps.
+type PostgreSQLPlanAssessment struct {
+	// Backend is the compiled-command backend tag that produced this
+	// assessment, always string(compiler.CompiledBackendPostgreSQL).
+	Backend string
+	// Nodes is the pre-order traversal of the plan tree. Ordinal is the
+	// pre-order position (the tree identity this assessment synthesizes,
+	// because plain EXPLAIN reports no Node ID), ParentOrdinal is -1 for the
+	// root, and Depth counts edges below the root.
+	Nodes        []PostgreSQLPlanNode
+	FullScans    []PostgreSQLScanEvidence
+	IndexScans   []PostgreSQLScanEvidence
+	RootEstimate PostgreSQLPlanEstimate
+}
+
+// PostgreSQLPlanNode is one sanitized plan node: a pattern-validated
+// PostgreSQL operator name plus its numeric estimates. Node types arrive
+// from PostgreSQL's fixed operator vocabulary; anything outside the safe
+// shape is rejected rather than rendered.
+type PostgreSQLPlanNode struct {
+	Ordinal       int
+	ParentOrdinal int
+	Depth         int
+	NodeType      string
+	Estimate      PostgreSQLPlanEstimate
+}
+
+// PostgreSQLPlanEstimate holds the four numeric estimates PostgreSQL reports
+// for one plan node.
+type PostgreSQLPlanEstimate struct {
+	StartupCost float64
+	TotalCost   float64
+	PlanRows    float64
+	PlanWidth   int
+}
+
+// PostgreSQLScanEvidence identifies one scan node of a closed classification
+// by its traversal ordinal and operator name only; the scanned relation and
+// index names are deliberately absent.
+type PostgreSQLScanEvidence struct {
+	Ordinal  int
+	NodeType string
+	ScanKind string
 }
 
 // ExplainAssessment is a transport-neutral, sanitized copy of Arango's
