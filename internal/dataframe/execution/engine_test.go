@@ -233,7 +233,7 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 			if !foundCohortStage {
 				t.Fatal("cohort output has no typed COHORT_GROUP stage")
 			}
-			stream, query, err := engine.streamForOutput(resolved, "Cohort", 25)
+			stream, query, err := engine.streamForOutput(context.Background(), resolved, "Cohort", 25)
 			if err != nil {
 				t.Fatalf("compile cohort preview plan: %v", err)
 			}
@@ -453,7 +453,7 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, query, err := engine.streamForOutput(resolved, "body_structures", 25)
+	stream, query, err := engine.streamForOutput(context.Background(), resolved, "body_structures", 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testi
 	if previewCalls != 1 || ordinaryCalls != 0 {
 		t.Fatalf("after preview: preview calls=%d ordinary calls=%d", previewCalls, ordinaryCalls)
 	}
-	stream, _, err := e.streamForOutput(resolved, "Patient", 1)
+	stream, _, err := e.streamForOutput(context.Background(), resolved, "Patient", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
