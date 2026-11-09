@@ -39,10 +39,36 @@ type InventoryStore interface {
 
 var _ InventoryStore = (*storepostgres.InventoryRepository)(nil)
 
+// FieldProfileStore is the persistence boundary this adapter needs from
+// internal/store/postgres for bounded field-profile records.
+// *storepostgres.FieldProfileRepository implements it; tests may wrap the
+// real repository to inject failures, never to fake results.
+type FieldProfileStore interface {
+	// UpsertFieldProfileBatch replaces exactly the identities named by the
+	// documents and refreshes the scope's coverage marker in one
+	// transaction. An empty document list records a known-empty profile by
+	// writing only the marker.
+	UpsertFieldProfileBatch(ctx context.Context, scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, coverage storepostgres.FieldProfileCoverage, batchSize int) error
+	// ReadFieldProfileRows returns every persisted document (field records
+	// and any profile_status marker) for one exact scope, ordered by path.
+	ReadFieldProfileRows(ctx context.Context, scope storepostgres.FieldProfileScope) ([]catalog.FieldCatalogDocument, error)
+	// ReadFieldProfileRowsFiltered returns every persisted document inside
+	// one project/generation/type/auth filter, ordered by resource type and
+	// path.
+	ReadFieldProfileRowsFiltered(ctx context.Context, filter storepostgres.FieldProfileFilter) ([]catalog.FieldCatalogDocument, error)
+	// ReadProfileCoverage returns the scope-level persistence markers inside
+	// one filter. Their presence is what makes a zero-row profile read a
+	// known-empty profile rather than an unavailable one.
+	ReadProfileCoverage(ctx context.Context, filter storepostgres.FieldProfileFilter) ([]storepostgres.FieldProfileCoverage, error)
+}
+
+var _ FieldProfileStore = (*storepostgres.FieldProfileRepository)(nil)
+
 // Store is the PostgreSQL catalog adapter for this slice. Create one with
-// New.
+// New or NewFieldProfileStore.
 type Store struct {
 	inventory InventoryStore
+	profiles  FieldProfileStore
 }
 
 // New validates the persistence boundary. The store holds no state beyond
@@ -52,4 +78,16 @@ func New(inventory InventoryStore) (*Store, error) {
 		return nil, errors.New("catalog PostgreSQL inventory store is required")
 	}
 	return &Store{inventory: inventory}, nil
+}
+
+// NewFieldProfileStore validates the field-profile persistence boundary and
+// returns a Store exposing only the field-profile methods (WriteFieldProfile,
+// ReadFieldProfile, DiscoverFieldEnrichment). The store holds no state
+// beyond the injected repository; the caller owns the pool and schema
+// lifecycle.
+func NewFieldProfileStore(profiles FieldProfileStore) (*Store, error) {
+	if profiles == nil {
+		return nil, errors.New("catalog PostgreSQL field profile store is required")
+	}
+	return &Store{profiles: profiles}, nil
 }

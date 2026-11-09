@@ -141,6 +141,7 @@ var wantEmbeddedChecksums = map[int64]struct {
 	4: {"edge_occurrence", "aca2b36e1b839919434efb5b8e6c3d1939d7c182d5e15898288ac3f1f0ccb79b"},
 	5: {"resource_inventory", "acebb614e6e5c7488f01c2ead47a3389da584bd940d866927816c64fd92e4146"},
 	6: {"semantic_inventory_build", "e69d0dfdd3fc67438b65df7da73ea12edb61324ec8356cbdc4abc1ae5172af3c"},
+	7: {"field_profile", "202245110193213c9ae5183bfdd3a6856e88d405d26c742d5de686775beae41a"},
 }
 
 func TestEmbeddedMigrationsBootstrapsTheLedger(t *testing.T) {
