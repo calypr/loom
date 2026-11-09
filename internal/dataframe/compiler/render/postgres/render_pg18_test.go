@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -826,6 +827,62 @@ func TestPG18PredicateParityRepairs(t *testing.T) {
 	}
 	if got := svc.runRendered(t, neqRendered); !reflect.DeepEqual(got, [][]string{{"p-nostatus"}}) {
 		t.Fatalf("column NOT_EQUALS rows = %v, want the other row", got)
+	}
+
+	// Ordering comparisons against the JSON null literal must follow the
+	// AQL order, where null sorts below every value: LTE is the
+	// null-or-missing test, GT is the presence test; LT/GTE are constant in
+	// AQL and must fail closed with a typed error rather than render a
+	// wrong or parameter-stranding plan.
+	for _, tc := range []struct {
+		operator string
+		want     [][]string
+	}{
+		{"LTE", [][]string{{"p-nostatus"}}},
+		{"GT", [][]string{{"p-active"}}},
+		{"EQUALS", [][]string{{"p-nostatus"}}},
+		{"NOT_EQUALS", [][]string{{"p-active"}}},
+	} {
+		nullPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+		nullPlan.BindVars["null_value"] = json.RawMessage("null")
+		nullPlan.Operations = append(nullPlan.Operations,
+			ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: tc.operator, Left: ir.PhysicalValue{Variable: "root", Path: []string{"status"}},
+				Right: &ir.PhysicalValue{BindKey: "null_value"},
+			}}},
+		)
+		nullPlan = withReturn(nullPlan, logicalID)
+		nullRendered, err := RenderPhysicalPlan(nullPlan, bindingFor(t, svc.schema))
+		if err != nil {
+			t.Fatalf("%s null literal render: %v", tc.operator, err)
+		}
+		got := svc.runRendered(t, nullRendered)
+		if len(got) != len(tc.want) {
+			t.Fatalf("%s null literal rows = %v, want %v", tc.operator, got, tc.want)
+		}
+		seen := map[string]bool{}
+		for _, row := range got {
+			seen[row[0]] = true
+		}
+		for _, row := range tc.want {
+			if !seen[row[0]] {
+				t.Fatalf("%s null literal rows = %v, want %v", tc.operator, got, tc.want)
+			}
+		}
+	}
+	for _, operator := range []string{"LT", "GTE"} {
+		rejectPlan := scopedPlan(itProject, itGeneration, []string{"FHIR/Patient"}, false)
+		rejectPlan.BindVars["null_value"] = json.RawMessage("null")
+		rejectPlan.Operations = append(rejectPlan.Operations,
+			ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: operator, Left: ir.PhysicalValue{Variable: "root", Path: []string{"status"}},
+				Right: &ir.PhysicalValue{BindKey: "null_value"},
+			}}},
+		)
+		rejectPlan = withReturn(rejectPlan, logicalID)
+		if _, err := RenderPhysicalPlan(rejectPlan, bindingFor(t, svc.schema)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
+			t.Fatalf("%s against null literal error = %v, want ErrUnsupportedPostgresPlan", operator, err)
+		}
 	}
 }
 

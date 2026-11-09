@@ -637,14 +637,30 @@ func (r *planRenderer) renderPayloadComparison(left, operator string, value any)
 			ErrUnsupportedPostgresPlan, value)
 	}
 	if string(raw) == "null" {
-		// AQL reads a missing key and a stored JSON null alike as null, so
-		// equality against the JSON null literal is the null-or-missing
-		// presence test; the plain jsonb equality would drop missing-key rows.
+		// AQL reads a missing key and a stored JSON null alike as null, and
+		// AQL sorts null below every other value. Rendering the presence
+		// test for every operator would invert LT/LTE and over-select for
+		// GTE, so the null literal maps operator by operator; the two pure
+		// constants fail closed as dead-parameter shapes.
 		presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
-		if operator == "EQUALS" {
+		switch operator {
+		case "EQUALS", "LTE":
 			return predicateFragment{sql: presence + " = 'null'"}, nil
+		case "NOT_EQUALS", "GT":
+			// GT coincides with the presence test: x > null holds exactly
+			// when x is present and not null.
+			return predicateFragment{sql: presence + " <> 'null'"}, nil
+		case "LT", "GTE":
+			// AQL constants these to false and true, but a bare constant
+			// would strand the resolved path parameter, and the plan
+			// contract requires every bound parameter to be referenced.
+			// The v1 surface fails these closed instead.
+			return predicateFragment{}, fmt.Errorf("%w: payload ordering %s against a JSON null literal is not part of the v1 PostgreSQL surface",
+				ErrUnsupportedPostgresPlan, operator)
+		default:
+			return predicateFragment{}, fmt.Errorf("%w: payload operator %q against a JSON null literal is not part of the v1 PostgreSQL surface",
+				ErrUnsupportedPostgresPlan, operator)
 		}
-		return predicateFragment{sql: presence + " <> 'null'"}, nil
 	}
 	index := r.jsonbParameter(raw)
 	if operator == "NOT_EQUALS" {

@@ -749,33 +749,57 @@ func TestRenderExistsMissingOverTypedColumnsUseNullTests(t *testing.T) {
 	}
 }
 
-func TestRenderPayloadNullLiteralComparisonsUsePresenceForm(t *testing.T) {
+func TestRenderPayloadNullLiteralComparisons(t *testing.T) {
+	// AQL sorts null below every other value, so each operator against the
+	// JSON null literal has one exact two-valued form; anything else would
+	// silently diverge from the AQL reading.
+	cases := []struct {
+		operator string
+		want     string
+	}{
+		{"EQUALS", `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') = 'null'`},
+		{"LTE", `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') = 'null'`},
+		{"NOT_EQUALS", `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') <> 'null'`},
+		{"GT", `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') <> 'null'`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.operator, func(t *testing.T) {
+			rendered := renderOK(t, nullLiteralPlan(tc.operator))
+			if !strings.Contains(rendered.SQL, tc.want) {
+				t.Fatalf("%s against null literal missing %q:\n%s", tc.operator, tc.want, rendered.SQL)
+			}
+			// The null literal never becomes a bound jsonb value: only the
+			// four scope parameters plus the path parameter exist.
+			if len(rendered.Args) != 5 {
+				t.Fatalf("%s null literal bound extra args: %#v", tc.operator, rendered.Args)
+			}
+		})
+	}
+	// AQL constants LT/GTE against null to false/true, but a bare constant
+	// would strand the resolved path parameter, so the v1 surface rejects
+	// them with a typed error instead of rendering a wrong or stranded plan.
+	for _, operator := range []string{"LT", "GTE"} {
+		t.Run(operator, func(t *testing.T) {
+			_, err := RenderPhysicalPlan(nullLiteralPlan(operator), mustBinding(t))
+			wantUnsupported(t, err, operator+" against JSON null literal")
+		})
+	}
+}
+
+func nullLiteralPlan(operator string) ir.PhysicalPlan {
 	plan := basePlan()
 	plan.BindVars["null_value"] = json.RawMessage("null")
 	plan.Operations = []ir.PhysicalOperation{
 		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
 		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
-			Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"status"}},
-			Right: &ir.PhysicalValue{BindKey: "null_value"},
-		}}},
-		{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
-			Operator: "NOT_EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"deceased"}},
+			Operator: operator, Left: ir.PhysicalValue{Variable: "root", Path: []string{"status"}},
 			Right: &ir.PhysicalValue{BindKey: "null_value"},
 		}}},
 		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
 			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
 		}}},
 	}
-	rendered := renderOK(t, plan)
-	// AQL reads missing and stored JSON null alike as null; the jsonb
-	// equality would drop missing-key rows, so the null literal maps to the
-	// null-or-missing presence test.
-	if !strings.Contains(rendered.SQL, `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') = 'null'`) {
-		t.Fatalf("EQUALS null literal must use the presence form:\n%s", rendered.SQL)
-	}
-	if !strings.Contains(rendered.SQL, `COALESCE(jsonb_typeof(r0."payload" #> $6::text[]), 'null') <> 'null'`) {
-		t.Fatalf("NOT_EQUALS null literal must negate the presence form:\n%s", rendered.SQL)
-	}
+	return plan
 }
 
 func TestRenderNotOverColumnComparisonStaysPlain(t *testing.T) {
