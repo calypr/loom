@@ -767,13 +767,20 @@ func TestSemanticInventoryPageSQLCarriesTheParityContract(t *testing.T) {
 			// Authorization scope is six ordered parameters.
 			`c.project = $1 AND c.dataset_generation = $2 AND c.build_id = $3 AND c.source_kind = $4`,
 			`($5 OR c.auth_resource_path = ANY($6::text[]))`,
+			// The reference re-applies the resource-type filter in the
+			// identity stage AND again in the aggregation stage, so the
+			// aggregation of rows that share an identity but differ in
+			// resource_type cannot fold them in.
+			`($7 = '' OR c.resource_type = $7)`,
 			// Byte-order keyset and sort: COLLATE "C" on both sides of the
 			// keyset operators and on every sort key.
 			`candidates.binding_id COLLATE "C" > $10 COLLATE "C"`,
 			`candidates.selection_id COLLATE "C" > $11 COLLATE "C"`,
 			`ORDER BY i.binding_id COLLATE "C", i.selection_id COLLATE "C", i.is_category`,
 			`LIMIT $12`,
-			// The query filter folds ASCII-only and keeps empty tokens.
+			// The query filter folds ASCII-only, and null-skipping
+			// concat_ws arguments mirror the reference's null-skipping
+			// CONCAT_SEPARATOR (an absent leaf adds no slot at all).
 			`strpos(lower(concat_ws(' ', c.resource_type,`,
 			`COLLATE "C"), lower($9 COLLATE "C")) > 0`,
 			// Aggregations: MIN skips the typed-empty example like the
@@ -785,6 +792,18 @@ func TestSemanticInventoryPageSQLCarriesTheParityContract(t *testing.T) {
 			if !strings.Contains(sql, want) {
 				t.Errorf("%s statement missing load-bearing fragment %q", name, want)
 			}
+		}
+		if got := strings.Count(sql, `($7 = '' OR c.resource_type = $7)`); got != 2 {
+			t.Errorf("%s statement applies the resource-type filter %d times, want 2 (identity + aggregation stages)", name, got)
+		}
+		// Search folding must skip absent leaves entirely (no COALESCE'd
+		// empty slots), matching the reference's null-skipping
+		// CONCAT_SEPARATOR over raw leaves.
+		if !strings.Contains(sql, `concat_ws(' ', c.resource_type, (c.observation #>> '{source,path}')`) {
+			t.Errorf("%s statement must feed raw leaves into concat_ws: %s", name, sql)
+		}
+		if strings.Contains(sql, `concat_ws(' ', c.resource_type, COALESCE(`) {
+			t.Errorf("%s statement keeps empty search slots where the reference skips them", name)
 		}
 	}
 	if strings.Contains(exactSQL, "CODED_CONCEPT_V1") || strings.Contains(exactSQL, "family:[") {
@@ -2479,5 +2498,139 @@ func TestZZZeroLeftoverSemanticInventoryPageFixtures(t *testing.T) {
 	}
 	if leftoverSchemas != 0 {
 		t.Errorf("%d schemas still match the private verify_cat06_ fixture prefix", leftoverSchemas)
+	}
+}
+
+// TestSemanticInventoryPageAggregationHonorsResourceTypeFilter pins the
+// reference's aggregation-stage resource-type re-filter: rows that share an
+// identity but carry a different resource_type column (the schema permits
+// the mismatch; only the emitters keep the pair in step) are excluded from
+// population and every MIN when a resource-type filter is set, and are
+// folded in when it is not — the exclusion is not vacuous.
+func TestSemanticInventoryPageAggregationHonorsResourceTypeFilter(t *testing.T) {
+	s := newPgcat06Service(t)
+	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
+	buildID := catalog.SemanticInventoryBuildID(pgcat06Project, pgcat06Generation)
+	put := func(sourceID, resourceType, binding, concept string, observation catalog.SemanticObservation) {
+		s.seedContribution(t, contributionSeed{
+			Project: pgcat06Project, Generation: pgcat06Generation, BuildID: buildID,
+			SourceKind: catalog.SemanticInventorySourceFile, AuthResourcePath: pgcat06PathGlucose,
+			ResourceType: resourceType, SourceID: sourceID, Ordinal: 0,
+			ConceptID: concept, BindingID: binding,
+			Observation: pgcat06ObsJSON(t, observation),
+		})
+	}
+	// Same (binding, concept) identity, mismatched resource_type column.
+	put("rt-1", "Observation", "bnd-rt", "cpt-rt", pgcat06Observation(1))
+	put("rt-2", "Encounter", "bnd-rt", "cpt-rt", pgcat06Observation(99))
+	// Category twins for the family-mode half of the same contract.
+	fam := func(population int64) catalog.SemanticObservation {
+		o := pgcat06FamilyObs("code.coding[]", "urn:rt-family", "v1", population)
+		return o
+	}
+	put("rt-3", "Observation", "bnd-frt", "cpt-frt-a", fam(1))
+	put("rt-4", "Encounter", "bnd-frt", "cpt-frt-b", fam(99))
+
+	repo := s.readRepository(t)
+	base := catalog.SemanticInventoryPageOptions{
+		Project: pgcat06Project, DatasetGeneration: pgcat06Generation,
+		AuthResourcePathsUnrestricted: pgcat06Unrestricted(true),
+		ResourceType:                  "Observation",
+	}
+	for _, tc := range []struct {
+		label   string
+		binding string
+		family  bool
+	}{{"exact", "bnd-rt", false}, {"family", "bnd-frt", true}} {
+		filtered := base
+		filtered.BindingID = tc.binding
+		if tc.family {
+			filtered.SelectionMode = catalog.SemanticInventorySystemVersionCategory
+		}
+		page, err := repo.PageSemanticInventory(s.ctx, filtered)
+		if err != nil {
+			s.fail("filtered page "+tc.label, err)
+		}
+		if tc.family {
+			if len(page.Families) != 1 || page.Families[0].Population != 1 || len(page.Entries) != 0 {
+				t.Fatalf("filtered %s page = entries %+v families %+v, want one family with population 1",
+					tc.label, page.Entries, page.Families)
+			}
+		} else if len(page.Entries) != 1 || page.Entries[0].ConceptID != "cpt-rt" ||
+			page.Entries[0].Observation.Population != 1 || len(page.Families) != 0 {
+			t.Fatalf("filtered %s page = %+v, want cpt-rt alone with population 1 (Encounter-column sibling excluded)",
+				tc.label, page.Entries)
+		}
+		// Guard drop: with the filter absent the mismatched sibling folds
+		// in, so the exclusion above reflects the filter, not an empty
+		// aggregate.
+		unfiltered := filtered
+		unfiltered.ResourceType = ""
+		page, err = repo.PageSemanticInventory(s.ctx, unfiltered)
+		if err != nil {
+			s.fail("unfiltered page "+tc.label, err)
+		}
+		if tc.family {
+			if len(page.Families) != 1 || page.Families[0].Population != 100 {
+				t.Fatalf("unfiltered %s page = %+v, want one family with population 100", tc.label, page.Families)
+			}
+		} else if len(page.Entries) != 1 || page.Entries[0].Observation.Population != 100 {
+			t.Fatalf("unfiltered %s page = %+v, want population 100 (sibling folds in)", tc.label, page.Entries)
+		}
+	}
+}
+
+// TestSemanticInventoryPageQueryFoldingGolden pins the search-fold parity
+// the reference's CONCAT_SEPARATOR null-skipping gives: a phrase whose two
+// words land in tokens separated by an absent leaf (value.selector and
+// owning_scope missing, routine for the omitempty encoder) must match. An
+// implementation that COALESCEs absent leaves to empty strings inserts
+// extra spaces and silently misses this row.
+func TestSemanticInventoryPageQueryFoldingGolden(t *testing.T) {
+	s := newPgcat06Service(t)
+	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
+	buildID := catalog.SemanticInventoryBuildID(pgcat06Project, pgcat06Generation)
+	observation := catalog.SemanticObservation{
+		SchemaVersion: catalog.SemanticObservationSchemaVersion,
+		Source: catalog.SemanticObservationSource{
+			Type: "Observation", Path: "alpha beta",
+		},
+		Key:          catalog.SemanticObservationKey{System: "gamma delta", Code: "code-a"},
+		Value:        catalog.SemanticObservationValue{Type: "string"},
+		Completeness: catalog.SemanticComplete,
+		Status:       "SUPPORTED",
+		Population:   1,
+	}
+	s.seedContribution(t, contributionSeed{
+		Project: pgcat06Project, Generation: pgcat06Generation, BuildID: buildID,
+		SourceKind: catalog.SemanticInventorySourceFile, AuthResourcePath: pgcat06PathGlucose,
+		ResourceType: "Observation", SourceID: "fold-1", Ordinal: 0,
+		ConceptID: "cpt-fold", BindingID: "bnd-fold",
+		Observation: pgcat06ObsJSON(t, observation),
+	})
+	repo := s.readRepository(t)
+	search := func(query string) int {
+		t.Helper()
+		page, err := repo.PageSemanticInventory(s.ctx, catalog.SemanticInventoryPageOptions{
+			Project: pgcat06Project, DatasetGeneration: pgcat06Generation,
+			AuthResourcePathsUnrestricted: pgcat06Unrestricted(true),
+			Query:                         query,
+		})
+		if err != nil {
+			s.fail("search page", err)
+		}
+		return len(page.Entries)
+	}
+	// "beta" is the tail of source.path; "gamma" leads key.system. The
+	// reference folds them into one single-spaced token run because the
+	// value.selector and owning_scope slots are absent, not empty.
+	if got := search("beta gamma"); got != 1 {
+		t.Fatalf("phrase spanning absent leaves matched %d entries, want 1", got)
+	}
+	if got := search("beta zeta"); got != 0 {
+		t.Fatalf("non-matching phrase matched %d entries, want 0 (negative control)", got)
+	}
+	if got := search("alpha beta gamma delta code-a"); got != 1 {
+		t.Fatalf("full-span phrase matched %d entries, want 1", got)
 	}
 }

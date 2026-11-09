@@ -398,6 +398,7 @@ func semanticPageQuery(contributionFQN string, p semanticPageParams) (string, []
 		" SELECT i.binding_id, i.concept_id, i.selection_id, i.is_category, a.* FROM identities i" +
 		" CROSS JOIN LATERAL (SELECT " + semanticEntryAggregateSelects("c") +
 		" FROM " + contributionFQN + " c WHERE " + semanticScopeClause("c") +
+		" AND ($7 = '' OR c.resource_type = $7)" +
 		" AND c.binding_id = i.binding_id" + lateralMatch +
 		") a ORDER BY i.binding_id COLLATE \"C\", i.selection_id COLLATE \"C\", i.is_category")
 	return sb.String(), args
@@ -896,7 +897,7 @@ func semanticLeafText(alias string, path ...string) string {
 }
 
 // semanticLeafToken emits the leaf as the AQL NOT_NULL(leaf, "") token:
-// absent or JSON null reads as the empty string (search text, and the
+// absent or JSON null reads as the empty string (the family version
 // version selection where the empty spelling is the versionless choice).
 func semanticLeafToken(alias string, path ...string) string {
 	return "COALESCE(" + semanticLeafText(alias, path...) + ", '')"
@@ -1051,18 +1052,22 @@ func semanticFamilySelectionExpr(alias string) string {
 // semanticSearchContains is the AQL
 // CONTAINS(LOWER(CONCAT_SEPARATOR(" ", resource_type, source.path,
 // value.selector, owning_scope, key.system, key.code, key.display)),
-// LOWER(@query)). Every token participates: each leaf is COALESCEd to the
-// empty string so concat_ws keeps its separator slot exactly like
-// CONCAT_SEPARATOR. Both sides fold with lower() pinned to COLLATE "C":
-// PostgreSQL's locale lower() folds non-ASCII, ArangoDB's LOWER does not.
+// LOWER(@query)). Contribution documents carry no search_text field (only
+// the materialized entries collection does), so the reference always takes
+// the CONCAT_SEPARATOR branch, and its null-skipping is matched by passing
+// the raw #>> text: an absent or JSON-null leaf is SQL NULL, which
+// concat_ws skips with its separator slot exactly the way CONCAT_SEPARATOR
+// skips nulls, while a present empty string keeps its slot on both sides.
+// Both sides fold with lower() pinned to COLLATE "C": PostgreSQL's locale
+// lower() folds non-ASCII, ArangoDB's LOWER does not.
 func semanticSearchContains(alias string, queryParam string) string {
 	search := "concat_ws(' ', " + alias + ".resource_type" +
-		", " + semanticLeafToken(alias, "source", "path") +
-		", " + semanticLeafToken(alias, "value", "selector") +
-		", " + semanticLeafToken(alias, "owning_scope") +
-		", " + semanticLeafToken(alias, "key", "system") +
-		", " + semanticLeafToken(alias, "key", "code") +
-		", " + semanticLeafToken(alias, "key", "display") + ")"
+		", " + semanticLeafText(alias, "source", "path") +
+		", " + semanticLeafText(alias, "value", "selector") +
+		", " + semanticLeafText(alias, "owning_scope") +
+		", " + semanticLeafText(alias, "key", "system") +
+		", " + semanticLeafText(alias, "key", "code") +
+		", " + semanticLeafText(alias, "key", "display") + ")"
 	return "strpos(lower(" + search + " COLLATE \"C\"), lower(" + queryParam + " COLLATE \"C\")) > 0"
 }
 
