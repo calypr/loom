@@ -5,7 +5,15 @@
 -- SelectionsCollection and SelectionMembersCollection
 -- (internal/explorer/arango/selections.go). The version continues the
 -- Explorer control-plane fixture history after the 000004 capability
--- reservation (pg-state-immutable-capability-receipts), and the DDL is
+-- reservation (pg-state-immutable-capability-receipts). Per the
+-- coordinator allocation, version 8 is the next free Explorer control-plane
+-- ledger version (the Explorer ledger and the store-dir ledger are separate
+-- tables in separate dirs: the store history's own 000008,
+-- internal/store/postgres/migrations/000008_batch_write_ledger.sql, is a
+-- different ledger over different schemas, so the shared number is no
+-- collision), lands strictly after the 000007 reserved for the
+-- capability-artifacts ticket, and one migration covering both tables
+-- follows the 000004 two-table precedent. The DDL is
 -- idempotent because the pg-store-02 runner may retry a migration that
 -- committed before its ledger row was written. It never drops or truncates
 -- existing state.

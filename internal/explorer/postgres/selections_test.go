@@ -64,12 +64,21 @@ import (
 	pgstore "github.com/calypr/loom/internal/store/postgres"
 )
 
+// The fixture pins below follow the coordinator allocation: version 8 of
+// the Explorer control-plane ledger, one migration covering both selection
+// tables (000004's two-table precedent), own-dir composition per the
+// accepted 000004 capability precedent. The Explorer ledger and the
+// store-dir ledger are separate tables in separate dirs -- the store
+// history's own 000008 (internal/store/postgres/migrations/
+// 000008_batch_write_ledger.sql) is a different ledger, so the shared
+// number is not a collision. Ledger expectations elsewhere in this file are
+// self-derived from the FS-loaded history, never literal counts.
 const (
-	pgstate05FixtureDir    = "tests/migrations-selections"
-	pgstate05FixtureFile   = "000008_selection_revisions"
-	pgstate05FixtureName   = "selection_revisions"
-	pgstate05FixtureVersio = int64(8)
-	pgstate05ImmutableCode = "45501"
+	pgstate05FixtureDir     = "tests/migrations-selections"
+	pgstate05FixtureFile    = "000008_selection_revisions"
+	pgstate05FixtureName    = "selection_revisions"
+	pgstate05FixtureVersion = int64(8)
+	pgstate05ImmutableCode  = "45501"
 	// pgstate05RaceRounds is the per-surface race floor; the racing
 	// surfaces each run at least this many fresh rounds.
 	pgstate05RaceRounds = 10
@@ -298,10 +307,10 @@ func (s *selectionService) migrate(t *testing.T) {
 	if err != nil {
 		s.fail("load selection fixture migrations", err)
 	}
-	if len(fixture) != 1 || fixture[0].Version != pgstate05FixtureVersio ||
+	if len(fixture) != 1 || fixture[0].Version != pgstate05FixtureVersion ||
 		fixture[0].Name != pgstate05FixtureName {
 		t.Fatalf("selection fixture history = %+v, want exactly version %d %s",
-			fixture, pgstate05FixtureVersio, pgstate05FixtureName)
+			fixture, pgstate05FixtureVersion, pgstate05FixtureName)
 	}
 	// Self-recomputed sha256 pin: the ledger row the runner records must
 	// equal the digest this test computes independently over the exact
@@ -1948,9 +1957,9 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(migrations) != 1 || migrations[0].Checksum != hex.EncodeToString(sum[:]) ||
-		migrations[0].Version != pgstate05FixtureVersio || migrations[0].Name != pgstate05FixtureName {
+		migrations[0].Version != pgstate05FixtureVersion || migrations[0].Name != pgstate05FixtureName {
 		t.Fatalf("fixture migration = %+v, want version %d %s at the self-recomputed digest %s",
-			migrations, pgstate05FixtureVersio, pgstate05FixtureName, hex.EncodeToString(sum[:]))
+			migrations, pgstate05FixtureVersion, pgstate05FixtureName, hex.EncodeToString(sum[:]))
 	}
 	for _, needle := range []string{"selection_revisions", "selection_members", "loom_selection_revision_immutable", "loom_selection_member_immutable", "45501"} {
 		if !strings.Contains(string(sqlBytes), needle) {
