@@ -53,6 +53,19 @@ export const DATASET_INTEGRATION_TESTS = [
   'TestActivateCompareAndSwapAgainstPointerValue',
   'TestConcurrentActivationsSameExpectedYieldOneWinner',
 ];
+// The Explorer PG suite (Explorer-owner store and draft CAS, merged from
+// pg-state-explorer-draft-cas-v1) runs as a third never-skipped lane with the
+// same whole-package, zero-skip guarantee; its suites were only ever exercised
+// by authors' local runs. The anchors prove the draft CAS one-winner core, the
+// exact-preimage/history guarantee, and the owner round-trip executed. Like the
+// dataset lane, this phase administers no databases: the suites own their
+// isolated *_it_* databases and audit them themselves.
+export const EXPLORER_INTEGRATION_PACKAGE = './internal/explorer/postgres';
+export const EXPLORER_INTEGRATION_TESTS = [
+  'TestDraftCASConcurrentSameVersionWritesHaveOneWinnerTwoConnections',
+  'TestDraftCASStoresExactPreimageAndPreservesPublishedHead',
+  'TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows',
+];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -642,6 +655,26 @@ export async function runPostgres(output, deps = {}) {
       propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
       anchors: [...DATASET_INTEGRATION_TESTS],
       passes: datasetPasses,
+    };
+    budget(goTestBudgetMs + 30_000 + 90_000);
+    evidence.phases.push('explorer-integration');
+    // Same owned-service propagation pattern as the previous lanes: whole
+    // package, no -run filter, so every PG-gated Explorer case is mandatory
+    // and a skip is a failure here, never a pass. The anchors prove the
+    // draft CAS one-winner, exact-preimage, and owner round-trip core ran.
+    const explorerArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, EXPLORER_INTEGRATION_PACKAGE];
+    const explorer = await Promise.resolve(goTest(explorerArgs, childEnv));
+    writeFileSync(join(directory, 'explorer-integration.jsonl'), scrubSecrets(explorer.stdout || '', secrets));
+    writeFileSync(join(directory, 'explorer-integration.stderr'), scrubSecrets(explorer.stderr || '', secrets));
+    assert.equal(explorer.status, 0, `${EXPLORER_INTEGRATION_PACKAGE} real-PG suite failed: ${scrubSecrets(explorer.error?.message || explorer.stderr || '', secrets)}`);
+    const explorerPasses = checkGoEvents(explorer.stdout, EXPLORER_INTEGRATION_TESTS).passes;
+    evidence.explorerIntegration = {
+      status: 'passed',
+      package: EXPLORER_INTEGRATION_PACKAGE,
+      command: ['go', 'test', '-count=1', EXPLORER_INTEGRATION_PACKAGE],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...EXPLORER_INTEGRATION_TESTS],
+      passes: explorerPasses,
     };
     evidence.status = 'passed';
   } catch (error) {

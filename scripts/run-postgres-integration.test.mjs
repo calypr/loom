@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import {
   DATASET_INTEGRATION_PACKAGE,
   DATASET_INTEGRATION_TESTS,
+  EXPLORER_INTEGRATION_PACKAGE,
+  EXPLORER_INTEGRATION_TESTS,
   EXPECTED_CHECKS,
   NAMESPACE_PREFIX,
   PROBE_SOURCE,
@@ -34,7 +36,15 @@ const passingGo = (args = []) => ({
       ]),
       { Action: 'pass', Package: 'datasetpkg' },
     ]
-    : [
+    : args.at(-1) === EXPLORER_INTEGRATION_PACKAGE
+      ? [
+        ...EXPLORER_INTEGRATION_TESTS.flatMap(name => [
+          { Action: 'run', Package: 'explorerpkg', Test: name },
+          { Action: 'pass', Package: 'explorerpkg', Test: name },
+        ]),
+        { Action: 'pass', Package: 'explorerpkg' },
+      ]
+      : [
       { Action: 'run', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST },
       { Action: 'output', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST, Output: 'ok' },
       { Action: 'pass', Package: 'pkg', Test: REQUIRED_INTEGRATION_TEST },
@@ -214,14 +224,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 2, 'both the pg-store-01 and the dataset lane must run');
+  assert.equal(goCalls.length, 3, 'the pg-store-01, dataset, and explorer lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -229,11 +239,19 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.ok(goCalls[1].args.includes('-json') && goCalls[1].args.includes('-count=1'));
   assert.deepEqual(evidence.datasetIntegration.anchors, [...DATASET_INTEGRATION_TESTS]);
   for (const name of DATASET_INTEGRATION_TESTS) assert.ok(evidence.datasetIntegration.passes.includes(name));
+  // The explorer lane runs whole-package too: no -run filter, same URL.
+  assert.equal(goCalls[2].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
+  assert.equal(goCalls[2].args.at(-1), EXPLORER_INTEGRATION_PACKAGE);
+  assert.ok(!goCalls[2].args.includes('-run'), 'whole-package execution is the never-skipped guarantee');
+  assert.ok(goCalls[2].args.includes('-json') && goCalls[2].args.includes('-count=1'));
+  assert.deepEqual(evidence.explorerIntegration.anchors, [...EXPLORER_INTEGRATION_TESTS]);
+  for (const name of EXPLORER_INTEGRATION_TESTS) assert.ok(evidence.explorerIntegration.passes.includes(name));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
   assert.ok(readFileSync(join(out, 'integration.jsonl'), 'utf8').includes(REQUIRED_INTEGRATION_TEST));
   assert.ok(readFileSync(join(out, 'dataset-integration.jsonl'), 'utf8').includes(DATASET_INTEGRATION_TESTS[0]));
+  assert.ok(readFileSync(join(out, 'explorer-integration.jsonl'), 'utf8').includes(EXPLORER_INTEGRATION_TESTS[0]));
 });
 
 test('a failing dataset lane fails the run and its evidence is still scrubbed', async () => {
@@ -276,6 +294,53 @@ test('a dataset lane that never runs an anchor case fails the run', async () => 
   const { out, run } = harness({
     go: args => args.at(-1) === DATASET_INTEGRATION_PACKAGE
       ? { status: 0, stdout: events([{ Action: 'pass', Package: 'datasetpkg' }]), stderr: '' }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /did not run/);
+});
+
+test('a failing explorer lane fails the run and its evidence is still scrubbed', async () => {
+  const { goCalls, out, run } = harness({
+    go: args => args.at(-1) === EXPLORER_INTEGRATION_PACKAGE
+      ? { status: 1, stdout: events([{ Action: 'fail', Package: 'explorerpkg' }]), stderr: `connection refused for ${ADMIN_URL}` }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /internal\/explorer\/postgres real-PG suite failed/);
+  assert.equal(goCalls.length, 3, 'the explorer lane must actually be attempted after the dataset lane passes');
+  assert.ok(!('explorerIntegration' in evidence), 'a failed lane records no pass evidence');
+  assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');
+  const stderr = readFileSync(join(out, 'explorer-integration.stderr'), 'utf8');
+  assert.ok(!stderr.includes('s3cret-test-password'), 'explorer lane evidence must be credential-free');
+  assert.ok(stderr.includes('[redacted]'), 'explorer lane evidence must record the redaction');
+});
+
+test('an explorer lane that skips any case is a blocker, never acceptance', async () => {
+  const { out, run } = harness({
+    go: args => args.at(-1) === EXPLORER_INTEGRATION_PACKAGE
+      ? {
+        status: 0,
+        stdout: events([
+          { Action: 'run', Package: 'explorerpkg', Test: EXPLORER_INTEGRATION_TESTS[0] },
+          { Action: 'skip', Package: 'explorerpkg', Test: EXPLORER_INTEGRATION_TESTS[0] },
+          { Action: 'pass', Package: 'explorerpkg' },
+        ]),
+        stderr: '',
+      }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed', 'a skipped explorer case cannot masquerade as real-PG acceptance');
+  assert.match(evidence.error, new RegExp(EXPLORER_INTEGRATION_TESTS[0]));
+});
+
+test('an explorer lane that never runs an anchor case fails the run', async () => {
+  const { out, run } = harness({
+    go: args => args.at(-1) === EXPLORER_INTEGRATION_PACKAGE
+      ? { status: 0, stdout: events([{ Action: 'pass', Package: 'explorerpkg' }]), stderr: '' }
       : passingGo(args),
   });
   const evidence = await run();
