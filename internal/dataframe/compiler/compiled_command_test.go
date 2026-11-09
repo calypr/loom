@@ -225,7 +225,7 @@ func TestCompiledCommand(t *testing.T) {
 			t.Fatalf("compiled outputs = %d, want 1", len(queries))
 		}
 		compiled := queries[0]
-		if strings.TrimSpace(compiled.Query) == "" || len(compiled.BindVars) == 0 {
+		if strings.TrimSpace(testAQLText(t, compiled.Command)) == "" || len(testAQLBinds(t, compiled.Command)) == 0 {
 			t.Fatalf("recipe path lost rendered command: %#v", compiled)
 		}
 		// The values the recipe path published are exactly what an
@@ -242,13 +242,13 @@ func TestCompiledCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("AQLParameters: %v", err)
 		}
-		if query != compiled.Query || !reflect.DeepEqual(bindVars, compiled.BindVars) {
+		if query != testAQLText(t, compiled.Command) || !reflect.DeepEqual(bindVars, testAQLBinds(t, compiled.Command)) {
 			t.Fatalf("recipe-published command differs from dispatched AQL command: queryMatch=%t bindMatch=%t",
-				query == compiled.Query, reflect.DeepEqual(bindVars, compiled.BindVars))
+				query == testAQLText(t, compiled.Command), reflect.DeepEqual(bindVars, testAQLBinds(t, compiled.Command)))
 		}
 		// The identical text, if it ever arrived tagged PostgreSQL, is
 		// rejected before the AQL QueryRows(query, bindVars) adapter.
-		mislabelled, err := NewPostgreSQLCommand(compiled.Query, []PostgreSQLParameter{{Type: PostgreSQLParameterJSONB, Value: json.RawMessage(`{"limit":7}`)}})
+		mislabelled, err := NewPostgreSQLCommand(testAQLText(t, compiled.Command), []PostgreSQLParameter{{Type: PostgreSQLParameterJSONB, Value: json.RawMessage(`{"limit":7}`)}})
 		if err != nil {
 			t.Fatalf("NewPostgreSQLCommand: %v", err)
 		}

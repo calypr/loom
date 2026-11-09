@@ -124,16 +124,14 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		return CompiledQuery{}, fmt.Errorf("render canonical recipe physical plan: %w", err)
 	}
 	// The rendered result becomes execution input only through the tagged
-	// command boundary: the plan's AQL rendering is tagged AQL, and the query
-	// plus named bind map reach CompiledQuery via exhaustive AQL dispatch.
-	// A PostgreSQL-tagged command cannot enter this path.
+	// command boundary: the plan's AQL rendering is tagged AQL once, here,
+	// and the parent-tagged command is the only executable CompiledQuery
+	// carries. The query text and named bind map are never re-extracted as
+	// loose execution fields. A PostgreSQL-tagged command cannot enter this
+	// path; PostgreSQL selection happens through the composition seam.
 	command, err := CompiledCommandForBackend(CompiledBackendAQL, rendered)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("tag canonical recipe command: %w", err)
-	}
-	query, bindVars, err := command.AQLParameters()
-	if err != nil {
-		return CompiledQuery{}, fmt.Errorf("dispatch canonical recipe command to AQL execution: %w", err)
 	}
 	columns, pivotFields := physicalProjectionMetadata(physical)
 	if len(output.Columns) != 0 {
@@ -168,8 +166,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		TraversalCount:     physicalTraversalCount(physical),
 		RowIdentity:        output.RowIdentity.Clone(),
 		OptimizationRules:  recipeOptimizationRules(physical),
-		Query:              query,
-		BindVars:           bindVars,
+		Command:            command,
 		Columns:            columns,
 		OutputSchema:       outputSchema,
 		PublicColumns:      publicColumns,

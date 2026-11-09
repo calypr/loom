@@ -93,7 +93,7 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 	insertEdge("missing_target", "Observation", missingTargetObservation, "Patient", key("patient_missing"), "Observation", "Patient")
 
 	_, _, scanned := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), project, generation, MaxCategoryScanValues)
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: scanned.Command})
 	got := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		present, ok := row[scanned.PresentColumn].(bool)
@@ -107,6 +107,6 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 		relatedCategoryValueKey(true, "cross-collection-category"): {},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("related categories = %v, want canonical plus the scoped cross-collection Patient claim and no missing-target category %v; query:\n%s", got, want, scanned.Query)
+		t.Fatalf("related categories = %v, want canonical plus the scoped cross-collection Patient claim and no missing-target category %v; query:\n%s", got, want, testAQLText(t, scanned.Command))
 	}
 }

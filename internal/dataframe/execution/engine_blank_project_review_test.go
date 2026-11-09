@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -28,7 +29,12 @@ func TestEngineResolveBlankProjectDirectClassification(t *testing.T) {
 	registry := &reviewBlankRegistry{}
 	engine, err := New(Config{
 		Registry: registry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -69,7 +75,12 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	registry := &reviewBlankRegistry{}
 	engine, err := New(Config{
 		Registry: registry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})
@@ -102,7 +113,12 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	divergeRegistry := &reviewBlankRegistry{}
 	divergeEngine, err := New(Config{
 		Registry: divergeRegistry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})

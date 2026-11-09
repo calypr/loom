@@ -24,7 +24,7 @@ func TestCompileRecipeOutputPageOrdersMixedRelatedFilterSequences(t *testing.T) 
 			pageFilterStep("require_patient", "keep_patient", "patient-id", recipe.FilterExists, "", columns),
 		}
 		page := compileRelatedConstructionPage(t, "root-before-shared-related", output)
-		seed, rootQuery := splitRootPageCandidateSeed(t, page.RootKeysQuery)
+		seed, rootQuery := splitRootPageCandidateSeed(t, testAQLText(t, page.RootKeys))
 		assertPageQueryOrder(t, seed,
 			"child_set_1_node.payload.id == @construction_filter_value_1",
 			"FOR child_set_1_edge IN",
@@ -39,8 +39,8 @@ func TestCompileRecipeOutputPageOrdersMixedRelatedFilterSequences(t *testing.T) 
 			"SORT root._key ASC",
 			"LIMIT @limit",
 		)
-		if count := strings.Count(page.RootKeysQuery, "LET child_set_1 = UNIQUE"); count != 1 {
-			t.Fatalf("shared related producer count = %d, want 1:\n%s", count, page.RootKeysQuery)
+		if count := strings.Count(testAQLText(t, page.RootKeys), "LET child_set_1 = UNIQUE"); count != 1 {
+			t.Fatalf("shared related producer count = %d, want 1:\n%s", count, testAQLText(t, page.RootKeys))
 		}
 	})
 
@@ -52,7 +52,7 @@ func TestCompileRecipeOutputPageOrdersMixedRelatedFilterSequences(t *testing.T) 
 			pageFilterStep("keep_root", "keep_patient", "root-id", recipe.FilterEquals, rootID, columns),
 		}
 		page := compileRelatedConstructionPage(t, "related-before-root-expression", output)
-		seed, rootQuery := splitRootPageCandidateSeed(t, page.RootKeysQuery)
+		seed, rootQuery := splitRootPageCandidateSeed(t, testAQLText(t, page.RootKeys))
 		assertPageQueryOrder(t, seed,
 			"child_set_1_node.payload.id == @construction_filter_value",
 			"FOR child_set_1_edge IN",
@@ -76,7 +76,7 @@ func TestCompileRecipeOutputPageOrdersMixedRelatedFilterSequences(t *testing.T) 
 			pageFilterStep("keep_practitioner", "keep_patient", "practitioner-id", recipe.FilterEquals, practitionerID, columns),
 		}
 		page := compileRelatedConstructionPage(t, "independent-related-producers", output)
-		seed, rootQuery := splitRootPageCandidateSeed(t, page.RootKeysQuery)
+		seed, rootQuery := splitRootPageCandidateSeed(t, testAQLText(t, page.RootKeys))
 		assertPageQueryOrder(t, seed,
 			"child_set_1_node.payload.id == @construction_filter_value",
 			"FOR child_set_1_edge IN",

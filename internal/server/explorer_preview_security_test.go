@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"strings"
 	"testing"
 
@@ -74,7 +75,12 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry:     compilerTestRegistry{},
 		RootPageRows: 25,
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return visit(map[string]any{
 				"group_revision_id": "grouprev_pinned", "group_id": "j03-reviewed", "group_label": "J03 reviewed", "group_ordinal": 0,
 				"members":       []any{map[string]any{"source_identity": map[string]any{"id": "dev-patient-001"}}},

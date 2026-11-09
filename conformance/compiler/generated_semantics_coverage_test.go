@@ -50,8 +50,8 @@ func TestPublicCompilerAcceptsEveryGeneratedBuilderTraversal(t *testing.T) {
 			if compiled.PlanProfile != "generic_fhir_graph_recipe" {
 				t.Fatalf("plan profile = %q, want generic_fhir_graph_recipe", compiled.PlanProfile)
 			}
-			if !bindVarsContain(compiled.BindVars, traversal.ToType) {
-				t.Fatalf("target resource type %q is not represented as a bind value: %#v", traversal.ToType, compiled.BindVars)
+			if !bindVarsContain(testAQLBinds(t, compiled.Command), traversal.ToType) {
+				t.Fatalf("target resource type %q is not represented as a bind value: %#v", traversal.ToType, testAQLBinds(t, compiled.Command))
 			}
 		})
 	}
@@ -66,8 +66,8 @@ func TestPublicCompilerRejectsUnadvertisedRootBeforeRenderingAQL(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not represented by the active generated FHIR schema") {
 		t.Fatalf("error = %v, want generated-schema rejection", err)
 	}
-	if compiled.Query != "" {
-		t.Fatalf("unsafe root produced AQL: %s", compiled.Query)
+	if compiled.Command.Backend() != "" {
+		t.Fatalf("unsafe root produced AQL: backend %s", compiled.Command.Backend())
 	}
 }
 
@@ -147,15 +147,15 @@ var collectionIteration = regexp.MustCompile(`(?m)^FOR\s+[A-Za-z_][A-Za-z0-9_]*\
 
 func assertOnlyValidatedRootCollection(t *testing.T, compiled compiler.CompiledQuery, rootResourceType string) {
 	t.Helper()
-	matches := collectionIteration.FindAllStringSubmatch(compiled.Query, -1)
-	if strings.Contains(compiled.Query, "FOR root IN @@root_collection") {
-		if len(matches) != 0 || compiled.BindVars["@root_collection"] != rootResourceType {
-			t.Fatalf("physical root collection = %#v / direct iterations %#v, want only validated root %q\nquery:\n%s", compiled.BindVars["@root_collection"], matches, rootResourceType, compiled.Query)
+	matches := collectionIteration.FindAllStringSubmatch(testAQLText(t, compiled.Command), -1)
+	if strings.Contains(testAQLText(t, compiled.Command), "FOR root IN @@root_collection") {
+		if len(matches) != 0 || testAQLBinds(t, compiled.Command)["@root_collection"] != rootResourceType {
+			t.Fatalf("physical root collection = %#v / direct iterations %#v, want only validated root %q\nquery:\n%s", testAQLBinds(t, compiled.Command)["@root_collection"], matches, rootResourceType, testAQLText(t, compiled.Command))
 		}
 		return
 	}
 	if len(matches) != 1 || matches[0][1] != rootResourceType {
-		t.Fatalf("direct collection iterations = %#v, want only validated root %q\nquery:\n%s", matches, rootResourceType, compiled.Query)
+		t.Fatalf("direct collection iterations = %#v, want only validated root %q\nquery:\n%s", matches, rootResourceType, testAQLText(t, compiled.Command))
 	}
 }
 

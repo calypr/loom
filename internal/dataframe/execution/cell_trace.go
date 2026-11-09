@@ -124,7 +124,7 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 
 	var result CellTraceResult
 	witnessRows := int64(0)
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

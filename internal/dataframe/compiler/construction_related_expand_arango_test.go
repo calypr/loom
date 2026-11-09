@@ -33,13 +33,13 @@ func TestRelatedSourceProjectionLivenessForKeylessCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			query := compileRelatedExpandCountQuery(t, relatedExpandCountOutput(test.groupByFlag))
 			for _, marker := range []string{"unused_count_column_marker", "unused_list_column_marker", "unused_presence_column_marker"} {
-				gotMarker := strings.Contains(query.Query, marker)
+				gotMarker := strings.Contains(testAQLText(t, query.Command), marker)
 				if gotMarker != test.wantMarker {
-					t.Errorf("related source projection %q included = %t, want %t:\n%s", marker, gotMarker, test.wantMarker, query.Query)
+					t.Errorf("related source projection %q included = %t, want %t:\n%s", marker, gotMarker, test.wantMarker, testAQLText(t, query.Command))
 				}
 			}
-			if !strings.Contains(query.Query, "related_expand_records") || !strings.Contains(query.Query, "WITH COUNT INTO") {
-				t.Fatalf("query must retain related expansion and row counting:\n%s", query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), "related_expand_records") || !strings.Contains(testAQLText(t, query.Command), "WITH COUNT INTO") {
+				t.Fatalf("query must retain related expansion and row counting:\n%s", testAQLText(t, query.Command))
 			}
 		})
 	}
@@ -224,7 +224,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 	t.Run(string(recipe.ExpansionError), func(t *testing.T) {
 		_, query := compileRelatedExpandOracleQuery(t, relatedExpandOracleOutput(recipe.ExpansionError), project, generation)
 		started := time.Now()
-		err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(map[string]any) error { return nil })
+		err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
 		t.Logf("RELATED_EXPAND %s query rejected an empty route in %s", recipe.ExpansionError, time.Since(started))
 		if err == nil {
 			t.Fatalf("ERROR policy returned rows despite active p2 having no related resource")
@@ -398,7 +398,7 @@ func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgains
 		output := groupedRelatedExpansionOutput(recipe.ExpansionError)
 		query := compileConstructionOutputQueryWithBindings(t, output, project, generation,
 			recipe.RuntimeBindings{AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}})
-		err := client.QueryRows(ctx, query.Query, 100, query.BindVars, func(map[string]any) error { return nil })
+		err := client.QueryRows(ctx, testAQLText(t, query.Command), 100, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
 		if err == nil {
 			t.Fatal("ERROR policy returned rows for the empty female contributor group")
 		}
@@ -672,8 +672,8 @@ func TestRelatedFieldReadsExactExpandedRecordAfterFilterAgainstArango(t *testing
 		"related_field_document.dataset_generation == @dataset_generation",
 		"related_field_document.auth_resource_path IN @auth_resource_paths",
 	} {
-		if !strings.Contains(query.Query, required) {
-			t.Fatalf("exact field lookup omits scope guard %q: %s", required, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), required) {
+			t.Fatalf("exact field lookup omits scope guard %q: %s", required, testAQLText(t, query.Command))
 		}
 	}
 	rows := executeReshapeOracleQuery(t, ctx, client, query)
@@ -773,11 +773,11 @@ func compileRelatedExpandOracleQuery(t *testing.T, output recipe.Output, project
 func executeRowLineageOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledRowLineageQuery) map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0, 1)
-	if err := client.QueryRows(ctx, query.Query, 32, query.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 32, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, query.Query)
+		t.Fatalf("execute compiler-generated row lineage query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	if len(rows) != 1 {
 		t.Fatalf("row lineage returned %d rows, want one result: %#v", len(rows), rows)
@@ -994,8 +994,8 @@ func TestRelatedExpandRepeatedScalarContributorMatchesWithinTerminalRecordAgains
 	}
 	query := compileConstructionOutputQueryWithBindings(t, output, project, generation, bindings)
 	for _, required := range []string{".project == @project", ".dataset_generation == @dataset_generation", "auth_resource_path IN @auth_resource_paths"} {
-		if !strings.Contains(query.Query, required) {
-			t.Fatalf("repeated related predicate query omitted scope guard %q: %s", required, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), required) {
+			t.Fatalf("repeated related predicate query omitted scope guard %q: %s", required, testAQLText(t, query.Command))
 		}
 	}
 	rows := executeReshapeOracleQuery(t, ctx, client, query)
@@ -1107,7 +1107,7 @@ func TestTerminalRepeatedPrimitiveSelectorValuesAgainstArango(t *testing.T) {
 			if err != nil {
 				t.Fatalf("render %s terminal primitive selector: %v", mode, err)
 			}
-			rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
+			rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: testAQLCommand(rendered.Query, rendered.BindVars)})
 			if len(rows) != len(documents) {
 				t.Fatalf("%s terminal primitive query returned %d rows, want %d:\n%s", mode, len(rows), len(documents), rendered.Query)
 			}

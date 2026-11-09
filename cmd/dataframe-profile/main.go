@@ -154,12 +154,20 @@ func main() {
 		fatalf("compile GDC request %q produced %d outputs; profiling requires exactly one", label, len(compiledQueries))
 	}
 	compiled := compiledQueries[0]
-	hash := sha256.Sum256([]byte(compiled.Query))
+	// The profiler is an Arango diagnostic: the AQL view for the file dump,
+	// EXPLAIN, and PROFILE is derived from the compiled command through
+	// closed dispatch, so a non-AQL-tagged command is refused here rather
+	// than profiled.
+	aqlText, compiledBinds, dispatchErr := compiled.Command.AQLParameters()
+	if dispatchErr != nil {
+		fatalf("dispatch GDC request %q to AQL profiling: %v", label, dispatchErr)
+	}
+	hash := sha256.Sum256([]byte(aqlText))
 	aqlHash := hex.EncodeToString(hash[:])
 	if *aqlPath == "" {
 		*aqlPath = filepath.Join("docs", "benchmarks", label+"-"+aqlHash[:16]+".aql")
 	}
-	if err := os.WriteFile(*aqlPath, []byte(compiled.Query+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(*aqlPath, []byte(aqlText+"\n"), 0o644); err != nil {
 		fatalf("write AQL %q: %v", *aqlPath, err)
 	}
 
@@ -170,14 +178,14 @@ func main() {
 		fatalf("open Arango: %v", err)
 	}
 	defer client.Close(ctx)
-	explain, err := client.Explain(ctx, arangostore.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
+	explain, err := client.Explain(ctx, arangostore.ExplainRequest{Query: aqlText, BindVars: compiledBinds})
 	if err != nil {
 		fatalf("EXPLAIN: %v", err)
 	}
 	started := time.Now()
 	profileRequest := arangostore.ProfileRequest{
-		Query:     compiled.Query,
-		BindVars:  compiled.BindVars,
+		Query:     aqlText,
+		BindVars:  compiledBinds,
 		BatchSize: *batchSize,
 		Count:     true,
 		Options:   arangostore.ProfileOptions{Profile: *profile},
@@ -208,7 +216,7 @@ func main() {
 		Fixture:         label,
 		AQLSHA256:       aqlHash,
 		ResultSHA256:    canonicalResultHash(profileResult.Result),
-		BindVars:        compiled.BindVars,
+		BindVars:        compiledBinds,
 		Rows:            profileResult.Count,
 		Explain: explainReport{
 			Plans:               assessment.Plans,

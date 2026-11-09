@@ -32,26 +32,26 @@ func TestCodedGroupPreviewWithSourceIdentityKeepsStageInputScoped(t *testing.T) 
 		"root.payload[\"includedStructure\"]",
 		"AGGREGATE __loom_construction_coded_group_count_1 = SUM(1)",
 	} {
-		if !strings.Contains(query.Query, expected) {
-			t.Errorf("inlined coded-group query is missing %q:\n%s", expected, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), expected) {
+			t.Errorf("inlined coded-group query is missing %q:\n%s", expected, testAQLText(t, query.Command))
 		}
 	}
 	for _, unexpected := range []string{"__loom_construction_source_projection", "DOCUMENT(@@root_collection", "IN __loom_construction_input_1"} {
-		if strings.Contains(query.Query, unexpected) {
-			t.Fatalf("direct-root CODED_GROUP query retained fallback fragment %q:\n%s", unexpected, query.Query)
+		if strings.Contains(testAQLText(t, query.Command), unexpected) {
+			t.Fatalf("direct-root CODED_GROUP query retained fallback fragment %q:\n%s", unexpected, testAQLText(t, query.Command))
 		}
 	}
-	if strings.Contains(query.Query, ir.PreviewSourceResourceIDColumn) {
-		t.Fatalf("composite CODED_GROUP preview gained a single-source identity projection:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("composite CODED_GROUP preview gained a single-source identity projection:\n%s", testAQLText(t, query.Command))
 	}
 	if got, want := query.PublicColumns, []string{"code_system", "code_version", "code", "source_records"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("CODED_GROUP preview public columns = %#v, want %#v", got, want)
 	}
-	if query.BindVars["auth_resource_paths_unrestricted"] != false {
-		t.Fatalf("inlined source bypassed restricted authorization: %#v", query.BindVars)
+	if testAQLBinds(t, query.Command)["auth_resource_paths_unrestricted"] != false {
+		t.Fatalf("inlined source bypassed restricted authorization: %#v", testAQLBinds(t, query.Command))
 	}
-	if paths, ok := query.BindVars["auth_resource_paths"].([]string); !ok || !reflect.DeepEqual(paths, []string{"BodyStructure/allowed"}) {
-		t.Fatalf("inlined source changed the authorized paths: %#v", query.BindVars["auth_resource_paths"])
+	if paths, ok := testAQLBinds(t, query.Command)["auth_resource_paths"].([]string); !ok || !reflect.DeepEqual(paths, []string{"BodyStructure/allowed"}) {
+		t.Fatalf("inlined source changed the authorized paths: %#v", testAQLBinds(t, query.Command)["auth_resource_paths"])
 	}
 }
 
@@ -94,12 +94,12 @@ func TestCodedGroupInlinesPopulationSelectedRootScan(t *testing.T) {
 		"LET root = DOCUMENT(@@root_collection, __loom_physical_population_root_key)",
 		"root.payload[\"includedStructure\"]",
 	} {
-		if !strings.Contains(query.Query, expected) {
-			t.Errorf("population-selected coded-group query is missing %q:\n%s", expected, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), expected) {
+			t.Errorf("population-selected coded-group query is missing %q:\n%s", expected, testAQLText(t, query.Command))
 		}
 	}
-	if strings.Contains(query.Query, "__loom_construction_source_projection") || strings.Contains(query.Query, "__loom_construction_coded_group_source_id") {
-		t.Fatalf("population-selected first-stage CODED_GROUP did not inline its physical root scan:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "__loom_construction_source_projection") || strings.Contains(testAQLText(t, query.Command), "__loom_construction_coded_group_source_id") {
+		t.Fatalf("population-selected first-stage CODED_GROUP did not inline its physical root scan:\n%s", testAQLText(t, query.Command))
 	}
 }
 

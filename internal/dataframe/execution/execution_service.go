@@ -62,7 +62,7 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	if s.queryRows == nil {
 		return streamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	err := s.queryRows(ctx, compiled.Query, 1000, compiled.BindVars, func(row map[string]any) error {
+	err := s.queryRows(ctx, compiled.Command, 1000, func(row map[string]any) error {
 		// A backend adapter can keep visiting rows after the caller cancels;
 		// stop before materializing or delivering any further public row.
 		if err := contextError(ctx); err != nil {

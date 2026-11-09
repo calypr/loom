@@ -35,6 +35,12 @@ const pgExecDispatch = new Set([
     'TestPostgresEngineCrossTagRefusedBeforeServer',
     'TestPostgresEngineBackendKillConverges',
     'TestZZZeroLeftoverExec02PostgresFixtures',
+    // arch-backend-01: typed compiled-command boundary evidence against the
+    // real PG18 service; skipped (explicitly) in this Arango-only lane.
+    'TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer',
+    'TestVerifyArch01PostgreSQLBoundaryRaceDistinctBackendsOverlapRounds',
+    'TestVerifyArch01PostgreSQLNamedRefusalsTouchNoServer',
+    'TestVerifyArch01PostgreSQLCrashBeforeDriverNeverReachesServer',
 ]);
 const external = new Set([
     'TestPivotPresenceAudit',

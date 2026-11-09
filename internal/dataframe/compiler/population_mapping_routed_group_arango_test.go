@@ -243,7 +243,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	if err != nil {
 		t.Fatalf("compile routed cohort preview: %v", err)
 	}
-	bindCollections(preview.BindVars)
+	bindCollections(testAQLBinds(t, preview.Command))
 	previewRows := executeReshapeOracleQuery(t, ctx, client, preview)
 	previewGroups := make(map[string]map[string]any, len(previewRows))
 	for _, row := range previewRows {
@@ -289,8 +289,8 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	bindCollections(mapping.BindVars)
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: mapping.Query, BindVars: mapping.BindVars})
+	bindCollections(testAQLBinds(t, mapping.Command))
+	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: mapping.Command})
 
 	// Derive the witness oracle from the fixture rows used above, without using
 	// the compiler preview or mapping result to decide which members should map.
@@ -308,8 +308,8 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	wantIdentity := map[string]any{"group_revision_id": cohortRevisionID, "group_id": "routed"}
 	if len(rows) != len(wantMembers) {
 		t.Logf("ordinary preview rows: %#v", previewRows)
-		t.Logf("compiled population mapping query:\n%s", mapping.Query)
-		t.Logf("compiled population mapping bind vars: %#v", mapping.BindVars)
+		t.Logf("compiled population mapping query:\n%s", testAQLText(t, mapping.Command))
+		t.Logf("compiled population mapping bind vars: %#v", testAQLBinds(t, mapping.Command))
 		const scopedSourceJoin = `
 FOR member IN @@members
   FILTER member.selectionId == @selection_id
@@ -428,27 +428,27 @@ FOR target IN @@roots
 	if err != nil {
 		t.Fatalf("compile pre-cohort GROUP→PIVOT preview: %v", err)
 	}
-	bindCollections(preCohortPreview.BindVars)
+	bindCollections(testAQLBinds(t, preCohortPreview.Command))
 	preCohortRows := executeReshapeOracleQuery(t, ctx, client, preCohortPreview)
 	if len(preCohortRows) != 1 || preCohortRows[0]["patient_id"] != "shared" {
-		t.Fatalf("pre-cohort GROUP→PIVOT rows = %#v, want exactly Patient/shared; query:\n%s", preCohortRows, preCohortPreview.Query)
+		t.Fatalf("pre-cohort GROUP→PIVOT rows = %#v, want exactly Patient/shared; query:\n%s", preCohortRows, testAQLText(t, preCohortPreview.Command))
 	}
 	preCohortRow := preCohortRows[0]
 	if got, ok := preCohortRow["male_count"].(float64); !ok || got != 1 {
-		t.Fatalf("pre-cohort GROUP→PIVOT male count = %#v, want 1 distinct root Patient row; row=%#v query:\n%s", preCohortRow["male_count"], preCohortRow, preCohortPreview.Query)
+		t.Fatalf("pre-cohort GROUP→PIVOT male count = %#v, want 1 distinct root Patient row; row=%#v query:\n%s", preCohortRow["male_count"], preCohortRow, testAQLText(t, preCohortPreview.Command))
 	}
 	if got := preCohortRow["female_count"]; got != nil {
-		t.Fatalf("pre-cohort GROUP→PIVOT female count = %#v, want a null missing cell; query:\n%s", got, preCohortPreview.Query)
+		t.Fatalf("pre-cohort GROUP→PIVOT female count = %#v, want a null missing cell; query:\n%s", got, testAQLText(t, preCohortPreview.Command))
 	}
 	if got, ok := preCohortRow["__loom_root_contributor_keys"].([]any); !ok || !reflect.DeepEqual(got, []any{key("patient_shared")}) {
-		t.Fatalf("pre-cohort GROUP→PIVOT root contributors = %#v, want the exact shared Patient storage key; query:\n%s", preCohortRow["__loom_root_contributor_keys"], preCohortPreview.Query)
+		t.Fatalf("pre-cohort GROUP→PIVOT root contributors = %#v, want the exact shared Patient storage key; query:\n%s", preCohortRow["__loom_root_contributor_keys"], testAQLText(t, preCohortPreview.Command))
 	}
 
 	pivotPreview, err := CompileRecipeOutputWithPolicy(pivotCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT cohort preview: %v", err)
 	}
-	bindCollections(pivotPreview.BindVars)
+	bindCollections(testAQLBinds(t, pivotPreview.Command))
 	pivotRows := executeReshapeOracleQuery(t, ctx, client, pivotPreview)
 	pivotGroups := make(map[string]map[string]any, len(pivotRows))
 	for _, row := range pivotRows {
@@ -489,13 +489,13 @@ FOR target IN @@roots
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT population mapping: %v", err)
 	}
-	bindCollections(pivotMapping.BindVars)
+	bindCollections(testAQLBinds(t, pivotMapping.Command))
 	pivotMappingRows := make([]map[string]any, 0, len(wantMembers))
-	if err := client.QueryRows(ctx, pivotMapping.Query, 100, pivotMapping.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, pivotMapping.Command), 100, testAQLBinds(t, pivotMapping.Command), func(row map[string]any) error {
 		pivotMappingRows = append(pivotMappingRows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute routed GROUP→PIVOT population mapping query:\n%s\n%v", pivotMapping.Query, err)
+		t.Fatalf("execute routed GROUP→PIVOT population mapping query:\n%s\n%v", testAQLText(t, pivotMapping.Command), err)
 	}
 	pivotMappedMembers := make([]string, 0, len(pivotMappingRows))
 	for _, row := range pivotMappingRows {
@@ -732,7 +732,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 	if err != nil {
 		t.Fatalf("render pre-cohort GROUP→PIVOT preview: %v", err)
 	}
-	if strings.TrimSpace(preCohortPreview.Query) == "" {
+	if strings.TrimSpace(testAQLText(t, preCohortPreview.Command)) == "" {
 		t.Fatal("pre-cohort GROUP→PIVOT preview query is empty")
 	}
 }

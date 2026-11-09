@@ -76,7 +76,7 @@ func TestNestedRepeatedSourceValuesThroughAuthoredConstructionExpandAgainstArang
 	assertNestedConstructionExpandRows(t, executeReshapeOracleQuery(t, ctx, client, excludedQuery), project, wantNonEmpty)
 
 	errorQuery := compileConstructionOutputQuery(t, nestedConstructionExpandOutput(recipe.ExpansionError), project, generation)
-	if err := client.QueryRows(ctx, errorQuery.Query, 500, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_EXPANSION_EMPTY") {
+	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 500, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_EXPANSION_EMPTY") {
 		t.Fatalf("ERROR policy over missing/empty nested source lists = %v, want CONSTRUCTION_EXPANSION_EMPTY", err)
 	}
 }

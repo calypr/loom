@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"sync"
@@ -189,7 +190,12 @@ func TestWithPrivateClickHouseArtifactsPinPublishedInputsThroughAllCaptures(t *t
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 	for index := range sources {
 		outputID := sources[index].OutputID
-		sources[index].Stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		sources[index].Stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if !pinned {
 				return fmt.Errorf("workspace output %q streamed outside published pins", outputID)
 			}
@@ -218,7 +224,12 @@ func TestWithPrivateClickHouseArtifactsCleansEarlierCaptureAfterSecondFailure(t 
 		t.Fatal(err)
 	}
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-	sources[1].Stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+	sources[1].Stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return errors.New("second source failed")
 	}
 	consumeCalled := false
@@ -304,7 +315,12 @@ func TestWithPrivateClickHouseArtifactsCleansCapturesAfterCancellationAndConsume
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-		sources[1].Stream.stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+		sources[1].Stream.stream = func(ctx context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			cancel()
 			<-ctx.Done()
 			return ctx.Err()
@@ -346,7 +362,12 @@ func TestWithPrivateClickHouseArtifactsLeaseLossCancelsNextSourceStream(t *testi
 		t.Fatal(err)
 	}
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-	sources[1].Stream.stream = func(ctx context.Context, _ string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+	sources[1].Stream.stream = func(ctx context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		catalog.mu.Lock()
 		if len(catalog.createdIDs) == 0 {
 			catalog.mu.Unlock()
@@ -442,8 +463,14 @@ func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName
 		Outputs: []recipe.Output{makeOutput("patients"), makeOutput("observations")},
 	}
 	engine, err := New(Config{
-		Registry:  invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry: invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -459,7 +486,12 @@ func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName
 	if stream.scopeEvidence == nil || stream.scopeEvidenceIdentity == nil || !stream.scopeEvidence.Matches(stream.physicalPlan, *stream.scopeEvidenceIdentity) {
 		t.Fatalf("fixture capture stream %q has no compiler-issued source evidence", outputID)
 	}
-	stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(privateCaptureRowFor(columnName, value))
 	}
 	columns, err := chartifact.ColumnsFromCompiledOutput(stream.outputSchema)

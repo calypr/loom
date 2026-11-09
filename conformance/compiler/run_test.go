@@ -75,18 +75,22 @@ func Verify(fixture Fixture) error {
 			return fmt.Errorf("compiled optimizer rules %v do not contain %q", result.Compiled.OptimizationRules, want)
 		}
 	}
+	compiledText, compiledBinds, dispatchErr := result.Compiled.Command.AQLParameters()
+	if dispatchErr != nil {
+		return dispatchErr
+	}
 	for _, fragment := range fixture.Expected.QueryContains {
-		if !strings.Contains(result.Compiled.Query, fragment) {
+		if !strings.Contains(compiledText, fragment) {
 			return fmt.Errorf("compiled query does not contain %q", fragment)
 		}
 	}
 	for _, fragment := range fixture.Expected.QueryNotContains {
-		if strings.Contains(result.Compiled.Query, fragment) {
+		if strings.Contains(compiledText, fragment) {
 			return fmt.Errorf("compiled query unexpectedly contains %q", fragment)
 		}
 	}
 	for key, want := range fixture.Expected.BindVars {
-		if got, ok := result.Compiled.BindVars[key]; !ok || fmt.Sprint(got) != fmt.Sprint(want) {
+		if got, ok := compiledBinds[key]; !ok || fmt.Sprint(got) != fmt.Sprint(want) {
 			return fmt.Errorf("bind variable %q = %#v, want %#v", key, got, want)
 		}
 	}

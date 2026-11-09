@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"testing"
 
@@ -154,8 +155,14 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry: compilerTestRegistry{},
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -496,8 +503,14 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry: compilerTestRegistry{},
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

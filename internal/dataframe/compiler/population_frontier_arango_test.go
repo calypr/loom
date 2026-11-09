@@ -195,24 +195,24 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled.BindVars["@root_collection"] = observations
-	compiled.BindVars["@population_source_collection"] = observations
-	compiled.BindVars["@population_members_collection"] = members
+	testAQLBinds(t, compiled.Command)["@root_collection"] = observations
+	testAQLBinds(t, compiled.Command)["@population_source_collection"] = observations
+	testAQLBinds(t, compiled.Command)["@population_members_collection"] = members
 	for index := range route {
-		compiled.BindVars[fmt.Sprintf("@population_root_route_%d_edge_collection", index)] = edges
+		testAQLBinds(t, compiled.Command)[fmt.Sprintf("@population_root_route_%d_edge_collection", index)] = edges
 	}
 
 	queryCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	profile, err := client.Profile(queryCtx, store.ProfileRequest{
-		Query: compiled.Query, BindVars: compiled.BindVars, BatchSize: 256,
+		Query: testAQLText(t, compiled.Command), BindVars: testAQLBinds(t, compiled.Command), BatchSize: 256,
 		Count: true, Options: store.ProfileOptions{Profile: 2},
 	})
 	if err != nil {
-		t.Fatalf("execute scoped 8-hop population mapping query: %v\n%s", err, compiled.Query)
+		t.Fatalf("execute scoped 8-hop population mapping query: %v\n%s", err, testAQLText(t, compiled.Command))
 	}
 	if profile.HasMore || profile.Count != 70 || len(profile.Result) != 70 {
-		t.Fatalf("scoped route returned count=%d rows=%d hasMore=%v stats=%#v binds=%#v, want 70 member/root witnesses:\n%s", profile.Count, len(profile.Result), profile.HasMore, profile.Extra.Stats, compiled.BindVars, compiled.Query)
+		t.Fatalf("scoped route returned count=%d rows=%d hasMore=%v stats=%#v binds=%#v, want 70 member/root witnesses:\n%s", profile.Count, len(profile.Result), profile.HasMore, profile.Extra.Stats, testAQLBinds(t, compiled.Command), testAQLText(t, compiled.Command))
 	}
 	wantRoots := make(map[string]struct{}, len(observationIDs))
 	for _, id := range observationIDs {

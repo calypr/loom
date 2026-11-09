@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"reflect"
 	"sort"
@@ -96,7 +97,12 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	var mappingCalls, queryCalls int
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{},
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			queryCalls++
 			if !strings.Contains(query, "FILTER") {
 				return fmt.Errorf("population mapping query omitted the authored filter: %s", query)

@@ -176,8 +176,8 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 			"root.project == @project", "root.dataset_generation == @dataset_generation",
 			"root.auth_resource_path IN @auth_resource_paths",
 		} {
-			if !strings.Contains(query.Query, want) {
-				t.Errorf("CODED_GROUP row-lineage query lost source scope %q:\n%s", want, query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), want) {
+				t.Errorf("CODED_GROUP row-lineage query lost source scope %q:\n%s", want, testAQLText(t, query.Command))
 			}
 		}
 		return query
@@ -256,7 +256,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	if err != nil {
 		t.Fatal(err)
 	}
-	allQuery.BindVars["@root_collection"] = fixtureCollection
+	testAQLBinds(t, allQuery.Command)["@root_collection"] = fixtureCollection
 	allSourceIDs := codedGroupSourceProjectionIDs(t, ctx, client, allCompiled, fixtureCollection)
 	allRows := executeReshapeOracleQuery(t, ctx, client, allQuery)
 	assertCodedGroupSourceIDsMatchCodes(t, allRows, allSourceIDs)
@@ -276,8 +276,8 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	if err != nil {
 		t.Fatal(err)
 	}
-	selectedQuery.BindVars["@root_collection"] = fixtureCollection
-	selectedQuery.BindVars["@population_source_collection"] = fixtureCollection
+	testAQLBinds(t, selectedQuery.Command)["@root_collection"] = fixtureCollection
+	testAQLBinds(t, selectedQuery.Command)["@population_source_collection"] = fixtureCollection
 	selectedSourceIDs := codedGroupSourceProjectionIDs(t, ctx, client, selectedCompiled, fixtureCollection)
 	selectedRows := executeReshapeOracleQuery(t, ctx, client, selectedQuery)
 	assertCodedGroupSourceIDsMatchCodes(t, selectedRows, selectedSourceIDs)

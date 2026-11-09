@@ -134,13 +134,13 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 			"root.project == @project", "root.dataset_generation == @dataset_generation",
 			"root.auth_resource_path IN @auth_resource_paths", "LIMIT @row_lineage_offset, @row_lineage_fetch_limit",
 		} {
-			if !strings.Contains(compiled.Query, want) {
-				t.Errorf("Group/Pivot row-lineage query lost source scope or bounded page clause %q:\n%s", want, compiled.Query)
+			if !strings.Contains(testAQLText(t, compiled.Command), want) {
+				t.Errorf("Group/Pivot row-lineage query lost source scope or bounded page clause %q:\n%s", want, testAQLText(t, compiled.Command))
 			}
 		}
-		if strings.Contains(compiled.Query, "COLLECT INTO") || strings.Contains(compiled.Query, "SORTED_UNIQUE") ||
-			strings.Contains(compiled.Query, "__loom_root_contributor_keys") {
-			t.Errorf("Group/Pivot row-lineage query relied on materialized contributor arrays or sidecars:\n%s", compiled.Query)
+		if strings.Contains(testAQLText(t, compiled.Command), "COLLECT INTO") || strings.Contains(testAQLText(t, compiled.Command), "SORTED_UNIQUE") ||
+			strings.Contains(testAQLText(t, compiled.Command), "__loom_root_contributor_keys") {
+			t.Errorf("Group/Pivot row-lineage query relied on materialized contributor arrays or sidecars:\n%s", testAQLText(t, compiled.Command))
 		}
 		return compiled
 	}
@@ -187,7 +187,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	// requested contributor page. Full-scope policy validation must still fail.
 	insert([]fixture{{id: "zz_unlisted_other", patient: "Patient/unrelated", project: project, generation: generation, authPath: "/allowed", status: &unlisted}})
 	lineage := compilePage(rowID, 0)
-	err = client.QueryRows(ctx, lineage.Query, 32, lineage.BindVars, func(map[string]any) error { return nil })
+	err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })
 	if err == nil || !strings.Contains(err.Error(), "TABLE_PIVOT_UNLISTED_CATEGORY") {
 		t.Fatalf("unlisted category outside the requested row/page produced error %v, want TABLE_PIVOT_UNLISTED_CATEGORY", err)
 	}

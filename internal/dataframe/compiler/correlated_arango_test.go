@@ -192,11 +192,11 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 			t.Fatal(compileErr)
 		}
 		rows := make([]map[string]any, 0)
-		if queryErr := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(row map[string]any) error {
+		if queryErr := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(row map[string]any) error {
 			rows = append(rows, row)
 			return nil
 		}); queryErr != nil {
-			t.Fatalf("execute explicit group rows: %v\n%s", queryErr, queries[0].Query)
+			t.Fatalf("execute explicit group rows: %v\n%s", queryErr, testAQLText(t, queries[0].Command))
 		}
 		return rows
 	}
@@ -249,17 +249,17 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	unassignedRows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, unassignedQueries[0].Query, 100, unassignedQueries[0].BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, unassignedQueries[0].Command), 100, testAQLBinds(t, unassignedQueries[0].Command), func(row map[string]any) error {
 		unassignedRows = append(unassignedRows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute GROUP_AS_UNASSIGNED query: %v\n%s", err, unassignedQueries[0].Query)
+		t.Fatalf("execute GROUP_AS_UNASSIGNED query: %v\n%s", err, testAQLText(t, unassignedQueries[0].Command))
 	}
 	if len(unassignedRows) != 4 || unassignedRows[3]["group_id"] != "__loom_unassigned__" {
 		t.Fatalf("unassigned group rows = %#v", unassignedRows)
 	}
 	errorQuery := mustCompileGroupRowsQuery(t, project, generation, revisionID, "ERROR")
-	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "EXPLICIT_GROUP_UNASSIGNED_MEMBER") {
+	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "EXPLICIT_GROUP_UNASSIGNED_MEMBER") {
 		t.Fatalf("ERROR policy query error = %v, want unassigned member assertion", err)
 	}
 }
@@ -1031,9 +1031,9 @@ func TestRecipeOccurrenceExpansionLiteralRowsAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryErr := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(map[string]any) error { return nil })
+	queryErr := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(map[string]any) error { return nil })
 	if queryErr == nil || !strings.Contains(queryErr.Error(), "specimen-owner") || !strings.Contains(queryErr.Error(), emptySpecimenKey) {
-		t.Fatalf("ERROR policy error = %v, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", queryErr, emptySpecimenKey, queries[0].Query)
+		t.Fatalf("ERROR policy error = %v, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", queryErr, emptySpecimenKey, testAQLText(t, queries[0].Command))
 	}
 }
 
@@ -1044,11 +1044,11 @@ func runRecipeExpansionQuery(t *testing.T, ctx context.Context, client *store.Cl
 		t.Fatal(err)
 	}
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, queries[0].Query, 100, queries[0].BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute occurrence expansion query: %v\n%s", err, queries[0].Query)
+		t.Fatalf("execute occurrence expansion query: %v\n%s", err, testAQLText(t, queries[0].Command))
 	}
 	return rows
 }

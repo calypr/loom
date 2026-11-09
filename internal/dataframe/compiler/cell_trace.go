@@ -15,10 +15,10 @@ const traceReshapeRowID = "__loom_row_id"
 
 // CompiledCellTraceQuery is a specialized terminal over one canonical output
 // plan. It retains the exact final value expression and stable row identity;
-// only the contributor page is diagnostic-only.
+// only the contributor page is diagnostic-only. Command is the single
+// parent-tagged executable, delivered to the AQL row-stream adapter only.
 type CompiledCellTraceQuery struct {
-	Query                  string
-	BindVars               map[string]any
+	Command                CompiledCommand
 	ValueColumn            string
 	ContributionsColumn    string
 	StatusColumn           string
@@ -33,6 +33,17 @@ type CompiledCellTraceQuery struct {
 	ContributionOffset     int
 	ContributionLimit      int
 	Diagnostics            ir.CompilerPlanDiagnostics
+}
+
+// cellTraceCommand tags the rendered cell trace plan as the parent-tagged AQL
+// command that execution accepts; the loose rendered pair never leaves the
+// compiler.
+func cellTraceCommand(rendered aql.RenderedPhysicalPlan) (CompiledCommand, error) {
+	command, err := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	if err != nil {
+		return CompiledCommand{}, fmt.Errorf("tag cell trace command: %w", err)
+	}
+	return command, nil
 }
 
 func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledCellTraceQuery, error) {
@@ -99,8 +110,12 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
 	}
+	command, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
 	query := CompiledCellTraceQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:     command,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),
@@ -144,8 +159,12 @@ func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.P
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render group-row cell trace physical plan: %w", err)
 	}
+	command, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
 	return CompiledCellTraceQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:     command,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, ExplicitIdentityColumn: ir.PhysicalCellTraceExplicitIdentityField,
@@ -180,8 +199,12 @@ func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *i
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render construction cell trace physical plan: %w", err)
 	}
+	command, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
 	query := CompiledCellTraceQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:     command,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),

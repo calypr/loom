@@ -119,7 +119,12 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			{query.PresentColumn: true, query.ValueColumn: nil},
 			{query.PresentColumn: false, query.ValueColumn: nil},
 		}
-		queryRows := func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		queryRows := func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			for _, row := range rows {
 				if err := visit(row); err != nil {
 					return err

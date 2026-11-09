@@ -27,13 +27,13 @@ func TestSemanticGroupScalarKeyPreviewFrontierActivatesOnCompiledPlan(t *testing
 	if err != nil {
 		t.Fatalf("compile semantic Group preview: %v", err)
 	}
-	if strings.Contains(preview.Query, "group_preview_selected_root_keys") {
-		if strings.Count(preview.Query, "root._key") < 2 || !strings.Contains(preview.Query, "group_preview_selected_root_keys") {
-			t.Fatalf("frontier did not retain and replay the direct root identity projection:\n%s", preview.Query)
+	if strings.Contains(testAQLText(t, preview.Command), "group_preview_selected_root_keys") {
+		if strings.Count(testAQLText(t, preview.Command), "root._key") < 2 || !strings.Contains(testAQLText(t, preview.Command), "group_preview_selected_root_keys") {
+			t.Fatalf("frontier did not retain and replay the direct root identity projection:\n%s", testAQLText(t, preview.Command))
 		}
 		return
 	}
-	t.Fatalf("compiled semantic Group plan did not enter its proven frontier:\n%s", preview.Query)
+	t.Fatalf("compiled semantic Group plan did not enter its proven frontier:\n%s", testAQLText(t, preview.Command))
 }
 
 func TestSemanticGroupScalarKeyPreviewMatchesFullQueryAgainstArango(t *testing.T) {
@@ -102,19 +102,20 @@ func TestSemanticGroupScalarKeyPreviewMatchesFullQueryAgainstArango(t *testing.T
 	if err != nil {
 		t.Fatalf("compile full semantic Group query: %v", err)
 	}
-	if !strings.Contains(preview.Query, "group_preview_selected_root_keys") {
-		t.Fatalf("semantic Group preview did not activate the direct-root key frontier:\n%s", preview.Query)
+	if !strings.Contains(testAQLText(t, preview.Command), "group_preview_selected_root_keys") {
+		t.Fatalf("semantic Group preview did not activate the direct-root key frontier:\n%s", testAQLText(t, preview.Command))
 	}
-	if strings.Count(preview.Query, "FILTER root.project == @project") != 2 ||
-		strings.Count(preview.Query, "FILTER root.dataset_generation == @dataset_generation") != 2 ||
-		strings.Count(preview.Query, "root.auth_resource_path IN @auth_resource_paths") != 2 {
-		t.Fatalf("frontier or selected-root replay dropped a source/auth predicate:\n%s", preview.Query)
+	if strings.Count(testAQLText(t, preview.Command), "FILTER root.project == @project") != 2 ||
+		strings.Count(testAQLText(t, preview.Command), "FILTER root.dataset_generation == @dataset_generation") != 2 ||
+		strings.Count(testAQLText(t, preview.Command), "root.auth_resource_path IN @auth_resource_paths") != 2 {
+		t.Fatalf("frontier or selected-root replay dropped a source/auth predicate:\n%s", testAQLText(t, preview.Command))
 	}
 	if preview.PreviewCoveringIndex != nil {
-		hinted, _, err := RenderPreviewPhysicalPlanWithRootIndexHint(preview.PhysicalPlan, preview.PreviewCoveringIndex.Name)
+		hintedCommand, err := RenderPreviewPhysicalPlanWithRootIndexHint(preview.PhysicalPlan, preview.PreviewCoveringIndex.Name)
 		if err != nil {
 			t.Fatalf("render semantic Group frontier with the non-forcing preview index hint: %v", err)
 		}
+		hinted := testAQLText(t, hintedCommand)
 		if !strings.Contains(hinted, "OPTIONS { indexHint: \""+preview.PreviewCoveringIndex.Name+"\", forceIndexHint: false }") ||
 			!strings.Contains(hinted, "group_preview_selected_root_keys") {
 			t.Fatalf("non-forcing preview hint disabled the semantic Group frontier:\n%s", hinted)
@@ -166,7 +167,7 @@ func TestSemanticGroupScalarKeyPreviewMatchesFullQueryAgainstArango(t *testing.T
 		if err != nil {
 			t.Fatalf("compile semantic Group query with malformed scalar key and limit %d: %v", limit, err)
 		}
-		if err := client.QueryRows(ctx, query.Query, 100, query.BindVars, func(map[string]any) error { return nil }); err == nil {
+		if err := client.QueryRows(ctx, testAQLText(t, query.Command), 100, testAQLBinds(t, query.Command), func(map[string]any) error { return nil }); err == nil {
 			t.Fatalf("semantic Group with limit %d hid the malformed key outside its selected page", limit)
 		}
 	}
