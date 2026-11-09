@@ -15,6 +15,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -348,4 +349,42 @@ func isQualifiedIdent(expr ast.Expr, pkg, name string) bool {
 		return false
 	}
 	return identName(selector.X) == pkg && selector.Sel.Name == name
+}
+
+// TestSourceCommandBoundaryContractPostgreSQLServedQueryCarriesDocumentedTag
+// gives the round-1 fix real bite: the PG-served CompiledQuery handed back by
+// the serving seam must carry the PostgreSQL tag and payload its field
+// documentation promises (compiler.CompiledQuery.Command), not a zero tag a
+// later change could misderive into AQL control-path checks. Deleting the
+// seam's Command assignment must fail THIS test.
+func TestSourceCommandBoundaryContractPostgreSQLServedQueryCarriesDocumentedTag(t *testing.T) {
+	config := verifyArch01Config(&verifyArch01Trace{})
+	selectionCommand := verifyArch01Command(t)
+	config.ResolvePostgreSQLCommands = verifyArch01Resolver(&ResolvedPostgreSQLCommand{Command: selectionCommand, Columns: []string{"id"}}, nil)
+	config.PostgreSQLQueryRows = func(context.Context, compiler.CompiledCommand, []string, RowVisitor) error {
+		return errors.New("seam inspection must not invoke the PostgreSQL row executor")
+	}
+	engine, err := New(config)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, query, err := engine.streamForOutput(context.Background(), verifyArch01Resolved([]string{"id"}, verifyArch01Schema("id")), "resources", 5)
+	if err != nil {
+		t.Fatalf("streamForOutput: %v", err)
+	}
+	if query.Command.Backend() != compiler.CompiledBackendPostgreSQL {
+		t.Fatalf("PostgreSQL-served CompiledQuery carries backend %q, want %q: the serving seam must hand callers the documented tagged command",
+			query.Command.Backend(), compiler.CompiledBackendPostgreSQL)
+	}
+	sqlText, args, err := query.Command.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("served query command must dispatch as PostgreSQL: %v", err)
+	}
+	wantSQL, wantArgs, err := selectionCommand.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("selection parameters: %v", err)
+	}
+	if sqlText != wantSQL || !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("served query command payload drifted from the selection: sql=%q args=%v want sql=%q args=%v", sqlText, args, wantSQL, wantArgs)
+	}
 }
