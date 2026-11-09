@@ -889,6 +889,7 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: every declared PostgreSQL result column is an internal projection; refusing to publish internal columns in the public row", output.Name)
 	}
 	query := compiler.CompiledQuery{
+		Command:            selection.Command,
 		Project:            bindings.Project,
 		DatasetGeneration:  bindings.DatasetGeneration,
 		RootResourceType:   output.RootResourceType,
@@ -2019,14 +2020,6 @@ func compiledOutputSchemaDigest(schema []lower.CompiledOutputColumn) (string, er
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil
-}
-
-func cloneBindVars(input map[string]any) map[string]any {
-	clone := make(map[string]any, len(input))
-	for key, value := range input {
-		clone[key] = value
-	}
-	return clone
 }
 
 // publicStreamRow removes compiler-only projections after they have served

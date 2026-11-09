@@ -257,3 +257,92 @@ func TestCompiledCommand(t *testing.T) {
 		}
 	})
 }
+
+// TestCompiledCommandWithAQLBinds pins the closed per-page bind override
+// seam: existing-key-only same-type overrides on a fresh copied map, with
+// named fail-closed refusals for every other shape.
+func TestCompiledCommandWithAQLBinds(t *testing.T) {
+	aqlCommand, err := NewAQLCommand("FOR d IN @@collection FILTER d.p == @p LIMIT @size RETURN d", map[string]any{
+		"@@collection": "Patient",
+		"p":            "alpha",
+		"size":         10,
+		"nilbind":      nil,
+	})
+	if err != nil {
+		t.Fatalf("NewAQLCommand: %v", err)
+	}
+	t.Run("OverrideCopiesWithoutMutatingOriginal", func(t *testing.T) {
+		updated, err := aqlCommand.WithAQLBinds(map[string]any{"size": 25, "p": "beta"})
+		if err != nil {
+			t.Fatalf("WithAQLBinds: %v", err)
+		}
+		if updated.Backend() != CompiledBackendAQL {
+			t.Fatalf("override changed the tag to %q", updated.Backend())
+		}
+		query, binds, err := updated.AQLParameters()
+		if err != nil {
+			t.Fatalf("AQLParameters: %v", err)
+		}
+		if query != "FOR d IN @@collection FILTER d.p == @p LIMIT @size RETURN d" {
+			t.Fatalf("override changed the query text: %q", query)
+		}
+		if binds["size"] != 25 || binds["p"] != "beta" {
+			t.Fatalf("overrides not applied: %v", binds)
+		}
+		if binds["@@collection"] != "Patient" || binds["nilbind"] != nil {
+			t.Fatalf("untouched binds lost: %v", binds)
+		}
+		_, originalBinds, err := aqlCommand.AQLParameters()
+		if err != nil {
+			t.Fatalf("original AQLParameters: %v", err)
+		}
+		if originalBinds["size"] != 10 || originalBinds["p"] != "alpha" {
+			t.Fatalf("override mutated the original command binds: %v", originalBinds)
+		}
+		// The returned command must own a fresh map: driving the original's
+		// accessor map to a sentinel must not move the override result.
+		if _, originalBinds, err := aqlCommand.AQLParameters(); err != nil {
+			t.Fatalf("original AQLParameters: %v", err)
+		} else {
+			originalBinds["size"] = 999
+		}
+		_, updatedBinds, err := updated.AQLParameters()
+		if err != nil {
+			t.Fatalf("recheck AQLParameters: %v", err)
+		}
+		if updatedBinds["size"] != 25 {
+			t.Fatalf("returned command does not own a fresh bind map: %v", updatedBinds)
+		}
+	})
+	failures := []struct {
+		name      string
+		command   CompiledCommand
+		overrides map[string]any
+		sentinel  error
+	}{
+		{"UnknownKeyRefused", aqlCommand, map[string]any{"missing": 1}, ErrCompiledCommandBackendMismatch},
+		{"TypeMismatchRefused", aqlCommand, map[string]any{"size": "25"}, ErrCompiledCommandBackendMismatch},
+		{"NilOverrideRefused", aqlCommand, map[string]any{"size": nil}, ErrCompiledCommandBackendMismatch},
+		{"NilCurrentValueRefused", aqlCommand, map[string]any{"nilbind": 1}, ErrCompiledCommandBackendMismatch},
+		{"EmptyOverridesRefused", aqlCommand, map[string]any{}, ErrCompiledCommandBackendMismatch},
+		{"NilOverridesRefused", aqlCommand, nil, ErrCompiledCommandBackendMismatch},
+		{"PostgreSQLTagRefused", mustPostgreSQLCommandForBindOverrides(t), map[string]any{"size": 5}, ErrCompiledCommandBackendMismatch},
+		{"ZeroTagRefused", CompiledCommand{}, map[string]any{"size": 5}, ErrCompiledCommandBackendNotRegistered},
+	}
+	for _, tc := range failures {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.command.WithAQLBinds(tc.overrides); !errors.Is(err, tc.sentinel) {
+				t.Fatalf("WithAQLBinds error = %v, want %v", err, tc.sentinel)
+			}
+		})
+	}
+}
+
+func mustPostgreSQLCommandForBindOverrides(t *testing.T) CompiledCommand {
+	t.Helper()
+	command, err := NewPostgreSQLCommand("SELECT id FROM t WHERE p = $1", []PostgreSQLParameter{{Type: PostgreSQLParameterText, Value: "alpha"}})
+	if err != nil {
+		t.Fatalf("NewPostgreSQLCommand: %v", err)
+	}
+	return command
+}
