@@ -208,18 +208,6 @@ func auditPublishVisibilityLeftovers() error {
 	return nil
 }
 
-// TestZZZeroLeftoverPublishVisibilityFixtures runs last in this file's
-// declaration order; TestMain also invokes the same audit so the required
-// check executes even under the filtered -run of the ticket's check-2.
-func TestZZZeroLeftoverPublishVisibilityFixtures(t *testing.T) {
-	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
-		t.Skip("no service configured; nothing could have been created")
-	}
-	if err := auditPublishVisibilityLeftovers(); err != nil {
-		t.Errorf("zero-leftover audit failed: %v", err)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Fixture service: one owned database, one owned schema, three pools pinned
 // to one physical connection each -- publisher A, publisher B, reader -- so
@@ -1412,4 +1400,22 @@ func firstDiff(a, b string) int {
 		}
 	}
 	return limit
+}
+
+// TestZZZeroLeftoverPublishVisibilityFixtures audits only the exact
+// verify_pubvis_it_* resources this file creates. This test MUST stay the
+// last test declared in this file: Go runs a package's tests in
+// declaration order within each source file, and only tests in this file
+// create verify_pubvis_it_* resources, so it executes after every fixture
+// this file owns has run and been dropped. TestMain additionally invokes
+// the same audit after the whole package (registry_test.go) so the
+// required zero-leftover and pg_database==baseline checks still execute
+// under the filtered -run of the ticket's check-2.
+func TestZZZeroLeftoverPublishVisibilityFixtures(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
+		t.Skip("no service configured; nothing could have been created")
+	}
+	if err := auditPublishVisibilityLeftovers(); err != nil {
+		t.Errorf("zero-leftover audit failed: %v", err)
+	}
 }
