@@ -1388,6 +1388,16 @@ const (
 	// (Observation), never Patient — the converter must recover the
 	// source type from the matched payload reference.
 	ing02GenericCrossTypeLine = `{"resourceType":"Observation","id":"obs-cross","status":"final","code":{"text":"cross"},"focus":[{"reference":"Observation/focus-1"}],"subject":{"reference":"Patient/patient-1"}}`
+
+	// Caller-cased reference prefix: EdgeFromGrip and the generated loader
+	// canonicalize through ConcreteResourceType, so this document is
+	// legitimately emitted with to_type/from_type Patient while the
+	// payload prefix stays lower-case.
+	ing02GeneratedCaseRefLine = `{"resourceType":"Observation","id":"obs-case","status":"final","code":{"text":"case"},"subject":{"reference":"patient/patient-1"}}`
+
+	// Builder-derived logical edge keys for the case-variant fixture.
+	ing02KeyCaseSubjectFwd  = "b530ab0f-b761-56aa-ae92-e3fd0298c2c4"
+	ing02KeyCaseSubjectBack = "3b338272-bc4e-5ca6-9ea9-e75862e04da8"
 )
 
 var ing02IngestNamePattern = regexp.MustCompile(`^verify_ing02_ing_[0-9]+_[0-9a-f]+$`)
@@ -3187,6 +3197,114 @@ func TestPostgresEdgeWriterBackReferenceSelectionPrefersLabelOverMistypedDecoy(t
 	key := SanitizeKey("Observation/patient-1") + "_" + SanitizeKey("Observation/ref-e") + "_subject_observation"
 	s.requireEdgeRow(t, ing02IngestProject, "", "", "subject_observation",
 		"Patient", "patient-1", "Observation", "ref-e", "subject", 0, &key)
+}
+
+// ---------------------------------------------------------------------------
+// Caller-cased reference prefixes: canonicalize, never byte-compare.
+// ---------------------------------------------------------------------------
+
+// TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes
+// witnesses the pipeline's documented casing tolerance (ConcreteResourceType
+// EqualFold fallback): the generated loader emits subject edges with
+// canonical Patient types for a "patient/patient-1" payload prefix. A
+// byte-for-byte comparison against the raw prefix would refuse the batch
+// the Arango pipeline accepts today, and persisting the raw prefix would
+// store a SourceResourceType that can never match the canonically stored
+// fhir_resource row. The unresolvable prefix must refuse typed instead.
+func TestPostgresEdgeWriterCaseVariantReferencePrefixStoresCanonicalTypes(t *testing.T) {
+	caseRow := buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", ing02GeneratedCaseRefLine)
+
+	// Offline: the document declares canonical Patient while the payload
+	// prefix is lower-case; conversion succeeds and stores canonical types
+	// on both directions.
+	recorder := &ing02Recorder{}
+	writer := &PostgresEdgeWriter{committer: recorder}
+	if _, err := writer.WriteEdgeBatch(context.Background(), ing02GenScope("ing02-ing/case/capture"),
+		[]rowBuildResult{caseRow}); err != nil {
+		t.Fatalf("lower-case prefix refused: %v", err)
+	}
+	rows := recorder.lastBatch(t).Rows
+	if len(rows) != 2 {
+		t.Fatalf("converted %d rows, want 2", len(rows))
+	}
+	for _, r := range rows {
+		if r.SourceResourceType != "Patient" && r.TargetResourceType != "Patient" {
+			t.Fatalf("no Patient endpoint on %+v", r)
+		}
+		if r.SourceResourceType == "patient" || r.TargetResourceType == "patient" {
+			t.Fatalf("caller casing persisted: %+v", r)
+		}
+	}
+
+	// Live half: the canonically stored Patient/patient-1 satisfies the
+	// source precondition for the recovered back-reference.
+	s := newIngest02IngestService(t)
+	s.migrate(t)
+	rowsAll := []rowBuildResult{
+		caseRow,
+		buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Patient", ing02PatientLine),
+	}
+	if _, err := s.newResourceWriter(t).WriteResourceBatch(s.ctx, PGResourceBatchScope{
+		BatchID: "ing02-ing/case-res", Project: ing02IngestProject,
+		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
+	}, rowsAll); err != nil {
+		s.fail("case resources", err)
+	}
+	res, err := s.newEdgeWriter(t).WriteEdgeBatch(s.ctx, PGEdgeBatchScope{
+		BatchID: "ing02-ing/case-edges", Project: ing02IngestProject,
+		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
+	}, rowsAll[:1])
+	if err != nil {
+		s.fail("case edges", err)
+	}
+	if res.Committed != 2 || res.Replay {
+		t.Fatalf("case result = %+v, want 2 committed", res)
+	}
+	k := func(v string) *string { return &v }
+	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_Patient",
+		"Observation", "obs-case", "Patient", "patient-1", "subject", 0, k(ing02KeyCaseSubjectFwd))
+	s.requireEdgeRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "subject_observation",
+		"Patient", "patient-1", "Observation", "obs-case", "subject", 0, k(ing02KeyCaseSubjectBack))
+
+	// Recovery half: the generic-shape mislabeled document over a
+	// lower-case prefix stores the CANONICAL recovered type, not the raw
+	// prefix (which could never satisfy the source precondition).
+	payload := `{"resourceType":"Observation","id":"ref-c","status":"final",` +
+		`"subject":{"reference":"patient/patient-1"}}`
+	built := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-c", "", payload, nil)
+	back := handBuiltEdgeDocument("Observation/patient-1", "Observation/ref-c",
+		"subject_observation", "Observation", "Observation", ing02IngestProject, "", "")
+	recorder2 := &ing02Recorder{}
+	writer2 := &PostgresEdgeWriter{committer: recorder2}
+	if _, err := writer2.WriteEdgeBatch(context.Background(),
+		ing02LegacyScope("ing02-ing/case/recovery"),
+		[]rowBuildResult{replaceEdges(t, built, back)}); err != nil {
+		t.Fatalf("recovery conversion: %v", err)
+	}
+	got := recorder2.lastBatch(t).Rows
+	if len(got) != 1 || got[0].SourceResourceType != "Patient" || got[0].SourceLogicalID != "patient-1" ||
+		got[0].SourcePath != "subject" {
+		t.Fatalf("recovery stored %+v, want canonical Patient/patient-1 at subject", got)
+	}
+
+	// Control: a genuinely unresolvable prefix is refused typed, never
+	// persisted.
+	badPayload := `{"resourceType":"Observation","id":"ref-u","status":"final",` +
+		`"subject":{"reference":"notatype/patient-1"}}`
+	badBuilt := handBuiltVertex(ing02IngestProject, "", "Observation", "ref-u", "", badPayload, nil)
+	badBack := handBuiltEdgeDocument("Observation/patient-1", "Observation/ref-u",
+		"subject_observation", "Observation", "Observation", ing02IngestProject, "", "")
+	_, err = writer2.WriteEdgeBatch(context.Background(),
+		ing02LegacyScope("ing02-ing/case/unresolvable"),
+		[]rowBuildResult{replaceEdges(t, badBuilt, badBack)})
+	var rowErr *PGEdgeRowIdentityError
+	if !errors.As(err, &rowErr) || !errors.Is(err, ErrInvalidPGEdgeWrite) ||
+		!strings.Contains(err.Error(), "does not resolve to a concrete FHIR resource type") {
+		t.Fatalf("unresolvable prefix = %v, want typed rowErrorEdge refusal", err)
+	}
+	if rowErr.Category != rowErrorEdge {
+		t.Fatalf("unresolvable refusal category = %q, want %q", rowErr.Category, rowErrorEdge)
+	}
 }
 
 // ---------------------------------------------------------------------------

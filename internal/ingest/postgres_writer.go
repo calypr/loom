@@ -116,6 +116,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/catalog"
+	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	postgresstore "github.com/calypr/loom/internal/store/postgres"
 )
 
@@ -838,14 +839,25 @@ func convertBuiltEdgeOccurrences(
 				sourceID = logicalID
 				targetID = position.logicalID
 				// The generic and generated builders both derive the
-				// forward endpoint from the reference value itself, so a
-				// typed position that contradicts the declared target type
-				// is a defective document: the occurrence would persist a
-				// typed identity the payload's own reference denies.
-				if position.refType != "" && position.refType != identity.toType {
-					return refuse(rowErrorEdge, fmt.Sprintf("edge _to (first of group %s)", identity.key),
-						"the forward edge document declares target type %q, but the matched payload reference %s/%s at %q carries type %q",
-						identity.toType, position.refType, position.logicalID, position.path, position.refType)
+				// forward endpoint through ConcreteResourceType (a raw
+				// reference prefix may legitimately carry caller casing,
+				// e.g. "patient/patient-1" under a subject relation), so
+				// the comparison is canonical, not byte-for-byte; a
+				// canonical contradiction is a defective document whose
+				// persisted typed identity the payload's own reference
+				// denies, and an unresolvable prefix is never persisted.
+				if position.refType != "" {
+					canonical, ok := fhirschema.ConcreteResourceType(position.refType)
+					if !ok {
+						return refuse(rowErrorEdge, fmt.Sprintf("edge _to (first of group %s)", identity.key),
+							"the matched payload reference %q at %q does not resolve to a concrete FHIR resource type",
+							position.refType, position.path)
+					}
+					if canonical != identity.toType {
+						return refuse(rowErrorEdge, fmt.Sprintf("edge _to (first of group %s)", identity.key),
+							"the forward edge document declares target type %q, but the matched payload reference %s/%s at %q carries type %q",
+							identity.toType, canonical, position.logicalID, position.path, position.refType)
+					}
 				}
 			} else {
 				sourceID = position.logicalID
@@ -862,13 +874,27 @@ func convertBuiltEdgeOccurrences(
 				// precondition for every cross-type generic back-reference
 				// batch, or (2) silently commits a mislabeled typed source
 				// whenever a same-type resource shares the peer id.
-				if position.refType != "" && position.refType != identity.fromType {
-					if identity.fromType == rowType {
-						sourceType = position.refType
-					} else {
+				if position.refType != "" {
+					canonical, ok := fhirschema.ConcreteResourceType(position.refType)
+					if !ok {
 						return refuse(rowErrorEdge, fmt.Sprintf("edge _from (first of group %s)", identity.key),
-							"the back-reference edge document declares source type %q, but the matched payload reference %s/%s at %q carries type %q and the declared type is not the row's own type %q",
-							identity.fromType, position.refType, position.logicalID, position.path, position.refType, rowType)
+							"the matched payload reference %q at %q does not resolve to a concrete FHIR resource type",
+							position.refType, position.path)
+					}
+					// Compared canonically: builders canonicalize through
+					// ConcreteResourceType, and fhir_resource stores
+					// canonical resource_type, so a non-canonical stored
+					// source could never satisfy the source precondition.
+					if canonical != identity.fromType {
+						if identity.fromType == rowType {
+							sourceType = canonical
+						} else {
+							return refuse(rowErrorEdge, fmt.Sprintf("edge _from (first of group %s)", identity.key),
+								"the back-reference edge document declares source type %q, but the matched payload reference %s/%s at %q carries type %q and the declared type is not the row's own type %q",
+								identity.fromType, canonical, position.logicalID, position.path, position.refType, rowType)
+						}
+					} else {
+						sourceType = canonical
 					}
 				}
 			}
@@ -1263,14 +1289,14 @@ func selectReferencePositions(
 		if kept, ok := pick(func(p pgReferencePosition) bool { return labelNamesPathToken(label, p.path) }); ok {
 			idMatches = kept
 		}
-		if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == peerType }); ok {
+		if kept, ok := pick(func(p pgReferencePosition) bool { return positionTypeMatchesPeer(p.refType, peerType) }); ok {
 			idMatches = kept
 		} else if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == "" }); ok {
 			idMatches = kept
 		}
 		return idMatches
 	}
-	if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == peerType }); ok {
+	if kept, ok := pick(func(p pgReferencePosition) bool { return positionTypeMatchesPeer(p.refType, peerType) }); ok {
 		idMatches = kept
 	} else if kept, ok := pick(func(p pgReferencePosition) bool { return p.refType == "" }); ok {
 		idMatches = kept
@@ -1279,6 +1305,22 @@ func selectReferencePositions(
 		idMatches = kept
 	}
 	return idMatches
+}
+
+// positionTypeMatchesPeer folds the position's caller-cased prefix through
+// ConcreteResourceType before comparing, mirroring how EdgeFromGrip and the
+// generated loader canonicalize declared endpoint types: a payload
+// reference "patient/patient-1" under a subject relation legitimately
+// pairs with a document declaring Patient.
+func positionTypeMatchesPeer(positionType, peerType string) bool {
+	if positionType == peerType {
+		return true
+	}
+	if positionType == "" || peerType == "" {
+		return false
+	}
+	canonical, ok := fhirschema.ConcreteResourceType(positionType)
+	return ok && canonical == peerType
 }
 
 // labelNamesPathToken reports whether any underscore- or dot-separated
