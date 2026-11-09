@@ -103,7 +103,7 @@ RESPONSIBILITIES = {
     "internal/explorer/capability": "Build the immutable compiler-backed capability contract exposed to Explorer Builder.",
     "internal/explorer/compilation": "Translate validated Explorer authoring intent into native recipe and compilation artifacts.",
     "internal/explorer/lifecycle": "Coordinate transport-neutral Explorer authoring, preview, publication, query, and policy operations.",
-    "internal/explorer/postgres": "Persist Explorer owners and draft saves in PostgreSQL 18 with unique project/Explorer identity, atomic version/digest CAS, exact immutable preimage history, and lossless JSONB payloads on the shared pg-store pool and migration runner.",
+    "internal/explorer/postgres": "Persist Explorer owners and draft saves in PostgreSQL 18 with unique project/Explorer identity, atomic version/digest CAS, exact immutable preimage history, lossless JSONB payloads, and create-once immutable capability snapshots and table-shape capability receipts guarded by database triggers, on the shared pg-store pool and migration runner.",
     "internal/explorer/tableshapecap": "Define immutable table-shape capability and resolution artifacts plus their create-once repository contract.",
     "internal/fhir/schema": "Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR metadata.",
     "internal/fhir/semantic": "Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.",
