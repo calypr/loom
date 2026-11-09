@@ -40,6 +40,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -247,13 +248,18 @@ func newInterpretationService(t *testing.T) *interpretationService {
 			fixture, pgstate04FixtureName)
 	}
 	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
+	// Compose in ascending version order (the runner applies and the
+	// ledger records strictly ascending; appending the fixture last was
+	// only ascending while the owner history ended below version 7 -- an
+	// embedded owner migration above 7, such as 000009, must not break
+	// the fixture's own invariant).
+	sort.Slice(history, func(i, j int) bool { return history[i].Version < history[j].Version })
 	s.migrateWith(t, history)
 
 	want := []pgstore.LedgerRecord{}
-	for _, m := range owner {
+	for _, m := range history {
 		want = append(want, pgstore.LedgerRecord{Version: m.Version, Name: m.Name, Checksum: m.Checksum})
 	}
-	want = append(want, pgstore.LedgerRecord{Version: fixture[0].Version, Name: fixture[0].Name, Checksum: fixture[0].Checksum})
 	if len(s.ledgerAfter) != len(want) {
 		t.Fatalf("applied history = %+v, want %+v", s.ledgerAfter, want)
 	}
@@ -581,6 +587,10 @@ func TestInterpretationMigrationFixtureComposition(t *testing.T) {
 		t.Fatalf("fixture checksum %q is not lowercase hex sha256", m.Checksum)
 	}
 	history := append(append([]pgstore.Migration{}, owner...), m)
+	// Ascending composition (see the fixture harness): an embedded owner
+	// migration above version 7 (000009) must not break the invariant
+	// this test itself asserts.
+	sort.Slice(history, func(i, j int) bool { return history[i].Version < history[j].Version })
 	for i := 1; i < len(history); i++ {
 		if history[i-1].Version >= history[i].Version {
 			t.Fatalf("composed history not strictly ascending: %+v", history)
@@ -1940,8 +1950,18 @@ func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 	if err != nil {
 		s.fail("owner migrations", err)
 	}
-	if s.ledgerAfter[len(s.ledgerAfter)-1].Version != 7 {
-		t.Fatalf("precondition: owned schema ledger = %+v", s.ledgerAfter)
+	// Precondition: the owned schema carries this fixture's version-7
+	// migration (its tables are present). A contains-check, not an
+	// ends-at-7 literal: the open-ended owner history may legally carry
+	// migrations above 7 (000009), which must not break this harness.
+	fixtureApplied := false
+	for _, rec := range s.ledgerAfter {
+		if rec.Version == 7 && rec.Name == pgstate04FixtureName {
+			fixtureApplied = true
+		}
+	}
+	if !fixtureApplied {
+		t.Fatalf("precondition: owned schema ledger lacks the version-7 %s fixture: %+v", pgstate04FixtureName, s.ledgerAfter)
 	}
 
 	// Fresh schema inside the same isolated database, migrated by the owner
