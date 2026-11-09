@@ -61,16 +61,22 @@
 --   - The DDL is idempotent (IF NOT EXISTS) because the runner records the
 --     ledger row after commit and must converge on retry.
 --
--- Versioning: this migration is 000007, not 000006. Version 000006 is
--- reserved for pg-catalog-04's semantic_inventory_build migration, so this
--- history intentionally skips version 6 (the runner tolerates the gap).
--- Hard dependency (runner contract): MigrationRunner.pending() refuses any
--- pending migration whose version is below the highest already-recorded
--- version (*OutOfOrderMigrationError, ErrMigrationOutOfOrder). Once 000007
--- is applied to a database, 000006 can never be applied to that database.
--- Therefore 000006 must merge first AND be applied to every database
--- before 000007 reaches any database; the merge queue sequences catalog-04
--- ahead of this ticket accordingly.
+-- Versioning: this migration is 000007, not 000006. Version 000006 was
+-- reserved for pg-catalog-04's semantic_inventory_build migration while
+-- this ticket was in flight, so this migration was numbered 7 and the
+-- branch history temporarily skipped version 6 (the runner tolerates the
+-- gap). That reservation has been delivered: #73 (eafbf05a) merged
+-- 000006_semantic_inventory_build.sql, and the embedded history is the
+-- contiguous chain 1..7. The jump in numbering existed because of the
+-- runner contract: MigrationRunner.pending() refuses any pending
+-- migration whose version is below the highest already-recorded version
+-- (*OutOfOrderMigrationError, ErrMigrationOutOfOrder), so once 000007 is
+-- applied to a database, 000006 can never be applied there. The merge
+-- queue therefore sequenced catalog-04 first: 000006 merged AND was
+-- applied to every database before 000007 reached any. (A database that
+-- had applied 000007 during the in-flight gap window would have been
+-- permanently unable to receive 000006 -- which is why this ticket
+-- waited for #73 to land before merging.)
 CREATE TABLE IF NOT EXISTS fhir_field_profile (
     project                  text    NOT NULL COLLATE "C",
     dataset_generation       text    NOT NULL COLLATE "C",
