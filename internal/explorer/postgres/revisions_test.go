@@ -719,7 +719,7 @@ func TestPostgresRevisionStaleTokenRaceTwoConnections(t *testing.T) {
 
 	storeA, pidA := f.newDedicatedStore(t)
 	rawB, pidB := f.newDedicatedPool(t)
-	requireDistinctBackends(t, pidA, pidB, "stale writer (store A)", "activator (raw B)")
+	requireDistinctBackendsPGState02(t, pidA, pidB, "stale writer (store A)", "activator (raw B)")
 
 	revision := pgstate02Revision("rev_race_token", "race")
 	if _, err := storeA.InsertRevision(f.ctx, revision); err != nil {
@@ -772,7 +772,7 @@ func TestPostgresRevisionConcurrentFailWritersTwoConnections(t *testing.T) {
 
 	storeA, pidA := f.newDedicatedStore(t)
 	storeB, pidB := f.newDedicatedStore(t)
-	requireDistinctBackends(t, pidA, pidB, "failer A", "failer B")
+	requireDistinctBackendsPGState02(t, pidA, pidB, "failer A", "failer B")
 
 	revision := pgstate02Revision("rev_race_fail", "race-fail")
 	if _, err := storeA.InsertRevision(f.ctx, revision); err != nil {
@@ -1243,13 +1243,13 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 
 // TestPostgresExplorerStateMigrationsRerunConverges proves the extended
 // history (ledger + owner + receipts + revisions) reruns as a no-op that
-// preserves all state and keeps the ledger pinned to the four embedded
+// preserves all state and keeps the ledger pinned to the five embedded
 // checksums.
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	f := newPGState02Fixture(t)
 	first := f.migrate(t)
-	if len(first.Applied) != 4 || first.LatestVersion != 6 {
-		t.Fatalf("first migration result = %+v, want 4 ledger rows ending at version 6", first)
+	if len(first.Applied) != 5 || first.LatestVersion != 6 {
+		t.Fatalf("first migration result = %+v, want 5 ledger rows ending at version 6", first)
 	}
 
 	writer := f.newStore(t)
@@ -1267,8 +1267,8 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 
 	second := f.migrate(t)
-	if len(second.Applied) != 4 || second.LatestVersion != 6 {
-		t.Fatalf("rerun result = %+v, want the identical 4-row ledger ending at version 6 (all recorded, nothing re-run)", second)
+	if len(second.Applied) != 5 || second.LatestVersion != 6 {
+		t.Fatalf("rerun result = %+v, want the identical 5-row ledger ending at version 6 (all recorded, nothing re-run)", second)
 	}
 
 	rows, err := f.iso.Query(f.ctx, `SELECT version, name, checksum FROM `+

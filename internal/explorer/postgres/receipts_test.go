@@ -488,7 +488,7 @@ func TestPostgresReceiptConcurrentIdenticalWritersTwoConnections(t *testing.T) {
 
 	storeA, pidA := f.newDedicatedStore(t)
 	storeB, pidB := f.newDedicatedStore(t)
-	requireDistinctBackends(t, pidA, pidB, "store A", "store B")
+	requireDistinctBackendsPGState02(t, pidA, pidB, "store A", "store B")
 
 	receipt := pgstate02Receipt(t, "intent-race", receiptProject, receiptExplorer)
 	start := make(chan struct{})
@@ -544,7 +544,7 @@ func TestPostgresReceiptUncommittedWinnerClaimTwoConnections(t *testing.T) {
 
 	rawA, pidA := f.newDedicatedPool(t)
 	storeB, pidB := f.newDedicatedStore(t)
-	requireDistinctBackends(t, pidA, pidB, "raw connection A", "store B")
+	requireDistinctBackendsPGState02(t, pidA, pidB, "raw connection A", "store B")
 
 	// Same canonical content, different excluded metadata: whichever row
 	// wins is identifiable by createdAt/requestId inside doc.

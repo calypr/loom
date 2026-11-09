@@ -10,13 +10,14 @@
 // silent backend fallback: every failure is returned for the caller to
 // surface, and no Arango path is wired in here.
 //
-// This history covers the owner record plus the state slice added by
+// This history covers the owner record, the draft CAS with exact preimage
+// history (drafts.go), and the state slice added by
 // pg-state-receipt-revision-immutable-v1: compilation receipts
 // (receipts.go) and immutable Explorer revisions (revisions.go), each with
 // its own migration under migrations/ and its methods in its own file. The
-// remaining explorer.Store methods (draft CAS, publication/activation,
-// selections, ...) arrive with the later state tickets that depend on this
-// foundation, extending this same history and adding methods beside these.
+// remaining explorer.Store methods (publication/activation, selections,
+// ...) arrive with the later state tickets that depend on this foundation,
+// extending this same history and adding methods beside these.
 //
 // Schema ownership (pinned by TestPostgresExplorerOwnerMixedHistoryIsRefused):
 // every MigrationRunner keys its ledger -- and therefore its authoritative
@@ -128,12 +129,14 @@ var ownerColumns = []string{
 
 // Store persists Explorer control-plane records in one schema of a
 // PostgreSQL 18 database reachable through the shared pg-store-01 pool.
-// Create, Get, and List manage owner records; InsertCompilationReceipt and
-// GetCompilationReceiptForExplorer manage receipts (receipts.go);
-// InsertRevision, GetRevision, GetRevisionForExplorer, FailRevision, and
-// FailRevisionFrom manage immutable revisions (revisions.go). They mirror
-// the Arango adapter's semantics (insert-once, scoped reads, byte-order
-// listing) with relational typed columns and lossless JSONB payloads.
+// Create, Get, and List manage owner records; SaveDraft and its history
+// reads manage the draft CAS with exact preimage history (drafts.go);
+// InsertCompilationReceipt and GetCompilationReceiptForExplorer manage
+// receipts (receipts.go); InsertRevision, GetRevision,
+// GetRevisionForExplorer, FailRevision, and FailRevisionFrom manage
+// immutable revisions (revisions.go). They mirror the Arango adapter's
+// semantics (insert-once, scoped reads, byte-order listing) with relational
+// typed columns and lossless JSONB payloads.
 type Store struct {
 	client   *pgstore.Client
 	insert   string             // backend-tagged INSERT ... ON CONFLICT DO NOTHING RETURNING
@@ -141,6 +144,12 @@ type Store struct {
 	list     string             // backend-tagged SELECT ... WHERE project = $1 ORDER BY explorer_id
 	receipt  receiptStatements  // backend-tagged receipt claim/read statements
 	revision revisionStatements // backend-tagged revision claim/read/CAS statements
+	// drafts holds the draft CAS/preimage statement set (drafts.go),
+	// built once for the same schema the owner statements target.
+	drafts draftSQL
+	// afterHistoryInsert is the test-only fault/interleaving seam of
+	// SaveDraft (see drafts.go). Production never assigns it.
+	afterHistoryInsert func(context.Context, pgx.Tx) error
 }
 
 // New builds a Store for one Explorer control-plane schema of the database
@@ -162,6 +171,7 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	cols := strings.Join(ownerColumns, ", ")
 	return &Store{
 		client: client,
+		drafts: newDraftSQL(schema),
 		insert: "INSERT INTO " + table + " (" + cols + ") VALUES (" + ownerPlaceholders() + ") " +
 			"ON CONFLICT (project, explorer_id) DO NOTHING RETURNING " + cols,
 		get:      "SELECT " + cols + " FROM " + table + " WHERE project = $1 AND explorer_id = $2",

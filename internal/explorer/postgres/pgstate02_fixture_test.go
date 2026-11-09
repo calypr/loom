@@ -352,7 +352,7 @@ func (f *pgState02Fixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32)
 // requireDistinctBackends fails unless the two witnessed backend pids are
 // genuinely different PostgreSQL server processes -- the non-illusion
 // precondition for every two-connection race proof.
-func requireDistinctBackends(t *testing.T, pidA, pidB int32, labelA, labelB string) {
+func requireDistinctBackendsPGState02(t *testing.T, pidA, pidB int32, labelA, labelB string) {
 	t.Helper()
 	if pidA == pidB {
 		t.Fatalf("%s and %s share backend pid %d, want two real PG connections", labelA, labelB, pidA)
