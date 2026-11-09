@@ -598,6 +598,53 @@ func TestCreateStoresLiteralRowAndDuplicatePreservesOriginal(t *testing.T) {
 	}
 }
 
+// TestCreateRefusesRowsItCouldNeverReadBack pins the write/read symmetry:
+// decodeManifest refuses zero timestamps, so a Create that stored one would
+// poison the stable expired page and every later reconciliation of the
+// schema, and blank checked columns would only fail as raw SQLSTATE 23514
+// from the migration. Every refused input must fail in the catalog, before
+// any statement runs, and store no row.
+func TestCreateRefusesRowsItCouldNeverReadBack(t *testing.T) {
+	s := newCatalogService(t)
+	defer s.guarded.check(t)
+	cases := []struct {
+		name   string
+		mutate func(*chartifact.Manifest)
+	}{
+		{"zero lease until", func(m *chartifact.Manifest) { m.LeaseUntil = time.Time{} }},
+		{"zero created at", func(m *chartifact.Manifest) { m.CreatedAt = time.Time{} }},
+		{"zero updated at", func(m *chartifact.Manifest) { m.UpdatedAt = time.Time{} }},
+		{"blank physical table", func(m *chartifact.Manifest) { m.PhysicalTable = "" }},
+		{"whitespace physical table", func(m *chartifact.Manifest) { m.PhysicalTable = "   " }},
+		{"untrimmed physical table", func(m *chartifact.Manifest) { m.PhysicalTable = " loom_private_stage_x " }},
+		{"blank lease owner", func(m *chartifact.Manifest) { m.LeaseOwner = "" }},
+		{"whitespace lease owner", func(m *chartifact.Manifest) { m.LeaseOwner = " " }},
+		{"untrimmed lease owner", func(m *chartifact.Manifest) { m.LeaseOwner = " writer-1 " }},
+		{"blank execution ID", func(m *chartifact.Manifest) { m.Identity.ExecutionID = "" }},
+		{"blank output ID", func(m *chartifact.Manifest) { m.Identity.OutputID = "" }},
+		{"blank stage ID", func(m *chartifact.Manifest) { m.Identity.StageID = "" }},
+		{"blank project", func(m *chartifact.Manifest) { m.Identity.Project = "" }},
+		{"blank dataset generation", func(m *chartifact.Manifest) { m.Identity.DatasetGeneration = "" }},
+	}
+	for index, c := range cases {
+		artifactID := fmt.Sprintf("art-gate-%d", index)
+		manifest := sampleManifest(artifactID)
+		c.mutate(&manifest)
+		err := s.catalog.Create(s.ctx, manifest)
+		if err == nil {
+			t.Fatalf("%s: Create = nil, want a pre-write refusal", c.name)
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			t.Fatalf("%s: Create reached the server with SQLSTATE %s, want a catalog validation refusal", c.name, pgErr.Code)
+		}
+		if !strings.Contains(err.Error(), "chartifact postgres: create manifest") {
+			t.Fatalf("%s: Create = %v, want a catalog validation error", c.name, s.scrub(err))
+		}
+		s.requireNoRow(t, artifactID)
+	}
+}
+
 func TestCreatePreservesMissingVersusNullVersusEmptyAndFailsOnNullishPayload(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)

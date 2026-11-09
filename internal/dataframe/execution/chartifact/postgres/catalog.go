@@ -151,17 +151,15 @@ func manifestParams(manifest chartifact.Manifest) ([]any, error) {
 
 // Create inserts an immutable manifest only when its ArtifactID is unused.
 // A concurrent duplicate create converges on the winner: the loser reports
-// ErrArtifactExists and the stored manifest keeps its exact bytes.
+// ErrArtifactExists and the stored manifest keeps its exact bytes. Every
+// field is gated before the insert (validateCreate), so a row this catalog
+// writes can always be read back and blank inputs fail as catalog
+// validation errors rather than migration CHECK violations.
 func (c *Catalog) Create(ctx context.Context, manifest chartifact.Manifest) error {
 	if err := requireContext(ctx); err != nil {
 		return err
 	}
-	if strings.TrimSpace(manifest.ArtifactID) == "" || manifest.ArtifactID != strings.TrimSpace(manifest.ArtifactID) {
-		return fmt.Errorf("chartifact postgres: manifest requires a trimmed artifact ID")
-	}
-	if err := validateProgressFields(chartifact.Progress{
-		State: manifest.State, RowCount: manifest.RowCount, ByteCount: manifest.ByteCount,
-	}); err != nil {
+	if err := validateCreate(manifest); err != nil {
 		return fmt.Errorf("chartifact postgres: create manifest %q: %w", manifest.ArtifactID, err)
 	}
 	params, err := manifestParams(manifest)
@@ -455,6 +453,49 @@ func decodeManifest(payload []byte) (chartifact.Manifest, error) {
 		return chartifact.Manifest{}, fmt.Errorf("chartifact postgres: stored artifact manifest %q has invalid state %q", manifest.ArtifactID, manifest.State)
 	}
 	return manifest, nil
+}
+
+// validateCreate gates every field the insert persists so the write path
+// and the read path agree: decodeManifest refuses zero timestamps, so a
+// create that stored one (a timestamptz happily keeps year 1) would leave a
+// row no ListExpired page or ClaimCleanup could ever decode; and the
+// non-blank columns the migration CHECKs are refused here as catalog
+// validation errors instead of surfacing the raw SQLSTATE 23514 from the
+// insert. The same timestamp gate validateUpdate applies to progress
+// writes therefore also covers creation.
+func validateCreate(manifest chartifact.Manifest) error {
+	if strings.TrimSpace(manifest.ArtifactID) == "" || manifest.ArtifactID != strings.TrimSpace(manifest.ArtifactID) {
+		return fmt.Errorf("manifest requires a trimmed artifact ID")
+	}
+	if strings.TrimSpace(manifest.PhysicalTable) == "" || manifest.PhysicalTable != strings.TrimSpace(manifest.PhysicalTable) {
+		return fmt.Errorf("manifest requires a trimmed physical table name")
+	}
+	if strings.TrimSpace(manifest.LeaseOwner) == "" || manifest.LeaseOwner != strings.TrimSpace(manifest.LeaseOwner) {
+		return fmt.Errorf("manifest requires a trimmed lease owner")
+	}
+	if err := validateProgressFields(chartifact.Progress{
+		State: manifest.State, RowCount: manifest.RowCount, ByteCount: manifest.ByteCount,
+	}); err != nil {
+		return err
+	}
+	if manifest.LeaseUntil.IsZero() || manifest.CreatedAt.IsZero() || manifest.UpdatedAt.IsZero() {
+		return fmt.Errorf("manifest requires lease, created, and updated timestamps")
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"execution ID", manifest.Identity.ExecutionID},
+		{"output ID", manifest.Identity.OutputID},
+		{"stage ID", manifest.Identity.StageID},
+		{"project", manifest.Identity.Project},
+		{"dataset generation", manifest.Identity.DatasetGeneration},
+	} {
+		if field.value == "" {
+			return fmt.Errorf("manifest requires a %s", field.name)
+		}
+	}
+	return nil
 }
 
 func validateUpdate(artifactID, owner string, progress chartifact.Progress) error {
