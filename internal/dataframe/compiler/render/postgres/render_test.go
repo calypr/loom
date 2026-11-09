@@ -35,6 +35,7 @@ func basePlan() ir.PhysicalPlan {
 			"dataset_generation":               "gen-1",
 			"auth_resource_paths":              []string{"FHIR/Patient", "FHIR/Observation"},
 			"auth_resource_paths_unrestricted": false,
+			"scope_allowed":                    true,
 			"limit":                            10,
 		},
 		Operations: []ir.PhysicalOperation{

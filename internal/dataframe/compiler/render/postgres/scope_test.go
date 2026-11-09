@@ -64,6 +64,7 @@ func pgsq02ScopePlan(project, generation string, paths []string, unrestricted bo
 			datasetGenerationBind: generation,
 			authPathsBindKey:      paths,
 			authUnrestrictedBind:  unrestricted,
+			scopeAllowedBind:      true,
 		},
 	}
 }
@@ -193,6 +194,140 @@ func TestScopeEdgePredicateGoldenRestrictedAndUnrestricted(t *testing.T) {
 	}
 }
 
+// pgsq02DeniedPlan is the canonical deny state: the same plan with the
+// fifth bind bound false instead of the canonical true.
+func pgsq02DeniedPlan(plan ir.PhysicalPlan) ir.PhysicalPlan {
+	plan.BindVars[scopeAllowedBind] = false
+	return plan
+}
+
+// TestScopeAllowedFalseMapsToLiteralZeroRowPredicate pins the deny mapping:
+// a plan with scope_allowed bound false keeps every canonical conjunct and
+// closes each row source's chain with a literal FALSE — root and edge,
+// restricted and unrestricted. The deny is a shape, never data: it adds no
+// parameter (the arguments are exactly the allowed render's) and it never
+// replaces or widens the auth clause. The true side is proven unchanged: an
+// allowed plan emits no deny token at all.
+func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
+	restricted := pgsq02ScopeRenderer(t, pgsq02DeniedPlan(
+		pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient", "FHIR/Specimen"}, false)))
+	typeIndex := restricted.textParameter("Patient", "text:Patient")
+	const wantDeniedResource = `r0."project" = $1` +
+		` AND r0."dataset_generation" = $2` +
+		` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
+		` AND r0."resource_type" = $4 AND FALSE`
+	if got := restricted.scopedResourcePredicate("r0", typeIndex); got != wantDeniedResource {
+		t.Fatalf("denied restricted resource predicate =\n%s\nwant\n%s", got, wantDeniedResource)
+	}
+	const wantDeniedEdge = `e1."project" = $1` +
+		` AND e1."dataset_generation" = $2` +
+		` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND FALSE`
+	if got := restricted.scopedEdgePredicate("e1"); got != wantDeniedEdge {
+		t.Fatalf("denied restricted edge predicate =\n%s\nwant\n%s", got, wantDeniedEdge)
+	}
+	// The deny maps to a predicate shape, not a parameter: project,
+	// generation, auth array, and resource type only — never a boolean
+	// argument, and the auth array stays the exact authorized set.
+	if len(restricted.args) != 4 {
+		t.Fatalf("denied scope must bind exactly the allowed scope's parameters; args = %#v", restricted.args)
+	}
+	for _, arg := range restricted.args {
+		if string(arg.Type) == "boolean" {
+			t.Fatalf("the deny became a parameter instead of a predicate shape: %#v", restricted.args)
+		}
+	}
+	if raw, ok := restricted.args[2].Value.(json.RawMessage); !ok || string(raw) != `["FHIR/Patient","FHIR/Specimen"]` {
+		t.Fatalf("denied auth array = %#v, want the exact authorized set kept", restricted.args[2])
+	}
+
+	// Explicit unrestricted mode keeps its no-auth shape and still denies.
+	free := pgsq02ScopeRenderer(t, pgsq02DeniedPlan(pgsq02ScopePlan("pgsq02-proj-a", "", nil, true)))
+	freeType := free.textParameter("Patient", "text:Patient")
+	const wantDeniedFree = `r0."project" = $1 AND r0."dataset_generation" = $2` +
+		` AND r0."resource_type" = $3 AND FALSE`
+	if got := free.scopedResourcePredicate("r0", freeType); got != wantDeniedFree {
+		t.Fatalf("denied unrestricted resource predicate =\n%s\nwant\n%s", got, wantDeniedFree)
+	}
+	if strings.Contains(free.scopedEdgePredicate("e1"), "auth_resource_path") {
+		t.Fatalf("denied unrestricted mode must stay auth-predicate-free: %s", free.scopedEdgePredicate("e1"))
+	}
+
+	// Deny-all (empty restricted set) keeps its empty-array ANY probe and
+	// gains the deny conjunct — the two zero-row states compose, neither
+	// replaces the other.
+	denyAll := pgsq02ScopeRenderer(t, pgsq02DeniedPlan(pgsq02ScopePlan("pgsq02-proj-a", "gen-1", nil, false)))
+	if got := denyAll.scopedEdgePredicate("e1"); got != wantDeniedEdge {
+		t.Fatalf("denied deny-all edge predicate =\n%s\nwant\n%s", got, wantDeniedEdge)
+	}
+	if raw, ok := denyAll.args[2].Value.(json.RawMessage); !ok || string(raw) != "[]" {
+		t.Fatalf("denied deny-all auth value = %#v, want JSON empty array kept", denyAll.args[2])
+	}
+
+	// The true side is untouched: the allowed render carries no deny token.
+	allowed := pgsq02ScopeRenderer(t, pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false))
+	if strings.Contains(allowed.scopedResourcePredicate("r0", typeIndex), "FALSE") ||
+		strings.Contains(allowed.scopedEdgePredicate("e1"), "FALSE") {
+		t.Fatalf("allowed scope must not emit a deny token")
+	}
+}
+
+// TestScopeAllowedFalseIsWiredIntoEveryRowSource proves the assembled
+// statements carry the deny in all three row sources — root WHERE, edge ON,
+// and reached-target ON — with byte-identical ordered arguments to the
+// allowed render, and that the registered root-scan slice denies too.
+func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
+	plan := pgsq02TraversalPlanForScope("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient", "FHIR/Specimen"}, false,
+		"Patient", "has-specimen", "Specimen")
+	allowed, err := RenderPhysicalPlan(plan, mustBinding(t))
+	if err != nil {
+		t.Fatalf("allowed traversal render: %v", err)
+	}
+	if strings.Contains(allowed.SQL, "FALSE") {
+		t.Fatalf("allowed statement carries a deny token: %s", allowed.SQL)
+	}
+	denied, err := RenderPhysicalPlan(pgsq02DeniedPlan(plan), mustBinding(t))
+	if err != nil {
+		t.Fatalf("denied traversal render: %v", err)
+	}
+	if !reflect.DeepEqual(denied.Args, allowed.Args) {
+		t.Fatalf("denied args drifted from the allowed render: %#v vs %#v", denied.Args, allowed.Args)
+	}
+	for _, wantFragment := range []string{
+		// Root row WHERE closes with the deny.
+		` WHERE r0."project" = $1 AND r0."dataset_generation" = $2` +
+			` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
+			` AND r0."resource_type" = $4 AND FALSE`,
+		// Edge row ON carries the deny before the traversal payload.
+		` ON e1."project" = $1 AND e1."dataset_generation" = $2` +
+			` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
+			` AND FALSE AND e1."label" = $5`,
+		// Reached-target row ON carries it, after the type predicate and
+		// before the occurrence-correlation join.
+		` ON r1."project" = $1 AND r1."dataset_generation" = $2` +
+			` AND r1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
+			` AND r1."resource_type" = $6 AND FALSE AND r1."logical_id" = e1."target_logical_id"`,
+	} {
+		if !strings.Contains(denied.SQL, wantFragment) {
+			t.Fatalf("denied statement missing %q:\n%s", wantFragment, denied.SQL)
+		}
+	}
+	if count := strings.Count(denied.SQL, " AND FALSE"); count != 3 {
+		t.Fatalf("deny conjunct count = %d, want 3 (root, edge, target):\n%s", count, denied.SQL)
+	}
+
+	// The registered root-scan slice denies through the same gate.
+	root := pgsq02RootPlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false, "Patient", "logical_id")
+	deniedRoot, err := RenderRootScan(pgsq02DeniedPlan(root), mustBinding(t))
+	if err != nil {
+		t.Fatalf("denied root scan render: %v", err)
+	}
+	if !strings.Contains(deniedRoot.SQL, ` WHERE r0."project" = $1 AND r0."dataset_generation" = $2`+
+		` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))`+
+		` AND r0."resource_type" = $4 AND FALSE`) {
+		t.Fatalf("denied root-scan statement missing its deny conjunct:\n%s", deniedRoot.SQL)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Fail-closed scope loading: every defective bind is refused with the typed
 // sentinel before a single parameter is bound.
@@ -217,6 +352,8 @@ func TestScopeLoadRefusesEveryDefectiveBindBeforeBindingAnything(t *testing.T) {
 			b[authUnrestrictedBind] = true
 			b[authPathsBindKey] = []string{"FHIR/Patient"}
 		}},
+		{"scope_allowed missing (fifth canonical bind, no implicit allow)", func(b map[string]any) { delete(b, scopeAllowedBind) }},
+		{"scope_allowed not a bool", func(b map[string]any) { b[scopeAllowedBind] = "true" }},
 	} {
 		plan := pgsq02ScopePlan("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient"}, false)
 		probe.mutate(plan.BindVars)
@@ -1066,6 +1203,106 @@ func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 	duplicateResource := `INSERT INTO "` + svc.schema + `".fhir_resource (project, dataset_generation, resource_type, logical_id, auth_resource_path) VALUES ($1,$2,$3,$4,$5)`
 	svc.expectRefused(t, duplicateResource, "23514", "fhir_resource_project_present",
 		"", pgsq02GenOne, "Patient", "ck-project", pgsq02PathPatient)
+}
+
+// TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge is the live witness
+// for the canonical deny: with scope_allowed bound false, the same stored
+// data the authorized renders read returns zero rows through both the root
+// path and the edge path. The control renders (scope_allowed true) read the
+// route first, every hidden row and occurrence is proven stored, the denied
+// renders carry byte-identical ordered arguments to the allowed ones (the
+// deny is the predicate shape, not data), and the zero-row edge read holds
+// on two distinct real server connections.
+func TestPGSQ02ScopeAllowedFalseReadsZeroRowsRootAndEdge(t *testing.T) {
+	svc := newPGSQ02Service(t)
+	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Patient", "sp-1", pgsq02PathPatient)
+	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Specimen", "st-allow", pgsq02PathSpecimen)
+	svc.insertResource(t, pgsq02ProjectA, pgsq02GenOne, "Specimen", "st-hidden", pgsq02PathConf)
+	svc.insertEdge(t, pgsq02ProjectA, pgsq02GenOne, pgsq02PathPatient, "Patient", "sp-1", "Specimen", "st-allow", "specimen[0]", 0)
+
+	binding := bindingFor(t, svc.schema)
+	authorized := []string{pgsq02PathPatient, pgsq02PathSpecimen}
+
+	// Control first: with the canonical scope_allowed=true the rows are
+	// visible, so every zero-row read below is the deny doing the work.
+	rootAllowed, err := RenderRootScan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, authorized, false,
+		"Patient", "logical_id"), binding)
+	if err != nil {
+		t.Fatalf("allowed root scan: %v", err)
+	}
+	if got := svc.runRendered(t, rootAllowed); !reflect.DeepEqual(got, [][]string{{"sp-1"}}) {
+		t.Fatalf("allowed root scan rows = %v, want [sp-1]", got)
+	}
+	edgeAllowed, err := RenderPhysicalPlan(
+		pgsq02TraversalPlanForScope(pgsq02ProjectA, pgsq02GenOne, authorized, false, "Patient", pgsq02Label, "Specimen"),
+		binding)
+	if err != nil {
+		t.Fatalf("allowed traversal: %v", err)
+	}
+	wantRoute := [][]string{{"sp-1", "st-allow"}}
+	if got := svc.runRendered(t, edgeAllowed); !reflect.DeepEqual(got, wantRoute) {
+		t.Fatalf("allowed traversal rows = %v, want %v", got, wantRoute)
+	}
+
+	// Denied root path: zero rows with byte-identical ordered arguments —
+	// the deny is a predicate shape, never a parameter.
+	deniedRoot, err := RenderRootScan(pgsq02DeniedPlan(pgsq02RootPlan(pgsq02ProjectA, pgsq02GenOne, authorized, false,
+		"Patient", "logical_id")), binding)
+	if err != nil {
+		t.Fatalf("denied root scan: %v", err)
+	}
+	if !reflect.DeepEqual(deniedRoot.Args, rootAllowed.Args) {
+		t.Fatalf("denied root args drifted: %#v vs %#v", deniedRoot.Args, rootAllowed.Args)
+	}
+	if got := svc.runRendered(t, deniedRoot); len(got) != 0 {
+		t.Fatalf("denied root scan read %v, want zero rows", got)
+	}
+
+	// Denied edge path: zero rows although root, target, and occurrence are
+	// stored and readable by the control above.
+	deniedEdge, err := RenderPhysicalPlan(pgsq02DeniedPlan(
+		pgsq02TraversalPlanForScope(pgsq02ProjectA, pgsq02GenOne, authorized, false, "Patient", pgsq02Label, "Specimen")),
+		binding)
+	if err != nil {
+		t.Fatalf("denied traversal: %v", err)
+	}
+	if !reflect.DeepEqual(deniedEdge.Args, edgeAllowed.Args) {
+		t.Fatalf("denied traversal args drifted: %#v vs %#v", deniedEdge.Args, edgeAllowed.Args)
+	}
+	if got := svc.runRendered(t, deniedEdge); len(got) != 0 {
+		t.Fatalf("denied traversal read %v, want zero rows", got)
+	}
+
+	// Non-vacuity: everything the deny hides is really stored.
+	for _, probe := range []struct {
+		desc, sql string
+		args      []any
+		wanted    string
+	}{
+		{"root row", `SELECT count(*) FROM "` + svc.schema + `".fhir_resource WHERE project=$1 AND dataset_generation=$2 AND resource_type='Patient' AND logical_id='sp-1'`,
+			[]any{pgsq02ProjectA, pgsq02GenOne}, "1"},
+		{"target row", `SELECT count(*) FROM "` + svc.schema + `".fhir_resource WHERE project=$1 AND dataset_generation=$2 AND resource_type='Specimen' AND logical_id='st-allow'`,
+			[]any{pgsq02ProjectA, pgsq02GenOne}, "1"},
+		{"auth decoy", `SELECT count(*) FROM "` + svc.schema + `".fhir_resource WHERE project=$1 AND dataset_generation=$2 AND resource_type='Specimen' AND logical_id='st-hidden'`,
+			[]any{pgsq02ProjectA, pgsq02GenOne}, "1"},
+		{"edge occurrence", `SELECT count(*) FROM "` + svc.schema + `".fhir_edge_occurrence WHERE project=$1 AND dataset_generation=$2 AND label=$3`,
+			[]any{pgsq02ProjectA, pgsq02GenOne, pgsq02Label}, "1"},
+	} {
+		rows := svc.run(t, probe.sql, probe.args...)
+		if len(rows) != 1 || rows[0][0] != probe.wanted {
+			t.Fatalf("%s must be stored (%s): %v", probe.desc, probe.wanted, rows)
+		}
+	}
+
+	// Statement, not session: the denied edge route reads zero rows on two
+	// distinct real server connections.
+	first, second, pid1, pid2 := svc.runOnTwoDistinctConnections(t, deniedEdge)
+	if pid1 == pid2 {
+		t.Fatalf("the two deny connections were the same server process: pg_backend_pid %d", pid1)
+	}
+	if len(first) != 0 || len(second) != 0 {
+		t.Fatalf("denied traversal read rows on dedicated connections: %v / %v", first, second)
+	}
 }
 
 // ---------------------------------------------------------------------------

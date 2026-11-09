@@ -40,6 +40,19 @@ package postgres
 //     widening or erroring.
 //   - Unrestricted mode must be requested explicitly; it then adds no auth
 //     predicate at all and must not carry paths.
+//   - The block's closing equality against @scope_allowed is the fifth
+//     canonical bind and is re-read like the other four. It must be present
+//     as a bool: true renders the allowed shapes above unchanged; false is
+//     the repository-wide canonical deny (ir/prefix.go binds it as the fifth
+//     required scope key, render/aql and ir demand the closing FILTER,
+//     ir/whole_relation_scope_evidence.go and compiler/category_scan_related.go
+//     treat anything but true as denied) and maps to a literal zero-row
+//     predicate: every row source — root, edge, and reached target — ends
+//     its scope chain with AND FALSE, mirroring AQL reading zero rows through
+//     FILTER <var> == @scope_allowed. The deny is a shape fixed by a
+//     validated bind state, not plan data: it never becomes a parameter and
+//     never copies a value into SQL text. Absence or a mistyped value is a
+//     plan defect refused before any parameter is bound.
 //
 // The statement-shape authority stays where it is: root_scan.go plus
 // RenderPhysicalPlan assemble statements, and root_scan_test.go plus
@@ -67,16 +80,20 @@ const (
 	datasetGenerationBind = "dataset_generation"
 	authPathsBindKey      = "auth_resource_paths"
 	authUnrestrictedBind  = "auth_resource_paths_unrestricted"
+	scopeAllowedBind      = "scope_allowed"
 )
 
 // planScope is the immutable, re-read scope of one plan: the placeholder
-// indices of the three canonical scope parameters established by loadScope.
-// An index of 0 means "predicate not emitted", which for authPathsIndex is
-// reachable only through explicitly requested unrestricted mode.
+// indices of the three canonical scope parameters established by loadScope
+// plus the canonical deny state of the fifth bind. An index of 0 means
+// "predicate not emitted", which for authPathsIndex is reachable only
+// through explicitly requested unrestricted mode. denied is set when
+// scope_allowed was bound false, the canonical zero-row state.
 type planScope struct {
 	projectIndex    int
 	generationIndex int
 	authPathsIndex  int // 0 when unrestricted mode was explicit
+	denied          bool
 }
 
 // loadScope binds the explicit plan scope. Scope binds must be present with
@@ -107,10 +124,22 @@ func (r *planRenderer) loadScope(plan ir.PhysicalPlan) error {
 		return fmt.Errorf("%w: unrestricted mode must not carry auth resource paths (%d given)",
 			ErrInvalidPostgresPlanScope, len(paths))
 	}
+	// The canonical block closes with the equality against @scope_allowed
+	// (ir/scope.go findAuthScopeEquality), so it is re-read here like the
+	// other four binds, after them and still before any parameter is bound.
+	// false is a legitimate plan state — the repository-wide canonical deny
+	// that reads zero rows — while absence or a mistyped value is a plan
+	// defect: there is no implicit allow.
+	allowed, ok := plan.BindVars[scopeAllowedBind].(bool)
+	if !ok {
+		return fmt.Errorf("%w: %q bind must be set explicitly to a boolean; false is the canonical deny state (zero rows) and absence or a mistyped value is a plan defect",
+			ErrInvalidPostgresPlanScope, scopeAllowedBind)
+	}
 
 	r.scope = planScope{
 		projectIndex:    r.textParameter(project, "text:"+project),
 		generationIndex: r.textParameter(generation, "text:"+generation),
+		denied:          !allowed,
 	}
 	if !unrestricted {
 		copied := append([]string(nil), paths...)
@@ -135,9 +164,11 @@ func (r *planRenderer) loadScope(plan ir.PhysicalPlan) error {
 // scopedResourcePredicate renders the scope equality chain for one resource
 // row, including the explicit auth mode. Restricted mode binds the exact
 // authorized path set (an empty set reads nothing and never widens);
-// unrestricted mode was explicitly requested and adds no path predicate.
-// This is the one definition used for both the root row and the reached
-// target row of an edge join.
+// unrestricted mode was explicitly requested and adds no path predicate. A
+// canonical deny (scope_allowed bound false) closes the chain with a literal
+// zero-row conjunct, so no resource row ever reads. This is the one
+// definition used for both the root row and the reached target row of an
+// edge join.
 func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) string {
 	var builder strings.Builder
 	builder.WriteString(alias + "." + r.storage.Resource.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.scope.projectIndex))
@@ -148,6 +179,9 @@ func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) stri
 	}
 	if typeIndex != 0 {
 		builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("resource_type").SQLText() + " = $" + strconv.Itoa(typeIndex))
+	}
+	if r.scope.denied {
+		builder.WriteString(" AND FALSE")
 	}
 	return builder.String()
 }
@@ -166,7 +200,8 @@ func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) stri
 // are not canonical scope and are appended by the edge-join renderer itself;
 // this function is the whole canonical edge scope, so the later traversal
 // slice (pg-sql-06) must start its edge join here rather than re-deriving
-// these predicates.
+// these predicates. A canonical deny (scope_allowed bound false) closes the
+// chain with a literal zero-row conjunct, so no edge occurrence ever joins.
 func (r *planRenderer) scopedEdgePredicate(alias string) string {
 	columns := r.storage.Edge
 	predicate := alias + "." + columns.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.scope.projectIndex)
@@ -174,6 +209,9 @@ func (r *planRenderer) scopedEdgePredicate(alias string) string {
 	if r.scope.authPathsIndex != 0 {
 		predicate += " AND " + alias + "." + columns.MustColumn("auth_resource_path").SQLText() +
 			" = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.scope.authPathsIndex) + "::jsonb))"
+	}
+	if r.scope.denied {
+		predicate += " AND FALSE"
 	}
 	return predicate
 }
