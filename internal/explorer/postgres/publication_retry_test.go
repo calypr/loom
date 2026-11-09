@@ -1,7 +1,6 @@
 package postgres
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -74,22 +73,28 @@ func TestPublishAuthoringTypedRefusalClassification(t *testing.T) {
 // injectFault publishes with a crashAt seam that fails the first nAttempts
 // attempts with fault (nil fault disables injection) and reports how many
 // transactions reached the seam.
-func injectFault(t *testing.T, f *pubAuthFixture, ps *PublishStore, nAttempts int, fault error,
-) (seamHits *int) {
+func injectFault(t *testing.T, ps *PublishStore, nAttempts int, fault error) func() int {
 	t.Helper()
-	hits := 0
-	seamHits = &hits
-	ps.crashAt = func(ctx context.Context, tx pgx.Tx, step string) error {
+	fires := 0
+	steps := installCrashSeam(ps, func(step string, tx pgx.Tx) error {
 		if step != "receipt-insert" {
 			return nil
 		}
-		hits++
-		if hits <= nAttempts {
+		fires++
+		if fires <= nAttempts {
 			return fault
 		}
 		return nil
+	})
+	return func() int {
+		n := 0
+		for _, s := range *steps {
+			if s == "receipt-insert" {
+				n++
+			}
+		}
+		return n
 	}
-	return seamHits
 }
 
 func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
@@ -100,7 +105,7 @@ func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
 	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
-	seamHits := injectFault(t, f, ps, 1, deadlock)
+	transactions := injectFault(t, ps, 1, deadlock)
 
 	out, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
 	if err != nil {
@@ -109,8 +114,8 @@ func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
 	if out.Status != explorer.RevisionActive {
 		t.Fatalf("recovered publish status = %s, want ACTIVE", out.Status)
 	}
-	if *seamHits != 2 {
-		t.Fatalf("seam reached %d times, want 2 (one deadlocked attempt + one retry)", *seamHits)
+	if transactions() != 2 {
+		t.Fatalf("seam reached %d times, want 2 (one deadlocked attempt + one retry)", transactions())
 	}
 	// The deadlocked attempt wrote nothing: the committed world is exactly
 	// what an uninterrupted single run stores.
@@ -131,7 +136,7 @@ func TestPublishAuthoringExhaustedDeadlocksSurfaceErrPublishContention(t *testin
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
 	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
-	seamHits := injectFault(t, f, ps, publishTxMaxAttempts+1, deadlock)
+	transactions := injectFault(t, ps, publishTxMaxAttempts+1, deadlock)
 	before := f.snapshotAll(t, false)
 
 	_, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
@@ -141,8 +146,8 @@ func TestPublishAuthoringExhaustedDeadlocksSurfaceErrPublishContention(t *testin
 	if !isDeadlockError(err) {
 		t.Fatalf("contention error must still wrap the last 40P01 victim: %v", err)
 	}
-	if *seamHits != publishTxMaxAttempts {
-		t.Fatalf("seam reached %d times, want the full budget %d", *seamHits, publishTxMaxAttempts)
+	if transactions() != publishTxMaxAttempts {
+		t.Fatalf("seam reached %d times, want the full budget %d", transactions(), publishTxMaxAttempts)
 	}
 	if after := f.snapshotAll(t, false); after != before {
 		t.Fatalf("every deadlocked attempt must have rolled back completely:\nbefore:\n%s\nafter:\n%s", before, after)
@@ -156,14 +161,14 @@ func TestPublishAuthoringNonDeadlockFaultIsNotRetried(t *testing.T) {
 	project, explorerID, tag := "proj_pubauth_dl_plain", "exp_dl", "dlp"
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
-	seamHits := injectFault(t, f, ps, 1, errors.New("connection reset by peer"))
+	transactions := injectFault(t, ps, 1, errors.New("connection reset by peer"))
 
 	_, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
 	if err == nil || errors.Is(err, ErrPublishContention) {
 		t.Fatalf("plain backend fault = %v, want the fault once, unlabeled as contention", err)
 	}
-	if *seamHits != 1 {
-		t.Fatalf("non-deadlock fault retried %d times, want 1", *seamHits)
+	if transactions() != 1 {
+		t.Fatalf("non-deadlock fault retried %d times, want 1", transactions())
 	}
 }
 
@@ -178,13 +183,13 @@ func TestPublishAuthoringTypedRefusalAtBackendSiteIsTerminal(t *testing.T) {
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
 	typed := fmt.Errorf("store fault while holding a lock: %w", explorer.ErrImmutableRevision)
-	seamHits := injectFault(t, f, ps, publishTxMaxAttempts+1, typed)
+	transactions := injectFault(t, ps, publishTxMaxAttempts+1, typed)
 
 	_, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
 	if !errors.Is(err, explorer.ErrImmutableRevision) {
 		t.Fatalf("injected typed refusal = %v, want ErrImmutableRevision terminal", err)
 	}
-	if *seamHits != 1 {
-		t.Fatalf("typed refusal retried %d times, want 1 (terminal by sentinel)", *seamHits)
+	if transactions() != 1 {
+		t.Fatalf("typed refusal retried %d times, want 1 (terminal by sentinel)", transactions())
 	}
 }

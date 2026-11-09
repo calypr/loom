@@ -221,7 +221,7 @@ func sortedJoin(values []string) []string {
 
 func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 	t.Run("stopped-before-commit-hides-every-leg-and-locks-one-transaction", func(t *testing.T) {
-		f, ps, writerPID, observer, observerPID, releaseGate, reached := stopPublishAtPreCommit(t)
+		f, ps, writerPID, observer, observerPID, observerStore, observerStorePID, releaseGate, reached := stopPublishAtPreCommit(t)
 		project, explorerID, tag := "proj_pubauth_boundary", "exp_boundary", "boundary"
 		store := f.newStore(t)
 		receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
@@ -242,6 +242,17 @@ func TestPublishAuthoringCommitBoundaryVisibility(t *testing.T) {
 			t.Fatalf("writer transaction runs on backend %d, want the dedicated %d", stoppedPID, writerPID)
 		}
 		requireDistinctBackendsPubAuth(t, writerPID, observerPID, "publish writer", "observer")
+		requireDistinctBackendsPubAuth(t, writerPID, observerStorePID, "publish writer", "observer store")
+		requireDistinctBackendsPubAuth(t, observerPID, observerStorePID, "observer", "observer store")
+
+		// Store-level witness from a THIRD real backend: the production
+		// scoped read -- not just raw SQL -- sees nothing in flight.
+		if _, err := observerStore.GetCompilationReceiptForExplorer(f.ctx, project, explorerID, receipt.ID); !errors.Is(err, explorer.ErrNotFound) {
+			t.Fatalf("observer store reads the in-flight receipt before COMMIT: %v", err)
+		}
+		if _, err := observerStore.GetRevision(f.ctx, revision.ID); err == nil || !errors.Is(err, explorer.ErrNotFound) {
+			t.Fatalf("observer store reads the in-flight revision before COMMIT: %v", err)
+		}
 
 		// The observer on its own real backend sees none of the four legs.
 		if got := f.countRows(t, f.ctlTable(ReceiptsTable), "project = $1", project); got != 0 {
@@ -295,10 +306,19 @@ SELECT (SELECT count(*) FROM `+f.ctlTable(ReceiptsTable)+` WHERE project = $1)
 		if legs != 4 {
 			t.Fatalf("post-commit four-leg count = %d, want 4 (all legs visible together)", legs)
 		}
+		// The same production reads now succeed from the third backend:
+		// visibility flipped atomically with COMMIT.
+		if _, err := observerStore.GetCompilationReceiptForExplorer(f.ctx, project, explorerID, receipt.ID); err != nil {
+			t.Fatalf("observer store cannot read the committed receipt: %v", err)
+		}
+		stored, err := observerStore.GetRevision(f.ctx, revision.ID)
+		if err != nil || stored.Status != explorer.RevisionActive {
+			t.Fatalf("observer store post-commit revision = %v/%v, want ACTIVE", stored, err)
+		}
 	})
 
 	t.Run("abort-after-every-write-rolls-back-every-leg", func(t *testing.T) {
-		f, ps, _, _, _, releaseGate, reached := stopPublishAtPreCommit(t)
+		f, ps, _, _, _, _, _, releaseGate, reached := stopPublishAtPreCommit(t)
 		project, explorerID, tag := "proj_pubauth_abort", "exp_abort", "abort"
 		store := f.newStore(t)
 		receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
@@ -350,13 +370,14 @@ SELECT (SELECT count(*) FROM `+f.ctlTable(ReceiptsTable)+` WHERE project = $1)
 // store whose transaction parks at the pre-commit seam until the test
 // releases it, plus an independent observer backend.
 func stopPublishAtPreCommit(t *testing.T) (
-	*pubAuthFixture, *PublishStore, int32, *pgxpool.Pool, int32, chan error, chan int32,
+	*pubAuthFixture, *PublishStore, int32, *pgxpool.Pool, int32, *Store, int32, chan error, chan int32,
 ) {
 	t.Helper()
 	f := newPGPubAuthFixture(t)
 	f.migrate(t)
 	ps, writerPID := f.newDedicatedPublishStore(t)
 	observer, observerPID := f.newDedicatedPool(t)
+	observerStore, observerStorePID := f.newDedicatedStore(t)
 	reached := make(chan int32, 1)
 	releaseGate := make(chan error, 1)
 	ps.crashAt = func(ctx context.Context, tx pgx.Tx, step string) error {
@@ -370,7 +391,7 @@ func stopPublishAtPreCommit(t *testing.T) (
 		reached <- pid
 		return <-releaseGate
 	}
-	return f, ps, writerPID, observer, observerPID, releaseGate, reached
+	return f, ps, writerPID, observer, observerPID, observerStore, observerStorePID, releaseGate, reached
 }
 
 // ---------------------------------------------------------------------------
@@ -419,14 +440,12 @@ func TestPublishAuthoringCrashWindowAtEverySeam(t *testing.T) {
 			// Crashed run on the crashed twin: inject at the step under
 			// test.
 			psCrash := fc.newPublishStore(t)
-			var recorded []string
-			psCrash.crashAt = func(ctx context.Context, tx pgx.Tx, step string) error {
-				recorded = append(recorded, step)
+			recorded := installCrashSeam(psCrash, func(step string, tx pgx.Tx) error {
 				if step == crashStep {
 					return errors.New("injected crash at " + step)
 				}
 				return nil
-			}
+			})
 			_, err := psCrash.PublishAuthoring(fc.ctx, receipt2C, revision2C, release2C, 1)
 			if err == nil || !strings.Contains(err.Error(), "injected crash at "+crashStep) {
 				t.Fatalf("crash at %s: error = %v, want the injected fault surfaced", crashStep, err)
@@ -434,8 +453,8 @@ func TestPublishAuthoringCrashWindowAtEverySeam(t *testing.T) {
 			// Non-vacuous seam: the transaction really walked the legs up
 			// to and including the crashed step, in contract order.
 			want := stepsThrough(steps, crashStep)
-			if strings.Join(recorded, ",") != strings.Join(want, ",") {
-				t.Fatalf("crash at %s: recorded seam steps = %v, want %v", crashStep, recorded, want)
+			if strings.Join(*recorded, ",") != strings.Join(want, ",") {
+				t.Fatalf("crash at %s: recorded seam steps = %v, want %v", crashStep, *recorded, want)
 			}
 			// All-or-nothing: the stored world is byte-identical to before
 			// the crashed publish -- full rows, every column, no mask.

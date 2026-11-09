@@ -66,7 +66,6 @@ var (
 	pubauthDBBaseline      atomic.Int64 // verify_pubauth_* databases at first contact
 	pubauthLive            atomic.Int64 // databases this package created and has not dropped
 	pubauthSchemaBaseline  atomic.Int64 // verify_pubauth_* schemas at first contact
-	pubauthGlobalBaseline  atomic.Int64 // all pg_database rows at first contact
 	pubauthBaselineFailure atomic.Value // error surfaced by the first fixture
 )
 
@@ -74,7 +73,7 @@ func pubauthCaptureBaseline(admin *pgxpool.Pool) {
 	pubauthBaselineOnce.Do(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		var mine, schemas, all int64
+		var mine, schemas int64
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_pubauth\_%' ESCAPE '\'`).Scan(&mine); err != nil {
 			pubauthBaselineFailure.Store(fmt.Errorf("baseline: query owned database namespace: %w", err))
 			return
@@ -83,13 +82,8 @@ func pubauthCaptureBaseline(admin *pgxpool.Pool) {
 			pubauthBaselineFailure.Store(fmt.Errorf("baseline: query owned schema namespace: %w", err))
 			return
 		}
-		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database`).Scan(&all); err != nil {
-			pubauthBaselineFailure.Store(fmt.Errorf("baseline: query database catalog: %w", err))
-			return
-		}
 		pubauthDBBaseline.Store(mine)
 		pubauthSchemaBaseline.Store(schemas)
-		pubauthGlobalBaseline.Store(all)
 	})
 	if stored := pubauthBaselineFailure.Load(); stored != nil {
 		panic(stored.(error))
