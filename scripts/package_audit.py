@@ -79,7 +79,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/publication": "Own backend-neutral dataframe publication contracts, bundles, and publication orchestration.",
     "internal/dataframe/publication/arango": "Persist dataframe publication registry and bundle metadata in ArangoDB.",
     "internal/dataframe/publication/clickhouse": "Materialize and inspect published dataframe bundles in ClickHouse.",
-    "internal/dataframe/publication/postgres": "Persist dataframe publication execution metadata, exact logical pointers, and fenced bundle leases in the PostgreSQL 18 control plane while ClickHouse remains the row store.",
+    "internal/dataframe/publication/postgres": "Persist dataframe publication execution metadata, exact logical pointers, fenced bundle leases, and owner-conditional execution checkpoints in the PostgreSQL 18 control plane while ClickHouse remains the row store.",
     "internal/dataframe/published": "Read, page, aggregate, and export authorized published ClickHouse dataframes.",
     "internal/dataframe/recipe": "Define, canonicalize, expand, encode, and validate persistence-neutral recipe documents.",
     "internal/dataframe/recipe/exec": "Define durable recipe-version storage contracts and immutable registration behavior.",
