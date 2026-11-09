@@ -1913,13 +1913,17 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 	}
 
 	sql := newSelectionSQL("ctl")
+	// The membership statement set is built by selection_members.go
+	// (pg-state-selection-members-v1 file split); this contract covers
+	// both halves of the selection lifecycle.
+	memberSQL := newSelectionMemberSQL("ctl")
 	headersFQN := `"ctl"."selection_revisions"`
 	membersFQN := `"ctl"."selection_members"`
 	for name, statement := range map[string]string{
 		"beginInsert": sql.beginInsert, "headerByID": sql.headerByID, "headerScoped": sql.headerScoped,
 		"keyOwner": sql.keyOwner, "leaseClaim": sql.leaseClaim, "headerForAppend": sql.headerForAppend,
-		"memberInsert": sql.memberInsert, "leaseRenew": sql.leaseRenew, "completeCAS": sql.completeCAS,
-		"memberDigestPage": sql.memberDigestPage, "memberVisitPage": sql.memberVisitPage,
+		"memberInsert": memberSQL.memberInsert, "leaseRenew": memberSQL.leaseRenew, "completeCAS": memberSQL.completeCAS,
+		"memberDigestPage": memberSQL.memberDigestPage, "memberVisitPage": memberSQL.memberVisitPage,
 		"cleanupVictims": sql.cleanupVictims, "cleanupMembers": sql.cleanupMembers,
 		"cleanupHeaders": sql.cleanupHeaders, "abortMembers": sql.abortMembers, "abortHeader": sql.abortHeader,
 	} {
@@ -1933,19 +1937,19 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 	if !strings.Contains(sql.leaseClaim, "writer_expires_at < $4") {
 		t.Fatalf("leaseClaim must evaluate the boundary in the database: %s", sql.leaseClaim)
 	}
-	if !strings.Contains(sql.completeCAS, "state = 'STAGING'") || !strings.Contains(sql.completeCAS, "writer_token = $6") {
-		t.Fatalf("completeCAS must be a writer-conditional staging CAS: %s", sql.completeCAS)
+	if !strings.Contains(memberSQL.completeCAS, "state = 'STAGING'") || !strings.Contains(memberSQL.completeCAS, "writer_token = $6") {
+		t.Fatalf("completeCAS must be a writer-conditional staging CAS: %s", memberSQL.completeCAS)
 	}
 	if !strings.Contains(sql.keyOwner, "$2 <> ''") {
 		t.Fatalf("keyOwner must never match an empty key: %s", sql.keyOwner)
 	}
-	if !strings.Contains(sql.memberInsert, "ON CONFLICT (selection_id, member_key) DO NOTHING") {
-		t.Fatalf("memberInsert must be insert-once idempotent: %s", sql.memberInsert)
+	if !strings.Contains(memberSQL.memberInsert, "ON CONFLICT (selection_id, member_key) DO NOTHING") {
+		t.Fatalf("memberInsert must be insert-once idempotent: %s", memberSQL.memberInsert)
 	}
 	if !strings.Contains(sql.cleanupVictims, "FOR UPDATE") {
 		t.Fatalf("cleanupVictims must lock its victims: %s", sql.cleanupVictims)
 	}
-	if got := strings.Count(sql.memberInsert, "$"); got != len(memberColumns)+1 {
+	if got := strings.Count(memberSQL.memberInsert, "$"); got != len(memberColumns)+1 {
 		t.Fatalf("memberInsert placeholders = %d, want %d", got, len(memberColumns)+1)
 	}
 
