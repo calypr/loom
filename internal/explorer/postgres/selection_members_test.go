@@ -62,10 +62,10 @@ import (
 	"os"
 	"reflect"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -916,13 +916,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 	if s.pidA == s.pidB {
 		t.Fatal("fence race requires two distinct backends")
 	}
-	// Warm store B's single physical connection before the race: without
-	// this the first CompleteSelection of the round pays connection
-	// setup while the already-warm append wins the lock by raw latency,
-	// and the biased schedule degenerates to one interleaving.
-	if _, err := s.storeB.GetSelection(s.ctx, selemProject, "selem-warm"); !errors.Is(err, explorer.ErrSelectionNotFound) {
-		s.fail("warm store B", err)
-	}
 	suffix := selemHex(t)
 
 	completeWins, appendWins := 0, 0
@@ -938,37 +931,77 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			s.fail("race seed digest", err)
 		}
 
-		// Both operations race for real on two distinct backends. Even
-		// rounds head-start the complete, odd rounds head-start the
-		// append, so the header-lock serialization is exercised from both
-		// directions; the per-round invariants below hold no matter who
-		// wins, and the aggregate check proves both interleavings
-		// actually occurred.
+		// Both operations race for real on two distinct backends, but
+		// the arrival ORDER is proven, not coaxed by a scheduler yield
+		// (a runtime.Gosched head-start is only a ~25us bias next to a
+		// lock-statement round trip, which let the witness pass
+		// vacuously under load): the side meant to win the header lock
+		// first parks inside its in-transaction test seam -- a real
+		// statement of the live transaction already holding the
+		// FOR UPDATE fence -- and only then is the rival launched at
+		// the live lock. Every seam release is time-bounded, so a
+		// broken schedule fails loudly instead of hanging, and
+		// PostgreSQL still decides the serialization underneath; the
+		// per-round invariants below hold no matter who wins.
 		var appendErr, completeErr error
 		var wg sync.WaitGroup
-		raceComplete := func() {
-			defer wg.Done()
-			_, completeErr = s.storeB.CompleteSelection(s.ctx, id, writer, digest, count, bytes, time.Now().UTC())
+		seamEntered := make(chan struct{})
+		seamRelease := make(chan struct{})
+		parkInSeam := func(context.Context, pgx.Tx) error {
+			close(seamEntered)
+			select {
+			case <-seamRelease:
+				return nil
+			case <-time.After(5 * time.Second):
+				return fmt.Errorf("race seam timed out waiting for the rival to launch")
+			}
 		}
-		raceAppend := func() {
-			defer wg.Done()
-			_, appendErr = s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files002"))
+		requireSeamEntered := func(operation string) {
+			select {
+			case <-seamEntered:
+			case <-time.After(5 * time.Second):
+				s.fail(operation+" reached no in-transaction seam",
+					fmt.Errorf("the rival never held the header fence; the schedule is broken"))
+			}
 		}
 		wg.Add(2)
 		if round%2 == 0 {
-			go raceComplete()
-			// Yield so the head-started side actually issues its
-			// header-locking statement before the other side enters
-			// the race. This seeds the arrival ORDER only; PostgreSQL
-			// still decides the serialization, and the per-round
-			// invariants below hold no matter who wins.
-			runtime.Gosched()
-			go raceAppend()
+			// Complete holds the fence first: its completion CAS has
+			// run and the finalize commit is parked; append arrives at
+			// the live lock mid-flight.
+			s.storeB.beforeCompleteCommit = parkInSeam
+			go func() {
+				defer wg.Done()
+				_, completeErr = s.storeB.CompleteSelection(s.ctx, id, writer, digest, count, bytes, time.Now().UTC())
+			}()
+			requireSeamEntered("complete")
+			go func() {
+				defer wg.Done()
+				_, appendErr = s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files002"))
+			}()
+			// Give the append's BEGIN + header FOR UPDATE time to
+			// reach the live lock before the fence is released.
+			time.Sleep(2 * time.Millisecond)
+			close(seamRelease)
 		} else {
-			go raceAppend()
-			runtime.Gosched()
-			go raceComplete()
+			// Append holds the fence first: its member insert has run
+			// and the batch commit is parked; complete arrives at the
+			// live lock against membership that has already moved.
+			s.storeA.afterMemberInsert = parkInSeam
+			go func() {
+				defer wg.Done()
+				_, appendErr = s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files002"))
+			}()
+			requireSeamEntered("append")
+			go func() {
+				defer wg.Done()
+				_, completeErr = s.storeB.CompleteSelection(s.ctx, id, writer, digest, count, bytes, time.Now().UTC())
+			}()
+			time.Sleep(2 * time.Millisecond)
+			close(seamRelease)
 		}
+		s.storeA.afterMemberInsert = nil
+		s.storeB.beforeCompleteCommit = nil
 		wg.Wait()
 
 		// Exactly one of the two raced operations was refused with its
@@ -1130,9 +1163,22 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 	// Foreign churn while the walk runs: another selection is appended
 	// to and aborted on the second backend throughout the paging. This
 	// is what a keyset walk must survive -- an offset walk would skip
-	// or repeat members.
+	// or repeat members. The outcome is witnessed (completed-round count
+	// plus the first error): churn that errored before ever starting,
+	// or never overlapped the paging loop, must not let this half of the
+	// acceptance pass vacuously -- the file header's nothing-passes-by-
+	// skipping standard, enforced like the fence race's interleaving
+	// witness below.
 	stopChurn := make(chan struct{})
 	churnDone := make(chan struct{})
+	var churnCompleted atomic.Int64
+	churnErrCh := make(chan error, 1)
+	recordChurnErr := func(err error) {
+		select {
+		case churnErrCh <- err:
+		default:
+		}
+	}
 	go func() {
 		defer close(churnDone)
 		round := 0
@@ -1146,14 +1192,18 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 			churnID := fmt.Sprintf("selem-churn-%d-%s", round, suffix)
 			churnWriter := "selem-churn-writer-" + suffix
 			if _, err := s.storeB.BeginSelection(s.ctx, selemHeaderFixture(churnID, fmt.Sprintf("selem-churn-key-%d-%s", round, suffix)), churnWriter); err != nil {
+				recordChurnErr(fmt.Errorf("churn begin round %d: %w", round, err))
 				return
 			}
 			if _, err := s.storeB.AppendSelectionMembers(s.ctx, churnID, churnWriter, selemRefs(fmt.Sprintf("churn%04d", round))); err != nil {
+				recordChurnErr(fmt.Errorf("churn append round %d: %w", round, err))
 				return
 			}
 			if err := s.storeB.AbortSelection(s.ctx, churnID, churnWriter); err != nil {
+				recordChurnErr(fmt.Errorf("churn abort round %d: %w", round, err))
 				return
 			}
+			churnCompleted.Add(1)
 		}
 	}()
 
@@ -1189,6 +1239,17 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 	}
 	close(stopChurn)
 	<-churnDone
+	var churnErr error
+	select {
+	case churnErr = <-churnErrCh:
+	default:
+	}
+	if churnErr != nil {
+		t.Fatalf("foreign churn failed during the walk (rounds completed before the failure: %d): %v", churnCompleted.Load(), churnErr)
+	}
+	if rounds := churnCompleted.Load(); rounds == 0 {
+		t.Fatal("foreign churn completed zero rounds while the walk paged: keyset stability under churn passed vacuously with no churn")
+	}
 
 	if len(seen) != total {
 		t.Fatalf("visit walk collected %d, want %d (no gaps, no duplicates)", len(seen), total)
