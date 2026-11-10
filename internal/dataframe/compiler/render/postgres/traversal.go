@@ -289,7 +289,10 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 		r.joins = append(r.joins, join)
 		r.edgeAliases = append(r.edgeAliases, edgeAlias)
 		r.rows[traversal.TargetVariable] = rowScope{alias: innerAlias, resourceType: verified.targetType}
-		return nil
+		// The window's route occurrence witness resolves the plan-named edge
+		// variable through this binding only (window.go); the top-level
+		// e{n} alias is the ORDER BY-visible one in route mode.
+		return r.window.rememberEdge(traversal.EdgeVariable, edgeAlias)
 	}
 
 	projection := make([]string, 0, len(traversalResourceColumns)+1)
@@ -312,7 +315,11 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 	r.joins = append(r.joins, join)
 	r.edgeAliases = append(r.edgeAliases, lateralAlias)
 	r.rows[traversal.TargetVariable] = rowScope{alias: lateralAlias, resourceType: verified.targetType, optional: true}
-	return nil
+	// The window's route occurrence witness resolves the plan-named edge
+	// variable through this binding only (window.go). In spine mode the
+	// ORDER BY-visible alias is the lateral itself: it projects the
+	// renderer-owned edge_seq, while e{n} lives inside the subquery.
+	return r.window.rememberEdge(traversal.EdgeVariable, lateralAlias)
 }
 
 // renderRequiredMatchExists renders the REQUIRED match filter: the bounded

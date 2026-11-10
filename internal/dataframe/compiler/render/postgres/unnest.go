@@ -65,17 +65,32 @@ package postgres
 // resource_seq, then every edge_seq, then every expansion rn in plan order,
 // so duplicate items keep their source-array position on every execution —
 // the rendering counterpart of ir.PhysicalUnnestSortKeys' has-item and
-// ordinality tie-breaks.
+// ordinality tie-breaks. While an execution window is open, window.go also
+// places each expansion's (rn IS NOT NULL) has-item witness immediately
+// before its rn, so a page cut by the bound LIMIT positions the OUTER pad
+// row ahead of its group's items, exactly where the AQL tuple's
+// has-item-before-ordinality order puts it.
 //
 // The slice is deliberately closed. The plan is exactly one direct
-// ROOT_SCAN, one or more UNNEST operations, and a terminal RETURN; the
-// ERROR empty policy, selector filters, indexed or non-property steps,
-// prepared references, ordered fallbacks, unit normalization, DISTINCT,
-// route-step scope operations, conditionally-array selector modes, presence
-// or hidden projections, selector projections, and coexisting filters,
-// sorts, limits, traversals, or any other operation are capability gaps:
-// typed ErrUnsupportedPostgresPlan refusals that yield no SQL. There is no
-// fallback to the AQL renderer and no AQL-to-SQL conversion here. validateUnnestPlanSurface
+// ROOT_SCAN, one or more UNNEST operations, an optional SORT then LIMIT
+// execution window, and a terminal RETURN; the ERROR empty policy, selector
+// filters, indexed or non-property steps, prepared references, ordered
+// fallbacks, unit normalization, DISTINCT, route-step scope operations,
+// conditionally-array selector modes, presence or hidden projections,
+// selector projections, and coexisting filters, traversals, or any other
+// operation are capability gaps: typed ErrUnsupportedPostgresPlan refusals
+// that yield no SQL. The SORT/LIMIT window arms admit only the closed
+// sequence [ROOT_SCAN, UNNEST+, SORT?, LIMIT?, RETURN]; their key contract —
+// the complete stable row identity tuple over final expanded rows — is the
+// single contract of window.go (pg-sql-12), which this gate defers to. As
+// part of that window contract, edge joins are registered once per edge
+// variable (window.go's rememberEdge): re-binding one variable to a second
+// join would silently point the edge_seq occurrence witness at the later
+// duplicate join, so the registration refuses it — a defense-in-depth pin of
+// the same invariant ir.Validate already enforces at the plan surface
+// ("variable is already defined"), witnessed by
+// TestWindowEdgeVariableRebindIsRefusedAtRegistration. There is no fallback
+// to the AQL renderer and no AQL-to-SQL conversion here. validateUnnestPlanSurface
 // is the single contract definition, applied as the first plan-facing act at
 // both entry points: RenderUnnest applies it before delegation, and
 // RenderPhysicalPlan — the read-spine dispatch — applies it before plan
@@ -160,6 +175,7 @@ func RenderUnnest(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (comp
 // validateRootScanOperation applies.
 func validateUnnestPlanSurface(plan ir.PhysicalPlan) error {
 	sawUnnest, sawReturn := false, false
+	sawSort, sawLimit := false, false
 	for index, operation := range plan.Operations {
 		switch operation.Kind {
 		case ir.PhysicalRootScanOp:
@@ -175,7 +191,10 @@ func validateUnnestPlanSurface(plan ir.PhysicalPlan) error {
 		case ir.PhysicalUnnestOp:
 			sawUnnest = true
 			if index == 0 {
-				return fmt.Errorf("%w: the unnest slice leads with ROOT_SCAN; UNNEST cannot run before the rows it expands", ErrUnsupportedPostgresPlan)
+				return fmt.Errorf("%w: operation %d: UNNEST cannot run before the rows it expands", ErrUnsupportedPostgresPlan, index)
+			}
+			if sawSort || sawLimit {
+				return fmt.Errorf("%w: operation %d: UNNEST must precede the execution window; expansion after SORT/LIMIT would window the pre-expansion rows the window contract orders", ErrUnsupportedPostgresPlan, index)
 			}
 			if operation.Unnest == nil {
 				return fmt.Errorf("%w: operation %d: UNNEST payload is missing", ErrUnsupportedPostgresPlan, index)
@@ -183,6 +202,35 @@ func validateUnnestPlanSurface(plan ir.PhysicalPlan) error {
 			if err := validateUnnestOperationShape(plan, *operation.Unnest); err != nil {
 				return fmt.Errorf("operation %d: %w", index, err)
 			}
+		case ir.PhysicalSortOp:
+			// The window arms of the closed slice keep the sequence
+			// [ROOT_SCAN, UNNEST+, SORT?, LIMIT?, RETURN]; the key contract
+			// (the exact stable row identity tuple) is enforced at render
+			// time in window.go, the single window contract owner.
+			if operation.Sort == nil {
+				return fmt.Errorf("%w: operation %d: SORT payload is missing", ErrUnsupportedPostgresPlan, index)
+			}
+			if !sawUnnest {
+				return fmt.Errorf("%w: operation %d: SORT must follow every UNNEST; the window orders final expanded rows, not pre-expansion sources", ErrUnsupportedPostgresPlan, index)
+			}
+			if sawSort || sawLimit {
+				return fmt.Errorf("%w: operation %d: the unnest window admits at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan, index)
+			}
+			sawSort = true
+		case ir.PhysicalLimitOp:
+			if operation.Limit == nil {
+				return fmt.Errorf("%w: operation %d: LIMIT payload is missing", ErrUnsupportedPostgresPlan, index)
+			}
+			if !sawUnnest {
+				return fmt.Errorf("%w: operation %d: LIMIT must follow every UNNEST; the window bounds final expanded rows, not pre-expansion sources", ErrUnsupportedPostgresPlan, index)
+			}
+			if sawLimit {
+				return fmt.Errorf("%w: operation %d: the unnest window admits at most one LIMIT", ErrUnsupportedPostgresPlan, index)
+			}
+			if !sawSort {
+				return fmt.Errorf("%w: operation %d: a LIMIT after UNNEST requires the complete stable row identity SORT first", ErrUnsupportedPostgresPlan, index)
+			}
+			sawLimit = true
 		case ir.PhysicalReturnOp:
 			sawReturn = true
 			if index != len(plan.Operations)-1 {
@@ -195,7 +243,7 @@ func validateUnnestPlanSurface(plan ir.PhysicalPlan) error {
 				return err
 			}
 		default:
-			return fmt.Errorf("%w: operation %q cannot coexist with UNNEST in the registered slice; filters, sorts, limits, traversal operations, and every other shape belong to the read spine or a later capability",
+			return fmt.Errorf("%w: operation %q cannot coexist with UNNEST in the registered slice; filters, traversal operations, and every other shape beyond the SORT/LIMIT window belong to the read spine or a later capability",
 				ErrUnsupportedPostgresPlan, string(operation.Kind))
 		}
 	}
@@ -615,7 +663,11 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 	// Source-array stability: each expansion's rn is unique within its
 	// parent group, so appending it after the storage identities makes the
 	// total order deterministic and keeps duplicate items in array order.
-	r.unnestOrder = append(r.unnestOrder, lateralAlias+".rn ASC")
+	// The window's total order (window.go) consumes the minted alias and,
+	// while a window is open, adds this expansion's has-item witness before
+	// the rn.
+	r.lateralAliases = append(r.lateralAliases, lateralAlias)
+	r.window.hasUnnest = true
 
 	// Derived value scopes: the item rides the jsonb column and is never
 	// the jsonb 'null' scalar, because the terminal filter removed stored
