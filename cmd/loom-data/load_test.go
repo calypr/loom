@@ -1205,14 +1205,13 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	t.Cleanup(cancel)
 
-	adminDSN := raw
-	if q := parsed.Query(); q.Get("application_name") == "" {
-		q.Set("application_name", "verify_clidisp_admin_probe")
-		parsed.RawQuery = q.Encode()
-		adminDSN = parsed.String()
-		secrets = append(secrets, adminDSN)
-	}
-	admin, err := pgxpool.New(ctx, adminDSN)
+	// Admin pool: the plain service URL. It hosts CREATE/DROP DATABASE and
+	// the pg_stat_activity witness queries only. It deliberately shares no
+	// url.Parse instance with any owned-database DSN (PR #118 verifier
+	// finding 1c): one shared parsed URL let the probe tag leak into the
+	// owned DSN, where joinApplicationName would then skip the operator's
+	// --pg-application-name.
+	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
 		t.Fatalf("connect for admin: %s", scrub(err))
 	}
@@ -1239,15 +1238,42 @@ func newCLIDispService(t *testing.T) *cliDispService {
 		cliDispOwnedMu.Unlock()
 	})
 
-	if q := parsed.Query(); q.Get("dbname") != "" {
-		q.Del("dbname")
-		parsed.RawQuery = q.Encode()
+	// The owned DSN handed to the CLI carries no application_name at all:
+	// joinApplicationName preserves an existing tag (cmd/loom-data/load.go
+	// and internal/ingest/generation_load.go:1275-1289), so a leaked probe
+	// tag there would silently skip the operator's --pg-application-name and
+	// the attribution witness could never fire (PR #118 verifier finding 1c).
+	owned, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("owned dsn parse: %s", scrub(err))
 	}
-	parsed.Path = "/" + dbName
-	dsn := parsed.String()
+	if q := owned.Query(); q.Get("application_name") != "" || q.Get("dbname") != "" {
+		q.Del("application_name")
+		q.Del("dbname")
+		owned.RawQuery = q.Encode()
+	}
+	owned.Path = "/" + dbName
+	dsn := owned.String()
 	secrets = append(secrets, dsn)
 
-	iso, err := pgxpool.New(ctx, dsn)
+	// The iso pool doubles as the poller's alive control: it holds
+	// connections on the OWNED database tagged with the probe name, so the
+	// witness predicate (application_name = $probe AND datname = <owned>)
+	// fires from a connection this test owns. A probe on the service
+	// database could never match that datname (PR #118 verifier finding 1c).
+	control, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("control dsn parse: %s", scrub(err))
+	}
+	q := control.Query()
+	q.Set("application_name", "verify_clidisp_admin_probe")
+	q.Del("dbname")
+	control.RawQuery = q.Encode()
+	control.Path = "/" + dbName
+	controlDSN := control.String()
+	secrets = append(secrets, controlDSN)
+
+	iso, err := pgxpool.New(ctx, controlDSN)
 	if err != nil {
 		t.Fatalf("connect to owned database: %s", scrub(err))
 	}
@@ -1418,8 +1444,14 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &summary); err != nil {
 		t.Fatalf("last stdout line is not the summary JSON: %v\n%q", err, lines[len(lines)-1])
 	}
-	if summary.Files != 2 || summary.VerticesInserted != 5 || summary.EdgesInserted != 2 {
-		t.Fatalf("summary counts = files %d vertices %d edges %d, want literal 2/5/2",
+	// Ground truth from the merged ing-03 contract: builders emit a
+	// forward/back-ref pair per logical subject edge — subject_Patient
+	// forward plus subject_observation back-ref for each subject reference
+	// (internal/ingest/generation_load_postgres_test.go:1127-1133, SQL-dumped
+	// ground truth in the PR #118 verification verdict) — so 2 files with
+	// 3 Patients + 2 Observations (one subject ref each) commit 2/5/4.
+	if summary.Files != 2 || summary.VerticesInserted != 5 || summary.EdgesInserted != 4 {
+		t.Fatalf("summary counts = files %d vertices %d edges %d, want literal 2/5/4",
 			summary.Files, summary.VerticesInserted, summary.EdgesInserted)
 	}
 	if summary.Dataset == nil || summary.Dataset.Project != project || summary.Dataset.Generation != generation {
