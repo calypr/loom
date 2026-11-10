@@ -55,12 +55,29 @@ package postgres
 // Registered surface (scalar RETURN projections only; the selector-extraction
 // slice keeps refusing CALL projections in selectors.go):
 //
-//	add, subtract, multiply, divide       ArangoDB stores IEEE-754 doubles,
-//	                                      so every result is a double
-//	                                      precision value computed in the
-//	                                      exact numeric domain (PG18
-//	                                      double-domain arithmetic raises
-//	                                      22003 on overflow/underflow).
+//	add, subtract, multiply, divide       ArangoDB stores IEEE-754 doubles
+//	                                      and its double arithmetic is
+//	                                      hardware IEEE (fundamentals-
+//	                                      data-types.md 72-73), so every
+//	                                      result is computed by a real
+//	                                      double-precision + - * / — the
+//	                                      only domain where PG18 rounds
+//	                                      like the AQL engine (numeric-
+//	                                      domain emulation misrounds:
+//	                                      float8->numeric is a shortest-
+//	                                      decimal conversion and numeric
+//	                                      division truncates). Because
+//	                                      PG18 raises 22003 at the IEEE
+//	                                      overflow/underflow boundaries,
+//	                                      each float8 operation runs only
+//	                                      inside an arm whose magnitude
+//	                                      was pre-proven safe by an exact
+//	                                      numeric-domain band test (never
+//	                                      raising itself); the pass bands
+//	                                      admit every round-tripping
+//	                                      double text, and the boundary
+//	                                      gray bands read registered
+//	                                      conservative values (L20).
 //	                                      Invalid values (null, missing,
 //	                                      non-numeric except decimal-form
 //	                                      strings, which coerce) yield SQL
@@ -69,10 +86,12 @@ package postgres
 //	                                      PostgreSQL division by zero
 //	                                      (SQLSTATE 22012) is unreachable
 //	                                      because the divisor is
-//	                                      NULLIF-guarded; overflow reads
-//	                                      NULL and IEEE underflow reads 0
-//	                                      through the numeric range guards
-//	                                      (jsonb cannot represent Infinity).
+//	                                      NULLIF-guarded; IEEE overflow
+//	                                      (Infinity, which jsonb cannot
+//	                                      hold, and which operators.md
+//	                                      259-262 reads back as invalid →
+//	                                      null) reads NULL and IEEE
+//	                                      underflow reads 0.
 //	cast string|code|uuid                 TO_STRING table: null/missing →
 //	                                      "", booleans → "true"/"false",
 //	                                      numbers → their spelling, strings
@@ -765,22 +784,42 @@ func (r *planRenderer) renderCallPair(plan ir.PhysicalPlan, call *ir.PhysicalCal
 // Arithmetic
 // ---------------------------------------------------------------------------
 
-// renderCallArithmetic renders add/subtract/multiply/divide over double
-// precision results (ArangoDB numbers are IEEE-754 doubles, so double is
-// the parity-faithful result domain) computed in the exact numeric domain.
-// PG18 measured live: double-precision + - * / all raise 22003 on overflow
-// and * raises on IEEE underflow — PostgreSQL 14+ checks errno around the
-// C operations — so evaluating in double would raise on data before any
-// guard could read it, while numeric operations never raise. The result is
-// range-checked in numeric and cast back exactly once (callNumericToJSONB):
-// values beyond the finite-double range read NULL (the registered overflow
-// policy, matching the documented non-raising result), tiny magnitudes
-// below the IEEE tie read 0 (IEEE round-to-even's own answer), and the
-// divisor is NULLIF-guarded first so PostgreSQL's 22012 is unreachable
-// without any CASE-arm ordering dependency. Division biases the dividend's
-// numeric scale (callDividendScaleBias) so the quotient carries 60+
-// significant digits — far beyond the 17 a double round-trip needs.
+// renderCallArithmetic renders add/subtract/multiply/divide as real
+// double-precision operations: ArangoDB stores IEEE-754 doubles and its
+// arithmetic is hardware IEEE (fundamentals-data-types.md 72-73), PG18
+// double + - * / rounds identically, and no numeric-domain emulation can
+// match that rounding (PG18 measured live: float8->numeric is a
+// shortest-decimal conversion, so a numeric-domain chain cannot recover an
+// operand's binary value; and numeric division truncates near the
+// 17-significant-digit mark, misrounding 1-ulp cases such as 11/100000).
+// PG18 also raises 22003 when a double operation overflows or rounds a
+// nonzero product/quotient to zero (measured live: 1e308+1e308,
+// 1.7976931348623155e308+2.6e307, 1e-310*1e-20 and 1e-310/1e20 all raise;
+// gradual underflow and cancellation never raise), so each double
+// operation runs only in an arm whose operand and result magnitudes were
+// pre-proven safe by exact numeric-domain band tests that themselves never
+// raise, and no arm depends on CASE evaluation order: every arm is
+// individually raise-free. The pass bands admit every text that
+// round-trips through float64 — every spelling loom ingests — so registered
+// outputs equal IEEE's; the sub-ulp gray bands between a pass boundary and
+// the true raise point (reachable only by hand-authored non-round-tripping
+// text) read the registered conservative value of their outer side (L20,
+// pinned live). IEEE overflow — an Infinity result, which operators.md
+// 259-262 reads back as invalid → null and jsonb could not hold anyway —
+// reads NULL; IEEE underflow reads 0. The divisor is NULLIF-guarded so
+// SQLSTATE 22012 is unreachable; a divisor whose magnitude parses below the
+// subnormal floor reads NULL like division by zero (its IEEE quotient, if
+// the text is above the IEEE tie, would overflow to Infinity — null again;
+// below it, IEEE divides by zero — null again). Division biases the
+// dividend's numeric scale (callDividendScaleBias) so the truncating band-
+// test quotient carries 400 fractional digits — far inside both the
+// overflow margin and the subnormal-boundary spacing.
 func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, call *ir.PhysicalCall, depth int) (string, error) {
+	operator, ok := map[string]string{"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}[name]
+	if !ok {
+		return "", fmt.Errorf("%w: arithmetic call %q is not registered for PostgreSQL",
+			ErrUnsupportedPostgresPlan, name)
+	}
 	left, err := r.renderCallNumericOperand(plan, call.Args[0], depth)
 	if err != nil {
 		return "", fmt.Errorf("argument 0: %w", err)
@@ -789,45 +828,137 @@ func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, c
 	if err != nil {
 		return "", fmt.Errorf("argument 1: %w", err)
 	}
-	leftNumber := left
-	rightNumber := right
-	if name == "divide" {
-		dividend := "(" + leftNumber + " + " + callDividendScaleBias + ")"
-		return callNumericToJSONB(dividend + " / NULLIF(" + rightNumber + ", 0)"), nil
+	switch operator {
+	case "+", "-":
+		// Addition and subtraction never raise except by rounding the sum
+		// to Infinity: cancellation and gradual results flush to zero
+		// without an exception (PG18 measured), so only the overflow band
+		// is needed. Each operand magnitude is < the round-to-Infinity tie
+		// (callDoubleOperand), so |a±b| exceeds the test value by at most
+		// two half-ulps of DBL_MAX (2 * 2^970); passing strictly below
+		// callDoubleAddPassUpper (DBL_MAX − 2^970) keeps |a±b| strictly
+		// below the tie.
+		magnitude := "abs((" + left + " " + operator + " " + right + "))"
+		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleAddPassUpper + "'::numeric" +
+			" THEN " + callDoubleOperand(left) + " " + operator + " " + callDoubleOperand(right) +
+			" ELSE NULL END)", nil
+	case "*":
+		// Multiplication additionally raises when a nonzero product rounds
+		// to zero: passing requires |a*b| strictly below the overflow tie
+		// with the operand-parsing error margin (each double is within
+		// half an ulp of its exact operand value, so |a*b| deviates from
+		// the exact numeric product by at most product·2^-52 ≈ 2^972 at
+		// the top; the margin below is 2^973) AND at or above
+		// callDoubleSubnormalFloor (17 significant digits above the exact
+		// minimum subnormal, so the product rounds to at least one
+		// subnormal and cannot raise; PG18 measured gradual products safe
+		// but a round-to-zero product raising). Below the floor the
+		// registered 0 arm answers, above the pass upper the NULL arm.
+		magnitude := "abs((" + left + " * " + right + "))"
+		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleMulDivPassUpper + "'::numeric" +
+			" AND " + magnitude + " >= '" + callDoubleSubnormalFloor + "'::numeric" +
+			" THEN " + callDoubleOperand(left) + " * " + callDoubleOperand(right) +
+			" WHEN " + magnitude + " < '" + callDoubleSubnormalFloor + "'::numeric" +
+			" THEN 0::double precision ELSE NULL END)", nil
+	default:
+		// The quotient magnitude test runs in numeric against a scale-
+		// biased NULLIF-guarded division (never raising: numeric division
+		// truncates, and the biased zero plus NULLIF fold the zero divisor
+		// to NULL, whose comparisons select the ELSE NULL arm — the
+		// registered reading of division by zero, operators.md 260-262).
+		// The divisor double arm maps the zero and subnormal-floor regions
+		// to NULL rather than 0.0 so the executed division can never see a
+		// zero divisor (callDoubleDivisor).
+		quotient := "((" + left + " + " + callDividendScaleBias + ") / NULLIF(" + right + ", 0))"
+		magnitude := "abs(" + quotient + ")"
+		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleMulDivPassUpper + "'::numeric" +
+			" AND " + magnitude + " >= '" + callDoubleSubnormalFloor + "'::numeric" +
+			" THEN " + callDoubleOperand(left) + " / " + callDoubleDivisor(right) +
+			" WHEN " + magnitude + " < '" + callDoubleSubnormalFloor + "'::numeric" +
+			" THEN 0::double precision ELSE NULL END)", nil
 	}
-	operator := map[string]string{"add": "+", "subtract": "-", "multiply": "*", "divide": "/"}[name]
-	return callNumericToJSONB(leftNumber + " " + operator + " " + rightNumber), nil
 }
 
 // Registered IEEE-754 double boundaries, as exact numeric literals:
-//   - callDoubleOverflowBound is DBL_MAX + 2^970, the round-half-even
-//     boundary above the largest finite double: a magnitude at or beyond
-//     it is the IEEE overflow case the registered policy reads as NULL,
-//     and PG18 measured numeric->double casts raise 22003 exactly beyond
-//     the finite range.
-//   - callDoubleUnderflowBound is 2^-1075, the tie point below the
-//     smallest denormal: IEEE round-to-even reads magnitudes below it as
-//     0, so the guard reads 0 instead of letting PG18 raise.
+//   - callDoubleOverflowBound is DBL_MAX + 2^970, the round-half-even tie
+//     above the largest finite double: a numeric magnitude at or beyond it
+//     is the IEEE overflow case (Infinity, read back as invalid → null per
+//     operators.md 259-262), and PG18 measured numeric->double casts raise
+//     22003 exactly there and above.
+//   - callDoubleAddPassUpper is DBL_MAX − 2^970: the strict pass boundary
+//     for an add/subtract band test (two operand half-ulps below the tie).
+//   - callDoubleMulDivPassUpper is the round-half-even tie − 2^973: the
+//     strict pass boundary for a multiply/divide band test (operand
+//     relative error 2^-52 ≈ 2^972 at the top, with margin).
+//   - callDoubleUnderflowFloor is 2.5e-324, above the round-to-zero tie
+//     (2^-1075 ≈ 2.4703282292062327e-324, where PG18 measured the cast
+//     raising) and below the minimum subnormal: a nonzero magnitude at or
+//     above it casts to at least the minimum subnormal without raising;
+//     below it the registered reading is 0 (IEEE's own answer below the
+//     tie, the L20 gray band above it).
+//   - callDoubleSubnormalFloor is 17 significant digits above the exact
+//     minimum subnormal (2^-1074 ≈ 4.9406564584124654e-324): a product or
+//     quotient magnitude at or above it rounds to at least one subnormal
+//     and cannot raise; below it the registered reading is 0.
 const (
-	callDoubleOverflowBound  = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
-	callDoubleUnderflowBound = "2.4703282292062327208828439643411068618252990130716238221279284125033775363510437593264991818081799618989828234772285886546332835517796989819938739800539093906315035659515570226392290858392449105184435931802849936536152500319370457678249219365623669863658480757001585769269903706311928279558551332927834338409351978015531246597263579574622766465272827220056374006485499977096599470454020828166226237857393450736339007967761930577506740176324673600968951340535537458516661134223766678604162159680461914467291840300530057530849048765391711386591646239524912623653881879636239373280423891018672348497668235089863388587925628302755995657524455507255189313690836254779186948667994968324049705821028513185451396213837722826145437693412532098591327667236328125E-324"
-	// callDividendScaleBias forces a numeric division's scale to at
-	// least 60 fractional digits (PG18 measured: the dividend's numeric
-	// scale drives the quotient scale; plain integer operands truncate
-	// at 20). NULLIF still recognizes the biased zero.
-	callDividendScaleBias = "0E-60"
+	callDoubleOverflowBound   = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
+	callDoubleAddPassUpper    = "179769313486231560835325876058105298516207002341652166261661174625869553267292326574530099287946549246750631490335877017522087105926987962906277604735569213290190919152394180476217125334960946356387261286640198029037799514183602981511756283727771403830521483963923935633133642802139091669457927874464075218944"
+	callDoubleMulDivPassUpper = "179769313486231500960116590016510948825025611236495184238123361562143308190875053458173343219024575698011666711264844337248681780152130643733137952927759391115036970607451570876046936802390650830255617955750582549437097177865883181587442630101659737164863430522599210419506436529457842398703070964143777382400"
+	callDoubleUnderflowFloor  = "2.5E-324"
+	callDoubleSubnormalFloor  = "4.9406564584124655E-324"
+	// callDividendScaleBias forces the band-test quotient's numeric scale
+	// to at least 400 fractional digits (PG18 measured: the dividend's
+	// numeric scale drives the quotient scale; plain integer operands
+	// truncate, and the dscale maximum is 1000). The truncation error
+	// (5e-401) sits far below both the subnormal-boundary spacing and the
+	// overflow margins, so the band decision equals the double result's
+	// side of each boundary for every round-tripping operand.
+	callDividendScaleBias = "0E-400"
 )
+
+// callDoubleOperand converts one never-raising numeric fragment to the
+// double that IEEE's parser would produce: magnitudes at or beyond
+// callDoubleOverflowBound (IEEE's Infinity, the documented invalid value)
+// read NULL; magnitudes at or above callDoubleUnderflowFloor cast exactly
+// once (PG18 measured: the cast rounds correctly across the whole finite
+// range, including subnormals, and the exact zero casts to 0.0); and
+// magnitudes below the floor — where PG18 measured the cast rounding to
+// zero and raising — read the registered 0, which is IEEE's own answer
+// below the tie and the L20 gray band above it. The CAST is reached only
+// where PG18 measured it cannot raise.
+func callDoubleOperand(numericOperand string) string {
+	return "(CASE WHEN abs(" + numericOperand + ") < '" + callDoubleOverflowBound + "'::numeric" +
+		" THEN CASE WHEN abs(" + numericOperand + ") >= '" + callDoubleUnderflowFloor + "'::numeric" +
+		" THEN (" + numericOperand + ")::double precision ELSE 0::double precision END" +
+		" ELSE NULL END)"
+}
+
+// callDoubleDivisor is callDoubleOperand for the executed division's right
+// side: the zero divisor and the subnormal-floor gray band both read NULL
+// (division by zero is the registered null; a subnormal-floor divisor is
+// either IEEE's own zero — division by zero, null — or above the tie,
+// where its double quotient overflows to Infinity — invalid, null again).
+// This keeps a zero-valued double out of the divisor position, which would
+// raise SQLSTATE 22037.
+func callDoubleDivisor(numericOperand string) string {
+	return "(CASE WHEN abs(" + numericOperand + ") < '" + callDoubleOverflowBound + "'::numeric" +
+		" THEN CASE WHEN abs(" + numericOperand + ") >= '" + callDoubleSubnormalFloor + "'::numeric" +
+		" THEN (" + numericOperand + ")::double precision ELSE NULL END" +
+		" ELSE NULL END)"
+}
 
 // callNumericToJSONB casts one exact-numeric expression to a jsonb number
 // without ever raising: magnitudes at or beyond callDoubleOverflowBound
 // (IEEE overflow) read NULL; nonzero magnitudes below
-// callDoubleUnderflowBound (IEEE underflow-to-zero territory) read 0;
-// NULL propagates through both guards. The numeric->double cast itself is
-// exact-rounding inside the finite range (PG18 measured).
+// callDoubleUnderflowFloor (the region whose PG18-measured cast rounds to
+// zero and raises — the tie itself included) read 0; NULL propagates
+// through both guards. The numeric->double cast itself is exact-rounding
+// inside the guarded range (PG18 measured). The cast tables (TO_NUMBER)
+// keep using this numeric-domain path; only the arithmetic operators need
+// the IEEE float8 domain of renderCallArithmetic.
 func callNumericToJSONB(expression string) string {
 	return "to_jsonb(CASE WHEN abs(" + expression + ") < '" + callDoubleOverflowBound + "'::numeric" +
-		" THEN CASE WHEN " + expression + " = 0" +
-		" OR abs(" + expression + ") >= '" + callDoubleUnderflowBound + "'::numeric" +
+		" THEN CASE WHEN abs(" + expression + ") >= '" + callDoubleUnderflowFloor + "'::numeric" +
 		" THEN (" + expression + ")::double precision ELSE 0::double precision END END)"
 }
 
@@ -871,13 +1002,19 @@ func (r *planRenderer) renderCallNumericOperand(plan ir.PhysicalPlan, expression
 	return callNumericCoercion(operand.sql), nil
 }
 
-// callNumericCoercion renders the double conversion of one dynamic jsonb
-// operand: numbers convert through their canonical text under a CASE-guarded
-// cast (never an unguarded cast — the planner does not promise AND-clause
+// callNumericCoercion renders the numeric-domain pre-pass of one dynamic
+// jsonb operand (the double conversion itself is callDoubleOperand's):
+// numbers convert through their canonical text under a CASE-guarded cast
+// (never an unguarded cast — the planner does not promise AND-clause
 // ordering), decimal-form strings coerce through the documented arithmetic
 // reading (operators.md 275-277 shows 24/"12" // 2), and every other stored
-// kind reads NULL: the registered invalid-value arm of the documented
-// "invalid value produces null" policy.
+// kind — booleans, arrays, objects, and strings outside the registered
+// decimal grammar, Unicode-space-padded numerics included — reads NULL:
+// the registered non-numeric-operand arm (L2), the fail-closed reading of
+// the documented arithmetic policy, which promises only that invalid
+// values do not raise (operators.md 259-262; functions-type-cast.md 65-66
+// fixes the cast context's own invalid reading at 0, which the TO_NUMBER
+// arm applies).
 func callNumericCoercion(operand string) string {
 	return "(CASE" +
 		" WHEN " + operand + " IS NULL OR jsonb_typeof(" + operand + ") = 'null' THEN NULL" +
@@ -887,27 +1024,60 @@ func callNumericCoercion(operand string) string {
 		" ELSE NULL END)"
 }
 
-// callDecimalStringPattern is the conservative registered numeric grammar:
-// optional surrounding whitespace, one sign, decimal digits with an
-// optional fraction and exponent — the shapes both ArangoDB's documented
-// "valid representation of a number" and PostgreSQL's double text parsing
-// accept identically. Wider JavaScript extensions (hexadecimal, "Infinity")
-// stay outside the registered grammar.
-//
-// The two alphabets are aligned: the grammar admits the whole POSIX
-// [[:space:]] class (space, tab, newline, vertical tab, form feed,
-// carriage return — the isspace set ArangoDB's "any whitespace at the
-// start or the end" ignores), so the trim that precedes the ::numeric cast
-// must erase exactly that set. Bare btrim(text) trims only the space
-// character, which would let a tab- or newline-padded spelling pass the
-// guard and then depend on numeric_in's version-varying whitespace
-// tolerance; the explicit character set below pins the erasure to the
-// grammar (pinned live for tab- and newline-padded spellings).
-const callDecimalStringPattern = `^[[:space:]]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?[[:space:]]*$`
+// callDecimalWhitespace is the single source of truth for the numeric
+// guard's whitespace alphabet: the grammar's surrounding arms and btrim's
+// erasure set are both derived from this one constant, so the two SQL
+// sites cannot drift apart — the F-5 shape (a grammar class wider than the
+// trim set, PG18's ICU [[:space:]] admitting U+2000-U+200A/U+2028/U+205F/
+// U+3000 while numeric_in raises 22P02 on their cast, PG18 measured) is
+// unconstructible by construction. The alphabet is the explicit ASCII
+// isspace set — space, tab, newline, vertical tab, form feed, carriage
+// return — which is the widest set ArangoDB's "any whitespace at the start
+// or the end" can be read as under its own documentation: the docs leave
+// "whitespace" undefined (operators.md 252-253, functions-type-cast.md
+// 64-65), and the locale-dependent POSIX class would put the never-raise
+// invariant at the mercy of the collation. Unicode-space-padded numerics
+// therefore take the documented non-matching arms — cast reads 0
+// (functions-type-cast.md 65-66), arithmetic coercion reads the
+// registered NULL (L2) — both never-raising and locale-independent.
+const callDecimalWhitespace = " \t\n\v\f\r"
 
-// callDecimalTrimCharacters is btrim's explicit whitespace set: exactly the
-// characters callDecimalStringPattern's [[:space:]] arms admit.
-const callDecimalTrimCharacters = `E' \t\n\v\f\r'`
+// callDecimalStringPattern is the conservative registered numeric grammar:
+// optional surrounding whitespace (both arms derived from
+// callDecimalWhitespace), one sign, decimal digits with an optional
+// fraction and exponent — the shapes both ArangoDB's documented "valid
+// representation of a number" and PostgreSQL's double text parsing accept
+// identically. Wider JavaScript extensions (hexadecimal, "Infinity") stay
+// outside the registered grammar.
+var callDecimalStringPattern = `^` + callWhitespaceRegexClass() + `*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` + callWhitespaceRegexClass() + `*$`
+
+// callDecimalTrimCharacters is btrim's explicit whitespace argument, built
+// from callDecimalWhitespace alone so it erases exactly what the grammar
+// admits. Bare btrim(text) trims only the space character, which would let
+// a tab- or newline-padded spelling pass the guard and then depend on
+// numeric_in's version-varying whitespace tolerance (pinned live for tab-
+// and newline-padded spellings).
+var callDecimalTrimCharacters = quoteSQLLiteral(callDecimalWhitespace)
+
+// callWhitespaceRegexClass renders callDecimalWhitespace as a bracket
+// expression: the characters appear raw (the pattern travels through
+// quoteSQLLiteral's standard quoting, where control characters survive
+// verbatim — no backslash escapes are needed and the ICU interpretation of
+// \t-style escapes stays irrelevant) and regex-significant characters are
+// backslash-escaped, so the class cannot be reinterpreted.
+func callWhitespaceRegexClass() string {
+	var class strings.Builder
+	class.WriteByte('[')
+	for _, r := range callDecimalWhitespace {
+		switch r {
+		case '\\', ']', '^', '-':
+			class.WriteByte('\\')
+		}
+		class.WriteRune(r)
+	}
+	class.WriteByte(']')
+	return class.String()
+}
 
 // ---------------------------------------------------------------------------
 // Cast

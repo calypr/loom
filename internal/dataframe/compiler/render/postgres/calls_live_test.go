@@ -244,13 +244,25 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 	svc := newSQL10Service(t)
 	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-calc", sql10Path,
 		map[string]any{"multipleBirthInteger": 5, "active": true,
-			// Whitespace-padded decimal spellings: the guard grammar
-			// admits the whole POSIX [[:space:]] class, so the explicit
-			// btrim set must erase exactly those (review thread
-			// r4529631602 — version-varying numeric_in tolerance).
+			// Whitespace-padded decimal spellings: the guard grammar and
+			// the btrim set are derived from one explicit ASCII class
+			// (review thread r4529631602 — version-varying numeric_in
+			// tolerance), so ASCII-padded spellings read the number.
 			"birthDate":        " \t42\n",
 			"deceasedDateTime": " 42 ",
-			"text":             map[string]any{"status": "\n42.5\r"},
+			"text":             map[string]any{"status": "\n42.5\r", "div": "\u300042"},
+			// Unicode-space-padded numerics: PG18's ICU [[:space:]]
+			// admits U+2009/U+3000 and the ASCII set refuses NBSP/NEL,
+			// so all four sit outside the single-source ASCII grammar
+			// and take the documented non-matching arms — cast reads 0
+			// (functions-type-cast.md 65-66), arithmetic coercion reads
+			// the registered NULL (L2). Never a 22P02 raise, never a
+			// locale dependency (F-5 disposition).
+			"deceasedBoolean":      "\u2009 42",
+			"communication":        map[string]any{"language": "\u300042"},
+			"maritalStatus":        "\u00a042",
+			"managingOrganization": "\u008542",
+			"meta":                 map[string]any{"versionId": "9007199254740993", "source": "5e-324", "lastUpdated": "2.4703282292062327e-324"},
 		})
 	// Type decoy with the same logical id: excluded by the scope chain,
 	// proven stored below.
@@ -262,8 +274,15 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 		"two":       int64(2),
 		"one":       int64(1),
 		"zero":      int64(0),
+		"three":     int64(3),
 		"huge":      float64(1e308),
 		"tiny":      float64(1e-308),
+		"tenth":     float64(0.1),
+		"tenth3":    float64(0.3),
+		"d02":       float64(0.2),
+		"half":      float64(0.5),
+		"eleven":    int64(11),
+		"lakhth":    int64(100000),
 		"numstr":    "42",
 		"flagstr":   "true",
 		"fb":        "fallback",
@@ -278,13 +297,42 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 		// 1 / 0 reads NULL (operators.md 259-277: 1/0 -> null), never a
 		// division-by-zero error.
 		sql10CallProjection("zero", sql10Call("divide", "", sql10Literal("one"), sql10Literal("zero"))),
-		// 1e308 * 10 overflows: the numeric range guard reads NULL
-		// (PG18 double-domain arithmetic would raise 22003 here).
+		// 1e308 * 10 overflows: the IEEE result is Infinity — the
+		// documented invalid value (operators.md 259-262) — and the band
+		// guard reads NULL instead of reaching PG18's 22003 raise.
 		sql10CallProjection("huge", sql10Call("multiply", "", sql10Literal("huge"), sql10Literal("ten"))),
 		// 1e-308 / 1e308 = 1e-616 underflows: IEEE round-to-even's own
-		// answer is 0, and the numeric guard reads 0 rather than letting
-		// PG18's double cast raise 22003 on the way.
+		// answer is 0, and the band guard reads 0 rather than letting
+		// PG18's raise on the way (L20-adjacent, IEEE-exact side).
 		sql10CallProjection("small", sql10Call("divide", "", sql10Literal("tiny"), sql10Literal("huge"))),
+		// IEEE parity pins (F-2/F-4 fix evidence, plan §4c): the results
+		// are hardware-IEEE double roundings, which no decimal-domain
+		// chain reproduces. 0.1+0.2 and 0.1/0.3 misround to the decimal
+		// answers in numeric; 0.30000000000000004 and
+		// 0.33333333333333337 are the doubles AQL stores.
+		sql10CallProjection("ieeeAdd", sql10Call("add", "", sql10Literal("tenth"), sql10Literal("d02"))),
+		sql10CallProjection("ieeeDiv", sql10Call("divide", "", sql10Literal("tenth"), sql10Literal("tenth3"))),
+		sql10CallProjection("ieeeDiv11", sql10Call("divide", "", sql10Literal("eleven"), sql10Literal("lakhth"))),
+		sql10CallProjection("ieeeDiv3", sql10Call("divide", "", sql10Literal("one"), sql10Literal("three"))),
+		// 2^53+1 is exactly representable as decimal text but not as a
+		// double: IEEE parsing (strtod's round-to-nearest) reads it as
+		// 9007199254740992, which is what AQL stores.
+		sql10CallProjection("ieeeParse", sql10Call("add", "",
+			sql10Extract(t, "Patient", "meta.versionId", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
+			sql10Literal("zero"))),
+		// Band cells: overflow and the divisor at the subnormal floor
+		// read the registered NULL; a gradual product below the floor
+		// reads the registered 0; the subnormal tie text (where PG18
+		// measured the cast itself raising 22003) reads the registered 0
+		// — the self-caused leak fixed and pinned (L20).
+		sql10CallProjection("addOver", sql10Call("add", "", sql10Literal("huge"), sql10Literal("huge"))),
+		sql10CallProjection("divOver", sql10Call("divide", "", sql10Literal("huge"), sql10Literal("half"))),
+		sql10CallProjection("mulUnder", sql10Call("multiply", "", sql10Literal("tiny"), sql10Literal("tiny"))),
+		sql10CallProjection("divMinSub", sql10Call("divide", "", sql10Literal("one"),
+			sql10Extract(t, "Patient", "meta.source", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		sql10CallProjection("tieAdd", sql10Call("add", "",
+			sql10Extract(t, "Patient", "meta.lastUpdated", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
+			sql10Literal("zero"))),
 		// TO_NUMBER table: "42" -> 42; TO_BOOL table: "true" -> true.
 		sql10CallProjection("num", sql10Call("cast", "INTEGER", sql10Literal("numstr"))),
 		sql10CallProjection("flag", sql10Call("cast", "BOOLEAN", sql10Literal("flagstr"))),
@@ -304,10 +352,32 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 			sql10Extract(t, "Patient", "deceasedDateTime", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
 		sql10CallProjection("paddec", sql10Call("cast", "DECIMAL",
 			sql10Extract(t, "Patient", "text.status", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		// Unicode-space-padded numerics never raise and take the
+		// documented arms: cast → 0 (functions-type-cast.md 65-66),
+		// arithmetic coercion → registered NULL (L2). These die on the
+		// F-5 mutant: re-widening the grammar to the ICU [[:space:]]
+		// class would pass U+2009/U+3000 through the guard and raise
+		// 22P02 on the cast, failing this read instead of reading 0.
+		sql10CallProjection("thinCast", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "deceasedBoolean", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		sql10CallProjection("thinAdd", sql10Call("add", "",
+			sql10Extract(t, "Patient", "deceasedBoolean", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
+			sql10Literal("zero"))),
+		sql10CallProjection("ideoCast", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "text.div", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		sql10CallProjection("nbspCast", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "maritalStatus", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		sql10CallProjection("nelCast", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "managingOrganization", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
 	)
 	svc.runOne(t, svc.renderLive(t, plan),
-		"42", "2.5", "<null>", "<null>", "0", "42", "true", "fallback",
-		"42", "42", "42.5")
+		"42", "2.5", "<null>", "<null>", "0",
+		"0.30000000000000004", "0.33333333333333337", "0.00011", "0.3333333333333333",
+		"9.007199254740992e+15",
+		"<null>", "<null>", "0", "<null>", "0",
+		"42", "true", "fallback",
+		"42", "42", "42.5",
+		"0", "<null>", "0", "0", "0")
 
 	// Non-vacuity: the decoy really exists, so its exclusion is the
 	// scope chain, not an empty table.

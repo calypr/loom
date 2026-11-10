@@ -225,31 +225,127 @@ func sql10RejectAny(t *testing.T, plan ir.PhysicalPlan, context string, want ...
 
 // sql10NumericText renders the operand text the arithmetic goldens pin:
 // one jsonb bind read through its canonical text as a numeric — the
-// registered arithmetic domain before the final range-guarded cast
-// (PG18 raises 22003 when double-domain arithmetic overflows, so no + -
-// * / may be evaluated in double).
+// registered band-test domain; the executed + - * / run in double (IEEE
+// parity) only inside arms whose numeric-domain guard has already proven
+// the operation cannot reach PG18's 22003 raise points.
 func sql10NumericText(parameter string) string {
 	return "((" + parameter + ") #>> '{}')::numeric"
 }
 
 // The registered IEEE-754 double boundaries, pinned from the measured
-// facts: the overflow bound is DBL_MAX + 2^970, the round-half-even
-// boundary above the largest finite double (at or beyond it IEEE overflow
-// reads NULL); the underflow bound is 2^-1075, the tie point below the
-// smallest denormal (below it IEEE round-to-even reads 0).
+// facts (PG18 probe battery): the overflow bound is DBL_MAX + 2^970, the
+// round-half-even tie above the largest finite double — the exact point
+// where numeric->double casts raise and where IEEE overflow begins (reads
+// NULL, the documented invalid-value reading); the add pass boundary is
+// DBL_MAX − 2^970 (two operand half-ulps below the tie); the multiply/
+// divide pass boundary is the tie − 2^973 (relative operand error 2^-52
+// ≈ 2^972 at the top, with margin); the cast pass floor is 2.5e-324
+// (above the measured 17-digit round-to-zero tie where the cast raises,
+// below the minimum subnormal — magnitudes below read the registered 0);
+// and the operation subnormal floor is 4.9406564584124655e-324 (above the
+// exact minimum subnormal — products/quotients below it read the
+// registered 0 instead of reaching the raising round-to-zero).
 const (
-	sql10WantOverflowBound  = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
-	sql10WantUnderflowBound = "2.4703282292062327208828439643411068618252990130716238221279284125033775363510437593264991818081799618989828234772285886546332835517796989819938739800539093906315035659515570226392290858392449105184435931802849936536152500319370457678249219365623669863658480757001585769269903706311928279558551332927834338409351978015531246597263579574622766465272827220056374006485499977096599470454020828166226237857393450736339007967761930577506740176324673600968951340535537458516661134223766678604162159680461914467291840300530057530849048765391711386591646239524912623653881879636239373280423891018672348497668235089863388587925628302755995657524455507255189313690836254779186948667994968324049705821028513185451396213837722826145437693412532098591327667236328125E-324"
+	sql10WantOverflowBound   = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
+	sql10WantAddPassUpper    = "179769313486231560835325876058105298516207002341652166261661174625869553267292326574530099287946549246750631490335877017522087105926987962906277604735569213290190919152394180476217125334960946356387261286640198029037799514183602981511756283727771403830521483963923935633133642802139091669457927874464075218944"
+	sql10WantMulDivPassUpper = "179769313486231500960116590016510948825025611236495184238123361562143308190875053458173343219024575698011666711264844337248681780152130643733137952927759391115036970607451570876046936802390650830255617955750582549437097177865883181587442630101659737164863430522599210419506436529457842398703070964143777382400"
+	sql10WantUnderflowFloor  = "2.5E-324"
+	sql10WantSubnormalFloor  = "4.9406564584124655E-324"
 )
 
-// sql10WantNumericToJSONB mirrors the registered numeric->jsonb cast:
-// range-guarded in numeric, cast back exactly once, overflow NULL, IEEE
-// underflow 0, NULL propagated.
+// sql10WantNumericToJSONB mirrors the registered numeric->jsonb cast
+// (TO_NUMBER path): range-guarded in numeric, cast back exactly once,
+// overflow NULL, IEEE underflow 0, NULL propagated.
 func sql10WantNumericToJSONB(expression string) string {
 	return `to_jsonb(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
-		` THEN CASE WHEN ` + expression + ` = 0` +
-		` OR abs(` + expression + `) >= '` + sql10WantUnderflowBound + `'::numeric` +
+		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantUnderflowFloor + `'::numeric` +
 		` THEN (` + expression + `)::double precision ELSE 0::double precision END END)`
+}
+
+// sql10WantDoubleOperand mirrors the guarded numeric->double parse:
+// overflow band NULL, subnormal-floor band 0, exact cast otherwise.
+func sql10WantDoubleOperand(expression string) string {
+	return `(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
+		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantUnderflowFloor + `'::numeric` +
+		` THEN (` + expression + `)::double precision ELSE 0::double precision END` +
+		` ELSE NULL END)`
+}
+
+// sql10WantDoubleDivisor mirrors the divisor parse: zero and subnormal-
+// floor regions NULL (never a zero-valued double reaches the division),
+// overflow NULL, exact cast otherwise.
+func sql10WantDoubleDivisor(expression string) string {
+	return `(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
+		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantSubnormalFloor + `'::numeric` +
+		` THEN (` + expression + `)::double precision ELSE NULL END` +
+		` ELSE NULL END)`
+}
+
+// sql10WantArithmetic mirrors the registered IEEE-domain arithmetic
+// fragment: an exact numeric-domain band test selects the arm, the double
+// operation runs inside the pass arm, underflow reads 0 and overflow (plus
+// every NULL contribution) reads NULL.
+func sql10WantArithmetic(operator, left, right string) string {
+	switch operator {
+	case "+", "-":
+		return `to_jsonb(CASE WHEN abs((` + left + ` ` + operator + ` ` + right + `)) < '` + sql10WantAddPassUpper + `'::numeric` +
+			` THEN ` + sql10WantDoubleOperand(left) + ` ` + operator + ` ` + sql10WantDoubleOperand(right) +
+			` ELSE NULL END)`
+	case "*":
+		magnitude := `abs((` + left + ` * ` + right + `))`
+		return `to_jsonb(CASE WHEN ` + magnitude + ` < '` + sql10WantMulDivPassUpper + `'::numeric` +
+			` AND ` + magnitude + ` >= '` + sql10WantSubnormalFloor + `'::numeric` +
+			` THEN ` + sql10WantDoubleOperand(left) + ` * ` + sql10WantDoubleOperand(right) +
+			` WHEN ` + magnitude + ` < '` + sql10WantSubnormalFloor + `'::numeric` +
+			` THEN 0::double precision ELSE NULL END)`
+	default:
+		quotient := `((` + left + ` + 0E-400) / NULLIF(` + right + `, 0))`
+		magnitude := `abs(` + quotient + `)`
+		return `to_jsonb(CASE WHEN ` + magnitude + ` < '` + sql10WantMulDivPassUpper + `'::numeric` +
+			` AND ` + magnitude + ` >= '` + sql10WantSubnormalFloor + `'::numeric` +
+			` THEN ` + sql10WantDoubleOperand(left) + ` / ` + sql10WantDoubleDivisor(right) +
+			` WHEN ` + magnitude + ` < '` + sql10WantSubnormalFloor + `'::numeric` +
+			` THEN 0::double precision ELSE NULL END)`
+	}
+}
+
+// TestCallsWhitespaceSingleSource structurally enforces the ratified F-5
+// disposition condition: ONE Go constant (callDecimalWhitespace) feeds
+// both SQL guard sites — the grammar's surrounding class and btrim's
+// erasure argument are derived from it, and the locale-dependent POSIX
+// class appears nowhere. Any duplicated whitespace literal — including a
+// re-widened [[:space:]], the shape PG18 measured admits U+2009 while
+// numeric_in raises 22P02 on the cast — dies on these assertions.
+func TestCallsWhitespaceSingleSource(t *testing.T) {
+	if callDecimalWhitespace != " \t\n\v\f\r" {
+		t.Fatalf("whitespace source = %q, want the explicit ASCII isspace set", callDecimalWhitespace)
+	}
+	wantClass := `[ ` + "\t\n\v\f\r" + `]`
+	if got := callWhitespaceRegexClass(); got != wantClass {
+		t.Fatalf("regex class = %q, want %q", got, wantClass)
+	}
+	if got := strings.Count(callDecimalStringPattern, wantClass); got != 2 {
+		t.Fatalf("grammar admits the derived class %d times, want 2: %q", got, callDecimalStringPattern)
+	}
+	for _, forbidden := range []string{"[[:space:]]", "[[:blank:]]", `\s`, `\S`} {
+		if strings.Contains(callDecimalStringPattern, forbidden) {
+			t.Fatalf("grammar carries %q instead of the derived class: %q", forbidden, callDecimalStringPattern)
+		}
+	}
+	if got, want := callDecimalTrimCharacters, quoteSQLLiteral(callDecimalWhitespace); got != want {
+		t.Fatalf("btrim argument = %q, want the derived %q", got, want)
+	}
+	// Both guard sites consume the shared construction verbatim: the
+	// arithmetic coercion arm and the TO_NUMBER string arm.
+	for name, fragment := range map[string]string{
+		"coercion":  callNumericCoercion("o"),
+		"to_number": callToNumberExpression("o"),
+	} {
+		if !strings.Contains(fragment, quoteSQLLiteral(callDecimalStringPattern)) ||
+			!strings.Contains(fragment, callDecimalTrimCharacters) {
+			t.Fatalf("%s guard arm does not embed the shared whitespace construction: %s", name, fragment)
+		}
+	}
 }
 
 func TestCallsGoldenArithmeticAddDivide(t *testing.T) {
@@ -258,7 +354,7 @@ func TestCallsGoldenArithmeticAddDivide(t *testing.T) {
 		sql10CallProjection("sum", sql10Call("add", "", sql10Literal("a"), sql10Literal("b"))),
 	)
 	rendered := sql10RenderOK(t, plan)
-	wantSQL := sql10Statement(`(` + sql10WantNumericToJSONB(left+` + `+right) + `) AS "c0"`)
+	wantSQL := sql10Statement(`(` + sql10WantArithmetic("+", left, right) + `) AS "c0"`)
 	if rendered.SQL != wantSQL {
 		t.Fatalf("add SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
@@ -274,13 +370,14 @@ func TestCallsGoldenArithmeticAddDivide(t *testing.T) {
 	}
 
 	// divide: the divisor is NULLIF-guarded so PostgreSQL's 22012 is
-	// unreachable; the documented 1/0 cell reads SQL NULL.
+	// unreachable; the documented 1/0 cell reads SQL NULL. The band test
+	// divides in numeric with a scale bias; the executed division is a
+	// double operation with a divisor arm that can never be zero.
 	dividePlan := sql10Plan("Patient", map[string]any{"a": int64(2), "b": float64(1.5)},
 		sql10CallProjection("ratio", sql10Call("divide", "", sql10Literal("a"), sql10Literal("b"))),
 	)
-	quote := `(` + left + ` + 0E-60) / NULLIF(` + right + `, 0)`
 	divideRendered := sql10RenderOK(t, dividePlan)
-	wantDivide := sql10Statement(`(` + sql10WantNumericToJSONB(quote) + `) AS "c0"`)
+	wantDivide := sql10Statement(`(` + sql10WantArithmetic("/", left, right) + `) AS "c0"`)
 	if divideRendered.SQL != wantDivide {
 		t.Fatalf("divide SQL =\n%s\nwant\n%s", divideRendered.SQL, wantDivide)
 	}
@@ -302,7 +399,7 @@ func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
 			sql10Literal("a"))),
 	)
 	rendered := sql10RenderOK(t, plan)
-	wantSQL := sql10Statement(`(` + sql10WantNumericToJSONB(coercion+` * `+number) + `) AS "c0"`)
+	wantSQL := sql10Statement(`(` + sql10WantArithmetic("*", coercion, number) + `) AS "c0"`)
 	if rendered.SQL != wantSQL {
 		t.Fatalf("multiply SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
@@ -773,11 +870,13 @@ func TestCallsValueOperandRefusesNonJSONDerivedScope(t *testing.T) {
 
 // TestCallsRejectFragmentByteBudget (review thread r4529631959) proves the
 // registered fragment budget bounds emitted SQL size on its own: operand
-// replication (callNumericToJSONB ×4, callTruthyTest/callNumericCoercion
-// ×5-7) multiplies per nesting level, so a left-nested chain far inside
-// the 64-level depth cap would otherwise expand beyond memory before the
-// depth guard fires. The budget must refuse with the typed error first,
-// while the depth cap still governs chains below the byte bound's reach.
+// replication (the arithmetic band test plus the callDoubleOperand guards
+// embed each operand around eight times per level, callTruthyTest/
+// callNumericCoercion ×5-7) multiplies per nesting level, so a left-nested
+// chain far inside the 64-level depth cap would otherwise expand beyond
+// memory before the depth guard fires. The budget must refuse with the
+// typed error first, while the depth cap still governs chains below the
+// byte bound's reach.
 func TestCallsRejectFragmentByteBudget(t *testing.T) {
 	nest := func(levels int) *ir.PhysicalExpression {
 		expression := sql10Literal("one")
