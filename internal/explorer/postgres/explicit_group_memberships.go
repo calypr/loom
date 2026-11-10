@@ -210,32 +210,6 @@ func newExplicitGroupMembershipStatements(schema string) explicitGroupMembership
 	}
 }
 
-// explicitGroupMembershipWhereKey renders the full-primary-key predicate
-// starting at placeholder number start ($start..$start+5) in
-// explicitGroupMembershipColumns order.
-func explicitGroupMembershipWhereKey(start string) string {
-	offset := 0
-	parts := make([]string, 0, len(explicitGroupMembershipColumns))
-	for _, col := range explicitGroupMembershipColumns {
-		parts = append(parts, col+" = $"+start)
-		if offset == 0 {
-			// Expand "$start" into "$start..$start+5" by ordinal: the
-			// caller passes the decimal start so the numbering stays
-			// literal and auditable.
-			startNum := 0
-			for _, ch := range start {
-				startNum = startNum*10 + int(ch-'0')
-			}
-			parts = parts[:0]
-			for i, col := range explicitGroupMembershipColumns {
-				parts = append(parts, fmt.Sprintf("%s = $%d", col, startNum+i))
-			}
-			break
-		}
-	}
-	return strings.Join(parts, " AND ")
-}
-
 // membershipArgs maps one canonical membership to the INSERT argument
 // order (explicitGroupMembershipColumns).
 func membershipArgs(revisionID string, m explorer.ExplicitGroupMembership) []any {
