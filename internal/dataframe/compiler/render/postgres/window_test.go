@@ -303,10 +303,21 @@ func TestWindowFinalSortLimitOverTwoExpansionsOrdersEveryWitness(t *testing.T) {
 	}
 }
 
+// mergedNoWindowUnnestGolden is the MERGED pg-sql-09 (commit 00676b9d,
+// PR #112) rendering of unnestPlan(expansionProjections()...) under
+// mustBinding, captured verbatim from the merged renderer in a detached
+// base checkout — ratification condition C2: asserted byte-for-byte, never
+// re-imagined.
+const mergedNoWindowUnnestGolden = `SELECT r0."logical_id" AS "c0", (u1.item) AS "c1", (u1.rn - 1) AS "c2", (u1.rn IS NOT NULL) AS "c3" FROM "pgir02_it_unit"."fhir_resource" AS r0 CROSS JOIN LATERAL (SELECT u1_e0.item AS item, ROW_NUMBER() OVER (ORDER BY u1_e0.ord) AS rn FROM jsonb_array_elements(CASE WHEN (r0."payload" #> $5::text[]) IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((r0."payload" #> $5::text[])) = 'array' THEN (r0."payload" #> $5::text[]) WHEN (r0."payload" #> $5::text[]) = 'false'::jsonb OR (r0."payload" #> $5::text[]) = '0'::jsonb OR (r0."payload" #> $5::text[]) = '""'::jsonb THEN '[]'::jsonb ELSE jsonb_build_array((r0."payload" #> $5::text[])) END) WITH ORDINALITY AS u1_e0(item, ord) WHERE jsonb_typeof(u1_e0.item) <> 'null') AS u1 WHERE r0."project" = $1 AND r0."dataset_generation" = $2 AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND r0."resource_type" = $4 ORDER BY r0."resource_seq" ASC, u1.rn ASC`
+
 func TestWindowWithoutWindowKeepsMergedUnnestSQLByteIdentical(t *testing.T) {
-	// Ratification condition: the no-window pg-sql-09 statement is untouched.
-	// The has-item witness appears only while a window is open.
+	// Ratification condition C2: the no-window pg-sql-09 statement is
+	// untouched, asserted against the merged golden text verbatim. The
+	// has-item ORDER BY witness appears only while a window is open.
 	rendered := renderOK(t, unnestPlan(expansionProjections()...))
+	if rendered.SQL != mergedNoWindowUnnestGolden {
+		t.Fatalf("no-window statement drifted from the merged pg-sql-09 golden:\n got %q\nwant %q", rendered.SQL, mergedNoWindowUnnestGolden)
+	}
 	if got, want := windowOrderByClause(t, rendered.SQL), `r0."resource_seq" ASC, u1.rn ASC`; got != want {
 		t.Fatalf("no-window ORDER BY drifted:\n got %q\nwant %q", got, want)
 	}
