@@ -38,7 +38,7 @@ func compileRecipe(bundle recipe.Bundle, project string, limit int, policy ir.Ph
 	if err != nil {
 		return compiler.CompiledQuery{}, err
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, policy)
+	queries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, limit, policy)
 	if err != nil {
 		return compiler.CompiledQuery{}, err
 	}

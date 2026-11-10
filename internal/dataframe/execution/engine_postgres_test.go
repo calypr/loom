@@ -1,20 +1,23 @@
 package execution
 
-// Offline dispatch tests for pg-exec-02: PostgreSQL plans execute only
-// through the PostgreSQL row executor, AQL plans retain the existing query,
-// resource-limit, and preview behavior, ClickHouse Combine keeps its
-// dedicated callbacks, unsupported engines and cross-tag commands fail
-// before any callback runs, and a canceled PostgreSQL preview stops without
-// a completed marker. Every Arango callback here is a spy that records its
-// invocation and names itself in a failure the moment a PostgreSQL stream
-// touches it; every guard has a paired control that must proceed, so a
-// guard that refused (or allowed) everything fails the suite.
+// Offline dispatch tests for arch-backend-11: outputs are compiled once by
+// the selected compiler target, and PostgreSQL-tagged commands execute only
+// through the one source row port with the parent-tagged command, declared
+// column contract, and batch hint forwarded unchanged. AQL plans retain the
+// existing query, resource-limit, and preview behavior, ClickHouse Combine
+// keeps its dedicated callbacks, unsupported engines and cross-tag commands
+// fail before any adapter callback runs, and a canceled PostgreSQL preview
+// stops without a completed marker. Every Arango control here is a spy that
+// records its invocation and names itself in a failure the moment a
+// PostgreSQL stream touches it; every guard has a paired control that must
+// proceed, so a guard that refused (or allowed) everything fails the suite.
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -22,6 +25,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -37,9 +41,9 @@ type dispatchSpies struct {
 	aqlPreviewQueries []string
 	pgFull            []postgresCallRecord
 	pgPreview         []postgresCallRecord
+	pgRequests        int
 	clickHouseQueries int
 	arangoControls    []string
-	resolverAsks      []string
 }
 
 func (s *dispatchSpies) recordControl(name string) {
@@ -56,32 +60,31 @@ func (s *dispatchSpies) controlSnapshot() []string {
 
 type postgresCallRecord struct {
 	SQL     string
-	Args    []compiler.PostgreSQLParameter
+	Args    []command.PostgreSQLParameter
 	Columns []string
 }
 
 func (s *dispatchSpies) arangoEngine() Config {
 	record := s.recordControl
 	return Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "exec02-test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-			query, _, dispatchErr := command.AQLParameters()
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "exec02-test-scope" },
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			query, _, dispatchErr := request.Command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
-
 			s.mu.Lock()
 			s.aqlQueries = append(s.aqlQueries, query)
 			s.mu.Unlock()
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-			query, _, dispatchErr := command.AQLParameters()
+		PreviewSourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			query, _, dispatchErr := request.Command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
-
 			s.mu.Lock()
 			s.aqlPreviewQueries = append(s.aqlPreviewQueries, query)
 			s.mu.Unlock()
@@ -99,7 +102,7 @@ func (s *dispatchSpies) arangoEngine() Config {
 			record("previewCollectionRevision")
 			return "rev-1", nil
 		},
-		PreviewCollectionScans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		PreviewCollectionScans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 			record("previewCollectionScans")
 			return PreviewCollectionScanEvidence{}, nil
 		},
@@ -116,26 +119,24 @@ func (s *dispatchSpies) arangoEngine() Config {
 	}
 }
 
-const (
-	exec02TestSQL = `SELECT logical_id AS "id", payload->>'name' AS "name" FROM loom.resource WHERE project = $1 AND dataset_generation = $2 AND payload ? 'name' ORDER BY resource_seq`
-)
-
-func exec02TestParameters() []compiler.PostgreSQLParameter {
-	return []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-		{Type: compiler.PostgreSQLParameterText, Value: "G1"},
-	}
-}
-
-func exec02TestCommand(t *testing.T) compiler.CompiledCommand {
+// exec02PostgreSQLTarget selects the PostgreSQL compiler target over the
+// canonical loom storage placement for these offline dispatch tests.
+func exec02PostgreSQLTarget(t *testing.T) compiler.Target {
 	t.Helper()
-	command, err := compiler.NewPostgreSQLCommand(exec02TestSQL, exec02TestParameters())
+	binding, err := ir.NewPostgresStorageBinding("loom")
 	if err != nil {
-		t.Fatalf("build PostgreSQL test command: %v", err)
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
 	}
-	return command
+	target, err := compiler.PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
 }
 
+// exec02TestResolved builds the canonical PostgreSQL-renderable output: a
+// single root scan plus a RETURN of one direct scope column (id, from
+// logical_id) and one lowered-form payload selector extraction (name).
 func exec02TestResolved() Resolved {
 	output := lower.CompiledRecipeOutput{
 		Name:             "resources",
@@ -146,7 +147,7 @@ func exec02TestResolved() Resolved {
 			{ID: "name", Name: "name", Label: "name", Kind: "string", Cardinality: "one"},
 		},
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
-		Plan:        ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL},
+		Plan:        exec02TestPlan(exec02TestProjections(false)),
 	}
 	return Resolved{
 		Bundle: recipe.Bundle{Name: "pg_dispatch"},
@@ -160,28 +161,95 @@ func exec02TestResolved() Resolved {
 	}
 }
 
-func exec02Resolver(spies *dispatchSpies, selection *ResolvedPostgreSQLCommand, selectionErr error) ResolvePostgreSQLCommands {
-	return func(_ context.Context, output lower.CompiledRecipeOutput, _ ir.PhysicalPlan, _ recipe.RuntimeBindings, _ int) (*ResolvedPostgreSQLCommand, error) {
-		s2 := spies
-		s2.mu.Lock()
-		s2.resolverAsks = append(s2.resolverAsks, output.Name)
-		s2.mu.Unlock()
-		return selection, selectionErr
+func exec02TestProjections(withSourceID bool) []ir.PhysicalProjection {
+	projections := []ir.PhysicalProjection{
+		{Name: "id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		{Name: "name", Expression: &ir.PhysicalExpression{
+			Kind:         ir.PhysicalExtractExpression,
+			Cardinality:  ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{
+				Source:        ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
+				ResourceType:  "Patient",
+				Selector:      spec.Selector{Steps: []spec.SelectorStep{{Field: "gender"}}},
+				ExecutionMode: ir.PhysicalSelectorDirectScalar,
+			},
+		}, Presence: &ir.PhysicalProjectionPresence{
+			Source: ir.PhysicalValue{Variable: "root", Path: []string{"payload"}},
+			Paths:  [][]string{{"gender"}},
+		}},
+	}
+	if withSourceID {
+		// The preview source identity column is added by the compiler
+		// (withPreviewSourceResourceID projects root.id) when
+		// bindings.IncludeSourceIdentity is set; the fixture only signals
+		// the caller's intent here.
+	}
+	return projections
+}
+
+func exec02TestPlan(projections []ir.PhysicalProjection) ir.PhysicalPlan {
+	return ir.PhysicalPlan{
+		Version: 1,
+		Engine:  ir.PhysicalEngineAQL,
+		BindVars: map[string]any{
+			"root_collection":                  "Patient",
+			"project":                          "P1",
+			"dataset_generation":               "G1",
+			"auth_resource_paths":              []string{"FHIR/Patient"},
+			"auth_resource_paths_unrestricted": false,
+			"scope_allowed":                    true,
+		},
+		Operations: []ir.PhysicalOperation{
+			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+			{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"project"}}, Right: &ir.PhysicalValue{BindKey: "project"}}}},
+			{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"dataset_generation"}}, Right: &ir.PhysicalValue{BindKey: "dataset_generation"}}}},
+			{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &ir.PhysicalDerivedLet{Variable: "root_auth_allowed", Operator: "AUTH_RESOURCE_PATH_ALLOWED", Inputs: []ir.PhysicalValue{
+				{Variable: "root", Path: []string{"auth_resource_path"}},
+				{BindKey: "auth_resource_paths"},
+				{BindKey: "auth_resource_paths_unrestricted"},
+			}}},
+			{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root_auth_allowed"}, Right: &ir.PhysicalValue{BindKey: "scope_allowed"}}}},
+			{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: projections}},
+		},
 	}
 }
 
-func exec02RowExecutor(spies *dispatchSpies, target *[]postgresCallRecord, rows []map[string]any) PostgreSQLQueryRows {
-	return exec02RowExecutorWithSpies(spies, target, rows)
+func exec02TestParameters() []command.PostgreSQLParameter {
+	return []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "P1"},
+		{Type: command.PostgreSQLParameterText, Value: "G1"},
+	}
 }
 
-func exec02RowExecutorWithSpies(spies *dispatchSpies, target *[]postgresCallRecord, rows []map[string]any) PostgreSQLQueryRows {
-	return func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
-		sqlText, args, err := command.PostgreSQLParameters()
+// exec02PostgreSQLCommand is the compiler reference render of the test
+// output: the engine must forward exactly this command, never a
+// hand-assembled one.
+func exec02PostgreSQLCommand(t *testing.T) command.CompiledCommand {
+	t.Helper()
+	resolved := exec02TestResolved()
+	query, err := compiler.CompileRecipeOutput(exec02PostgreSQLTarget(t),
+		resolved.Compiled.Outputs[0],
+		resolved.Semantic.SemanticPlan.Bindings,
+		0, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("reference CompileRecipeOutput: %v", err)
+	}
+	if query.Command.Backend() != command.CompiledBackendPostgreSQL {
+		t.Fatalf("reference command backend = %q, want PostgreSQL", query.Command.Backend())
+	}
+	return query.Command
+}
+
+func exec02pgPort(spies *dispatchSpies, target *[]postgresCallRecord, rows []map[string]any) SourceRows {
+	return func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+		sqlText, args, err := request.Command.PostgreSQLParameters()
 		if err != nil {
 			return err
 		}
 		spies.mu.Lock()
-		*target = append(*target, postgresCallRecord{SQL: sqlText, Args: args, Columns: append([]string(nil), columns...)})
+		*target = append(*target, postgresCallRecord{SQL: sqlText, Args: args, Columns: append([]string(nil), request.DeclaredColumns...)})
+		spies.pgRequests++
 		spies.mu.Unlock()
 		for _, row := range rows {
 			if err := ctx.Err(); err != nil {
@@ -193,6 +261,27 @@ func exec02RowExecutorWithSpies(spies *dispatchSpies, target *[]postgresCallReco
 		}
 		return nil
 	}
+}
+
+// exec02pgEngine selects the PostgreSQL target and installs the row port
+// (and optionally a distinct preview override). Arango controls stay armed
+// as spies, so any PostgreSQL touch of them fails the suite.
+func exec02pgEngine(t *testing.T, spies *dispatchSpies, rows []map[string]any) (*Engine, Config) {
+	t.Helper()
+	config := spies.arangoEngine()
+	config.CompileTarget = exec02PostgreSQLTarget(t)
+	config.SourceRows = exec02pgPort(spies, &spies.pgFull, rows)
+	config.PreviewSourceRows = exec02pgPort(spies, &spies.pgPreview, rows)
+	return config.newEngineForTest(t), config
+}
+
+func (c Config) newEngineForTest(t *testing.T) *Engine {
+	t.Helper()
+	engine, err := New(c)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return engine
 }
 
 func exec02Rows() []map[string]any {
@@ -210,20 +299,13 @@ func exec02AssertUntouchedArango(t *testing.T, spies *dispatchSpies) {
 	}
 }
 
-// Acceptance 1: a PostgreSQL plan executes only through the PostgreSQL
-// adapter with the command payload carried unchanged, and never invokes any
-// Arango query/index callback.
+// Acceptance 1: the selected PostgreSQL target compiles the output once, the
+// plan executes only through the source row port with the parent-tagged
+// command carried unchanged (asserted against the compiler reference
+// render), and never invokes any Arango query/index callback.
 func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	config.PreviewPostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgPreview, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine, _ := exec02pgEngine(t, spies, exec02Rows())
 	resolved := exec02TestResolved()
 
 	streams, err := engine.Streams(context.Background(), resolved)
@@ -251,29 +333,30 @@ func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 		t.Fatalf("stable row identity missing from PostgreSQL stream row: %v", got[0])
 	}
 	if len(spies.pgFull) != 1 {
-		t.Fatalf("PostgreSQL executor calls = %d, want 1", len(spies.pgFull))
+		t.Fatalf("PostgreSQL port calls = %d, want 1", len(spies.pgFull))
 	}
 	call := spies.pgFull[0]
-	if call.SQL != exec02TestSQL {
-		t.Fatalf("statement SQL drifted from the tagged command:\n got %q\nwant %q", call.SQL, exec02TestSQL)
+	reference := exec02PostgreSQLCommand(t)
+	wantSQL, wantArgs, err := reference.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("reference parameters: %v", err)
 	}
-	if !reflect.DeepEqual(call.Args, exec02TestParameters()) {
-		t.Fatalf("ordered arguments drifted: %v", call.Args)
+	if call.SQL != wantSQL {
+		t.Fatalf("statement SQL drifted from the compiler reference render:\n got %q\nwant %q", call.SQL, wantSQL)
+	}
+	if !reflect.DeepEqual(call.Args, wantArgs) {
+		t.Fatalf("ordered arguments drifted:\n got %v\nwant %v", call.Args, wantArgs)
 	}
 	if !reflect.DeepEqual(call.Columns, []string{"id", "name"}) {
 		t.Fatalf("declared columns = %v, want [id name]", call.Columns)
 	}
 	if len(spies.pgPreview) != 0 {
-		t.Fatalf("full stream touched the PostgreSQL preview executor: %d calls", len(spies.pgPreview))
-	}
-	if !reflect.DeepEqual(spies.resolverAsks, []string{"resources"}) {
-		t.Fatalf("resolver asks = %v", spies.resolverAsks)
+		t.Fatalf("full stream touched the PostgreSQL preview override: %d calls", len(spies.pgPreview))
 	}
 	exec02AssertUntouchedArango(t, spies)
 
 	// The same plan as a preview keeps every Arango control dark and uses
-	// the PostgreSQL preview capability (acceptance: separate preview
-	// capability; preview override).
+	// the preview override (acceptance: preview override).
 	previewSummary, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "resources", Limit: 5}, func(map[string]any) error { return nil })
 	if err != nil {
 		t.Fatalf("PreviewOutput: %v", err)
@@ -282,7 +365,7 @@ func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 		t.Fatalf("short PostgreSQL preview must report Complete=true Truncated=false, got %+v", previewSummary)
 	}
 	if len(spies.pgPreview) != 1 || len(spies.pgFull) != 1 {
-		t.Fatalf("preview must use the PostgreSQL preview executor only: full=%d preview=%d", len(spies.pgFull), len(spies.pgPreview))
+		t.Fatalf("preview must use the preview override only: full=%d preview=%d", len(spies.pgFull), len(spies.pgPreview))
 	}
 	exec02AssertUntouchedArango(t, spies)
 }
@@ -292,13 +375,10 @@ func TestPostgreSQLPlanExecutesOnlyThroughPostgreSQLAdapter(t *testing.T) {
 func TestPostgreSQLPreviewLimitReportsTruncationNotCompletion(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	config.CompileTarget = exec02PostgreSQLTarget(t)
+	config.SourceRows = exec02pgPort(spies, &spies.pgFull, exec02Rows())
+	config.PreviewSourceRows = exec02pgPort(spies, &spies.pgPreview, exec02Rows())
+	engine := config.newEngineForTest(t)
 	var visits int
 	summary, err := engine.PreviewOutput(context.Background(), exec02TestResolved(), PreviewRequest{Output: "resources", Limit: 1}, func(map[string]any) error {
 		visits++
@@ -317,19 +397,12 @@ func TestPostgreSQLPreviewLimitReportsTruncationNotCompletion(t *testing.T) {
 // result complete and without delivering further rows.
 func TestPostgreSQLPreviewCancellationStopsWithoutCompletedMarker(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil)
 	rows := []map[string]any{
 		{"id": "patient-one", "name": "Ada"},
 		{"id": "patient-two", "name": "Grace"},
 		{"id": "patient-three", "name": "Alan"},
 	}
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, rows)
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine, _ := exec02pgEngine(t, spies, rows)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var visits int
@@ -358,20 +431,24 @@ func TestPostgreSQLPreviewCancellationStopsWithoutCompletedMarker(t *testing.T) 
 // stream).
 func TestPostgreSQLPreviewBackendFailureNeverMarksComplete(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil)
 	failure := errors.New("postgres rows: query: FATAL simulated")
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+	config := spies.arangoEngine()
+	config.CompileTarget = exec02PostgreSQLTarget(t)
+	failingPort := func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+		if _, _, err := request.Command.PostgreSQLParameters(); err != nil {
+			return err
+		}
 		if err := visit(exec02Rows()[0]); err != nil {
 			return err
 		}
 		return failure
 	}
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	config.SourceRows = failingPort
+	// A PostgreSQL preview runs on the selected target's row port: the
+	// preview lane falls back to SourceRows (or the same-backend preview
+	// port when set), never to an AQL adapter.
+	config.PreviewSourceRows = failingPort
+	engine := config.newEngineForTest(t)
 	summary, err := engine.PreviewOutput(context.Background(), exec02TestResolved(), PreviewRequest{Output: "resources", Limit: 10}, func(map[string]any) error { return nil })
 	if err == nil || !errors.Is(err, failure) {
 		t.Fatalf("adapter failure must reach the caller via the error chain: %v", err)
@@ -390,109 +467,92 @@ func TestUnsupportedPhysicalEngineRejectsBeforeAnyCallback(t *testing.T) {
 			continue
 		}
 		spies := &dispatchSpies{}
-		config := spies.arangoEngine()
-		command := exec02TestCommand(t)
-		config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil)
-		config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-		engine, err := New(config)
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
+		engine, _ := exec02pgEngine(t, spies, exec02Rows())
 		resolved := exec02TestResolved()
 		resolved.Compiled.Outputs[0].Plan.Engine = engineTag
-		_, _, err = engine.streamForOutput(context.Background(), resolved, "resources", 5)
+		_, _, err := engine.streamForOutput(context.Background(), resolved, "resources", 5)
 		if err == nil || !strings.Contains(err.Error(), "unsupported physical engine") {
 			t.Fatalf("unknown plan engine %q must fail closed: %v", engineTag, err)
 		}
 		if _, err := engine.Run(context.Background(), resolved); err == nil || !strings.Contains(err.Error(), "unsupported physical engine") {
 			t.Fatalf("Run with unknown plan engine %q must fail closed: %v", engineTag, err)
 		}
-		if len(spies.resolverAsks) != 0 {
-			t.Fatalf("unsupported engine %q consulted the PostgreSQL resolver: %v", engineTag, spies.resolverAsks)
-		}
 		exec02AssertUntouchedArango(t, spies)
-		if len(spies.pgFull) != 0 {
-			t.Fatalf("unsupported engine %q reached the PostgreSQL executor", engineTag)
+		if spies.pgRequests != 0 {
+			t.Fatalf("unsupported engine %q reached the PostgreSQL row port", engineTag)
 		}
 	}
 }
 
-// A PostgreSQL selection without a registered PostgreSQL executor is a
-// capability gap: New refuses the misconfiguration outright.
-func TestPostgreSQLResolverWithoutExecutorFailsAtConstruction(t *testing.T) {
+// A plan the compiler refuses to render is a typed failure that propagates
+// without touching any adapter (no silent AQL fallback for a PostgreSQL
+// compile failure).
+func TestPostgreSQLCompileFailurePropagatesWithoutFallback(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, nil, nil)
-	if _, err := New(config); err == nil || !strings.Contains(err.Error(), "requires a PostgreSQL row executor") {
-		t.Fatalf("resolver without executor must fail construction: %v", err)
+	engine, _ := exec02pgEngine(t, spies, exec02Rows())
+	resolved := exec02TestResolved()
+	// A root scan without the canonical scope binds is refused by the
+	// PostgreSQL renderer before any command exists.
+	resolved.Compiled.Outputs[0].Plan.BindVars = map[string]any{"root_collection": "Patient"}
+	_, _, err := engine.streamForOutput(context.Background(), resolved, "resources", 5)
+	if err == nil {
+		t.Fatal("unrenderable PostgreSQL plan must fail closed")
 	}
-	// Belt and braces: an engine assembled with the seam but no executor
-	// still fails before any adapter callback.
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	if _, err := New(config); err != nil {
-		t.Fatalf("New with executor: %v", err)
+	if len(spies.aqlQueries) != 0 || spies.pgRequests != 0 {
+		t.Fatalf("compile failure must not fall back to AQL or reach the port: aql=%v pg=%d", spies.aqlQueries, spies.pgRequests)
 	}
-	command := exec02TestCommand(t)
-	bypass := &Engine{
-		registry:                  invalidRecipeRegistry{},
-		queryRows:                 config.QueryRows,
-		resolvePostgreSQLCommands: exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil),
-	}
-	_, _, err := bypass.streamForOutput(context.Background(), exec02TestResolved(), "resources", 5)
-	if !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-		t.Fatalf("missing PostgreSQL executor must report the not-registered capability gap: %v", err)
-	}
-	if len(spies.pgFull) != 0 || len(spies.aqlQueries) != 0 {
-		t.Fatalf("capability gap must not invoke any adapter: pg=%d aql=%v", len(spies.pgFull), spies.aqlQueries)
-	}
+	exec02AssertUntouchedArango(t, spies)
 }
 
 // Acceptance 1/4: commands whose tag does not name PostgreSQL are refused
 // by the tagged envelope before the adapter is invoked, with exact named
-// refusals.
-func TestPostgreSQLSelectionRejectsCrossTagAndZeroTagCommands(t *testing.T) {
-	crossTag, err := compiler.NewAQLCommand("FOR d IN resource RETURN d", map[string]any{"project": "P1"})
+// refusals. The engine forwards its parent-tagged command verbatim, so the
+// stream boundary must surface the envelope's refusal rather than any
+// adapter fallback.
+func TestPostgreSQLStreamRefusesCrossTagAndZeroTagCommands(t *testing.T) {
+	crossTag, err := command.NewAQLCommand("FOR d IN resource RETURN d", map[string]any{"project": "P1"})
 	if err != nil {
 		t.Fatalf("build AQL command: %v", err)
 	}
-	zeroTag := compiler.CompiledCommand{}
+	zeroTag := command.CompiledCommand{}
 	for _, test := range []struct {
 		name       string
-		command    compiler.CompiledCommand
+		command    command.CompiledCommand
 		wantIs     error
 		wantPhrase string
 	}{
-		{"AQL-tagged command on the PostgreSQL route", crossTag, compiler.ErrCompiledCommandBackendMismatch, "refusing to pass AQL query to the PostgreSQL statement executor"},
-		{"zero-tag command on the PostgreSQL route", zeroTag, compiler.ErrCompiledCommandBackendNotRegistered, "unregistered backend"},
+		{"AQL-tagged command on the PostgreSQL route", crossTag, command.ErrCompiledCommandBackendMismatch, `command is tagged "AQL" while the selected target serves "POSTGRESQL"`},
+		{"zero-tag command on the PostgreSQL route", zeroTag, command.ErrCompiledCommandBackendNotRegistered, "unregistered backend tag"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			spies := &dispatchSpies{}
-			config := spies.arangoEngine()
-			config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: test.command, Columns: []string{"id"}}, nil)
-			// The spy executor does not inspect the command itself: if the
-			// engine's pre-callback tag check were dropped, this executor
-			// would record and stream the mismatched command and the
-			// zero-call assertion below would fail.
-			config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
-				spies.mu.Lock()
-				sqlText, args, _ := command.PostgreSQLParameters()
-				spies.pgFull = append(spies.pgFull, postgresCallRecord{SQL: sqlText, Args: args, Columns: append([]string(nil), columns...)})
-				spies.mu.Unlock()
-				for _, row := range exec02Rows() {
-					if err := ctx.Err(); err != nil {
-						return err
+			// The spy port does not inspect the command itself: if the
+			// envelope's tag check were dropped, this port would record and
+			// stream the mismatched command and the zero-call assertion
+			// below would fail.
+			stream := OutputStream{
+				Name: "resources", Columns: []string{"id"},
+				sourceRows: func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+					spies.mu.Lock()
+					sqlText, args, _ := request.Command.PostgreSQLParameters()
+					spies.pgFull = append(spies.pgFull, postgresCallRecord{SQL: sqlText, Args: args, Columns: append([]string(nil), request.DeclaredColumns...)})
+					spies.pgRequests++
+					spies.mu.Unlock()
+					for _, row := range exec02Rows() {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
+						if err := visit(row); err != nil {
+							return err
+						}
 					}
-					if err := visit(row); err != nil {
-						return err
-					}
-				}
-				return nil
+					return nil
+				},
+				command:         test.command,
+				expectedBackend: command.CompiledBackendPostgreSQL,
+				commandColumns:  []string{"id"},
 			}
-			engine, err := New(config)
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
-			_, _, err = engine.streamForOutput(context.Background(), exec02TestResolved(), "resources", 5)
+			err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil })
 			if !errors.Is(err, test.wantIs) {
 				t.Fatalf("error must satisfy errors.Is(%v): %v", test.wantIs, err)
 			}
@@ -500,53 +560,10 @@ func TestPostgreSQLSelectionRejectsCrossTagAndZeroTagCommands(t *testing.T) {
 				t.Fatalf("refusal must name the routing defect %q: %v", test.wantPhrase, err)
 			}
 			if len(spies.pgFull) != 0 {
-				t.Fatalf("mismatched command reached the PostgreSQL executor")
+				t.Fatalf("mismatched command reached the PostgreSQL port")
 			}
 			exec02AssertUntouchedArango(t, spies)
 		})
-	}
-}
-
-// A resolver failure propagates as a typed failure without touching any
-// adapter (no silent AQL fallback for a PostgreSQL decision point).
-func TestPostgreSQLResolverFailurePropagatesWithoutFallback(t *testing.T) {
-	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	selectionFailure := fmt.Errorf("%w: no PostgreSQL command renderer is implemented or registered", compiler.ErrCompiledCommandBackendNotRegistered)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, nil, selectionFailure)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	_, _, err = engine.streamForOutput(context.Background(), exec02TestResolved(), "resources", 5)
-	if !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-		t.Fatalf("resolver capability gap must propagate: %v", err)
-	}
-	if len(spies.aqlQueries) != 0 || len(spies.pgFull) != 0 {
-		t.Fatalf("resolver failure must not fall back to AQL or reach PostgreSQL: aql=%v pg=%d", spies.aqlQueries, len(spies.pgFull))
-	}
-}
-
-// A PostgreSQL command declared with an empty result column contract is
-// refused before the adapter runs (the adapter would refuse too; the engine
-// refuses earlier).
-func TestPostgreSQLSelectionRequiresDeclaredColumns(t *testing.T) {
-	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: nil}, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	_, _, err = engine.streamForOutput(context.Background(), exec02TestResolved(), "resources", 5)
-	if err == nil || !strings.Contains(err.Error(), "declared result column contract") {
-		t.Fatalf("empty column contract must be refused: %v", err)
-	}
-	if len(spies.pgFull) != 0 {
-		t.Fatalf("empty column contract reached the PostgreSQL executor")
 	}
 }
 
@@ -555,42 +572,31 @@ func TestPostgreSQLSelectionRequiresDeclaredColumns(t *testing.T) {
 // instead of falling back to an AQL capture stream.
 func TestPostgreSQLSelectionRefusesClickHousePayloadAndPrivateCapture(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	selection := &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, selection, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine, _ := exec02pgEngine(t, spies, exec02Rows())
 	combinePlan := exec02TestResolved()
 	combine := ir.PhysicalClickHouseCombine{Inputs: []ir.PhysicalCombineInputRef{{RevisionID: "execution-a"}}}
 	combinePlan.Compiled.Outputs[0].Plan.ClickHouseCombine = &combine
-	_, _, err = engine.streamForOutput(context.Background(), combinePlan, "resources", 5)
+	_, _, err := engine.streamForOutput(context.Background(), combinePlan, "resources", 5)
 	if err == nil || !strings.Contains(err.Error(), "cannot carry a ClickHouse combine payload") {
-		t.Fatalf("PostgreSQL selection over a ClickHouse payload must fail closed: %v", err)
+		t.Fatalf("PostgreSQL target over a ClickHouse payload must fail closed: %v", err)
 	}
 	resolved := exec02TestResolved()
 	_, _, err = engine.buildCompiledOutputStream(context.Background(), resolved, resolved.Compiled.Outputs[0], 0, map[string]bool{}, true)
 	if err == nil || !strings.Contains(err.Error(), "private ClickHouse workspace artifact capture is unsupported") {
 		t.Fatalf("private capture over a PostgreSQL-served output must fail closed: %v", err)
 	}
-	if len(spies.pgFull) != 0 {
-		t.Fatalf("refused selections reached the PostgreSQL executor")
+	if spies.pgRequests != 0 {
+		t.Fatalf("refused selections reached the PostgreSQL port")
 	}
 	exec02AssertUntouchedArango(t, spies)
 }
 
 // Acceptance 3: a ClickHouse combine still uses its dedicated ClickHouse
-// callbacks; the PostgreSQL seam is never consulted for a ClickHouse-engine
+// callbacks; the source row port is never consulted for a ClickHouse-engine
 // plan.
-func TestClickHouseCombineUnaffectedAndNeverOfferedPostgreSQL(t *testing.T) {
+func TestClickHouseCombineUnaffectedAndNeverOfferedSourcePort(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
-	command := exec02TestCommand(t)
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id"}}, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
 	combine := ir.PhysicalClickHouseCombine{
 		Kind: ir.PhysicalCombineAppend,
 		Inputs: []ir.PhysicalCombineInputRef{
@@ -628,10 +634,7 @@ func TestClickHouseCombineUnaffectedAndNeverOfferedPostgreSQL(t *testing.T) {
 	config.WithExecutionReadPins = func(ctx context.Context, _ []string, visit func(context.Context) error) error {
 		return visit(ctx)
 	}
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine := config.newEngineForTest(t)
 	rows, err := engine.Run(context.Background(), resolved)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -639,29 +642,22 @@ func TestClickHouseCombineUnaffectedAndNeverOfferedPostgreSQL(t *testing.T) {
 	if spies.clickHouseQueries != 1 {
 		t.Fatalf("ClickHouse callbacks = %d, want 1", spies.clickHouseQueries)
 	}
-	if len(spies.pgFull) != 0 || len(spies.aqlQueries) != 0 || len(spies.aqlPreviewQueries) != 0 {
-		t.Fatalf("ClickHouse combine leaked into a source adapter: pg=%d aql=%v preview=%v", len(spies.pgFull), spies.aqlQueries, spies.aqlPreviewQueries)
-	}
-	if len(spies.resolverAsks) != 0 {
-		t.Fatalf("PostgreSQL seam consulted for a ClickHouse-engine plan: %v", spies.resolverAsks)
+	if spies.pgRequests != 0 || len(spies.aqlQueries) != 0 || len(spies.aqlPreviewQueries) != 0 {
+		t.Fatalf("ClickHouse combine leaked into a source adapter: pg=%d aql=%v preview=%v", spies.pgRequests, spies.aqlQueries, spies.aqlPreviewQueries)
 	}
 	if got := rows["resources"]; len(got) != 1 || got[0]["value"] != "Ada" {
 		t.Fatalf("ClickHouse combine rows drifted: %v", got)
 	}
 }
 
-// Acceptance 2 (control): with the seam configured but abstaining, the AQL
-// path is byte-identical: AQL compile runs, the AQL preview executor is
-// used for previews, and the ordinary AQL executor for streams.
-func TestAQLPathUnchangedWhenResolverAbstains(t *testing.T) {
+// Acceptance 2 (control): the AQL-selected engine is byte-identical to the
+// pre-change behavior: the AQL port receives AQL-tagged commands for both
+// streams and previews, and a PostgreSQL-tagged command can never sneak
+// into the AQL route (the port's own envelope check would fail).
+func TestAQLPathUnchangedWhenPostgreSQLUnused(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, nil, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine := config.newEngineForTest(t)
 	bundle := testResolvedBundle([]string{})
 	resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, recipe.RuntimeBindings{Project: "P1"})
 	if err != nil {
@@ -670,8 +666,8 @@ func TestAQLPathUnchangedWhenResolverAbstains(t *testing.T) {
 	if _, err := engine.Preview(context.Background(), resolved, 2); err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if len(spies.aqlPreviewQueries) == 0 || len(spies.pgFull) != 0 {
-		t.Fatalf("AQL preview must use the AQL preview executor only: preview=%v pg=%d", spies.aqlPreviewQueries, len(spies.pgFull))
+	if len(spies.aqlPreviewQueries) == 0 || spies.pgRequests != 0 {
+		t.Fatalf("AQL preview must use the AQL preview port only: preview=%v pg=%d", spies.aqlPreviewQueries, spies.pgRequests)
 	}
 	streams, err := engine.Streams(context.Background(), resolved)
 	if err != nil {
@@ -682,25 +678,19 @@ func TestAQLPathUnchangedWhenResolverAbstains(t *testing.T) {
 			t.Fatalf("Stream: %v", err)
 		}
 	}
-	if len(spies.aqlQueries) == 0 || len(spies.pgFull) != 0 {
-		t.Fatalf("AQL stream must use the AQL executor only: aql=%v pg=%d", spies.aqlQueries, len(spies.pgFull))
+	if len(spies.aqlQueries) == 0 || spies.pgRequests != 0 {
+		t.Fatalf("AQL stream must use the AQL port only: aql=%v pg=%d", spies.aqlQueries, spies.pgRequests)
 	}
 }
 
-// Control for the PostgreSQL-dark assertion: with the PostgreSQL seam
-// configured (abstaining), the very same engine shape still drives the
-// Arango preview controls for an AQL Group preview — preparePreviewIndex
-// fires and the AQL preview executor is used. Guards are not blanket
-// refusals.
+// Control for the PostgreSQL-dark assertion: the very same engine shape
+// still drives the Arango preview controls for an AQL Group preview —
+// preparePreviewIndex fires and the AQL preview port is used. Guards are
+// not blanket refusals.
 func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 	spies := &dispatchSpies{}
 	config := spies.arangoEngine()
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, nil, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine := config.newEngineForTest(t)
 	groupOutput := executionGroupPreviewOutput()
 	resolved, err := engine.CompileResolvedBundle(context.Background(), recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -715,7 +705,7 @@ func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 		t.Fatalf("PreviewOutput: %v", err)
 	}
 	if len(spies.aqlPreviewQueries) == 0 {
-		t.Fatal("AQL preview stopped using the AQL preview executor")
+		t.Fatal("AQL preview stopped using the AQL preview port")
 	}
 	// Group index preparation is scheduled asynchronously after the
 	// preview query; give the prewarm goroutine a bounded window.
@@ -735,8 +725,8 @@ func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 	if !sawPrepare {
 		t.Fatalf("AQL Group preview stopped driving the Arango index preparation control: %v", spies.controlSnapshot())
 	}
-	if len(spies.pgFull) != 0 {
-		t.Fatalf("AQL Group preview leaked into the PostgreSQL executor: %d calls", len(spies.pgFull))
+	if spies.pgRequests != 0 {
+		t.Fatalf("AQL Group preview leaked into the PostgreSQL port: %d calls", spies.pgRequests)
 	}
 }
 
@@ -745,12 +735,12 @@ func TestAQLPreviewStillDrivesArangoControls(t *testing.T) {
 // stream still reaches it (non-vacuity control).
 func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 	spies := &dispatchSpies{}
-	command := exec02TestCommand(t)
+	reference := exec02PostgreSQLCommand(t)
 	evaluate := func(stream *OutputStream) error {
-		engine := &Engine{
+		engine := &Engine{compileTarget: compiler.ArangoTarget(),
 			registry: invalidRecipeRegistry{},
-			queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-				_, _, dispatchErr := command.AQLParameters()
+			sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				_, _, dispatchErr := request.Command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
 				}
@@ -758,11 +748,10 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 			},
 		}
 		engine.previewCoveringIndexes = func(context.Context, string) ([]PreviewCollectionIndex, error) {
-			record := "previewCoveringIndexes"
-			spies.recordControl(record)
+			spies.recordControl("previewCoveringIndexes")
 			return nil, nil
 		}
-		engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 			spies.recordControl("previewCollectionScans")
 			return PreviewCollectionScanEvidence{}, nil
 		}
@@ -781,8 +770,8 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 		return engine.chooseGroupPreviewScan(context.Background(), query, stream)
 	}
 	aqlStream := &OutputStream{
-		Name: "resources", stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-			_, _, dispatchErr := command.AQLParameters()
+		Name: "resources", sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			_, _, dispatchErr := request.Command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
@@ -797,11 +786,10 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 		t.Fatal("control failed: the AQL-shaped stream must reach the Arango optimizer callbacks")
 	}
 	postgresStream := &OutputStream{
-		Name:                "resources",
-		stream:              aqlStream.stream,
-		postgreSQLQueryRows: exec02RowExecutor(spies, &spies.pgFull, exec02Rows()),
-		command:             command,
-		commandColumns:      []string{"id", "name"},
+		Name:           "resources",
+		sourceRows:     exec02pgPort(spies, &spies.pgFull, exec02Rows()),
+		command:        reference,
+		commandColumns: []string{"id", "name"},
 	}
 	if err := evaluate(postgresStream); err != nil {
 		t.Fatalf("PostgreSQL group preview scan: %v", err)
@@ -810,31 +798,43 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 	if len(after) != controlsBefore {
 		t.Fatalf("PostgreSQL stream invoked Arango optimizer controls: %v", after[controlsBefore:])
 	}
-	if len(spies.pgFull) != 0 {
-		t.Fatalf("optimizer ran the PostgreSQL executor: %d calls", len(spies.pgFull))
+	if spies.pgRequests != 0 {
+		t.Fatalf("optimizer ran the PostgreSQL port: %d calls", spies.pgRequests)
 	}
 }
 
-// The PostgreSQL stream never consumes the loose AQL query/bind fields: a
-// PostgreSQL stream built with an armed-but-forbidden AQL adapter and a
-// nil AQL adapter both deliver identical rows through the tagged adapter.
-func TestPostgreSQLStreamIgnoresLooseQueryBindFields(t *testing.T) {
+// The PostgreSQL stream consumes exactly the parent-tagged command and the
+// declared column contract: an AQL-expecting port must refuse it via the
+// envelope, and the correctly dispatching port receives the tagged
+// statement unchanged.
+func TestPostgreSQLStreamConsumesOnlyTaggedCommand(t *testing.T) {
 	spies := &dispatchSpies{}
-	command := exec02TestCommand(t)
+	reference := exec02PostgreSQLCommand(t)
 	rows := exec02Rows()
-	stream := OutputStream{
+	// First: a port that expects AQL must be refused by the tagged
+	// envelope before any row is produced.
+	aqlExpectingStream := OutputStream{
 		Name: "resources", Columns: []string{"id", "name"},
-		stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-			_, _, dispatchErr := command.AQLParameters()
+		sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			_, _, dispatchErr := request.Command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
-
-			return errors.New("AQL QueryRows must never run for a PostgreSQL stream")
+			return errors.New("AQL port must never run for a PostgreSQL stream")
 		},
-		postgreSQLQueryRows: exec02RowExecutor(spies, &spies.pgFull, rows),
-		command:             command,
-		commandColumns:      []string{"id", "name"},
+		command:        reference,
+		commandColumns: []string{"id", "name"},
+	}
+	if err := aqlExpectingStream.streamRaw(context.Background(), func(map[string]any) error { return nil }); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+		t.Fatalf("AQL-expecting port on a PostgreSQL stream must report the envelope mismatch: %v", err)
+	}
+
+	// Paired control: the dispatching port receives the tagged command.
+	stream := OutputStream{
+		Name: "resources", Columns: []string{"id", "name"},
+		sourceRows:     exec02pgPort(spies, &spies.pgFull, rows),
+		command:        reference,
+		commandColumns: []string{"id", "name"},
 	}
 	var visited int
 	if err := stream.streamRaw(context.Background(), func(map[string]any) error { visited++; return nil }); err != nil {
@@ -843,74 +843,88 @@ func TestPostgreSQLStreamIgnoresLooseQueryBindFields(t *testing.T) {
 	if visited != len(rows) {
 		t.Fatalf("visited=%d want %d", visited, len(rows))
 	}
-	if len(spies.pgFull) != 1 || spies.pgFull[0].SQL != exec02TestSQL {
-		t.Fatalf("PostgreSQL adapter did not receive the tagged command: %+v", spies.pgFull)
+	wantSQL, _, err := reference.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("reference parameters: %v", err)
+	}
+	if spies.pgRequests != 1 || spies.pgFull[0].SQL != wantSQL {
+		t.Fatalf("PostgreSQL port did not receive the tagged command: %+v", spies.pgFull)
 	}
 }
 
 // The streamRaw boundary invariant: a PostgreSQL-tagged stream that somehow
-// carries no PostgreSQL row executor fails closed with the compiler's
-// named unregistered-backend sentinel instead of falling through to the AQL
-// executor. Selection normally refuses this configuration first; this test
-// exercises the boundary itself with a hand-built stream.
-func TestPostgreSQLStreamWithoutExecutorNeverFallsBackToAQL(t *testing.T) {
+// carries no source row port fails closed with the compiler's named
+// unregistered-backend sentinel instead of falling through to an AQL
+// adapter. Construction normally refuses this configuration first; this
+// test exercises the boundary itself with a hand-built stream.
+func TestPostgreSQLStreamWithoutPortNeverFallsBackToAQL(t *testing.T) {
 	aqlCalls := 0
 	stream := OutputStream{
 		Name: "resources", Columns: []string{"id", "name"},
-		stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-			_, _, dispatchErr := command.AQLParameters()
-			if dispatchErr != nil {
-				return dispatchErr
-			}
-
-			aqlCalls++
-			return errors.New("AQL QueryRows ran as a PostgreSQL fallback")
-		},
-		command:        exec02TestCommand(t),
+		sourceRows:     nil,
+		command:        exec02PostgreSQLCommand(t),
 		commandColumns: []string{"id", "name"},
 	}
+	_ = aqlCalls // one port, no AQL fallback exists: nil port must fail closed
 	err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil })
-	if !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-		t.Fatalf("missing PostgreSQL executor must fail closed with the named sentinel: %v", err)
+	if !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+		t.Fatalf("missing source row port must fail closed with the named sentinel: %v", err)
 	}
-	if !strings.Contains(err.Error(), "never fall back to AQL") {
-		t.Fatalf("refusal must name the fallback defect: %v", err)
-	}
-	if aqlCalls != 0 {
-		t.Fatalf("AQL executor ran %d time(s) for a PostgreSQL stream", aqlCalls)
+	if !strings.Contains(err.Error(), "no source row port") {
+		t.Fatalf("refusal must name the missing-port defect: %v", err)
 	}
 }
 
 // The fingerprint of a PostgreSQL-served plan is deterministic over the
-// tagged statement, its ordered typed arguments, and the declared column
-// contract — and distinguishes every meaningful variation (load-bearing:
-// changing any pinned component must change the digest).
-func TestPostgreSQLCommandFingerprintIsStableAndSensitivityProbed(t *testing.T) {
-	base := postgreSQLCommandFingerprint(exec02TestSQL, exec02TestParameters(), []string{"id", "name"})
-	if base == "" || base != postgreSQLCommandFingerprint(exec02TestSQL, exec02TestParameters(), []string{"id", "name"}) {
+// compiled statement and its rendered scope — and distinguishes every
+// meaningful variation (load-bearing: changing any pinned component must
+// change the digest).
+func TestPostgreSQLPlanFingerprintIsStableAndSensitivityProbed(t *testing.T) {
+	compile := func(t *testing.T, resolved Resolved) string {
+		t.Helper()
+		query, err := compiler.CompileRecipeOutput(exec02PostgreSQLTarget(t),
+			resolved.Compiled.Outputs[0],
+			resolved.Semantic.SemanticPlan.Bindings,
+			0, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatalf("reference compile: %v", err)
+		}
+		return query.PlanDiagnostics.Fingerprint
+	}
+	base := compile(t, exec02TestResolved())
+	if base == "" || base != compile(t, exec02TestResolved()) {
 		t.Fatalf("fingerprint must be deterministic and non-empty: %q", base)
 	}
-	variants := []struct {
-		name    string
-		sql     string
-		args    []compiler.PostgreSQLParameter
-		columns []string
-	}{
-		{"sql punctuation change", exec02TestSQL + " LIMIT 1", exec02TestParameters(), []string{"id", "name"}},
-		{"argument value change", exec02TestSQL, []compiler.PostgreSQLParameter{
-			{Type: compiler.PostgreSQLParameterText, Value: "P2"},
-			{Type: compiler.PostgreSQLParameterText, Value: "G1"},
-		}, []string{"id", "name"}},
-		{"argument type change (SQL NULL vs JSON null)", exec02TestSQL, []compiler.PostgreSQLParameter{
-			{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-			{Type: compiler.PostgreSQLParameterJSON, Value: json.RawMessage(`{"generation":"G1"}`)},
-		}, []string{"id", "name"}},
-		{"column contract change", exec02TestSQL, exec02TestParameters(), []string{"id"}},
+	// Scope argument change: a different project binds different args.
+	scopeChange := exec02TestResolved()
+	scopeChange.Compiled.Outputs[0].Plan.BindVars["project"] = "P2"
+	if got := compile(t, scopeChange); got == base {
+		t.Fatal("fingerprint did not react to a scope argument change")
 	}
-	for _, variant := range variants {
-		if got := postgreSQLCommandFingerprint(variant.sql, variant.args, variant.columns); got == base {
-			t.Fatalf("fingerprint did not react to %s", variant.name)
+	// Statement shape change: dropping the selector projection changes SQL.
+	projectionChange := exec02TestResolved()
+	returnReturn := func(resolved *Resolved) *ir.PhysicalReturn {
+		t.Helper()
+		for index := range resolved.Compiled.Outputs[0].Plan.Operations {
+			if operation := &resolved.Compiled.Outputs[0].Plan.Operations[index]; operation.Kind == ir.PhysicalReturnOp {
+				return operation.Return
+			}
 		}
+		t.Fatal("fixture plan has no RETURN")
+		return nil
+	}
+	returnReturn(&projectionChange).Projections = returnReturn(&projectionChange).Projections[:1]
+	projectionChange.Compiled.Outputs[0].Columns = []string{"id"}
+	projectionChange.Compiled.Outputs[0].OutputSchema = projectionChange.Compiled.Outputs[0].OutputSchema[:1]
+	if got := compile(t, projectionChange); got == base {
+		t.Fatal("fingerprint did not react to a statement shape change")
+	}
+	// Typed argument change: JSON null payload binding stays distinct from
+	// SQL NULL (the extractor's null behavior is part of the plan).
+	nullBehaviorChange := exec02TestResolved()
+	returnReturn(&nullBehaviorChange).Projections[1].Expression.NullBehavior = ir.PhysicalEmptyOnNull
+	if got := compile(t, nullBehaviorChange); got == base {
+		t.Fatal("fingerprint did not react to a null-behavior change")
 	}
 }
 
@@ -921,16 +935,7 @@ func TestPostgreSQLCommandFingerprintIsStableAndSensitivityProbed(t *testing.T) 
 // are exactly such internal columns.
 func TestPostgreSQLSelectionRefusesAllInternalDeclaredColumns(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{
-		Command: exec02TestCommand(t),
-		Columns: []string{"id", "name"},
-	}, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, exec02Rows())
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	engine, _ := exec02pgEngine(t, spies, exec02Rows())
 	output := lower.CompiledRecipeOutput{
 		Name:             "resources",
 		RootResourceType: "Patient",
@@ -940,7 +945,7 @@ func TestPostgreSQLSelectionRefusesAllInternalDeclaredColumns(t *testing.T) {
 			{ID: "name", Name: "name", Label: "name", Kind: "string", Cardinality: "one", Internal: true},
 		},
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
-		Plan:        ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL},
+		Plan:        exec02TestPlan(exec02TestProjections(false)),
 	}
 	resolved := Resolved{
 		Bundle: recipe.Bundle{Name: "pg_dispatch"},
@@ -952,42 +957,23 @@ func TestPostgreSQLSelectionRefusesAllInternalDeclaredColumns(t *testing.T) {
 		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
 		StoredRecipeDigest: "pg-internal-only",
 	}
-	_, err = engine.Streams(context.Background(), resolved)
+	_, err := engine.Streams(context.Background(), resolved)
 	if err == nil || !strings.Contains(err.Error(), "internal projection") {
 		t.Fatalf("all-internal declared contract must be refused, got %v", err)
 	}
-	if len(spies.pgFull) != 0 {
-		t.Fatalf("refused selection must not reach the row executor: %d calls", len(spies.pgFull))
+	if spies.pgRequests != 0 {
+		t.Fatalf("refused selection must not reach the row port: %d calls", spies.pgRequests)
 	}
 	exec02AssertUntouchedArango(t, spies)
 }
 
 // Review round 2 (source identity): the PostgreSQL-served plan must carry
-// RootResourceType into the CompiledQuery, or an authorized Builder preview
+// RootResourceType into the compiler.CompiledQuery, or an authorized Builder preview
 // with IncludeSourceIdentity degrades every row's source to UNAVAILABLE in
 // SINGLE mode (which the schema earns via the internal source-id column).
 func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
 	sourceID := ir.PreviewSourceResourceIDColumn
-	command, err := compiler.NewPostgreSQLCommand(
-		`SELECT logical_id AS "id", payload->>'name' AS "name", resource_id AS "`+sourceID+`" FROM loom.resource ORDER BY resource_seq`,
-		exec02TestParameters())
-	if err != nil {
-		t.Fatalf("build command: %v", err)
-	}
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{
-		Command: command,
-		Columns: []string{"id", "name", sourceID},
-	}, nil)
-	rows := []map[string]any{
-		{"id": "patient-one", "name": "Ada", sourceID: "Patient/p1"},
-	}
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, rows)
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
 	output := lower.CompiledRecipeOutput{
 		Name:             "resources",
 		RootResourceType: "Patient",
@@ -998,7 +984,7 @@ func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing
 			{ID: sourceID, Name: sourceID, Label: sourceID, Kind: "string", Cardinality: "one", Internal: true},
 		},
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
-		Plan:        ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL},
+		Plan:        exec02TestPlan(exec02TestProjections(true)),
 	}
 	resolved := Resolved{
 		Bundle: recipe.Bundle{Name: "pg_dispatch"},
@@ -1011,6 +997,10 @@ func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing
 		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
 		StoredRecipeDigest: "pg-source-identity",
 	}
+	rows := []map[string]any{
+		{"id": "patient-one", "name": "Ada", sourceID: "Patient/p1"},
+	}
+	engine, _ := exec02pgEngine(t, spies, rows)
 	var public []map[string]any
 	if _, err := engine.PreviewOutput(context.Background(), resolved,
 		PreviewRequest{Output: "resources", Limit: 5}, func(row map[string]any) error {
@@ -1022,7 +1012,7 @@ func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing
 	if len(public) != 1 {
 		t.Fatalf("visited=%d want 1", len(public))
 	}
-	source, ok := public[0]["__loom_preview_source"].(map[string]any)
+	source, ok := public[0][previewSourceMetadataKey].(map[string]any)
 	if !ok {
 		t.Fatalf("preview row is missing the source metadata key: %v", public[0])
 	}
@@ -1040,18 +1030,9 @@ func TestPostgreSQLPreviewReportsSingleSourceIdentityWithResourceType(t *testing
 // preview. That path must also strip both completion markers.
 func TestPostgreSQLPreviewPostLoopCancellationNeverMarksComplete(t *testing.T) {
 	spies := &dispatchSpies{}
-	config := spies.arangoEngine()
-	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{
-		Command: exec02TestCommand(t),
-		Columns: []string{"id", "name"},
-	}, nil)
-	config.PostgreSQLQueryRows = exec02RowExecutor(spies, &spies.pgFull, []map[string]any{
+	engine, _ := exec02pgEngine(t, spies, []map[string]any{
 		{"id": "patient-one", "name": "Ada"},
 	})
-	engine, err := New(config)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	summary, err := engine.PreviewOutput(ctx, exec02TestResolved(),
@@ -1064,5 +1045,115 @@ func TestPostgreSQLPreviewPostLoopCancellationNeverMarksComplete(t *testing.T) {
 	}
 	if summary.Complete || summary.Truncated {
 		t.Fatalf("post-loop cancelled preview emitted a completion marker: %+v", summary)
+	}
+}
+
+// The neutral query-memory budget and the AQL root-key page loop are Arango
+// policies: a PostgreSQL stream must never attach either. The paired AQL
+// control proves the checks are real: an AQL stream with the budget set
+// must observe it.
+func TestPostgreSQLStreamCarriesNoArangoOnlyPolicy(t *testing.T) {
+	spies := &dispatchSpies{}
+	reference := exec02PostgreSQLCommand(t)
+	var observed RowsRequest
+	budgetSawPostgreSQL := false
+	pgStream := OutputStream{
+		Name: "resources", Columns: []string{"id", "name"},
+		sourceRows: func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+			observed = request
+			if _, _, err := request.Command.PostgreSQLParameters(); err != nil {
+				return err
+			}
+			if _, ok := QueryMemoryBudgetFromContext(ctx); ok {
+				budgetSawPostgreSQL = true
+			}
+			for _, row := range exec02Rows() {
+				if err := visit(row); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		command:          reference,
+		commandColumns:   []string{"id", "name"},
+		batchSize:        64,
+		queryMemoryLimit: 1 << 30,
+	}
+	if err := pgStream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("PostgreSQL streamRaw: %v", err)
+	}
+	if budgetSawPostgreSQL {
+		t.Fatal("query-memory budget context attached to a PostgreSQL stream")
+	}
+	if observed.BatchSize != 64 {
+		t.Fatalf("batch hint = %d, want 64", observed.BatchSize)
+	}
+	if _, _, err := observed.Command.PostgreSQLParameters(); err != nil {
+		t.Fatalf("forwarded command must be the tagged PostgreSQL statement: %v", err)
+	}
+
+	// Paired AQL control: the same stream shape with an AQL tag must
+	// attach the budget (the checks above are not vacuous).
+	budgetSawAQL := false
+	aqlStream := OutputStream{
+		Name: "resources", Columns: []string{"id"},
+		sourceRows: func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+			if _, _, err := request.Command.AQLParameters(); err != nil {
+				return err
+			}
+			_, budgetSawAQL = QueryMemoryBudgetFromContext(ctx)
+			return visit(map[string]any{"id": "patient-one"})
+		},
+		command:          mustAQLCommand("FOR d IN Patient RETURN d", map[string]any{"project": "P1"}),
+		commandColumns:   []string{"id"},
+		queryMemoryLimit: 1 << 30,
+	}
+	if err := aqlStream.streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+		t.Fatalf("AQL streamRaw: %v", err)
+	}
+	if !budgetSawAQL {
+		t.Fatal("control failed: the AQL stream stopped attaching the query-memory budget")
+	}
+	exec02AssertUntouchedArango(t, spies)
+}
+
+func exec02StableRowIdentity(parts ...any) string {
+	encoded, err := json.Marshal(parts)
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+// The PostgreSQL stream row set keeps the stable row identity contract over
+// the output's declared identity fields and the engine-visible public
+// columns only.
+func TestPostgreSQLStreamRowIdentityAndPublicColumns(t *testing.T) {
+	spies := &dispatchSpies{}
+	engine, _ := exec02pgEngine(t, spies, exec02Rows())
+	streams, err := engine.Streams(context.Background(), exec02TestResolved())
+	if err != nil {
+		t.Fatalf("Streams: %v", err)
+	}
+	want := exec02StableRowIdentity("patient-one")
+	var got []map[string]any
+	if _, err := streams[0].Stream(context.Background(), func(row map[string]any) error {
+		got = append(got, row)
+		return nil
+	}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if got[0]["__loom_row_id"] != want {
+		t.Fatalf("stable row identity = %v, want %s", got[0]["__loom_row_id"], want)
+	}
+	for _, row := range got {
+		for column := range row {
+			switch column {
+			case "id", "name", "__loom_row_id":
+			default:
+				t.Fatalf("PostgreSQL stream row carries unexpected column %q: %v", column, row)
+			}
+		}
 	}
 }

@@ -101,7 +101,7 @@ package postgres
 // TestUnnestDispatchGateIsFullBackstop; defense in depth, not two
 // contracts).
 //
-// Planner-facing command registration (compiler.CompiledCommandForBackend)
+// Planner-facing command registration (the selected compiler target)
 // stays fail-closed for PostgreSQL exactly as in pg-sql-01/02/03: this entry
 // point — not command dispatch — is where the unnest operation is
 // implemented and registered.
@@ -122,7 +122,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -152,9 +152,9 @@ import (
 // ir.ErrUnregisteredPostgresIdentifier for a binding that did not come from
 // ir.NewPostgresStorageBinding. A rejected plan never produces SQL and never
 // routes to AQL.
-func RenderUnnest(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+func RenderUnnest(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := validateUnnestPlanSurface(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// The closed shape passed, so RenderPhysicalPlan's own gates (binding
 	// trust, plan validation including schema validation of the selector,

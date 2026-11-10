@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -18,7 +19,7 @@ import (
 // the execution layer to hash with RowIdentity. Explicit recipe identities
 // use ExplicitIdentityColumn and preserve the compiled identity expression.
 type CompiledPopulationMappingQuery struct {
-	Command                CompiledCommand
+	Command                command.CompiledCommand
 	MemberColumn           string
 	IdentityPartsColumn    string
 	ExplicitIdentityColumn string
@@ -30,7 +31,13 @@ type CompiledPopulationMappingQuery struct {
 // from the canonical final output plan. Unlike ordinary Preview/Publish, it
 // has no execution limit: required filters, authored filters, child sets, and
 // explicit expansion all run before the internal witness terminal.
-func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, policy ir.PhysicalOptimizationPolicy) (CompiledPopulationMappingQuery, error) {
+func CompilePopulationMappingOutput(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, policy ir.PhysicalOptimizationPolicy) (CompiledPopulationMappingQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledPopulationMappingQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("population mapping compilation"); err != nil {
+		return CompiledPopulationMappingQuery{}, err
+	}
 	if output.RowIdentity == nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("population mapping requires a row identity")
 	}
@@ -54,12 +61,12 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 	if err != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("render population mapping physical plan: %w", err)
 	}
-	command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if commandErr != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("tag population mapping command: %w", commandErr)
 	}
 	return CompiledPopulationMappingQuery{
-		Command:                command,
+		Command:                compiledCommand,
 		MemberColumn:           ir.PhysicalPopulationMappingMemberField,
 		IdentityPartsColumn:    mappingIdentityPartsColumn(physical),
 		ExplicitIdentityColumn: mappingExplicitIdentityColumn(physical),

@@ -40,8 +40,8 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 		// This intentionally has no ScopeResolver. The one-shot GraphQL recipe
 		// is already catalog- and scope-resolved before reaching execution, so
 		// execution must not perform a second recipe preparation pass.
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, bindVars, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}
@@ -52,7 +52,7 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 			return nil
 		},
 	})
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ScopeResolver:          resolver,
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
@@ -82,7 +82,7 @@ func TestIntrospectKeepsRestrictedEmptyCatalogMode(t *testing.T) {
 	resolver := dataframeBuilderRestrictedEmptyScopeResolver()
 	fieldCalls := 0
 	referenceCalls := 0
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ScopeResolver:          resolver,
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {

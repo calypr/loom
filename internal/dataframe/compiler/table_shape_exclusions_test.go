@@ -33,7 +33,7 @@ func TestCompileTableShapeExclusionsUsesCanonicalGroupedPivotInputs(t *testing.T
 		t.Fatal(err)
 	}
 	originalPlan := ir.ClonePhysicalPlan(compiledOutput.Plan)
-	query, err := CompileTableShapeExclusionsWithPolicy(compiledOutput, 7, 12, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileTableShapeExclusions(ArangoTarget(), compiledOutput, 7, 12, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestCompileTableShapeExclusionsRefusesUnsupportedOrUnconfiguredOutputs(t *t
 			KeyOutput: "key", KeyLabel: "Key", ValueOutput: "value", ValueLabel: "Value", NullRowPolicy: recipe.UnpivotNullPreserve,
 		}},
 	})
-	_, err := CompileTableShapeExclusionsWithPolicy(unsupported, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	_, err := CompileTableShapeExclusions(ArangoTarget(), unsupported, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionUnsupported)
 
 	noPolicy := lowerOutputForExclusionTest(t, recipe.Output{
@@ -88,12 +88,12 @@ func TestCompileTableShapeExclusionsRefusesUnsupportedOrUnconfiguredOutputs(t *t
 			UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
 		}},
 	})
-	_, err = CompileTableShapeExclusionsWithPolicy(noPolicy, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	_, err = CompileTableShapeExclusions(ArangoTarget(), noPolicy, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionNoPolicy)
 
-	_, err = CompileTableShapeExclusionsWithPolicy(noPolicy, -1, 10, ir.DefaultPhysicalOptimizationPolicy())
+	_, err = CompileTableShapeExclusions(ArangoTarget(), noPolicy, -1, 10, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionInvalidOffset)
-	_, err = CompileTableShapeExclusionsWithPolicy(noPolicy, 0, MaxTableShapeExclusionLimit+1, ir.DefaultPhysicalOptimizationPolicy())
+	_, err = CompileTableShapeExclusions(ArangoTarget(), noPolicy, 0, MaxTableShapeExclusionLimit+1, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionInvalidLimit)
 }
 

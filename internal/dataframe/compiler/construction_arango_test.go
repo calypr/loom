@@ -95,7 +95,7 @@ func TestConstructionPivotDeriveFilterUnpivotRowsAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(gotSparse) != 0 {
 		t.Fatalf("sparse p2 observation statuses = %#v, want empty list", byPatient["p2"]["observation_status"])
 	}
-	trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := CompileCellTraceOutput(ArangoTarget(), compiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	}
 
 	pageSize := 1
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile paged related-source output: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			if !found {
 				t.Fatalf("%s output schema = %#v", form.name, columns)
 			}
-			query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -475,7 +475,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 			if values["p1"] != form.present || values["p2"] != form.absent {
 				t.Fatalf("%s values = %#v, want p1=%v p2=%v", form.name, values, form.present, form.absent)
 			}
-			trace, err := CompileCellTraceOutputWithPolicy(compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+			trace, err := CompileCellTraceOutput(ArangoTarget(), compiled.Outputs[0], form.column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -513,7 +513,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	existsQuery, err := CompileRecipeOutputWithPolicy(existsCompiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	existsQuery, err := CompileRecipeOutput(ArangoTarget(), existsCompiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestRelatedSourceAllMatchesAtSelectedStageAgainstArango(t *testing.T) {
 	if !ok || len(existsSparse) != 0 {
 		t.Fatalf("EXISTS sparse p2 statuses = %#v, want empty list", existsByPatient["p2"]["observation_status"])
 	}
-	existsTrace, err := CompileCellTraceOutputWithPolicy(existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	existsTrace, err := CompileCellTraceOutput(ArangoTarget(), existsCompiled.Outputs[0], "observation_status", 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +621,7 @@ func TestPagedConstructionEqualsFilterReturnsMatchingSourceRootFromArango(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,8 +30,10 @@ func newRunTestFixture(t *testing.T) (*Engine, *runOutputRegistry) {
 	t.Helper()
 	registry := &runOutputRegistry{}
 	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

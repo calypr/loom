@@ -3,12 +3,10 @@ package execution
 import (
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-type CompiledQuery = compiler.CompiledQuery
 type RowIdentity = spec.RowIdentity
 type CompilerPlanDiagnostics = ir.CompilerPlanDiagnostics
 

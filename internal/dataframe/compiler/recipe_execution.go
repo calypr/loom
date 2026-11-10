@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -26,11 +27,16 @@ func workspaceOutputCaptureRequired(output lower.CompiledRecipeOutput) bool {
 	return false
 }
 
-// CompileResolvedRecipePlanWithPolicy is the common execution boundary for a
-// resolved recipe bundle. Lowering produces canonical physical plans; this
-// function applies the generic optimizer, inserts the typed execution window,
-// and renders through RenderPhysicalPlan for each output.
-func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+// CompileResolvedRecipePlan is the common execution boundary for a resolved
+// recipe bundle. Lowering produces canonical physical plans; this function
+// applies the generic optimizer, inserts the typed execution window, and
+// renders each output through the renderer selected by the composition-chosen
+// compile target. The target is validated once here; there is no per-request
+// dialect default.
+func CompileResolvedRecipePlan(target Target, resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) ([]CompiledQuery, error) {
+	if err := target.validate(); err != nil {
+		return nil, err
+	}
 	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
 	if err != nil {
 		return nil, err
@@ -38,7 +44,7 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	queries := make([]CompiledQuery, 0, len(compiled.Outputs))
 	for _, output := range compiled.Outputs {
 		output.TranslationVersion = resolved.SemanticPlan.TranslationVersion
-		query, err := CompileRecipeOutputWithPolicy(output, resolved.SemanticPlan.Bindings, limit, policy)
+		query, err := CompileRecipeOutput(target, output, resolved.SemanticPlan.Bindings, limit, policy)
 		if err != nil {
 			return nil, fmt.Errorf("output %q: %w", output.Name, err)
 		}
@@ -47,9 +53,17 @@ func CompileResolvedRecipePlanWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	return queries, nil
 }
 
-// CompileRecipeOutputWithPolicy applies the common optimizer, execution
-// window, and canonical renderer to one already-lowered recipe output.
-func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+// CompileRecipeOutput applies the common optimizer, execution window, and
+// the target-selected canonical renderer to one already-lowered recipe
+// output. The AQL target keeps the exact existing AQL payload bytes, named
+// binds, and preview special paths. The PostgreSQL target renders the same
+// finalized plan through the PostgreSQL renderer and fails explicitly for
+// plans outside its closed supported surface; no path converts AQL to SQL
+// and no PostgreSQL plan falls back to AQL.
+func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledQuery{}, err
+	}
 	if workspaceOutputCaptureRequired(output) {
 		return CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
 	}
@@ -86,6 +100,12 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		if err := appendAuthResourcePathProjection(&physical); err != nil {
 			return CompiledQuery{}, err
 		}
+	}
+	// Target-selected rendering. The PostgreSQL target never touches the AQL
+	// renderer or the AQL preview accelerators below; unsupported plans fail
+	// explicitly with the PostgreSQL renderer's typed errors.
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePostgreSQLRecipeOutput(target, output, bindings, limit, physical, includePreviewSourceID)
 	}
 	streamingMissingCategoryPivot := canRenderStreamingMissingCategoryPivotPreview(output, bindings, physical)
 	legacyPreviewCoveringIndex := previewCoveringIndexSpec(physical)
@@ -129,7 +149,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 	// carries. The query text and named bind map are never re-extracted as
 	// loose execution fields. A PostgreSQL-tagged command cannot enter this
 	// path; PostgreSQL selection happens through the composition seam.
-	command, err := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("tag canonical recipe command: %w", err)
 	}
@@ -166,7 +186,7 @@ func CompileRecipeOutputWithPolicy(output lower.CompiledRecipeOutput, bindings r
 		TraversalCount:     physicalTraversalCount(physical),
 		RowIdentity:        output.RowIdentity.Clone(),
 		OptimizationRules:  recipeOptimizationRules(physical),
-		Command:            command,
+		Command:            compiledCommand,
 		Columns:            columns,
 		OutputSchema:       outputSchema,
 		PublicColumns:      publicColumns,

@@ -67,6 +67,7 @@ RESPONSIBILITIES = {
     "internal/dataframe/columntransform": "Define closed, backend-neutral transformations over one selected output column value.",
     "internal/dataframe/compiler": "Orchestrate semantic planning, physical lowering, optimization, rendering, and compiled-query assembly.",
     "internal/dataframe/compiler/capability": "Probe which dataframe language capabilities the compiler can prove and support.",
+    "internal/dataframe/compiler/command": "Own the closed dispatch-tagged executable command types, rendered PostgreSQL plan validation, and constructor guarantees shared by compilers and row adapters.",
     "internal/dataframe/compiler/ir": "Define typed physical operations, values, scope proofs, policies, and validation.",
     "internal/dataframe/compiler/lower": "Lower logical FHIR dataframe plans into storage-aware physical IR.",
     "internal/dataframe/compiler/optimize": "Apply explainable semantics-preserving rewrites to validated physical IR.",

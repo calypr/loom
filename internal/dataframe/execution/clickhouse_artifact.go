@@ -30,7 +30,7 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if s.captureExecutionID != "" && executionID != s.captureExecutionID {
 		return nil, fmt.Errorf("private artifact execution ID differs from its owning workspace capture")
 	}
-	aqlSource := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.stream != nil
+	aqlSource := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.sourceRows != nil
 	clickHouseSource := s.physicalEngine == ir.PhysicalEngineClickHouse && s.clickHouseCombine != nil && s.clickHouseQueryRows != nil && s.compiledOutput
 	if !aqlSource && !clickHouseSource {
 		return nil, fmt.Errorf("private artifact requires a compiler-resolved streamable AQL or ClickHouse output")

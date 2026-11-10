@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -122,7 +122,7 @@ func pgsq03PresenceSidecar(name string, path ...string) ir.PhysicalProjection {
 	}
 }
 
-func pgsq03RenderOK(t *testing.T, plan ir.PhysicalPlan) compiler.RenderedPostgresPhysicalPlan {
+func pgsq03RenderOK(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderSelectorExtraction(plan, mustBinding(t))
 	if err != nil {
@@ -150,12 +150,12 @@ func pgsq03GoldenSQL(selects string) string {
 	return `SELECT ` + selects + pgsq03GoldenTail
 }
 
-func pgsq03ScopeArgs() []compiler.PostgreSQLParameter {
-	return []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq03Project},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq03Gen},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
+func pgsq03ScopeArgs() []command.PostgreSQLParameter {
+	return []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq03Project},
+		{Type: command.PostgreSQLParameterText, Value: pgsq03Gen},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
 	}
 }
 
@@ -173,8 +173,8 @@ func TestNullSemanticsGoldenPreserveNullValueAndPresence(t *testing.T) {
 		t.Fatalf("preserve-null SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
 	wantArgs := append(pgsq03ScopeArgs(),
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "{gender}"},
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "gender"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "{gender}"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "gender"},
 	)
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("preserve-null args = %#v, want %#v", rendered.Args, wantArgs)
@@ -200,7 +200,7 @@ func TestNullSemanticsGoldenOmitNullsCollapsesOnlyJSONNull(t *testing.T) {
 		t.Fatalf("omit-nulls SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
 	wantArgs := append(pgsq03ScopeArgs(),
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "{gender}"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "{gender}"},
 	)
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("omit-nulls args = %#v", rendered.Args)
@@ -237,9 +237,9 @@ func TestNullSemanticsGoldenNestedPathBindsPrefixAndTerminalKey(t *testing.T) {
 		t.Fatalf("nested SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
 	wantArgs := append(pgsq03ScopeArgs(),
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "{meta,source}"},
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "{meta}"},
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "source"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "{meta,source}"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "{meta}"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "source"},
 	)
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("nested args = %#v, want %#v", rendered.Args, wantArgs)
@@ -514,7 +514,7 @@ func TestNullSemanticsDeterministicAndNonAliasing(t *testing.T) {
 	if first.SQL != second.SQL || !reflect.DeepEqual(first.Args, second.Args) {
 		t.Fatalf("repeated render drifted")
 	}
-	capturedSQL, capturedArgs := first.SQL, append([]compiler.PostgreSQLParameter(nil), first.Args...)
+	capturedSQL, capturedArgs := first.SQL, append([]command.PostgreSQLParameter(nil), first.Args...)
 
 	// Mutate every piece of plan data the renderer read. The scanned
 	// resource type is deliberately not among them: drifting it away from

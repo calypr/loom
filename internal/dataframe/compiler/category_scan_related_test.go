@@ -20,7 +20,7 @@ import (
 
 func TestCompileCategoryScanStreamsExactRelatedRouteWithScopeAndStageWitnesses(t *testing.T) {
 	output := compilePopulationMappingOutput(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}))
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := CompileCategoryScanStage(ArangoTarget(), output, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallbac
 	legacy.OptimizedPlan = nil
 	legacy.Plan = ir.ClonePhysicalPlan(legacy.Plan)
 	legacy.Plan.BindVars["dataset_generation"] = nil
-	if _, err := CompileCategoryScanStageWithPolicy(legacy, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+	if _, err := CompileCategoryScanStage(ArangoTarget(), legacy, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("nil dataset generation bypassed the existing typed related-field source validation")
 	}
 
@@ -186,7 +186,7 @@ func TestRelatedCategoryScanRetainsLegacyGenerationRejectionAndFalseScopeFallbac
 	denied.OptimizedPlan = nil
 	denied.Plan = ir.ClonePhysicalPlan(denied.Plan)
 	denied.Plan.BindVars["scope_allowed"] = false
-	deniedScan, err := CompileCategoryScanStageWithPolicy(denied, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	deniedScan, err := CompileCategoryScanStage(ArangoTarget(), denied, "add_amount", "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,11 +585,11 @@ func compileRelatedCategoryRuntimeScansWithBindings(t *testing.T, definition rec
 		t.Fatal(err)
 	}
 	output := compiled.Outputs[0]
-	full, err := CompileRecipeOutputWithPolicy(output, bindings, 1024, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 1024, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	scanned, err := CompileCategoryScanStageWithPolicy(output, "add_amount", "category_id", "amount_id", maxValues, ir.DefaultPhysicalOptimizationPolicy())
+	scanned, err := CompileCategoryScanStage(ArangoTarget(), output, "add_amount", "category_id", "amount_id", maxValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestCompileRelatedCategoryScanFallsBackForUnsafeShapes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			output := compilePopulationMappingOutput(t, relatedCategoryScanOutput(test.options))
-			scanned, err := CompileCategoryScanStageWithPolicy(output, test.options.TerminalIDForTest(), "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+			scanned, err := CompileCategoryScanStage(ArangoTarget(), output, test.options.TerminalIDForTest(), "category_id", "amount_id", MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -645,7 +645,7 @@ func TestCompileRelatedCategoryScanRejectsMismatchedOrInactiveColumnIDs(t *testi
 		{stage: "add_amount", category: "stale_category", value: "amount_id"},
 		{stage: "add_amount", category: "category_id", value: "stale_value"},
 	} {
-		_, err := CompileCategoryScanStageWithPolicy(output, test.stage, test.category, test.value, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+		_, err := CompileCategoryScanStage(ArangoTarget(), output, test.stage, test.category, test.value, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 		var refusal *CategoryScanRefusal
 		if !errors.As(err, &refusal) {
 			t.Errorf("scan (%q, %q, %q) error = %v, want typed refusal", test.stage, test.category, test.value, err)

@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"testing"
 
@@ -37,9 +38,9 @@ func requireStableRuntimeCode(t *testing.T, err error, code string) string {
 // testAQLView derives the AQL diagnostic view of a compiled command for
 // compiler tests through closed dispatch; a non-AQL-tagged command fails the
 // test instead of being silently treated as AQL.
-func testAQLView(t *testing.T, command CompiledCommand) (string, map[string]any) {
+func testAQLView(t *testing.T, compiledCommand command.CompiledCommand) (string, map[string]any) {
 	t.Helper()
-	query, bindVars, err := command.AQLParameters()
+	query, bindVars, err := compiledCommand.AQLParameters()
 	if err != nil {
 		t.Fatalf("dispatch compiled command to AQL view: %v", err)
 	}
@@ -47,22 +48,22 @@ func testAQLView(t *testing.T, command CompiledCommand) (string, map[string]any)
 }
 
 // testAQLCommand builds an AQL-tagged command for compiler test fixtures.
-func testAQLCommand(query string, bindVars map[string]any) CompiledCommand {
-	command, err := NewAQLCommand(query, bindVars)
+func testAQLCommand(query string, bindVars map[string]any) command.CompiledCommand {
+	compiledCommand, err := command.NewAQLCommand(query, bindVars)
 	if err != nil {
 		panic(err)
 	}
-	return command
+	return compiledCommand
 }
 
-func testAQLText(t *testing.T, command CompiledCommand) string {
+func testAQLText(t *testing.T, compiledCommand command.CompiledCommand) string {
 	t.Helper()
-	query, _ := testAQLView(t, command)
+	query, _ := testAQLView(t, compiledCommand)
 	return query
 }
 
-func testAQLBinds(t *testing.T, command CompiledCommand) map[string]any {
+func testAQLBinds(t *testing.T, compiledCommand command.CompiledCommand) map[string]any {
 	t.Helper()
-	_, bindVars := testAQLView(t, command)
+	_, bindVars := testAQLView(t, compiledCommand)
 	return bindVars
 }

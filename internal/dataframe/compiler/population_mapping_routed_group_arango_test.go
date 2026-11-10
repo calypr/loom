@@ -239,7 +239,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 		bindVars["@population_members_collection"] = "loom_explorer_selection_members"
 		bindVars["@population_root_route_0_edge_collection"] = edges
 	}
-	preview, err := CompileRecipeOutputWithPolicy(compiledRecipe.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiledRecipe.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed cohort preview: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	if !ok || len(emptyMembers) != 0 {
 		t.Fatalf("empty cohort preview members = %#v, want empty list", emptyPreview["members"])
 	}
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiledRecipe.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := CompilePopulationMappingOutput(ArangoTarget(), compiledRecipe.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ FOR target IN @@roots
 	if err != nil {
 		t.Fatalf("compile pre-cohort GROUP→PIVOT recipe: %v", err)
 	}
-	preCohortPreview, err := CompileRecipeOutputWithPolicy(preCohortCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preCohortPreview, err := CompileRecipeOutput(ArangoTarget(), preCohortCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile pre-cohort GROUP→PIVOT preview: %v", err)
 	}
@@ -444,7 +444,7 @@ FOR target IN @@roots
 		t.Fatalf("pre-cohort GROUP→PIVOT root contributors = %#v, want the exact shared Patient storage key; query:\n%s", preCohortRow["__loom_root_contributor_keys"], testAQLText(t, preCohortPreview.Command))
 	}
 
-	pivotPreview, err := CompileRecipeOutputWithPolicy(pivotCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	pivotPreview, err := CompileRecipeOutput(ArangoTarget(), pivotCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT cohort preview: %v", err)
 	}
@@ -485,7 +485,7 @@ FOR target IN @@roots
 		t.Fatalf("GROUP→PIVOT cohort root contributors = %#v, want the exact shared Patient storage key", routedPivotPreview["__loom_root_contributor_keys"])
 	}
 
-	pivotMapping, err := CompilePopulationMappingOutputWithPolicy(pivotCompiled.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
+	pivotMapping, err := CompilePopulationMappingOutput(ArangoTarget(), pivotCompiled.Outputs[0], bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT population mapping: %v", err)
 	}
@@ -645,7 +645,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 	if !identityColumnFound || !groupRevisionFound || !groupIDFound {
 		t.Fatalf("cohort final identity is not a required object over required string group identity components: %#v", sequence.FinalColumns)
 	}
-	mapping, err := CompilePopulationMappingOutputWithPolicy(outputPlan, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := CompilePopulationMappingOutput(ArangoTarget(), outputPlan, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed GROUP→PIVOT population mapping: %v", err)
 	}
@@ -703,7 +703,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 			if _, _, err := finalConstructionPopulationMappingIdentity(candidate.Plan, candidate); err == nil {
 				t.Fatalf("final construction identity accepted forged cohort shape: %#v", candidate.Plan.StageSequence)
 			}
-			if _, err := CompilePopulationMappingOutputWithPolicy(candidate, bindings, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+			if _, err := CompilePopulationMappingOutput(ArangoTarget(), candidate, bindings, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 				t.Fatalf("population mapping accepted forged cohort identity shape: %#v", candidate.Plan.StageSequence)
 			}
 		})
@@ -728,7 +728,7 @@ func TestPopulationMappingRoutedGroupPivotCohortCompilesFinalIdentity(t *testing
 	if err != nil {
 		t.Fatalf("compile pre-cohort GROUP→PIVOT: %v", err)
 	}
-	preCohortPreview, err := CompileRecipeOutputWithPolicy(preCohortCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preCohortPreview, err := CompileRecipeOutput(ArangoTarget(), preCohortCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("render pre-cohort GROUP→PIVOT preview: %v", err)
 	}

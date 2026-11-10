@@ -87,7 +87,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("COUNT_ROWS Group/Pivot row-lineage capability = %#v", capability)
 	}
-	preview, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 
 	compilePage := func(requestedID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		compiled, compileErr := CompileRowLineageOutput(compiledOutput, requestedID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), compiledOutput, requestedID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Group/Pivot lineage page at offset %d: %v", offset, compileErr)
 		}

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -114,7 +114,7 @@ func pgsq05SelectorNoT(path string) spec.Selector {
 // pgsq05WhereClause extracts the WHERE portion of a rendered statement so
 // goldens pin the predicate text without restating the canonical scope
 // frame that scope.go owns.
-func pgsq05WhereClause(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) string {
+func pgsq05WhereClause(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) string {
 	t.Helper()
 	marker := " AND r0.\"resource_type\" = $4"
 	start := strings.Index(rendered.SQL, marker)
@@ -135,12 +135,12 @@ func pgsq05WhereClause(t *testing.T, rendered compiler.RenderedPostgresPhysicalP
 
 // pgsq05ScopeArgs are the four canonical scope parameters every restricted
 // statement binds before any filter parameters.
-func pgsq05ScopeArgs(resourceType string) []compiler.PostgreSQLParameter {
-	return []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq05Project},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq05Gen},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: resourceType},
+func pgsq05ScopeArgs(resourceType string) []command.PostgreSQLParameter {
+	return []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq05Project},
+		{Type: command.PostgreSQLParameterText, Value: pgsq05Gen},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
+		{Type: command.PostgreSQLParameterText, Value: resourceType},
 	}
 }
 
@@ -198,8 +198,8 @@ func TestRenderSelectorComparisonGoldenAnyEquality(t *testing.T) {
 		t.Fatalf("ANY equality clause =\n%s\nwant\n%s", got, wantClause)
 	}
 	wantArgs := append(pgsq05ScopeArgs("Patient"),
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: "{gender}"},
-		compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`"female"`)},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "{gender}"},
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`"female"`)},
 	)
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("ANY equality args = %#v, want %#v", rendered.Args, wantArgs)
@@ -248,7 +248,7 @@ func TestRenderSelectorComparisonAllRequiresTheItem(t *testing.T) {
 	if got := pgsq05WhereClause(t, rendered); got != wantClause {
 		t.Fatalf("ALL clause =\n%s\nwant\n%s", got, wantClause)
 	}
-	if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != "true" {
+	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != "true" {
 		t.Fatalf("BOOLEAN equality arg = %#v", got)
 	}
 	// The quantifier result is total, so NOT needs no null guard.
@@ -312,7 +312,7 @@ func TestRenderSelectorComparisonInBindsTopLevelMembership(t *testing.T) {
 	if got := pgsq05WhereClause(t, rendered); got != wantClause {
 		t.Fatalf("selector IN clause =\n%s\nwant\n%s", got, wantClause)
 	}
-	if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
 		string(got.Value.(json.RawMessage)) != `["male","female"]` {
 		t.Fatalf("selector IN arg = %#v", got)
 	}
@@ -323,7 +323,7 @@ func TestRenderSelectorComparisonInBindsTopLevelMembership(t *testing.T) {
 	empty = pgsq05AddFilter(empty, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
 		"Patient", "gender", "IN", spec.QuantifierAny, spec.FilterCode, "gender_values", true)))
 	emptyRendered := renderOK(t, empty)
-	if got := emptyRendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+	if got := emptyRendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
 		string(got.Value.(json.RawMessage)) != `[]` {
 		t.Fatalf("empty selector IN arg = %#v, want []", got)
 	}
@@ -350,7 +350,7 @@ func TestRenderSelectorComparisonTemporalOrdersByGuardedInstant(t *testing.T) {
 		t.Fatalf("DATE GT clause =\n%s\nwant\n%s", got, wantClause)
 	}
 	arg := rendered.Args[5]
-	if arg.Type != compiler.PostgreSQLParameterTimestamptz {
+	if arg.Type != command.PostgreSQLParameterTimestamptz {
 		t.Fatalf("DATE literal arg type = %q, want timestamptz", arg.Type)
 	}
 	if stamp, ok := arg.Value.(time.Time); !ok || !stamp.Equal(time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)) {
@@ -365,7 +365,7 @@ func TestRenderSelectorComparisonDateTimeLiteralMustBeFullRFC3339(t *testing.T) 
 		"Patient", "birthDate", "GTE", spec.QuantifierAny, spec.FilterDateTime, "when_value", true)))
 	rendered := renderOK(t, good)
 	arg := rendered.Args[5]
-	if arg.Type != compiler.PostgreSQLParameterTimestamptz {
+	if arg.Type != command.PostgreSQLParameterTimestamptz {
 		t.Fatalf("DATE_TIME arg type = %q", arg.Type)
 	}
 	want := time.Date(2024, 3, 15, 8, 20, 30, 0, time.UTC)
@@ -393,7 +393,7 @@ func TestRenderSelectorComparisonIntegerAndDecimalBindTypedScalars(t *testing.T)
 	plan = pgsq05AddFilter(plan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
 		"Patient", "gender", "GTE", spec.QuantifierAny, spec.FilterInteger, "score_value", true)))
 	rendered := renderOK(t, plan)
-	if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
 		string(got.Value.(json.RawMessage)) != "7" {
 		t.Fatalf("INTEGER arg = %#v", got)
 	}
@@ -412,7 +412,7 @@ func TestRenderSelectorComparisonIntegerAndDecimalBindTypedScalars(t *testing.T)
 	decimalPlan = pgsq05AddFilter(decimalPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
 		"Patient", "gender", "LTE", spec.QuantifierAny, spec.FilterDecimal, "score_value", true)))
 	decimalRendered := renderOK(t, decimalPlan)
-	if got := decimalRendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+	if got := decimalRendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
 		string(got.Value.(json.RawMessage)) != "2.5" {
 		t.Fatalf("DECIMAL arg = %#v", got)
 	}
@@ -560,7 +560,7 @@ func TestRenderDirectTypedColumnTemporalLiterals(t *testing.T) {
 		t.Fatalf("recorded_at GTE clause = %s", got)
 	}
 	arg := rendered.Args[4]
-	if arg.Type != compiler.PostgreSQLParameterTimestamptz {
+	if arg.Type != command.PostgreSQLParameterTimestamptz {
 		t.Fatalf("recorded_at literal arg type = %q", arg.Type)
 	}
 	if stamp, ok := arg.Value.(time.Time); !ok || !stamp.Equal(time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)) {
@@ -645,7 +645,7 @@ func TestRenderDirectTypedPayloadKinds(t *testing.T) {
 			if got := pgsq05WhereClause(t, rendered); got != wantClause {
 				t.Fatalf("clause = %s, want %s", got, wantClause)
 			}
-			if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+			if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
 				string(got.Value.(json.RawMessage)) != testCase.raw {
 				t.Fatalf("arg = %#v, want jsonb %s", got, testCase.raw)
 			}
@@ -705,7 +705,7 @@ func TestRenderDirectTypedPayloadRangeUsesTemporalGuards(t *testing.T) {
 	if !strings.Contains(clause, "::timestamptz") || !strings.Contains(clause, "END) < $6") {
 		t.Fatalf("DATE_TIME payload LT must compare guarded instants:\n%s", clause)
 	}
-	if rendered.Args[5].Type != compiler.PostgreSQLParameterTimestamptz {
+	if rendered.Args[5].Type != command.PostgreSQLParameterTimestamptz {
 		t.Fatalf("DATE_TIME payload arg = %#v", rendered.Args[5])
 	}
 	// NOT must be guarded: the guarded stored side reads NULL for missing
@@ -988,7 +988,7 @@ func TestRenderRejectsKindMismatchedSelectorInList(t *testing.T) {
 	// The canonical types render: INTEGER accepts []any of int64.
 	plan := inPlan(spec.FilterInteger, []any{int64(1), int64(2)})
 	rendered := renderOK(t, plan)
-	if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB ||
 		string(got.Value.(json.RawMessage)) != "[1,2]" {
 		t.Fatalf("INTEGER IN arg = %#v", got)
 	}
@@ -1085,7 +1085,7 @@ func TestRenderNormalizesFixedZoneTimeTimeBind(t *testing.T) {
 	}))
 	rendered := renderOK(t, plan)
 	arg := rendered.Args[4]
-	if arg.Type != compiler.PostgreSQLParameterTimestamptz {
+	if arg.Type != command.PostgreSQLParameterTimestamptz {
 		t.Fatalf("bind arg type = %q, want timestamptz", arg.Type)
 	}
 	stamp, ok := arg.Value.(time.Time)

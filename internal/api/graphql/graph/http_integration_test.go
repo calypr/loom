@@ -112,7 +112,8 @@ func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
 			query, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -125,7 +126,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 		},
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
+		DataframeQuery: queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
@@ -206,7 +207,8 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
 			query, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -224,7 +226,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		},
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
+		DataframeQuery: queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {

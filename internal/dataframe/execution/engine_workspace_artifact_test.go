@@ -46,7 +46,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 	var pinCalls, resolveCalls int
 	var privateQueryCalls int
 	var queries []string
-	engine := &Engine{
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
 		privateClickHouseArtifacts: manager,
 		withExecutionReadPins: func(_ context.Context, revisions []string, visit func(context.Context) error) error {
 			if !reflect.DeepEqual(revisions, []string{"revision_a", "revision_b"}) &&
@@ -256,8 +256,10 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	var failedSourceTable string
 	cleanupFailure := errors.New("injected source artifact cleanup failure")
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			query, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -477,8 +479,10 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			}
 			var sourceCalls, combineCalls int
 			engine, err := New(Config{
-				Registry: invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-				QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
+				SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+					command := request.Command
 					query, bindVars, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr
@@ -635,8 +639,10 @@ func TestOrdinaryRestrictedPreviewDoesNotRequirePrivateCaptureProof(t *testing.T
 	}
 	var queryCalls int
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -724,8 +730,10 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		published("table-right", "revision-right", "right", "right-key", "right_private", false)
 	var pinned []string
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

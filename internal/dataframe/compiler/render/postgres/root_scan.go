@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -27,7 +27,7 @@ import (
 // only way to PostgreSQL statement text is through the identifier registry
 // plus $n parameters.
 //
-// Planner-facing command registration (compiler.CompiledCommandForBackend)
+// Planner-facing command registration (the compiler's target-aware PostgreSQL compile path)
 // stays fail-closed for PostgreSQL until a PostgreSQL command adapter is
 // registered by an execution slice; until then capability discovery must
 // keep reporting PostgreSQL as unsupported at that gate, and this entry
@@ -67,9 +67,9 @@ import (
 // ir.ErrUnregisteredPostgresIdentifier for a binding that did not come from
 // ir.NewPostgresStorageBinding. A rejected plan never produces SQL and
 // never routes to AQL.
-func RenderRootScan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+func RenderRootScan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := validateRootScanOperation(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// The closed shape passed, so RenderPhysicalPlan's own gates (binding
 	// trust, plan validation, engine/ClickHouse/stage refusals, scope

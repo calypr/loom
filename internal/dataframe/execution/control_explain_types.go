@@ -49,7 +49,7 @@ const (
 // does not explicitly recognize and pattern-gates the node types it keeps.
 type PostgreSQLPlanAssessment struct {
 	// Backend is the compiled-command backend tag that produced this
-	// assessment, always string(compiler.CompiledBackendPostgreSQL).
+	// assessment, always string(command.CompiledBackendPostgreSQL).
 	Backend string
 	// Nodes is the pre-order traversal of the plan tree. Ordinal is the
 	// pre-order position (the tree identity this assessment synthesizes,

@@ -146,7 +146,7 @@ func main() {
 	if err != nil {
 		fatalf("resolve recipe plan %q: %v", label, err)
 	}
-	compiledQueries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, *limit, ir.DefaultPhysicalOptimizationPolicy())
+	compiledQueries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, *limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		fatalf("compile GDC request %q: %v", label, err)
 	}

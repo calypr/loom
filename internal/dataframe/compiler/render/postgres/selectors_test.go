@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/source"
@@ -498,7 +498,7 @@ func (s *pgsq03Service) insertResource(t *testing.T, resourceType, logicalID str
 	return seq
 }
 
-func (s *pgsq03Service) runRendered(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) [][]string {
+func (s *pgsq03Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
@@ -685,13 +685,13 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 		}
 		// Exact ordered arguments before execution: scope, type, then the
 		// whole-path text[] parameter and the presence key parameter.
-		wantArgs := []compiler.PostgreSQLParameter{
-			{Type: compiler.PostgreSQLParameterText, Value: pgsq03Project},
-			{Type: compiler.PostgreSQLParameterText, Value: pgsq03Gen},
-			{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
-			{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
-			{Type: compiler.PostgreSQLParameterText, Value: "{gender}"},
-			{Type: compiler.PostgreSQLParameterText, Value: "gender"},
+		wantArgs := []command.PostgreSQLParameter{
+			{Type: command.PostgreSQLParameterText, Value: pgsq03Project},
+			{Type: command.PostgreSQLParameterText, Value: pgsq03Gen},
+			{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
+			{Type: command.PostgreSQLParameterText, Value: "Patient"},
+			{Type: command.PostgreSQLParameterText, Value: "{gender}"},
+			{Type: command.PostgreSQLParameterText, Value: "gender"},
 		}
 		if !reflect.DeepEqual(rendered.Args, wantArgs) {
 			t.Fatalf("%s args = %#v, want %#v", behavior, rendered.Args, wantArgs)
@@ -774,14 +774,14 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 	if err != nil {
 		t.Fatalf("nested render: %v", err)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq03Project},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq03Gen},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
-		{Type: compiler.PostgreSQLParameterText, Value: "{meta,source}"},
-		{Type: compiler.PostgreSQLParameterText, Value: "{meta}"},
-		{Type: compiler.PostgreSQLParameterText, Value: "source"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq03Project},
+		{Type: command.PostgreSQLParameterText, Value: pgsq03Gen},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
+		{Type: command.PostgreSQLParameterText, Value: "{meta,source}"},
+		{Type: command.PostgreSQLParameterText, Value: "{meta}"},
+		{Type: command.PostgreSQLParameterText, Value: "source"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("nested args = %#v, want %#v", rendered.Args, wantArgs)
@@ -882,15 +882,15 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 		plan.Operations = append(plan.Operations[:1], append([]ir.PhysicalOperation{predicate}, plan.Operations[1:]...)...)
 		return plan
 	}
-	runWithNaivePath := func(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan, pathIndex int) [][]string {
+	runWithNaivePath := func(t *testing.T, rendered command.RenderedPostgresPhysicalPlan, pathIndex int) [][]string {
 		t.Helper()
-		naive := append([]compiler.PostgreSQLParameter(nil), rendered.Args...)
+		naive := append([]command.PostgreSQLParameter(nil), rendered.Args...)
 		text, ok := naive[pathIndex].Value.(string)
 		if !ok || text[0] != '{' {
 			t.Fatalf("argument %d is not an array literal: %#v", pathIndex, naive[pathIndex])
 		}
 		naive[pathIndex].Value = strings.ReplaceAll(strings.ReplaceAll(text, `"null"`, "null"), `"NULL"`, "NULL")
-		return svc.runRendered(t, compiler.RenderedPostgresPhysicalPlan{SQL: rendered.SQL, Args: naive})
+		return svc.runRendered(t, command.RenderedPostgresPhysicalPlan{SQL: rendered.SQL, Args: naive})
 	}
 
 	binding := bindingFor(t, svc.schema)
@@ -1000,7 +1000,7 @@ func TestPGSQ03DenyPathsReadZeroRowsWithStoredDecoys(t *testing.T) {
 	svc.expectStored(t, "d-null", `{"gender": null}`)
 
 	binding := bindingFor(t, svc.schema)
-	extractor := func(paths []string, unrestricted, allowed bool) compiler.RenderedPostgresPhysicalPlan {
+	extractor := func(paths []string, unrestricted, allowed bool) command.RenderedPostgresPhysicalPlan {
 		plan := pgsq03GenderPlan(t, ir.PhysicalPreserveNull, paths, unrestricted, allowed)
 		rendered, err := RenderSelectorExtraction(plan, binding)
 		if err != nil {
