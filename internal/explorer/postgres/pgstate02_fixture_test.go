@@ -200,38 +200,17 @@ func (f *pgState02Fixture) revisionTable() string {
 	return sanitizeTableRef(f.schema, RevisionsTable)
 }
 
-// migrate applies this package's full history (ledger + owner + receipts +
-// revisions) to the fixture's owned schema through the shared runner.
-// The shared Explorer control-plane ledger (coordinator ruling): version 4
-// of this schema's ledger belongs to the capability-artifacts ticket, whose
-// DDL lives outside the embedded history, at
-// tests/migrations-capabilities/000004_capability_artifacts.sql, applied
-// through the same pg-store-02 runner on top of OwnerMigrations(). The
-// fixture applies the composed history so the double-apply witnesses the
-// FULL merged ledger [1 2 3 4 5 6] on the one shared version space -- and
-// pins the fixture file byte-for-byte: the file is owned by the merged #81
-// and must never drift under this suite.
-const (
-	pgstate02CapabilityFixtureDir      = "tests/migrations-capabilities"
-	pgstate02CapabilityFixtureChecksum = "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222"
-)
-
-func pgstate02CapabilityFixtureMigration(t *testing.T) pgstore.Migration {
-	t.Helper()
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), pgstate02CapabilityFixtureDir)
-	if err != nil {
-		t.Fatalf("load capability fixture migrations: %v", err)
-	}
-	if len(fixture) != 1 || fixture[0].Version != 4 || fixture[0].Name != "capability_artifacts" {
-		t.Fatalf("capability fixture history = %+v, want exactly version 4 capability_artifacts", fixture)
-	}
-	if fixture[0].Checksum != pgstate02CapabilityFixtureChecksum {
-		t.Fatalf("capability fixture checksum = %s, want the byte-frozen merge pin %s: the #81-owned fixture drifted",
-			fixture[0].Checksum, pgstate02CapabilityFixtureChecksum)
-	}
-	return fixture[0]
-}
-
+// migrate applies this package's full history through the shared runner.
+// The Explorer control-plane ledger (coordinator ruling) is the ONE owner
+// history embedded under migrations/: the ledger bootstrap plus owner,
+// drafts, receipts, revisions, capability artifacts (4), interpretation
+// libraries (7), selection revisions (8), and the explicit-group series
+// (9-11). The double-apply therefore witnesses the FULL ledger [1..11] on
+// the one shared version space. The capability/interpretation/selection DDL
+// moved in from their earlier state-scoped own-dir fixture directories with
+// bytes unchanged and carries byte-frozen pins via
+// pgstate02EmbeddedMigrationPins (revisions_test.go); those files must never
+// drift under this suite.
 func (f *pgState02Fixture) migrate(t *testing.T) pgstore.MigrateResult {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -244,11 +223,10 @@ func (f *pgState02Fixture) migrate(t *testing.T) pgstore.MigrateResult {
 		f.fail("open migration pool", err)
 	}
 	defer client.Close()
-	owner, err := OwnerMigrations()
+	history, err := OwnerMigrations()
 	if err != nil {
 		f.fail("owner migrations", err)
 	}
-	history := append(append([]pgstore.Migration{}, owner...), pgstate02CapabilityFixtureMigration(t))
 	runner, err := pgstore.NewMigrationRunner(client, f.schema, history)
 	if err != nil {
 		f.fail("new migration runner", err)

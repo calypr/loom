@@ -17,14 +17,14 @@ package postgres
 //     the caller's current project/Explorer/output/snapshot/source
 //     binding, and same-ID content drift is the typed identity clash.
 //
-// DDL lives in tests/migrations-capabilities/000004_capability_artifacts.sql
-// (state-scoped own-dir fixture per the tests/migrations-leases and
-// tests/migrations-chartifact precedent), applied through the shared
-// pg-store-02 runner on top of OwnerMigrations() inside the Explorer
-// control-plane schema; this file contains no DDL. That fixture enforces
-// immutability at the database itself (BEFORE UPDATE OR DELETE triggers,
-// SQLSTATE 45501): the stores below never issue UPDATE or DELETE against
-// these tables, and the database guarantees no other session can either.
+// DDL lives in 000004_capability_artifacts.sql, now part of this package's
+// embedded Explorer control-plane history (see explorers.go), applied through
+// the shared pg-store-02 runner on top of OwnerMigrations() inside the
+// Explorer control-plane schema; this file contains no DDL. That migration
+// enforces immutability at the database itself (BEFORE UPDATE OR DELETE
+// triggers, SQLSTATE 45501): the stores below never issue UPDATE or DELETE
+// against these tables, and the database guarantees no other session can
+// either.
 //
 // The jsonb payload is authoritative for reads -- exact snapshot documents
 // and receipt objects round-trip untouched -- while the typed scan columns
@@ -116,8 +116,8 @@ var _ capability.Repository = (*CapabilitySnapshotStore)(nil)
 // NewCapabilitySnapshotStore builds the snapshot store for one Explorer
 // control-plane schema behind client. It opens no connection and runs no
 // DDL; the schema must already be migrated by this package's history
-// (OwnerMigrations plus the capability fixture), and a missing table is
-// surfaced as SQLSTATE 42P01, never a fallback.
+// (OwnerMigrations, which now includes 000004_capability_artifacts), and a
+// missing table is surfaced as SQLSTATE 42P01, never a fallback.
 func NewCapabilitySnapshotStore(client *pgstore.Client, schema string) (*CapabilitySnapshotStore, error) {
 	if client == nil {
 		return nil, errors.New("postgres explorer store: capability snapshot client is required")

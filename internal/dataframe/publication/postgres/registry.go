@@ -29,9 +29,9 @@
 //     are SQL NULL exactly when the Go pointer is nil, and the payload
 //     preserves the original JSON null-versus-absent shape.
 //
-// The schema is created by tests/migrations/000004_publication_bundle_catalog.
-// sql applied through the pg-store-02 MigrationRunner; this package contains
-// no DDL.
+// The schema is created by this package's embedded publication control-plane
+// history (see migrate.go), applied through the pg-store-02 runner; this
+// package contains no DDL.
 package postgres
 
 import (
@@ -100,8 +100,8 @@ var (
 
 // New binds a registry to one schema of a PostgreSQL 18 database served by
 // pool. The schema must already contain the publication bundle catalog
-// tables (tests/migrations/000004_publication_bundle_catalog.sql via the
-// pg-store-02 MigrationRunner); New never runs DDL.
+// tables (this package's embedded history, applied via MigrateSchema); New
+// never runs DDL.
 func New(pool DB, schema string) (*Registry, error) {
 	if pool == nil {
 		return nil, errors.New("publication postgres: nil pool")

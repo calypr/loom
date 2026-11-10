@@ -10,13 +10,14 @@ package postgres
 // LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
 // database (pgstate05_it_*) plus one owned schema (pgstate05_it_*) inside
 // it and drops both in its cleanups, so the suite leaves zero leftovers.
-// The fixture history is composed through the real pg-store-02 runner from
-// this package's embedded owner history and this ticket's state-scoped
-// own-dir fixture tests/migrations-selections/000008_selection_revisions.sql;
-// NewMigrationRunner composes and sorts the union onto the ONE shared
-// per-schema ledger (proven precedent: the capability suite composes
-// versions 1,2,3 + 4 the same way), and the ledger rows are asserted
-// literally with the fixture checksum self-recomputed from the file bytes.
+// The fixture history is this package's complete embedded owner history --
+// the selection-revisions DDL (000008_selection_revisions) is part of that
+// same Explorer control-plane ledger with bytes unchanged from its earlier
+// own-dir fixture; NewMigrationRunner applies the loader-sorted sequence
+// onto the ONE shared per-schema ledger (proven precedent: the capability
+// migration at version 4 sits inside the same sequence), and the ledger rows
+// are asserted literally with the checksum self-recomputed from the embedded
+// bytes.
 //
 // Every lifecycle claim is driven through real Store methods on real
 // connections; expected rows are asserted literally through direct SQL on a
@@ -47,7 +48,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -66,25 +66,45 @@ import (
 
 // The fixture pins below follow the coordinator allocation: version 8 of
 // the Explorer control-plane ledger, one migration covering both selection
-// tables (000004's two-table precedent), own-dir composition per the
-// accepted 000004 capability precedent. The Explorer ledger and the
-// store-dir ledger are separate tables in separate dirs -- the store
-// history's own 000008 (internal/store/postgres/migrations/
-// 000008_batch_write_ledger.sql) is a different ledger, so the shared
-// number is not a collision. Ledger expectations elsewhere in this file are
-// self-derived from the FS-loaded history, never literal counts.
+// tables (000004's two-table precedent), now embedded in the owner history.
+// The Explorer ledger and the store-dir ledger are separate tables in
+// separate dirs -- the store history's own 000008
+// (internal/store/postgres/migrations/000008_batch_write_ledger.sql) is a
+// different ledger, so the shared number is not a collision. Ledger
+// expectations elsewhere in this file are self-derived from the loaded
+// history, never literal counts.
 const (
-	pgstate05FixtureDir     = "tests/migrations-selections"
-	pgstate05FixtureFile    = "000008_selection_revisions"
-	pgstate05FixtureName    = "selection_revisions"
-	pgstate05FixtureVersion = int64(8)
-	pgstate05ImmutableCode  = "45501"
+	pgstate05FixtureName     = "selection_revisions"
+	pgstate05FixtureVersion  = int64(8)
+	pgstate05FixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
+	pgstate05ImmutableCode   = "45501"
 	// pgstate05RaceRounds is the per-surface race floor; the racing
 	// surfaces each run at least this many fresh rounds.
 	pgstate05RaceRounds = 10
 
 	pgstate05Project = "pgstate05-p"
 )
+
+// requireOwnerMigration extracts one expected version/name migration from
+// an owner history, failing when it is absent, duplicated, or misnamed.
+func requireOwnerMigration(t *testing.T, history []pgstore.Migration, version int64, name string) (pgstore.Migration, error) {
+	t.Helper()
+	var found pgstore.Migration
+	count := 0
+	for _, m := range history {
+		if m.Version == version {
+			count++
+			found = m
+		}
+	}
+	if count != 1 {
+		return pgstore.Migration{}, fmt.Errorf("owner history has %d migrations at version %d, want exactly 1 (%s): %+v", count, version, name, history)
+	}
+	if found.Name != name {
+		return pgstore.Migration{}, fmt.Errorf("owner history version %d = %q, want %q", version, found.Name, name)
+	}
+	return found, nil
+}
 
 // Golden member-key hexes for (pgstate05-p, gen-a, DocumentReference,
 // files00N), pinned independently of the adapter's derivation so a drift
@@ -284,15 +304,14 @@ func (s *selectionService) backendPID(t *testing.T, client *pgstore.Client, labe
 	return pid
 }
 
-// migrate composes and applies the owned history -- this package's embedded
-// owner history plus this ticket's state-scoped own-dir selection fixture --
-// through the real pg-store-02 runner onto the ONE shared per-schema ledger,
-// and asserts the ledger literally with the fixture checksum
-// self-recomputed from the file bytes. The composition-and-sort behavior is
-// the proven tests/migrations-capabilities precedent: NewMigrationRunner
-// copies, recomputes checksums, and sorts by version, so a future owner
-// history [1,2,3,5,6,7] plus this fixture [8] converges to one ascending
-// union regardless of compose order.
+// migrate applies this package's complete embedded owner history -- which
+// includes the selection-revisions migration at version 8 on the ONE shared
+// per-schema ledger -- through the real pg-store-02 runner, and asserts the
+// ledger literally with the checksum self-recomputed from the embedded bytes.
+// The apply-and-sort behavior is the proven capability precedent:
+// NewMigrationRunner copies, recomputes checksums, and sorts by version, so
+// the single owner history [1..11] forms one ascending sequence regardless of
+// file enumeration order.
 func (s *selectionService) migrate(t *testing.T) {
 	t.Helper()
 	owner, err := OwnerMigrations()
@@ -303,28 +322,19 @@ func (s *selectionService) migrate(t *testing.T) {
 		owner[1].Version != 2 || owner[1].Name != "explorer_owner" {
 		t.Fatalf("owner history = %+v, want ledger(1) + explorer_owner(2) at the front", owner)
 	}
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), pgstate05FixtureDir)
+	fixture, err := requireOwnerMigration(t, owner, pgstate05FixtureVersion, pgstate05FixtureName)
 	if err != nil {
-		s.fail("load selection fixture migrations", err)
-	}
-	if len(fixture) != 1 || fixture[0].Version != pgstate05FixtureVersion ||
-		fixture[0].Name != pgstate05FixtureName {
-		t.Fatalf("selection fixture history = %+v, want exactly version %d %s",
-			fixture, pgstate05FixtureVersion, pgstate05FixtureName)
+		s.fail("selection-revisions migration", err)
 	}
 	// Self-recomputed sha256 pin: the ledger row the runner records must
 	// equal the digest this test computes independently over the exact
-	// bytes on disk.
-	diskBytes, err := os.ReadFile("../../../" + pgstate05FixtureDir + "/" + pgstate05FixtureFile + ".sql")
-	if err != nil {
-		s.fail("read selection fixture file", err)
+	// embedded bytes, and both must equal the byte-frozen merge pin.
+	sum := sha256.Sum256([]byte(fixture.SQL))
+	if got := hex.EncodeToString(sum[:]); got != fixture.Checksum || got != pgstate05FixtureChecksum {
+		t.Fatalf("checksum self-recompute = %s, runner computed %s, want the byte-frozen merge pin %s",
+			got, fixture.Checksum, pgstate05FixtureChecksum)
 	}
-	sum := sha256.Sum256(diskBytes)
-	if got := hex.EncodeToString(sum[:]); got != fixture[0].Checksum {
-		t.Fatalf("fixture checksum self-recompute = %s, runner computed %s", got, fixture[0].Checksum)
-	}
-	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
-	runner, err := pgstore.NewMigrationRunner(s.witness, s.schema, history)
+	runner, err := pgstore.NewMigrationRunner(s.witness, s.schema, owner)
 	if err != nil {
 		s.fail("new migration runner", err)
 	}
@@ -333,15 +343,13 @@ func (s *selectionService) migrate(t *testing.T) {
 		s.fail("migrate selection history", err)
 	}
 	s.owner = owner
-	s.fixture = fixture[0]
+	s.fixture = fixture
 	s.ledgerAfter = result.Applied
 
-	want := make([]pgstore.LedgerRecord, 0, len(owner)+1)
+	want := make([]pgstore.LedgerRecord, 0, len(owner))
 	for _, m := range owner {
 		want = append(want, pgstore.LedgerRecord{Version: m.Version, Name: m.Name, Checksum: m.Checksum})
 	}
-	want = append(want, pgstore.LedgerRecord{Version: fixture[0].Version, Name: fixture[0].Name, Checksum: fixture[0].Checksum})
-	sort.Slice(want, func(i, j int) bool { return want[i].Version < want[j].Version })
 	var maxVersion int64
 	for _, w := range want {
 		if w.Version > maxVersion {
@@ -1971,20 +1979,20 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 		}
 	}
 
-	// Fixture digest self-recompute (offline half of the ledger pin).
-	sqlBytes, err := os.ReadFile("../../../" + pgstate05FixtureDir + "/" + pgstate05FixtureFile + ".sql")
+	// Owner digest self-recompute (offline half of the ledger pin).
+	ownerMigrations, err := OwnerMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixture, err := requireOwnerMigration(t, ownerMigrations, pgstate05FixtureVersion, pgstate05FixtureName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlBytes := []byte(fixture.SQL)
 	sum := sha256.Sum256(sqlBytes)
-	migrations, err := pgstore.LoadMigrations(os.DirFS("../../../"), pgstate05FixtureDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(migrations) != 1 || migrations[0].Checksum != hex.EncodeToString(sum[:]) ||
-		migrations[0].Version != pgstate05FixtureVersion || migrations[0].Name != pgstate05FixtureName {
+	if fixture.Checksum != hex.EncodeToString(sum[:]) {
 		t.Fatalf("fixture migration = %+v, want version %d %s at the self-recomputed digest %s",
-			migrations, pgstate05FixtureVersion, pgstate05FixtureName, hex.EncodeToString(sum[:]))
+			fixture, pgstate05FixtureVersion, pgstate05FixtureName, hex.EncodeToString(sum[:]))
 	}
 	for _, needle := range []string{"selection_revisions", "selection_members", "loom_selection_revision_immutable", "loom_selection_member_immutable", "45501"} {
 		if !strings.Contains(string(sqlBytes), needle) {

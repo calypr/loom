@@ -53,9 +53,9 @@ package postgres
 // cross-database atomicity and no silent backend fallback -- every failure is
 // returned for the caller to surface. All statements use ordered $n
 // parameters and schema-qualified table names; nothing user-supplied is
-// interpolated. The schema is created by
-// tests/migrations-readpins/000009_publication_read_pins.sql applied through
-// the pg-store-02 MigrationRunner; this file contains no DDL.
+// interpolated. The schema is created by 000009_publication_read_pins.sql in
+// this package's embedded history (see migrate.go), applied through the
+// pg-store-02 runner; this file contains no DDL.
 
 import (
 	"context"
@@ -208,8 +208,8 @@ func (c *BundleCatalog) ReleaseExecutionCleanup(ctx context.Context, executionID
 
 // NewReadPins binds an arbiter to one schema of a PostgreSQL 18 database
 // served by pool. The schema must already contain the retention tables
-// (tests/migrations-readpins/000009_publication_read_pins.sql via the
-// pg-store-02 MigrationRunner); NewReadPins never runs DDL and never falls
+// (000009_publication_read_pins.sql in this package's embedded history,
+// applied via MigrateSchema); NewReadPins never runs DDL and never falls
 // back when any is missing -- the first statement surfaces the failure.
 func NewReadPins(pool DB, schema string) (*ReadPins, error) {
 	if pool == nil {

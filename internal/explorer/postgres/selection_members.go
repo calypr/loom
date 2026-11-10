@@ -27,8 +27,8 @@ package postgres
 //     never materializes the full member list.
 //
 // Database-enforced invariants (DDL in
-// tests/migrations-selections/000008_selection_revisions.sql; this file
-// contains no DDL):
+// 000008_selection_revisions.sql, now part of this package's embedded
+// Explorer control-plane history; this file contains no DDL):
 //   - selection_members PRIMARY KEY (selection_id, member_key) plus UNIQUE
 //     (selection_id, project, generation, resource_type, id) make member
 //     staging insert-once and retries idempotent, exactly like Arango's
@@ -60,7 +60,7 @@ const (
 	// selectionMembersRefConstraint names the database arbiter that keeps
 	// one reference exactly one member per selection: UNIQUE
 	// (selection_id, project, generation, resource_type, id) in
-	// tests/migrations-selections/000008_selection_revisions.sql. The
+	// 000008_selection_revisions.sql. The
 	// adapter classifies a violation of THIS constraint as a conflicting
 	// member instead of surfacing a raw driver error.
 	selectionMembersRefConstraint = "selection_members_ref_ux"

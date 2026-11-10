@@ -16,9 +16,9 @@ const (
 	// ExecutionCheckpointsTable stores owner-conditional checkpoint records.
 	// The lease rows they fence live in BundleLeasesTable (owned by
 	// 000004_publication_bundle_catalog.sql); the records themselves are
-	// created by
-	// tests/migrations-leases/000006_publication_lease_checkpoints.sql
-	// applied through the pg-store-02 MigrationRunner. This file contains no DDL.
+	// created by 000006_publication_lease_checkpoints.sql in this package's
+	// embedded history (see migrate.go), applied through the pg-store-02
+	// runner. This file contains no DDL.
 	ExecutionCheckpointsTable = "publication_execution_checkpoints"
 	// LeaseGrantsTable stores the per-key generation high-water every
 	// committed Acquire bumps, so retired fencing tokens are never reissued

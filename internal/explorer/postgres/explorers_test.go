@@ -465,8 +465,10 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	// migration SQL -- including a migration guard -- reddens this test
 	// until the pin is deliberately regenerated, and the runner refuses an
 	// already-migrated schema whose embedded history drifted from its
-	// ledger. Version 4 is reserved for the capability-artifacts ticket's
-	// tests/migrations-capabilities extension of this same ledger.
+	// ledger. Versions 4, 7, and 8 are the capability-artifacts,
+	// interpretation-library, and selection-revisions migrations of this
+	// same Explorer control-plane ledger, embedded here with bytes
+	// unchanged from their earlier fixture directories.
 	want := []struct {
 		version  int64
 		name     string
@@ -475,8 +477,11 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{1, "ledger", "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086"},
 		{2, "explorer_owner", "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056"},
 		{3, "explorer_draft_revision", "4bf4fe35485cb7adc6ea46812b0ae004e89ff935a14f14dd80a300bb3cc86c3f"},
+		{4, "capability_artifacts", "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222"},
 		{5, "explorer_compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
 		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
+		{7, "interpretation_library", "5e308b21a3f567b3066c46458606dd361a9c90646db54ee71618902a544a9ba2"},
+		{8, "selection_revisions", "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"},
 		{9, "explorer_explicit_groups", "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"},
 		{10, "explorer_explicit_group_memberships", "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"},
 		{11, "explorer_explicit_group_definition_guard_hardening", "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"},
