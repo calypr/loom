@@ -45,7 +45,15 @@
 // operation slice: one direct root scan, one or more JSON-array expansions
 // with typed-identity owner routes, and a positional return over the
 // stored rows plus the renderer-derived item, ancestor, ordinality, and
-// has-item values. Population/cohort roots, endpoint-lookup traversals,
+// has-item values. The membership population/cohort roots (pg-sql-18) are
+// registered in population.go as their own closed entry slice: the
+// constructor-only PostgresPopulationRootBinding (registered table allowlist
+// pinned to the store migrations) makes RenderPopulationRootScan the sole
+// binder for selection-bounded population roots and cohort-scoped roots,
+// with the cohort guards rendered as an uncorrelated guard InitPlan that
+// also carries the canonical deny; without a binding — every plain
+// RenderPhysicalPlan path — membership roots remain capability gaps that
+// return typed errors, never an AQL fallback. Endpoint-lookup traversals,
 // repeated/indexed selector predicates, correlated predicates,
 // CONTAINS_TEXT, sets, subplans outside the registered REQUIRED shape,
 // graph returns, group rows, pivots, unpivots, stage sequences, and
