@@ -1242,6 +1242,13 @@ func pgCommitOutcomeUnknown(err error) bool {
 		// server-answered error means the transaction did not commit.
 		return strings.HasPrefix(pgErr.Code, "08") || pgErr.Code == "57P01" || pgErr.Code == "57P02"
 	}
+	if errors.Is(err, storepostgres.ErrCommitOutcomeUnknown) {
+		// The store/postgres runtime error boundary (errors.go) names the
+		// failed-COMMIT-with-unknown-effect case; honoring the sentinel
+		// keeps classification correct even where the raw *pgconn.PgError
+		// is no longer Is/As-visible through a translated wrapper.
+		return true
+	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		// A cancellation surfacing through a store call (not a safe point)
 		// raced an in-flight statement.
