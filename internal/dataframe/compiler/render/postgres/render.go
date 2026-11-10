@@ -23,10 +23,14 @@
 // typed columns or JSONB payload paths, depth-one typed edge-occurrence
 // traversals rendered by traversal.go — the OPTIONAL parent-preserving
 // LEFT JOIN LATERAL child join and the REQUIRED match EXISTS semi-join —
-// one column sort with deterministic identity tie-breaks, one bound limit,
-// and one positional return projection. Population/cohort roots,
-// endpoint-lookup traversals, selector extraction over non-root rows, sets,
-// unnest, subplans outside the registered REQUIRED shape, graph returns,
+// and the JSON-array cardinality boundary (UNNEST, pg-sql-09) registered in
+// unnest.go as its own closed operation slice: one direct root scan, one or
+// more JSON-array expansions with typed-identity owner routes, and a
+// positional return over the stored rows plus the renderer-derived item,
+// ancestor, ordinality, and has-item values — with one column sort and
+// deterministic identity tie-breaks, one bound limit, and one positional
+// return projection. Population/cohort roots, endpoint-lookup traversals,
+// sets, subplans outside the registered REQUIRED shape, graph returns,
 // group rows, pivots, unpivots, stage sequences, and ClickHouse payloads
 // are capability gaps that return typed errors.
 package postgres
@@ -78,6 +82,22 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if err := storage.Validate(); err != nil {
 		return compiler.RenderedPostgresPhysicalPlan{}, err
 	}
+	// Full-backstop defense in depth (unnest.go contract): a plan that
+	// mentions UNNEST is pinned to the registered slice as the first
+	// plan-facing act here, before plan validation, scope loading, or any
+	// rendering can reject with an off-type error, so the dispatch entry
+	// enforces one contract with RenderUnnest, not a partial backstop.
+	// The re-check at the first UNNEST in renderUnnest stays as the local
+	// invariant; the check is total over any plan, so a malformed non-unnest
+	// plan reaches plan.Validate untouched.
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalUnnestOp {
+			if err := validateUnnestPlanSurface(plan); err != nil {
+				return compiler.RenderedPostgresPhysicalPlan{}, err
+			}
+			break
+		}
+	}
 	if err := plan.Validate(); err != nil {
 		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
@@ -124,9 +144,18 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 // traversal join (traversal.go): it is NULL-extensible, so main-sequence
 // FILTER and SORT may not reference it, while RETURN projections read its
 // columns with SQL NULL for parent-preserving rows.
+//
+// A derived scope (unnest.go) carries a renderer-computed SQL expression
+// instead of a storage alias: derivedValue is the only reading, there is no
+// table alias or resource type, and only resolveValue may read it, so a
+// derived variable can never be used as a join, filter column, or sort
+// column. derivedJSON marks a jsonb-valued derived row whose non-empty
+// paths are document paths over the derived value.
 type rowScope struct {
 	alias        string
 	resourceType string
+	derivedValue string
+	derivedJSON  bool
 	optional     bool
 }
 
@@ -158,6 +187,14 @@ type planRenderer struct {
 	outputColumns []string
 	orderBy       []string
 	limitClause   string
+
+	// Unnest state (unnest.go): lateral clauses in plan order, the rn
+	// tie-break keys they contribute to the total order, and the expansion
+	// counter that mints renderer-owned lateral aliases. All are
+	// renderer-owned; no plan string reaches SQL text through them.
+	laterals    []string
+	unnestOrder []string
+	unnestSeq   int
 }
 
 // addParameter appends one ordered argument and returns its $n index. A
@@ -216,6 +253,16 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if err := r.renderTraversal(plan, *operation.Traversal); err != nil {
 				return err
 			}
+		case ir.PhysicalUnnestOp:
+			if phase != 0 {
+				return fmt.Errorf("%w: unnest must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			if operation.Unnest == nil {
+				return fmt.Errorf("%w: operation %d: unnest payload is missing", ErrUnsupportedPostgresPlan, index)
+			}
+			if err := r.renderUnnest(plan, *operation.Unnest); err != nil {
+				return err
+			}
 		case ir.PhysicalSortOp:
 			if sawSort || phase > 1 || (phase == 1 && sawLimit) {
 				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
@@ -272,8 +319,14 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 // or a parameterized JSONB payload path over its row alias. Payload paths
 // are bound through documentPathExpression (null_semantics.go), the
 // package's single path-binding authority, so extraction and comparison
-// paths can never drift apart.
+// paths can never drift apart. Derived scopes (unnest.go) resolve through
+// resolveDerivedValue against their renderer-computed expression instead;
+// everything else resolves through the shared rows-parameterized resolver
+// in traversal.go, which main sequence and EXISTS subplans share.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
+	if scope, ok := r.rows[value.Variable]; ok && scope.derivedValue != "" {
+		return r.resolveDerivedValue(value, scope)
+	}
 	return r.resolveValueInRows(r.rows, value)
 }
 
@@ -617,16 +670,25 @@ func (r *planRenderer) assemble() string {
 	for _, join := range r.joins {
 		builder.WriteString(" " + join)
 	}
+	// Lateral expansions trail the storage joins so each references only
+	// rows that already bound (unnest.go mints them in plan order).
+	for _, lateral := range r.laterals {
+		builder.WriteString(" " + lateral)
+	}
 	if len(r.where) > 0 {
 		builder.WriteString(" WHERE " + strings.Join(r.where, " AND "))
 	}
 	// Deterministic total order: plan sort keys first, then the storage
 	// identities so repeated rows from parallel edge occurrences order the
-	// same way on every execution.
+	// same way on every execution, then each unnest expansion's rn so
+	// duplicate items keep their source-array position (the ordering
+	// counterpart of ir.PhysicalUnnestSortKeys' has-item/ordinality
+	// tie-break).
 	order := append(append([]string{}, r.orderBy...), r.rootAlias+"."+r.storage.Resource.MustColumn("resource_seq").SQLText()+" ASC")
 	for _, edgeAlias := range r.edgeAliases {
 		order = append(order, edgeAlias+"."+r.storage.Edge.MustColumn("edge_seq").SQLText()+" ASC")
 	}
+	order = append(order, r.unnestOrder...)
 	builder.WriteString(" ORDER BY " + strings.Join(order, ", "))
 	builder.WriteString(r.limitClause)
 	return builder.String()

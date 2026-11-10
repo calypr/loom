@@ -244,8 +244,8 @@ func (r *planRenderer) edgeOccurrencePredicates(
 // edge-scoped predicates are canonical-structural and never plan-addressable.
 func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
 	source, ok := r.rows[traversal.SourceVariable]
-	if !ok {
-		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables and set variables are not readable)",
+	if !ok || source.derivedValue != "" {
+		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables, set variables, and computed unnest values are not readable)",
 			ErrUnsupportedPostgresPlan, traversal.SourceVariable)
 	}
 	verified, err := r.validateTraversalContract(plan, traversal, source)
@@ -308,8 +308,8 @@ func (r *planRenderer) renderRequiredMatchExists(
 	}
 	anchorVariable := subplan.Captures[0]
 	anchor, ok := r.rows[anchorVariable]
-	if !ok {
-		return predicateFragment{}, fmt.Errorf("%w: required-match subplan capture %q does not bind a readable row",
+	if !ok || anchor.derivedValue != "" {
+		return predicateFragment{}, fmt.Errorf("%w: required-match subplan capture %q does not bind a readable row (edge variables and computed unnest values cannot anchor a correlation)",
 			ErrUnsupportedPostgresPlan, anchorVariable)
 	}
 	if err := validateRequiredMatchReturn(plan, subplan); err != nil {
@@ -439,10 +439,12 @@ func (r *planRenderer) nextTraversalSequence() int {
 
 // resolveValueInRows maps one plan value onto either a trusted column
 // expression or a parameterized JSONB payload path over its row alias,
-// resolving variables exclusively through rows.
+// resolving variables exclusively through rows. Derived (unnest.go) rows
+// are refused here: they carry no table alias and resolve only through
+// resolveValue's resolveDerivedValue branch in the main sequence.
 func (r *planRenderer) resolveValueInRows(rows map[string]rowScope, value ir.PhysicalValue) (string, error) {
 	scope, ok := rows[value.Variable]
-	if !ok {
+	if !ok || scope.derivedValue != "" {
 		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
 	}
 	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
