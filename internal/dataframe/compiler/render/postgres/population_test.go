@@ -690,8 +690,30 @@ func TestCohortDenyAndUnrestrictedScope(t *testing.T) {
 	denied := cohortPlan()
 	denied.BindVars["scope_allowed"] = false
 	rendered := renderPopulationOK(t, denied)
-	if !strings.Contains(rendered.SQL, `r0."resource_type" = $4 AND FALSE`) {
-		t.Fatalf("cohort root must keep the canonical deny:\n%s", rendered.SQL)
+	// Under the canonical deny the guard clause IS the deny: one atomic
+	// always-false clause "(<guard sublink>) * 0 = 1". No const-FALSE
+	// conjunct may exist anywhere (eval_const_expressions folds the whole
+	// AND tree and prunes the guard InitPlans) and no separate stable-false
+	// conjunct may exist either (cost-sorted hoisting short-circuits the
+	// lazily-fetched guard before it runs) -- deny must never suppress
+	// guard violations, matching AQL, which raises before the deny FILTER
+	// (render/aql/group_rows.go:245-261; pinned live by
+	// TestCohortLiveDenyStillRaisesGuards).
+	if !strings.Contains(rendered.SQL, `ELSE 1 END) * 0 = 1)`) {
+		t.Fatalf("cohort deny must merge into the always-false guard clause:\n%s", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, " AND FALSE") {
+		t.Fatalf("cohort deny must never fold to a literal FALSE conjunct:\n%s", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, " = 1 AND") || strings.Contains(rendered.SQL, " = 1 WHERE") ||
+		strings.HasSuffix(rendered.SQL, " = 1") || strings.Contains(rendered.SQL, " = 1 ORDER BY") {
+		t.Fatalf("denied cohort must not keep a separate guard-equals-one conjunct:\n%s", rendered.SQL)
+	}
+	// The deny stays shape-fixed: never a bind parameter.
+	for _, argument := range rendered.Args {
+		if fmt.Sprintf("%v", argument.Value) == "false" {
+			t.Fatalf("cohort deny must never bind a boolean parameter: %#v", rendered.Args)
+		}
 	}
 	// The membership relations carry no auth column and never did in Arango
 	// (group_rows.go:252-259): auth lives on source rows only.

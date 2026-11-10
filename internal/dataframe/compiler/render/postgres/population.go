@@ -68,7 +68,10 @@ package postgres
 //     initialization, so the guards fire exactly once independently of the
 //     candidate/root row count, mirroring ASSERT placement outside the AQL
 //     root loop. CASE order matches Arango ASSERT order: revision → stale →
-//     unassigned.
+//     unassigned. Under the canonical deny the guard clause and the deny
+//     merge into one atomic always-false clause (cohortDenyGuardSuffix) so
+//     the guards survive constant-FALSE pruning and short-circuit re-
+//     ordering, keeping violations query errors under deny as well.
 //   - D4: the canonical member-relation predicate is
 //     selection_id = $n AND project = $n AND generation = $n AND
 //     resource_type = $n, re-read from the four canonical MemberFilters in
@@ -468,8 +471,22 @@ func (r *planRenderer) renderRootSources(plan ir.PhysicalPlan, scan ir.PhysicalR
 	}
 	r.rootAlias = "r0"
 	r.rows[scan.Variable] = rowScope{alias: r.rootAlias, resourceType: resourceType}
-	r.where = append(r.where, r.scopedResourcePredicate(r.rootAlias,
-		r.textParameter(resourceType, "text:"+resourceType)))
+	// The cohort entry renders the three guard InitPlans, and under the
+	// canonical deny it must not carry the literal " AND FALSE": a const-
+	// FALSE argument folds the whole AND tree, and even a stable-false
+	// stand-in loses the guard, because order_qual_clauses can cost-sort
+	// the false conjunct ahead of the lazily-fetched guard InitPlan and
+	// short-circuit it (both observed live). The cohort path therefore
+	// carries no deny conjunct in the scope chain at all; renderCohort-
+	// RootSource merges the deny and the guard into one atomic always-false
+	// clause (cohortDenyGuardSuffix). The population entry has no guards,
+	// so its deny keeps the literal zero-row FALSE.
+	denyConjunct := " AND FALSE"
+	if scan.Population == nil {
+		denyConjunct = ""
+	}
+	r.where = append(r.where, r.scopedResourcePredicateDenyConjunct(r.rootAlias,
+		r.textParameter(resourceType, "text:"+resourceType), denyConjunct))
 	if scan.Population != nil {
 		return r.renderPopulationRootSource(plan, scan)
 	}
@@ -1008,7 +1025,15 @@ func (r *planRenderer) renderCohortRootSource(plan ir.PhysicalPlan, scan ir.Phys
 		" WHEN $" + strconv.Itoa(policyIndex) + " = " + quoteSQLLiteral(cohortPolicyError) + " AND (" + unassignedGuard + ")" +
 		" THEN " + guardCast(cohortGuardUnassignedMember) +
 		" ELSE 1 END)"
-	r.where = append(r.where, guard+" = 1")
+	// Under the canonical deny the guard clause IS the deny: merged into
+	// one atomic always-false clause so neither constant-FALSE folding nor
+	// cost-sorted short-circuiting can evaluate the deny without first
+	// evaluating the guard (cohortDenyGuardSuffix).
+	if r.scope.denied {
+		r.where = append(r.where, "("+guard+cohortDenyGuardSuffix+")")
+	} else {
+		r.where = append(r.where, guard+" = 1")
+	}
 
 	// Candidate set: UNION (deduplicating, the UNION_DISTINCT of
 	// group_rows.go:262-265) of the scoped selection-member ids and the
@@ -1039,6 +1064,41 @@ func (r *planRenderer) renderCohortRootSource(plan ir.PhysicalPlan, scan ir.Phys
 // stable expression evaluated only when its WHEN fires, and the literal
 // still carries the classification tag inside the 22P02 message text.
 const guardBarrierGUC = "loom.explorer_guard_barrier"
+
+// cohortDenyGuardSuffix turns the guard sublink itself into the canonical
+// deny (scope_allowed bound false): the WHERE conjunct becomes
+// "(<guard sublink>) * 0 = 1", which is always false -- a healthy guard is
+// 1, so the clause reads 0 = 1 and no root row ever reads -- and it can
+// never be evaluated without first evaluating the guard, because operator
+// arguments are evaluated eagerly and order_qual_clauses cannot split a
+// single clause the way it cost-sorts AND-list members.
+//
+// Neither simpler form is safe, both observed live:
+//   - " AND FALSE" anywhere in the top-level AND tree: eval_const_-
+//     expressions folds the whole tree to constant FALSE (FALSE dominates
+//     under three-valued logic), the plan becomes "Result One-Time Filter:
+//     false", and the planner prunes the unreferenced guard InitPlans --
+//     deny silently suppresses guard violations, while AQL raises all three
+//     ASSERT tags before the deny FILTER (render/aql/group_rows.go:245-261)
+//     and D3 promises violations are query errors independent of row counts.
+//   - a stable-false stand-in conjunct (pg_catalog.version() = ”): the
+//     fold is gone but the planner hoists both conjuncts into a One-Time
+//     Filter ordered by cost, evaluates the cheap stable-false conjunct
+//     first, and short-circuits before the lazily-fetched guard InitPlan --
+//     silence again.
+//
+// The merged clause keeps deny shape-fixed (no bind parameter, never
+// forgeable), keeps zero-row semantics, keeps the guard uncorrelated, and
+// raises at clause evaluation -- startup when hoisted into a one-time
+// filter, exactly as proven for the healthy-row-count zero case by
+// TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze. No NULL hazard:
+// every CASE arm either raises the tag or yields 1, never NULL. The planner
+// cannot fold the clause away: "sublink * 0" is not simplifiable (the
+// operand is non-constant and nullability is not provable) and "expr = 1"
+// has a non-constant operand. Pinned live, all three tags plus the healthy
+// zero-row control and an EXPLAIN no-pruning check, by
+// TestCohortLiveDenyStillRaisesGuards.
+const cohortDenyGuardSuffix = " * 0 = 1"
 
 // guardCast renders one guard branch: integer-casting the tag text behind
 // the constant-folding barrier. Reaching the cast is itself the failure,

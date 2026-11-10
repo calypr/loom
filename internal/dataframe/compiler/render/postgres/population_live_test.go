@@ -736,16 +736,17 @@ func TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze(t *testing.T) {
 	}
 }
 
-func TestCohortLiveSourceStale(t *testing.T) {
-	s := newPop18Service(t)
-	fixture := seedCohortFixture(t, s)
-	// A completed selection can never be aborted or edited, so staleness is
-	// produced the way the guard exists to police it: a direct-SQL session
-	// driving the guarded channels -- insert a STAGING header whose
-	// scope_digest no longer matches the live selection row, declare its
-	// group, stage one membership, and complete through the writer-token
-	// channel. The revision itself is COMPLETE and in scope, so only the
-	// stale-binding arm can fire.
+// seedStaleGroup produces a genuinely stale COMPLETE group revision the way
+// the guard exists to police it: a direct-SQL session drives the guarded
+// channels -- insert a STAGING header whose scope_digest no longer matches
+// the live selection row, declare its group, stage one membership, and
+// complete through the writer-token channel (completed selections can never
+// be edited, so staleness is only reachable through this forged-binding
+// path). The revision is COMPLETE and in scope, so only the stale-binding
+// arm can fire. Shared by TestCohortLiveSourceStale and
+// TestCohortLiveDenyStillRaisesGuards.
+func seedStaleGroup(t *testing.T, s *pop18Service, fixture pop18CohortFixture) explorer.ExplicitGroupRevisionID {
+	t.Helper()
 	key := "pop18-group-stale"
 	staleID := explorer.ExplicitGroupRevisionIDFor(pop18Project, key)
 	writer := "pop18-gwriter-stale"
@@ -776,7 +777,105 @@ func TestCohortLiveSourceStale(t *testing.T) {
 		WHERE id = $1`, string(staleID), time.Now().UTC()); err != nil {
 		s.fail("complete stale header through the guarded channel", err)
 	}
-	_, err = s.runErr(t, s.render(t,
+	return staleID
+}
+
+// TestCohortLiveDenyStillRaisesGuards is the reviewer-found PR #119 pin
+// (discussion_r4528074392): the canonical deny must not silence the guards.
+// Under scope_allowed=false the r0 scope chain used to close with a literal
+// AND FALSE; eval_const_expressions folds any AND tree containing a
+// const-FALSE argument to constant FALSE (FALSE dominates under
+// three-valued logic), the planner then prunes the guard InitPlan as
+// unreferenced, and a violating revision returned zero rows with no error --
+// silently diverging from AQL, where the three ASSERT guards are LET/FOR
+// lines evaluated before the deny FILTER (render/aql/group_rows.go:245-261)
+// and the D3 contract promises violations are query errors independent of
+// candidate and root row counts. Two obvious repairs were measured live and
+// both fail: the literal FALSE folds the tree and prunes the InitPlan
+// ("Result One-Time Filter: false", no InitPlan at all), and a stable-false
+// stand-in conjunct (pg_catalog.version() = ”) survives the fold but gets
+// cost-sorted into the One-Time Filter ahead of the lazily-fetched guard
+// InitPlan and short-circuits it. The shipped fix merges deny and guard into
+// one atomic clause "(<guard sublink>) * 0 = 1" (cohortDenyGuardSuffix):
+// always false, never evaluable without evaluating the guard, unsplittable
+// by order_qual_clauses. Each arm is a RED-kills-it control: restoring the
+// literal " AND FALSE" deny (or any separate deny conjunct) turns all three
+// subtests red with a zero-row no-error result (sabotage logs in the PR
+// body).
+func TestCohortLiveDenyStillRaisesGuards(t *testing.T) {
+	s := newPop18Service(t)
+	fixture := seedCohortFixture(t, s)
+	staging := explorer.ExplicitGroupRevision{
+		ID:      explorer.ExplicitGroupRevisionIDFor(pop18Project, "pop18-group-deny-staging"),
+		Project: pop18Project, Generation: pop18Generation, ScopeDigest: fixture.source.ScopeDigest,
+		ResourceType: fixture.source.ResourceType, SourceSelectionRevisionID: fixture.source.ID,
+		SourceMembershipDigest: fixture.source.MembershipDigest,
+		State:                  explorer.ExplicitGroupRevisionStaging,
+		IdempotencyKey:         "pop18-group-deny-staging", CreatedAt: time.Now().UTC(),
+	}
+	if _, err := s.groups.BeginExplicitGroupRevision(s.ctx, staging, fixture.source, "pop18-gwriter-deny-staging"); err != nil {
+		s.fail("begin staging group for deny", err)
+	}
+	staleID := seedStaleGroup(t, s, fixture)
+	arms := []struct {
+		name     string
+		revision string
+		tag      string
+	}{
+		{"revision-invalid", string(staging.ID), "EXPLICIT_GROUP_REVISION_INVALID"},
+		{"source-stale", string(staleID), "EXPLICIT_GROUP_SOURCE_STALE"},
+		// The fixture group leaves R2/R3 unassigned, so the ERROR arm is
+		// the third violating state.
+		{"unassigned-member", string(fixture.group.ID), "EXPLICIT_GROUP_UNASSIGNED_MEMBER"},
+	}
+	for _, arm := range arms {
+		t.Run(arm.name, func(t *testing.T) {
+			_, err := s.runErr(t, s.render(t,
+				liveCohortPlan(arm.revision, []string{pop18PatientAuth}, false, false, "ERROR")))
+			wantGuardTag(t, err, arm.tag)
+		})
+	}
+	// The silence side: a healthy revision under deny still reads nothing,
+	// proving the stable-false conjunct preserves zero-row deny semantics.
+	if rows := s.runRendered(t, s.render(t,
+		liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, false, "EXCLUDE"))); len(rows) != 0 {
+		t.Fatalf("healthy denied cohort must read nothing, got %v", rows)
+	}
+	// Structural pin: the denied statement must not fold into a
+	// constant-FALSE plan that prunes the guard.
+	rendered := s.render(t, liveCohortPlan(string(staging.ID), []string{pop18PatientAuth}, false, false, "ERROR"))
+	args := make([]any, len(rendered.Args))
+	for index, parameter := range rendered.Args {
+		args[index] = parameter.Value
+	}
+	planRows := s.witness(t, "EXPLAIN (FORMAT TEXT) "+rendered.SQL, args...)
+	var text strings.Builder
+	for _, row := range planRows {
+		text.WriteString(strings.Join(row, "\n"))
+		text.WriteString("\n")
+	}
+	planText := text.String()
+	if !strings.Contains(planText, "InitPlan") {
+		t.Fatalf("guard InitPlan was pruned under canonical deny, plan:\n%s", planText)
+	}
+	if strings.Contains(planText, "One-Time Filter: false") {
+		t.Fatalf("denied cohort folded to a constant-FALSE one-time filter, pruning the guard, plan:\n%s", planText)
+	}
+	t.Logf("denied cohort plan:\n%s", planText)
+}
+
+func TestCohortLiveSourceStale(t *testing.T) {
+	s := newPop18Service(t)
+	fixture := seedCohortFixture(t, s)
+	// A completed selection can never be aborted or edited, so staleness is
+	// produced the way the guard exists to police it: a direct-SQL session
+	// driving the guarded channels -- insert a STAGING header whose
+	// scope_digest no longer matches the live selection row, declare its
+	// group, stage one membership, and complete through the writer-token
+	// channel. The revision itself is COMPLETE and in scope, so only the
+	// stale-binding arm can fire.
+	staleID := seedStaleGroup(t, s, fixture)
+	_, err := s.runErr(t, s.render(t,
 		liveCohortPlan(string(staleID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))
 	wantGuardTag(t, err, "EXPLICIT_GROUP_SOURCE_STALE")
 	// The untouched group of the live selection still renders rows (the
