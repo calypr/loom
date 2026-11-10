@@ -1721,20 +1721,39 @@ func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
 	cases := []struct {
 		name string
 		rec  *exec05Recorder
+		// Port-call-count witnesses (verifier-139 advisory): the shared
+		// ErrPostgreSQLResultContract sentinel alone can mask removal of a
+		// guard, because the cross-page advance check eventually rejects
+		// duplicate/non-monotone sabotage pages under the same sentinel
+		// only after the bad page already dispatched its row step. Refusal
+		// must land during key collection, so the port witnesses pin it.
+		// -1 means the case does not pin that dimension.
+		wantKeys int
+		wantRows int
 	}{
-		{"duplicate root key", &exec05Recorder{sabotageKeys: []string{"r1", "r1"}}},
-		{"non-monotone root keys", &exec05Recorder{sabotageKeys: []string{"r2", "r1"}}},
-		{"blank root key", &exec05Recorder{sabotageKeys: []string{"r1", ""}}},
-		{"key page larger than requested", &exec05Recorder{sabotageKeys: []string{"r1", "r2", "r3"}}},
-		{"row outside the requested page", &exec05Recorder{sabotageRows: []map[string]any{{"root_key": "r9", "child_seq": int64(1), "child_id": "x9"}}}},
-		{"row missing its root identity", &exec05Recorder{sabotageRows: []map[string]any{{"child_seq": int64(1), "child_id": "x1"}}}},
-		{"row root identity not a string", &exec05Recorder{sabotageRows: []map[string]any{{"root_key": 7, "child_seq": int64(1), "child_id": "x1"}}}},
+		{"duplicate root key", &exec05Recorder{sabotageKeys: []string{"r1", "r1"}}, 1, 0},
+		{"non-monotone root keys", &exec05Recorder{sabotageKeys: []string{"r2", "r1"}}, 1, 0},
+		{"blank root key", &exec05Recorder{sabotageKeys: []string{"r1", ""}}, -1, -1},
+		{"key page larger than requested", &exec05Recorder{sabotageKeys: []string{"r1", "r2", "r3"}}, -1, -1},
+		{"row outside the requested page", &exec05Recorder{sabotageRows: []map[string]any{{"root_key": "r9", "child_seq": int64(1), "child_id": "x9"}}}, -1, -1},
+		{"row missing its root identity", &exec05Recorder{sabotageRows: []map[string]any{{"child_seq": int64(1), "child_id": "x1"}}}, -1, -1},
+		{"row root identity not a string", &exec05Recorder{sabotageRows: []map[string]any{{"root_key": 7, "child_seq": int64(1), "child_id": "x1"}}}, -1, -1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := newStream(t, tc.rec).streamRaw(context.Background(), func(map[string]any) error { return nil })
 			if !errors.Is(err, ErrPostgreSQLResultContract) {
 				t.Fatalf("error = %v, want ErrPostgreSQLResultContract", err)
+			}
+			if tc.wantKeys >= 0 {
+				if got := countCalls(tc.rec.calls, "keys"); got != tc.wantKeys {
+					t.Fatalf("key calls = %d, want %d: refusal must land during key collection", got, tc.wantKeys)
+				}
+			}
+			if tc.wantRows >= 0 {
+				if got := countCalls(tc.rec.calls, "rows"); got != tc.wantRows {
+					t.Fatalf("row calls = %d, want %d: the refusing page must never dispatch its row step", got, tc.wantRows)
+				}
 			}
 		})
 		t.Run(tc.name+" control proceeds", func(t *testing.T) {
@@ -1785,6 +1804,87 @@ func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
 	t.Run("control: identity key-page override proceeds", func(t *testing.T) {
 		rec := &exec05Recorder{keyPageOverride: func(_ int, served []string) []string { return served }}
 		if err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control: %v", err)
+		}
+		if rec.visitCount != 6 {
+			t.Fatalf("control visited %d rows, want 6", rec.visitCount)
+		}
+	})
+}
+
+// TestPostgreSQLRootPageWithinPageStrictnessOffline ports verifier-139's
+// named victim TestVerify05DWithinPageStrictness (battery sha abe3c64c,
+// restored sha 99908cfe), folded in per the coordinator ruling: removing
+// the within-page strict-ordering guard from the key collector must not
+// survive the battery. The shared ErrPostgreSQLResultContract sentinel
+// alone cannot prove that guard: an unordered page that still advances
+// past the previous page tail passes the cross-page advance check on
+// every key, and without the within-page check its rows are emitted
+// duplicated/out of order while the stream reports success; page-1
+// duplicates and non-monotone pages survive long enough to dispatch
+// their row step before the advance check catches a later page. Both
+// arms therefore pin the port witnesses (key/row call counts) next to
+// the sentinel, so the refusal must land during key collection, and the
+// control proceeds on the same recorder.
+func TestPostgreSQLRootPageWithinPageStrictnessOffline(t *testing.T) {
+	cases := []struct {
+		name     string
+		override func(keyCallIndex int, served []string) []string
+		wantKeys int
+		wantRows int
+	}{
+		{
+			// Unordered first page: no previous tail exists, so the
+			// cross-page advance check cannot fire at all; only the
+			// within-page guard refuses this page, and it must refuse
+			// before any row step is dispatched.
+			name: "unordered first page is refused before any row step",
+			override: func(keyCallIndex int, served []string) []string {
+				if keyCallIndex == 1 {
+					return []string{"r2", "r1"}
+				}
+				return served
+			},
+			wantKeys: 1,
+			wantRows: 0,
+		},
+		{
+			// Unordered-but-advancing second page: every key exceeds
+			// the previous page tail r2, so the advance check passes
+			// each key and only the within-page guard refuses. Without
+			// it the stream completes with nil error after emitting
+			// r4's rows ahead of r3's and re-serving r4 from the next
+			// natural page (duplicate emission), exactly the reported
+			// survivor.
+			name: "unordered but advancing second page is refused before its row step",
+			override: func(keyCallIndex int, served []string) []string {
+				if keyCallIndex == 2 {
+					return []string{"r4", "r3"}
+				}
+				return served
+			},
+			wantKeys: 2,
+			wantRows: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &exec05Recorder{keyPageOverride: tc.override}
+			err := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil })
+			if !errors.Is(err, ErrPostgreSQLResultContract) {
+				t.Fatalf("error = %v, want ErrPostgreSQLResultContract from the within-page strict-ordering guard", err)
+			}
+			if got := countCalls(rec.calls, "keys"); got != tc.wantKeys {
+				t.Fatalf("key calls = %d, want %d", got, tc.wantKeys)
+			}
+			if got := countCalls(rec.calls, "rows"); got != tc.wantRows {
+				t.Fatalf("row calls = %d, want %d: the refusing page must never dispatch its row step and emit duplicated or unordered rows", got, tc.wantRows)
+			}
+		})
+	}
+	t.Run("control proceeds", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(_ int, served []string) []string { return served }}
+		if err := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
 			t.Fatalf("paired control: %v", err)
 		}
 		if rec.visitCount != 6 {
