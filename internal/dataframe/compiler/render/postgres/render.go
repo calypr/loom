@@ -11,6 +11,13 @@
 // column names — is runtime data and is passed to the driver as ordered,
 // typed $n parameters. No plan string is ever interpolated into SQL text.
 //
+// The deterministic SORT/LIMIT execution window is registered in window.go
+// (pg-sql-12) as the closed final slice: over the spine it keeps the merged
+// typed-column contract; after UNNEST it orders and bounds the final
+// expanded rows using the complete typed row identity — root and owner
+// logical identities, storage occurrence witnesses, and the has-item and
+// ordinality witnesses — never the root ID alone.
+//
 // Unsupported plans fail closed with ErrUnsupportedPostgresPlan; there is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion anywhere in this
 // package. The rendered result is a compiler.RenderedPostgresPhysicalPlan,
@@ -170,16 +177,20 @@ type planRenderer struct {
 	joins         []string
 	selects       []string
 	outputColumns []string
-	orderBy       []string
-	limitClause   string
 
-	// Unnest state (unnest.go): lateral clauses in plan order, the rn
-	// tie-break keys they contribute to the total order, and the expansion
-	// counter that mints renderer-owned lateral aliases. All are
-	// renderer-owned; no plan string reaches SQL text through them.
-	laterals    []string
-	unnestOrder []string
-	unnestSeq   int
+	// window is the SORT/LIMIT state and total-order contract; its fields,
+	// entry points, and ORDER BY assembly live in window.go (pg-sql-12).
+	// Nothing outside window.go writes it.
+	window executionWindow
+
+	// Unnest state (unnest.go): lateral clauses in plan order, the
+	// renderer-minted lateral aliases whose rn columns the window's total
+	// order uses (window.go consumes them), and the expansion counter that
+	// mints the aliases. All are renderer-owned; no plan string reaches SQL
+	// text through them.
+	laterals       []string
+	lateralAliases []string
+	unnestSeq      int
 }
 
 // addParameter appends one ordered argument and returns its $n index. A
@@ -252,7 +263,10 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if sawSort || phase > 1 || (phase == 1 && sawLimit) {
 				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderSort(*operation.Sort); err != nil {
+			// The key contract (W1 typed columns vs. the W2 stable row
+			// identity tuple) is enforced in window.go, the single window
+			// contract owner; these arms keep the positional dispatch rules.
+			if err := r.renderWindowSort(plan, *operation.Sort); err != nil {
 				return err
 			}
 			sawSort, phase = true, 1
@@ -260,7 +274,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if sawLimit || phase > 1 {
 				return fmt.Errorf("%w: at most one LIMIT", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderLimit(plan, *operation.Limit); err != nil {
+			if err := r.renderWindowLimit(plan, *operation.Limit); err != nil {
 				return err
 			}
 			sawLimit, phase = true, 1
@@ -386,6 +400,11 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 	r.joins = append(r.joins, join)
 	r.edgeAliases = append(r.edgeAliases, edgeAlias)
 	r.rows[traversal.TargetVariable] = rowScope{alias: targetAlias, resourceType: targetType}
+	// The window's route occurrence witness resolves the plan-named edge
+	// variable through this binding only (window.go).
+	if err := r.window.rememberEdge(traversal.EdgeVariable, edgeAlias); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -658,30 +677,9 @@ func sqlComparison(operator string) string {
 	}
 }
 
-func (r *planRenderer) renderSort(sort ir.PhysicalSort) error {
-	for _, key := range sort.Keys {
-		scope, ok := r.rows[key.Variable]
-		if !ok {
-			return fmt.Errorf("%w: sort variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, key.Variable)
-		}
-		if key.BindKey != "" || len(key.Path) != 1 || !resourceFilterColumns[key.Path[0]] {
-			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
-				ErrUnsupportedPostgresPlan)
-		}
-		r.orderBy = append(r.orderBy, scope.alias+"."+r.storage.Resource.MustColumn(key.Path[0]).SQLText()+" ASC")
-	}
-	return nil
-}
-
-func (r *planRenderer) renderLimit(plan ir.PhysicalPlan, limit ir.PhysicalLimit) error {
-	value, ok := plan.BindVars[limit.BindKey].(int)
-	if !ok || value <= 0 {
-		return fmt.Errorf("%w: limit bind %q must be a positive int", ErrUnsupportedPostgresPlan, limit.BindKey)
-	}
-	index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterBigint, Value: int64(value)}, "")
-	r.limitClause = " LIMIT $" + strconv.Itoa(index)
-	return nil
-}
+// SORT and LIMIT are rendered through window.go's renderWindowSort and
+// renderWindowLimit (pg-sql-12): the single execution-window contract owner
+// for both the spine (W1) and the final window after UNNEST (W2).
 
 // renderReturn assembles the positional projection list. Every projection
 // first passes classifyExtractionProjections (selectors.go) — the single
@@ -753,18 +751,13 @@ func (r *planRenderer) assemble() string {
 	if len(r.where) > 0 {
 		builder.WriteString(" WHERE " + strings.Join(r.where, " AND "))
 	}
-	// Deterministic total order: plan sort keys first, then the storage
-	// identities so repeated rows from parallel edge occurrences order the
-	// same way on every execution, then each unnest expansion's rn so
-	// duplicate items keep their source-array position (the ordering
-	// counterpart of ir.PhysicalUnnestSortKeys' has-item/ordinality
-	// tie-break).
-	order := append(append([]string{}, r.orderBy...), r.rootAlias+"."+r.storage.Resource.MustColumn("resource_seq").SQLText()+" ASC")
-	for _, edgeAlias := range r.edgeAliases {
-		order = append(order, edgeAlias+"."+r.storage.Edge.MustColumn("edge_seq").SQLText()+" ASC")
-	}
-	order = append(order, r.unnestOrder...)
-	builder.WriteString(" ORDER BY " + strings.Join(order, ", "))
-	builder.WriteString(r.limitClause)
+	// Deterministic total order: the window contract in window.go maps the
+	// plan sort keys, then appends the storage identities so repeated rows
+	// from parallel edge occurrences order the same way on every execution,
+	// then each unnest expansion's witnesses so duplicate items keep their
+	// source-array position (the ordering counterpart of
+	// ir.PhysicalUnnestSortKeys' has-item/ordinality tie-break).
+	builder.WriteString(" ORDER BY " + strings.Join(r.windowOrder(), ", "))
+	builder.WriteString(r.window.limitClause)
 	return builder.String()
 }
