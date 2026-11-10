@@ -2144,10 +2144,14 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 		VALUES ($1, 'group-negative', 'Negative ordinal', -1)`, string(revision.ID))
 	requirePgErrConstraintPGState06(t, err, pgstate06CheckViolation,
 		"explorer_explicit_group_definitions_ordinal_non_negative", "negative ordinal refused by the named CHECK")
+	// Orphan definitions are refused by the guard's named absent-parent
+	// branch, which (as a BEFORE trigger) fires before the FK; the FK
+	// stays as the second line of defense (and still drives the RESTRICT
+	// delete ordering).
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.definitionsTable()+` (revision_id, group_id, label, ordinal)
 		VALUES ('grouprev_' || repeat('f', 64), 'group-orphan', 'Orphan', 52)`)
-	requirePgErrConstraintPGState06(t, err, "23503", explicitGroupRevisionFKConstraint,
-		"orphan definition refused by the named FK constraint")
+	requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "refused: parent revision is absent",
+		"orphan definition refused by the named guard branch ahead of the FK")
 	// Legal control: the same shape with honest fields inserts.
 	f.rawInsertDefinition(t, f.witness, string(revision.ID), "group-legal-control", "Legal control", 53)
 	if got := f.countRows(t, f.definitionsTable(), "revision_id = $1 AND group_id = 'group-legal-control'", string(revision.ID)); got != 1 {
@@ -2230,7 +2234,7 @@ func TestPostgresExplicitGroupDefinitionsDefinitionDatabaseGuards(t *testing.T) 
 // staged through the MERGED selection lifecycle (Begin/Append/Digest/
 // Complete on *Store) into the same schema: the membership migration
 // composes onto the Explorer control-plane ledger (versions
-// [1 2 3 5 6 8 9 10]) exactly as a full deployment composes it, so the
+// [1 2 3 5 6 8 9 10 11]) exactly as a full deployment composes it, so the
 // append/completion boundary checks run against real stored
 // selection_revisions and selection_members rows, never mocks. Every
 // expected row is asserted literally through the witness connection;
@@ -2252,6 +2256,14 @@ const (
 	// migration SQL. The test recomputes it from the embedded bytes and
 	// refuses drift in either direction.
 	grpmMigrationChecksum = "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"
+	// The definition-guard hardening migration (CAS escalation round 3):
+	// 000009 is merged history, so 000011 CREATE OR REPLACEs its
+	// definition guard with the locked parent lookup and the INSERT
+	// branch. Pinned byte-exactly below and re-derived from the embedded
+	// bytes at test time.
+	grpmDefinitionsGuardVersion  = int64(11)
+	grpmDefinitionsGuardName     = "explorer_explicit_group_definition_guard_hardening"
+	grpmDefinitionsGuardChecksum = "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"
 	// grpmSelectionsFixture* pins the composed selections migration --
 	// version 8 of the shared ledger, owned by the merged
 	// selection-revision-owner ticket and byte-frozen here the way the
@@ -2464,9 +2476,9 @@ func newGRPMFixture(t *testing.T) *grpmFixture {
 
 // migrateWithSelections applies the composed Explorer control-plane
 // history through the real pg-store-02 runner: this package's embedded
-// owner history (which now includes 000010) plus the byte-frozen
+// owner history (which now includes 000010 and 000011) plus the byte-frozen
 // selections fixture migration, so the one shared ledger carries
-// [1 2 3 5 6 8 9 10] exactly as a fully composed deployment does. The
+// [1 2 3 5 6 8 9 10 11] exactly as a fully composed deployment does. The
 // selections fixture is self-recomputed from the file bytes, never
 // trusted from the loader's self-report.
 func (f *grpmFixture) migrateWithSelections(t *testing.T) pgstore.MigrateResult {
@@ -2979,6 +2991,36 @@ func grpmSeam(release <-chan struct{}) func(context.Context, pgx.Tx) error {
 			return errors.New("grpm seam deadline exceeded: race schedule broken")
 		}
 	}
+}
+
+// grpmHoldCompletion starts a store completion on store and blocks inside
+// its transaction -- after the digest/count verification, before the
+// commit -- until the caller closes release. entered is closed the moment
+// the seam is reached, so the caller launches its colliding statement in
+// the window where the completing transaction holds the header row lock.
+// Used by both parent-lock race suites (memberships and definitions).
+func grpmHoldCompletion(store *ExplicitGroupStore, ctx context.Context,
+	revision explorer.ExplicitGroupRevision, token string,
+	defDigest, memDigest string, groups, members int64) (release chan<- struct{}, complete <-chan error, entered <-chan struct{}) {
+	releaseComplete := make(chan struct{})
+	completeEntered := make(chan struct{})
+	var once sync.Once
+	store.beforeCompleteCommit = func(ctx context.Context, tx pgx.Tx) error {
+		once.Do(func() { close(completeEntered) })
+		select {
+		case <-releaseComplete:
+			return nil
+		case <-time.After(grpmSeamTimeout):
+			return errors.New("grpm completion seam deadline exceeded: race schedule broken")
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := store.CompleteExplicitGroupRevision(ctx, revision.ID, token,
+			defDigest, memDigest, groups, members, time.Now().UTC())
+		done <- err
+	}()
+	return releaseComplete, done, completeEntered
 }
 
 // grpmWatchLockWait samples pg_stat_activity for backend pid and reports
@@ -4361,18 +4403,12 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 	f := newGRPMFixture(t)
 	f.migrateWithSelections(t)
 
-	// Database fact first: the installed guard locks the parent, so a
-	// silently regressed migration fails even before the timing witnesses.
-	var guardSource string
-	if err := f.witness.QueryRow(f.ctx,
-		`SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace`+
-			` WHERE n.nspname = $1 AND p.proname = 'loom_explorer_explicit_group_membership_guard'`,
-		f.schema).Scan(&guardSource); err != nil {
-		f.fail("read membership guard source", err)
-	}
-	if !strings.Contains(guardSource, "FOR KEY SHARE") {
-		t.Fatal("membership guard reads the parent without FOR KEY SHARE -- the TOCTOU window is open")
-	}
+	// No source-text assertion here: the CAS verifier proved a prosrc
+	// substring check on FOR KEY SHARE is comment-fooled (the function's
+	// own prose mentions the lock mode). The behavioral probes below
+	// carry the guarantee -- with the lock stripped, the intruder is
+	// never queued and the timing witness fails on the verifier's exact
+	// symptom (stale-STAGING admission, error = <nil>).
 
 	storeB, pidB := f.newDedicatedStore(t)
 	rawPool, rawPID := f.newDedicatedPool(t)
@@ -4386,29 +4422,6 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 	for round := 0; round < grpmRaceRounds; round++ {
 		roundStr := fmt.Sprintf("toctou-%d", round)
 
-		holdCompleter := func(revision explorer.ExplicitGroupRevision, token string,
-			defDigest, memDigest string, groups, members int64) (release chan<- struct{}, complete <-chan error, entered <-chan struct{}) {
-			releaseComplete := make(chan struct{})
-			completeEntered := make(chan struct{})
-			var once sync.Once
-			storeB.beforeCompleteCommit = func(ctx context.Context, tx pgx.Tx) error {
-				once.Do(func() { close(completeEntered) })
-				select {
-				case <-releaseComplete:
-					return nil
-				case <-time.After(grpmSeamTimeout):
-					return errors.New("toctou seam deadline exceeded: race schedule broken")
-				}
-			}
-			done := make(chan error, 1)
-			go func() {
-				_, err := storeB.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
-					defDigest, memDigest, groups, members, time.Now().UTC())
-				done <- err
-			}()
-			return releaseComplete, done, completeEntered
-		}
-
 		// --- F1: direct-SQL INSERT versus an in-flight completion ---
 		revision, token, _ := f.stagedGroupFixture(t, roundStr+"-i", "r-a", "r-b")
 		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
@@ -4419,7 +4432,7 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 		if err != nil {
 			f.fail("toctou insert digest", err)
 		}
-		release, completeDone, entered := holdCompleter(revision, token, honestDef, honestMem, groups, members)
+		release, completeDone, entered := grpmHoldCompletion(storeB, f.ctx, revision, token, honestDef, honestMem, groups, members)
 		<-entered
 
 		watchA, stopA := f.grpmWatchLockWait(rawPID)
@@ -4484,7 +4497,7 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 		if err != nil {
 			f.fail("toctou delete digest", err)
 		}
-		release2, completeDone2, entered2 := holdCompleter(revision2, token2, dDef, dMem, dGroups, dMembers)
+		release2, completeDone2, entered2 := grpmHoldCompletion(storeB, f.ctx, revision2, token2, dDef, dMem, dGroups, dMembers)
 		<-entered2
 
 		if _, err := rawPool.Exec(f.ctx,
@@ -4563,6 +4576,302 @@ func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *
 	}
 }
 
+// grpmDefinitionCount independently recounts the stored definition rows
+// for a revision on the witness backend -- raw SQL, no store path -- the
+// third backend the E1-shape race needs for its served-state check.
+func (f *grpmFixture) grpmDefinitionCount(t *testing.T, revisionID string) int64 {
+	t.Helper()
+	var n int64
+	if err := f.witness.QueryRow(f.ctx, `SELECT count(*) FROM `+f.definitionsTable()+
+		` WHERE revision_id = $1`, revisionID).Scan(&n); err != nil {
+		f.fail("independent definition count", err)
+	}
+	return n
+}
+
+// TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete is
+// the named author test for the two 000009 holes 000011 closes: the
+// definition trigger never fired on INSERT, and the DELETE authorization
+// could be granted for a COMPLETE parent raced through completion. Both
+// statements are refused BY NAME on a completed revision, the refusal is
+// proven non-vacuous by dropping the guard (the statements land -- this
+// is the verifier's served-state witness, reproduced deliberately), and
+// the migration's own rerun restores the named refusals. It also
+// re-derives the 000011 embedded bytes against the byte-frozen checksum.
+func TestPostgresExplicitGroupDefinitionsGuardRefusesWritesUnderComplete(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	// Byte pin: the embedded 000011 must hash to the registered checksum.
+	owner, err := OwnerMigrations()
+	if err != nil {
+		f.fail("load owner migrations", err)
+	}
+	var pinned bool
+	for _, m := range owner {
+		if m.Version == grpmDefinitionsGuardVersion {
+			pinned = true
+			if m.Name != grpmDefinitionsGuardName {
+				t.Fatalf("migration 11 name = %q, want %q", m.Name, grpmDefinitionsGuardName)
+			}
+			if got := fmt.Sprintf("%x", sha256.Sum256([]byte(m.SQL))); got != grpmDefinitionsGuardChecksum {
+				t.Fatalf("000011 embedded bytes drifted: sha256 %s, want %s", got, grpmDefinitionsGuardChecksum)
+			}
+		}
+	}
+	if !pinned {
+		t.Fatalf("migration %d (%s) missing from OwnerMigrations", grpmDefinitionsGuardVersion, grpmDefinitionsGuardName)
+	}
+
+	revision, token, _ := f.stagedGroupFixture(t, "defguard", "r-a", "r-b")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+		f.fail("definition-guard seed append", err)
+	}
+	defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+	if err != nil {
+		f.fail("definition-guard digest", err)
+	}
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+		defDigest, memDigest, groups, members, time.Now().UTC()); err != nil {
+		f.fail("definition-guard completion", err)
+	}
+
+	rawDefInsert := func(group string, ordinal int64) error {
+		_, err := f.witness.Exec(f.ctx, `INSERT INTO `+f.definitionsTable()+
+			` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
+			string(revision.ID), group, "Guard probe", ordinal)
+		return err
+	}
+	rawDefDelete := func(group string) error {
+		_, err := f.witness.Exec(f.ctx, `DELETE FROM `+f.definitionsTable()+
+			` WHERE revision_id = $1 AND group_id = $2`, string(revision.ID), group)
+		return err
+	}
+	if _, err := f.witness.Exec(f.ctx,
+		`SELECT set_config('loom.explorer_explicit_group_abort_token', $1, false)`, token); err != nil {
+		f.fail("definition-guard set abort GUC", err)
+	}
+	t.Cleanup(func() {
+		_, _ = f.witness.Exec(f.ctx, `SELECT set_config('loom.explorer_explicit_group_abort_token', '', false)`)
+	})
+
+	// Static refusals on the COMPLETE header -- both statements the
+	// 000009 guard never saw (INSERT fired no trigger; the DELETE branch
+	// existed but could race stale, witnessed separately by the race
+	// suite).
+	requirePgErrTriggerGRPM(t, rawDefInsert("group-c", 2), grpmCheckViolation,
+		"only STAGING revisions accept definitions", "definition INSERT under COMPLETE")
+	requirePgErrTriggerGRPM(t, rawDefDelete(string(grpmGroupB)), grpmCheckViolation,
+		"DELETE of definition", "definition DELETE under COMPLETE")
+	if n := f.grpmDefinitionCount(t, string(revision.ID)); n != 2 {
+		t.Fatalf("refused probes changed the stored definition count: %d", n)
+	}
+
+	// Non-vacuity (the E1 world): with the definition guard dropped, the
+	// INSERT lands and the abort DELETE lands -- exactly the drift the
+	// verifier served (frozen group_count 2 over a mutated row set).
+	f.dropTriggerGRPM(t, f.definitionsTable(), "explorer_explicit_group_definitions_guard")
+	f.execOnGRPM(t, f.witness, "guard-dropped definition insert",
+		`INSERT INTO `+f.definitionsTable()+` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
+		string(revision.ID), "group-c", "Guard probe", int64(2))
+	f.execOnGRPM(t, f.witness, "guard-dropped definition delete",
+		`DELETE FROM `+f.definitionsTable()+` WHERE revision_id = $1 AND group_id = $2`,
+		string(revision.ID), string(grpmGroupB))
+	if n := f.grpmDefinitionCount(t, string(revision.ID)); n != 2 { // a, c (b removed)
+		t.Fatalf("guard-dropped probes did not land as expected: %d rows", n)
+	}
+	var frozenCount int64
+	if err := f.witness.QueryRow(f.ctx, `SELECT group_count FROM `+f.revisionTable()+
+		` WHERE id = $1`, string(revision.ID)).Scan(&frozenCount); err != nil {
+		f.fail("read frozen group_count", err)
+	}
+	if frozenCount != 2 {
+		t.Fatalf("frozen group_count drifted under guard drop: %d", frozenCount)
+	}
+
+	// The migration's own text restores the guard; both statements are
+	// again refused by name (fresh group ids so no PK collision with the
+	// rows that landed while it was down).
+	f.rerunMigrationGRPM(t, grpmDefinitionsGuardVersion)
+	requirePgErrTriggerGRPM(t, rawDefInsert("group-d", 3), grpmCheckViolation,
+		"only STAGING revisions accept definitions", "definition INSERT after 000011 rerun")
+	requirePgErrTriggerGRPM(t, rawDefDelete(string(grpmGroupA)), grpmCheckViolation,
+		"DELETE of definition", "definition DELETE after 000011 rerun")
+}
+
+// TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace
+// is the E1-shape named race: three real backends (completer, raw
+// intruder, independent witness) replay the direct-SQL interleavings the
+// CAS verifier admitted 3/3 against the unlocked 000009 lookup -- the
+// abort-channel definition DELETE and a definition INSERT -- while a
+// store completion holds the header. With 000011 the intruder queues
+// behind the FOR KEY SHARE lookup, re-reads the committed parent, and is
+// refused; the frozen header group_count must always equal the stored
+// definition count recomputed independently on the witness backend --
+// the exact drift E1 served (frozen 2 over stored 1).
+func TestPostgresExplicitGroupDefinitionsGuardLocksParentUnderCompletionRace(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	storeB, pidB := f.newDedicatedStore(t)
+	rawPool, rawPID := f.newDedicatedPool(t)
+	requireDistinctBackendsGRPM(t, map[string]int32{"completer": pidB, "raw": rawPID, "witness": f.witnessID})
+
+	defCount := func(revisionID string) int64 {
+		var n int64
+		if err := f.witness.QueryRow(f.ctx, `SELECT count(*) FROM `+f.definitionsTable()+
+			` WHERE revision_id = $1`, revisionID).Scan(&n); err != nil {
+			f.fail("independent definition count", err)
+		}
+		return n
+	}
+	frozenGroupCount := func(revisionID string) int64 {
+		var n int64
+		if err := f.witness.QueryRow(f.ctx, `SELECT group_count FROM `+f.revisionTable()+
+			` WHERE id = $1`, revisionID).Scan(&n); err != nil {
+			f.fail("independent group_count read", err)
+		}
+		return n
+	}
+
+	var insertBlocked, deleteBlocked, insertRefused, deleteRefused atomic.Int64
+	for round := 0; round < grpmRaceRounds; round++ {
+		roundStr := fmt.Sprintf("toctou-def-%d", round)
+
+		// --- definition INSERT versus an in-flight completion ---
+		revision, token, _ := f.stagedGroupFixture(t, roundStr+"-i", "r-a")
+		defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+		if err != nil {
+			f.fail("def race insert digest", err)
+		}
+		release, completeDone, entered := grpmHoldCompletion(storeB, f.ctx, revision, token, defDigest, memDigest, groups, members)
+		<-entered
+
+		watchA, stopA := f.grpmWatchLockWait(rawPID)
+		insertErr := make(chan error, 1)
+		go func() {
+			_, err := rawPool.Exec(f.ctx, `INSERT INTO `+f.definitionsTable()+
+				` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
+				string(revision.ID), "group-c", "Race intruder", int64(2))
+			insertErr <- err
+		}()
+		blocked := false
+		deadline := time.Now().Add(grpmSeamTimeout)
+		for !blocked && time.Now().Before(deadline) {
+			if watchA() {
+				blocked = true
+				insertBlocked.Add(1)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		close(release)
+		if err := <-completeDone; err != nil {
+			f.fail("def race insert completion", err)
+		}
+		err = <-insertErr
+		stopA()
+		if !blocked || !watchA() {
+			t.Fatalf("round %d: definition INSERT never queued behind the completing header lock -- the race never actually raced", round)
+		}
+		requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "only STAGING revisions accept definitions",
+			"definition INSERT authorized against a stale STAGING parent")
+		revisionID := string(revision.ID)
+		if n := defCount(revisionID); n != 2 {
+			t.Fatalf("round %d: refused definition INSERT changed the stored count: %d", round, n)
+		}
+		if frozen, stored := frozenGroupCount(revisionID), defCount(revisionID); frozen != stored || frozen != 2 {
+			t.Fatalf("round %d: served-state drift -- frozen group_count %d vs stored definitions %d", round, frozen, stored)
+		}
+		insertRefused.Add(1)
+
+		// Control: the identical INSERT lands with nothing completing.
+		control, _, _ := f.stagedGroupFixture(t, roundStr+"-ic", "r-a")
+		f.execOnGRPM(t, rawPool, "def race control insert", `INSERT INTO `+f.definitionsTable()+
+			` (revision_id, group_id, label, ordinal) VALUES ($1, $2, $3, $4)`,
+			string(control.ID), "group-c", "Race control", int64(2))
+		if n := defCount(string(control.ID)); n != 3 {
+			t.Fatalf("round %d: no-race control INSERT did not land: %d rows", round, n)
+		}
+
+		// --- abort-channel definition DELETE versus an in-flight completion ---
+		revision2, token2, _ := f.stagedGroupFixture(t, roundStr+"-d", "r-a")
+		dDef, dMem, dGroups, dMembers, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision2.ID)
+		if err != nil {
+			f.fail("def race delete digest", err)
+		}
+		release2, completeDone2, entered2 := grpmHoldCompletion(storeB, f.ctx, revision2, token2, dDef, dMem, dGroups, dMembers)
+		<-entered2
+
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', $1, false)`, token2); err != nil {
+			f.fail("def race set abort GUC", err)
+		}
+		watchD, stopD := f.grpmWatchLockWait(rawPID)
+		deleteErr := make(chan error, 1)
+		go func() {
+			_, err := rawPool.Exec(f.ctx, `DELETE FROM `+f.definitionsTable()+
+				` WHERE revision_id = $1 AND group_id = $2`, string(revision2.ID), string(grpmGroupB))
+			deleteErr <- err
+		}()
+		blocked = false
+		deadline = time.Now().Add(grpmSeamTimeout)
+		for !blocked && time.Now().Before(deadline) {
+			if watchD() {
+				blocked = true
+				deleteBlocked.Add(1)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		close(release2)
+		if err := <-completeDone2; err != nil {
+			f.fail("def race delete completion", err)
+		}
+		err = <-deleteErr
+		stopD()
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', '', false)`); err != nil {
+			f.fail("def race reset abort GUC", err)
+		}
+		if !blocked || !watchD() {
+			t.Fatalf("round %d: abort-channel definition DELETE never queued behind the completing header lock -- the race never actually raced", round)
+		}
+		requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "DELETE of definition",
+			"definition DELETE authorized against a stale STAGING parent")
+		revisionID2 := string(revision2.ID)
+		if frozen, stored := frozenGroupCount(revisionID2), defCount(revisionID2); frozen != stored || frozen != 2 {
+			t.Fatalf("round %d: E1 drift -- frozen group_count %d vs stored definitions %d", round, frozen, stored)
+		}
+		deleteRefused.Add(1)
+
+		// Control: the same abort DELETE lands with nothing completing.
+		control2, controlToken2, _ := f.stagedGroupFixture(t, roundStr+"-dc", "r-a")
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', $1, false)`, controlToken2); err != nil {
+			f.fail("def race control set abort GUC", err)
+		}
+		f.execOnGRPM(t, rawPool, "def race control delete", `DELETE FROM `+f.definitionsTable()+
+			` WHERE revision_id = $1 AND group_id = $2`, string(control2.ID), string(grpmGroupB))
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', '', false)`); err != nil {
+			f.fail("def race control reset abort GUC", err)
+		}
+		if n := defCount(string(control2.ID)); n != 1 {
+			t.Fatalf("round %d: no-race control abort DELETE did not land: %d rows", round, n)
+		}
+
+		storeB.beforeCompleteCommit = nil
+	}
+	if insertBlocked.Load() == 0 || deleteBlocked.Load() == 0 {
+		t.Fatalf("no round queued the intruding definition statement behind the completing header lock (insert %d, delete %d) -- the guard is not locking the parent",
+			insertBlocked.Load(), deleteBlocked.Load())
+	}
+	if insertRefused.Load() == 0 || deleteRefused.Load() == 0 {
+		t.Fatalf("no round refused the stale-parent definition intruder (insert %d, delete %d)",
+			insertRefused.Load(), deleteRefused.Load())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // the membership migration composes onto the shared ledger and converges
 // ---------------------------------------------------------------------------
@@ -4575,7 +4884,7 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 	for _, rec := range result.Applied {
 		versions = append(versions, rec.Version)
 	}
-	wantVersions := []int64{1, 2, 3, 5, 6, 8, 9, 10}
+	wantVersions := []int64{1, 2, 3, 5, 6, 8, 9, 10, 11}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
 	}

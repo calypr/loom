@@ -479,6 +479,7 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
 		{9, "explorer_explicit_groups", "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"},
 		{10, "explorer_explicit_group_memberships", "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"},
+		{11, "explorer_explicit_group_definition_guard_hardening", "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"},
 	}
 	// The literal checksum registry above is the deliberate per-file pin
 	// (pg-store-02 convention): it must name every embedded migration file,
@@ -496,8 +497,15 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 			t.Fatalf("migration %d/%s checksum = %s, want pinned %s: migration SQL drifted",
 				m.Version, m.Name, m.Checksum, want[i].checksum)
 		}
-		if !strings.Contains(strings.ToUpper(m.SQL), "CREATE TABLE IF NOT EXISTS") {
-			t.Fatalf("migration %d/%s must be rerun-safe (CREATE TABLE IF NOT EXISTS); it never truncates", m.Version, m.Name)
+		// Rerun safety admits two shapes: table-creating migrations
+		// (CREATE TABLE IF NOT EXISTS) and guard-hardening migrations
+		// that only CREATE OR REPLACE a function and recreate its
+		// trigger (000011), which converge identically on a rerun and
+		// never destroy durable state.
+		upperSQL := strings.ToUpper(m.SQL)
+		if !strings.Contains(upperSQL, "CREATE TABLE IF NOT EXISTS") &&
+			!strings.Contains(upperSQL, "CREATE OR REPLACE FUNCTION") {
+			t.Fatalf("migration %d/%s must be rerun-safe (CREATE TABLE IF NOT EXISTS, or CREATE OR REPLACE FUNCTION for guard hardening); it never truncates", m.Version, m.Name)
 		}
 	}
 	sqlFor := func(name string) string {
