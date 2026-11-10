@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"reflect"
 	"testing"
@@ -94,7 +95,12 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	var candidatePreviewColumns []string
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			queryCalls++
 			if _, grouped := bindVars["group_rows_revision_id"]; grouped {
 				return visit(map[string]any{

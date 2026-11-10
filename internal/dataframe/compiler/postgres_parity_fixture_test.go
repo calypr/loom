@@ -60,7 +60,7 @@ func TestPostgresParityFixture(t *testing.T) {
 		if err != nil {
 			t.Fatalf("AQL render of the retained plan: %v", err)
 		}
-		if rendered.Query != compiled.Query {
+		if rendered.Query != testAQLText(t, compiled.Command) {
 			t.Fatalf("AQL renderer output drifted from the compiled query")
 		}
 		if !strings.Contains(rendered.Query, "@") {
@@ -99,7 +99,7 @@ func TestPostgresParityFixture(t *testing.T) {
 			if strings.Contains(pgRendered.SQL, "@") {
 				t.Fatalf("PostgreSQL SQL carries AQL bind syntax: %s", pgRendered.SQL)
 			}
-			if pgRendered.SQL == compiled.Query {
+			if pgRendered.SQL == testAQLText(t, compiled.Command) {
 				t.Fatalf("PostgreSQL renderer returned the AQL query text")
 			}
 			return
@@ -109,7 +109,7 @@ func TestPostgresParityFixture(t *testing.T) {
 		if !errors.Is(pgErr, postgresrender.ErrUnsupportedPostgresPlan) {
 			t.Fatalf("PostgreSQL render error = %v, want ErrUnsupportedPostgresPlan", pgErr)
 		}
-		if strings.Contains(pgErr.Error(), compiled.Query) {
+		if strings.Contains(pgErr.Error(), testAQLText(t, compiled.Command)) {
 			t.Fatalf("PostgreSQL failure path leaked AQL text as a result")
 		}
 	})

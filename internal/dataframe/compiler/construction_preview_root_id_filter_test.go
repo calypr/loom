@@ -25,37 +25,37 @@ func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertConstructionRootIDFilter(t, query.Query, "Specimen", id)
-	if got := query.BindVars["construction_filter_value"]; got != id {
+	assertConstructionRootIDFilter(t, testAQLText(t, query.Command), "Specimen", id)
+	if got := testAQLBinds(t, query.Command)["construction_filter_value"]; got != id {
 		t.Fatalf("filter bind = %#v, want %q", got, id)
 	}
-	if query.BindVars["auth_resource_paths_unrestricted"] != false || query.BindVars["scope_allowed"] != true {
-		t.Fatalf("root ID fast path did not preserve the restricted auth-scope binds: %#v", query.BindVars)
+	if testAQLBinds(t, query.Command)["auth_resource_paths_unrestricted"] != false || testAQLBinds(t, query.Command)["scope_allowed"] != true {
+		t.Fatalf("root ID fast path did not preserve the restricted auth-scope binds: %#v", testAQLBinds(t, query.Command))
 	}
-	if paths, ok := query.BindVars["auth_resource_paths"].([]string); !ok || len(paths) != 1 || paths[0] != "Specimen/"+id {
-		t.Fatalf("root ID fast path changed auth paths: %#v", query.BindVars["auth_resource_paths"])
+	if paths, ok := testAQLBinds(t, query.Command)["auth_resource_paths"].([]string); !ok || len(paths) != 1 || paths[0] != "Specimen/"+id {
+		t.Fatalf("root ID fast path changed auth paths: %#v", testAQLBinds(t, query.Command)["auth_resource_paths"])
 	}
 
 	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertConstructionRootIDFilter(t, page.RootKeysQuery, "Specimen", id)
-	if !strings.Contains(page.RootKeysQuery, "payload.id") {
-		t.Fatalf("root-key query lost the exact payload ID recheck:\n%s", page.RootKeysQuery)
+	assertConstructionRootIDFilter(t, testAQLText(t, page.RootKeys), "Specimen", id)
+	if !strings.Contains(testAQLText(t, page.RootKeys), "payload.id") {
+		t.Fatalf("root-key query lost the exact payload ID recheck:\n%s", testAQLText(t, page.RootKeys))
 	}
-	if !strings.Contains(page.RowsQuery, "root.id") || !strings.Contains(page.RowsQuery, "@construction_filter_value") {
-		t.Fatalf("selected-root query lost the root seek or construction predicate:\n%s", page.RowsQuery)
+	if !strings.Contains(testAQLText(t, page.Rows), "root.id") || !strings.Contains(testAQLText(t, page.Rows), "@construction_filter_value") {
+		t.Fatalf("selected-root query lost the root seek or construction predicate:\n%s", testAQLText(t, page.Rows))
 	}
-	if !strings.Contains(page.RowsQuery, "FILTER __loom_construction_input_1.specimen_id == @construction_filter_value") {
-		t.Fatalf("selected-root query lost the original source-column filter:\n%s", page.RowsQuery)
+	if !strings.Contains(testAQLText(t, page.Rows), "FILTER __loom_construction_input_1.specimen_id == @construction_filter_value") {
+		t.Fatalf("selected-root query lost the original source-column filter:\n%s", testAQLText(t, page.Rows))
 	}
 
 	fullQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertConstructionRootIDFilterNotInjected(t, fullQuery.Query)
+	assertConstructionRootIDFilterNotInjected(t, testAQLText(t, fullQuery.Command))
 
 	fullBindings := bindings
 	fullBindings.PreviewLimit = 0
@@ -63,7 +63,7 @@ func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertConstructionRootIDFilterNotInjected(t, fullPage.RootKeysQuery)
+	assertConstructionRootIDFilterNotInjected(t, testAQLText(t, fullPage.RootKeys))
 }
 
 func TestConstructionPreviewRootIDFilterRequiresExactPayloadIDProjection(t *testing.T) {
@@ -75,11 +75,11 @@ func TestConstructionPreviewRootIDFilterRequiresExactPayloadIDProjection(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(query.Query, "FILTER root.id == @construction_filter_value") {
-		t.Fatalf("non-ID source filter was pushed onto root.id:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "FILTER root.id == @construction_filter_value") {
+		t.Fatalf("non-ID source filter was pushed onto root.id:\n%s", testAQLText(t, query.Command))
 	}
-	if !strings.Contains(query.Query, "@construction_filter_value") {
-		t.Fatalf("original non-ID construction filter was lost:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "@construction_filter_value") {
+		t.Fatalf("original non-ID construction filter was lost:\n%s", testAQLText(t, query.Command))
 	}
 }
 

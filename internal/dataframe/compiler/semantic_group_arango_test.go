@@ -143,22 +143,24 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 		t.Fatalf("compile semantic Group row-lineage page: %v", err)
 	}
 	identityProbe := lineageQuery
-	identityProbe.BindVars = make(map[string]any, len(lineageQuery.BindVars))
-	for key, value := range lineageQuery.BindVars {
-		identityProbe.BindVars[key] = value
+	probeText := testAQLText(t, lineageQuery.Command)
+	probeBinds := make(map[string]any, len(testAQLBinds(t, lineageQuery.Command)))
+	for key, value := range testAQLBinds(t, lineageQuery.Command) {
+		probeBinds[key] = value
 	}
-	identityProbe.Query = strings.Replace(identityProbe.Query,
+	probeText = strings.Replace(probeText,
 		"FILTER __loom_physical_construction_row_lineage_semantic_identity == @row_lineage_row_id",
 		"FILTER __loom_physical_construction_row_lineage_semantic_collected_key_0 == @diagnostic_scalar_key AND __loom_physical_construction_row_lineage_semantic_tuple == @diagnostic_semantic_tuple", 1)
-	identityProbe.Query = strings.Replace(identityProbe.Query,
+	probeText = strings.Replace(probeText,
 		"RETURN {key0: __loom_physical_construction_row_lineage_semantic_collected_key_0, semanticTuple: __loom_physical_construction_row_lineage_semantic_tuple}",
 		"RETURN {identity: __loom_physical_construction_row_lineage_semantic_identity, key0: __loom_physical_construction_row_lineage_semantic_collected_key_0, semanticTuple: __loom_physical_construction_row_lineage_semantic_tuple}", 1)
-	identityProbe.Query = strings.Replace(identityProbe.Query,
+	probeText = strings.Replace(probeText,
 		"RETURN {found: __loom_physical_construction_row_lineage_semantic_selected_group != null, contributors:",
 		"RETURN {selectedGroup: __loom_physical_construction_row_lineage_semantic_selected_group, found: __loom_physical_construction_row_lineage_semantic_selected_group != null, contributors:", 1)
-	identityProbe.BindVars["diagnostic_scalar_key"] = "active"
-	identityProbe.BindVars["diagnostic_semantic_tuple"] = []any{targetSystem, targetVersion, "shared-code"}
-	delete(identityProbe.BindVars, rowLineageRowIDBind)
+	probeBinds["diagnostic_scalar_key"] = "active"
+	probeBinds["diagnostic_semantic_tuple"] = []any{targetSystem, targetVersion, "shared-code"}
+	delete(probeBinds, rowLineageRowIDBind)
+	identityProbe.Command = testAQLCommand(probeText, probeBinds)
 	identityResult := executeRowLineageOracleQuery(t, ctx, client, identityProbe)
 	selectedGroup, _ := identityResult["selectedGroup"].(map[string]any)
 	lineageIdentity, _ := selectedGroup["identity"].(string)
@@ -169,7 +171,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	contributors, _ := lineage["contributors"].([]any)
 	if lineage["found"] != true || lineage["hasMore"] != false || len(contributors) != 2 {
 		t.Fatalf("semantic Group row lineage = %#v, want the two exact matching source rows; grouped row=%#v executed identity=%#v; AQL:\n%s",
-			lineage, sharedCodeRow, identityResult, lineageQuery.Query)
+			lineage, sharedCodeRow, identityResult, testAQLText(t, lineageQuery.Command))
 	}
 	wantContributorIDs := map[string]bool{"same-source-row": false, "same-code-active-second-row": false}
 	for _, value := range contributors {
@@ -191,12 +193,17 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 
 	bagQuery := compile(recipe.ConstructionGroupMissingKeyGroup)
 	const rootScan = "FOR root IN @@root_collection"
-	if strings.Count(bagQuery.Query, rootScan) != 1 {
-		t.Fatalf("semantic Group query has %d replaceable direct-root scans, want one:\n%s", strings.Count(bagQuery.Query, rootScan), bagQuery.Query)
+	if strings.Count(testAQLText(t, bagQuery.Command), rootScan) != 1 {
+		t.Fatalf("semantic Group query has %d replaceable direct-root scans, want one:\n%s", strings.Count(testAQLText(t, bagQuery.Command), rootScan), testAQLText(t, bagQuery.Command))
 	}
-	bagQuery.Query = strings.Replace(bagQuery.Query, rootScan,
+	bagText := strings.Replace(testAQLText(t, bagQuery.Command), rootScan,
 		"FOR root IN [DOCUMENT(@@root_collection, @duplicate_root_key), DOCUMENT(@@root_collection, @duplicate_root_key)]", 1)
-	bagQuery.BindVars["duplicate_root_key"] = project + "_same-source-row"
+	bagBinds := make(map[string]any, len(testAQLBinds(t, bagQuery.Command))+1)
+	for key, value := range testAQLBinds(t, bagQuery.Command) {
+		bagBinds[key] = value
+	}
+	bagBinds["duplicate_root_key"] = project + "_same-source-row"
+	bagQuery.Command = testAQLCommand(bagText, bagBinds)
 	bagRows := executeReshapeOracleQuery(t, ctx, client, bagQuery)
 	bagCounts := make(map[string][]float64, len(bagRows))
 	for _, row := range bagRows {
@@ -254,7 +261,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	}
 
 	errorQuery := compile(recipe.ConstructionGroupMissingKeyError)
-	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil {
+	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil {
 		t.Fatal("ERROR semantic Group accepted missing and out-of-family category rows")
 	}
 }

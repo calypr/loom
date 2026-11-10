@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"os"
 	"strconv"
@@ -160,7 +161,12 @@ func TestDerivedArithmeticPoliciesAgainstArango(t *testing.T) {
 	if err = graph.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
-	engine, err := execution.New(execution.Config{Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
+	engine, err := execution.New(execution.Config{Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit execution.RowVisitor) error {
+		query, binds, deriveErr := command.AQLParameters()
+		if deriveErr != nil {
+			return deriveErr
+		}
+
 		return graph.QueryRows(ctx, query, batch, binds, storearango.RowVisitor(visit))
 	}})
 	if err != nil {

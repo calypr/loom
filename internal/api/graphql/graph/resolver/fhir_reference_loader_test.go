@@ -2,6 +2,7 @@ package resolver
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"strings"
 	"sync"
 	"testing"
@@ -339,7 +340,12 @@ type fhirReferenceTestProbe struct {
 
 // queryRows emulates the compiled id-IN reference query against one pinned
 // dataset generation, including the authorization filter and row limit.
-func (p *fhirReferenceTestProbe) queryRows(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+func (p *fhirReferenceTestProbe) queryRows(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	_, bindVars, deriveErr := command.AQLParameters()
+	if deriveErr != nil {
+		return deriveErr
+	}
+
 	generation, _ := bindVars["dataset_generation"].(string)
 	ids := fhirReferenceTestBindStrings(bindVars["root_filter_1_value"])
 	unrestricted, _ := bindVars["auth_resource_paths_unrestricted"].(bool)

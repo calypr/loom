@@ -254,7 +254,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile stale standalone cohort row lineage: %v", err)
 	}
-	queryErr := client.QueryRows(ctx, staleQuery.Query, 32, staleQuery.BindVars, func(map[string]any) error { return nil })
+	queryErr := client.QueryRows(ctx, testAQLText(t, staleQuery.Command), 32, testAQLBinds(t, staleQuery.Command), func(map[string]any) error { return nil })
 	if queryErr == nil || !strings.Contains(queryErr.Error(), "EXPLICIT_GROUP_SOURCE_STALE") {
 		t.Fatalf("source membership digest mismatch error = %v, want EXPLICIT_GROUP_SOURCE_STALE", queryErr)
 	}

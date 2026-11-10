@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -58,7 +59,12 @@ func valControl(t *testing.T, revisions *valRevisions) (*Engine, *valNamedAbsent
 	engine, err := New(Config{
 		Registry:  registry,
 		Revisions: revisions,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		},
 	})

@@ -32,13 +32,20 @@ import (
 	"github.com/google/uuid"
 )
 
-type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+// RowVisitor consumes one decoded result row streamed through any source
+// row-stream boundary (AQL or PostgreSQL). One visitor contract serves both
+// backends; the visitor, not the adapter, owns limit, cancellation, and
+// materialization policy.
+type RowVisitor func(map[string]any) error
 
-// PostgreSQLRowVisitor consumes one decoded result row streamed through the
-// PostgreSQL command boundary. It mirrors the row-visitor contract already
-// applied to AQL and ClickHouse rows; the visitor, not the adapter, owns
-// limit, cancellation, and materialization policy.
-type PostgreSQLRowVisitor func(map[string]any) error
+// QueryRows is the AQL row-stream contract: one parent-tagged
+// compiler.CompiledCommand, the batch size, and a row visitor. Execution
+// dispatches on the command's tag and hands this adapter only AQL-tagged
+// commands; the adapter extracts (query, bindVars) through
+// CompiledCommand.AQLParameters(), which rejects a PostgreSQL-tagged,
+// untagged, or unknown-tag command before any driver call. Loose query text
+// and bind maps are not part of this contract.
+type QueryRows func(context.Context, compiler.CompiledCommand, int, RowVisitor) error
 
 // PostgreSQLQueryRows is the execution row-stream contract for PostgreSQL
 // source plans: one parent-tagged compiler.CompiledCommand, the fixed
@@ -48,7 +55,7 @@ type PostgreSQLRowVisitor func(map[string]any) error
 // PostgreSQL adapter (internal/dataframe/postgres.(*Executor).QueryRows
 // satisfies this contract). A command whose tag does not name PostgreSQL is
 // rejected by the adapter before any statement runs.
-type PostgreSQLQueryRows func(context.Context, compiler.CompiledCommand, []string, PostgreSQLRowVisitor) error
+type PostgreSQLQueryRows func(context.Context, compiler.CompiledCommand, []string, RowVisitor) error
 
 // ResolvedPostgreSQLCommand is the execution-side view of one compiler-owned
 // PostgreSQL command for a single compiled output: the parent-tagged command
@@ -66,7 +73,11 @@ type ResolvedPostgreSQLCommand struct {
 // and this seam never converts AQL to SQL. A nil result selects the existing
 // AQL path; a non-nil result must carry a PostgreSQL-tagged command, and
 // execution rejects AQL-tagged, unregistered, or zero-tag commands from this
-// seam before any adapter callback runs.
+// seam before any adapter callback runs. Panic recovery for this seam is the
+// composition owner's responsibility: the composition that installs a
+// resolver must recover a panicking renderer and return an error instead of
+// letting the panic unwind, because execution performs no recover and a
+// resolver panic would crash the request process.
 type ResolvePostgreSQLCommands func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error)
 
 // ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
@@ -220,12 +231,10 @@ type OutputStream struct {
 	sourceIdentityMode       string
 	RowIdentity              *spec.RowIdentity
 	DynamicChecks            map[string]map[string]DynamicColumnCheck
-	query                    string
-	bindVars                 map[string]any
+	command                  compiler.CompiledCommand
+	commandColumns           []string
 	stream                   QueryRows
 	postgreSQLQueryRows      PostgreSQLQueryRows
-	postgreSQLCommand        compiler.CompiledCommand
-	postgreSQLColumns        []string
 	batchSize                int
 	rootPageRows             int
 	initialRootPageRows      int
@@ -692,7 +701,7 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 	}
 	stream := OutputStream{
 		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
-		DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
+		DynamicChecks: dynamicChecks(output.DynamicColumns), command: query.Command,
 		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
 		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
 		bindings: bindings,
@@ -880,6 +889,7 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: every declared PostgreSQL result column is an internal projection; refusing to publish internal columns in the public row", output.Name)
 	}
 	query := compiler.CompiledQuery{
+		Command:            selection.Command,
 		Project:            bindings.Project,
 		DatasetGeneration:  bindings.DatasetGeneration,
 		RootResourceType:   output.RootResourceType,
@@ -905,8 +915,8 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 		compiledOutput:      true,
 		physicalPlan:        output.Plan,
 		postgreSQLQueryRows: e.postgreSQLQueryRows,
-		postgreSQLCommand:   selection.Command,
-		postgreSQLColumns:   append([]string(nil), selection.Columns...),
+		command:             selection.Command,
+		commandColumns:      append([]string(nil), selection.Columns...),
 	}
 	return stream, query, nil
 }
@@ -1248,7 +1258,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	// A PostgreSQL-served preview keeps every Arango control dark: index
 	// preparation, index listing, EXPLAIN, collection counts and revisions,
 	// and the Group preview optimizer all run only on AQL streams.
-	postgreSQLPreview := stream.postgreSQLCommand.Backend() == compiler.CompiledBackendPostgreSQL
+	postgreSQLPreview := stream.command.Backend() == compiler.CompiledBackendPostgreSQL
 	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
 		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		_ = e.preparePreviewIndex(prepareCtx, *query.PreviewCoveringIndex)
@@ -1282,7 +1292,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			return PreviewSummary{}, err
 		}
 		if revisionErr == nil {
-			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Query, query.BindVars, query.PreviewCoveringIndex.Collection, revision, limit)
+			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Command, query.PreviewCoveringIndex.Collection, revision, limit)
 			if keyOK {
 				previewCacheKey = key
 				previewCacheKeyWeight = keyWeight
@@ -1304,6 +1314,17 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			break
 		}
 	}
+	// The stable-identity bind fallback reads named binds only from the
+	// AQL-tagged preview command through closed dispatch; a PostgreSQL
+	// preview carries no named binds, exactly as before this typed boundary.
+	var previewIdentityBinds map[string]any
+	if query.Command.Backend() == compiler.CompiledBackendAQL {
+		_, binds, dispatchErr := query.Command.AQLParameters()
+		if dispatchErr != nil {
+			return PreviewSummary{}, dispatchErr
+		}
+		previewIdentityBinds = binds
+	}
 	count := 0
 	var visitorErr error
 	queryStarted := time.Now()
@@ -1320,7 +1341,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		}
 		includeRowIdentity := request.IncludeRowIdentity || resolved.Semantic.SemanticPlan.Bindings.IncludeRowIdentity
 		if includeRowIdentity {
-			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, query.BindVars); err != nil {
+			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, previewIdentityBinds); err != nil {
 				return err
 			}
 		}
@@ -1562,9 +1583,21 @@ func publicPreviewRow(row map[string]any, columns []string, includeRowIdentity b
 
 var errPreviewLimit = fmt.Errorf("preview limit reached")
 
-func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) error) (StreamResult, error) {
+func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResult, error) {
 	if visit == nil {
 		return StreamResult{}, fmt.Errorf("row visitor is required")
+	}
+	// The stable-identity bind fallback reads named binds only from an
+	// AQL-tagged command through closed dispatch; PostgreSQL statements bind
+	// positionally and expose no named binds, and a ClickHouse stream carries
+	// no compiled command at all, so both keep a nil fallback.
+	var identityBinds map[string]any
+	if s.command.Backend() == compiler.CompiledBackendAQL {
+		_, binds, dispatchErr := s.command.AQLParameters()
+		if dispatchErr != nil {
+			return StreamResult{}, dispatchErr
+		}
+		identityBinds = binds
 	}
 	count := 0
 	err := s.streamRaw(ctx, func(row map[string]any) error {
@@ -1572,7 +1605,7 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 		if err != nil {
 			return err
 		}
-		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.bindVars); err != nil {
+		if err := ensureStableRowIdentity(resolved, s.RowIdentity, identityBinds); err != nil {
 			return err
 		}
 		resolved = publicStreamRow(resolved, s.Columns)
@@ -1586,11 +1619,14 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 // pins and private artifact leases remain owned by the preparation callback.
 // It applies the same row identity and post-query projection contract as
 // OutputStream.Stream without resolving or acquiring inputs a second time.
-func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit func(map[string]any) error) (StreamResult, error) {
+func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit RowVisitor) (StreamResult, error) {
 	if ctx == nil || visit == nil || s.clickHouseQueryRows == nil || strings.TrimSpace(prepared.Query) == "" {
 		return StreamResult{}, fmt.Errorf("prepared ClickHouse stream requires context, query executor, query, and visitor")
 	}
 	count := 0
+	// The ClickHouse contract is deliberately loose and positional: it has
+	// no compiled command and no named binds, so the identity fallback gets
+	// nil rather than a reinterpreted positional argument.
 	err := s.clickHouseQueryRows(ctx, prepared.Query, prepared.Columns, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -1599,7 +1635,7 @@ func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared pre
 		if err != nil {
 			return err
 		}
-		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.bindVars); err != nil {
+		if err := ensureStableRowIdentity(resolved, s.RowIdentity, nil); err != nil {
 			return err
 		}
 		resolved = publicStreamRow(resolved, s.Columns)
@@ -1609,13 +1645,17 @@ func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared pre
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
 }
 
-func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
+func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	if s.physicalEngine == ir.PhysicalEngineClickHouse {
 		return s.withPreparedClickHouse(ctx, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
 			return s.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)
 		})
 	}
-	if s.postgreSQLCommand.Backend() != "" {
+	// Exhaustive tag dispatch: one command tag selects exactly one adapter,
+	// and no branch extracts loose query text or bind maps from the command.
+	// A zero or unknown tag fails closed before any adapter callback runs.
+	switch s.command.Backend() {
+	case compiler.CompiledBackendPostgreSQL:
 		// The PostgreSQL stream consumes only the parent-tagged command
 		// through the PostgreSQL row executor. The Arango query memory-limit
 		// context value is Arango-specific and is never attached here, and
@@ -1624,13 +1664,21 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 			return fmt.Errorf("%w: PostgreSQL stream %q has no PostgreSQL row executor; PostgreSQL requests never fall back to AQL",
 				compiler.ErrCompiledCommandBackendNotRegistered, s.Name)
 		}
-		return s.postgreSQLQueryRows(ctx, s.postgreSQLCommand, s.postgreSQLColumns, visit)
+		return s.postgreSQLQueryRows(ctx, s.command, s.commandColumns, visit)
+	case compiler.CompiledBackendAQL:
+		if s.stream == nil {
+			return fmt.Errorf("%w: AQL stream %q has no AQL row adapter registered",
+				compiler.ErrCompiledCommandBackendNotRegistered, s.Name)
+		}
+	default:
+		return fmt.Errorf("%w: stream %q carries a command with unregistered backend %q; only registered compiled command backends execute",
+			compiler.ErrCompiledCommandBackendNotRegistered, s.Name, string(s.command.Backend()))
 	}
 	if s.queryMemoryLimit > 0 {
 		ctx = arango.WithQueryMemoryLimit(ctx, s.queryMemoryLimit)
 	}
 	if s.page == nil || s.rootPageRows == 0 {
-		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
+		return s.stream(ctx, s.command, s.batchSize, visit)
 	}
 	after := ""
 	pageRows := s.rootPageRows
@@ -1639,10 +1687,14 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 	}
 	for {
 		keys := make([]string, 0, pageRows)
-		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
-		keyBinds[compiler.RootPageAfterKeyBind] = after
-		keyBinds[compiler.RootPageSizeBind] = pageRows
-		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
+		keyCommand, keyBindErr := s.page.RootKeys.WithAQLBinds(map[string]any{
+			compiler.RootPageAfterKeyBind: after,
+			compiler.RootPageSizeBind:     pageRows,
+		})
+		if keyBindErr != nil {
+			return keyBindErr
+		}
+		if err := s.stream(ctx, keyCommand, s.batchSize, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("root-key page returned an invalid _key")
@@ -1658,10 +1710,14 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		if len(keys) == 0 {
 			return nil
 		}
-		rowBinds := cloneBindVars(s.page.RowsBindVars)
-		rowBinds[compiler.RootPageKeysBind] = keys
+		rowCommand, rowBindErr := s.page.Rows.WithAQLBinds(map[string]any{
+			compiler.RootPageKeysBind: keys,
+		})
+		if rowBindErr != nil {
+			return rowBindErr
+		}
 		emitted := 0
-		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
+		if err := s.stream(ctx, rowCommand, s.batchSize, func(row map[string]any) error {
 			emitted++
 			return visit(row)
 		}); err != nil {
@@ -1964,14 +2020,6 @@ func compiledOutputSchemaDigest(schema []lower.CompiledOutputColumn) (string, er
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil
-}
-
-func cloneBindVars(input map[string]any) map[string]any {
-	clone := make(map[string]any, len(input))
-	for key, value := range input {
-		clone[key] = value
-	}
-	return clone
 }
 
 // publicStreamRow removes compiler-only projections after they have served

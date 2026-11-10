@@ -35,6 +35,23 @@ const pgExecDispatch = new Set([
     'TestPostgresEngineCrossTagRefusedBeforeServer',
     'TestPostgresEngineBackendKillConverges',
     'TestZZZeroLeftoverExec02PostgresFixtures',
+    // arch-backend-01: typed compiled-command boundary evidence against the
+    // real PG18 service; skipped (explicitly) in this Arango-only lane.
+    'TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer',
+    'TestVerifyArch01PostgreSQLBoundaryRaceDistinctBackendsOverlapRounds',
+    'TestVerifyArch01PostgreSQLNamedRefusalsTouchNoServer',
+    'TestVerifyArch01PostgreSQLCrashBeforeDriverNeverReachesServer',
+    // pg-exec-10: the sanitized live PostgreSQL Explain suites require the
+    // separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
+    // Arango. They run against the real PG18 server under the ticket check-2
+    // harness; in this Arango-only lane their explicit skips stay visible in
+    // the proof summary.
+    'TestPostgresExplainLivePG18IndexedAndSequentialPlans',
+    'TestPostgresExplainLivePG18PermissionAndAbsence',
+    'TestPostgresExplainLivePG18ConcurrentRounds',
+    'TestZZZeroLeftoverExec10PostgresFixtures',
+    'TestPostgresExplainWiringLivePG18SanitizedPlan',
+    'TestZZZeroLeftoverExec10WiringPostgresFixtures',
 ]);
 const external = new Set([
     'TestPivotPresenceAudit',

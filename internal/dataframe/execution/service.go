@@ -1,15 +1,14 @@
 package execution
 
-import (
-	"context"
-)
-
+// ServiceConfig wires the single AQL row-stream adapter the service may
+// invoke. QueryRows accepts only a parent-tagged compiler.CompiledCommand;
+// there is no loose query-text entry point.
 type ServiceConfig struct {
-	QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+	QueryRows QueryRows
 }
 
 type Service struct {
-	queryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+	queryRows QueryRows
 }
 
 func NewService(cfg ServiceConfig) *Service {

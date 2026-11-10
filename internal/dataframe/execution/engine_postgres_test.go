@@ -66,13 +66,23 @@ func (s *dispatchSpies) arangoEngine() Config {
 	return Config{
 		Registry:    invalidRecipeRegistry{},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "exec02-test-scope" },
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			query, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			s.mu.Lock()
 			s.aqlQueries = append(s.aqlQueries, query)
 			s.mu.Unlock()
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, query string, _ int, _ map[string]any, _ func(map[string]any) error) error {
+		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			query, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			s.mu.Lock()
 			s.aqlPreviewQueries = append(s.aqlPreviewQueries, query)
 			s.mu.Unlock()
@@ -166,7 +176,7 @@ func exec02RowExecutor(spies *dispatchSpies, target *[]postgresCallRecord, rows 
 }
 
 func exec02RowExecutorWithSpies(spies *dispatchSpies, target *[]postgresCallRecord, rows []map[string]any) PostgreSQLQueryRows {
-	return func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit PostgreSQLRowVisitor) error {
+	return func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 		sqlText, args, err := command.PostgreSQLParameters()
 		if err != nil {
 			return err
@@ -353,7 +363,7 @@ func TestPostgreSQLPreviewBackendFailureNeverMarksComplete(t *testing.T) {
 	command := exec02TestCommand(t)
 	config.ResolvePostgreSQLCommands = exec02Resolver(spies, &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "name"}}, nil)
 	failure := errors.New("postgres rows: query: FATAL simulated")
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit PostgreSQLRowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 		if err := visit(exec02Rows()[0]); err != nil {
 			return err
 		}
@@ -464,7 +474,7 @@ func TestPostgreSQLSelectionRejectsCrossTagAndZeroTagCommands(t *testing.T) {
 			// engine's pre-callback tag check were dropped, this executor
 			// would record and stream the mismatched command and the
 			// zero-call assertion below would fail.
-			config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit PostgreSQLRowVisitor) error {
+			config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 				spies.mu.Lock()
 				sqlText, args, _ := command.PostgreSQLParameters()
 				spies.pgFull = append(spies.pgFull, postgresCallRecord{SQL: sqlText, Args: args, Columns: append([]string(nil), columns...)})
@@ -739,8 +749,14 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 	command := exec02TestCommand(t)
 	evaluate := func(stream *OutputStream) error {
 		engine := &Engine{
-			registry:  invalidRecipeRegistry{},
-			queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+			registry: invalidRecipeRegistry{},
+			queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+				_, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+				return nil
+			},
 		}
 		engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
 			record := "previewCoveringIndexes"
@@ -756,18 +772,23 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 			return 7, nil
 		}
 		query := &compiler.CompiledQuery{
-			Query:    "FOR d IN Patient RETURN d",
-			BindVars: map[string]any{"project": "P1"},
+			Command: mustAQLCommand("FOR d IN Patient RETURN d", map[string]any{"project": "P1"}),
 			PreviewGroupScan: &compiler.PreviewGroupScanSpec{
-				Collection: "Patient", SequentialQuery: "FOR d IN Patient RETURN d",
-				ScopeCountQuery: "RETURN 1",
+				Collection: "Patient", Sequential: mustAQLCommand("FOR d IN Patient RETURN d", nil),
+				ScopeCount: mustAQLCommand("RETURN 1", nil),
 			},
 			PreviewCoveringIndex: &compiler.PreviewCoveringIndexSpec{Collection: "Patient", Name: "loom_pivot_preview_a", Fields: []string{"project"}},
 		}
 		return engine.chooseGroupPreviewScan(context.Background(), query, stream)
 	}
 	aqlStream := &OutputStream{
-		Name: "resources", stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Name: "resources", stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 	}
 	if err := evaluate(aqlStream); err != nil {
 		t.Fatalf("AQL group preview scan: %v", err)
@@ -780,8 +801,8 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 		Name:                "resources",
 		stream:              aqlStream.stream,
 		postgreSQLQueryRows: exec02RowExecutor(spies, &spies.pgFull, exec02Rows()),
-		postgreSQLCommand:   command,
-		postgreSQLColumns:   []string{"id", "name"},
+		command:             command,
+		commandColumns:      []string{"id", "name"},
 	}
 	if err := evaluate(postgresStream); err != nil {
 		t.Fatalf("PostgreSQL group preview scan: %v", err)
@@ -804,13 +825,17 @@ func TestPostgreSQLStreamIgnoresLooseQueryBindFields(t *testing.T) {
 	rows := exec02Rows()
 	stream := OutputStream{
 		Name: "resources", Columns: []string{"id", "name"},
-		query: "FOR d IN Patient RETURN d",
-		stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return errors.New("AQL QueryRows must never run for a PostgreSQL stream")
 		},
 		postgreSQLQueryRows: exec02RowExecutor(spies, &spies.pgFull, rows),
-		postgreSQLCommand:   command,
-		postgreSQLColumns:   []string{"id", "name"},
+		command:             command,
+		commandColumns:      []string{"id", "name"},
 	}
 	var visited int
 	if err := stream.streamRaw(context.Background(), func(map[string]any) error { visited++; return nil }); err != nil {
@@ -833,14 +858,17 @@ func TestPostgreSQLStreamWithoutExecutorNeverFallsBackToAQL(t *testing.T) {
 	aqlCalls := 0
 	stream := OutputStream{
 		Name: "resources", Columns: []string{"id", "name"},
-		query:    "FOR d IN Patient RETURN d",
-		bindVars: map[string]any{"project": "P1"},
-		stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			aqlCalls++
 			return errors.New("AQL QueryRows ran as a PostgreSQL fallback")
 		},
-		postgreSQLCommand: exec02TestCommand(t),
-		postgreSQLColumns: []string{"id", "name"},
+		command:        exec02TestCommand(t),
+		commandColumns: []string{"id", "name"},
 	}
 	err := stream.streamRaw(context.Background(), func(map[string]any) error { return nil })
 	if !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {

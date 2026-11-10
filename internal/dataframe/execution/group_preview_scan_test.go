@@ -24,8 +24,8 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 	if required == nil {
 		t.Fatal("fixture query has no compiler-owned covering index requirements")
 	}
-	originalQuery := query.Query
-	originalBinds := query.BindVars
+	originalQuery := commandText(t, query.Command)
+	originalBinds := commandBinds(t, query.Command)
 	largeFields := append(append([]string(nil), required.Fields...), "payload.extra", "resourceType")
 	smallFields := []string{"project", "dataset_generation", "resourceType"}
 	smallFields = append(smallFields, required.Fields[2:]...)
@@ -60,7 +60,12 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 		t.Fatal("covering candidate should skip the sequential-scan assessment")
 		return 0, nil
 	}
-	stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		t.Fatal("covering candidate should skip the scoped source count")
 		return nil
 	}
@@ -70,16 +75,18 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 	if indexCalls != 1 || explainCalls != 1 {
 		t.Fatalf("metadata/explain calls = %d/%d, want one each", indexCalls, explainCalls)
 	}
-	if query.Query == originalQuery || query.Query != stream.query || query.PreviewCoveringIndex.Name != indexes[1].Name ||
-		!reflect.DeepEqual(query.PreviewCoveringIndex.Fields, smallFields) || !reflect.DeepEqual(query.BindVars, originalBinds) ||
-		!reflect.DeepEqual(query.BindVars, stream.bindVars) {
-		t.Fatalf("selected compatible query was not applied consistently: query=%q stream=%q spec=%+v", query.Query, stream.query, query.PreviewCoveringIndex)
+	selectedText, selectedBinds := aqlView(t, query.Command)
+	streamText, streamBinds := aqlView(t, stream.command)
+	if selectedText == originalQuery || selectedText != streamText || query.PreviewCoveringIndex.Name != indexes[1].Name ||
+		!reflect.DeepEqual(query.PreviewCoveringIndex.Fields, smallFields) || !reflect.DeepEqual(selectedBinds, originalBinds) ||
+		!reflect.DeepEqual(selectedBinds, streamBinds) {
+		t.Fatalf("selected compatible query was not applied consistently: query=%q stream=%q spec=%+v", selectedText, streamText, query.PreviewCoveringIndex)
 	}
 }
 
 func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExists(t *testing.T) {
 	engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
-	originalQuery := query.Query
+	originalQuery := commandText(t, query.Command)
 	required := query.PreviewCoveringIndex
 	engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
 		return []arango.PreviewCoveringIndex{{
@@ -96,9 +103,14 @@ func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExist
 		return groupExplainWithCoverage(false, false, required.Collection), nil
 	}
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-	stream.stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		scopeCountCalls++
-		if queryText != query.PreviewGroupScan.ScopeCountQuery || batchSize != 1 {
+		if !reflect.DeepEqual(command, query.PreviewGroupScan.ScopeCount) || batchSize != 1 {
 			t.Fatalf("scope-count query = %q batch=%d", queryText, batchSize)
 		}
 		return visit(map[string]any{"count": float64(950)})
@@ -106,8 +118,8 @@ func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExist
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatal(err)
 	}
-	if query.Query != query.PreviewGroupScan.SequentialQuery || explainCalls != 1 || scopeCountCalls != 1 {
-		t.Fatalf("sequential fallback state: query=%q explains=%d scope counts=%d", query.Query, explainCalls, scopeCountCalls)
+	if !reflect.DeepEqual(query.Command, query.PreviewGroupScan.Sequential) || explainCalls != 1 || scopeCountCalls != 1 {
+		t.Fatalf("sequential fallback state: query=%q explains=%d scope counts=%d", commandText(t, query.Command), explainCalls, scopeCountCalls)
 	}
 }
 
@@ -122,7 +134,7 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
-			originalQuery := query.Query
+			originalQuery := commandText(t, query.Command)
 			candidate := arango.PreviewCoveringIndex{
 				Collection: query.PreviewCoveringIndex.Collection, Name: "loom_pivot_preview_unproven", Fields: append([]string(nil), query.PreviewCoveringIndex.Fields...),
 			}
@@ -138,14 +150,19 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 				return test.plan, nil
 			}
 			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-			stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				_, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				return visit(map[string]any{"count": float64(500)})
 			}
 			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 				t.Fatal(err)
 			}
-			if query.Query != originalQuery || stream.query != originalQuery || explainCalls != 2 {
-				t.Fatalf("unproven candidate changed canonical query: query=%q stream=%q explains=%d", query.Query, stream.query, explainCalls)
+			if !reflect.DeepEqual(query.Command, stream.command) || commandText(t, query.Command) != originalQuery || commandText(t, stream.command) != originalQuery || explainCalls != 2 {
+				t.Fatalf("unproven candidate changed canonical query: query=%q stream=%q explains=%d", commandText(t, query.Command), commandText(t, stream.command), explainCalls)
 			}
 		})
 	}
@@ -154,13 +171,11 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex(t *testing.T) {
 	engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
 	query.PreviewGroupScan = &compiler.PreviewGroupScanSpec{
-		Collection:         query.PreviewGroupProjection.Collection,
-		SequentialQuery:    "sequential-query",
-		SequentialBindVars: map[string]any{"scan": "sequential"},
-		ScopeCountQuery:    query.PreviewGroupProjection.ScopeCountQuery,
-		ScopeCountBindVars: query.PreviewGroupProjection.ScopeCountBindVars,
+		Collection: query.PreviewGroupProjection.Collection,
+		Sequential: mustAQLCommand("sequential-query", map[string]any{"scan": "sequential"}),
+		ScopeCount: query.PreviewGroupProjection.ScopeCount,
 	}
-	ordinaryQuery := query.Query
+	ordinaryQuery := commandText(t, query.Command)
 	indexCalls := 0
 	engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
 		indexCalls++
@@ -177,8 +192,13 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 		return groupExplainWithCoverage(false, false, query.PreviewGroupProjection.Collection), nil
 	}
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-	stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-		if queryText != query.PreviewGroupProjection.ScopeCountQuery {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
+		if !reflect.DeepEqual(command, query.PreviewGroupProjection.ScopeCount) {
 			t.Fatalf("unexpected query %q", queryText)
 		}
 		return visit(map[string]any{"count": int64(950)})
@@ -190,8 +210,8 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatal(err)
 	}
-	if indexCalls != 0 || query.Query != "sequential-query" || query.Query == ordinaryQuery {
-		t.Fatalf("sequential plan was overridden: index lookups=%d query=%q", indexCalls, query.Query)
+	if indexCalls != 0 || commandText(t, query.Command) != "sequential-query" || commandText(t, query.Command) == ordinaryQuery {
+		t.Fatalf("sequential plan was overridden: index lookups=%d query=%q", indexCalls, commandText(t, query.Command))
 	}
 }
 
@@ -227,10 +247,21 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 	engine, err := New(Config{
 		Registry:    invalidRecipeRegistry{},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-preview-existing-index" },
-		QueryRows:   func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-		PreviewQueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
+		PreviewQueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			queryCalls++
-			return groupPreviewCacheRows()(ctx, query, batch, binds, visit)
+			return groupPreviewCacheRows()(ctx, command, batch, visit)
 		},
 		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
 			prepareCalls++
@@ -267,10 +298,22 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindings) (*Engine, compiler.CompiledQuery, OutputStream) {
 	t.Helper()
 	engine, err := New(Config{
-		Registry:         invalidRecipeRegistry{},
-		ScopeDigest:      func(recipe.RuntimeBindings) string { return "group-preview-scan-test" },
-		QueryRows:        func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
-		PreviewQueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry:    invalidRecipeRegistry{},
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-preview-scan-test" },
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
+		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -325,7 +368,12 @@ func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *tes
 		}
 		return 1000, nil
 	}
-	stream.stream = func(_ context.Context, queryText string, batchSize int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		scopeCountCalls++
 		if queryText != "scope-count-query" || batchSize != 1 {
 			t.Fatalf("scope query = %q batch size = %d", queryText, batchSize)
@@ -333,19 +381,21 @@ func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *tes
 		return visit(map[string]any{"count": float64(950)})
 	}
 
-	before, _, ok := newGroupPreviewRowsKey(query.Query, query.BindVars, "Specimen", "revision-1", 25)
+	before, _, ok := newGroupPreviewRowsKey(query.Command, "Specimen", "revision-1", 25)
 	if !ok {
 		t.Fatal("original preview cache key was not created")
 	}
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatal(err)
 	}
-	after, _, ok := newGroupPreviewRowsKey(query.Query, query.BindVars, "Specimen", "revision-1", 25)
+	after, _, ok := newGroupPreviewRowsKey(query.Command, "Specimen", "revision-1", 25)
 	if !ok || before == after {
 		t.Fatal("selected AQL must produce a distinct cache key")
 	}
-	if query.Query != "sequential-query" || stream.query != query.Query || query.BindVars["scan"] != "sequential" || stream.bindVars["scan"] != "sequential" {
-		t.Fatalf("sequential query was not applied consistently: query=%q stream=%q binds=%v streamBinds=%v", query.Query, stream.query, query.BindVars, stream.bindVars)
+	streamText, streamBinds := aqlView(t, stream.command)
+	if commandText(t, query.Command) != "sequential-query" || !reflect.DeepEqual(stream.command, query.Command) ||
+		commandBinds(t, query.Command)["scan"] != "sequential" || streamBinds["scan"] != "sequential" {
+		t.Fatalf("sequential query was not applied consistently: query=%q stream=%q binds=%v streamBinds=%v", commandText(t, query.Command), streamText, commandBinds(t, query.Command), streamBinds)
 	}
 	if explainCalls != 1 || scopeCountCalls != 1 || collectionCountCalls != 1 {
 		t.Fatalf("calls: explain=%d scoped=%d collection=%d", explainCalls, scopeCountCalls, collectionCountCalls)
@@ -441,7 +491,12 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			engine, query, stream := groupPreviewScanFixture()
 			engine.previewExplainQuery = nonCoveringGroupExplain
 			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-			stream.stream = func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				_, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				value := any(float64(950))
 				if test.name == "selective source" {
 					value = float64(899)
@@ -457,7 +512,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 				t.Fatal(err)
 			}
-			if got := query.Query == "sequential-query"; got != test.wantSequential {
+			if got := commandText(t, query.Command) == "sequential-query"; got != test.wantSequential {
 				t.Fatalf("sequential selected=%t, want %t", got, test.wantSequential)
 			}
 		})
@@ -477,8 +532,8 @@ func TestChooseGroupPreviewScanPropagatesRequestCancellation(t *testing.T) {
 		if err := engine.chooseGroupPreviewScan(ctx, &query, &stream); !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v, want canceled request", err)
 		}
-		if query.Query != "normal-query" {
-			t.Fatalf("canceled preview switched to %q", query.Query)
+		if commandText(t, query.Command) != "normal-query" {
+			t.Fatalf("canceled preview switched to %q", commandText(t, query.Command))
 		}
 	})
 	t.Run("during scoped count", func(t *testing.T) {
@@ -490,15 +545,20 @@ func TestChooseGroupPreviewScanPropagatesRequestCancellation(t *testing.T) {
 			t.Fatal("collection count called after scoped-count cancellation")
 			return 0, nil
 		}
-		stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			cancel()
 			return nil
 		}
 		if err := engine.chooseGroupPreviewScan(ctx, &query, &stream); !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v, want canceled request", err)
 		}
-		if query.Query != "normal-query" {
-			t.Fatalf("canceled preview switched to %q", query.Query)
+		if commandText(t, query.Command) != "normal-query" {
+			t.Fatalf("canceled preview switched to %q", commandText(t, query.Command))
 		}
 	})
 }
@@ -514,20 +574,24 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatal(err)
 	}
-	if called || query.Query != "normal-query" {
-		t.Fatalf("noneligible query performed assessment or changed query: called=%t query=%q", called, query.Query)
+	if called || commandText(t, query.Command) != "normal-query" {
+		t.Fatalf("noneligible query performed assessment or changed query: called=%t query=%q", called, commandText(t, query.Command))
 	}
 }
 
 func groupPreviewScanFixture() (*Engine, compiler.CompiledQuery, OutputStream) {
 	return &Engine{}, compiler.CompiledQuery{
-			Query: "normal-query", BindVars: map[string]any{"scan": "normal"},
+			Command: mustAQLCommand("normal-query", map[string]any{"scan": "normal"}),
 			PreviewGroupScan: &compiler.PreviewGroupScanSpec{
-				Collection: "Specimen", SequentialQuery: "sequential-query",
-				SequentialBindVars: map[string]any{"scan": "sequential"},
-				ScopeCountQuery:    "scope-count-query", ScopeCountBindVars: map[string]any{"scope": true},
+				Collection: "Specimen", Sequential: mustAQLCommand("sequential-query", map[string]any{"scan": "sequential"}),
+				ScopeCount: mustAQLCommand("scope-count-query", map[string]any{"scope": true}),
 			},
-		}, OutputStream{query: "normal-query", bindVars: map[string]any{"scan": "normal"}, stream: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		}, OutputStream{command: mustAQLCommand("normal-query", map[string]any{"scan": "normal"}), stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return nil
 		}}
 }
@@ -543,9 +607,15 @@ func nonCoveringGroupExplain(context.Context, string, map[string]any) (arango.Ex
 func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows) (*Engine, Resolved, compiler.CompiledQuery, OutputStream) {
 	t.Helper()
 	engine, err := New(Config{
-		Registry:         invalidRecipeRegistry{},
-		ScopeDigest:      func(recipe.RuntimeBindings) string { return "group-projection-runtime-test" },
-		QueryRows:        func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		Registry:    invalidRecipeRegistry{},
+		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-projection-runtime-test" },
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 		PreviewQueryRows: previewRows,
 	})
 	if err != nil {
@@ -566,7 +636,7 @@ func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows
 		t.Fatal(err)
 	}
 	if query.PreviewGroupProjection == nil {
-		_, _, eligibilityErr := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, "", false)
+		_, eligibilityErr := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, "", false)
 		stageCount, ordinaryGroupKeys := 0, -1
 		sequenceWindow := false
 		if sequence := query.PhysicalPlan.StageSequence; sequence != nil {
@@ -615,7 +685,7 @@ func configureSemanticGroupProjectionIndex(
 	t *testing.T,
 	engine *Engine,
 	query compiler.CompiledQuery,
-) (arango.PreviewCoveringIndex, string, map[string]any, string, map[string]any) {
+) (arango.PreviewCoveringIndex, compiler.CompiledCommand, compiler.CompiledCommand) {
 	t.Helper()
 	if query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil {
 		t.Fatalf("semantic Group has no read-only projection index descriptor: %+v", query.PreviewGroupProjection)
@@ -628,11 +698,11 @@ func configureSemanticGroupProjectionIndex(
 		Name:       "loom_pivot_preview_runtime_existing",
 		Fields:     indexFields,
 	}
-	assessmentQuery, assessmentBinds, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, index.Name, false)
+	assessmentCommand, err := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, index.Name, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	factoredQuery, factoredBinds, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, index.Name, false)
+	factoredCommand, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, index.Name, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +713,8 @@ func configureSemanticGroupProjectionIndex(
 		return []arango.PreviewCoveringIndex{index}, nil
 	}
 	engine.previewExplainQuery = func(_ context.Context, queryText string, bindVars map[string]any) (arango.ExplainResult, error) {
-		if queryText != factoredQuery || !reflect.DeepEqual(bindVars, factoredBinds) {
+		factoredText, factoredBinds, dispatchErr := factoredCommand.AQLParameters()
+		if dispatchErr != nil || queryText != factoredText || !reflect.DeepEqual(bindVars, factoredBinds) {
 			return arango.ExplainResult{}, fmt.Errorf("candidate explain did not use exact factored query and binds")
 		}
 		return arango.ExplainResult{Plan: &arango.ExplainPlan{Nodes: []arango.ExplainNode{{
@@ -653,31 +724,36 @@ func configureSemanticGroupProjectionIndex(
 			IndexCoversOutProjections: boolPointer(true),
 		}}}}, nil
 	}
-	return index, assessmentQuery, assessmentBinds, factoredQuery, factoredBinds
+	return index, assessmentCommand, factoredCommand
 }
 
 func TestChooseGroupProjectionFactorizationAdmitsLowDiversityAndCachesDecision(t *testing.T) {
 	engine, resolved, query, _ := semanticGroupProjectionExecutionFixture(t, nil)
-	index, assessmentQuery, assessmentBinds, factoredQuery, factoredBinds := configureSemanticGroupProjectionIndex(t, engine, query)
+	index, assessmentCommand, factoredCommand := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
-	decisionKey, _, keyOK := newGroupPreviewProjectionDecisionKey(query.Query, query.BindVars,
+	decisionKey, _, keyOK := newGroupPreviewProjectionDecisionKey(query.Command,
 		query.PreviewGroupProjection.Collection, "revision-1", groupProjectionIndexIdentity(index))
 	if !keyOK {
 		t.Fatal("could not construct exact projection decision key")
 	}
 	countCalls, sampleCalls, finalCalls := 0, 0, 0
-	engine.previewQueryRows = func(_ context.Context, queryText string, _ int, binds map[string]any, visit func(map[string]any) error) error {
+	engine.previewQueryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, binds, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		switch queryText {
-		case query.PreviewGroupProjection.ScopeCountQuery:
+		case commandText(t, query.PreviewGroupProjection.ScopeCount):
 			countCalls++
 			return visit(map[string]any{"count": int64(10000)})
-		case assessmentQuery:
+		case commandText(t, assessmentCommand):
 			sampleCalls++
-			if !reflect.DeepEqual(binds, assessmentBinds) {
-				t.Fatalf("sample binds=%v, want %v", binds, assessmentBinds)
+			if !reflect.DeepEqual(binds, commandBinds(t, assessmentCommand)) {
+				t.Fatalf("sample binds=%v, want %v", binds, commandBinds(t, assessmentCommand))
 			}
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
-		case factoredQuery:
+		case commandText(t, factoredCommand):
 			if finalCalls == 0 {
 				if _, found := engine.groupPreviewRowsCache.getDecision(decisionKey); found {
 					t.Fatal("positive strategy was cached before the final query completed")
@@ -707,21 +783,26 @@ func TestChooseGroupProjectionFactorizationAdmitsLowDiversityAndCachesDecision(t
 			}
 		}
 	}
-	if factoredBinds == nil || index.Name == "" {
-		t.Fatalf("missing selected projection index or rendered binds: index=%+v binds=%v", index, factoredBinds)
+	if factoredCommand.Backend() != compiler.CompiledBackendAQL || index.Name == "" {
+		t.Fatalf("missing selected projection index or rendered binds: index=%+v", index)
 	}
 }
 
 func TestChooseGroupProjectionFactorizationContinuesAfterCoveringIndexSelection(t *testing.T) {
 	engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-	index, assessmentQuery, _, factoredQuery, _ := configureSemanticGroupProjectionIndex(t, engine, query)
+	index, assessmentCommand, factoredCommand := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-covered", nil }
 	sampleCalls := 0
-	stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		switch queryText {
-		case query.PreviewGroupProjection.ScopeCountQuery:
+		case commandText(t, query.PreviewGroupProjection.ScopeCount):
 			return visit(map[string]any{"count": int64(1000)})
-		case assessmentQuery:
+		case commandText(t, assessmentCommand):
 			sampleCalls++
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
 		default:
@@ -732,8 +813,8 @@ func TestChooseGroupProjectionFactorizationContinuesAfterCoveringIndexSelection(
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatal(err)
 	}
-	if query.PreviewCoveringIndex != nil || query.Query != factoredQuery || sampleCalls != 1 || index.Name == "" {
-		t.Fatalf("read-only covering-index path index=%+v factored=%t sample calls=%d selected=%+v", query.PreviewCoveringIndex, query.Query == factoredQuery, sampleCalls, index)
+	if query.PreviewCoveringIndex != nil || !reflect.DeepEqual(query.Command, factoredCommand) || sampleCalls != 1 || index.Name == "" {
+		t.Fatalf("read-only covering-index path index=%+v factored=%t sample calls=%d selected=%+v", query.PreviewCoveringIndex, reflect.DeepEqual(query.Command, factoredCommand), sampleCalls, index)
 	}
 }
 
@@ -747,14 +828,19 @@ func TestChooseGroupProjectionFactorizationRejectsHighEntropyAndAllEmptySamples(
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-			_, assessmentQuery, _, _, _ := configureSemanticGroupProjectionIndex(t, engine, query)
+			_, assessmentCommand, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 			engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
-			ordinaryQuery := query.Query
-			stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+			ordinaryQuery := commandText(t, query.Command)
+			stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				queryText, _, dispatchErr := command.AQLParameters()
+				if dispatchErr != nil {
+					return dispatchErr
+				}
+
 				switch queryText {
-				case query.PreviewGroupProjection.ScopeCountQuery:
+				case commandText(t, query.PreviewGroupProjection.ScopeCount):
 					return visit(map[string]any{"count": int64(1000)})
-				case assessmentQuery:
+				case commandText(t, assessmentCommand):
 					return visit(test.row)
 				default:
 					t.Fatalf("unexpected query %q", queryText)
@@ -764,8 +850,8 @@ func TestChooseGroupProjectionFactorizationRejectsHighEntropyAndAllEmptySamples(
 			if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 				t.Fatal(err)
 			}
-			if query.Query != ordinaryQuery || stream.queryMemoryLimit != 0 {
-				t.Fatalf("ineligible sample changed plan or enabled cap: query changed=%t cap=%d", query.Query != ordinaryQuery, stream.queryMemoryLimit)
+			if commandText(t, query.Command) != ordinaryQuery || stream.queryMemoryLimit != 0 {
+				t.Fatalf("ineligible sample changed plan or enabled cap: query changed=%t cap=%d", commandText(t, query.Command) != ordinaryQuery, stream.queryMemoryLimit)
 			}
 		})
 	}
@@ -773,13 +859,18 @@ func TestChooseGroupProjectionFactorizationRejectsHighEntropyAndAllEmptySamples(
 
 func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testing.T) {
 	engine, resolved, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-	_, assessmentQuery, _, factoredQuery, _ := configureSemanticGroupProjectionIndex(t, engine, query)
+	_, assessmentCommand, factoredCommand := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-unique-tail", nil }
-	stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		switch queryText {
-		case query.PreviewGroupProjection.ScopeCountQuery:
+		case commandText(t, query.PreviewGroupProjection.ScopeCount):
 			return visit(map[string]any{"count": int64(1024)})
-		case assessmentQuery:
+		case commandText(t, assessmentCommand):
 			// The first 512 rows are low diversity. A later tail can contain a
 			// unique Coding projection for every row; the sample is cost advice,
 			// never the source of the factored query's output values.
@@ -792,20 +883,25 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 		t.Fatal(err)
 	}
-	if query.Query != factoredQuery {
-		t.Fatalf("sample metadata was used as output; query is not the complete factored plan:\n%s", query.Query)
+	if !reflect.DeepEqual(query.Command, factoredCommand) {
+		t.Fatalf("sample metadata was used as output; query is not the complete factored plan:\n%s", commandText(t, query.Command))
 	}
 	if estimate, ok := estimateGroupProjectionDictionaryBytes(groupProjectionSample{sampleRows: 512, distinctProjections: 2, serializedCharacters: 40}, 1024); !ok || estimate == 0 {
 		t.Fatalf("advisory estimate=%d valid=%t", estimate, ok)
 	}
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-unique-tail", nil }
-	engine.previewQueryRows = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine.previewQueryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		switch queryText {
-		case query.PreviewGroupProjection.ScopeCountQuery:
+		case commandText(t, query.PreviewGroupProjection.ScopeCount):
 			return visit(map[string]any{"count": int64(1024)})
-		case assessmentQuery:
+		case commandText(t, assessmentCommand):
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
-		case factoredQuery:
+		case commandText(t, factoredCommand):
 			for index := range 600 {
 				if err := visit(map[string]any{"category": fmt.Sprintf("tail-%03d", index), "rows": int64(1)}); err != nil {
 					return err
@@ -839,28 +935,38 @@ func TestEstimateGroupProjectionDictionaryBytesRejectsOverflowingPopulationEstim
 func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline(t *testing.T) {
 	t.Run("unknown revision", func(t *testing.T) {
 		engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-		_, _, _, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
+		_, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "", errors.New("revision unavailable") }
-		ordinaryQuery := query.Query
-		stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		ordinaryQuery := commandText(t, query.Command)
+		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			t.Fatal("sample ran without source revision evidence")
 			return nil
 		}
 		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 			t.Fatal(err)
 		}
-		if query.Query != ordinaryQuery {
+		if commandText(t, query.Command) != ordinaryQuery {
 			t.Fatal("unknown source revision changed the ordinary plan")
 		}
 	})
 
 	t.Run("unknown scoped count", func(t *testing.T) {
 		engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-		_, _, _, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
+		_, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
-		ordinaryQuery := query.Query
-		stream.stream = func(_ context.Context, queryText string, _ int, _ map[string]any, _ func(map[string]any) error) error {
-			if queryText != query.PreviewGroupProjection.ScopeCountQuery {
+		ordinaryQuery := commandText(t, query.Command)
+		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			queryText, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
+			if !reflect.DeepEqual(command, query.PreviewGroupProjection.ScopeCount) {
 				t.Fatalf("query=%q, want exact scope count", queryText)
 			}
 			return nil
@@ -868,7 +974,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 			t.Fatal(err)
 		}
-		if query.Query != ordinaryQuery {
+		if commandText(t, query.Command) != ordinaryQuery {
 			t.Fatal("missing scoped count evidence changed the ordinary plan")
 		}
 	})
@@ -876,9 +982,8 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 	t.Run("unknown scan plan", func(t *testing.T) {
 		engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
 		query.PreviewGroupScan = &compiler.PreviewGroupScanSpec{
-			Collection:         query.PreviewGroupProjection.Collection,
-			ScopeCountQuery:    query.PreviewGroupProjection.ScopeCountQuery,
-			ScopeCountBindVars: query.PreviewGroupProjection.ScopeCountBindVars,
+			Collection: query.PreviewGroupProjection.Collection,
+			ScopeCount: query.PreviewGroupProjection.ScopeCount,
 		}
 		engine.previewExplainQuery = func(context.Context, string, map[string]any) (arango.ExplainResult, error) {
 			return arango.ExplainResult{}, nil
@@ -887,29 +992,39 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 			t.Fatal("source revision read without a resolved scan plan")
 			return "", nil
 		}
-		ordinaryQuery := query.Query
-		stream.stream = func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		ordinaryQuery := commandText(t, query.Command)
+		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			t.Fatal("scope count or sample ran without a resolved scan plan")
 			return nil
 		}
 		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 			t.Fatal(err)
 		}
-		if query.Query != ordinaryQuery {
+		if commandText(t, query.Command) != ordinaryQuery {
 			t.Fatal("unknown scan plan changed the ordinary query")
 		}
 	})
 
 	t.Run("assessment deadline", func(t *testing.T) {
 		engine, _, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
-		_, assessmentQuery, _, _, _ := configureSemanticGroupProjectionIndex(t, engine, query)
+		_, assessmentCommand, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-deadline", nil }
-		ordinaryQuery := query.Query
-		stream.stream = func(ctx context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
-			if queryText == query.PreviewGroupProjection.ScopeCountQuery {
+		ordinaryQuery := commandText(t, query.Command)
+		stream.stream = func(ctx context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			queryText, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
+			if reflect.DeepEqual(command, query.PreviewGroupProjection.ScopeCount) {
 				return visit(map[string]any{"count": int64(1000)})
 			}
-			if queryText != assessmentQuery {
+			if queryText != commandText(t, assessmentCommand) {
 				t.Fatalf("unexpected query %q", queryText)
 			}
 			<-ctx.Done()
@@ -918,7 +1033,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
 			t.Fatal(err)
 		}
-		if query.Query != ordinaryQuery {
+		if commandText(t, query.Command) != ordinaryQuery {
 			t.Fatal("assessment timeout changed the ordinary plan")
 		}
 	})
@@ -926,22 +1041,27 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 
 func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *testing.T) {
 	engine, resolved, query, _ := semanticGroupProjectionExecutionFixture(t, nil)
-	_, assessmentQuery, _, factoredQuery, _ := configureSemanticGroupProjectionIndex(t, engine, query)
+	_, assessmentCommand, factoredCommand := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-error", nil }
 	wantErr := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "AQL: query would use more memory than allowed"}
 	countCalls, sampleCalls, factoredCalls, ordinaryCalls := 0, 0, 0, 0
-	engine.previewQueryRows = func(_ context.Context, queryText string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	engine.previewQueryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryText, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		switch queryText {
-		case query.PreviewGroupProjection.ScopeCountQuery:
+		case commandText(t, query.PreviewGroupProjection.ScopeCount):
 			countCalls++
 			return visit(map[string]any{"count": int64(1000)})
-		case assessmentQuery:
+		case commandText(t, assessmentCommand):
 			sampleCalls++
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
-		case factoredQuery:
+		case commandText(t, factoredCommand):
 			factoredCalls++
 			return fmt.Errorf("arango query: %w", wantErr)
-		case query.Query:
+		case commandText(t, query.Command):
 			ordinaryCalls++
 			return visit(map[string]any{"category": "ordinary", "rows": int64(1)})
 		default:
