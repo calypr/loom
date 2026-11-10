@@ -281,12 +281,17 @@ func checkColumnContract(columns []string, descriptions []pgconn.FieldDescriptio
 	// The declared contract is authoritative for result naming: rows are
 	// keyed by the contract, so a statement that returns a column name the
 	// contract did not declare is refused. The one accepted exception is the
-	// compiler renderer's positional output aliases (c0, c1, ...), which
-	// deliberately keep recipe-provided projection names out of the SQL text
-	// entirely; those results take their public names from the contract.
-	var positionalAlias = regexp.MustCompile(`^c[0-9]+$`)
+	// compiler renderer's positional output alias for THIS position:
+	// renderReturn emits every projection as "AS c" plus its zero-based
+	// index, deliberately keeping recipe-provided projection names out of
+	// the SQL text; those results take their public names from the contract.
+	// The exception is exact-position string equality, not a shape match —
+	// a swapped or off-by-one alias set (contract [a, b] against c1, c0) is
+	// drift, not aliasing, and is refused so rows can never be keyed under
+	// contract names with swapped values.
 	for i, column := range columns {
-		if got := descriptions[i].Name; got != column && !positionalAlias.MatchString(got) {
+		got := descriptions[i].Name
+		if got != column && got != "c"+strconv.Itoa(i) {
 			return fmt.Errorf("%w: result column %d is %q, contract declares %q",
 				ErrColumnContractMismatch, i+1, got, column)
 		}

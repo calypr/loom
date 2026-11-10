@@ -508,6 +508,49 @@ func TestSourceRowsEnforcesTheColumnContract(t *testing.T) {
 	}
 }
 
+// TestSourceRowsColumnContractPositionalAliasException pins the ONE shape
+// of alias the contract exception allows: the renderer's positional alias
+// for exactly this position ("AS c<i>" as renderReturn emits), never the
+// shape c<digits> at any position. Swapped or shifted alias sets are
+// renderer/contract drift and must be refused so rows can never be keyed
+// under contract names with swapped values.
+func TestSourceRowsColumnContractPositionalAliasException(t *testing.T) {
+	run := func(t *testing.T, contract []string, aliasNames []string) error {
+		t.Helper()
+		fds := make([]pgconn.FieldDescription, 0, len(aliasNames))
+		for _, name := range aliasNames {
+			fds = append(fds, textFD(name))
+		}
+		querier := &recordingQuerier{rows: &scriptedRows{fds: fds}}
+		executor, _ := NewExecutor(querier)
+		return executor.SourceRows(context.Background(),
+			execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT c0, c1 FROM t`), DeclaredColumns: contract},
+			func(map[string]any) error { return nil })
+	}
+
+	t.Run("PositionalAliasForItsOwnPositionIsAccepted", func(t *testing.T) {
+		if err := run(t, []string{"a", "b"}, []string{"c0", "c1"}); err != nil {
+			t.Fatalf("positional alias set refused: %v", err)
+		}
+	})
+	t.Run("SwappedAliasPositionsAreRefused", func(t *testing.T) {
+		err := run(t, []string{"a", "b"}, []string{"c1", "c0"})
+		requireNamed(t, err, ErrColumnContractMismatch, `result column 1 is "c1", contract declares "a"`)
+	})
+	t.Run("ShiftedAliasPositionsAreRefused", func(t *testing.T) {
+		err := run(t, []string{"a", "b"}, []string{"c1", "c2"})
+		requireNamed(t, err, ErrColumnContractMismatch, `result column 1 is "c1", contract declares "a"`)
+	})
+	t.Run("ZeroPaddedAliasIsRefused", func(t *testing.T) {
+		err := run(t, []string{"a", "b"}, []string{"c00", "c1"})
+		requireNamed(t, err, ErrColumnContractMismatch, `result column 1 is "c00", contract declares "a"`)
+	})
+	t.Run("ForeignNameStillRefused", func(t *testing.T) {
+		err := run(t, []string{"a", "b"}, []string{"x0", "c1"})
+		requireNamed(t, err, ErrColumnContractMismatch, `result column 1 is "x0", contract declares "a"`)
+	})
+}
+
 func TestSourceRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 	midnight := time.Date(2026, 2, 13, 0, 0, 0, 0, time.UTC)
 	sharedJSON := []byte(`{"k": 1}`)
