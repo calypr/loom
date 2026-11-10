@@ -593,7 +593,7 @@ func TestPG18InboundTraversalBindsReverseIdentity(t *testing.T) {
 		Operations: []ir.PhysicalOperation{
 			{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
 			{Kind: ir.PhysicalTraversalOp, Traversal: &ir.PhysicalTraversal{
-				SourceVariable: "root", TargetVariable: "target",
+				SourceVariable: "root", TargetVariable: "target", EdgeVariable: "edge",
 				Direction: ir.PhysicalInbound, EdgeCollectionBindKey: "edge_collection",
 				EdgeLabelBindKey: "edge_label", TargetTypeBindKey: "target_type",
 				EdgeTargetTypeField: "from_type", Strategy: ir.PhysicalTraversalNative,

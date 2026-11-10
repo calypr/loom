@@ -21,11 +21,14 @@
 // resource scan, typed scope predicates (explicit project, dataset
 // generation, and an explicit auth mode), direct comparison filters over
 // typed columns or JSONB payload paths, depth-one typed edge-occurrence
-// joins, one column sort with deterministic identity tie-breaks, one bound
-// limit, and one positional return projection. Population/cohort roots,
-// endpoint-lookup traversals, selector extraction, sets, unnest, subplans,
-// graph returns, group rows, pivots, unpivots, stage sequences, and
-// ClickHouse payloads are capability gaps that return typed errors.
+// traversals rendered by traversal.go — the OPTIONAL parent-preserving
+// LEFT JOIN LATERAL child join and the REQUIRED match EXISTS semi-join —
+// one column sort with deterministic identity tie-breaks, one bound limit,
+// and one positional return projection. Population/cohort roots,
+// endpoint-lookup traversals, selector extraction over non-root rows, sets,
+// unnest, subplans outside the registered REQUIRED shape, graph returns,
+// group rows, pivots, unpivots, stage sequences, and ClickHouse payloads
+// are capability gaps that return typed errors.
 package postgres
 
 import (
@@ -117,10 +120,14 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 
 // rowScope records the renderer-owned SQL placement of one plan variable.
 // The plan-authored variable name is used only as an internal map key; it
-// never reaches SQL text.
+// never reaches SQL text. optional marks a row materialized by an OPTIONAL
+// traversal join (traversal.go): it is NULL-extensible, so main-sequence
+// FILTER and SORT may not reference it, while RETURN projections read its
+// columns with SQL NULL for parent-preserving rows.
 type rowScope struct {
 	alias        string
 	resourceType string
+	optional     bool
 }
 
 type planRenderer struct {
@@ -134,9 +141,17 @@ type planRenderer struct {
 
 	// scope is the re-read canonical scope established by loadScope (its
 	// definition and predicate mapping live in scope.go).
-	scope         planScope
-	rootAlias     string
-	edgeAliases   []string
+	scope     planScope
+	rootAlias string
+	// edgeAliases records the lateral aliases of OPTIONAL traversal joins in
+	// plan order; the assembler orders every one by its exposed edge_seq so
+	// repeated occurrences are deterministic on every execution.
+	edgeAliases []string
+	// traversalSeq is the single alias counter shared by traversal.go: every
+	// registered traversal join (lateral child subquery or EXISTS step)
+	// consumes one sequence number, so edge/target/lateral aliases are
+	// unique and deterministic for a plan.
+	traversalSeq  int
 	where         []string
 	joins         []string
 	selects       []string
@@ -253,109 +268,76 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 	return nil
 }
 
-func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
-	source, ok := r.rows[traversal.SourceVariable]
-	if !ok {
-		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables and set variables are not readable)",
-			ErrUnsupportedPostgresPlan, traversal.SourceVariable)
-	}
-	switch traversal.Direction {
-	case ir.PhysicalOutbound, ir.PhysicalInbound:
-	case ir.PhysicalAny:
-		return fmt.Errorf("%w: ANY-direction traversal has no proven PostgreSQL contract", ErrUnsupportedPostgresPlan)
-	default:
-		return fmt.Errorf("%w: unknown traversal direction %q", ErrUnsupportedPostgresPlan, string(traversal.Direction))
-	}
-	if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
-		return fmt.Errorf("%w: endpoint-lookup strategy has no proven PostgreSQL contract yet; native typed-identity joins are the only registered shape",
-			ErrUnsupportedPostgresPlan)
-	}
-	if traversal.Strategy != "" && traversal.Strategy != ir.PhysicalTraversalNative {
-		return fmt.Errorf("%w: unknown traversal strategy %q", ErrUnsupportedPostgresPlan, string(traversal.Strategy))
-	}
-	// The same direction-aware discriminator proof lower/storage_route.go
-	// requires of Arango routes: without it the typed-identity join cannot be
-	// attributed to a proven storage direction.
-	expectedField := "to_type"
-	if traversal.Direction == ir.PhysicalInbound {
-		expectedField = "from_type"
-	}
-	if traversal.EdgeTargetTypeField != expectedField {
-		return fmt.Errorf("%w: %s traversal must carry EdgeTargetTypeField %q, got %q",
-			ErrUnsupportedPostgresPlan, string(traversal.Direction), expectedField, traversal.EdgeTargetTypeField)
-	}
-	label, ok := plan.BindVars[traversal.EdgeLabelBindKey].(string)
-	if !ok || strings.TrimSpace(label) == "" {
-		return fmt.Errorf("%w: edge label bind %q must be a non-empty string", ErrUnsupportedPostgresPlan, traversal.EdgeLabelBindKey)
-	}
-	targetType, ok := plan.BindVars[traversal.TargetTypeBindKey].(string)
-	if !ok || strings.TrimSpace(targetType) == "" {
-		return fmt.Errorf("%w: traversal target type bind %q must be a non-empty string",
-			ErrUnsupportedPostgresPlan, traversal.TargetTypeBindKey)
-	}
-	if traversal.SourceTypeBindKey != "" {
-		if bound, ok := plan.BindVars[traversal.SourceTypeBindKey].(string); !ok || bound != source.resourceType {
-			return fmt.Errorf("%w: traversal source type bind does not match the current row resource type %q",
-				ErrUnsupportedPostgresPlan, source.resourceType)
-		}
-	}
-
-	edgeAlias := "e" + strconv.Itoa(len(r.edgeAliases)+1)
-	targetAlias := "r" + strconv.Itoa(len(r.edgeAliases)+1)
-	edgeTable := r.storage.Edge.Identifier().SQLText()
-	resourceTable := r.storage.Resource.Identifier().SQLText()
-
-	edgeColumns := r.storage.Edge
-	// The edge row's canonical project/generation/auth scope comes from the
-	// single mapping in scope.go; the label and endpoint identity clauses
-	// appended below are traversal payload, not canonical scope.
-	edgeScope := r.scopedEdgePredicate(edgeAlias)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("label").SQLText() +
-		" = $" + strconv.Itoa(r.textParameter(label, "text:"+label))
-
-	// The reached endpoint is the one whose typed identity the join carries
-	// toward the resource table; the anchored endpoint equality preserves the
-	// exact source row identity on the other side.
-	var anchoredTypeColumn, anchoredIDColumn, reachedTypeColumn, reachedIDColumn string
-	if traversal.Direction == ir.PhysicalOutbound {
-		anchoredTypeColumn, anchoredIDColumn = "source_resource_type", "source_logical_id"
-		reachedTypeColumn, reachedIDColumn = "target_resource_type", "target_logical_id"
-	} else {
-		anchoredTypeColumn, anchoredIDColumn = "target_resource_type", "target_logical_id"
-		reachedTypeColumn, reachedIDColumn = "source_resource_type", "source_logical_id"
-	}
-	sourceTypeIndex := r.textParameter(source.resourceType, "text:"+source.resourceType)
-	targetTypeIndex := r.textParameter(targetType, "text:"+targetType)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredTypeColumn).SQLText() + " = $" + strconv.Itoa(sourceTypeIndex)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredIDColumn).SQLText() +
-		" = " + source.alias + "." + r.storage.Resource.MustColumn("logical_id").SQLText()
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(reachedTypeColumn).SQLText() + " = $" + strconv.Itoa(targetTypeIndex)
-
-	join := "INNER JOIN " + edgeTable + " AS " + edgeAlias + " ON " + edgeScope
-	join += " INNER JOIN " + resourceTable + " AS " + targetAlias + " ON " +
-		r.scopedResourcePredicate(targetAlias, targetTypeIndex) +
-		" AND " + targetAlias + "." + r.storage.Resource.MustColumn("logical_id").SQLText() +
-		" = " + edgeAlias + "." + edgeColumns.MustColumn(reachedIDColumn).SQLText()
-	r.joins = append(r.joins, join)
-	r.edgeAliases = append(r.edgeAliases, edgeAlias)
-	r.rows[traversal.TargetVariable] = rowScope{alias: targetAlias, resourceType: targetType}
-	return nil
-}
-
 // resolveValue maps one plan value onto either a trusted column expression
 // or a parameterized JSONB payload path over its row alias. Payload paths
 // are bound through documentPathExpression (null_semantics.go), the
 // package's single path-binding authority, so extraction and comparison
 // paths can never drift apart.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
-	scope, ok := r.rows[value.Variable]
-	if !ok {
-		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
+	return r.resolveValueInRows(r.rows, value)
+}
+
+// rejectOptionalRowReferences enforces the OPTIONAL-traversal boundary for
+// main-sequence FILTER operations: no comparison leaf, at any depth of an
+// ALL/NOT composition, may read a row materialized by an OPTIONAL
+// traversal join. A WHERE conjunct over null-extended child rows re-adds
+// the inner-join exclusion the AQL LET-set never applies (render/aql
+// navigation_render.go:11-37), and NOT/IS-DISTINCT-FROM forms would keep
+// parents an AQL required match excludes (lower/required_match.go).
+// Required matching must use the typed EXISTS subplan form, which renders
+// over INNER joins where WHERE placement is exact. EXISTS predicate
+// subplans are self-scoped and walk-free: their own contract is enforced by
+// renderRequiredMatchExists.
+func (r *planRenderer) rejectOptionalRowReferences(filter ir.PhysicalFilter) error {
+	if filter.Expression != nil {
+		return rejectOptionalInPredicate(*filter.Expression, r.rows)
 	}
-	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
-		return scope.alias + "." + r.storage.Resource.MustColumn(value.Path[0]).SQLText(), nil
+	return rejectOptionalInPredicate(ir.PhysicalPredicateExpression{
+		Kind:       ir.PhysicalComparisonPredicate,
+		Comparison: &filter.Predicate,
+	}, r.rows)
+}
+
+func rejectOptionalInPredicate(predicate ir.PhysicalPredicateExpression, rows map[string]rowScope) error {
+	switch predicate.Kind {
+	case ir.PhysicalComparisonPredicate:
+		if predicate.Comparison == nil {
+			return nil // the comparison renderer reports the missing payload.
+		}
+		if predicate.Comparison.LeftExpression != nil &&
+			predicate.Comparison.LeftExpression.Extract != nil {
+			if scope, ok := rows[predicate.Comparison.LeftExpression.Extract.Source.Variable]; ok && scope.optional {
+				return optionalRowRefError(predicate.Comparison.LeftExpression.Extract.Source.Variable)
+			}
+		}
+		if predicate.Comparison.Left.BindKey == "" && predicate.Comparison.Left.Variable != "" {
+			if scope, ok := rows[predicate.Comparison.Left.Variable]; ok && scope.optional {
+				return optionalRowRefError(predicate.Comparison.Left.Variable)
+			}
+		}
+		return nil
+	case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate:
+		for _, child := range predicate.Children {
+			if err := rejectOptionalInPredicate(child, rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ir.PhysicalNotPredicate:
+		for _, child := range predicate.Children {
+			if err := rejectOptionalInPredicate(child, rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	default: // EXISTS and unknown kinds: no main-sequence row references.
+		return nil
 	}
-	return r.documentPathExpression(scope.alias, value.Path)
+}
+
+func optionalRowRefError(variable string) error {
+	return fmt.Errorf("%w: FILTER references %q, a row materialized by an OPTIONAL traversal LEFT JOIN LATERAL; a WHERE conjunct over null-extended child rows would re-add the inner-join exclusion the AQL LET-set never applies (render/aql/navigation_render.go renderTraversalSet). Express required matching as the typed EXISTS subplan FILTER form",
+		ErrUnsupportedPostgresPlan, variable)
 }
 
 // payloadPathSegmentPattern re-checks the frozen ir path contract at the
@@ -363,6 +345,9 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (r *planRenderer) renderFilter(plan ir.PhysicalPlan, filter ir.PhysicalFilter) (string, error) {
+	if err := r.rejectOptionalRowReferences(filter); err != nil {
+		return "", err
+	}
 	if filter.Expression != nil {
 		return r.renderPredicateExpression(plan, *filter.Expression)
 	}
@@ -385,40 +370,18 @@ type predicateFragment struct {
 	mayYieldNull bool
 }
 
+// renderPredicateFragment renders one main-sequence predicate expression.
+// COMPARISON/ALL/NOT delegate to the scoped renderer in traversal.go with
+// the renderer's own row bindings; EXISTS is the REQUIRED match filter and
+// is owned by the traversal slice (renderRequiredMatchExists). Nested
+// EXISTS composition beyond one required match is refused there, keeping
+// the required-semi-join surface depth-one closed.
 func (r *planRenderer) renderPredicateFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (predicateFragment, error) {
 	switch predicate.Kind {
-	case ir.PhysicalComparisonPredicate:
-		if predicate.Comparison == nil {
-			return predicateFragment{}, fmt.Errorf("%w: COMPARISON predicate has no payload", ErrUnsupportedPostgresPlan)
-		}
-		return r.renderComparisonFragment(plan, *predicate.Comparison)
-	case ir.PhysicalNotPredicate:
-		if len(predicate.Children) != 1 {
-			return predicateFragment{}, fmt.Errorf("%w: NOT requires exactly one child", ErrUnsupportedPostgresPlan)
-		}
-		child, err := r.renderPredicateFragment(plan, predicate.Children[0])
-		if err != nil {
-			return predicateFragment{}, err
-		}
-		if child.mayYieldNull {
-			return predicateFragment{sql: "COALESCE(NOT (" + child.sql + "), true)"}, nil
-		}
-		return predicateFragment{sql: "NOT (" + child.sql + ")"}, nil
-	case ir.PhysicalAllPredicate:
-		if len(predicate.Children) == 0 {
-			return predicateFragment{}, fmt.Errorf("%w: ALL requires at least one child", ErrUnsupportedPostgresPlan)
-		}
-		parts := make([]string, 0, len(predicate.Children))
-		mayYieldNull := false
-		for _, child := range predicate.Children {
-			part, err := r.renderPredicateFragment(plan, child)
-			if err != nil {
-				return predicateFragment{}, err
-			}
-			mayYieldNull = mayYieldNull || part.mayYieldNull
-			parts = append(parts, "("+part.sql+")")
-		}
-		return predicateFragment{sql: strings.Join(parts, " AND "), mayYieldNull: mayYieldNull}, nil
+	case ir.PhysicalComparisonPredicate, ir.PhysicalNotPredicate, ir.PhysicalAllPredicate:
+		return r.renderPredicateFragmentScoped(plan, predicate, r.rows, false)
+	case ir.PhysicalExistsPredicate:
+		return r.renderRequiredMatchExists(plan, predicate)
 	default:
 		return predicateFragment{}, fmt.Errorf("%w: predicate kind %q is not yet implemented for PostgreSQL",
 			ErrUnsupportedPostgresPlan, string(predicate.Kind))
@@ -434,57 +397,10 @@ func (r *planRenderer) renderComparison(plan ir.PhysicalPlan, predicate ir.Physi
 }
 
 func (r *planRenderer) renderComparisonFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (predicateFragment, error) {
-	if predicate.Correlation != nil || predicate.LeftExpression != nil {
-		return predicateFragment{}, fmt.Errorf("%w: selector-expression and correlated predicates are not yet implemented for PostgreSQL",
-			ErrUnsupportedPostgresPlan)
-	}
-	if predicate.Quantifier != "" {
-		return predicateFragment{}, fmt.Errorf("%w: array quantifier %q is not yet implemented for PostgreSQL",
-			ErrUnsupportedPostgresPlan, string(predicate.Quantifier))
-	}
-	if predicate.Left.BindKey != "" {
-		return predicateFragment{}, fmt.Errorf("%w: filter left side must be a row path, not a bind value", ErrUnsupportedPostgresPlan)
-	}
-	left, err := r.resolveValue(predicate.Left)
-	if err != nil {
-		return predicateFragment{}, err
-	}
-	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
-	switch operator {
-	case "EXISTS", "MISSING":
-		if predicate.Right != nil {
-			return predicateFragment{}, fmt.Errorf("%w: %s must not carry a right value", ErrUnsupportedPostgresPlan, operator)
-		}
-		if isPayloadExpression(left) {
-			presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
-			if operator == "EXISTS" {
-				return predicateFragment{sql: presence + " <> 'null'"}, nil
-			}
-			return predicateFragment{sql: presence + " = 'null'"}, nil
-		}
-		// Registered storage columns are stored NOT NULL and jsonb_typeof has
-		// no text/timestamptz input, so column presence is nullability itself;
-		// emitting jsonb_typeof over a column would only fail at execution.
-		if operator == "EXISTS" {
-			return predicateFragment{sql: left + " IS NOT NULL"}, nil
-		}
-		return predicateFragment{sql: left + " IS NULL"}, nil
-	case "EQUALS", "NOT_EQUALS", "GT", "GTE", "LT", "LTE", "IN":
-	default:
-		return predicateFragment{}, fmt.Errorf("%w: filter operator %q is not part of the v1 PostgreSQL surface",
-			ErrUnsupportedPostgresPlan, predicate.Operator)
-	}
-	if predicate.Right == nil || predicate.Right.BindKey == "" {
-		return predicateFragment{}, fmt.Errorf("%w: %s requires a bind-backed right value", ErrUnsupportedPostgresPlan, operator)
-	}
-	value, ok := plan.BindVars[predicate.Right.BindKey]
-	if !ok {
-		return predicateFragment{}, fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
-	}
-	if !isPayloadExpression(left) {
-		return r.renderColumnComparison(left, operator, value)
-	}
-	return r.renderPayloadComparison(left, operator, value)
+	// The main sequence never registers the subplan selector left side
+	// (allowSelectorExtract=false), so the pre-pg-sql-06 refusals for
+	// selector-expression and correlated predicates are unchanged.
+	return r.renderComparisonFragmentScoped(plan, predicate, r.rows, false)
 }
 
 func isPayloadExpression(expression string) bool { return strings.Contains(expression, " #> $") }
@@ -612,6 +528,13 @@ func (r *planRenderer) renderSort(sort ir.PhysicalSort) error {
 		scope, ok := r.rows[key.Variable]
 		if !ok {
 			return fmt.Errorf("%w: sort variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, key.Variable)
+		}
+		if scope.optional {
+			// NULL-extended child columns sort as a distinct witness a plan
+			// never declared; deterministic row order belongs to the root
+			// identity plus the renderer-owned edge witnesses.
+			return fmt.Errorf("%w: sort key on %q, a row materialized by an OPTIONAL traversal LEFT JOIN LATERAL, is not registered; sorting expanded child rows is a later capability",
+				ErrUnsupportedPostgresPlan, key.Variable)
 		}
 		if key.BindKey != "" || len(key.Path) != 1 || !resourceFilterColumns[key.Path[0]] {
 			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
