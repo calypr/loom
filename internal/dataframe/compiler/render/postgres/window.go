@@ -342,13 +342,23 @@ func (r *planRenderer) renderWindowLimit(plan ir.PhysicalPlan, limit ir.Physical
 // windowOrder assembles the complete ORDER BY term chain: mapped plan keys in
 // plan order, then the renderer completeness witnesses in contract order
 // (root resource_seq, join edge_seq, per-expansion has-item — only while a
-// window is open — and rn), exact-duplicate terms deduplicated so plan-mapped
-// and renderer-minted witnesses of the same column contribute one term.
+// window is open — and rn).
+//
+// Exact-term dedup runs only when the plan carries expansions
+// (len(r.lateralAliases) > 0), where a plan-mapped key and a renderer-minted
+// witness legitimately name the same column (for example the shared root
+// logical_id term across two expansions) and must contribute one term. With
+// no expansions (the W1 spine) the renderer witnesses — resource_seq and
+// edge_seq, both outside resourceFilterColumns — can never collide with a
+// typed-column plan key, so plan keys are emitted verbatim: a plan with
+// duplicate SORT keys keeps its duplicate ORDER BY terms, exactly as the
+// merged pg-sql-02 renderer emitted them.
 func (r *planRenderer) windowOrder() []string {
 	terms := make([]string, 0, len(r.window.keys)+2+len(r.edgeAliases)+2*len(r.lateralAliases))
 	seen := make(map[string]bool, cap(terms))
+	dedupe := len(r.lateralAliases) > 0
 	add := func(term string) {
-		if seen[term] {
+		if dedupe && seen[term] {
 			return
 		}
 		seen[term] = true

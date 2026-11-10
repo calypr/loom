@@ -82,8 +82,15 @@ package postgres
 // that yield no SQL. The SORT/LIMIT window arms admit only the closed
 // sequence [ROOT_SCAN, UNNEST+, SORT?, LIMIT?, RETURN]; their key contract —
 // the complete stable row identity tuple over final expanded rows — is the
-// single contract of window.go (pg-sql-12), which this gate defers to. There
-// is no fallback to the AQL renderer and no AQL-to-SQL conversion here. validateUnnestPlanSurface
+// single contract of window.go (pg-sql-12), which this gate defers to. As
+// part of that window contract, edge joins are registered once per edge
+// variable (window.go's rememberEdge): re-binding one variable to a second
+// join would silently point the edge_seq occurrence witness at the later
+// duplicate join, so the registration refuses it — a defense-in-depth pin of
+// the same invariant ir.Validate already enforces at the plan surface
+// ("variable is already defined"), witnessed by
+// TestWindowEdgeVariableRebindIsRefusedAtRegistration. There is no fallback
+// to the AQL renderer and no AQL-to-SQL conversion here. validateUnnestPlanSurface
 // is the single contract definition, applied as the first plan-facing act at
 // both entry points: RenderUnnest applies it before delegation, and
 // RenderPhysicalPlan — the read-spine dispatch — applies it before plan

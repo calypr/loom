@@ -171,6 +171,143 @@ func TestWindowSpineLimitWithoutSortStaysDeterministic(t *testing.T) {
 	}
 }
 
+func TestWindowSpineDuplicateSortKeysAreEmittedVerbatim(t *testing.T) {
+	// Review-pinned W1 invariant: ir.Validate accepts duplicate SORT keys
+	// (each key is validated independently), and the merged pg-sql-02
+	// renderer emitted duplicate ORDER BY terms. The spine window must keep
+	// that byte-identity: dedup is an expansion-only (W2) behavior, because
+	// the renderer witnesses resource_seq/edge_seq sit outside
+	// resourceFilterColumns and can never collide with a typed-column plan
+	// key when no expansion is present.
+	plan := basePlan()
+	plan.Operations = []ir.PhysicalOperation{
+		plan.Operations[0],
+		windowSortOp(
+			ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+			ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
+		),
+		windowReturnOp(valueProjection("logical_id", "root", "logical_id")),
+	}
+	rendered := renderOK(t, plan)
+	if got, want := windowOrderByClause(t, rendered.SQL),
+		`r0."logical_id" ASC, r0."logical_id" ASC, r0."resource_seq" ASC`; got != want {
+		t.Fatalf("duplicate-key spine ORDER BY =\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestWindowEdgeVariableRebindIsRefusedAtRegistration(t *testing.T) {
+	// The window's edge-join registration refuses re-binding one variable
+	// to a second join: the occurrence witness must name exactly one join
+	// per edge variable, or it would silently point at the later duplicate
+	// join. At the plan surface, ir.Validate already rejects duplicate
+	// variable definitions (verified against the merged pg-sql-02/09
+	// renderer: "validate physical plan: operation N: variable %q is
+	// already defined"), so both merged contexts below were refused before
+	// this PR as well — the arm narrows nothing merged; it pins the
+	// registration invariant directly inside the renderer.
+	t.Run("plan surface refuses duplicate edge variable in both contexts", func(t *testing.T) {
+		spine := basePlan()
+		spine.BindVars["edge_collection"] = "fhir_edge"
+		spine.BindVars["edge_label"] = "has-specimen"
+		spine.BindVars["target_type"] = "Specimen"
+		traversal := func(target string) ir.PhysicalOperation {
+			return ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &ir.PhysicalTraversal{
+				SourceVariable: "root", TargetVariable: target, EdgeVariable: "edge",
+				Direction: ir.PhysicalOutbound, EdgeCollectionBindKey: "edge_collection",
+				EdgeLabelBindKey: "edge_label", TargetTypeBindKey: "target_type",
+				EdgeTargetTypeField: "to_type", Strategy: ir.PhysicalTraversalNative,
+			}}
+		}
+		spine.Operations = []ir.PhysicalOperation{
+			spine.Operations[0], traversal("target_a"), traversal("target_b"),
+			windowReturnOp(valueProjection("logical_id", "root", "logical_id")),
+		}
+		requireRebindRefusal(t, spine, `variable "edge" is already defined`)
+
+		routeTraversal := func(occurrence, target string) ir.PhysicalUnnestRouteStep {
+			return ir.PhysicalUnnestRouteStep{OccurrenceID: occurrence, Traversal: ir.PhysicalTraversal{
+				SourceVariable: "root", TargetVariable: target, EdgeVariable: "obs_edge",
+				Direction: ir.PhysicalOutbound, EdgeCollectionBindKey: "edge_collection",
+				EdgeLabelBindKey: "edge_label", TargetTypeBindKey: "target_type",
+				EdgeTargetTypeField: "to_type", Strategy: ir.PhysicalTraversalNative,
+			}}
+		}
+		routed := func(occurrence, owner, output, ordinality, hasItem, ancestor string) ir.PhysicalUnnest {
+			unnest := codingExpansion(ir.PhysicalUnnestExclude)
+			unnest.Owner = ir.PhysicalUnnestOwner{OccurrenceID: occurrence, ResourceType: "Observation",
+				RootVariable: "root", OwnerVariable: owner, Route: []ir.PhysicalUnnestRouteStep{routeTraversal(occurrence, owner)}}
+			unnest.Expression = arrayExtract(owner, "Observation",
+				spec.SelectorStep{Field: "component", Iterate: true},
+				spec.SelectorStep{Field: "code"},
+				spec.SelectorStep{Field: "coding", Iterate: true})
+			unnest.OutputVariable, unnest.Ordinality, unnest.HasItemVariable = output, ordinality, hasItem
+			unnest.Ancestors = []ir.PhysicalUnnestAncestor{{StepIndex: 0, Variable: ancestor}}
+			return unnest
+		}
+		windowless := basePlan()
+		windowless.BindVars["edge_collection"] = "fhir_edge"
+		windowless.BindVars["edge_label"] = "has-observation"
+		windowless.BindVars["target_type"] = "Observation"
+		windowless.Operations = []ir.PhysicalOperation{
+			windowless.Operations[0],
+			unnestOp(routed("obs-a-owner", "obs_a", "item_a", "position_a", "has_item_a", "component_item_a")),
+			unnestOp(routed("obs-b-owner", "obs_b", "item_b", "position_b", "has_item_b", "component_item_b")),
+			windowReturnOp(valueProjection("logical_id", "root", "logical_id")),
+		}
+		requireRebindRefusal(t, windowless, `variable "obs_edge" is already defined`)
+	})
+
+	t.Run("registration arm refuses a rebind and names the first join", func(t *testing.T) {
+		for _, context := range []struct{ name, variable, first, second string }{
+			{"spine join rebind", "edge", "e1", "e3"},
+			{"unnest route rebind", "obs_edge", "e2", "e4"},
+		} {
+			window := &executionWindow{}
+			if err := window.rememberEdge(context.variable, context.first); err != nil {
+				t.Fatalf("%s: first registration: %v", context.name, err)
+			}
+			err := window.rememberEdge(context.variable, context.second)
+			if !errors.Is(err, ErrUnsupportedPostgresPlan) {
+				t.Fatalf("%s: rebind error = %v, want ErrUnsupportedPostgresPlan", context.name, err)
+			}
+			if want := `edge variable "` + context.variable + `"`; !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s: rebind error %q must name the variable", context.name, err)
+			}
+			if want := `already joined as "` + context.first + `"`; !strings.Contains(err.Error(), want) {
+				t.Fatalf("%s: rebind error %q must name the first join alias", context.name, err)
+			}
+		}
+		window := &executionWindow{}
+		if err := window.rememberEdge("", "e9"); err != nil {
+			t.Fatalf("untyped (edgeless) traversal must be a no-op: %v", err)
+		}
+		if len(window.edgeVars) != 0 {
+			t.Fatalf("edgeless traversal registered %v", window.edgeVars)
+		}
+	})
+}
+
+func requireRebindRefusal(t *testing.T, plan ir.PhysicalPlan, wantFragment string) {
+	t.Helper()
+	sawUnnest := false
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalUnnestOp {
+			sawUnnest = true
+		}
+	}
+	check := func(name string, err error) {
+		if err == nil || !strings.Contains(err.Error(), wantFragment) {
+			t.Fatalf("%s: %s error = %v, want plan-surface refusal containing %q", t.Name(), name, err, wantFragment)
+		}
+	}
+	if sawUnnest {
+		_, entryErr := RenderUnnest(plan, mustBinding(t))
+		check("entry", entryErr)
+	}
+	_, dispatchErr := RenderPhysicalPlan(plan, mustBinding(t))
+	check("dispatch", dispatchErr)
+}
+
 func TestWindowSpineRejectsIdentitySpellingAndPayloadSorts(t *testing.T) {
 	// The _key spelling is W2 tuple vocabulary only; the spine keeps the
 	// merged typed-column contract, and payload paths stay refused.
