@@ -737,6 +737,18 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 			plan.BindVars["edge_collection"] = "fhir_edge_old"
 			return plan
 		}(), `must be bound to "fhir_edge"`},
+		{"subplan step 2 not anchored on step 1", func() ir.PhysicalPlan {
+			plan := trvRequiredPlan(trvRequiredSubplan(
+				trvSubplanTraversal("root", "specimen", "edge_label", "target_type"),
+				trvSubplanTraversal("specimen", "observation", "edge_label_2", "target_type_2"),
+			))
+			plan.BindVars["edge_label_2"] = "has-observation"
+			plan.BindVars["target_type_2"] = "Observation"
+			// Step 2 must chain through step 1's reached row; anchoring on
+			// the root instead fabricates a second independent hop.
+			plan.Operations[1].Filter.Expression.Exists.Operations[1].Traversal.SourceVariable = "root"
+			return plan
+		}(), "must anchor on"},
 	}
 
 	// Rows the ir-plan gate closes ahead of the renderer
