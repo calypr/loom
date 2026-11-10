@@ -102,7 +102,8 @@ package postgres
 // One documented divergence: a stored string under a DATE/DATE_TIME ordering
 // comparison that is not a full-precision instant (for example the partial
 // FHIR date "2024", or an invalid-calendar shape such as 2024-02-30,
-// 2024-13-01, 2024-01-01T25:70:99Z, or offset +99:99) is never-comparable
+// 2024-13-01, 2024-01-01T25:70:99Z, an offset beyond ±15:59 such as
+// +16:00, or a comma decimal such as 10:20:30,5) is never-comparable
 // here — the guard yields SQL NULL and the row is excluded — where AQL's
 // DATE_TIMESTAMP would fold such values and possibly match or raise. The
 // guard's regexes are calendar-aware precisely so its THEN branches never
@@ -367,7 +368,7 @@ func temporalComparisonValue(kind spec.FilterValueKind, value any) (time.Time, e
 	switch typed := value.(type) {
 	case time.Time:
 		if kind == "" || kind == spec.FilterDate || kind == spec.FilterDateTime {
-			return typed, nil
+			return typed.UTC(), nil
 		}
 		return time.Time{}, fmt.Errorf("%w: value kind %q cannot bind a timestamp", ErrUnsupportedPostgresPlan, string(kind))
 	case string:
@@ -523,11 +524,17 @@ func validatePayloadBindType(kind spec.FilterValueKind, value any) error {
 // proleptic-Gregorian leap-year test ((div-by-4 and not div-by-100) or
 // div-by-400, century form written out because POSIX ERE has no
 // lookahead). Time hours/minutes/seconds are range-bounded (leap seconds
-// excluded, as before) and UTC offsets are bounded to the range PostgreSQL
-// itself admits. Year 0000 and any shape outside these branches are
-// never-comparable, never cast. The live matrix stores invalid-calendar
-// rows (2024-02-30, 2024-13-01, 2024-01-01T25:70:99Z, offset +99:99) to
-// pin that the statement never raises and the rows are excluded.
+// excluded, as before); fractional seconds are '.'-only and UTC offsets
+// stop at ±15:59, because PostgreSQL raises SQLSTATE 22007 on a comma
+// decimal ("10:20:30,5") and SQLSTATE 22009 ("time zone displacement out
+// of range") on ±16:00 through ±23:59 — the patterns end exactly where the
+// casts start raising. Year 0000 and any shape outside these branches are
+// never-comparable, never cast; that also matches the AQL reading, where
+// DATE_TIMESTAMP yields NaN and every NaN comparison is false. The live
+// matrix and the boundary sweep store invalid-calendar, over-range offset,
+// and comma-decimal rows (2024-02-30, 2024-13-01, 2024-01-01T25:70:99Z,
+// +16:00, 10:20:30,5) to pin that the statement never raises and the rows
+// are excluded.
 const (
 	// Two-digit pairs whose value is divisible by 4 and nonzero: 04/08
 	// (even tens 0), [2468]x0/4/8 (even tens), x2/x6 with odd tens.
@@ -538,8 +545,8 @@ const (
 	// followed by this pattern), so year 0000 is never cast.
 	temporalStoredYearPattern      = `[1-9][0-9]{3}`
 	temporalStoredDateCorePattern  = `([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|` + temporalStoredYearPattern + `-(0[469]|11)-(0[1-9]|[12][0-9]|30)|` + temporalStoredYearPattern + `-02-(0[1-9]|1[0-9]|2[0-8])|` + temporalLeapTensOnesPattern + `00-02-29|[0-9]{2}` + temporalLeapTensOnesPattern + `-02-29)`
-	temporalStoredTimePattern      = `(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?`
-	temporalStoredOffsetPattern    = `(Z|[+-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])`
+	temporalStoredTimePattern      = `(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]+)?)?`
+	temporalStoredOffsetPattern    = `(Z|[+-]((0[0-9]|1[0-4]):[0-5][0-9]|15:[0-5][0-9]))`
 	temporalStoredDatePattern      = `^` + temporalStoredDateCorePattern + `$`
 	temporalStoredInstantPattern   = `^` + temporalStoredDateCorePattern + `T` + temporalStoredTimePattern + temporalStoredOffsetPattern + `$`
 	temporalStoredNoOffsetPattern  = `^` + temporalStoredDateCorePattern + `T` + temporalStoredTimePattern + `$`

@@ -3,7 +3,9 @@ package postgres
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -339,9 +341,9 @@ func TestRenderSelectorComparisonTemporalOrdersByGuardedInstant(t *testing.T) {
 		` AND COALESCE((CASE` +
 		` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)$'` +
 		` THEN (` + text + ` || 'T00:00:00+00:00')::timestamptz` +
-		` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?(Z|[+-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])$'` +
+		` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]+)?)?(Z|[+-]((0[0-9]|1[0-4]):[0-5][0-9]|15:[0-5][0-9]))$'` +
 		` THEN ` + text + `::timestamptz` +
-		` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?$'` +
+		` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]+)?)?$'` +
 		` THEN (` + text + ` || '+00:00')::timestamptz` +
 		` END) > $6, false))`
 	if got := pgsq05WhereClause(t, rendered); got != wantClause {
@@ -1020,4 +1022,92 @@ func TestRenderRejectsStringKindOrderingInAllThreeForms(t *testing.T) {
 	selectorPlan = pgsq05AddFilter(selectorPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
 		"Patient", "gender", "LT", spec.QuantifierAny, spec.FilterString, "v", true)))
 	pgsq05Reject(t, selectorPlan, "LT over STRING kind in selector form")
+}
+
+// ---------------------------------------------------------------------------
+// Real unit arms for the temporal guard patterns (independent of the
+// captured goldens, which encode the pattern strings and therefore cannot
+// catch a pattern bug). These execute the constants themselves; the live
+// boundary sweep executes them through PostgreSQL's ~ operator and the
+// real ::timestamptz casts.
+// ---------------------------------------------------------------------------
+
+func TestRenderTemporalGuardPatternUnitArms(t *testing.T) {
+	date := regexp.MustCompile(temporalStoredDatePattern)
+	instant := regexp.MustCompile(temporalStoredInstantPattern)
+	noOffset := regexp.MustCompile(temporalStoredNoOffsetPattern)
+
+	type arm struct {
+		value string
+		date  bool
+		inst  bool
+		noOff bool
+	}
+	arms := []arm{
+		// Century-leap arms: div-by-400 keeps Feb 29; div-by-100-not-400
+		// and year 0000 never match.
+		arm{"2000-02-29", true, false, false}, {"2400-02-29", true, false, false},
+		arm{"1600-02-29", true, false, false}, {"1900-02-29", false, false, false},
+		arm{"2100-02-29", false, false, false}, {"0000-02-29", false, false, false},
+		arm{"0000-01-01", false, false, false},
+		// Leap/non-leap Feb for ordinary years.
+		arm{"2024-02-29", true, false, false}, {"2023-02-29", false, false, false},
+		arm{"2024-02-28", true, false, false}, {"2024-02-30", false, false, false},
+	}
+	// Every month against calendar truth (days 01, max, max+1).
+	maxDay := map[string]int{"01": 31, "02": 28, "03": 31, "04": 30, "05": 31, "06": 30,
+		"07": 31, "08": 31, "09": 30, "10": 31, "11": 30, "12": 31}
+	for month, max := range maxDay {
+		arms = append(arms,
+			arm{"2023-" + month + "-01", true, false, false},
+			arm{fmt.Sprintf("2023-%s-%02d", month, max), true, false, false},
+			arm{fmt.Sprintf("2023-%s-%02d", month, max+1), false, false, false},
+			arm{"2023-" + month + "-00", false, false, false},
+			arm{"2023-" + month + "-32", false, false, false},
+		)
+	}
+	arms = append(arms,
+		// Time bounds.
+		arm{"2024-03-15T23:59:59Z", false, true, false},
+		arm{"2024-03-15T24:00:00Z", false, false, false},
+		arm{"2024-03-15T23:60:00Z", false, false, false},
+		arm{"2024-03-15T23:59:60Z", false, false, false}, // leap second excluded, as before
+		arm{"2024-03-15T10:20Z", false, true, false},
+		// Offset bounds: PostgreSQL admits ±15:59 (SQLSTATE 22009 beyond).
+		arm{"2024-03-15T10:20:30+00:00", false, true, false},
+		arm{"2024-03-15T10:20:30+14:00", false, true, false},
+		arm{"2024-03-15T10:20:30+15:59", false, true, false},
+		arm{"2024-03-15T10:20:30-15:59", false, true, false},
+		arm{"2024-03-15T10:20:30+16:00", false, false, false},
+		arm{"2024-03-15T10:20:30-16:00", false, false, false},
+		arm{"2024-03-15T10:20:30+23:59", false, false, false},
+		arm{"2024-03-15T10:20:30-23:59", false, false, false},
+		arm{"2024-03-15T10:20:30+15:60", false, false, false},
+		// Fractional seconds: '.' only (SQLSTATE 22007 on comma).
+		arm{"2024-03-15T10:20:30.5Z", false, true, false},
+		arm{"2024-03-15T10:20:30,5Z", false, false, false},
+		arm{"2024-03-15T10:20:30,5", false, false, false},
+		arm{"2024-03-15T10:20:30.5+02:00", false, true, false},
+		arm{"2024-03-15T10:20:30,5+02:00", false, false, false},
+		// No-offset instant branch.
+		arm{"2024-03-15T10:20:30", false, false, true},
+		arm{"2024-03-15T10:20", false, false, true},
+		arm{"2024-03-15T24:00:00", false, false, false},
+		// Garbage shapes never match any branch.
+		arm{"2024", false, false, false},
+		arm{"not-a-date", false, false, false},
+		arm{"2024-03-15 10:20:30Z", false, false, false},
+	)
+
+	for _, a := range arms {
+		if got := date.MatchString(a.value); got != a.date {
+			t.Errorf("date pattern %q = %v, want %v", a.value, got, a.date)
+		}
+		if got := instant.MatchString(a.value); got != a.inst {
+			t.Errorf("instant pattern %q = %v, want %v", a.value, got, a.inst)
+		}
+		if got := noOffset.MatchString(a.value); got != a.noOff {
+			t.Errorf("no-offset pattern %q = %v, want %v", a.value, got, a.noOff)
+		}
+	}
 }

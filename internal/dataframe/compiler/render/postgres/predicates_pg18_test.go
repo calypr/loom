@@ -167,9 +167,9 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 		return "CASE" +
 			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)$'` +
 			` THEN ((` + text + ` || 'T00:00:00+00:00')::timestamptz)` +
-			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?(Z|[+-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])$'` +
+			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]+)?)?(Z|[+-]((0[0-9]|1[0-4]):[0-5][0-9]|15:[0-5][0-9]))$'` +
 			` THEN (` + text + `)::timestamptz` +
-			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?$'` +
+			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.][0-9]+)?)?$'` +
 			` THEN ((` + text + ` || '+00:00')::timestamptz)` +
 			` END`
 	}
@@ -533,4 +533,73 @@ func TestZZNoLeftoverVerifySQL05Resources(t *testing.T) {
 	if schemas != 0 {
 		t.Fatalf("%d verify_sql05_* schemas still exist in the service database", schemas)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// F7/F8 boundary sweep: expected sets come from calendar truth and
+// PostgreSQL's empirically admitted instant space (±15:59 offsets, '.'
+// fractional seconds), not from captured goldens. The property under test
+// is that the rendered statement NEVER raises: every out-of-range stored
+// shape must read never-comparable and be excluded.
+// ---------------------------------------------------------------------------
+
+func TestPG18TemporalGuardBoundarySweep(t *testing.T) {
+	svc := newSQL05Service(t)
+
+	// (row, stored recorded value, comparable?) — comparable means the
+	// guard may cast it AND it orders >= 2020-01-01T00:00:00Z.
+	arms := []struct {
+		id         string
+		value      string
+		comparable bool
+	}{
+		{"b-1400", "2024-03-15T10:20:30+14:00", true},
+		{"b-1559", "2024-03-15T10:20:30+15:59", true},
+		{"b-1600", "2024-03-15T10:20:30+16:00", false},
+		{"b-1900feb29", "1900-02-29", false},
+		{"b-2000feb29", "2000-02-29", false}, // valid but before the bound
+		{"b-2359", "2024-03-15T10:20:30+23:59", false},
+		{"b-2400feb29", "2400-02-29", true},
+		{"b-apr31", "2024-04-31", false},
+		{"b-badtime", "2024-01-01T25:70:99Z", false},
+		{"b-comma-sec", "2024-03-15T10:20:30,5", false},
+		{"b-comma-z", "2024-03-15T10:20:30,5Z", false},
+		{"b-dec31", "2024-12-31", true},
+		{"b-dot-off", "2024-03-15T10:20:30.5+02:00", true},
+		{"b-dot-z", "2024-03-15T10:20:30.5Z", true},
+		{"b-feb29leap", "2024-02-29", true},
+		{"b-h24", "2024-03-15T24:00:00Z", false},
+		{"b-jun30", "2024-06-30", true},
+		{"b-m1600", "2024-03-15T10:20:30-16:00", false},
+		{"b-m2359", "2024-03-15T10:20:30-23:59", false},
+		{"b-may31", "2024-05-31", true},
+		{"b-min", "2024-03-15T10:20Z", true},
+		{"b-nooff", "2024-03-15T10:20", true},
+		{"b-nov30", "2024-11-30", true},
+		{"b-sec60", "2024-03-15T10:20:60Z", false},
+		{"b-sep31", "2024-09-31", false},
+		{"b-yr0", "0000-01-01", false},
+	}
+	var want []string
+	for _, a := range arms {
+		sql05Insert(t, svc, "Encounter", a.id, map[string]any{"recorded": a.value})
+		if a.comparable {
+			want = append(want, sql05RowPrefix+a.id)
+		}
+	}
+	rows := make([][]string, 0, len(want))
+	for _, id := range want {
+		rows = append(rows, []string{id})
+	}
+
+	plan := sql05Plan("Encounter")
+	plan.BindVars["when_value"] = "2020-01-01T00:00:00Z"
+	plan = pgsq05AddFilter(plan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+		Operator:  "GTE",
+		ValueKind: spec.FilterDateTime,
+		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"recorded"}},
+		Right:     &ir.PhysicalValue{BindKey: "when_value"},
+	}))
+	// A raise on any arm surfaces here as a fatal statement error.
+	sql05Compare(t, "temporal guard boundary sweep", sql05RenderedSelect(t, svc, plan), rows)
 }
