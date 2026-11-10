@@ -243,7 +243,15 @@ func (s *sql10Service) runOne(t *testing.T, rendered command.RenderedPostgresPhy
 func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 	svc := newSQL10Service(t)
 	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-calc", sql10Path,
-		map[string]any{"multipleBirthInteger": 5, "active": true})
+		map[string]any{"multipleBirthInteger": 5, "active": true,
+			// Whitespace-padded decimal spellings: the guard grammar
+			// admits the whole POSIX [[:space:]] class, so the explicit
+			// btrim set must erase exactly those (review thread
+			// r4529631602 — version-varying numeric_in tolerance).
+			"birthDate":        " \t42\n",
+			"deceasedDateTime": " 42 ",
+			"text":             map[string]any{"status": "\n42.5\r"},
+		})
 	// Type decoy with the same logical id: excluded by the scope chain,
 	// proven stored below.
 	svc.insertResource(t, sql10Project, sql10Gen, "Observation", "p-calc", sql10Path, nil)
@@ -285,9 +293,21 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 		sql10CallProjection("pick", sql10Call("coalesce", "",
 			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
 			sql10Literal("fb"))),
+		// Tab/newline-padded decimal strings through every whitespace
+		// alphabet: the arithmetic coercion arm, and the cast INTEGER /
+		// DECIMAL TO_NUMBER arms — all must read the number, never raise
+		// (the explicit btrim set matches the [[:space:]] grammar).
+		sql10CallProjection("padmul", sql10Call("multiply", "",
+			sql10Extract(t, "Patient", "birthDate", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
+			sql10Literal("one"))),
+		sql10CallProjection("padint", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "deceasedDateTime", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		sql10CallProjection("paddec", sql10Call("cast", "DECIMAL",
+			sql10Extract(t, "Patient", "text.status", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
 	)
 	svc.runOne(t, svc.renderLive(t, plan),
-		"42", "2.5", "<null>", "<null>", "0", "42", "true", "fallback")
+		"42", "2.5", "<null>", "<null>", "0", "42", "true", "fallback",
+		"42", "42", "42.5")
 
 	// Non-vacuity: the decoy really exists, so its exclusion is the
 	// scope chain, not an empty table.

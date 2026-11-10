@@ -230,7 +230,33 @@ import (
 // tree. Lowering emits shallow trees (the derived-column wrappers nest at
 // most three levels); the cap keeps a hostile plan from unbounded recursion
 // while every lowering shape stays far inside it.
+//
+// The depth cap alone does NOT bound emitted SQL size: the registered
+// fragments replicate their operands (callNumericToJSONB repeats the
+// numeric expression four times, callTruthyTest and callNumericCoercion
+// five to seven), so each nesting level multiplies the fragment and a
+// left-nested chain near the depth cap would expand beyond any memory
+// before the depth guard fires. maxCallFragmentBytes therefore bounds the
+// assembled fragment itself — a typed refusal when replication outgrows
+// any sane plan, checked at both fragment choke points below so expansion
+// is refused within a constant factor of the bound.
 const maxCallExpressionDepth = 64
+
+// maxCallFragmentBytes bounds one assembled CALL fragment: registered
+// lowering nests at most three levels (fragment sizes in the low kilobytes
+// even for wide argument lists), so the bound is orders of magnitude above
+// every legitimate plan and far below anything a replication chain can
+// force.
+const maxCallFragmentBytes = 1 << 20
+
+// checkCallFragment enforces the registered fragment budget.
+func checkCallFragment(fragment string) error {
+	if len(fragment) > maxCallFragmentBytes {
+		return fmt.Errorf("%w: call fragment of %d bytes exceeds the %d-byte registered bound (operand replication under nesting)",
+			ErrUnsupportedPostgresPlan, len(fragment), maxCallFragmentBytes)
+	}
+	return nil
+}
 
 // registeredCallNames is the closed v1 PostgreSQL call surface. It is a
 // strict subset of the ir-validate vocabulary
@@ -289,6 +315,9 @@ type callResultFacts struct {
 func (r *planRenderer) renderCallProjection(plan ir.PhysicalPlan, projection ir.PhysicalProjection) (string, error) {
 	fragment, _, err := r.renderCallExpression(plan, *projection.Expression, 0)
 	if err != nil {
+		return "", fmt.Errorf("projection %q: %w", projection.Name, err)
+	}
+	if err := checkCallFragment(fragment); err != nil {
 		return "", fmt.Errorf("projection %q: %w", projection.Name, err)
 	}
 	return "(" + fragment + ")", nil
@@ -558,7 +587,16 @@ func (r *planRenderer) renderCallOperand(plan ir.PhysicalPlan, expression ir.Phy
 		if err != nil {
 			return callOperand{}, err
 		}
-		return callOperand{sql: "(" + sql + ")"}, nil
+		sql = "(" + sql + ")"
+		// The budget is enforced at every operand BEFORE the parent
+		// replicates it: bottom-up refusal keeps the largest ever-allocated
+		// fragment a constant factor of the bound (a root-only check would
+		// build the full exponential expansion first — measured: the
+		// process OOMs at 40 add levels).
+		if err := checkCallFragment(sql); err != nil {
+			return callOperand{}, err
+		}
+		return callOperand{sql: sql}, nil
 	default:
 		return callOperand{}, fmt.Errorf("%w: call operand kind %q has no registered PostgreSQL rendering (subplan, aggregate, pivot, object, and related-field operands are capability gaps)",
 			ErrUnsupportedPostgresPlan, string(expression.Kind))
@@ -687,6 +725,17 @@ func (r *planRenderer) renderCallValueOperand(expression ir.PhysicalExpression) 
 		return callOperand{}, fmt.Errorf("%w: call operand reads variable %q, which does not bind a readable row",
 			ErrUnsupportedPostgresPlan, value.Variable)
 	}
+	// A derived row is a call operand only when it is a registered JSON
+	// document. The ordinality and has-item derivations carry raw integer
+	// and boolean SQL (unnest.go:683,687) which resolveDerivedValue hands
+	// back verbatim for a bare path (unnest.go:716-718); letting that
+	// reach a jsonb operand position would trade this file's typed
+	// pre-SQL refusal for a raw 42804 at prepare time — the exact
+	// posture renderCallExtractOperand takes against derived rows.
+	if scope := r.rows[value.Variable]; scope.derivedValue != "" && !scope.derivedJSON {
+		return callOperand{}, fmt.Errorf("%w: call operand reads derived variable %q, which carries a computed non-JSON value (ordinality and has-item columns are not registered call operands)",
+			ErrUnsupportedPostgresPlan, value.Variable)
+	}
 	if len(value.Path) == 1 && resourceFilterColumns[canonicalKeyColumn(value.Path[0])] {
 		return callOperand{}, fmt.Errorf("%w: call operand %v addresses the typed storage column %q; registered call operands read JSON documents, not storage columns",
 			ErrUnsupportedPostgresPlan, value.Path, value.Path[0])
@@ -804,6 +853,12 @@ func (r *planRenderer) renderCallNumericOperand(plan ir.PhysicalPlan, expression
 		if err != nil {
 			return "", err
 		}
+		// Same bottom-up budget discipline as the operand choke point:
+		// this direct recursion must refuse a replicated operand before
+		// embedding it in the numeric arms.
+		if err := checkCallFragment(sql); err != nil {
+			return "", err
+		}
 		if facts.staticKind == callLiteralNumber {
 			return "((" + sql + ") #>> '{}')::numeric", nil
 		}
@@ -828,7 +883,7 @@ func callNumericCoercion(operand string) string {
 		" WHEN " + operand + " IS NULL OR jsonb_typeof(" + operand + ") = 'null' THEN NULL" +
 		" WHEN jsonb_typeof(" + operand + ") = 'number' THEN (" + operand + " #>> '{}')::numeric" +
 		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ " + quoteSQLLiteral(callDecimalStringPattern) +
-		" THEN btrim((" + operand + " #>> '{}'))::numeric" +
+		" THEN btrim((" + operand + " #>> '{}'), " + callDecimalTrimCharacters + ")::numeric" +
 		" ELSE NULL END)"
 }
 
@@ -838,7 +893,21 @@ func callNumericCoercion(operand string) string {
 // "valid representation of a number" and PostgreSQL's double text parsing
 // accept identically. Wider JavaScript extensions (hexadecimal, "Infinity")
 // stay outside the registered grammar.
+//
+// The two alphabets are aligned: the grammar admits the whole POSIX
+// [[:space:]] class (space, tab, newline, vertical tab, form feed,
+// carriage return — the isspace set ArangoDB's "any whitespace at the
+// start or the end" ignores), so the trim that precedes the ::numeric cast
+// must erase exactly that set. Bare btrim(text) trims only the space
+// character, which would let a tab- or newline-padded spelling pass the
+// guard and then depend on numeric_in's version-varying whitespace
+// tolerance; the explicit character set below pins the erasure to the
+// grammar (pinned live for tab- and newline-padded spellings).
 const callDecimalStringPattern = `^[[:space:]]*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?[[:space:]]*$`
+
+// callDecimalTrimCharacters is btrim's explicit whitespace set: exactly the
+// characters callDecimalStringPattern's [[:space:]] arms admit.
+const callDecimalTrimCharacters = `E' \t\n\v\f\r'`
 
 // ---------------------------------------------------------------------------
 // Cast
@@ -916,7 +985,7 @@ func callToNumberDouble(operand string, depth int) string {
 		" = 'true'::jsonb THEN 1 ELSE 0 END" +
 		" WHEN jsonb_typeof(" + operand + ") = 'number' THEN (" + operand + " #>> '{}')::numeric" +
 		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ " + quoteSQLLiteral(callDecimalStringPattern) +
-		" THEN btrim((" + operand + " #>> '{}'))::numeric" +
+		" THEN btrim((" + operand + " #>> '{}'), " + callDecimalTrimCharacters + ")::numeric" +
 		" WHEN jsonb_typeof(" + operand + ") = 'string' THEN 0" +
 		" WHEN jsonb_typeof(" + operand + ") = 'array' THEN CASE" +
 		" WHEN jsonb_array_length(" + operand + ") = 0 THEN 0" +

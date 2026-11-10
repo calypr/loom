@@ -294,7 +294,7 @@ func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
 	o := `(r0."payload" #> $5::text[])`
 	coercion := `(CASE WHEN ` + o + ` IS NULL OR jsonb_typeof(` + o + `) = 'null' THEN NULL` +
 		` WHEN jsonb_typeof(` + o + `) = 'number' THEN (` + o + ` #>> '{}')::numeric` +
-		` WHEN jsonb_typeof(` + o + `) = 'string' AND (` + o + ` #>> '{}') ~ '` + callDecimalStringPattern + `' THEN btrim((` + o + ` #>> '{}'))::numeric` +
+		` WHEN jsonb_typeof(` + o + `) = 'string' AND (` + o + ` #>> '{}') ~ '` + callDecimalStringPattern + `' THEN btrim((` + o + ` #>> '{}'), ` + callDecimalTrimCharacters + `)::numeric` +
 		` ELSE NULL END)`
 	plan := sql10Plan("Patient", map[string]any{"a": int64(3)},
 		sql10CallProjection("scaled", sql10Call("multiply", "",
@@ -329,7 +329,7 @@ func sql10WantToNumberDouble(operand string, depth int) string {
 		" WHEN " + operand + " IS NULL OR jsonb_typeof(" + operand + ") = 'null' THEN 0" +
 		" WHEN jsonb_typeof(" + operand + ") = 'boolean' THEN CASE WHEN " + operand + " = 'true'::jsonb THEN 1 ELSE 0 END" +
 		" WHEN jsonb_typeof(" + operand + ") = 'number' THEN (" + operand + " #>> '{}')::numeric" +
-		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ '" + callDecimalStringPattern + "' THEN btrim((" + operand + " #>> '{}'))::numeric" +
+		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ '" + callDecimalStringPattern + "' THEN btrim((" + operand + " #>> '{}'), " + callDecimalTrimCharacters + ")::numeric" +
 		" WHEN jsonb_typeof(" + operand + ") = 'string' THEN 0" +
 		" WHEN jsonb_typeof(" + operand + ") = 'array' THEN CASE" +
 		" WHEN jsonb_array_length(" + operand + ") = 0 THEN 0" +
@@ -723,6 +723,81 @@ func TestCallsRejectPlanLevelShapes(t *testing.T) {
 	for _, cell := range irCells {
 		plan := sql10Plan("Patient", binds, sql10CallProjection("x", cell.call))
 		sql10RejectAny(t, plan, cell.context, cell.want)
+	}
+}
+
+// TestCallsValueOperandRefusesNonJSONDerivedScope (review thread
+// r4529631198) proves a CALL VALUE operand may not read an ordinality or
+// has-item derived row: those scopes carry raw integer/boolean SQL
+// (unnest.go:683,687) which resolveDerivedValue hands back verbatim for a
+// bare path (unnest.go:716-718), so accepting them would put
+// (lateral.rn - 1) into jsonb operand positions and trade this file's
+// typed pre-SQL refusal for a raw 42804 at prepare time — the posture
+// renderCallExtractOperand already takes against derived rows. Driven
+// directly against the renderer's row bindings because the read-spine
+// contract refuses CALL projections on the unnest slice upstream; this arm
+// is the defense-in-depth layer beneath that gate. The registered JSON
+// derived rows (unnest item values, derivedJSON=true) must still be
+// accepted.
+func TestCallsValueOperandRefusesNonJSONDerivedScope(t *testing.T) {
+	r := &planRenderer{rows: map[string]rowScope{
+		"position": {derivedValue: "(lateral.rn - 1)"},
+		"has_item": {derivedValue: "(lateral.rn IS NOT NULL)"},
+		"item":     {derivedValue: "(lateral.item.value)", derivedJSON: true},
+	}}
+	value := func(variable string) ir.PhysicalExpression {
+		return ir.PhysicalExpression{
+			Kind:         ir.PhysicalValueExpression,
+			Cardinality:  ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Value:        &ir.PhysicalValue{Variable: variable},
+		}
+	}
+	for _, variable := range []string{"position", "has_item"} {
+		_, err := r.renderCallValueOperand(value(variable))
+		if err == nil || !strings.Contains(err.Error(), "ordinality and has-item") {
+			t.Fatalf("derived non-JSON operand %q: error %v lacks the typed refusal", variable, err)
+		}
+	}
+	operand, err := r.renderCallValueOperand(value("item"))
+	if err != nil {
+		t.Fatalf("JSON-derived row must stay accepted: %v", err)
+	}
+	// The registered JSON derived value resolves through the derived arm
+	// (parenthesizing is the renderers'; only the source identity is the
+	// assertion here — never a raw column or storage-alias substitution).
+	if !strings.Contains(operand.sql, "lateral.item.value") {
+		t.Fatalf("JSON-derived operand fragment = %q", operand.sql)
+	}
+}
+
+// TestCallsRejectFragmentByteBudget (review thread r4529631959) proves the
+// registered fragment budget bounds emitted SQL size on its own: operand
+// replication (callNumericToJSONB ×4, callTruthyTest/callNumericCoercion
+// ×5-7) multiplies per nesting level, so a left-nested chain far inside
+// the 64-level depth cap would otherwise expand beyond memory before the
+// depth guard fires. The budget must refuse with the typed error first,
+// while the depth cap still governs chains below the byte bound's reach.
+func TestCallsRejectFragmentByteBudget(t *testing.T) {
+	nest := func(levels int) *ir.PhysicalExpression {
+		expression := sql10Literal("one")
+		for range levels {
+			expression = sql10Nested(sql10Call("add", "", expression, sql10Literal("one")))
+		}
+		return &expression
+	}
+	// 40 levels: replication alone exceeds the 1 MiB bound long before
+	// the depth guard's 64.
+	sql10Reject(t, sql10Plan("Patient", map[string]any{"one": int64(1)},
+		sql10CallProjection("x", nest(40))), "fragment budget", "exceeds the")
+	// A legitimate depth (lowering nests at most three) stays far inside
+	// the budget and renders: the registered bound never touches a real
+	// plan shape.
+	shallow := sql10Plan("Patient", map[string]any{"one": int64(1)},
+		sql10CallProjection("x", nest(4)))
+	rendered := sql10RenderOK(t, shallow)
+	if len(rendered.SQL) >= maxCallFragmentBytes {
+		t.Fatalf("legitimate 8-level chain produced %d bytes", len(rendered.SQL))
 	}
 }
 
