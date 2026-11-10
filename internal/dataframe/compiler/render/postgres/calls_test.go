@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -252,6 +253,17 @@ const (
 	sql10WantMulDivPassUpper = "179769313486231500960116590016510948825025611236495184238123361562143308190875053458173343219024575698011666711264844337248681780152130643733137952927759391115036970607451570876046936802390650830255617955750582549437097177865883181587442630101659737164863430522599210419506436529457842398703070964143777382400"
 	sql10WantUnderflowFloor  = "2.5E-324"
 	sql10WantSubnormalFloor  = "4.9406564584124655E-324"
+	// Band-test operand cap (F-8): comparison-only CASE that caps
+	// band-test operands' magnitudes at 1e400 so the band tests' own
+	// numeric +,-,*,/ can never leave the storable numeric domain
+	// (PG18 raises 22003 on unclamped 1e5e9-class products, quotients,
+	// and near-max sums; tiny operands are safe because division flushes
+	// and tiny products read the registered 0 arm — probes in the F-8
+	// note). TestCallsBandTestClamps pins this against the emitter
+	// constant and against the band boundaries: every pass verdict needs
+	// both operands far inside the cap, so real-valued verdicts are
+	// byte-identical with or without the clamp.
+	sql10WantBandClampCap = "1e400"
 )
 
 // sql10WantNumericToJSONB mirrors the registered numeric->jsonb cast
@@ -282,25 +294,38 @@ func sql10WantDoubleDivisor(expression string) string {
 		` ELSE NULL END)`
 }
 
+// sql10WantBandOperandClamp mirrors the band-test operand clamp (F-8):
+// sign-preserving magnitude cap by comparison only; zero and NULL pass
+// through the ELSE (the divisor's NULLIF fold keeps its meaning).
+func sql10WantBandOperandClamp(operand string) string {
+	return "(CASE" +
+		" WHEN " + operand + " > '" + sql10WantBandClampCap + "'::numeric THEN '" + sql10WantBandClampCap + "'::numeric" +
+		" WHEN " + operand + " < '-" + sql10WantBandClampCap + "'::numeric THEN '-" + sql10WantBandClampCap + "'::numeric" +
+		" ELSE " + operand + " END)"
+}
+
 // sql10WantArithmetic mirrors the registered IEEE-domain arithmetic
-// fragment: an exact numeric-domain band test selects the arm, the double
-// operation runs inside the pass arm, underflow reads 0 and overflow (plus
-// every NULL contribution) reads NULL.
+// fragment: an exact numeric-domain band test — on clamp-windowed
+// operands (F-8), so the test's own numeric operation cannot raise —
+// selects the arm, the double operation runs inside the pass arm on the
+// RAW operands (their own guards do the parse), underflow reads 0 and
+// overflow (plus every NULL contribution) reads NULL.
 func sql10WantArithmetic(operator, left, right string) string {
+	clampedLeft, clampedRight := sql10WantBandOperandClamp(left), sql10WantBandOperandClamp(right)
 	switch operator {
 	case "+", "-":
-		return `to_jsonb(CASE WHEN abs((` + left + ` ` + operator + ` ` + right + `)) < '` + sql10WantAddPassUpper + `'::numeric` +
+		return `to_jsonb(CASE WHEN abs((` + clampedLeft + ` ` + operator + ` ` + clampedRight + `)) < '` + sql10WantAddPassUpper + `'::numeric` +
 			` THEN ` + sql10WantDoubleOperand(left) + ` ` + operator + ` ` + sql10WantDoubleOperand(right) +
 			` ELSE NULL END)`
 	case "*":
-		magnitude := `abs((` + left + ` * ` + right + `))`
+		magnitude := `abs((` + clampedLeft + ` * ` + clampedRight + `))`
 		return `to_jsonb(CASE WHEN ` + magnitude + ` < '` + sql10WantMulDivPassUpper + `'::numeric` +
 			` AND ` + magnitude + ` >= '` + sql10WantSubnormalFloor + `'::numeric` +
 			` THEN ` + sql10WantDoubleOperand(left) + ` * ` + sql10WantDoubleOperand(right) +
 			` WHEN ` + magnitude + ` < '` + sql10WantSubnormalFloor + `'::numeric` +
 			` THEN 0::double precision ELSE NULL END)`
 	default:
-		quotient := `((` + left + ` + 0E-400) / NULLIF(` + right + `, 0))`
+		quotient := `((` + clampedLeft + ` + 0E-400) / NULLIF(` + clampedRight + `, 0))`
 		magnitude := `abs(` + quotient + `)`
 		return `to_jsonb(CASE WHEN ` + magnitude + ` < '` + sql10WantMulDivPassUpper + `'::numeric` +
 			` AND ` + magnitude + ` >= '` + sql10WantSubnormalFloor + `'::numeric` +
@@ -476,6 +501,75 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 		if got := strings.Count(fragment, "pg_input_is_valid("); got != cell.wantOracle {
 			t.Fatalf("%s embeds the input oracle %d times, want %d: %s", name, got, cell.wantOracle, fragment)
 		}
+	}
+}
+
+// TestCallsBandTestClamps pins the F-8 disposition: the band tests' own
+// numeric-domain operations (which raised 22003 on storable extreme
+// operands before the clamp — PG18 measured 1e98303 × 1e98303,
+// 9.9e131071 + 9.9e131071, and 1e131071 / 1e-16383) run on sign-
+// preserved comparison-capped operands. The cap must sit above every
+// registered band boundary (so no pass-band verdict ever sees it and
+// real-valued verdicts are byte-identical), and every capped operation
+// result — the worst product cap² and the worst quotient cap ÷ the
+// smallest storable nonzero magnitude 1e-16383 — must stay inside the
+// measured storable ceiling (1e131071) so the tests cannot raise.
+// Tiny operands need no floor: PG18 division flushes and tiny products
+// read the registered 0 arm (probed).
+func TestCallsBandTestClamps(t *testing.T) {
+	if callBandClampCap != sql10WantBandClampCap {
+		t.Fatalf("emitter cap %s diverged from the mirror %s", callBandClampCap, sql10WantBandClampCap)
+	}
+	if callBandClampCap != "1e400" {
+		t.Fatalf("clamp cap drifted from the registered value: %s", callBandClampCap)
+	}
+	parse := func(s string) *big.Float {
+		v, _, err := big.ParseFloat(s, 10, 256, big.ToNearestEven)
+		if err != nil {
+			t.Fatalf("parse %q: %v", s, err)
+		}
+		return v
+	}
+	capV := parse(callBandClampCap)
+	// The cap clears every registered band boundary on the upper side:
+	// no pass verdict's operand magnitudes are ever capped.
+	for _, upper := range []string{callDoubleAddPassUpper, callDoubleMulDivPassUpper, callDoubleOverflowBound} {
+		if capV.Cmp(parse(upper)) <= 0 {
+			t.Fatalf("clamp cap %s does not exceed the boundary %s", callBandClampCap, upper)
+		}
+	}
+	// Capped operation results stay far inside numeric's storable domain
+	// (measured ceiling 1e131071 on PG18), so the band tests cannot
+	// raise: worst product cap², worst quotient cap ÷ 1e-16383 (the
+	// smallest storable nonzero magnitude), worst sum 2·cap.
+	ceiling := parse("1e131071")
+	if product := new(big.Float).Mul(capV, capV); product.Cmp(ceiling) >= 0 {
+		t.Fatalf("worst capped product %s reaches the measured numeric ceiling", product.Text('g', 6))
+	}
+	if quotient := new(big.Float).Quo(capV, parse("1e-16383")); quotient.Cmp(ceiling) >= 0 {
+		t.Fatalf("worst capped quotient %s reaches the measured numeric ceiling", quotient.Text('g', 6))
+	}
+	if sum := new(big.Float).Mul(capV, big.NewFloat(2)); sum.Cmp(ceiling) >= 0 {
+		t.Fatalf("worst capped sum %s reaches the measured numeric ceiling", sum.Text('g', 6))
+	}
+	// The clamp is comparison-only: no arithmetic operator may appear
+	// (only registered literals and the operand), zero and NULL pass
+	// through the ELSE, and the cap literal appears exactly as its
+	// constant derived it (comparison + THEN on each sign side).
+	clamped := callBandOperandClamp("o")
+	for _, forbidden := range []string{" + ", " - ", " * ", " / ", "::double", "::float"} {
+		if strings.Contains(clamped, forbidden) {
+			t.Fatalf("clamp performs %q: %s", forbidden, clamped)
+		}
+	}
+	if !strings.HasSuffix(clamped, " ELSE o END)") {
+		t.Fatalf("clamp does not pass zero and NULL through unchanged: %s", clamped)
+	}
+	if got := strings.Count(clamped, "'"+callBandClampCap+"'::numeric"); got != 2 {
+		t.Fatalf("clamp embeds the cap literal %d times, want 2: %s", got, clamped)
+	}
+	if got := strings.Count(clamped, "'-"+callBandClampCap+"'::numeric"); got != 2 {
+		t.Fatalf("clamp embeds the negated cap literal %d times, want 2: %s", got, clamped)
 	}
 }
 

@@ -525,6 +525,55 @@ func TestSQL10LiveDecimalTierStoredNumbers(t *testing.T) {
 	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>")
 }
 
+// TestSQL10LiveArithmeticBandClampReadBack pins the F-8 disposition on
+// the reach path the band design exists for: STORABLE extreme-number
+// payloads whose unclamped band-test operations raised 22003 inside the
+// numeric domain before any arm could answer (PG18 probed: 1e98303 ×
+// 1e98303 — each storable under the measured 1e131071 exponent cap,
+// 1e131071 ÷ 1e-16383, and 9.9e131071 + 9.9e131071). With the
+// comparison clamp the tests' products, quotients, and sums stay inside
+// the domain, and the registered arms answer: overflow sides read NULL,
+// the reciprocal division reads the registered 0 (matching the probed
+// numeric division behavior — an underflowing quotient flushes to
+// 0.000… rather than raising), and the sanity multiply still reads its
+// IEEE result.
+func TestSQL10LiveArithmeticBandClampReadBack(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-band", sql10Path,
+		map[string]any{
+			"multipleBirthInteger": json.RawMessage(`2`),
+			"active":               json.RawMessage(`3`),
+			"deceasedBoolean":      json.RawMessage(`1e98303`),
+			"deceasedDateTime":     json.RawMessage(`1e98303`),
+			"text": map[string]any{
+				"div": json.RawMessage(`1e131071`),
+			},
+			"maritalStatus": json.RawMessage(`1e-16383`),
+			"birthDate":     json.RawMessage(`9.9e131071`),
+			"gender":        json.RawMessage(`9.9e131071`),
+		})
+	num := func(path string) ir.PhysicalExpression {
+		return sql10Extract(t, "Patient", path, ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	}
+	plan := sql10Plan("Patient", nil,
+		// Sanity: a real multiply still reads its IEEE result — the
+		// clamp is invisible to round-tripping magnitudes.
+		sql10CallProjection("mulSanity", sql10Call("multiply", "",
+			num("multipleBirthInteger"), num("active"))),
+		// Overflow sides: registered NULL, never the raise.
+		sql10CallProjection("mulExt", sql10Call("multiply", "",
+			num("deceasedBoolean"), num("deceasedDateTime"))),
+		sql10CallProjection("divExt", sql10Call("divide", "",
+			num("text.div"), num("maritalStatus"))),
+		sql10CallProjection("addExt", sql10Call("add", "",
+			num("birthDate"), num("gender"))),
+		// Underflow side: registered 0 (probed flush, not a raise).
+		sql10CallProjection("divRecip", sql10Call("divide", "",
+			num("maritalStatus"), num("text.div"))),
+	)
+	svc.runOne(t, svc.renderLive(t, plan), "6", "<null>", "<null>", "<null>", "0")
+}
+
 // readings that prove the registered strict-type basis — AQL comparisons
 // "do not perform implicit type casts if the compared operands have
 // different types" (operators.md 39-43) and rank data types before values

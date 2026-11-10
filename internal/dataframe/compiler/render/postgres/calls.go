@@ -798,9 +798,12 @@ func (r *planRenderer) renderCallPair(plan ir.PhysicalPlan, call *ir.PhysicalCal
 // gradual underflow and cancellation never raise), so each double
 // operation runs only in an arm whose operand and result magnitudes were
 // pre-proven safe by exact numeric-domain band tests that themselves never
-// raise, and no arm depends on CASE evaluation order: every arm is
-// individually raise-free. The pass bands admit every text that
-// round-trips through float64 — every spelling loom ingests — so registered
+// raise — the tests' own numeric +,-,*,/ run on comparison-capped operands
+// (callBandOperandClamp, F-8: unclamped, PG18 raised 22003 inside the test
+// on storable 1e98303-class products, 1e131071 ÷ 1e-16383 quotients, and
+// 9.9e131071-class sums), and no arm depends on CASE evaluation order:
+// every arm is individually raise-free. The pass bands admit every text
+// that round-trips through float64 — every spelling loom ingests — so registered
 // outputs equal IEEE's; the sub-ulp gray bands between a pass boundary and
 // the true raise point (reachable only by hand-authored non-round-tripping
 // text) read the registered conservative value of their outer side (L20,
@@ -828,17 +831,27 @@ func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, c
 	if err != nil {
 		return "", fmt.Errorf("argument 1: %w", err)
 	}
+	// The band tests execute their own numeric operation, so their
+	// operands pass through the raise-free magnitude clamp first (F-8):
+	// unclamped, multiplying two storable three-quarters-of-cap numbers
+	// raises 22003 inside the test before any arm can answer (PG18
+	// measured). The clamp is invisible to round-tripping operands.
+	clampedLeft, clampedRight := callBandOperandClamp(left), callBandOperandClamp(right)
 	switch operator {
 	case "+", "-":
-		// Addition and subtraction never raise except by rounding the sum
-		// to Infinity: cancellation and gradual results flush to zero
-		// without an exception (PG18 measured), so only the overflow band
-		// is needed. Each operand magnitude is < the round-to-Infinity tie
+		// Addition and subtraction never raise in the double arm except
+		// by rounding the sum to Infinity; the numeric test additionally
+		// raises when the sum leaves numeric's weight domain (PG18
+		// measured 9.9e131071 + 9.9e131071 raising 22003 unclamped — the
+		// clamp keeps the test's sum inside). Cancellation and gradual
+		// results flush to zero without an exception (PG18 measured), so
+		// only the overflow band is needed. Each operand magnitude is <
+		// the round-to-Infinity tie
 		// (callDoubleOperand), so |a±b| exceeds the test value by at most
 		// two half-ulps of DBL_MAX (2 * 2^970); passing strictly below
 		// callDoubleAddPassUpper (DBL_MAX − 2^970) keeps |a±b| strictly
 		// below the tie.
-		magnitude := "abs((" + left + " " + operator + " " + right + "))"
+		magnitude := "abs((" + clampedLeft + " " + operator + " " + clampedRight + "))"
 		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleAddPassUpper + "'::numeric" +
 			" THEN " + callDoubleOperand(left) + " " + operator + " " + callDoubleOperand(right) +
 			" ELSE NULL END)", nil
@@ -854,7 +867,7 @@ func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, c
 		// subnormal and cannot raise; PG18 measured gradual products safe
 		// but a round-to-zero product raising). Below the floor the
 		// registered 0 arm answers, above the pass upper the NULL arm.
-		magnitude := "abs((" + left + " * " + right + "))"
+		magnitude := "abs((" + clampedLeft + " * " + clampedRight + "))"
 		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleMulDivPassUpper + "'::numeric" +
 			" AND " + magnitude + " >= '" + callDoubleSubnormalFloor + "'::numeric" +
 			" THEN " + callDoubleOperand(left) + " * " + callDoubleOperand(right) +
@@ -862,14 +875,18 @@ func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, c
 			" THEN 0::double precision ELSE NULL END)", nil
 	default:
 		// The quotient magnitude test runs in numeric against a scale-
-		// biased NULLIF-guarded division (never raising: numeric division
-		// truncates, and the biased zero plus NULLIF fold the zero divisor
-		// to NULL, whose comparisons select the ELSE NULL arm — the
-		// registered reading of division by zero, operators.md 260-262).
-		// The divisor double arm maps the zero and subnormal-floor regions
-		// to NULL rather than 0.0 so the executed division can never see a
-		// zero divisor (callDoubleDivisor).
-		quotient := "((" + left + " + " + callDividendScaleBias + ") / NULLIF(" + right + ", 0))"
+		// biased NULLIF-guarded division of the CLAMPED operands (F-8:
+		// unclamped, 1e131071 / 1e-16383 raises 22003 inside the test).
+		// Clamped, the test division cannot raise: numeric division
+		// truncates, an underflowing quotient flushes to 0.000… without
+		// raising (PG18 probed: 1e-16383 / 1e131071 reads zero), and the
+		// biased zero plus NULLIF fold the zero divisor to NULL, whose
+		// comparisons select the ELSE NULL arm — the registered reading
+		// of division by zero, operators.md 260-262. The divisor double
+		// arm maps the zero and subnormal-floor regions to NULL rather
+		// than 0.0 so the executed division can never see a zero divisor
+		// (callDoubleDivisor).
+		quotient := "((" + clampedLeft + " + " + callDividendScaleBias + ") / NULLIF(" + clampedRight + ", 0))"
 		magnitude := "abs(" + quotient + ")"
 		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleMulDivPassUpper + "'::numeric" +
 			" AND " + magnitude + " >= '" + callDoubleSubnormalFloor + "'::numeric" +
@@ -909,12 +926,50 @@ const (
 	// callDividendScaleBias forces the band-test quotient's numeric scale
 	// to at least 400 fractional digits (PG18 measured: the dividend's
 	// numeric scale drives the quotient scale; plain integer operands
-	// truncate, and the dscale maximum is 1000). The truncation error
-	// (5e-401) sits far below both the subnormal-boundary spacing and the
-	// overflow margins, so the band decision equals the double result's
-	// side of each boundary for every round-tripping operand.
+	// truncate — and an underflowing quotient flushes to 0.000… without
+	// raising, probed: 1e-16383 / 1e131071 reads zero), and the dscale
+	// maximum is 1000). The truncation error (5e-401) sits far below both
+	// the subnormal-boundary spacing and the overflow margins, so the band
+	// decision equals the double result's side of each boundary for every
+	// round-tripping operand.
 	callDividendScaleBias = "0E-400"
+	// callBandClampCap caps the band-test operands (F-8). numeric raises
+	// 22003 when an arithmetic RESULT leaves the storable domain even
+	// though both operands store fine — PG18 measured 1e98303 × 1e98303,
+	// 9.9e131071 + 9.9e131071, and 1e131071 / 1e-16383 raising inside
+	// the unclamped band tests (storable positive-exponent cap probed at
+	// 1e131071). Capping both operands at 1e400 keeps every test result
+	// inside the domain: sums ≤ 2e400, products ≤ 1e800, and quotients
+	// ≤ 1e400 ÷ 1e-16383 = 1e16783 (weight 4196) — no lower cap is
+	// needed because PG18 numeric DIVISION flushes an underflowing
+	// quotient to 0.000… instead of raising (probed: 1e-16383 ÷ 1e131071
+	// reads zero), and multiplication of tiny operands likewise rounds
+	// the test magnitude to zero. The cap sits 10^92 above the largest
+	// registered pass boundary (callDoubleMulDivPassUpper ≈ 1.798e308)
+	// and 10^130671 below the storable ceiling, so it never activates
+	// for any text that round-trips through float64 — pass-band verdicts
+	// on real values are byte-identical — while every clamped sum,
+	// product, and quotient stays inside numeric's domain by a 10^114288
+	// margin. Verdict changes are confined to pairs with an operand
+	// beyond the cap (never float64-round-tripping); each such pair
+	// takes a registered arm, L20-gray-style, and IEEE's own Infinity
+	// reading agrees where it speaks (Infinity × finite → Infinity,
+	// finite ÷ Infinity → zero — the arms below pin both sides).
+	callBandClampCap = "1e400"
 )
+
+// callBandOperandClamp caps one band-test operand's magnitude at
+// callBandClampCap before the test's numeric operation executes (F-8).
+// Three operand references, all pure comparisons — raise-free at every
+// magnitude, including the storable extremes — with sign preserved, zero
+// passing through the ELSE (which the divisor's NULLIF fold requires),
+// and NULL passing through too (comparisons with NULL are never true).
+func callBandOperandClamp(operand string) string {
+	return "(CASE" +
+		" WHEN " + operand + " > '" + callBandClampCap + "'::numeric THEN '" + callBandClampCap + "'::numeric" +
+		" WHEN " + operand + " < '-" + callBandClampCap + "'::numeric THEN '-" + callBandClampCap + "'::numeric" +
+		" ELSE " + operand + " END)"
+}
 
 // callDoubleOperand converts one never-raising numeric fragment to the
 // double that IEEE's parser would produce: magnitudes at or beyond
