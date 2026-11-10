@@ -232,14 +232,14 @@ type Assignment map[SeriesID]string
 // pinned to one schema disagree: the same version with different names or
 // checksums means one ledger can never validate both histories.
 type AssignmentConflict struct {
-	Schema      string
-	SeriesA     SeriesID
-	SeriesB     SeriesID
-	Version     int64
-	NameA       string
-	ChecksumA   string
-	NameB       string
-	ChecksumB   string
+	Schema    string
+	SeriesA   SeriesID
+	SeriesB   SeriesID
+	Version   int64
+	NameA     string
+	ChecksumA string
+	NameB     string
+	ChecksumB string
 }
 
 func (c *AssignmentConflict) Error() string {
