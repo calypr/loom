@@ -387,6 +387,12 @@ func (r *planRenderer) setProjectionSlotExpression(
 //     (navigation_render.go:384-385) would erase. Elements of a jsonb
 //     array are never SQL NULL (a stored null is the jsonb 'null' value),
 //     so nulls flow through exactly as AQL FLATTEN keeps them.
+//
+// The registered single-hop join fixes the child resource type, so
+// logical_id is unique across items of one set: (logical_id, element
+// ordinality) is a total order (no FIRST tie can flip between executions),
+// and the item dedup still carries resource_type because logical_id only
+// identifies a document within its type at the storage layer.
 func (r *planRenderer) setReductionSublink(
 	setVariable string,
 	mode ir.PhysicalSetReductionMode,
