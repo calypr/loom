@@ -385,7 +385,7 @@ func TestRenderRequiredMatchTypedSubplanFilters(t *testing.T) {
 		values := "(CASE WHEN " + document + " IS NULL OR jsonb_typeof(" + document + ") = 'null' THEN '[]'::jsonb" +
 			" WHEN jsonb_typeof(" + document + ") = 'array' THEN COALESCE((SELECT jsonb_agg(__elem.e) FROM jsonb_array_elements(" + document + ") AS __elem(e) WHERE __elem.e <> 'null'::jsonb), '[]'::jsonb)" +
 			" ELSE jsonb_build_array(" + document + ") END)"
-		want := `AND (EXISTS (SELECT 1 FROM jsonb_array_elements(` + values + `) AS __sv(v) WHERE __sv.v = ($8::jsonb)))`
+		want := `AND (EXISTS (SELECT 1 FROM jsonb_array_elements(` + values + `) AS __sv(v) WHERE (__sv.v) = ($8::jsonb)))`
 		if !strings.Contains(rendered.SQL, want) {
 			t.Fatalf("typed payload filter missing %q:\n%s", want, rendered.SQL)
 		}
@@ -890,6 +890,8 @@ func trvSelectorProbe(t *testing.T, edit func(*ir.PhysicalExtract, *ir.PhysicalE
 	plan := basePlan()
 	plan.BindVars["status_value"] = "final"
 	plan.BindVars["array_value"] = []any{"final", "prelim"}
+	plan.BindVars["date_value"] = "2024-01-01T00:00:00Z"
+	plan.BindVars["count_value"] = int64(7)
 	r := &planRenderer{
 		storage:    mustBinding(t),
 		parameters: map[string]int{},
@@ -996,15 +998,16 @@ func TestRequiredMatchSelectorFilterRefusals(t *testing.T) {
 	trvSelectorRefusal(t, "contains_text gap", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Operator = "CONTAINS_TEXT"
 	}, "CONTAINS_TEXT")
-	trvSelectorRefusal(t, "date kind gap", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
-		p.ValueKind = spec.FilterDate
-	}, "DATE_TIMESTAMP")
-	trvSelectorRefusal(t, "date-time kind gap", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
-		p.ValueKind = spec.FilterDateTime
-	}, "DATE_TIMESTAMP")
+	// DATE/DATE_TIME are registered through the shared selector match
+	// (predicates.go selectorMatchExpression): equality compares the jsonb
+	// item, ordered comparisons take the temporal timestamptz form. They
+	// are covered as registered forms below, not as gaps.
 	trvSelectorRefusal(t, "unknown operator", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Operator = "REGEX"
 	}, "not part of the v1 PostgreSQL surface")
+	trvSelectorRefusal(t, "LTE against STRING is not spec-orderable", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
+		p.Operator = "LTE"
+	}, "not compatible with value kind")
 	trvSelectorRefusal(t, "invalid value kind", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.ValueKind = spec.FilterValueKind("JSON")
 	}, "value kind")
@@ -1013,10 +1016,10 @@ func TestRequiredMatchSelectorFilterRefusals(t *testing.T) {
 	}, "array quantifier")
 	trvSelectorRefusal(t, "scalar bind for IN", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Operator = "IN"
-	}, "requires an array bind value")
+	}, "requires a []any or []string bind value")
 	trvSelectorRefusal(t, "array bind for EQUALS", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Right = &ir.PhysicalValue{BindKey: "array_value"}
-	}, "requires a scalar bind value")
+	}, "requires a string bind value")
 	trvSelectorRefusal(t, "missing right value", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 		p.Right = nil
 	}, "requires a bind-backed right value")
@@ -1039,26 +1042,37 @@ func TestRequiredMatchSelectorFilterRegisteredForms(t *testing.T) {
 		edit func(*ir.PhysicalExtract, *ir.PhysicalExpression, *ir.PhysicalPredicate)
 		want string
 	}{
-		{"any default quantifier", nil, "(EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE __sv.v = ($2::jsonb)))"},
+		{"any default quantifier", nil, "(EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE (__sv.v) = ($2::jsonb)))"},
 		{"explicit ANY", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Quantifier = spec.QuantifierAny
-		}, "(EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE __sv.v = ($2::jsonb)))"},
+		}, "(EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE (__sv.v) = ($2::jsonb)))"},
 		{"NONE quantifier", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Quantifier = spec.QuantifierNone
-		}, "(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE __sv.v = ($2::jsonb)))"},
+		}, "(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE (__sv.v) = ($2::jsonb)))"},
 		{"ALL quantifier", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Quantifier = spec.QuantifierAll
-		}, "(jsonb_array_length(" + valuesPin + ") > 0 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE NOT (__sv.v = ($2::jsonb))))"},
+		}, "(jsonb_array_length(" + valuesPin + ") > 0 AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(" + valuesPin + ") AS __sv(v) WHERE NOT ((__sv.v) = ($2::jsonb))))"},
 		{"NOT_EQUALS", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Operator = "NOT_EQUALS"
-		}, "__sv.v <> ($2::jsonb)"},
+		}, "(__sv.v) <> ($2::jsonb)"},
 		{"IN membership", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Operator = "IN"
 			p.Right = &ir.PhysicalValue{BindKey: "array_value"}
-		}, "($2::jsonb) @> __sv.v"},
-		{"LTE ordering", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
+		}, "EXISTS (SELECT 1 FROM jsonb_array_elements($2::jsonb) AS loom_selector_item WHERE loom_selector_item = (__sv.v))"},
+		{"LTE ordering (INTEGER, numeric guard)", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Operator = "LTE"
-		}, "__sv.v <= ($2::jsonb)"},
+			p.ValueKind = spec.FilterInteger
+			p.Right = &ir.PhysicalValue{BindKey: "count_value"}
+		}, "COALESCE(jsonb_typeof(__sv.v) = 'number' AND (__sv.v) <= ($2::jsonb), false)"},
+		{"DATE equality", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
+			p.ValueKind = spec.FilterDate
+			p.Right = &ir.PhysicalValue{BindKey: "date_value"}
+		}, "(__sv.v) = ($2::jsonb)"},
+		{"DATE_TIME ordering takes the temporal form", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
+			p.Operator = "LTE"
+			p.ValueKind = spec.FilterDateTime
+			p.Right = &ir.PhysicalValue{BindKey: "date_value"}
+		}, ") <= $2, false)"},
 		{"EXISTS emptiness", func(_ *ir.PhysicalExtract, _ *ir.PhysicalExpression, p *ir.PhysicalPredicate) {
 			p.Operator = "EXISTS"
 			p.Right = nil
@@ -1110,22 +1124,24 @@ func TestTraversalRenderingIsDeterministicAndPlanDataInert(t *testing.T) {
 // Live: PostgreSQL 18 behavior — OPTIONAL parent preservation.
 // ---------------------------------------------------------------------------
 
-// TestMain audits fixture hygiene delta-scoped to this run (ticket
-// condition C3): it snapshots pgir02_it_* databases and schemas before the
-// run, and after the run fails only on fixtures this run's own tests created
-// and tracked (so concurrent sibling lanes can neither frame this run nor
-// hide leaks from it). Resources born during the run but untracked are
-// reported to stderr without failing, because they may belong to a sibling
-// still mid-run. Nothing is ever deleted here.
-func TestMain(m *testing.M) {
+// trvRunDeltaAudit wraps m.Run with this ticket's fixture-hygiene audit,
+// delta-scoped to this run (ticket condition C3): it snapshots pgir02_it_*
+// databases and schemas before the run, and after the run fails only on
+// fixtures this run's own tests created and tracked (so concurrent sibling
+// lanes can neither frame this run nor hide leaks from it). Resources born
+// during the run but untracked are reported to stderr without failing,
+// because they may belong to a sibling still mid-run. Nothing is ever
+// deleted here. The package TestMain (main_test.go) composes this with the
+// package-wide zero-leftover audits.
+func trvRunDeltaAudit(m *testing.M) int {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		os.Exit(m.Run())
+		return m.Run()
 	}
 	beforeList, err := trvSnapshotOwnedResources(context.Background(), raw)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pg-sql-06 delta audit: snapshot before run: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	before := make(map[string]bool, len(beforeList))
 	for _, name := range beforeList {
@@ -1150,7 +1166,7 @@ func TestMain(m *testing.M) {
 		}
 		fmt.Fprintf(os.Stderr, "pg-sql-06 delta audit: note — %q was born during this run but is not owned by it (sibling lane?)\n", name)
 	}
-	os.Exit(code)
+	return code
 }
 
 var (

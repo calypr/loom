@@ -71,7 +71,6 @@ package postgres
 // ErrUnsupportedPostgresPlan refusal that yields no SQL.
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -543,6 +542,9 @@ func (r *planRenderer) renderComparisonFragmentScoped(
 			ErrUnsupportedPostgresPlan)
 	}
 	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
+	if err := validateDirectOperatorKind(operator, predicate.ValueKind); err != nil {
+		return predicateFragment{}, err
+	}
 	switch operator {
 	case "EXISTS", "MISSING":
 		if predicate.Right != nil {
@@ -574,9 +576,9 @@ func (r *planRenderer) renderComparisonFragmentScoped(
 		return predicateFragment{}, fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
 	}
 	if !isPayloadExpression(left) {
-		return r.renderColumnComparison(left, operator, value)
+		return r.renderColumnComparison(left, operator, predicate.ValueKind, value)
 	}
-	return r.renderPayloadComparison(left, operator, value)
+	return r.renderPayloadComparison(left, operator, predicate.ValueKind, value)
 }
 
 // renderSelectorMatchFragment renders the canonical REQUIRED-match selector
@@ -596,13 +598,13 @@ func (r *planRenderer) renderComparisonFragmentScoped(
 //   - EXISTS/MISSING test the value list for emptiness, EQUALS/NOT_EQUALS/
 //     IN/GT..LTE test the quantified element match, and the empty quantifier
 //     means ANY exactly as predicates.go:256-258 defaults it.
-//   - Element comparisons are jsonb-native: STRING/CODE/BOOLEAN/INTEGER/
-//     DECIMAL field kinds compare exactly (jsonb numeric normalization makes
-//     1 = 1.0 hold, as AQL's == does). DATE/DATE_TIME need the
-//     DATE_TIMESTAMP coercion the AQL renderer applies
-//     (render/aql/predicates.go:246-249) and are a typed capability gap
-//     here; CONTAINS_TEXT likewise. Membership for IN mirrors AQL's
-//     POSITION(rightArray, value) over schema-validated scalar fields.
+//   - Element comparisons are the package's registered selector match,
+//     predicates.go selectorMatchExpression: typed bind validation per
+//     value kind, the temporal timestamptz guards for DATE/DATE_TIME
+//     ordering, the numeric-ordering guard against jsonb cross-type
+//     misordering, the IN list reading, and CONTAINS_TEXT as the shared
+//     capability gap. The subplan match and the main-sequence selector
+//     predicate therefore agree term for term on the same item.
 //
 // The selector shape itself is re-validated against the closed direct-
 // property subset (the same refusals selectors.go registers for projection
@@ -632,6 +634,9 @@ func (r *planRenderer) renderSelectorMatchFragment(
 		return predicateFragment{}, err
 	}
 	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
+	if err := validateDirectOperatorKind(operator, predicate.ValueKind); err != nil {
+		return predicateFragment{}, err
+	}
 	length := "jsonb_array_length(" + values + ")"
 	switch operator {
 	case "EXISTS":
@@ -655,11 +660,6 @@ func (r *planRenderer) renderSelectorMatchFragment(
 	if !predicate.ValueKind.Valid() {
 		return predicateFragment{}, fmt.Errorf("%w: selector filter value kind %q is invalid", ErrUnsupportedPostgresPlan, string(predicate.ValueKind))
 	}
-	switch predicate.ValueKind {
-	case spec.FilterDate, spec.FilterDateTime:
-		return predicateFragment{}, fmt.Errorf("%w: selector %s comparisons need the AQL DATE_TIMESTAMP coercion (render/aql/predicates.go:246-249), which is not registered for PostgreSQL",
-			ErrUnsupportedPostgresPlan, string(predicate.ValueKind))
-	}
 	if predicate.Right == nil || predicate.Right.BindKey == "" {
 		return predicateFragment{}, fmt.Errorf("%w: %s requires a bind-backed right value", ErrUnsupportedPostgresPlan, operator)
 	}
@@ -667,34 +667,17 @@ func (r *planRenderer) renderSelectorMatchFragment(
 	if !ok {
 		return predicateFragment{}, fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
 	}
-	if _, isArray := value.([]any); isArray != (operator == "IN") {
-		if operator == "IN" {
-			return predicateFragment{}, fmt.Errorf("%w: selector IN requires an array bind value (the value list AQL POSITION reads)", ErrUnsupportedPostgresPlan)
-		}
-		return predicateFragment{}, fmt.Errorf("%w: selector %s requires a scalar bind value, not an array", ErrUnsupportedPostgresPlan, operator)
-	}
-	switch value.(type) {
-	case string, bool, int, int64, float64, json.RawMessage, []any:
-	default:
-		return predicateFragment{}, fmt.Errorf("%w: selector comparisons accept string, bool, number, raw JSON, or (for IN) array values, got %T",
-			ErrUnsupportedPostgresPlan, value)
-	}
-	raw, err := json.Marshal(value)
+	// The per-item comparison is the package's registered selector match
+	// (predicates.go selectorMatchExpression): typed bind validation per
+	// value kind, the temporal timestamptz guards for DATE/DATE_TIME, the
+	// numeric-ordering guard, the IN list reading, and the CONTAINS_TEXT
+	// gap. Reusing it keeps the subplan match from drifting from the main
+	// sequence it must agree with; only the multiset normalization and the
+	// quantifier skeleton above are traversal-owned AQL parity.
+	match, err := r.selectorMatchExpression("__sv.v", operator, predicate.ValueKind, value)
 	if err != nil {
-		return predicateFragment{}, fmt.Errorf("%w: filter value %T is not JSON-encodable: %v", ErrUnsupportedPostgresPlan, value, err)
+		return predicateFragment{}, err
 	}
-	comparison := map[string]string{
-		"EQUALS": "=", "NOT_EQUALS": "<>", "GT": ">", "GTE": ">=", "LT": "<", "LTE": "<=",
-	}[operator]
-	var match string
-	if operator == "IN" {
-		// jsonb array @> scalar is exactly AQL POSITION(array, element)
-		// membership over the schema-validated scalar field domain.
-		match = "($N::jsonb) @> __sv.v"
-	} else {
-		match = "__sv.v " + comparison + " ($N::jsonb)"
-	}
-	match = strings.Replace(match, "$N", "$"+strconv.Itoa(r.jsonbParameter(raw)), 1)
 	anyMatch := "EXISTS (SELECT 1 FROM jsonb_array_elements(" + values + ") AS __sv(v) WHERE " + match + ")"
 	switch quantifier {
 	case spec.QuantifierAny:
