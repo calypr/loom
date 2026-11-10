@@ -83,7 +83,13 @@ var (
 
 // QueryError wraps one execution-seam failure. errors.Is(err, ErrQuery)
 // classifies it as an execution failure while the cause chain stays intact:
-// errors.As(err, &pgErr) reaches the *pgconn.PgError for SQL errors, and
+// for driver and server failures the As-visible identity is the
+// boundary-classified error — errors.As(err, &translated) reaches the
+// *storepostgres.TranslatedError carrying the stable condition, SQLSTATE,
+// and curated sentinels. The raw *pgconn.PgError is deliberately not
+// As-visible (its message can carry SQL text, constraint names, and
+// identifiers): server-side consumers reach it only through
+// TranslatedError.Cause behind the redaction guards, never via errors.As.
 // errors.Is(err, context.Canceled) / errors.Is(err, context.DeadlineExceeded)
 // still recognize cancellation.
 type QueryError struct {
@@ -144,8 +150,11 @@ var _ QueryRows = (*Executor)(nil).QueryRows
 // deadline expiry during execution returns an error that satisfies
 // errors.Is against the matching context error in addition to ErrQuery.
 // Statement, scan, and server errors return a *QueryError that matches
-// ErrQuery and retains the identifiable cause (for example
-// errors.As(err, &*pgconn.PgError{})).
+// ErrQuery and retains the boundary classification as the As-visible
+// identity (for example
+// errors.As(err, &*storepostgres.TranslatedError{})). The raw driver cause
+// is reachable only through TranslatedError.Cause behind the redaction
+// guards, never through errors.As.
 func (e *Executor) QueryRows(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidExecution)
