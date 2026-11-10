@@ -40,6 +40,7 @@ RESPONSIBILITIES = {
     "cmd/generate": "Generate FHIR models, schema metadata, validation, extraction, and GraphQL artifacts from source schemas.",
     "cmd/gqlgenfix": "Post-process gqlgen output to enforce Loom-specific generated-code invariants.",
     "cmd/loom-acceptance": "Run the locked real-data acceptance scenario and emit machine-readable verification artifacts.",
+    "cmd/loom-data": "Load one immutable generation into the backend chosen only by an explicit arango or postgres tag, routing to the Arango loader or the PostgreSQL lifecycle loader without inference or fallback.",
     "cmd/loom-repository": "Preflight a repository checkout and launch Loom against its META and CONFIG data with an owned Compose project.",
     "cmd/preview-covering-index-artifact": "Recreate a captured Builder proposal offline and emit the exact compiler artifact for index-coverage analysis.",
     "conformance/compiler": "Load and exercise the canonical dataframe compiler oracle corpus for conformance and performance checks.",
