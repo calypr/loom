@@ -15,13 +15,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/execution"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -164,16 +164,20 @@ func (e *Executor) SourceRows(ctx context.Context, request execution.RowsRequest
 	if visit == nil {
 		return fmt.Errorf("%w: row visitor is required", ErrInvalidExecution)
 	}
-	columns := request.DeclaredColumns
-	if err := validateColumns(columns); err != nil {
-		return err
-	}
-
-	// Backend-tagged dispatch fails closed on an AQL-tagged command, an
-	// unregistered tag, and the zero value before anything touches the
-	// Querier. The returned argument slice is already a copy.
+	// Backend-tagged dispatch is the routing law and runs FIRST: an
+	// AQL-tagged command, an unregistered tag, and the zero value are
+	// refused with their typed routing sentinels before any PostgreSQL
+	// dialect field is inspected. Validating the dialect (declared
+	// columns, statement shape, arguments) ahead of routing would mask a
+	// misrouted command behind generic dialect errors, hiding the tag
+	// that is the only routing key the leaf law recognizes. The returned
+	// argument slice is already a copy.
 	sqlText, args, err := request.Command.PostgreSQLParameters()
 	if err != nil {
+		return err
+	}
+	columns := request.DeclaredColumns
+	if err := validateColumns(columns); err != nil {
 		return err
 	}
 	if err := validateStatementShape(sqlText, args); err != nil {

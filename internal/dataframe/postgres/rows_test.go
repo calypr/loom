@@ -551,6 +551,64 @@ func TestSourceRowsColumnContractPositionalAliasException(t *testing.T) {
 	})
 }
 
+// TestSourceRowsRoutesByBackendTagBeforeDialectValidation pins the F2
+// routing law: the backend tag is the routing key and is checked FIRST,
+// so a misrouted command reports its typed routing sentinel even when its
+// dialect fields (declared columns, statement shape) are also broken.
+// Dialect validation still fires for correctly routed commands — the tag
+// check neither skips nor weakens it.
+func TestSourceRowsRoutesByBackendTagBeforeDialectValidation(t *testing.T) {
+	visit := func(map[string]any) error { return nil }
+
+	t.Run("AQLTaggedCommandWithoutDeclaredColumnsReportsMismatchNotDialectError", func(t *testing.T) {
+		aql, err := command.NewAQLCommand(`FOR d IN t RETURN d`, nil)
+		if err != nil {
+			t.Fatalf("NewAQLCommand: %v", err)
+		}
+		querier := &recordingQuerier{}
+		executor, _ := NewExecutor(querier)
+		err = executor.SourceRows(context.Background(), execution.RowsRequest{Command: aql}, visit)
+		requireNamed(t, err, command.ErrCompiledCommandBackendMismatch, "refusing to pass AQL query to the PostgreSQL statement executor")
+		if querier.calls != 0 {
+			t.Fatalf("misrouted command reached the querier %d time(s)", querier.calls)
+		}
+	})
+
+	t.Run("AQLTaggedCommandWithWellFormedColumnsStillReportsMismatch", func(t *testing.T) {
+		aql, err := command.NewAQLCommand(`FOR d IN t RETURN d`, nil)
+		if err != nil {
+			t.Fatalf("NewAQLCommand: %v", err)
+		}
+		querier := &recordingQuerier{}
+		executor, _ := NewExecutor(querier)
+		err = executor.SourceRows(context.Background(), execution.RowsRequest{Command: aql, DeclaredColumns: []string{"a", "b"}}, visit)
+		requireNamed(t, err, command.ErrCompiledCommandBackendMismatch)
+		if querier.calls != 0 {
+			t.Fatalf("misrouted command reached the querier %d time(s)", querier.calls)
+		}
+	})
+
+	t.Run("ZeroTagReportsNotRegisteredBeforeColumnsAreInspected", func(t *testing.T) {
+		querier := &recordingQuerier{}
+		executor, _ := NewExecutor(querier)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: command.CompiledCommand{}}, visit)
+		requireNamed(t, err, command.ErrCompiledCommandBackendNotRegistered)
+		if querier.calls != 0 {
+			t.Fatalf("zero-tag command reached the querier %d time(s)", querier.calls)
+		}
+	})
+
+	t.Run("RoutedPostgreSQLCommandStillValidatesDialect", func(t *testing.T) {
+		querier := &recordingQuerier{}
+		executor, _ := NewExecutor(querier)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT $1`, command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: "x"})}, visit)
+		requireNamed(t, err, ErrInvalidExecution, "at least one declared result column is required")
+		if querier.calls != 0 {
+			t.Fatalf("dialect refusal still reached the querier %d time(s)", querier.calls)
+		}
+	})
+}
+
 func TestSourceRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 	midnight := time.Date(2026, 2, 13, 0, 0, 0, 0, time.UTC)
 	sharedJSON := []byte(`{"k": 1}`)
