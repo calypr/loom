@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -195,7 +195,7 @@ func (s *edgeService) readLedger(t *testing.T) []LedgerRecord {
 func (s *edgeService) mustSeedResource(t *testing.T, repo *ResourceRepository,
 	project, generation, resourceType, logicalID, authPath string) int64 {
 	t.Helper()
-	seq, err := repo.InsertResource(s.ctx, catalog.PGResourceRow{
+	seq, err := repo.InsertResource(s.ctx, source.Resource{
 		Project: project, DatasetGeneration: generation, ResourceType: resourceType,
 		LogicalID: logicalID, AuthResourcePath: authPath,
 		Payload: []byte(`{"resourceType":"` + resourceType + `","id":"` + logicalID + `"}`),

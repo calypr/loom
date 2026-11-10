@@ -37,7 +37,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -274,8 +274,8 @@ const (
 	batchGenB    = "gen-b"
 )
 
-func litResource(resourceType, logicalID, authPath string, payload *string) catalog.PGResourceRow {
-	rec := catalog.PGResourceRow{
+func litResource(resourceType, logicalID, authPath string, payload *string) source.Resource {
+	rec := source.Resource{
 		Project: batchProject, DatasetGeneration: batchGenA,
 		ResourceType: resourceType, LogicalID: logicalID, AuthResourcePath: authPath,
 	}
@@ -307,7 +307,7 @@ func goldenBatch() Batch {
 	p2 := `{"resourceType":"Patient","id":"p-2","meta":{"tag":null}}`
 	return Batch{
 		ID: "pgstore06/golden/0", Project: "prj-golden", DatasetGeneration: "gen-golden-1",
-		Resources: []catalog.PGResourceRow{
+		Resources: []source.Resource{
 			{Project: "prj-golden", DatasetGeneration: "gen-golden-1", ResourceType: "Patient", LogicalID: "p-1", AuthResourcePath: "/fhir", Payload: json.RawMessage(p1)},
 			{Project: "prj-golden", DatasetGeneration: "gen-golden-1", ResourceType: "Patient", LogicalID: "p-2", AuthResourcePath: "", Payload: json.RawMessage(p2)},
 			{Project: "prj-golden", DatasetGeneration: "gen-golden-1", ResourceType: "Observation", LogicalID: "obs-9", AuthResourcePath: "/fhir", Payload: nil},
@@ -493,12 +493,12 @@ func TestBatchWriterRejectsInvalidBatches(t *testing.T) {
 		name  string
 		batch Batch
 	}{
-		{"blank id", base(func(b *Batch) { b.ID = "  "; b.Resources = []catalog.PGResourceRow{okResource} })},
+		{"blank id", base(func(b *Batch) { b.ID = "  "; b.Resources = []source.Resource{okResource} })},
 		{"long id", base(func(b *Batch) {
 			b.ID = strings.Repeat("x", MaxBatchIDLength+1)
-			b.Resources = []catalog.PGResourceRow{okResource}
+			b.Resources = []source.Resource{okResource}
 		})},
-		{"blank project", base(func(b *Batch) { b.Project = ""; b.Resources = []catalog.PGResourceRow{okResource} })},
+		{"blank project", base(func(b *Batch) { b.Project = ""; b.Resources = []source.Resource{okResource} })},
 		{"no rows", base(func(*Batch) {})},
 		{"too many resources", base(func(b *Batch) {
 			for i := 0; i <= MaxBatchResources; i++ {
@@ -513,7 +513,7 @@ func TestBatchWriterRejectsInvalidBatches(t *testing.T) {
 		{"resource scope mismatch", base(func(b *Batch) {
 			rec := okResource
 			rec.DatasetGeneration = "other-gen"
-			b.Resources = []catalog.PGResourceRow{rec}
+			b.Resources = []source.Resource{rec}
 		})},
 		{"edge scope mismatch", base(func(b *Batch) {
 			b.Edges = append(b.Edges, EdgeOccurrenceRow{
@@ -522,20 +522,15 @@ func TestBatchWriterRejectsInvalidBatches(t *testing.T) {
 				TargetResourceType: "Organization", TargetLogicalID: "o-1",
 			})
 		})},
-		{"caller-supplied resource seq", base(func(b *Batch) {
-			rec := okResource
-			rec.ResourceSeq = 7
-			b.Resources = []catalog.PGResourceRow{rec}
-		})},
 		{"invalid json payload", base(func(b *Batch) {
 			rec := okResource
 			rec.Payload = json.RawMessage("{oops")
-			b.Resources = []catalog.PGResourceRow{rec}
+			b.Resources = []source.Resource{rec}
 		})},
 		{"blank resource type", base(func(b *Batch) {
 			rec := okResource
 			rec.ResourceType = ""
-			b.Resources = []catalog.PGResourceRow{rec}
+			b.Resources = []source.Resource{rec}
 		})},
 		{"caller-supplied edge seq", base(func(b *Batch) {
 			rec := okEdge
@@ -919,7 +914,7 @@ func TestBatchWriterInBatchDuplicateResourceIdentityDifferentContentRollsBack(t 
 	writer := s.newWriter(t)
 
 	mk := func() Batch {
-		return Batch{ID: "prj/dup-inbatch", Project: batchProject, DatasetGeneration: batchGenA, Resources: []catalog.PGResourceRow{
+		return Batch{ID: "prj/dup-inbatch", Project: batchProject, DatasetGeneration: batchGenA, Resources: []source.Resource{
 			litResource("Patient", "p-dup", "/fhir", strPtr(`{"id":"p-dup","v":"first"}`)),
 			litResource("Patient", "p-dup", "/fhir", strPtr(`{"id":"p-dup","v":"second"}`)),
 			litResource("Patient", "p-ok", "", nil),
@@ -956,7 +951,7 @@ func TestBatchWriterStoredResourceIdentityDifferentContentPreservesPriorRow(t *t
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	first := Batch{ID: "prj/stored-first", Project: batchProject, DatasetGeneration: batchGenA, Resources: []catalog.PGResourceRow{
+	first := Batch{ID: "prj/stored-first", Project: batchProject, DatasetGeneration: batchGenA, Resources: []source.Resource{
 		litResource("Patient", "p-1", "/fhir", strPtr(`{"id":"p-1","v":"stored"}`)),
 	}}
 	if _, err := writer.WriteBatch(s.ctx, first); err != nil {
@@ -967,7 +962,7 @@ func TestBatchWriterStoredResourceIdentityDifferentContentPreservesPriorRow(t *t
 	// prior row preserved byte-for-byte.
 	mutated := first
 	mutated.ID = "prj/stored-second"
-	mutated.Resources = []catalog.PGResourceRow{
+	mutated.Resources = []source.Resource{
 		litResource("Patient", "p-1", "/fhir", strPtr(`{"id":"p-1","v":"replaced"}`)),
 	}
 	_, err := writer.WriteBatch(s.ctx, mutated)
@@ -982,7 +977,7 @@ func TestBatchWriterStoredResourceIdentityDifferentContentPreservesPriorRow(t *t
 	// still different content (auth path is part of the row): conflict.
 	authMoved := first
 	authMoved.ID = "prj/stored-third"
-	authMoved.Resources = []catalog.PGResourceRow{
+	authMoved.Resources = []source.Resource{
 		litResource("Patient", "p-1", "/other", strPtr(`{"id":"p-1","v":"stored"}`)),
 	}
 	_, err = writer.WriteBatch(s.ctx, authMoved)
@@ -1009,7 +1004,7 @@ func TestBatchWriterIdenticalRowsCollapseWithinAndAcrossBatches(t *testing.T) {
 	writer := s.newWriter(t)
 
 	dup := litResource("Patient", "p-dup", "/fhir", strPtr(`{"id":"p-dup"}`))
-	b := Batch{ID: "prj/collapse-1", Project: batchProject, DatasetGeneration: batchGenA, Resources: []catalog.PGResourceRow{dup, dup,
+	b := Batch{ID: "prj/collapse-1", Project: batchProject, DatasetGeneration: batchGenA, Resources: []source.Resource{dup, dup,
 		litResource("Patient", "p-2", "", nil),
 		litResource("Patient", "p-2", "", nil),
 	}}
@@ -1030,7 +1025,7 @@ func TestBatchWriterIdenticalRowsCollapseWithinAndAcrossBatches(t *testing.T) {
 
 	// Row-level idempotence across a NEW batch identity: identical content
 	// is skipped, not conflicted, and nothing duplicates.
-	b2 := Batch{ID: "prj/collapse-2", Project: batchProject, DatasetGeneration: batchGenA, Resources: []catalog.PGResourceRow{dup, dup}}
+	b2 := Batch{ID: "prj/collapse-2", Project: batchProject, DatasetGeneration: batchGenA, Resources: []source.Resource{dup, dup}}
 	res2, err := writer.WriteBatch(s.ctx, b2)
 	if err != nil {
 		s.fail("cross-batch replay WriteBatch", err)
@@ -1048,10 +1043,10 @@ func TestBatchWriterEdgeDuplicateOccurrenceDifferentContentPreservesPriorRow(t *
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	source := litResource("Patient", "p-1", "/fhir", strPtr(`{"id":"p-1"}`))
+	ownerRow := litResource("Patient", "p-1", "/fhir", strPtr(`{"id":"p-1"}`))
 	edge := litEdge("referenced-by", "Patient", "p-1", "Organization", "o-1", "Patient.link.target", 0, "/fhir", strPtr("k1"))
 	first := Batch{ID: "prj/edge-first", Project: batchProject, DatasetGeneration: batchGenA,
-		Resources: []catalog.PGResourceRow{source}, Edges: []EdgeOccurrenceRow{edge}}
+		Resources: []source.Resource{ownerRow}, Edges: []EdgeOccurrenceRow{edge}}
 	if _, err := writer.WriteBatch(s.ctx, first); err != nil {
 		s.fail("seed edge WriteBatch", err)
 	}
@@ -1078,7 +1073,7 @@ func TestBatchWriterEdgeDuplicateOccurrenceDifferentContentPreservesPriorRow(t *
 	// In-batch duplicate of one occurrence identity with differing auth
 	// path: typed conflict, whole batch rolls back.
 	dupe := Batch{ID: "prj/edge-dupe", Project: batchProject, DatasetGeneration: batchGenA,
-		Resources: []catalog.PGResourceRow{source},
+		Resources: []source.Resource{ownerRow},
 		Edges: []EdgeOccurrenceRow{
 			litEdge("referenced-by", "Patient", "p-1", "Organization", "o-2", "Patient.link.target", 0, "/fhir", nil),
 			litEdge("referenced-by", "Patient", "p-1", "Organization", "o-2", "Patient.link.target", 0, "", nil),
@@ -1098,7 +1093,7 @@ func TestBatchWriterEdgeSourceMissingRollsBackWholeBatch(t *testing.T) {
 	writer := s.newWriter(t)
 
 	ghost := Batch{ID: "prj/edge-ghost", Project: batchProject, DatasetGeneration: batchGenA,
-		Resources: []catalog.PGResourceRow{litResource("Patient", "p-ok", "", nil)},
+		Resources: []source.Resource{litResource("Patient", "p-ok", "", nil)},
 		Edges: []EdgeOccurrenceRow{
 			litEdge("referenced-by", "Patient", "p-ghost", "Organization", "o-1", "a", 0, "", nil),
 		}}
@@ -1191,7 +1186,7 @@ func TestBatchWriterResultCountsEqualCommittedRows(t *testing.T) {
 		batchProject, batchGenA, `{"id":"p-pre"}`)
 
 	b := Batch{ID: "prj/counts", Project: batchProject, DatasetGeneration: batchGenA,
-		Resources: []catalog.PGResourceRow{
+		Resources: []source.Resource{
 			litResource("Patient", "p-pre", "/fhir", strPtr(`{"id":"p-pre"}`)), // already stored
 			litResource("Patient", "p-new", "", nil),
 			litResource("Patient", "p-new", "", nil), // in-batch identical duplicate
@@ -1361,7 +1356,7 @@ func TestBatchWriterConcurrentIndependentBatchesOverlapTwoConnections(t *testing
 
 func concurrentBatch(id, generation, prefix string) Batch {
 	return Batch{ID: id, Project: batchProject, DatasetGeneration: generation,
-		Resources: []catalog.PGResourceRow{
+		Resources: []source.Resource{
 			{Project: batchProject, DatasetGeneration: generation, ResourceType: "Patient",
 				LogicalID: prefix + "-1", AuthResourcePath: "/fhir",
 				Payload: json.RawMessage(`{"id":"` + prefix + `-1"}`)},

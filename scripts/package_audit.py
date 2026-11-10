@@ -112,9 +112,10 @@ RESPONSIBILITIES = {
     "internal/projectid": "Define canonical and legacy-compatible public project identity normalization.",
     "internal/repositoryseed": "Validate repository metadata and configuration, produce a source manifest, and refuse unmaterialized inputs before launch.",
     "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
+    "internal/source": "Define the backend-neutral logical source identity, payload, and authorization-scope contracts shared by ingestion and store read/write paths, free of any storage or driver detail.",
     "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
     "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
-    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped JSONB FHIR resource repository, scoped typed edge-occurrence repository, publish-last inventory repository, scoped bounded field-profile record persistence, the ledgered idempotent COPY batch writer for resource and edge rows, and resource-only and edge-only batch facades over that writer.",
+    "internal/store/postgres": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped FHIR resource repository that accepts the logical internal/source contract on writes and answers reads with its store-owned physical row under the server-assigned keyset sequence, scoped typed edge-occurrence repository, publish-last inventory repository, scoped bounded field-profile record persistence, the ledgered idempotent COPY batch writer for resource and edge rows, and resource-only and edge-only batch facades over that writer.",
     "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
 }
 
@@ -253,7 +254,7 @@ def decision_evidence(row: dict[str, object]) -> str:
         evidence.append(
             f"mixed handwritten/generated package ({len(row['generated_files_raw'])} generated file(s)); preserve regeneration boundary"
         )
-    if location in {"internal/dataframe/errors", "internal/projectid"}:
+    if location in {"internal/dataframe/errors", "internal/projectid", "internal/source"}:
         evidence.append("small shared semantic contract; compare direct callers before inlining")
     if row["runtime_signals"] != "—":
         evidence.append("runtime/build signals present; static importer counts are insufficient for deletion")

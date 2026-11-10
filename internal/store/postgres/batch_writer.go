@@ -63,7 +63,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -238,7 +238,7 @@ type Batch struct {
 	ID                string
 	Project           string
 	DatasetGeneration string
-	Resources         []catalog.PGResourceRow
+	Resources         []source.Resource
 	Edges             []EdgeOccurrenceRow
 }
 
@@ -957,7 +957,10 @@ func validateBatch(batch Batch) error {
 				ErrInvalidBatch, batch.ID, i, rec.Project, rec.DatasetGeneration,
 				batch.Project, batch.DatasetGeneration)
 		}
-		if err := validateResourceForInsert(rec); err != nil {
+		// The physical row built here carries the zero storage sequence;
+		// the shared write guard still refuses any offered one at the
+		// single boundary all writes cross.
+		if err := validateResourceForInsert(ResourceRow{Resource: rec}); err != nil {
 			return fmt.Errorf("%w: batch %q resource %d: %w", ErrInvalidBatch, batch.ID, i, err)
 		}
 	}

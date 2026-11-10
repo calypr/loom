@@ -44,9 +44,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -642,7 +642,7 @@ func (s *pgsq02Service) insertResource(t *testing.T, project, generation, resour
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
 	}
-	seq, err := repo.InsertResource(s.ctx, catalog.PGResourceRow{
+	seq, err := repo.InsertResource(s.ctx, source.Resource{
 		Project:           project,
 		DatasetGeneration: generation,
 		ResourceType:      resourceType,

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -560,7 +560,7 @@ func (s *pgsq01Service) insertResource(t *testing.T, project, generation, resour
 		}
 		raw = encoded
 	}
-	seq, err := repo.InsertResource(s.ctx, catalog.PGResourceRow{
+	seq, err := repo.InsertResource(s.ctx, source.Resource{
 		Project:           project,
 		DatasetGeneration: generation,
 		ResourceType:      resourceType,
@@ -859,7 +859,7 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
 	}
-	if _, err := repo.InsertResource(svc.ctx, catalog.PGResourceRow{
+	if _, err := repo.InsertResource(svc.ctx, source.Resource{
 		Project: pgsq01Project, DatasetGeneration: pgsq01Gen, ResourceType: "Patient",
 		LogicalID: "d-1", AuthResourcePath: pgsq01Path,
 	}); !errors.Is(err, pgstore.ErrResourceConflict) {
