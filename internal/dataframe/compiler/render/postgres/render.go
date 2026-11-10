@@ -438,7 +438,6 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 // renderer boundary.
 var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-
 // SORT and LIMIT are rendered through window.go's renderWindowSort and
 // renderWindowLimit (pg-sql-12): the single execution-window contract owner
 // for both the spine (W1) and the final window after UNNEST (W2).
