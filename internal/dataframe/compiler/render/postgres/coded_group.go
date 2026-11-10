@@ -146,30 +146,58 @@ package postgres
 // a registered accepted gap naming its enabling ticket; probe receipts at
 // .ao/data/artifacts/loom-experiment-144/logs/pg19-reachability.log):
 //
-//   - Second construction stage after CODED_GROUP, or any stage kind
-//     other than CODED_GROUP in the sequence: registered accepted gap
-//     naming pg-sql-16 ("Render composed construction stage sequences").
-//     Probe-attested reachable ([CODED_GROUP, DERIVE] and
-//     [CODED_GROUP, FILTER] lower to two stages and the AQL renderer
-//     renders both); AQL stays the only backend that does.
-//   - Non-empty CodedGroup.RowValues: registered accepted unsupported
-//     case naming pg-sql-13 ("Render Group keys and aggregate reducers")
-//     as the enabling ticket. Probe-attested: recipe validation permits
-//     rowValues on CODED_GROUP (recipe/construction.go:1002-1007) and
-//     lowering emits them; the explorer authoring pipeline is closed by
-//     the codedGroup four-output law
-//     (authoringv2/construction_validation.go:1694 + validateDeclared
-//     OutputIDs:1755-1769) and recipe-step output membership
-//     (recipe/construction.go:1023-1028). No silent fallback: the stage
-//     refuses, it never renders partially.
-//   - Non-first-stage (DOCUMENT re-query) shape: probe-attested
+// L-entries are numbered in the pg-sql-10 L-table idiom (cf. L19,
+// pg-sql-10).
+//
+//   - L-19.1 Second construction stage after CODED_GROUP, or any stage
+//     kind other than CODED_GROUP in the sequence: registered accepted
+//     gap naming pg-sql-16 ("Render composed construction stage
+//     sequences"), coordinator-approved. Probe-attested reachable
+//     ([CODED_GROUP, DERIVE] and [CODED_GROUP, FILTER] lower to two
+//     stages and the AQL renderer renders both); AQL stays the only
+//     backend that does. Evidence includes the staged-sequences
+//     RED-at-branch-point capture
+//     (logs/pg19-red-probe.log: "staged row-operator sequences are not
+//     yet implemented for PostgreSQL") and the two-stage AQL render
+//     (logs/pg19-reachability.log).
+//   - L-19.2 REGISTERED NAMED DIVERGENCE — accepted-at-recipe-level/
+//     PG-typed-refused (coordinator ruling 2026-11-10; operator-config
+//     entry counted as non-user surface per coordinator ruling
+//     2026-11-10). Non-empty CodedGroup.RowValues / RowValueProjections
+//     are accepted by recipe validation (recipe/construction.go:
+//     1002-1007) and EMITTED by lowering
+//     (lower/recipe_construction_coded_group.go:119-127), so the shape
+//     exists in the contract, but this renderer refuses it fail-closed,
+//     naming pg-sql-13 ("Render Group keys and aggregate reducers") as
+//     the enabling ticket — never partially rendered. Reachability is
+//     the narrow raw recipe-document channel only: recipe.Parse via the
+//     server operator-config entry (internal/server/server.go:442);
+//     both authoring paths are law-blocked — the codedGroup four-output
+//     law (authoringv2/construction_validation.go:1694 +
+//     validateDeclaredOutputIDs:1755-1769) and recipe-step output
+//     membership (recipe/construction.go:1023-1028). Distinction from
+//     the pg-sql-11 Option-A ruling (recorded for the verifier): there a
+//     DEFAULT-ON policy contaminated a core shape every real recipe
+//     hits; here no shipped operator config, JSON, or YAML uses
+//     rowValues in a CODED_GROUP step (coordinator tip probe f1389b45055:
+//     hits are openapi/docs schema surface and the scripts/verify-ui
+//     helper fixture), so this is privileged-operator input, not user
+//     production. Load-bearing proof: TestCodedGroupIRRowValuesAlive
+//     Control assembles the ir-accepted shape directly and pins the
+//     refusal message cell-verbatim; with the arm removed it renders a
+//     partial statement (RED banked at logs/pg19-arm-removal-red.log).
+//     Fail-closed is zero SQL, zero side effects:
+//     TestCodedGroupIRRowValuesLiveZeroSideEffects.
+//   - L-19.3 Non-first-stage (DOCUMENT re-query) shape: probe-attested
 //     production-unreachable — recipe validation forces CODED_GROUP to be
 //     the first step on the direct source projection
 //     (recipe/construction.go:665-668, "prior construction stages are not
 //     supported") and lowering sets InputStageID = SourceStageID
 //     accordingly; every shape the probe lowered has
 //     InputStageID == SourceStageID. Hand-assembled IR reaching this door
-//     with another InputStageID is a typed refusal.
+//     with another InputStageID is a typed refusal. Dependency note per
+//     the ruling: if a future probe finds this shape reachable, it is
+//     pg-sql-16 territory (L-19.1), not a new refusal surface here.
 //   - Population / cohort / candidate-seed roots: registered gap naming
 //     population.go (pg-sql-18): the constructor-only
 //     PostgresPopulationRootBinding makes RenderPopulationRootScan the

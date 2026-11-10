@@ -377,16 +377,17 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 		{
 			name: "row_values_pg_sql_13_gap",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				plan.StageSequence.Stages[0].CodedGroup.RowValues = []ir.PhysicalStageRowValue{{
-					InputColumn: "resource_id", InputKind: "STRING", Output: "rv", Policy: "ONE", Variable: "rv_var",
-				}}
+				coded19AttachIRRowValues(t, plan)
 			},
 			pin: "coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered",
 		},
 		{
 			name: "row_value_projections_pg_sql_13_gap",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				plan.StageSequence.Stages[0].CodedGroup.RowValueProjections = []ir.PhysicalProjection{{Name: "resource_id", Value: ir.PhysicalValue{Variable: "root"}}}
+				// Projections present without the RowValues list: the
+				// other half of the same registered divergence (L-19.2).
+				coded := plan.StageSequence.Stages[0].CodedGroup
+				coded.RowValueProjections = []ir.PhysicalProjection{{Name: "resource_id", Hidden: true, Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}}}
 			},
 			pin: "coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered",
 		},
@@ -606,6 +607,133 @@ func TestCodedGroupEntryDispatchEquality(t *testing.T) {
 }
 
 func errorOf(_ any, err error) error { return err }
+
+// ---------------------------------------------------------------------------
+// D2 registered divergence L-19.2 — RowValues in CODED_GROUP.
+//
+// Registered named divergence (coordinator ruling 2026-11-10):
+// accepted-at-recipe-level/PG-typed-refused, enabling ticket pg-sql-13;
+// operator-config entry counted as non-user surface per coordinator ruling
+// 2026-11-10. Evidence: artifacts/loom-experiment-144/logs/
+// pg19-reachability.log (recipe.Parse accepts rowValues, lowering ACCEPTs
+// and EMITs, AQL renders) and the two authoring-path blocks
+// (authoringv2/construction_validation.go:1694 four-output law +
+// :1755-1769 declared-output IDs; recipe/construction.go:1023-1028 step
+// output membership). The renderer's fail-closed arm is load-bearing:
+// TestCodedGroupIRRowValuesAliveControl assembles the ir-accepted shape
+// directly (bypassing recipe validation, the raw-document/privilege
+// channel), and the arm-removal sabotage (logs/pg19-arm-removal-red.log)
+// shows that without the arm the plan renders a PARTIAL statement.
+// ---------------------------------------------------------------------------
+
+// coded19IRRowValuesRefusalMessage is the cell-verbatim refusal of the
+// registered divergence (D2 condition 4).
+const coded19IRRowValuesRefusalMessage = "postgres renderer: unsupported physical plan: coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered"
+
+// coded19AttachIRRowValues attaches a rowValues list the ir validator
+// ACCEPTS (the ACCEPT+EMIT channel the probe banked), built to the exact
+// contract physical_stage_validation.go:2346-2396 demands: the hidden
+// clone of the resolved source projection, the exact-variable output
+// projection, and the ONE-policy output column.
+func coded19AttachIRRowValues(t *testing.T, plan *ir.PhysicalPlan) {
+	t.Helper()
+	sourceReturn := plan.Operations[len(plan.Operations)-1].Return
+	var resourceID ir.PhysicalProjection
+	found := false
+	for _, projection := range sourceReturn.Projections {
+		if projection.Name == "resource_id" {
+			resourceID, found = projection, true
+		}
+	}
+	if !found {
+		t.Fatal("lowered source Return lost the resource_id projection")
+	}
+	resourceID.Hidden = true
+	coded := plan.StageSequence.Stages[0].CodedGroup
+	coded.RowValues = []ir.PhysicalStageRowValue{{
+		InputColumn: "resource_id", InputKind: "STRING", InputMany: false,
+		Output: "row_value_1", Policy: "ONE", Variable: "cg19_rv_var",
+	}}
+	coded.RowValueProjections = []ir.PhysicalProjection{resourceID}
+	stage := &plan.StageSequence.Stages[0]
+	stage.OutputProjections = append(stage.OutputProjections, ir.PhysicalProjection{Name: "row_value_1", Value: ir.PhysicalValue{Variable: "cg19_rv_var"}})
+	column := ir.PhysicalStageColumn{ID: "rv_id", Name: "row_value_1", Label: "row_value_1", Kind: "string", Cardinality: "optional_one", Nullable: true}
+	stage.OutputColumns = append(stage.OutputColumns, column)
+	plan.StageSequence.FinalColumns = append(plan.StageSequence.FinalColumns, column)
+}
+
+// TestCodedGroupIRRowValuesAliveControl is the D2 condition-2 ALIVE
+// assertion: the assembled plan passes ir.Validate (the producer chain
+// accepts and emits this shape), so the ONLY thing standing between it and
+// a rendered statement is this renderer's fail-closed arm. Removing the
+// arm must turn this test RED with a rendered partial statement —
+// evidence banked at logs/pg19-arm-removal-red.log.
+func TestCodedGroupIRRowValuesAliveControl(t *testing.T) {
+	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
+	coded19AttachIRRowValues(t, &plan)
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("the producer channel must accept this shape (probe-banked ACCEPT+EMIT): %v", err)
+	}
+	for label, render := range map[string]func(ir.PhysicalPlan, ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error){
+		"entry": RenderPhysicalPlan,
+		"door":  renderCodedGroupPhysicalPlan,
+	} {
+		rendered, err := render(ir.ClonePhysicalPlan(plan), mustBinding(t))
+		if err == nil {
+			t.Fatalf("%s rendered the refused RowValues shape — the fail-closed arm is not load-bearing:\n%s", label, rendered.SQL)
+		}
+		if !errors.Is(err, ErrUnsupportedPostgresPlan) {
+			t.Fatalf("%s error = %v (%T), want ErrUnsupportedPostgresPlan", label, err, err)
+		}
+		if err.Error() != coded19IRRowValuesRefusalMessage {
+			t.Fatalf("%s refusal message must be cell-verbatim:\n got %q\nwant %q", label, err.Error(), coded19IRRowValuesRefusalMessage)
+		}
+	}
+}
+
+// TestCodedGroupIRRowValuesLiveZeroSideEffects is the D2 condition-3 live
+// proof on the owned coded19_it_* namespace: the refusal happens BEFORE
+// any SQL is produced, so a refused RowValues plan touches the PostgreSQL
+// service not at all — no tables, no rows, no statement text.
+func TestCodedGroupIRRowValuesLiveZeroSideEffects(t *testing.T) {
+	svc := newCoded19Service(t)
+	coded19TrackFixtures(t, svc)
+	coded19Insert(t, svc, "rvw-1", coded19Project, coded19Generation, "FHIR/Observation", codingPayload(coding("sys-rv", "", "kept")))
+
+	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, coded19Project, coded19Generation)
+	coded19AttachIRRowValues(t, &plan)
+
+	before := coded19Inventory(t, svc)
+	rendered, err := RenderPhysicalPlan(plan, bindingFor(t, svc.schema))
+	if err == nil || !strings.Contains(err.Error(), "pg-sql-13") {
+		t.Fatalf("refusal required before any SQL; got rendered=%v err=%v", rendered.SQL, err)
+	}
+	if rendered.SQL != "" || len(rendered.Args) != 0 || len(rendered.OutputColumns) != 0 {
+		t.Fatalf("a refused plan must carry zero SQL, zero parameters, zero columns: %#v", rendered)
+	}
+	if after := coded19Inventory(t, svc); after != before {
+		t.Fatalf("the refused RowValues plan changed service state:\n before %q\n after  %q", before, after)
+	}
+	// Alive control: the schema is live and readable — the inventory
+	// equality above is a real zero-delta, not a query silently returning
+	// nothing.
+	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, coded19Project); rows[0][0] != "1" {
+		t.Fatalf("alive witness: %v, want the single inserted row", rows)
+	}
+}
+
+// coded19Inventory snapshots the owned database's structural and row
+// state as one comparable string: catalog tables, their row counts, and
+// the resource-table digest.
+func coded19Inventory(t *testing.T, svc *pgir02Service) string {
+	t.Helper()
+	tables := svc.witness(t,
+		`SELECT c.relname, c.reltuples::bigint FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace`+
+			` WHERE n.nspname = $1 AND c.relkind = 'r' ORDER BY 1`, svc.schema)
+	resourceRows := svc.witness(t,
+		`SELECT count(*), coalesce(md5(string_agg(payload::text, ',' ORDER BY resource_seq)), '') FROM "`+svc.schema+`"."fhir_resource"`)
+	return strings.Join([]string{fmt.Sprint(tables), fmt.Sprint(resourceRows)}, "|")
+}
 
 // TestCodedGroupTrimSetStructuralLaw enforces the single-trim-set law: the
 // trim characters exist as ONE Go constant in the package, every btrim call
