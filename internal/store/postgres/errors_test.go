@@ -602,6 +602,348 @@ func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.
 	}
 }
 
+// rebTypedNilPgErr and rebTypedNilTranslated are typed-nil pointers stored
+// in interface-typed chains. errors.As reports them as matches, so every
+// field access after a successful As is a nil-dereference panic unless the
+// extraction checked the pointer. These are the verifier sabotage targets:
+// deleting the pointer guard in pgErrorFrom must fail the tests below.
+var (
+	rebTypedNilPgErr      *pgconn.PgError
+	rebTypedNilTranslated *TranslatedError
+)
+
+// rebNoPanic runs fn and fails the test on any panic.
+func rebNoPanic(t *testing.T, what string, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("%s panicked: %v", what, r)
+		}
+	}()
+	fn()
+}
+
+// TestTranslatePostgresErrorTypedNilDriverErrorDoesNotPanic pins the single
+// typed-nil-safe extraction (pgErrorFrom): every entry point that inspects
+// *pgconn.PgError fields — translate via TranslateError/TranslateCommitError,
+// all four predicates, and hasSQLState — must treat a typed-nil
+// (*pgconn.PgError)(nil), bare or wrapped, as carrying no server condition
+// instead of dereferencing it. Deleting the pointer ok-check in pgErrorFrom
+// fails these subtests.
+func TestTranslatePostgresErrorTypedNilDriverErrorDoesNotPanic(t *testing.T) {
+	typedNil := error(rebTypedNilPgErr)
+	inputs := map[string]func() error{
+		"bare":        func() error { return typedNil },
+		"wrapped":     func() error { return fmt.Errorf("driver exec: %w", typedNil) },
+		"double_wrap": func() error { return fmt.Errorf("outer: %w", fmt.Errorf("inner: %w", typedNil)) },
+	}
+	for inputName, build := range inputs {
+		input := build()
+		t.Run(inputName+"/translate", func(t *testing.T) {
+			rebNoPanic(t, "TranslateError", func() {
+				translated, ok := TranslateError(input)
+				if ok {
+					t.Fatalf("typed-nil driver error classified as a server condition: %#v", translated)
+				}
+				if translated != input {
+					t.Fatalf("typed-nil driver error not passed through unchanged: %#v", translated)
+				}
+			})
+		})
+		t.Run(inputName+"/translate_commit", func(t *testing.T) {
+			rebNoPanic(t, "TranslateCommitError", func() {
+				if _, ok := TranslateCommitError(input); ok {
+					t.Fatal("typed-nil driver error classified at commit phase")
+				}
+			})
+		})
+		t.Run(inputName+"/is_unique_violation", func(t *testing.T) {
+			rebNoPanic(t, "IsUniqueViolation", func() {
+				if IsUniqueViolation(input) {
+					t.Fatal("typed-nil driver error reported as unique violation")
+				}
+			})
+		})
+		t.Run(inputName+"/is_aborted_transaction", func(t *testing.T) {
+			rebNoPanic(t, "IsAbortedTransaction", func() {
+				if IsAbortedTransaction(input) {
+					t.Fatal("typed-nil driver error reported as aborted transaction")
+				}
+			})
+		})
+		t.Run(inputName+"/retryable_transaction_conflict", func(t *testing.T) {
+			rebNoPanic(t, "RetryableTransactionConflict", func() {
+				if RetryableTransactionConflict(input) {
+					t.Fatal("typed-nil driver error reported as retryable transaction conflict")
+				}
+			})
+		})
+		t.Run(inputName+"/as_unique_conflict", func(t *testing.T) {
+			rebNoPanic(t, "AsUniqueConflict", func() {
+				if conflict, ok := AsUniqueConflict(input); ok {
+					t.Fatalf("typed-nil driver error upgraded to domain conflict: %#v", conflict)
+				}
+			})
+		})
+		t.Run(inputName+"/has_sqlstate", func(t *testing.T) {
+			rebNoPanic(t, "hasSQLState", func() {
+				for _, code := range []string{sqlStateUniqueViolation, sqlStateAdminShutdown, "08006", "XX001"} {
+					if hasSQLState(input, code) {
+						t.Fatalf("typed-nil driver error reported SQLSTATE %s", code)
+					}
+				}
+			})
+		})
+	}
+}
+
+// TestTranslatePostgresErrorExoticChainInputsDoNotPanic pins the boundary
+// against chain forms callers can construct by accident: typed-nil
+// *TranslatedError in the chain (field reads after errors.As), a translated
+// error whose unexported cause is a typed-nil driver error, and conflict
+// wrappers over typed-nils. No chain shape may panic and none may conjure a
+// condition the chain does not carry.
+func TestTranslatePostgresErrorExoticChainInputsDoNotPanic(t *testing.T) {
+	typedNilTranslated := error(rebTypedNilTranslated)
+	typedNilWrapped := fmt.Errorf("exec: %w", rebTypedNilPgErr)
+
+	t.Run("typed_nil_translated_predicate_fields", func(t *testing.T) {
+		for _, input := range []error{typedNilTranslated, fmt.Errorf("outer: %w", typedNilTranslated)} {
+			rebNoPanic(t, "predicates over typed-nil TranslatedError", func() {
+				if IsUniqueViolation(input) || IsAbortedTransaction(input) || RetryableTransactionConflict(input) {
+					t.Fatal("typed-nil TranslatedError claimed a condition it does not carry")
+				}
+				if _, ok := AsUniqueConflict(input); ok {
+					t.Fatal("typed-nil TranslatedError upgraded to domain conflict")
+				}
+				if hasSQLState(input, sqlStateUniqueViolation) {
+					t.Fatal("typed-nil TranslatedError reported a SQLSTATE")
+				}
+			})
+		}
+	})
+
+	t.Run("translated_with_typed_nil_cause", func(t *testing.T) {
+		translated := &TranslatedError{
+			Condition: ConditionUniqueViolation,
+			SQLState:  "99999",
+			cause:     error(rebTypedNilPgErr),
+		}
+		rebNoPanic(t, "hasSQLState over typed-nil cause", func() {
+			if hasSQLState(translated, sqlStateUniqueViolation) {
+				t.Fatal("typed-nil cause supplied SQLSTATE 23505")
+			}
+			if hasSQLState(translated, "99999") != true {
+				t.Fatal("translated SQLState field stopped matching its own value")
+			}
+			if !IsUniqueViolation(translated) {
+				t.Fatal("translated condition field stopped driving its predicate")
+			}
+		})
+	})
+
+	t.Run("conflict_wrapper_over_typed_nil_driver_error", func(t *testing.T) {
+		conflict := &UniqueConflictError{cause: typedNilWrapped}
+		rebNoPanic(t, "predicates over conflict wrapper on typed-nil", func() {
+			if !IsUniqueViolation(conflict) {
+				t.Fatal("domain conflict marker no longer satisfies IsUniqueViolation")
+			}
+			if hasSQLState(conflict, sqlStateUniqueViolation) {
+				t.Fatal("typed-nil driver error inside conflict wrapper supplied SQLSTATE 23505")
+			}
+		})
+	})
+
+	t.Run("translated_error_still_translates_with_typed_nil_in_chain", func(t *testing.T) {
+		// A chain carrying BOTH a real translated error and a typed-nil
+		// driver error must stay idempotent, not crash.
+		real, _ := TranslateError(rebSecretPgError("ERROR", sqlStateUniqueViolation))
+		chain := fmt.Errorf("wrapped: %w and %v", real, typedNilWrapped)
+		rebNoPanic(t, "TranslateError over mixed chain", func() {
+			if out, ok := TranslateError(chain); !ok || out != chain {
+				t.Fatalf("idempotence broken on mixed chain: ok=%v out=%#v", ok, out)
+			}
+		})
+	})
+}
+
+// TestTranslatePostgresErrorIsAsNeverReachesRawDriverCause pins the redaction
+// contract: the raw driver cause is excluded from Unwrap, so neither
+// errors.Is nor errors.As may reach the underlying *pgconn.PgError (or its
+// secret-bearing fields) through a translated error, directly or wrapped.
+// Reaching only curated sentinels is the guarantee; making the cause visible
+// to Is/As fails this test.
+func TestTranslatePostgresErrorIsAsNeverReachesRawDriverCause(t *testing.T) {
+	cases := []struct {
+		name  string
+		build func() (translated error, raw *pgconn.PgError)
+	}{
+		{"query_translation", func() (error, *pgconn.PgError) {
+			raw := rebSecretPgError("ERROR", sqlStateUniqueViolation)
+			out, _ := TranslateError(raw)
+			return out, raw
+		}},
+		{"ambiguous_commit", func() (error, *pgconn.PgError) {
+			raw := rebSecretPgError("FATAL", sqlStateAdminShutdown)
+			out, _ := TranslateCommitError(fmt.Errorf("commit: %w", raw))
+			return out, raw
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			translated, raw := test.build()
+			var pgErr *pgconn.PgError
+			rebNoPanic(t, "errors.As for driver error", func() {
+				if errors.As(translated, &pgErr) {
+					t.Fatalf("errors.As reached the raw driver cause: %#v", pgErr)
+				}
+				if pgErr != nil {
+					t.Fatalf("errors.As wrote a driver pointer without matching: %#v", pgErr)
+				}
+			})
+			if errors.Is(translated, raw) {
+				t.Fatal("errors.Is reached the raw driver cause identity")
+			}
+			wrapped := fmt.Errorf("outer: %w", translated)
+			if errors.As(wrapped, &pgErr) || errors.Is(wrapped, raw) {
+				t.Fatal("raw driver cause reachable through a further wrapper")
+			}
+			// Curated reachability stays: the redaction excludes only
+			// the raw cause, never the safe chain.
+			if _, ok := dataframeerrors.AsUserError(translated); !ok {
+				t.Fatal("curated typed error no longer reachable through the chain")
+			}
+			if test.name == "query_translation" && !IsUniqueViolation(translated) {
+				t.Fatal("translated condition became unreachable through predicates")
+			}
+			if test.name == "ambiguous_commit" && !errors.Is(translated, ErrConnect) {
+				t.Fatal("curated ErrConnect sentinel became unreachable")
+			}
+			rebAssertSafeRendering(t, translated)
+		})
+	}
+}
+
+// TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit pins
+// that PANIC severity makes a COMMIT outcome uncertain on ANY SQLSTATE, not
+// only the session-end classes: a PANIC aborts the whole cluster, so the
+// server may or may not have applied the commit whatever the code says.
+// Dropping PANIC from the severity classification fails these subtests; the
+// ERROR control pins that non-fatal severities stay definitive.
+func TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit(t *testing.T) {
+	tests := []struct {
+		name          string
+		severity      string
+		unlocalized   string
+		sqlState      string
+		wantCondition DriverCondition
+	}{
+		{"panic_v_on_internal_error", "KRITISCH", "PANIC", "XX001", ConditionServerRejected},
+		// On a non-session-death SQLSTATE the ambiguous-commit branch maps
+		// via shutdownCondition (default server_rejected); the SQLState
+		// field keeps the witnessed code, asserted below.
+		{"panic_v_on_unique_violation", "FEHLER", "PANIC", sqlStateUniqueViolation, ConditionServerRejected},
+		{"panic_v_on_serialization", "FEHLER", "PANIC", sqlStateSerializationFailure, ConditionServerRejected},
+		{"panic_s_fallback_without_v", "PANIC", "", "42P01", ConditionServerRejected},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pgErr := rebSecretPgError(test.severity, test.sqlState)
+			pgErr.SeverityUnlocalized = test.unlocalized
+			translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
+			if !ok {
+				t.Fatal("PANIC-severity commit failure not translated")
+			}
+			translatedErr := translated.(*TranslatedError)
+			if !translatedErr.AmbiguousCommit || !errors.Is(translated, ErrCommitOutcomeUnknown) {
+				t.Fatalf("PANIC severity on a non-session-death SQLSTATE was treated as a definitive commit rejection: %#v", translatedErr)
+			}
+			if translatedErr.Condition != test.wantCondition {
+				t.Fatalf("condition = %s, want %s", translatedErr.Condition, test.wantCondition)
+			}
+			if translatedErr.SQLState != test.sqlState {
+				t.Fatalf("SQLState = %s, want %s", translatedErr.SQLState, test.sqlState)
+			}
+			if userErr := rebUserErr(t, translated); userErr.Retryable() {
+				t.Fatal("PANIC-severity ambiguous commit advertised retry")
+			}
+			_, mapped := rebHttpJSON(t, translated)
+			if mapped.Body.Error.Retryable {
+				t.Fatal("HTTP advertised retry for a PANIC-severity ambiguous commit")
+			}
+			rebAssertSafeRendering(t, translated)
+		})
+	}
+	// Control: non-fatal ERROR severity on a non-session-death SQLSTATE
+	// stays definitive — the server answered the COMMIT.
+	pgErr := rebSecretPgError("FEHLER", "XX001")
+	pgErr.SeverityUnlocalized = "ERROR"
+	translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
+	if !ok {
+		t.Fatal("ERROR-severity commit failure not translated")
+	}
+	if translatedErr := translated.(*TranslatedError); translatedErr.AmbiguousCommit {
+		t.Fatalf("non-fatal severity wrongly flagged ambiguous commit: %#v", translatedErr)
+	}
+}
+
+// TestTranslatePostgresErrorClass08CommitAlwaysAmbiguous pins that any
+// class-08 connection-exception SQLSTATE observed at COMMIT is ambiguous
+// regardless of the severity strings: these messages arrive on a dying
+// transport, so a severity field reading below fatal cannot establish that
+// the server rejected the COMMIT. Removing the class-08 arm of the
+// session-end short-circuit fails these subtests; the ERROR control at a
+// non-08 code pins the non-vacuity direction.
+func TestTranslatePostgresErrorClass08CommitAlwaysAmbiguous(t *testing.T) {
+	tests := []struct {
+		name        string
+		sqlState    string
+		severity    string
+		unlocalized string
+	}{
+		{"08000_nonfatal", "08000", "FEHLER", "ERROR"},
+		{"08001_nonfatal", "08001", "FEHLER", "ERROR"},
+		{"08003_nonfatal", "08003", "WARNUNG", "WARNING"},
+		{"08006_nonfatal", "08006", "FEHLER", "ERROR"},
+		{"08006_fatal", "08006", "FATAL", "FATAL"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			pgErr := rebSecretPgError(test.severity, test.sqlState)
+			pgErr.SeverityUnlocalized = test.unlocalized
+			translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
+			if !ok {
+				t.Fatal("class-08 commit failure not translated")
+			}
+			translatedErr := translated.(*TranslatedError)
+			if !translatedErr.AmbiguousCommit || !errors.Is(translated, ErrCommitOutcomeUnknown) {
+				t.Fatalf("class-08 %s at COMMIT was treated as definitive: %#v", test.sqlState, translatedErr)
+			}
+			if translatedErr.Condition != ConditionConnectionLost {
+				t.Fatalf("condition = %s, want connection_lost", translatedErr.Condition)
+			}
+			if userErr := rebUserErr(t, translated); userErr.Retryable() {
+				t.Fatalf("class-08 ambiguous commit advertised retry: %#v", userErr)
+			}
+			_, mapped := rebHttpJSON(t, translated)
+			if mapped.Body.Error.Retryable {
+				t.Fatal("HTTP advertised retry for an ambiguous class-08 commit")
+			}
+			rebAssertSafeRendering(t, translated)
+		})
+	}
+	// Control: a non-08 code with non-fatal severity is NOT ambiguous.
+	pgErr := rebSecretPgError("FEHLER", "XX001")
+	pgErr.SeverityUnlocalized = "ERROR"
+	translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
+	if !ok {
+		t.Fatal("control commit failure not translated")
+	}
+	if translatedErr := translated.(*TranslatedError); translatedErr.AmbiguousCommit {
+		t.Fatalf("non-08 ERROR severity wrongly flagged ambiguous: %#v", translatedErr)
+	}
+}
+
 func TestTranslatePostgresErrorCommitClassification(t *testing.T) {
 	t.Run("fatal mid-commit is ambiguous", func(t *testing.T) {
 		raw := fmt.Errorf("commit: %w", rebSecretPgError("FATAL", sqlStateAdminShutdown))

@@ -295,8 +295,7 @@ func translate(err error, commitPhase bool) (error, bool) {
 		return newTranslated(internalSpec(ConditionTransactionClosed), "", err), true
 	}
 
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := pgErrorFrom(err); ok {
 		if commitPhase && commitOutcomeIsUncertain(pgErr) {
 			// The session died mid-commit. The COMMIT may or may not have
 			// been applied: leave the outcome ambiguous, never infer
@@ -341,6 +340,23 @@ func translate(err error, commitPhase bool) (error, bool) {
 	}
 
 	return err, false
+}
+
+// pgErrorFrom is the ONLY place this boundary turns an error chain into a
+// *pgconn.PgError for field inspection (SQLSTATE, severity). errors.As
+// reports a typed-nil (*pgconn.PgError)(nil) as a match — callers would then
+// panic on the first field access — so the pointer must be checked after a
+// successful As before any field is read. A typed-nil carries no SQLSTATE
+// and no severity: it is reported as absent (ok=false) and every caller
+// treats the error as carrying no server condition. translate(), every
+// predicate, and hasSQLState must reach driver fields exclusively through
+// this function.
+func pgErrorFrom(err error) (*pgconn.PgError, bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr == nil {
+		return nil, false
+	}
+	return pgErr, true
 }
 
 // translateSQLState classifies one server SQLSTATE.
@@ -472,7 +488,7 @@ func IsUniqueViolation(err error) bool {
 		return false
 	}
 	var translated *TranslatedError
-	if errors.As(err, &translated) && translated.Condition == ConditionUniqueViolation {
+	if errors.As(err, &translated) && translated != nil && translated.Condition == ConditionUniqueViolation {
 		return true
 	}
 	if hasSQLState(err, sqlStateUniqueViolation) {
@@ -491,7 +507,7 @@ func IsAbortedTransaction(err error) bool {
 		return false
 	}
 	var translated *TranslatedError
-	if errors.As(err, &translated) && translated.Condition == ConditionAbortedTransaction {
+	if errors.As(err, &translated) && translated != nil && translated.Condition == ConditionAbortedTransaction {
 		return true
 	}
 	return hasSQLState(err, sqlStateAbortedTransaction)
@@ -507,7 +523,7 @@ func RetryableTransactionConflict(err error) bool {
 		return false
 	}
 	var translated *TranslatedError
-	if errors.As(err, &translated) {
+	if errors.As(err, &translated) && translated != nil {
 		switch translated.Condition {
 		case ConditionSerializationFailure, ConditionDeadlockDetected:
 			return true
@@ -522,17 +538,15 @@ func hasSQLState(err error, code string) bool {
 	if err == nil {
 		return false
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := pgErrorFrom(err); ok {
 		return pgErr.Code == code
 	}
 	var translated *TranslatedError
-	if errors.As(err, &translated) {
+	if errors.As(err, &translated) && translated != nil {
 		if translated.SQLState == code {
 			return true
 		}
-		var causePgErr *pgconn.PgError
-		if errors.As(translated.cause, &causePgErr) {
+		if causePgErr, ok := pgErrorFrom(translated.cause); ok {
 			return causePgErr.Code == code
 		}
 	}
