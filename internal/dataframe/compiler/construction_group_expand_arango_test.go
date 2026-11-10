@@ -569,16 +569,14 @@ func TestConstructionGroupOneRowValuePreservesDistinctAndErrorSemanticsAgainstAr
 		{"id": "one-multiple-a", "status": "active", "note": []any{map[string]any{"text": "blue"}}},
 		{"id": "one-multiple-b", "status": "active", "note": []any{map[string]any{"text": "red"}}},
 	})
-	if err := executeConstructionOutputError(t, ctx, client, constructionGroupOneRowValueOutput(), multipleProject, generation); err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
-		t.Fatalf("Group ONE accepted multiple distinct values, error = %v", err)
-	}
+	err := executeConstructionOutputError(t, ctx, client, constructionGroupOneRowValueOutput(), multipleProject, generation)
+	requireStableRuntimeCode(t, err, "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES")
 
 	insertConstructionReshapeRows(t, ctx, client, invalidTypeProject, generation, []map[string]any{
 		{"id": "one-invalid-type", "status": "active", "note": []any{map[string]any{"text": 7}}},
 	})
-	if err := executeConstructionOutputError(t, ctx, client, constructionGroupOneRowValueOutput(), invalidTypeProject, generation); err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH") {
-		t.Fatalf("Group ONE accepted an invalid value type, error = %v", err)
-	}
+	err = executeConstructionOutputError(t, ctx, client, constructionGroupOneRowValueOutput(), invalidTypeProject, generation)
+	requireStableRuntimeCode(t, err, "CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH")
 }
 
 func TestConstructionExpandPreserveAndGroupNullKeyRowsAgainstArango(t *testing.T) {

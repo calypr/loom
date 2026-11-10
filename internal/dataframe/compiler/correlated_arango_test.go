@@ -259,9 +259,8 @@ func TestExplicitGroupRowsAgainstArango(t *testing.T) {
 		t.Fatalf("unassigned group rows = %#v", unassignedRows)
 	}
 	errorQuery := mustCompileGroupRowsQuery(t, project, generation, revisionID, "ERROR")
-	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil || !strings.Contains(err.Error(), "EXPLICIT_GROUP_UNASSIGNED_MEMBER") {
-		t.Fatalf("ERROR policy query error = %v, want unassigned member assertion", err)
-	}
+	err = client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil })
+	requireStableRuntimeCode(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
 }
 
 func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]CompiledQuery, error) {
@@ -398,9 +397,7 @@ func TestUnitNormalizationLiteralValuesAgainstArango(t *testing.T) {
 				return nil
 			})
 			if tc.wantUnknown {
-				if queryErr == nil || !strings.Contains(queryErr.Error(), "UNIT_IDENTITY_UNKNOWN") {
-					t.Fatalf("query error = %v, want UNIT_IDENTITY_UNKNOWN\n%s", queryErr, rendered.Query)
-				}
+				requireStableRuntimeCode(t, queryErr, "UNIT_IDENTITY_UNKNOWN")
 				return
 			}
 			if queryErr != nil {
@@ -1032,8 +1029,9 @@ func TestRecipeOccurrenceExpansionLiteralRowsAgainstArango(t *testing.T) {
 		t.Fatal(err)
 	}
 	queryErr := client.QueryRows(ctx, testAQLText(t, queries[0].Command), 100, testAQLBinds(t, queries[0].Command), func(map[string]any) error { return nil })
-	if queryErr == nil || !strings.Contains(queryErr.Error(), "specimen-owner") || !strings.Contains(queryErr.Error(), emptySpecimenKey) {
-		t.Fatalf("ERROR policy error = %v, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", queryErr, emptySpecimenKey, testAQLText(t, queries[0].Command))
+	cause := requireStableRuntimeCode(t, queryErr, "CONSTRUCTION_EXPANSION_EMPTY")
+	if !strings.Contains(cause, "specimen-owner") || !strings.Contains(cause, emptySpecimenKey) {
+		t.Fatalf("ERROR policy diagnostic cause = %q, want owner-boundary assertion for occurrence specimen-owner and empty owner %s\n%s", cause, emptySpecimenKey, testAQLText(t, queries[0].Command))
 	}
 }
 
