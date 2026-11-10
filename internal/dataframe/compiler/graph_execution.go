@@ -19,6 +19,16 @@ func CompileResolvedGraphQuery(target Target, resolved semantic.ResolvedRecipePl
 	if err := target.validate(); err != nil {
 		return CompiledQuery{}, err
 	}
+	// Planner-facing command registration stays fail-closed for PostgreSQL
+	// exactly as in pg-sql-01/02/03/09/15/18: the graph path union is
+	// implemented and registered at the renderer entry, not here
+	// (render/postgres/graph.go RenderGraphPhysicalPlan, pg-sql-20, with
+	// direct graph-path oracle coverage). This named refusal is the
+	// arch-backend-11 contract receipt's anchor
+	// (selected_source_contract_test.go:124-127) and stays byte-stable this
+	// wave per the ratified plan ruling; the command-dispatch flip is
+	// banked as its own follow-up ticket and must arrive with the receipt
+	// update in the same wave.
 	if err := target.rejectPostgreSQL("graph query compilation"); err != nil {
 		return CompiledQuery{}, err
 	}
