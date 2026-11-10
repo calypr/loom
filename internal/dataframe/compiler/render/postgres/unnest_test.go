@@ -221,6 +221,129 @@ func TestUnnestNestedRepeatedArraysChainExpansionsAndCaptureAncestors(t *testing
 	}
 }
 
+// TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths pins the
+// two registered projection surfaces that were previously exercised only
+// negatively: the non-empty path branch of resolveDerivedValue (a document
+// path over the derived jsonb item, delegating to
+// documentPathFromExpression — the single path-binding authority for
+// derived bases) and the VALUE-expression projection form accepted by
+// validateUnnestReturn.
+func TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths(t *testing.T) {
+	plan := basePlan()
+	unnest := identifierExpansion(ir.PhysicalUnnestExclude)
+	plan.Operations = []ir.PhysicalOperation{plan.Operations[0], unnestOp(unnest),
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			valueProjection("logical_id", "root", "logical_id"),
+			valueProjection("item_system", "item", "system"),
+			expressionProjection("item_value", "item", "value"),
+			valueProjection("position", "position"),
+			valueProjection("has_item", "has_item"),
+		}}}}
+	rendered := renderOK(t, plan)
+	sql := rendered.SQL
+
+	for _, want := range []string{
+		// Both derived-item paths render as parameterized #> extractions
+		// over the renderer-owned u1.item, the same discipline stored-row
+		// paths take; the VALUE-expression projection reads identically.
+		`((u1.item #> $6::text[])) AS "c1"`,
+		`((u1.item #> $7::text[])) AS "c2"`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("SQL missing %q:\n%s", want, sql)
+		}
+	}
+	for _, leaked := range []string{`"system"`, `"value"`, "identifier"} {
+		if strings.Contains(sql, leaked) {
+			t.Fatalf("selector field %q leaked into SQL text: %s", leaked, sql)
+		}
+	}
+	if len(rendered.Args) != 7 {
+		t.Fatalf("args = %v, want four scope args plus {identifier}, {system}, {value}", rendered.Args)
+	}
+	for index, want := range []string{"{identifier}", "{system}", "{value}"} {
+		if got := rendered.Args[4+index]; got.Type != compiler.PostgreSQLParameterText || got.Value != want {
+			t.Fatalf("path argument %d = %#v, want text %s", 4+index, got, want)
+		}
+	}
+	// Entry and dispatch agree for these projection forms too.
+	viaEntry, err := RenderUnnest(plan, mustBinding(t))
+	if err != nil {
+		t.Fatalf("RenderUnnest: %v", err)
+	}
+	if viaEntry.SQL != rendered.SQL || !reflect.DeepEqual(viaEntry.Args, rendered.Args) {
+		t.Fatalf("entry and dispatch disagree:\n%s\nvs\n%s", viaEntry.SQL, rendered.SQL)
+	}
+}
+
+// TestUnnestTwoExpansionsAssembleInPlanOrder pins the registered multi-
+// UNNEST slice: two lateral expansions on the same parent row in plan
+// order (u1 then u2), each contributing its rn to the total order after
+// resource_seq, a cartesian product per parent row, distinct renderer-
+// owned aliases throughout, and path parameters deduplicated across
+// expansions and projections.
+func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
+	plan := basePlan()
+	first := identifierExpansion(ir.PhysicalUnnestExclude)
+	second := ir.PhysicalUnnest{
+		Owner: ir.PhysicalUnnestOwner{OccurrenceID: "root", ResourceType: "Patient",
+			RootVariable: "root", OwnerVariable: "root"},
+		OutputVariable: "telecom_item", Ordinality: "telecom_position", HasItemVariable: "telecom_has_item",
+		Expression:  arrayExtract("root", "Patient", spec.SelectorStep{Field: "telecom", Iterate: true}),
+		EmptyPolicy: ir.PhysicalUnnestExclude,
+	}
+	plan.Operations = []ir.PhysicalOperation{plan.Operations[0], unnestOp(first), unnestOp(second),
+		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			valueProjection("logical_id", "root", "logical_id"),
+			valueProjection("identifier_value", "item", "value"),
+			valueProjection("telecom_system", "telecom_item", "system"),
+			expressionProjection("telecom_value", "telecom_item", "value"),
+			valueProjection("position", "position"),
+			valueProjection("telecom_position", "telecom_position"),
+		}}}}
+	rendered := renderOK(t, plan)
+	sql := rendered.SQL
+
+	for _, want := range []string{
+		// Plan-order laterals with distinct renderer-owned alias families.
+		`) AS u1 CROSS JOIN LATERAL (SELECT u2_e0.item AS item, ROW_NUMBER() OVER (ORDER BY u2_e0.ord) AS rn FROM jsonb_array_elements(`,
+		`WHERE jsonb_typeof(u1_e0.item) <> 'null'`,
+		`WHERE jsonb_typeof(u2_e0.item) <> 'null'`,
+		// Both rn keys extend the total order in plan order after
+		// resource_seq: the cartesian product per parent row is fully
+		// deterministic.
+		`ORDER BY r0."resource_seq" ASC, u1.rn ASC, u2.rn ASC`,
+		// Derived paths read off their own expansion's item column.
+		`((u1.item #> $7::text[])) AS "c1"`,
+		`((u2.item #> $8::text[])) AS "c2"`,
+		`((u2.item #> $7::text[])) AS "c3"`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("SQL missing %q:\n%s", want, sql)
+		}
+	}
+	for _, leaked := range []string{"identifier", "telecom", `"system"`, `"value"`} {
+		if strings.Contains(sql, leaked) {
+			t.Fatalf("selector field or path %q leaked into SQL text: %s", leaked, sql)
+		}
+	}
+	// Expansion paths register first (u1 {identifier}, u2 {telecom}), then
+	// {value} is bound once at $7 and referenced by BOTH the u1 identifier
+	// item and the u2 telecom item/value projections: parameter
+	// deduplication spans expansions, not just a single chain.
+	if len(rendered.Args) != 8 {
+		t.Fatalf("args = %v, want four scope args plus {identifier}, {telecom}, {value}, {system}", rendered.Args)
+	}
+	for index, want := range []string{"{identifier}", "{telecom}", "{value}", "{system}"} {
+		if got := rendered.Args[4+index]; got.Type != compiler.PostgreSQLParameterText || got.Value != want {
+			t.Fatalf("path argument %d = %#v, want text %s", 4+index, got, want)
+		}
+	}
+	if strings.Contains(sql, "LEFT JOIN") {
+		t.Fatalf("INNER multi-expansion rendered OUTER padding:\n%s", sql)
+	}
+}
+
 func TestUnnestOwnerRouteRendersTypedIdentityJoinBeforeLaterals(t *testing.T) {
 	plan := basePlan()
 	// The PostgreSQL edge table comes from the storage registry, so the
@@ -1350,6 +1473,178 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 // ---------------------------------------------------------------------------
 // Case 5: scope fences the expansion and hostile selectors stay inert.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Case: derived-item document paths and the VALUE-expression projection
+// project live off the expansion's item column (positive coverage for the
+// resolveDerivedValue path branch and the validateUnnestReturn expression
+// form; scalars prove an absent field is SQL NULL, not a fabricated cell).
+// ---------------------------------------------------------------------------
+
+func TestPG18UnnestDerivedItemPathsAndValueExpressionProjectLive(t *testing.T) {
+	svc := newSQL09Service(t)
+	dupA := `{"system": "urn:x", "value": "a"}`
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-dups", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": [`+dupA+`, `+dupA+`, {"system": "urn:x", "value": "b"}, `+dupA+`]}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-scalars", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": ["s1", "s2"]}`))
+	svc.insertResource(t, "sql09-other-project", sql09Generation, "Patient", "p-scope", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": [{"system": "urn:out", "value": "out-of-scope"}]}`))
+
+	plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
+	plan.Operations = append(plan.Operations, unnestOp(identifierExpansion(ir.PhysicalUnnestExclude)))
+	plan = withReturn(plan,
+		valueProjection("logical_id", "root", "logical_id"),
+		valueProjection("item_system", "item", "system"),
+		expressionProjection("item_value", "item", "value"),
+		valueProjection("position", "position"),
+		valueProjection("has_item", "has_item"),
+	)
+	rendered, err := RenderUnnest(plan, sql09Binding(t, svc))
+	if err != nil {
+		t.Fatalf("RenderUnnest: %v", err)
+	}
+	got := sql09CanonicalRows(svc.runRendered(t, rendered))
+	want := [][]string{
+		{"p-dups", "urn:x", "a", "0", "true"},
+		{"p-dups", "urn:x", "a", "1", "true"},
+		{"p-dups", "urn:x", "b", "2", "true"},
+		{"p-dups", "urn:x", "a", "3", "true"},
+		{"p-scalars", "<null>", "<null>", "0", "true"},
+		{"p-scalars", "<null>", "<null>", "1", "true"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("derived-path rows = %v, want %v", got, want)
+	}
+
+	// Server-side authority: scalar items have no system/value to extract,
+	// so those cells are SQL NULL — not the jsonb 'null' scalar, which the
+	// terminal filter excludes from ever being an item — and every dups
+	// cell is a present value.
+	probe := svc.sql09IsNullProbe(t, rendered, "c1", "c2")
+	for index, row := range probe {
+		wantNull := "false"
+		if index >= 4 {
+			wantNull = "true"
+		}
+		if row[0] != wantNull || row[1] != wantNull {
+			t.Fatalf("row %d IS NULL cells = %v, want both %s", index, row, wantNull)
+		}
+	}
+
+	// Witness: the parameterized #> extractions over u1.item agree with a
+	// direct extraction off the stored elements, position by position.
+	stored := svc.witness(t,
+		`SELECT e ->> 'system', e ->> 'value' FROM "`+svc.schema+`"."fhir_resource" r,`+
+			` jsonb_array_elements(r.payload -> 'identifier') e`+
+			` WHERE r.project=$1 AND r.dataset_generation=$2 AND r.logical_id='p-dups'`,
+		sql09Project, sql09Generation)
+	for index, row := range stored {
+		if row[0] != want[index][1] || row[1] != want[index][2] {
+			t.Fatalf("stored extraction %d = %v, want %v/%v", index, row, want[index][1], want[index][2])
+		}
+	}
+	for _, row := range got {
+		if row[0] == "p-scope" || strings.Contains(strings.Join(row, "|"), "out-of-scope") {
+			t.Fatalf("derived-path projection leaked out-of-scope row: %v", row)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Case: two registered UNNEST operations assemble in plan order and form
+// the per-parent-row cartesian product with a deterministic total order.
+// ---------------------------------------------------------------------------
+
+func TestPG18UnnestTwoExpansionsFormCartesianProductPerParentRow(t *testing.T) {
+	svc := newSQL09Service(t)
+	telecom := `[{"system": "urn:t", "value": "t1"}, {"system": "urn:t", "value": "t2"}]`
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-cart", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": [{"value": "i1"}, {"value": "i2"}], "telecom": `+telecom+`}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-single", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": [{"value": "only"}], "telecom": `+telecom+`}`))
+	// INNER on either expansion drops the parent row when that source is
+	// empty: no identifier, no telecom.
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-noident", "FHIR/Patient",
+		sql09JSON(t, `{"telecom": [{"system": "urn:t", "value": "t1"}]}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-notel", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": [{"value": "i1"}]}`))
+	svc.insertResource(t, "sql09-other-project", sql09Generation, "Patient", "p-scope", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": [{"value": "out-of-scope"}], "telecom": `+telecom+`}`))
+
+	first := identifierExpansion(ir.PhysicalUnnestExclude)
+	second := ir.PhysicalUnnest{
+		Owner: ir.PhysicalUnnestOwner{OccurrenceID: "root", ResourceType: "Patient",
+			RootVariable: "root", OwnerVariable: "root"},
+		OutputVariable: "telecom_item", Ordinality: "telecom_position", HasItemVariable: "telecom_has_item",
+		Expression:  arrayExtract("root", "Patient", spec.SelectorStep{Field: "telecom", Iterate: true}),
+		EmptyPolicy: ir.PhysicalUnnestExclude,
+	}
+	plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
+	plan.Operations = append(plan.Operations, unnestOp(first), unnestOp(second))
+	plan = withReturn(plan,
+		valueProjection("logical_id", "root", "logical_id"),
+		valueProjection("identifier_value", "item", "value"),
+		expressionProjection("telecom_value", "telecom_item", "value"),
+		valueProjection("telecom_system", "telecom_item", "system"),
+		valueProjection("position", "position"),
+		valueProjection("telecom_position", "telecom_position"),
+	)
+	rendered, err := RenderUnnest(plan, sql09Binding(t, svc))
+	if err != nil {
+		t.Fatalf("RenderUnnest: %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "ORDER BY r0.\"resource_seq\" ASC, u1.rn ASC, u2.rn ASC") {
+		t.Fatalf("multi-expansion ORDER BY missing either rn key:\n%s", rendered.SQL)
+	}
+	got := sql09CanonicalRows(svc.runRendered(t, rendered))
+	want := [][]string{
+		{"p-cart", "i1", "t1", "urn:t", "0", "0"},
+		{"p-cart", "i1", "t2", "urn:t", "0", "1"},
+		{"p-cart", "i2", "t1", "urn:t", "1", "0"},
+		{"p-cart", "i2", "t2", "urn:t", "1", "1"},
+		{"p-single", "only", "t1", "urn:t", "0", "0"},
+		{"p-single", "only", "t2", "urn:t", "0", "1"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cartesian rows = %v, want %v", got, want)
+	}
+
+	// Witness: a hand-written double-LATERAL nested loop over the stored
+	// payloads reproduces the rendered cell sequence exactly — the 4x1 and
+	// 2x1 products, u1-major then u2-minor per parent row.
+	loop := svc.witness(t,
+		`SELECT r.logical_id, a.value ->> 'value', b.value ->> 'value', b.value ->> 'system',`+
+			` a.ord - 1, b.ord - 1`+
+			` FROM "`+svc.schema+`"."fhir_resource" r`+
+			` CROSS JOIN LATERAL jsonb_array_elements(r.payload -> 'identifier') WITH ORDINALITY AS a(value, ord)`+
+			` CROSS JOIN LATERAL jsonb_array_elements(r.payload -> 'telecom') WITH ORDINALITY AS b(value, ord)`+
+			` WHERE r.project=$1 AND r.dataset_generation=$2 AND r.resource_type='Patient'`+
+			` ORDER BY r.resource_seq, a.ord, b.ord`,
+		sql09Project, sql09Generation)
+	if !reflect.DeepEqual(loop, want) {
+		t.Fatalf("nested-loop witness = %v, want %v", loop, want)
+	}
+
+	// No emitted cell is SQL NULL: every cartesian cell is a present
+	// scalar, and neither empty-source parent contributes rows.
+	probe := svc.sql09IsNullProbe(t, rendered, "c1", "c2", "c3", "c4", "c5")
+	if len(probe) != len(want) {
+		t.Fatalf("IS NULL probe rows = %d, want %d", len(probe), len(want))
+	}
+	for index, row := range probe {
+		for column, cell := range row {
+			if cell != "false" {
+				t.Fatalf("cartesian row %d column %d IS NULL = %s, want false", index, column, cell)
+			}
+		}
+	}
+	for _, row := range got {
+		if row[0] == "p-noident" || row[0] == "p-notel" || row[0] == "p-scope" {
+			t.Fatalf("INNER multi-expansion emitted an empty-source or out-of-scope parent: %v", row)
+		}
+	}
+}
 
 func TestPG18UnnestScopeFencesExpandedRows(t *testing.T) {
 	svc := newSQL09Service(t)
