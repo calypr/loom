@@ -45,6 +45,24 @@ func NewPlanJSONExecutor(querier any) (dataframeexecution.PostgreSQLPlanJSONExec
 	return newPostgreSQLPlanJSONExecutor(q)
 }
 
+// NewSourceRows exposes the row-execution assembly over any value that
+// satisfies the structural row-querier contract, the same seam
+// NewPlanJSONExecutor uses. Witness binaries outside the backend (the
+// execution test harness's adapter factory) assemble a live
+// execution.SourceRows through here instead of importing the private rows
+// package directly, keeping the factory the single assembly point.
+func NewSourceRows(querier any) (dataframeexecution.SourceRows, error) {
+	q, ok := querier.(rows.Querier)
+	if !ok {
+		return nil, fmt.Errorf("%w: value does not satisfy the row-querier contract", ErrInvalidConfig)
+	}
+	executor, err := rows.NewExecutor(q)
+	if err != nil {
+		return nil, err
+	}
+	return executor.SourceRows, nil
+}
+
 // rows.Querier conformance: the pool client is the Querier behind the
 // executor, and this compile-time assertion makes any signature drift
 // between Client.Query and the adapter contract fail the build (V7).

@@ -110,6 +110,11 @@ func OpenPool(ctx context.Context, cfg ClientConfig) (*Client, error) {
 // SQL) for witnesses that verify ledger contents directly.
 var OwnerMigrations = explorerstore.OwnerMigrations
 
+// CheckServerVersion is the store's readiness classifier (major must be 18)
+// over a version number and display string, exposed for witnesses that
+// gate on the same gate the pool's Ping enforces.
+var CheckServerVersion = pgstore.CheckServerVersion
+
 // MigrateSchema applies the owned source-series migrations to one schema,
 // idempotently, over a caller-supplied pool. Runtime.MigrateSchema is the
 // same pass against the runtime pool.

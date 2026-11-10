@@ -21,13 +21,15 @@ package postgres_test
 //     column-contract mismatch with the named error, and refuses a cross-tag
 //     command with the command-boundary mismatch error.
 //   - PlanJSON returns valid JSON over an EXPLAIN-retagged command.
-//   - Close is repeat-safe and afterwards Health, Query, and SourceRows all
-//     refuse with ErrRuntimeClosed.
+//   - Close is repeat-safe and afterwards Health and Query refuse with
+//     ErrRuntimeClosed, while SourceRows refuses through the rows
+//     adapter's named execution-seam classification (ErrQuery).
 //   - Failure paths leak nothing: an Open that fails schema setup closes the
 //     pool it opened (zero pg_stat_activity rows for that attempt's tag).
 //
 // The suite owns the verify_ab06_* schema namespace: each fixture creates
-// exactly one schema through the public control pool and drops it in cleanup;
+// one caller-owned schema per assigned series (six today — one history owner
+// per schema) through the public control pool and drops them in cleanup;
 // TestZZZeroLeftoverAB06LiveOpenFixtures proves the namespace stays empty.
 //
 // Never-skip discipline: offline runs skip this half, and the seventh
@@ -232,6 +234,74 @@ func factoryOpenLiveAssembly(t *testing.T) {
 			t.Fatalf("no live backend carried the own-prefix application_name %q (pool self-tagging regressed)", appName)
 		}
 
+		// Context-lifetime witness (the review's streaming finding): a
+		// SECOND runtime whose AcquireTimeout is far shorter than the total
+		// iteration time proves the caller context — not the acquisition
+		// bound — owns the row lifetime. An early-cancel regression would
+		// fail these reads with context.Canceled.
+		streamNonce := ab06NewNonce(t)
+		streamSchemas := ab06AllSeriesSchemas(streamNonce)
+		for _, series := range control.AllSeries() {
+			ab06Exec(t, admin, "CREATE SCHEMA "+ab06SeriesSchema(streamNonce, series))
+		}
+		t.Cleanup(func() {
+			for _, series := range control.AllSeries() {
+				ab06Exec(t, admin, "DROP SCHEMA IF EXISTS "+ab06SeriesSchema(streamNonce, series)+" CASCADE")
+			}
+		})
+		streamRuntime, err := postgres.Open(ctx, postgres.Config{
+			DSN:             dsn,
+			ApplicationName: "loom-pg-ab06stream" + streamNonce,
+			Schemas:         streamSchemas,
+			// SetupNone: these schemas host only session-level SELECTs, no
+			// series tables are touched, so no DDL is needed.
+			Setup:          postgres.SetupNone,
+			MaxConns:       2,
+			MinConns:       1,
+			AcquireTimeout: 250 * time.Millisecond,
+		})
+		if err != nil {
+			t.Fatalf("open streaming runtime (AcquireTimeout 250ms): %v", err)
+		}
+		defer streamRuntime.Close()
+
+		// Server-paced multi-row stream: each row costs the server 20ms, so
+		// rows keep arriving for ~600ms — far past the 250ms acquire bound.
+		// A regression that cancels the query context at acquisition (the
+		// early-cancel defect the review caught) fails the second Next()
+		// with context.Canceled instead of streaming every row.
+		const streamRows = 30
+		streamCommand, err := command.NewPostgreSQLCommand(
+			fmt.Sprintf("SELECT generate_series(1, %d)::bigint AS n, pg_sleep(0.02) AS drip", streamRows), nil)
+		if err != nil {
+			t.Fatalf("build server-paced stream command: %v", err)
+		}
+		seen := 0
+		if err := streamRuntime.SourceRows(ctx, execution.RowsRequest{
+			Command:         streamCommand,
+			DeclaredColumns: []string{"n", "drip"},
+		}, func(row map[string]any) error {
+			seen++
+			return nil
+		}); err != nil {
+			t.Fatalf("server-paced stream ran longer than AcquireTimeout and failed (context bound to acquisition, not to the caller): %v", err)
+		}
+		if seen != streamRows {
+			t.Fatalf("streamed %d rows, want %d", seen, streamRows)
+		}
+		// QueryRow whose row is produced long after acquisition: the row
+		// must stay alive for the caller context (the same early-cancel
+		// regression fails Scan with context.Canceled).
+		slowRow := streamRuntime.QueryRow(ctx, "SELECT pg_sleep(0.35), 7::bigint")
+		var dripped string // void renders empty; only its consumption matters
+		var seven int64
+		if err := slowRow.Scan(&dripped, &seven); err != nil {
+			t.Fatalf("QueryRow Scan after a server-side delay past the acquire timeout failed: %v", err)
+		}
+		if seven != 7 {
+			t.Fatalf("slow QueryRow value = %d, want 7", seven)
+		}
+
 		// SourceRows streams a literal typed row through the public port with
 		// ordered typed arguments.
 		literalCommand, err := command.NewPostgreSQLCommand(
@@ -313,7 +383,7 @@ func factoryOpenLiveAssembly(t *testing.T) {
 			DSN:             dsn,
 			ApplicationName: failedTag,
 			Schemas:         ab06AllSeriesSchemas(absentNonce),
-			Setup:           postgres.SetupVerify,
+			Setup:           postgres.SetupMigrate,
 			MaxConns:        2,
 			MinConns:        1,
 			AcquireTimeout:  10 * time.Second,
@@ -321,8 +391,9 @@ func factoryOpenLiveAssembly(t *testing.T) {
 			t.Fatalf("Open over an absent caller-owned schema: err = %v, want an %v-wrapped refusal", err, postgres.ErrBootstrap)
 		}
 		// The named non-creation guard is witnessed, not asserted by error
-		// identity: the migrate runner refused the absent schema and left it
-		// absent — the caller owns schema lifecycle.
+		// identity: SetupMigrate over an absent assigned schema took the
+		// migrate runner's refusal and left the schema absent — the caller
+		// owns schema lifecycle.
 		var created bool
 		if err := admin.QueryRow(ctx, "SELECT to_regnamespace($1) IS NOT NULL", missingSchema).Scan(&created); err != nil {
 			t.Fatalf("check absent schema stayed absent: %v", err)
@@ -371,8 +442,10 @@ func factoryOpenLiveAssembly(t *testing.T) {
 		).Scan(&remaining); err != nil {
 			t.Fatalf("count owned-namespace schemas: %v", err)
 		}
-		if want := len(control.AllSeries()); remaining != want {
-			t.Fatalf("owned namespace holds %d schemas during the run, want exactly %d (the fixture's own)", remaining, want)
+		// Both live fixtures of this subtest are still open here: the main
+		// runtime's schemas and the streaming runtime's schemas.
+		if want := 2 * len(control.AllSeries()); remaining != want {
+			t.Fatalf("owned namespace holds %d schemas during the run, want exactly %d (this subtest's two fixtures)", remaining, want)
 		}
 	})
 }

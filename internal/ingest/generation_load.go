@@ -18,7 +18,8 @@
 //     inside the preflight sample window, a missing schema, or an invalid
 //     dataset reference fails here without a single database round trip.
 //  2. The pool opens (bounded, validated through the store's Config) and
-//     MigrateSchema applies the embedded ledger; both are idempotent and
+//     MigrateSchema apply the embedded ledgers (source and dataset_release
+//     series, on their own schemas); all passes are idempotent and
 //     advisory-locked.
 //  3. CreateManifest is the load claim: the CAS insert either creates the
 //     LOADING manifest (this attempt owns the lifecycle) or refuses a
@@ -124,9 +125,20 @@ const (
 type PGSourceOptions struct {
 	// DSN is the PostgreSQL connection string for the source store.
 	DSN string
-	// Schema is the schema the load writes into; migrations are applied to
-	// it by this entry point (idempotent, advisory-locked).
+	// Schema is the source-series schema the load writes resource, edge,
+	// inventory, field-profile, relationship, and contribution rows into;
+	// the load's bootstrap stage applies the source-series migrations to it
+	// (idempotent, advisory-locked).
 	Schema string
+	// ManifestSchema is the schema hosting the dataset_release series — the
+	// generation manifests and the active-generation CAS pointer the load
+	// and activation drive. It must be a distinct schema: the migration
+	// ownership law gives every schema exactly one series' history, and
+	// source and dataset_release pinned ledgers disagree at version 8, so
+	// assigning both to one schema is a named pre-dial refusal
+	// (postgres.ErrSeriesAssignment), not a connect failure. The load's
+	// bootstrap stage applies the dataset_release migrations here as well.
+	ManifestSchema string
 	// MaxConns bounds the load's connection pool. Zero selects 4.
 	MaxConns int32
 	// AcquireTimeout bounds waiting for a pool connection. Zero or negative
@@ -399,6 +411,11 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 	if _, err := load.runtime.MigrateSchema(ctx); err != nil {
 		return summary, err
 	}
+	// The manifest lane lives on its own schema and its own series'
+	// history, so its runner bootstraps alongside the source runner.
+	if _, err := load.runtime.MigrateDatasetReleaseSchema(ctx); err != nil {
+		return summary, err
+	}
 	summary.StageSeconds["pg_bootstrap"] = time.Since(bootstrapStart).Seconds()
 	emitEvent(opts.EventSink, "go_pg_bootstrap_complete", map[string]any{
 		"schema":  pg.Schema,
@@ -602,21 +619,50 @@ func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.
 			})
 		}
 	}
-	schemas := make(postgres.SeriesSchemas, len(postgres.AllSeries()))
-	for _, series := range postgres.AllSeries() {
-		schemas[series] = pg.Schema
+	if strings.TrimSpace(pg.ManifestSchema) == "" {
+		// Checked after the tagging block so the operator-visible skip event
+		// still fires for otherwise-invalid options: the announcement is not
+		// conditional on the rest of the configuration being correct.
+		return nil, fmt.Errorf("%w: PGSourceOptions.ManifestSchema must name the schema hosting the dataset_release series (distinct from Schema); the manifest lifecycle port needs its own series assignment", postgres.ErrInvalidConfig)
 	}
-	return postgres.Open(context.Background(), postgres.Config{
-		DSN:            dsn,
+	return postgres.Open(context.Background(), PGLoadConfig(pg, dsn, postgres.SetupNone))
+}
+
+// PGLoadConfig assembles the exact factory configuration every PostgreSQL
+// generation-lane caller uses — the load, activation, and the CLI's
+// staging-verification route — from one authoritative place so a caller can
+// never drift into an invalid composition. It assigns exactly the two
+// series those lanes drive: SeriesSource (resource/edge/catalog writes,
+// bootstrapped explicitly by the load) and SeriesDatasetRelease (manifest
+// lifecycle CAS, likewise). Every other series stays unassigned: the
+// callers never write their series' tables, and the ownership law refuses
+// co-assignment of series whose pinned ledgers disagree, so asking for all
+// of them on two schemas would be rejected before any dial. Setup is left
+// to the caller and is SetupNone on every shipped lane: activation in
+// particular is not a deployment step and must never migrate; DDL lives
+// only in the load's explicit bootstrap stage. The dial-free test in
+// generation_load_postgres_test.go runs each shipped configuration through
+// Config.Validate so composition regressions fail offline.
+func PGLoadConfig(pg PGSourceOptions, taggedDSN string, setup postgres.SetupPolicy) postgres.Config {
+	maxConns := pg.MaxConns
+	if maxConns == 0 {
+		maxConns = 4
+	}
+	acquireTimeout := pg.AcquireTimeout
+	if acquireTimeout <= 0 {
+		acquireTimeout = 30 * time.Second
+	}
+	schemas := make(postgres.SeriesSchemas, 2)
+	schemas[postgres.SeriesSource] = pg.Schema
+	schemas[postgres.SeriesDatasetRelease] = pg.ManifestSchema
+	return postgres.Config{
+		DSN:            taggedDSN,
 		MaxConns:       maxConns,
 		MinConns:       0,
 		AcquireTimeout: acquireTimeout,
 		Schemas:        schemas,
-		// SetupVerify keeps schema setup at the load's own measured
-		// bootstrap stage (runtime.MigrateSchema), matching the historical
-		// flow where activation never migrates.
-		Setup: postgres.SetupVerify,
-	})
+		Setup:          setup,
+	}
 }
 
 func (l *pgGenerationLoad) open() error {

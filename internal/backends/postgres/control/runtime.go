@@ -60,12 +60,13 @@ type Runtime struct {
 	Relationships catalog.RelationshipDiscoverer
 	Contributions catalog.SemanticContributor
 
-	client       *pgstore.Client
-	sourceSchema string
-	closeOne     sync.Once
-	closeErr     error
-	closed       bool
-	mu           sync.Mutex
+	client        *pgstore.Client
+	sourceSchema  string
+	datasetSchema string
+	closeOne      sync.Once
+	closeErr      error
+	closed        bool
+	mu            sync.Mutex
 }
 
 // Compile-time port conformance: signature drift between these adapters and
@@ -113,6 +114,9 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt := &Runtime{client: client}
 	if schema, assigned := cfg.Schemas[SeriesSource]; assigned {
 		rt.sourceSchema = schema
+	}
+	if schema, assigned := cfg.Schemas[SeriesDatasetRelease]; assigned {
+		rt.datasetSchema = schema
 	}
 	if err := rt.setup(ctx, cfg); err != nil {
 		rt.Close()
@@ -259,6 +263,20 @@ func (closedRow) Scan(dest ...any) error { return ErrRuntimeClosed }
 // runtime's own pool. The generation-load bootstrap calls this while its
 // own bootstrap stage is measured; the SetupMigrate policy covers callers
 // that want setup folded into the open.
+// MigrateDatasetReleaseSchema applies the dataset_release series' owned
+// migrations to its assigned schema over the runtime pool, idempotently and
+// advisory-locked — the manifest lane's counterpart to MigrateSchema for
+// callers that own bootstrap explicitly.
+func (r *Runtime) MigrateDatasetReleaseSchema(ctx context.Context) (MigrateResult, error) {
+	if r.isClosed() {
+		return MigrateResult{}, ErrRuntimeClosed
+	}
+	if r.datasetSchema == "" {
+		return MigrateResult{}, fmt.Errorf("%w: dataset_release series is not assigned; manifest-lane migrations need its schema", ErrInvalidConfig)
+	}
+	return datasetstore.MigrateSchema(ctx, r.client, r.datasetSchema)
+}
+
 func (r *Runtime) MigrateSchema(ctx context.Context) (MigrateResult, error) {
 	if r.isClosed() {
 		return MigrateResult{}, ErrRuntimeClosed

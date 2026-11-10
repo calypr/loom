@@ -16,7 +16,6 @@ import (
 	"runtime/trace"
 	"strconv"
 	"strings"
-	"time"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/connection"
@@ -67,6 +66,7 @@ var (
 	ErrPGDSNRequired            = errors.New("loom-data: a PostgreSQL DSN is required: set --pg-dsn or LOOM_DATA_PG_DSN, never both")
 	ErrPGDSNConflict            = errors.New("loom-data: --pg-dsn and LOOM_DATA_PG_DSN cannot both be set; exactly one source is required")
 	ErrPGSchemaRequired         = errors.New("loom-data: --pg-schema is required for the postgres backend")
+	ErrPGManifestSchemaRequired = errors.New("loom-data: --pg-manifest-schema is required for the postgres backend (the dataset_release series lives on its own schema; see ingest.PGSourceOptions.ManifestSchema)")
 	ErrPGTruncateForbidden      = errors.New("loom-data: --truncate is not permitted for a postgres generation load")
 	ErrPGApplicationNameInvalid = errors.New("loom-data: --pg-application-name must be 1-63 bytes of letters, digits, dot, underscore, or hyphen, starting with a letter or digit")
 	ErrPGMaxConnsInvalid        = errors.New("loom-data: --pg-max-conns must be between 0 and 2147483647")
@@ -131,8 +131,8 @@ type loadRunner struct {
 	loadArango         func(context.Context, ingest.LoadOptions) (ingest.LoadSummary, error)
 	loadPostgres       func(context.Context, ingest.LoadOptions, ingest.PGSourceOptions) (ingest.LoadSummary, error)
 	requireDatabase    func(context.Context, string, string) error
-	openCatalogWriters func(ctx context.Context, dsn, schema, application string) (ingest.GenerationCatalogWriters, func() error, error)
-	verifyStaged       func(context.Context, publication.Ref, string, string) error
+	openCatalogWriters func(ctx context.Context, dsn, schema, manifestSchema, application string) (ingest.GenerationCatalogWriters, func() error, error)
+	verifyStaged       func(context.Context, publication.Ref, string, string, string) error
 	printSummary       func(any) error
 	printNote          func(string)
 }
@@ -366,7 +366,8 @@ func configurePostgresLoadFlags(fs *flag.FlagSet, config *postgresLoadCommandCon
 	fs.BoolVar(&config.Truncate, "truncate", false, "Truncate before loading; always refused for a postgres generation load")
 	fs.StringVar(new(string), "backend", "", "Required backend tag: arango or postgres (validated before any flag below)")
 	fs.StringVar(&config.DSNFromFlag, "pg-dsn", "", "PostgreSQL connection string (mutually exclusive with LOOM_DATA_PG_DSN); never printed")
-	fs.StringVar(&config.PG.Schema, "pg-schema", "", "Required PostgreSQL schema the generation is loaded into")
+	fs.StringVar(&config.PG.Schema, "pg-schema", "", "Required PostgreSQL schema the generation is loaded into (source series)")
+	fs.StringVar(&config.PG.ManifestSchema, "pg-manifest-schema", "", "Required PostgreSQL schema hosting the dataset_release series (generation manifests and the active-generation pointer); must differ from --pg-schema")
 	// PGSourceOptions.MaxConns is int32; flag has no int32 helper, so bind
 	// through an int and normalize in parse.
 	fs.IntVar(&config.pgMaxConnsInt, "pg-max-conns", 0, "PostgreSQL load pool maximum connections; zero selects the loader default (4)")
@@ -409,6 +410,9 @@ func parsePostgresLoadCommand(args []string, errorHandling flag.ErrorHandling) (
 	config.ResolvedDSN = dsn
 	if strings.TrimSpace(config.PG.Schema) == "" {
 		return postgresLoadCommandConfig{}, ErrPGSchemaRequired
+	}
+	if strings.TrimSpace(config.PG.ManifestSchema) == "" {
+		return postgresLoadCommandConfig{}, ErrPGManifestSchemaRequired
 	}
 	name := strings.TrimSpace(config.PG.ApplicationName)
 	switch {
@@ -479,7 +483,7 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 	// The catalog evidence writers are the caller-side production wiring the
 	// loader requires (internal/ingest/generation_load.go:187-204): all four
 	// over the same DSN/schema before the load is invoked.
-	writers, closeWriters, err := runner.openCatalogWriters(ctx, dsn, config.PG.Schema, config.PG.ApplicationName)
+	writers, closeWriters, err := runner.openCatalogWriters(ctx, dsn, config.PG.Schema, config.PG.ManifestSchema, config.PG.ApplicationName)
 	if err != nil {
 		return redactPGDiagnostic(err, dsn)
 	}
@@ -508,7 +512,7 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 	}
 	// STAGED-VERIFIED boundary law: a successful load means the manifest read
 	// back STAGED through the store, not merely that rows were copied.
-	if err := runner.verifyStaged(ctx, *summary.Dataset, dsn, config.PG.Schema); err != nil {
+	if err := runner.verifyStaged(ctx, *summary.Dataset, dsn, config.PG.Schema, config.PG.ManifestSchema); err != nil {
 		return redactPGDiagnostic(fmt.Errorf("verify postgres generation staged state: %w", err), dsn)
 	}
 	if err := runner.printSummary(summary); err != nil {
@@ -531,23 +535,15 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 // application_name so operator witnesses in pg_stat_activity attribute them
 // to this invocation; a keyword/value DSN keeps an untagged connection
 // rather than a guessed syntax, same as the loader.
-func openCatalogWriters(ctx context.Context, dsn, schema, application string) (ingest.GenerationCatalogWriters, func() error, error) {
+func openCatalogWriters(ctx context.Context, dsn, schema, manifestSchema, application string) (ingest.GenerationCatalogWriters, func() error, error) {
 	poolDSN, _ := joinApplicationName(dsn, application)
-	schemas := make(postgres.SeriesSchemas, len(postgres.AllSeries()))
-	for _, series := range postgres.AllSeries() {
-		schemas[series] = schema
-	}
-	// SetupNone matches the historical bare-pool open: this pool serves the
-	// four catalog evidence writers, and schema setup belongs to the
-	// loader's own measured bootstrap, not to the caller-side wiring.
-	runtime, err := postgres.Open(ctx, postgres.Config{
-		DSN:            poolDSN,
-		MaxConns:       4,
-		MinConns:       0,
-		AcquireTimeout: 30 * time.Second,
-		Schemas:        schemas,
-		Setup:          postgres.SetupNone,
-	})
+	// One authoritative composition with the loader (see
+	// ingest.PGLoadConfig): exactly SeriesSource and SeriesDatasetRelease on
+	// their own caller-owned schemas. SetupNone matches the historical
+	// bare-pool open: this pool serves the four catalog evidence writers,
+	// and schema setup belongs to the loader's own measured bootstrap.
+	pg := ingest.PGSourceOptions{DSN: dsn, Schema: schema, ManifestSchema: manifestSchema}
+	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, poolDSN, postgres.SetupNone))
 	if err != nil {
 		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("open postgres catalog pool: %w", err)
 	}
@@ -565,19 +561,12 @@ func openCatalogWriters(ctx context.Context, dsn, schema, application string) (i
 
 // verifyStagedManifest reads the manifest back through the store so the CLI
 // only exits 0 on a STAGED-verified generation.
-func verifyStagedManifest(ctx context.Context, ref publication.Ref, dsn, schema string) error {
-	schemas := make(postgres.SeriesSchemas, len(postgres.AllSeries()))
-	for _, series := range postgres.AllSeries() {
-		schemas[series] = schema
-	}
-	runtime, err := postgres.Open(ctx, postgres.Config{
-		DSN:            dsn,
-		MaxConns:       1,
-		MinConns:       0,
-		AcquireTimeout: 30 * time.Second,
-		Schemas:        schemas,
-		Setup:          postgres.SetupNone,
-	})
+func verifyStagedManifest(ctx context.Context, ref publication.Ref, dsn, schema, manifestSchema string) error {
+	// Same shipped composition as the load and catalog wiring
+	// (ingest.PGLoadConfig, SetupNone); the manifest read resolves through
+	// the dataset_release schema.
+	pg := ingest.PGSourceOptions{DSN: dsn, Schema: schema, ManifestSchema: manifestSchema}
+	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, dsn, postgres.SetupNone))
 	if err != nil {
 		return err
 	}

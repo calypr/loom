@@ -47,6 +47,7 @@ import (
 	"testing"
 	"time"
 
+	storepg "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -55,7 +56,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/source"
-	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -300,7 +300,7 @@ func (s *exec05LiveService) qualifiedTable(name string) string {
 // owned schema through the production migration runner.
 func (s *exec05LiveService) migrate(t *testing.T) {
 	t.Helper()
-	client, err := storepg.Open(s.ctx, storepg.Config{
+	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{
 		DSN:            s.dsn,
 		MaxConns:       4,
 		MinConns:       1,

@@ -1850,3 +1850,99 @@ func (s *ing03Service) sourceSeed(e ing03EdgeSeed) source.Resource {
 		Payload: json.RawMessage(s.resourcePayload(e.SourceType, e.SourceID)),
 	}
 }
+
+// TestPostgresShippedLoadConfigsValidateOffline is the dial-free composition
+// gate the arch-backend-06 review demanded: every shipped PostgreSQL caller
+// configuration is assembled by PGLoadConfig (load, activation, and the
+// cmd/loom-data catalog-wiring and staging-verification routes) and must
+// pass Config.Validate with no network contact, so a series assignment that
+// the migration-ownership law refuses can never hide behind unrun live
+// lanes. Alive controls keep each refusal honest: fix only the defect and
+// the same shape validates.
+func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
+	shipped := PGSourceOptions{
+		DSN:            "postgresql://loom_test@127.0.0.1:1/loom_test?sslmode=disable",
+		Schema:         "verify_ab06_offline_src",
+		ManifestSchema: "verify_ab06_offline_manifests",
+	}
+	// The exact configuration every shipped lane opens with (SetupNone).
+	if err := PGLoadConfig(shipped, shipped.DSN, postgres.SetupNone).Validate(); err != nil {
+		t.Fatalf("shipped composition must validate dial-free, got: %v", err)
+	}
+	// SetupMigrate also validates (it is a legal policy; no shipped lane
+	// uses it today, and the witness suite exercises it against the server).
+	if err := PGLoadConfig(shipped, shipped.DSN, postgres.SetupMigrate).Validate(); err != nil {
+		t.Fatalf("migrate-policy composition must validate: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		mutate  func(*PGSourceOptions)
+		policy  postgres.SetupPolicy
+		wantErr error
+	}{
+		{
+			// One schema, one history owner: source and dataset_release
+			// pinned ledgers disagree at version 8, so sharing a schema
+			// is a named pre-dial refusal.
+			name:    "manifest schema may not equal the source schema",
+			mutate:  func(o *PGSourceOptions) { o.ManifestSchema = o.Schema },
+			policy:  postgres.SetupNone,
+			wantErr: postgres.ErrSeriesAssignment,
+		},
+		{
+			name:    "manifest schema must be named",
+			mutate:  func(o *PGSourceOptions) { o.ManifestSchema = " " },
+			policy:  postgres.SetupNone,
+			wantErr: postgres.ErrSeriesAssignment,
+		},
+		{
+			name:    "source schema must be named",
+			mutate:  func(o *PGSourceOptions) { o.Schema = "" },
+			policy:  postgres.SetupNone,
+			wantErr: postgres.ErrSeriesAssignment,
+		},
+		{
+			// SetupVerify was removed in the arch-backend-06 fold: it was
+			// indistinguishable from SetupMigrate. Re-adding the policy
+			// name without a real no-DDL implementation must fail here.
+			name:    "the removed verify policy stays refused",
+			mutate:  func(*PGSourceOptions) {},
+			policy:  postgres.SetupPolicy("verify"),
+			wantErr: postgres.ErrInvalidConfig,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := shipped
+			tc.mutate(&opts)
+			err := PGLoadConfig(opts, opts.DSN, tc.policy).Validate()
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			// Alive control: repairing only this defect validates — the
+			// unmutated shipped shape passes the same validator.
+			if err := PGLoadConfig(shipped, shipped.DSN, postgres.SetupNone).Validate(); err != nil {
+				t.Fatalf("alive control (unmutated shipped config) must validate: %v", err)
+			}
+		})
+	}
+
+	// Production callers may not hand-assemble postgres.Config around the
+	// shared builder: one drift could reintroduce a refused composition.
+	for _, file := range []struct {
+		path    string
+		allowed int // occurrences of the postgres.Config{ literal allowed
+	}{
+		{path: "generation_load.go", allowed: 1}, // only inside PGLoadConfig
+		{path: "postgres_writer.go", allowed: 0},
+	} {
+		raw, err := os.ReadFile(filepath.Join(".", file.path))
+		if err != nil {
+			t.Fatalf("read %s: %v", file.path, err)
+		}
+		if got := strings.Count(string(raw), "postgres.Config{"); got > file.allowed {
+			t.Fatalf("%s builds postgres.Config{ %d times, want at most %d (all shipped configs come from PGLoadConfig)", file.path, got, file.allowed)
+		}
+	}
+}

@@ -106,7 +106,7 @@ func (s *spyState) runner() loadRunner {
 			s.mu.Unlock()
 			return nil
 		},
-		openCatalogWriters: func(_ context.Context, dsn, schema, application string) (ingest.GenerationCatalogWriters, func() error, error) {
+		openCatalogWriters: func(_ context.Context, dsn, schema, manifestSchema, application string) (ingest.GenerationCatalogWriters, func() error, error) {
 			s.record("openCatalogWriters")
 			s.mu.Lock()
 			s.seenCatalogArgs = [3]string{dsn, schema, application}
@@ -125,7 +125,7 @@ func (s *spyState) runner() loadRunner {
 					return nil
 				}, nil
 		},
-		verifyStaged: func(_ context.Context, ref publication.Ref, dsn, schema string) error {
+		verifyStaged: func(_ context.Context, ref publication.Ref, dsn, schema, manifestSchema string) error {
 			s.record("verifyStaged")
 			s.mu.Lock()
 			s.seenVerify = &ref
@@ -216,6 +216,7 @@ func pgBaseArgs() []string {
 		"--generation=gen-cli",
 		"--pg-dsn=postgresql://cliuser:SENTINELPW999@127.0.0.1:1/clidb?sslmode=disable",
 		"--pg-schema=verify_clidisp_s_unit",
+		"--pg-manifest-schema=verify_clidisp_sm_unit",
 	}
 }
 
@@ -318,7 +319,7 @@ func TestBackendRequiredRefusesEntireInvocation(t *testing.T) {
 	// Even a fully-populated environment DSN cannot substitute for the tag.
 	_, _ = captureOutput(t, func() {
 		err := dispatchLoadGeneration(context.Background(),
-			[]string{"--project=prj-a", "--generation=gen-a", "--pg-schema=s"}, spy.runner())
+			[]string{"--project=prj-a", "--generation=gen-a", "--pg-schema=s", "--pg-manifest-schema=m"}, spy.runner())
 		if !errors.Is(err, ErrBackendRequired) {
 			t.Fatalf("error = %v, want ErrBackendRequired", err)
 		}
@@ -575,7 +576,7 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 		{
 			name: "project required",
 			args: func() []string {
-				return []string{"--backend=postgres", "--generation=gen-a", "--pg-dsn=postgresql://h/db", "--pg-schema=s"}
+				return []string{"--backend=postgres", "--generation=gen-a", "--pg-dsn=postgresql://h/db", "--pg-schema=s", "--pg-manifest-schema=m"}
 			},
 			sentinel: ErrProjectRequired,
 			controlOK: func() []string {
@@ -585,23 +586,23 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 		{
 			name: "dsn required",
 			args: func() []string {
-				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s"}
+				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-manifest-schema=m"}
 			},
 			sentinel: ErrPGDSNRequired,
 			controlOK: func() []string {
-				a := []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-dsn=postgresql://h/db"}
+				a := []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-manifest-schema=m", "--pg-dsn=postgresql://h/db"}
 				return a
 			},
 		},
 		{
 			name: "dsn conflict",
 			args: func() []string {
-				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-dsn=postgresql://h/db"}
+				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-manifest-schema=m", "--pg-dsn=postgresql://h/db"}
 			},
 			sentinel: ErrPGDSNConflict,
 			envDSN:   "postgresql://env-host/envdb",
 			controlOK: func() []string {
-				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-dsn=postgresql://h/db"}
+				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-schema=s", "--pg-manifest-schema=m", "--pg-dsn=postgresql://h/db"}
 			},
 		},
 		{
@@ -610,6 +611,17 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-dsn=postgresql://h/db"}
 			},
 			sentinel:  ErrPGSchemaRequired,
+			controlOK: func() []string { return pgBaseArgs() },
+		},
+		{
+			// The manifest lane lives on its own schema (one history
+			// owner per schema): the CLI must refuse to run without
+			// naming it, before any dial.
+			name: "manifest schema required",
+			args: func() []string {
+				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-dsn=postgresql://h/db", "--pg-schema=s"}
+			},
+			sentinel:  ErrPGManifestSchemaRequired,
 			controlOK: func() []string { return pgBaseArgs() },
 		},
 		{
@@ -1047,7 +1059,8 @@ func TestBadDSNErrsWithoutCredential(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			res := runCLI(t, loomBin, noDSNEnv(), "load-generation",
 				"--backend=postgres", "--project=prj-cli", "--generation=gen-cli",
-				"--pg-schema=verify_clidisp_s_unit", "--pg-dsn="+tc.dsn)
+				"--pg-schema=verify_clidisp_s_unit",
+				"--pg-manifest-schema=verify_clidisp_sm_unit", "--pg-dsn="+tc.dsn)
 			if res.code == 0 {
 				t.Fatal("a bad DSN must exit nonzero")
 			}
@@ -1064,7 +1077,8 @@ func TestBadDSNErrsWithoutCredential(t *testing.T) {
 	// the conflict sentinel, proving the environment path is live.
 	res := runCLI(t, loomBin, []string{pgDSNEnv + "=postgresql://env-host/envdb"}, "load-generation",
 		"--backend=postgres", "--project=prj-cli", "--generation=gen-cli",
-		"--pg-schema=verify_clidisp_s_unit", "--pg-dsn=postgresql://flag-host/flagdb")
+		"--pg-schema=verify_clidisp_s_unit",
+		"--pg-manifest-schema=verify_clidisp_sm_unit", "--pg-dsn=postgresql://flag-host/flagdb")
 	if res.code != 1 || !strings.Contains(res.stderr, "cannot both be set") {
 		t.Fatalf("DSN conflict path: code %d stderr %q", res.code, res.stderr)
 	}

@@ -76,7 +76,6 @@ const (
 	SeriesRecipeChains         = control.SeriesRecipeChains
 	SeriesRecipeExecRegistries = control.SeriesRecipeExecRegistries
 	SetupMigrate               = control.SetupMigrate
-	SetupVerify                = control.SetupVerify
 	SetupNone                  = control.SetupNone
 	ApplicationNamePrefix      = control.ApplicationNamePrefix
 )

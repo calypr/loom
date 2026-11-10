@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -199,33 +200,83 @@ func (c *Client) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
 	return conn, nil
 }
 
-// Query runs one statement on the pool and streams its rows, honoring the
-// configured acquire timeout. It exists so the pool-shaped rows.Querier
-// (internal/backends/postgres/internal/rows) is satisfied by the client
-// without exporting the pool itself: the factory assembly passes the client
-// as the Querier and the compile-time assertion
-// (var _ rows.Querier = (*store.Client)(nil)) makes any signature drift
-// fail the build. On failure the returned error is a *ConnectError matching
-// ErrConnect wrapping the cause, same as Acquire.
+// Query acquires a pool connection under AcquireTimeout, then streams rows
+// on that connection with the CALLER's context — it exists so the
+// pool-shaped rows.Querier (internal/backends/postgres/internal/rows) is
+// satisfied by the client without exporting the pool itself: the factory
+// assembly passes the client as the Querier and the compile-time assertion
+// (var _ rows.Querier = (*store.Client)(nil)) makes any signature drift fail
+// the build. This split matters: pgx binds rows to the context passed to
+// Query for the full row lifetime, so the caller owns that lifetime — keep
+// ctx alive until the rows are closed, and closing the rows releases the
+// connection back to the pool. AcquireTimeout bounds only waiting for a free
+// connection, never execution or iteration (a per-query cancellation here
+// would nondeterministically kill live row streams with context.Canceled).
+// On failure the returned error is a *ConnectError matching ErrConnect
+// wrapping the cause, same as Acquire.
 //
 // The caller must close the returned pgx.Rows.
 func (c *Client) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.AcquireTimeout)
-	defer cancel()
-	rows, err := c.pool.Query(ctx, sql, args...)
+	conn, err := c.Acquire(ctx)
 	if err != nil {
+		return nil, err
+	}
+	rows, err := conn.Query(ctx, sql, args...)
+	if err != nil {
+		conn.Release()
 		return nil, &ConnectError{Op: "query", Err: err}
 	}
-	return rows, nil
+	return &leasedRows{Rows: rows, conn: conn}, nil
 }
 
-// QueryRow runs one statement expected to yield at most one row, applying
-// the configured acquire timeout like Query.
+// QueryRow acquires under AcquireTimeout and runs the statement with the
+// caller's context, mirroring Query's context split: pgx binds the row to
+// ctx until it is consumed, so Scan before canceling ctx. The connection
+// returns to the pool when the row is consumed (Scan) — or never, if the
+// row is discarded unconsumed, which is a caller bug like any unclosed
+// pgx.Rows.
 func (c *Client) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.AcquireTimeout)
-	defer cancel()
-	return c.pool.QueryRow(ctx, sql, args...)
+	conn, err := c.Acquire(ctx)
+	if err != nil {
+		return &queryRowError{err: &ConnectError{Op: "query_row", Err: err}}
+	}
+	return &leasedRow{Row: conn.QueryRow(ctx, sql, args...), conn: conn}
 }
+
+// leasedRows ties the acquired connection's release to the rows' close:
+// the pool only reuses a connection after the rows built on it are closed.
+type leasedRows struct {
+	pgx.Rows
+	conn   *pgxpool.Conn
+	closed sync.Once
+}
+
+func (l *leasedRows) Close() {
+	l.closed.Do(func() {
+		l.Rows.Close()
+		l.conn.Release()
+	})
+}
+
+// leasedRow ties the connection's release to the single row's consumption
+// (Scan), the same lifecycle pgx's own row contract implies.
+type leasedRow struct {
+	pgx.Row
+	conn    *pgxpool.Conn
+	scanned sync.Once
+}
+
+func (r *leasedRow) Scan(dest ...any) error {
+	err := r.Row.Scan(dest...)
+	r.scanned.Do(func() { r.conn.Release() })
+	return err
+}
+
+// queryRowError is a pgx.Row whose only possible outcome is the acquisition
+// failure, keeping QueryRow's contract total without a nil pool client.
+type queryRowError struct{ err error }
+
+func (r *queryRowError) Scan(_ ...any) error { return r.err }
 
 // Close releases every connection held by the pool. The Client must not be
 // used afterwards. Close is safe to call more than once.

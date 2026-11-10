@@ -47,19 +47,13 @@ type SeriesSchemas map[Series]string
 type SetupPolicy string
 
 const (
-	// SetupMigrate applies each series' owner migrations into its assigned
-	// schema (idempotent, advisory-locked through the store). Schemas are
-	// caller-owned: the migrate runner refuses an absent or unassigned
-	// schema with the named invalid-schema error and never creates one, so
-	// the caller must create the schema itself before Open under this
-	// policy.
+	// SetupMigrate applies each assigned series' owner migrations into its
+	// assigned schema (idempotent, advisory-locked through the store);
+	// series without an assignment are skipped. Schemas are caller-owned:
+	// the migrate runner refuses an assigned-but-absent schema with the
+	// named invalid-schema error and never creates one, so the caller must
+	// create the schema itself before Open under this policy.
 	SetupMigrate SetupPolicy = "migrate"
-	// SetupVerify converges each assigned schema onto its series' migrated
-	// state through the same idempotent, advisory-locked runner as
-	// SetupMigrate: pending migrations are applied, a schema the runner has
-	// already validated is a no-op, and an absent or unassigned schema is
-	// refused (schemas stay caller-owned, as under SetupMigrate).
-	SetupVerify SetupPolicy = "verify"
 	// SetupNone performs no schema setup at all: the caller has arranged
 	// (or does not need) schema state, matching the historical bare-pool
 	// open. Schema-name assignment validation and control-plane assembly
@@ -130,10 +124,10 @@ func (c Config) Validate() error {
 		}
 	}
 	switch c.Setup {
-	case SetupMigrate, SetupVerify, SetupNone:
+	case SetupMigrate, SetupNone:
 	default:
 		return fmt.Errorf("%w: Setup %q is not one of %q, %q; the schema setup policy must be explicit",
-			ErrInvalidConfig, string(c.Setup), SetupMigrate, SetupVerify)
+			ErrInvalidConfig, string(c.Setup), SetupMigrate, SetupNone)
 	}
 	for series, schema := range c.Schemas {
 		if strings.TrimSpace(schema) == "" {
