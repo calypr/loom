@@ -10,9 +10,8 @@ package postgres
 // LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
 // database (verify_selem_*) plus one owned schema (verify_selem_*) inside
 // it and drops both in its cleanups, so the suite leaves zero leftovers.
-// The fixture history is composed through the real pg-store-02 runner from
-// this package's embedded owner history and the state-scoped selection
-// fixture tests/migrations-selections/000008_selection_revisions.sql (the
+// The fixture history is this package's embedded owner history, which
+// includes the selection-revisions migration 000008_selection_revisions (the
 // delivered member DDL this ticket builds on: PRIMARY KEY
 // (selection_id, member_key), UNIQUE (selection_id, project, generation,
 // resource_type, id), the key-shape CHECK, and the member immutability
@@ -59,7 +58,6 @@ import (
 	"fmt"
 	"math"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -78,16 +76,15 @@ import (
 )
 
 const (
-	// The member DDL is the delivered fixture from the prerequisite
-	// (000008 covers BOTH selection tables in one migration); this
-	// ticket ships no new DDL and pins the same fixture the member
-	// behavior depends on.
-	selemFixtureDir     = "tests/migrations-selections"
-	selemFixtureFile    = "000008_selection_revisions"
-	selemFixtureName    = "selection_revisions"
-	selemFixtureVersion = int64(8)
-	selemImmutableCode  = "45501"
-	selemRefConstraint  = "selection_members_ref_ux"
+	// The member DDL is the delivered migration from the prerequisite
+	// (000008 covers BOTH selection tables in one migration), now embedded
+	// in the owner history; this ticket ships no new DDL and pins the same
+	// bytes the member behavior depends on.
+	selemFixtureName     = "selection_revisions"
+	selemFixtureVersion  = int64(8)
+	selemFixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
+	selemImmutableCode   = "45501"
+	selemRefConstraint   = "selection_members_ref_ux"
 	// selemRaceRounds is the per-surface race floor.
 	selemRaceRounds = 10
 
@@ -297,10 +294,10 @@ func (s *selemService) backendPID(t *testing.T, client *pgstore.Client, label st
 }
 
 // migrate composes and applies the owned history -- this package's embedded
-// owner history plus the state-scoped selection fixture whose member DDL
-// this ticket's behavior depends on -- through the real pg-store-02 runner
-// onto the ONE shared per-schema ledger, and asserts the ledger literally
-// with the fixture checksum self-recomputed from the file bytes.
+// owner history (which embeds the selection-revisions migration whose member
+// DDL this ticket's behavior depends on) -- through the real pg-store-02
+// runner onto the ONE shared per-schema ledger, and asserts the ledger
+// literally with the checksum self-recomputed from the embedded bytes.
 func (s *selemService) migrate(t *testing.T) {
 	t.Helper()
 	owner, err := OwnerMigrations()
@@ -311,25 +308,16 @@ func (s *selemService) migrate(t *testing.T) {
 		owner[1].Version != 2 || owner[1].Name != "explorer_owner" {
 		t.Fatalf("owner history = %+v, want ledger(1) + explorer_owner(2) at the front", owner)
 	}
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), selemFixtureDir)
+	fixture, err := requireOwnerMigration(t, owner, selemFixtureVersion, selemFixtureName)
 	if err != nil {
-		s.fail("load selection fixture migrations", err)
+		s.fail("selection fixture migration", err)
 	}
-	if len(fixture) != 1 || fixture[0].Version != selemFixtureVersion ||
-		fixture[0].Name != selemFixtureName {
-		t.Fatalf("selection fixture history = %+v, want exactly version %d %s",
-			fixture, selemFixtureVersion, selemFixtureName)
+	sum := sha256.Sum256([]byte(fixture.SQL))
+	if got := hex.EncodeToString(sum[:]); got != fixture.Checksum || got != selemFixtureChecksum {
+		t.Fatalf("checksum self-recompute = %s, runner computed %s, want the byte-frozen merge pin %s",
+			got, fixture.Checksum, selemFixtureChecksum)
 	}
-	diskBytes, err := os.ReadFile("../../../" + selemFixtureDir + "/" + selemFixtureFile + ".sql")
-	if err != nil {
-		s.fail("read selection fixture file", err)
-	}
-	sum := sha256.Sum256(diskBytes)
-	if got := hex.EncodeToString(sum[:]); got != fixture[0].Checksum {
-		t.Fatalf("fixture checksum self-recompute = %s, runner computed %s", got, fixture[0].Checksum)
-	}
-	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
-	runner, err := pgstore.NewMigrationRunner(s.witness, s.schema, history)
+	runner, err := pgstore.NewMigrationRunner(s.witness, s.schema, owner)
 	if err != nil {
 		s.fail("new migration runner", err)
 	}
@@ -338,15 +326,13 @@ func (s *selemService) migrate(t *testing.T) {
 		s.fail("migrate selection history", err)
 	}
 	s.owner = owner
-	s.fixture = fixture[0]
+	s.fixture = fixture
 	s.ledgerAfter = result.Applied
 
-	want := make([]pgstore.LedgerRecord, 0, len(owner)+1)
+	want := make([]pgstore.LedgerRecord, 0, len(owner))
 	for _, m := range owner {
 		want = append(want, pgstore.LedgerRecord{Version: m.Version, Name: m.Name, Checksum: m.Checksum})
 	}
-	want = append(want, pgstore.LedgerRecord{Version: fixture[0].Version, Name: fixture[0].Name, Checksum: fixture[0].Checksum})
-	sort.Slice(want, func(i, j int) bool { return want[i].Version < want[j].Version })
 	var maxVersion int64
 	for _, w := range want {
 		if w.Version > maxVersion {
@@ -1556,11 +1542,15 @@ func TestSelectionMembersSQLAndGoldenContract(t *testing.T) {
 
 func readFixtureDDL(t *testing.T) []byte {
 	t.Helper()
-	b, err := os.ReadFile("../../../" + selemFixtureDir + "/" + selemFixtureFile + ".sql")
+	owner, err := OwnerMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return b
+	fixture, err := requireOwnerMigration(t, owner, selemFixtureVersion, selemFixtureName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []byte(fixture.SQL)
 }
 
 // ---------------------------------------------------------------------------

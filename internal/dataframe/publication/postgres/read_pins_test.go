@@ -283,41 +283,14 @@ func (s *rprService) registry(t *testing.T, pool *pgxpool.Pool) *Registry {
 	return registry
 }
 
-// migrate applies exactly the ledger bootstrap from the embedded pg-store-02
-// set, the sibling tests/migrations/000004 publication bundle catalog (whose
-// lease/pointer/execution tables the reconciler sweeps), and this ticket's
-// tests/migrations-readpins/000009_publication_read_pins.sql, and asserts
-// the ledger literally records all three rows.
+// migrate applies exactly the ledger bootstrap, the 000004 publication
+// bundle catalog (whose lease/pointer/execution tables the reconciler
+// sweeps), and 000009_publication_read_pins.sql -- all from this package's
+// authoritative owner embed (migrate.go) -- and asserts the ledger literally
+// records all three rows.
 func (s *rprService) migrate(t *testing.T) {
 	t.Helper()
-	embedded, err := storepostgres.EmbeddedMigrations()
-	if err != nil {
-		s.fail("embedded migrations", err)
-	}
-	var ledger []storepostgres.Migration
-	for _, m := range embedded {
-		if m.Version == 1 && m.Name == "ledger" {
-			ledger = append(ledger, m)
-		}
-	}
-	if len(ledger) != 1 {
-		t.Fatalf("embedded history has %d migrations, want exactly one version 1 ledger bootstrap to compose against", len(embedded))
-	}
-	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
-	if err != nil {
-		s.fail("load tests/migrations", err)
-	}
-	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
-		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
-	}
-	retention, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations-readpins")
-	if err != nil {
-		s.fail("load tests/migrations-readpins", err)
-	}
-	if len(retention) != 1 || retention[0].Version != 9 || retention[0].Name != "publication_read_pins" {
-		t.Fatalf("tests/migrations-readpins history = %+v, want exactly version 9 publication_read_pins", retention)
-	}
-	history := append(append(append([]storepostgres.Migration(nil), ledger...), catalog...), retention...)
+	history := mustOwnerHistorySubset(t, 1, 4, 9)
 	runner, err := storepostgres.NewMigrationRunner(s.w, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
@@ -330,9 +303,9 @@ func (s *rprService) migrate(t *testing.T) {
 		t.Fatalf("applied history = %+v, want ledger + publication_bundle_catalog + publication_read_pins", result.Applied)
 	}
 	want := []storepostgres.LedgerRecord{
-		{Version: 1, Name: "ledger", Checksum: ledger[0].Checksum},
-		{Version: 4, Name: "publication_bundle_catalog", Checksum: catalog[0].Checksum},
-		{Version: 9, Name: "publication_read_pins", Checksum: retention[0].Checksum},
+		{Version: 1, Name: "ledger", Checksum: "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+		{Version: 4, Name: "publication_bundle_catalog", Checksum: "adcb4683ffd1611b9c68e7a49aaa4b8670d106d65df927cbb8e11866be224943"},
+		{Version: 9, Name: "publication_read_pins", Checksum: "d538a21e219f22e5384d43a777c45cd69eec5dcd968f49e5a8ea2b8fddf4f62d"},
 	}
 	for i, w := range want {
 		got := result.Applied[i]
@@ -348,27 +321,27 @@ func (s *rprService) migrate(t *testing.T) {
 // TestMigrationsCoexistStoreDir000009AndReadPins000009 is the coexistence
 // witness the coordinator ruling requires: with catalog-05's store
 // migration 000009_semantic_inventory_contribution.sql (internal/store/
-// postgres/migrations) AND this ticket's tests/migrations-readpins/
-// 000009_publication_read_pins.sql both present in the tree, composition is
-// deterministic and BOTH apply. Following the 000006 dual-existence
-// precedent (store 000006_semantic_inventory_build beside tests/
-// migrations-leases 000006_publication_lease_checkpoints), version spaces
-// are per composed history: the ledger primary key is (version) and
-// NewMigrationRunner refuses a duplicate version inside one history. The
-// ruling says witness it, do not assume, so this test proves all four
-// facts: (1) the publication history -- embedded ledger bootstrap 1, the
-// sibling 000004 catalog, and read-pins 9 -- applies in its own schema and
-// records {1,4,9} with the exact load checksums; (2) the full embedded
-// store history, including 000009 semantic_inventory_contribution, applies
-// in a second schema of the SAME database, recording version 9 under its
-// own name; the two ledger rows publication_read_pins and
+// postgres/migrations) AND this ticket's 000009_publication_read_pins.sql
+// (internal/dataframe/publication/postgres/migrations) both present in the
+// tree, composition is deterministic and BOTH apply. Following the 000006
+// dual-existence precedent (store 000006_semantic_inventory_build beside
+// publication_lease_checkpoints at 000006 in this owner's migrations dir),
+// version spaces are per composed history: the ledger primary key is
+// (version) and NewMigrationRunner refuses a duplicate version inside one
+// history. The ruling says witness it, do not assume, so this test proves
+// all four facts: (1) the publication history -- owner-embedded ledger
+// bootstrap 1, the 000004 catalog, and read-pins 9 -- applies in its own
+// schema and records {1,4,9} with the exact load checksums; (2) the full
+// embedded store history, including 000009 semantic_inventory_contribution,
+// applies in a second schema of the SAME database, recording version 9 under
+// its own name; the two ledger rows publication_read_pins and
 // semantic_inventory_contribution then coexist at the same version in one
 // database -- witnessed dual existence, per-schema version spaces; (3)
 // re-running each runner returns the identical applied history
-// (deterministic no-op replay) and each directory re-loads with identical
-// versions/names/checksums; and (4) forcing both 000009 files into ONE
-// history fails loudly with ErrInvalidMigration "duplicate version 9" --
-// the per-history version space is a guard, not an accident.
+// (deterministic no-op replay) and each owner history re-loads with
+// identical versions/names/checksums; and (4) forcing both 000009 files
+// into ONE history fails loudly with ErrInvalidMigration "duplicate version
+// 9" -- the per-history version space is a guard, not an accident.
 func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	raw := testPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 480*time.Second)
@@ -428,19 +401,13 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	if !store9Found {
 		t.Fatal("embedded history lacks 000009_semantic_inventory_contribution: catalog-05 must be present for the coexistence witness")
 	}
-	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
-	if err != nil {
-		t.Fatalf("load tests/migrations: %v", err)
-	}
+	catalog := mustOwnerHistorySubset(t, 4)
 	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
-		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
+		t.Fatalf("owner history version 4 = %+v, want exactly version 4 publication_bundle_catalog", catalog)
 	}
-	retention, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations-readpins")
-	if err != nil {
-		t.Fatalf("load tests/migrations-readpins: %v", err)
-	}
+	retention := mustOwnerHistorySubset(t, 9)
 	if len(retention) != 1 || retention[0].Version != 9 || retention[0].Name != "publication_read_pins" {
-		t.Fatalf("tests/migrations-readpins history = %+v, want exactly version 9 publication_read_pins", retention)
+		t.Fatalf("owner history version 9 = %+v, want exactly version 9 publication_read_pins", retention)
 	}
 
 	pubSchema := fmt.Sprintf("verify_rpr_it_%d_%s", time.Now().UnixNano(), randomHex())
@@ -589,13 +556,10 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	if got := ledgerRows(storeSchema); !reflect.DeepEqual(got, storeLedger) {
 		t.Fatalf("store ledger changed on replay: %v vs %v", got, storeLedger)
 	}
-	retentionAgain, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations-readpins")
-	if err != nil {
-		t.Fatalf("reload tests/migrations-readpins: %v", err)
-	}
+	retentionAgain := mustOwnerHistorySubset(t, 9)
 	if len(retentionAgain) != len(retention) || retentionAgain[0].Version != retention[0].Version ||
 		retentionAgain[0].Name != retention[0].Name || retentionAgain[0].Checksum != retention[0].Checksum {
-		t.Fatalf("read-pins directory reloaded differently: %+v vs %+v", retentionAgain, retention)
+		t.Fatalf("owner history version 9 reloaded differently: %+v vs %+v", retentionAgain, retention)
 	}
 	embeddedAgain, err := storepostgres.EmbeddedMigrations()
 	if err != nil || !reflect.DeepEqual(embeddedAgain, embedded) {

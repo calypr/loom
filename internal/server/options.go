@@ -13,6 +13,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataset"
+	storepostgres "github.com/calypr/loom/internal/store/postgres"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -80,6 +81,18 @@ type PostgreSQLConfig struct {
 	MaxOpenConns    int           `yaml:"max_open_conns"`
 	MaxIdleConns    int           `yaml:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
+	// Schemas assigns each production migration series (see
+	// internal/store/postgres/migration_ownership.go) to the schema this
+	// deployment hosts it in. Keys are series IDs (source,
+	// explorer_control, publication_control, dataset_release,
+	// recipe_chains, recipe_exec_registries). Every entry is optional and
+	// there is no implicit default here: absent entries leave the factory
+	// to apply its documented defaults, preserving current configuration
+	// compatibility. Explicit entries are validated before any connection
+	// opens: names must be safe identifiers and no two series whose pinned
+	// ledgers disagree may share one schema, so an incompatible assignment
+	// fails at configuration time rather than mid-DDL.
+	Schemas map[string]string `yaml:"schemas"`
 }
 
 const (
@@ -484,6 +497,19 @@ func (p PostgreSQLConfig) validate() error {
 	}
 	if p.ConnMaxLifetime < 0 {
 		return errors.New("server.postgresql.conn_max_lifetime cannot be negative")
+	}
+	// Explicit schema ownership must be consistent before any request path
+	// opens: reject unknown series, unsafe identifiers, and two series whose
+	// authoritative ledgers disagree pinned onto one schema (see
+	// internal/store/postgres/migration_ownership.go).
+	if len(p.Schemas) > 0 {
+		assignment := make(storepostgres.Assignment, len(p.Schemas))
+		for series, schema := range p.Schemas {
+			assignment[storepostgres.SeriesID(series)] = schema
+		}
+		if err := storepostgres.ValidateAssignment(assignment); err != nil {
+			return fmt.Errorf("server.postgresql.schemas: %w", err)
+		}
 	}
 	return nil
 }

@@ -37,10 +37,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -60,8 +58,8 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	pgstate04FixtureDir      = "tests/migrations-interpretations"
 	pgstate04FixtureName     = "interpretation_library"
+	pgstate04FixtureChecksum = "5e308b21a3f567b3066c46458606dd361a9c90646db54ee71618902a544a9ba2"
 	pgstate04ImmutableCode   = "45501"
 	pgstate04UniqueViolation = "23505"
 	pgstate04ForeignKey      = "23503"
@@ -71,6 +69,32 @@ const (
 	// this batch's evidence bar.
 	interpRaceRounds = 10
 )
+
+// pgstate04RequireInterpretationMigration asserts the owner history embeds
+// exactly one version-7 interpretation_library migration at the byte-frozen
+// checksum and returns it: the DDL moved in from the earlier state-scoped
+// own-dir fixture with bytes unchanged, and this suite pins that identity.
+func pgstate04RequireInterpretationMigration(t *testing.T, history []pgstore.Migration) pgstore.Migration {
+	t.Helper()
+	var m pgstore.Migration
+	var found bool
+	for _, candidate := range history {
+		if candidate.Version == 7 {
+			if found {
+				t.Fatalf("owner history has two version-7 migrations: %+v", history)
+			}
+			m, found = candidate, true
+		}
+	}
+	if !found || m.Name != pgstate04FixtureName {
+		t.Fatalf("owner history version 7 = %+v (found %v), want exactly 7/%s", m, found, pgstate04FixtureName)
+	}
+	if m.Checksum != pgstate04FixtureChecksum {
+		t.Fatalf("interpretation library checksum = %s, want the byte-frozen merge pin %s: the migration drifted",
+			m.Checksum, pgstate04FixtureChecksum)
+	}
+	return m
+}
 
 var pgstate04NameRe = regexp.MustCompile(`^pgstate04_it_[0-9]+_[0-9a-f]+$`)
 
@@ -121,11 +145,11 @@ type interpretationService struct {
 }
 
 // newInterpretationService creates one isolated database plus one owned
-// schema (both pgstate04_it_*), migrates the composed history -- this
-// package's embedded owner history plus this ticket's state-scoped own-dir
-// fixture tests/migrations-interpretations/000007_interpretation_library.sql
-// -- through the real pg-store-02 runner, asserts the ledger rows literally,
-// and opens three distinct single-connection PG18 backends.
+// schema (both pgstate04_it_*), migrates this package's complete embedded
+// owner history -- which includes 000007_interpretation_library with bytes
+// unchanged from its earlier own-dir fixture -- through the real pg-store-02
+// runner, asserts the ledger rows literally, and opens three distinct
+// single-connection PG18 backends.
 func newInterpretationService(t *testing.T) *interpretationService {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -239,21 +263,8 @@ func newInterpretationService(t *testing.T) *interpretationService {
 		owner[1].Version != 2 || owner[1].Name != "explorer_owner" {
 		t.Fatalf("owner history = %+v, want ledger(1) + explorer_owner(2) at the front", owner)
 	}
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), pgstate04FixtureDir)
-	if err != nil {
-		fail("load interpretation fixture migrations", err)
-	}
-	if len(fixture) != 1 || fixture[0].Version != 7 || fixture[0].Name != pgstate04FixtureName {
-		t.Fatalf("interpretation fixture history = %+v, want exactly version 7 %s",
-			fixture, pgstate04FixtureName)
-	}
-	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
-	// Compose in ascending version order (the runner applies and the
-	// ledger records strictly ascending; appending the fixture last was
-	// only ascending while the owner history ended below version 7 -- an
-	// embedded owner migration above 7, such as 000009, must not break
-	// the fixture's own invariant).
-	sort.Slice(history, func(i, j int) bool { return history[i].Version < history[j].Version })
+	pgstate04RequireInterpretationMigration(t, owner)
+	history := append([]pgstore.Migration(nil), owner...)
 	s.migrateWith(t, history)
 
 	want := []pgstore.LedgerRecord{}
@@ -562,35 +573,23 @@ func idRef(id explorer.InterpretationRevisionID) *explorer.InterpretationRevisio
 // Offline contract tests: no PostgreSQL service required.
 // ---------------------------------------------------------------------------
 
-// TestInterpretationMigrationFixtureComposition pins the state-scoped
-// own-dir fixture: exactly one file (version 7 interpretation_library)
-// composed after the owner history, rerun-safe (IF NOT EXISTS), carrying the
-// named constraints and 45501 immutability guards the adapter and the live
-// suite reference by name.
+// TestInterpretationMigrationFixtureComposition pins the interpretation
+// migration: exactly version 7 interpretation_library inside the owner
+// history (bytes unchanged from its earlier own-dir fixture), composed in
+// ascending order with the rest of the history, rerun-safe (IF NOT EXISTS),
+// carrying the named constraints and 45501 immutability guards the adapter
+// and the live suite reference by name.
 func TestInterpretationMigrationFixtureComposition(t *testing.T) {
 	owner, err := OwnerMigrations()
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
 	}
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), pgstate04FixtureDir)
-	if err != nil {
-		t.Fatalf("load fixture: %v", err)
-	}
-	if len(fixture) != 1 {
-		t.Fatalf("fixture history = %+v, want exactly one file", fixture)
-	}
-	m := fixture[0]
-	if m.Version != 7 || m.Name != pgstate04FixtureName {
-		t.Fatalf("fixture migration = %d/%s, want 7/%s", m.Version, m.Name, pgstate04FixtureName)
-	}
-	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(m.Checksum) {
-		t.Fatalf("fixture checksum %q is not lowercase hex sha256", m.Checksum)
-	}
-	history := append(append([]pgstore.Migration{}, owner...), m)
-	// Ascending composition (see the fixture harness): an embedded owner
-	// migration above version 7 (000009) must not break the invariant
-	// this test itself asserts.
-	sort.Slice(history, func(i, j int) bool { return history[i].Version < history[j].Version })
+	m := pgstate04RequireInterpretationMigration(t, owner)
+	history := append([]pgstore.Migration(nil), owner...)
+	// Ascending order is the loader's guarantee (LoadMigrations sorts by
+	// version); the owner history embeds interpretation_library at 7
+	// inside one sequence, and the assertion below witnesses that the
+	// invariant the suite relies on holds for the real embed.
 	for i := 1; i < len(history); i++ {
 		if history[i-1].Version >= history[i].Version {
 			t.Fatalf("composed history not strictly ascending: %+v", history)

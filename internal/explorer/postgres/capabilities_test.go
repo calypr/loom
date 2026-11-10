@@ -5,11 +5,10 @@ package postgres
 // LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
 // database (pgstate03_it_*) plus one owned schema (pgstate03_it_*) inside it
 // and drops both in its cleanups, so the suite leaves zero leftovers. The
-// fixture history is composed through the real pg-store-02 runner from this
-// package's embedded owner history (ledger bootstrap + explorer owner, plus
-// the sibling draft-revision migration once it lands) and this ticket's
-// state-scoped own-dir fixture tests/migrations-capabilities/000004_
-// capability_artifacts.sql; the ledger rows are asserted literally.
+// fixture history is this package's complete embedded owner history -- the
+// capability DDL (000004_capability_artifacts) is part of that same Explorer
+// control-plane ledger with bytes unchanged from its earlier own-dir
+// fixture; the ledger rows are asserted literally.
 // Expected rows are asserted literally through direct SQL on a witness pool
 // that is a third, physically distinct backend connection, and concurrent
 // put proofs run over two single-connection clients with provably distinct
@@ -42,7 +41,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -61,8 +59,6 @@ import (
 )
 
 const (
-	pgstate03FixtureDir    = "tests/migrations-capabilities"
-	pgstate03FixtureFile   = "000004_capability_artifacts"
 	pgstate03ImmutableCode = "45501"
 )
 
@@ -263,31 +259,36 @@ func (s *capabilityService) backendPID(t *testing.T, client *pgstore.Client, lab
 	return pid
 }
 
-// migrate composes and applies the owned history -- this package's embedded
-// owner history (ledger bootstrap + explorer owner; the sibling draft-
-// revision migration when present) plus this ticket's state-scoped own-dir
-// capability fixture -- through the real pg-store-02 runner, and asserts the
-// ledger literally. The capability tables live in the SAME Explorer control-
-// plane schema, extending the same ledger: no competing history, no
-// duplicated ledger bootstrap.
+// migrate applies this package's complete embedded owner history through
+// the real pg-store-02 runner, and asserts the ledger literally, pinning
+// the capability artifacts migration's byte-frozen checksum. The capability
+// tables live in the SAME Explorer control-plane schema, inside the one
+// ledger: no competing history, no duplicated ledger bootstrap.
 func (s *capabilityService) migrate(t *testing.T) {
 	t.Helper()
-	owner, err := OwnerMigrations()
+	history, err := OwnerMigrations()
 	if err != nil {
 		s.fail("owner migrations", err)
 	}
-	if len(owner) < 2 || owner[0].Version != 1 || owner[0].Name != "ledger" ||
-		owner[1].Version != 2 || owner[1].Name != "explorer_owner" {
-		t.Fatalf("owner history = %+v, want ledger(1) + explorer_owner(2) at the front", owner)
+	if len(history) < 2 || history[0].Version != 1 || history[0].Name != "ledger" ||
+		history[1].Version != 2 || history[1].Name != "explorer_owner" {
+		t.Fatalf("owner history = %+v, want ledger(1) + explorer_owner(2) at the front", history)
 	}
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), pgstate03FixtureDir)
-	if err != nil {
-		s.fail("load capability fixture migrations", err)
+	var fixture pgstore.Migration
+	var fixtureFound bool
+	for _, m := range history {
+		if m.Version == 4 {
+			fixture, fixtureFound = m, true
+		}
 	}
-	if len(fixture) != 1 || fixture[0].Version != 4 || !strings.HasPrefix(fixture[0].Name, "capability_artifacts") {
-		t.Fatalf("capability fixture history = %+v, want exactly version 4 capability_artifacts", fixture)
+	if !fixtureFound || !strings.HasPrefix(fixture.Name, "capability_artifacts") {
+		t.Fatalf("owner history version 4 = %+v (found %v), want capability_artifacts", fixture, fixtureFound)
 	}
-	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
+	const capabilityArtifactsChecksum = "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222"
+	if fixture.Checksum != capabilityArtifactsChecksum {
+		t.Fatalf("capability artifacts checksum = %s, want the byte-frozen merge pin %s: the migration drifted",
+			fixture.Checksum, capabilityArtifactsChecksum)
+	}
 	runner, err := pgstore.NewMigrationRunner(s.witness, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
@@ -296,18 +297,16 @@ func (s *capabilityService) migrate(t *testing.T) {
 	if err != nil {
 		s.fail("migrate capability history", err)
 	}
-	s.owner = owner
-	s.fixture = fixture[0]
+	s.owner = history
+	s.fixture = fixture
 	s.ledgerAfter = result.Applied
 
-	// The ledger must be the fully merged, ascending union of the owner
-	// lineage and this ticket's fixture, independent of compose order:
-	// NewMigrationRunner sorts by version (migrate.go sort.Slice on the
-	// normalized history), so a future owner history [1,2,3,5,6] plus this
-	// fixture [4] converges to [1,2,3,4,5,6] on the one shared ledger.
-	want := append([]pgstore.LedgerRecord{}, ownerRecords(owner)...)
-	want = append(want, pgstore.LedgerRecord{Version: fixture[0].Version, Name: fixture[0].Name, Checksum: fixture[0].Checksum})
-	sort.Slice(want, func(i, j int) bool { return want[i].Version < want[j].Version })
+	// The ledger must be the complete owner history, ascending: capability
+	// artifacts sits at version 4 INSIDE the one Explorer control-plane
+	// ledger (coordinator ruling), so the applied rows are exactly the
+	// owner history's own version/name/checksum sequence -- no competing
+	// history, no duplicated ledger bootstrap.
+	want := ownerRecords(history)
 	var maxVersion int64
 	for _, w := range want {
 		if w.Version > maxVersion {

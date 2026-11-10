@@ -5,11 +5,13 @@ package postgres
 // catalog-v1). Service-gated by LOOM_TEST_POSTGRES_URL: every acceptance
 // assertion below runs against a real server. Each test owns one uniquely
 // named pgprivcat01_it_* database plus one owned pgprivcat01_it_* schema
-// inside it, applies this ticket's tests/migrations-chartifact/000007
-// migration through the real pg-store-02 runner, and asserts literal
-// expected rows through its own witness pool. Mocks and skipped tests do
-// not establish parity: the check is run with the service configured, and
-// the gate exists only to keep unrelated CI lanes green.
+// inside it, applies the authoritative publication control-plane owner
+// history's versions {1, 7} (000007_private_clickhouse_artifacts, owned by
+// internal/dataframe/publication/postgres) through the real pg-store-02
+// runner, and asserts literal expected rows through its own witness pool.
+// Mocks and skipped tests do not establish parity: the check is run with the
+// service configured, and the gate exists only to keep unrelated CI lanes
+// green.
 
 import (
 	"context"
@@ -33,6 +35,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
+	publicationpostgres "github.com/calypr/loom/internal/dataframe/publication/postgres"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
 )
 
@@ -266,35 +269,31 @@ func newCatalogService(t *testing.T) *catalogService {
 	return s
 }
 
-// migrate applies this ticket's owned history -- the ledger bootstrap from
-// the embedded pg-store-02 set plus tests/migrations-chartifact/000007_
-// private_clickhouse_artifacts.sql -- through the real pg-store-02 runner,
-// and asserts the ledger literally records both rows. Only the ledger
-// bootstrap is taken from the embedded set; the shared store migrations and
-// the sibling fixture directories belong to their owners.
+// migrate applies this suite's slice of the authoritative publication
+// control-plane history -- the ledger bootstrap plus
+// 000007_private_clickhouse_artifacts.sql, owned by
+// internal/dataframe/publication/postgres (this package keeps no DDL) --
+// through the real pg-store-02 runner, and asserts the ledger literally
+// records both rows. The suite filters the owner history to the versions its
+// artifact-catalog audit owns; the other publication tables belong to the
+// publication owner's own suites.
 func (s *catalogService) migrate(t *testing.T) {
 	t.Helper()
-	embedded, err := storepostgres.EmbeddedMigrations()
+	owner, err := publicationpostgres.OwnerMigrations()
 	if err != nil {
-		s.fail("embedded migrations", err)
+		s.fail("publication owner migrations", err)
 	}
-	var ledger []storepostgres.Migration
-	for _, m := range embedded {
-		if m.Version == 1 && m.Name == "ledger" {
-			ledger = append(ledger, m)
+	var history []storepostgres.Migration
+	for _, m := range owner {
+		if m.Version == 1 || m.Version == 7 {
+			history = append(history, m)
 		}
 	}
-	if len(ledger) != 1 {
-		t.Fatalf("embedded history has %d migrations, want exactly one version 1 ledger bootstrap to compose against", len(embedded))
+	if len(history) != 2 || history[0].Version != 1 || history[0].Name != "ledger" ||
+		history[1].Version != 7 || history[1].Name != "private_clickhouse_artifacts" {
+		t.Fatalf("publication owner history subset = %+v, want exactly versions {1 ledger, 7 private_clickhouse_artifacts}", owner)
 	}
-	owned, err := storepostgres.LoadMigrations(os.DirFS("../../../../../"), "tests/migrations-chartifact")
-	if err != nil {
-		s.fail("load tests/migrations-chartifact", err)
-	}
-	if len(owned) != 1 || owned[0].Version != 7 || owned[0].Name != "private_clickhouse_artifacts" {
-		t.Fatalf("tests/migrations-chartifact history = %+v, want exactly version 7 private_clickhouse_artifacts", owned)
-	}
-	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, append(append([]storepostgres.Migration(nil), ledger...), owned...))
+	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
 	}
@@ -306,8 +305,8 @@ func (s *catalogService) migrate(t *testing.T) {
 		t.Fatalf("latest migration version = %d, want 7", result.LatestVersion)
 	}
 	wantLedger := []storepostgres.LedgerRecord{
-		{Version: 1, Name: "ledger", Checksum: ledger[0].Checksum},
-		{Version: 7, Name: "private_clickhouse_artifacts", Checksum: owned[0].Checksum},
+		{Version: 1, Name: "ledger", Checksum: "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+		{Version: 7, Name: "private_clickhouse_artifacts", Checksum: "e827a5a1515df903a540a76858da6ad8e5afaede01f5c0b096f9f87a9b662cfb"},
 	}
 	if len(result.Applied) != len(wantLedger) {
 		t.Fatalf("applied history = %+v, want %+v", result.Applied, wantLedger)
