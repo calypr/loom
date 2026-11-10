@@ -20,8 +20,13 @@ import (
 // The LIKE patterns deliberately keep the unescaped underscore: the
 // wildcard usefully also covers the verifier's verify_sql05v_* namespace;
 // escaping it would narrow the audit out from under that leg.
+//
+// pg-sql-06's delta-scoped fixture audit (traversal_test.go
+// trvRunDeltaAudit) wraps m.Run here; it snapshots the disjoint
+// pgir02_it_* namespace around the run, so both audits see the full
+// package run state.
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := trvRunDeltaAudit(m)
 	if err := auditNoLeftoverVerifySQL05(); err != nil {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 		if code == 0 {

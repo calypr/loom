@@ -406,8 +406,12 @@ func TestWindowFinalSortLimitOverOwnerRouteIncludesOccurrenceWitness(t *testing.
 	rendered := renderOK(t, plan)
 	// Root identity, route occurrence witness, distinct-owner identity, then
 	// the has-item and rn witnesses, then the renderer completeness chain.
+	// Base-carried golden re-pinned at the hop: the owner route is the INNER
+	// renderTraversalScan scan (render/aql/navigation_render.go, review round
+	// at 061cd197), so the owner row is the top-level x{n}, not the old flat
+	// r{n} alias; e1."edge_seq" and the term order are unchanged.
 	if got, want := windowOrderByClause(t, rendered.SQL),
-		`r0."logical_id" ASC, e1."edge_seq" ASC, r1."logical_id" ASC, (u1.rn IS NOT NULL) ASC, u1.rn ASC, r0."resource_seq" ASC`; got != want {
+		`r0."logical_id" ASC, e1."edge_seq" ASC, x1."logical_id" ASC, (u1.rn IS NOT NULL) ASC, u1.rn ASC, r0."resource_seq" ASC`; got != want {
 		t.Fatalf("owner-route final-window ORDER BY =\n got %q\nwant %q", got, want)
 	}
 }

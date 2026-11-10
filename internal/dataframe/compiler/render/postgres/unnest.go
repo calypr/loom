@@ -510,14 +510,20 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 		return err
 	}
 
-	// Owner route through the spine's sole join emitter: every step is a
-	// native typed-identity edge-occurrence join appended before the
-	// laterals, so the parent row identity (and every edge_seq tie-break)
-	// is the storage identity the ORDER BY contract uses. The gate above
-	// already proved the static root-to-owner chain; renderTraversal still
-	// refuses any step whose source never bound a row.
+	// Owner route through the traversal slice's sole join emitter, in its
+	// route-inner mode: the AQL reference renders the route as the inner
+	// renderTraversalScan FOR loops inside the current loop (render/aql
+	// navigation_render.go renderUnnest), so a parent with zero surviving
+	// route occurrences emits zero rows under BOTH empty policies — the
+	// PreserveParent pad row belongs to the expansion, which the route
+	// gates. Each step appends a top-level INNER JOIN edge × target before
+	// the expansion laterals, so the parent row identity (and every
+	// edge_seq tie-break) is the storage identity the ORDER BY contract
+	// uses. The gate above already proved the static root-to-owner chain;
+	// renderTraversal still refuses any step whose source never bound a
+	// row.
 	for stepIndex, step := range unnest.Owner.Route {
-		if err := r.renderTraversal(plan, step.Traversal); err != nil {
+		if err := r.renderTraversal(plan, step.Traversal, true); err != nil {
 			return fmt.Errorf("%w: unnest owner route step %d: %v", ErrUnsupportedPostgresPlan, stepIndex, err)
 		}
 	}

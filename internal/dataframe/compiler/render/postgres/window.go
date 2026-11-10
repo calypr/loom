@@ -169,6 +169,13 @@ func (r *planRenderer) renderWindowSort(plan ir.PhysicalPlan, sort ir.PhysicalSo
 			if !ok {
 				return fmt.Errorf("%w: sort variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, key.Variable)
 			}
+			if scope.optional {
+				// NULL-extended child columns sort as a distinct witness a plan
+				// never declared; deterministic row order belongs to the root
+				// identity plus the renderer-owned edge witnesses.
+				return fmt.Errorf("%w: sort key on %q, a row materialized by an OPTIONAL traversal LEFT JOIN LATERAL, is not registered; sorting expanded child rows is a later capability",
+					ErrUnsupportedPostgresPlan, key.Variable)
+			}
 			if key.BindKey != "" || len(key.Path) != 1 || !resourceFilterColumns[key.Path[0]] {
 				return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
 					ErrUnsupportedPostgresPlan)

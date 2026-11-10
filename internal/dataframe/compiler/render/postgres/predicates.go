@@ -141,7 +141,25 @@ import (
 )
 
 func (r *planRenderer) renderFilter(plan ir.PhysicalPlan, filter ir.PhysicalFilter) (string, error) {
+	// Main-sequence FILTER may not read rows materialized by an OPTIONAL
+	// traversal join (render.go rejectOptionalRowReferences); the guard
+	// walks the whole tree, including the whole-FILTER EXISTS form below.
+	if err := r.rejectOptionalRowReferences(filter); err != nil {
+		return "", err
+	}
 	if filter.Expression != nil {
+		if filter.Expression.Kind == ir.PhysicalExistsPredicate {
+			// The REQUIRED match filter is the traversal slice's
+			// whole-FILTER form: a root semi-join over the edge relation
+			// (traversal.go renderRequiredMatchExists). Nested EXISTS
+			// composition stays unregistered: renderPredicateFragment has
+			// no EXISTS case and refuses it as an unknown kind.
+			fragment, err := r.renderRequiredMatchExists(plan, *filter.Expression)
+			if err != nil {
+				return "", err
+			}
+			return fragment.sql, nil
+		}
 		return r.renderPredicateExpression(plan, *filter.Expression)
 	}
 	return r.renderComparison(plan, filter.Predicate)

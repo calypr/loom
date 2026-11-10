@@ -33,17 +33,23 @@
 // null/missing reading preserve the physical-predicate contract (all
 // predicate rendering and its capability registration live in
 // predicates.go) — boolean ALL/ANY/NOT predicate trees, depth-one typed
-// edge-occurrence joins, one column sort with deterministic identity
-// tie-breaks, one bound limit, and one positional return projection. The
-// JSON-array cardinality boundary (UNNEST, pg-sql-09) is registered in
-// unnest.go as its own closed operation slice: one direct root scan, one
-// or more JSON-array expansions with typed-identity owner routes, and a
-// positional return over the stored rows plus the renderer-derived item,
-// ancestor, ordinality, and has-item values. Population/cohort roots,
-// endpoint-lookup traversals, repeated/indexed selector predicates,
-// correlated predicates, CONTAINS_TEXT, sets,
-// subplans, graph returns, group rows, pivots, unpivots, stage sequences,
-// and ClickHouse payloads are capability gaps that return typed errors.
+// edge-occurrence traversals rendered by traversal.go — the OPTIONAL
+// parent-preserving LEFT JOIN LATERAL child join, the REQUIRED match EXISTS
+// semi-join (whose subplan payload filter re-reads the predicates.go
+// comparison contract over the reached child rows), and the unnest
+// owner-route step as an inner edge scan (renderTraversalScan parity: zero
+// route occurrences eliminate the parent under either empty policy) — one
+// column sort with deterministic identity tie-breaks, one bound limit, and
+// one positional return projection. The JSON-array cardinality boundary
+// (UNNEST, pg-sql-09) is registered in unnest.go as its own closed
+// operation slice: one direct root scan, one or more JSON-array expansions
+// with typed-identity owner routes, and a positional return over the
+// stored rows plus the renderer-derived item, ancestor, ordinality, and
+// has-item values. Population/cohort roots, endpoint-lookup traversals,
+// repeated/indexed selector predicates, correlated predicates,
+// CONTAINS_TEXT, sets, subplans outside the registered REQUIRED shape,
+// graph returns, group rows, pivots, unpivots, stage sequences, and
+// ClickHouse payloads are capability gaps that return typed errors.
 package postgres
 
 import (
@@ -150,7 +156,10 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 
 // rowScope records the renderer-owned SQL placement of one plan variable.
 // The plan-authored variable name is used only as an internal map key; it
-// never reaches SQL text.
+// never reaches SQL text. optional marks a row materialized by an OPTIONAL
+// traversal join (traversal.go): it is NULL-extensible, so main-sequence
+// FILTER and SORT may not reference it, while RETURN projections read its
+// columns with SQL NULL for parent-preserving rows.
 //
 // A derived scope (unnest.go) carries a renderer-computed SQL expression
 // instead of a storage alias: derivedValue is the only reading, there is no
@@ -163,6 +172,7 @@ type rowScope struct {
 	resourceType string
 	derivedValue string
 	derivedJSON  bool
+	optional     bool
 }
 
 type planRenderer struct {
@@ -176,9 +186,17 @@ type planRenderer struct {
 
 	// scope is the re-read canonical scope established by loadScope (its
 	// definition and predicate mapping live in scope.go).
-	scope         planScope
-	rootAlias     string
-	edgeAliases   []string
+	scope     planScope
+	rootAlias string
+	// edgeAliases records the lateral aliases of OPTIONAL traversal joins in
+	// plan order; the assembler orders every one by its exposed edge_seq so
+	// repeated occurrences are deterministic on every execution.
+	edgeAliases []string
+	// traversalSeq is the single alias counter shared by traversal.go: every
+	// registered traversal join (lateral child subquery or EXISTS step)
+	// consumes one sequence number, so edge/target/lateral aliases are
+	// unique and deterministic for a plan.
+	traversalSeq  int
 	where         []string
 	joins         []string
 	selects       []string
@@ -252,7 +270,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if phase != 0 {
 				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderTraversal(plan, *operation.Traversal); err != nil {
+			if err := r.renderTraversal(plan, *operation.Traversal, false); err != nil {
 				return err
 			}
 		case ir.PhysicalUnnestOp:
@@ -320,118 +338,82 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 	return nil
 }
 
-func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
-	source, ok := r.rows[traversal.SourceVariable]
-	if !ok || source.derivedValue != "" {
-		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables, set variables, and computed unnest values are not readable)",
-			ErrUnsupportedPostgresPlan, traversal.SourceVariable)
-	}
-	switch traversal.Direction {
-	case ir.PhysicalOutbound, ir.PhysicalInbound:
-	case ir.PhysicalAny:
-		return fmt.Errorf("%w: ANY-direction traversal has no proven PostgreSQL contract", ErrUnsupportedPostgresPlan)
-	default:
-		return fmt.Errorf("%w: unknown traversal direction %q", ErrUnsupportedPostgresPlan, string(traversal.Direction))
-	}
-	if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
-		return fmt.Errorf("%w: endpoint-lookup strategy has no proven PostgreSQL contract yet; native typed-identity joins are the only registered shape",
-			ErrUnsupportedPostgresPlan)
-	}
-	if traversal.Strategy != "" && traversal.Strategy != ir.PhysicalTraversalNative {
-		return fmt.Errorf("%w: unknown traversal strategy %q", ErrUnsupportedPostgresPlan, string(traversal.Strategy))
-	}
-	// The same direction-aware discriminator proof lower/storage_route.go
-	// requires of Arango routes: without it the typed-identity join cannot be
-	// attributed to a proven storage direction.
-	expectedField := "to_type"
-	if traversal.Direction == ir.PhysicalInbound {
-		expectedField = "from_type"
-	}
-	if traversal.EdgeTargetTypeField != expectedField {
-		return fmt.Errorf("%w: %s traversal must carry EdgeTargetTypeField %q, got %q",
-			ErrUnsupportedPostgresPlan, string(traversal.Direction), expectedField, traversal.EdgeTargetTypeField)
-	}
-	label, ok := plan.BindVars[traversal.EdgeLabelBindKey].(string)
-	if !ok || strings.TrimSpace(label) == "" {
-		return fmt.Errorf("%w: edge label bind %q must be a non-empty string", ErrUnsupportedPostgresPlan, traversal.EdgeLabelBindKey)
-	}
-	targetType, ok := plan.BindVars[traversal.TargetTypeBindKey].(string)
-	if !ok || strings.TrimSpace(targetType) == "" {
-		return fmt.Errorf("%w: traversal target type bind %q must be a non-empty string",
-			ErrUnsupportedPostgresPlan, traversal.TargetTypeBindKey)
-	}
-	if traversal.SourceTypeBindKey != "" {
-		if bound, ok := plan.BindVars[traversal.SourceTypeBindKey].(string); !ok || bound != source.resourceType {
-			return fmt.Errorf("%w: traversal source type bind does not match the current row resource type %q",
-				ErrUnsupportedPostgresPlan, source.resourceType)
-		}
-	}
-
-	edgeAlias := "e" + strconv.Itoa(len(r.edgeAliases)+1)
-	targetAlias := "r" + strconv.Itoa(len(r.edgeAliases)+1)
-	edgeTable := r.storage.Edge.Identifier().SQLText()
-	resourceTable := r.storage.Resource.Identifier().SQLText()
-
-	edgeColumns := r.storage.Edge
-	// The edge row's canonical project/generation/auth scope comes from the
-	// single mapping in scope.go; the label and endpoint identity clauses
-	// appended below are traversal payload, not canonical scope.
-	edgeScope := r.scopedEdgePredicate(edgeAlias)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("label").SQLText() +
-		" = $" + strconv.Itoa(r.textParameter(label, "text:"+label))
-
-	// The reached endpoint is the one whose typed identity the join carries
-	// toward the resource table; the anchored endpoint equality preserves the
-	// exact source row identity on the other side.
-	var anchoredTypeColumn, anchoredIDColumn, reachedTypeColumn, reachedIDColumn string
-	if traversal.Direction == ir.PhysicalOutbound {
-		anchoredTypeColumn, anchoredIDColumn = "source_resource_type", "source_logical_id"
-		reachedTypeColumn, reachedIDColumn = "target_resource_type", "target_logical_id"
-	} else {
-		anchoredTypeColumn, anchoredIDColumn = "target_resource_type", "target_logical_id"
-		reachedTypeColumn, reachedIDColumn = "source_resource_type", "source_logical_id"
-	}
-	sourceTypeIndex := r.textParameter(source.resourceType, "text:"+source.resourceType)
-	targetTypeIndex := r.textParameter(targetType, "text:"+targetType)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredTypeColumn).SQLText() + " = $" + strconv.Itoa(sourceTypeIndex)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredIDColumn).SQLText() +
-		" = " + source.alias + "." + r.storage.Resource.MustColumn("logical_id").SQLText()
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(reachedTypeColumn).SQLText() + " = $" + strconv.Itoa(targetTypeIndex)
-
-	join := "INNER JOIN " + edgeTable + " AS " + edgeAlias + " ON " + edgeScope
-	join += " INNER JOIN " + resourceTable + " AS " + targetAlias + " ON " +
-		r.scopedResourcePredicate(targetAlias, targetTypeIndex) +
-		" AND " + targetAlias + "." + r.storage.Resource.MustColumn("logical_id").SQLText() +
-		" = " + edgeAlias + "." + edgeColumns.MustColumn(reachedIDColumn).SQLText()
-	r.joins = append(r.joins, join)
-	r.edgeAliases = append(r.edgeAliases, edgeAlias)
-	r.rows[traversal.TargetVariable] = rowScope{alias: targetAlias, resourceType: targetType}
-	// The window's route occurrence witness resolves the plan-named edge
-	// variable through this binding only (window.go).
-	if err := r.window.rememberEdge(traversal.EdgeVariable, edgeAlias); err != nil {
-		return err
-	}
-	return nil
-}
-
 // resolveValue maps one plan value onto either a trusted column expression
 // or a parameterized JSONB payload path over its row alias. Payload paths
 // are bound through documentPathExpression (null_semantics.go), the
 // package's single path-binding authority, so extraction and comparison
 // paths can never drift apart. Derived scopes (unnest.go) resolve through
-// resolveDerivedValue against their renderer-computed expression instead.
+// resolveDerivedValue against their renderer-computed expression instead;
+// everything else resolves through the shared rows-parameterized resolver
+// in traversal.go, which main sequence and EXISTS subplans share.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
-	scope, ok := r.rows[value.Variable]
-	if !ok {
-		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
-	}
-	if scope.derivedValue != "" {
+	if scope, ok := r.rows[value.Variable]; ok && scope.derivedValue != "" {
 		return r.resolveDerivedValue(value, scope)
 	}
-	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
-		return scope.alias + "." + r.storage.Resource.MustColumn(value.Path[0]).SQLText(), nil
+	return r.resolveValueInRows(r.rows, value)
+}
+
+// rejectOptionalRowReferences enforces the OPTIONAL-traversal boundary for
+// main-sequence FILTER operations: no comparison leaf, at any depth of an
+// ALL/NOT composition, may read a row materialized by an OPTIONAL
+// traversal join. A WHERE conjunct over null-extended child rows re-adds
+// the inner-join exclusion the AQL LET-set never applies (render/aql
+// navigation_render.go:11-37), and NOT/IS-DISTINCT-FROM forms would keep
+// parents an AQL required match excludes (lower/required_match.go).
+// Required matching must use the typed EXISTS subplan form, which renders
+// over INNER joins where WHERE placement is exact. EXISTS predicate
+// subplans are self-scoped and walk-free: their own contract is enforced by
+// renderRequiredMatchExists.
+func (r *planRenderer) rejectOptionalRowReferences(filter ir.PhysicalFilter) error {
+	if filter.Expression != nil {
+		return rejectOptionalInPredicate(*filter.Expression, r.rows)
 	}
-	return r.documentPathExpression(scope.alias, value.Path)
+	return rejectOptionalInPredicate(ir.PhysicalPredicateExpression{
+		Kind:       ir.PhysicalComparisonPredicate,
+		Comparison: &filter.Predicate,
+	}, r.rows)
+}
+
+func rejectOptionalInPredicate(predicate ir.PhysicalPredicateExpression, rows map[string]rowScope) error {
+	switch predicate.Kind {
+	case ir.PhysicalComparisonPredicate:
+		if predicate.Comparison == nil {
+			return nil // the comparison renderer reports the missing payload.
+		}
+		if predicate.Comparison.LeftExpression != nil &&
+			predicate.Comparison.LeftExpression.Extract != nil {
+			if scope, ok := rows[predicate.Comparison.LeftExpression.Extract.Source.Variable]; ok && scope.optional {
+				return optionalRowRefError(predicate.Comparison.LeftExpression.Extract.Source.Variable)
+			}
+		}
+		if predicate.Comparison.Left.BindKey == "" && predicate.Comparison.Left.Variable != "" {
+			if scope, ok := rows[predicate.Comparison.Left.Variable]; ok && scope.optional {
+				return optionalRowRefError(predicate.Comparison.Left.Variable)
+			}
+		}
+		return nil
+	case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate:
+		for _, child := range predicate.Children {
+			if err := rejectOptionalInPredicate(child, rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ir.PhysicalNotPredicate:
+		for _, child := range predicate.Children {
+			if err := rejectOptionalInPredicate(child, rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	default: // EXISTS and unknown kinds: no main-sequence row references.
+		return nil
+	}
+}
+
+func optionalRowRefError(variable string) error {
+	return fmt.Errorf("%w: FILTER references %q, a row materialized by an OPTIONAL traversal LEFT JOIN LATERAL; a WHERE conjunct over null-extended child rows would re-add the inner-join exclusion the AQL LET-set never applies (render/aql/navigation_render.go renderTraversalSet). Express required matching as the typed EXISTS subplan FILTER form",
+		ErrUnsupportedPostgresPlan, variable)
 }
 
 // payloadPathSegmentPattern re-checks the frozen ir path contract at the
