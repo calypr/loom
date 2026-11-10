@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -53,7 +53,7 @@ func basePlan() ir.PhysicalPlan {
 	}
 }
 
-func renderOK(t *testing.T, plan ir.PhysicalPlan) compiler.RenderedPostgresPhysicalPlan {
+func renderOK(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
 	if err != nil {
@@ -164,13 +164,13 @@ func TestRenderScopedRootScanIsExactAndParameterized(t *testing.T) {
 	if rendered.SQL != wantSQL {
 		t.Fatalf("SQL mismatch:\n got %s\nwant %s", rendered.SQL, wantSQL)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: "proj-a"},
-		{Type: compiler.PostgreSQLParameterText, Value: "gen-1"},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Observation"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
-		{Type: compiler.PostgreSQLParameterBigint, Value: int64(10)},
-		{Type: compiler.PostgreSQLParameterText, Value: "{status}"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "proj-a"},
+		{Type: command.PostgreSQLParameterText, Value: "gen-1"},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Observation"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
+		{Type: command.PostgreSQLParameterBigint, Value: int64(10)},
+		{Type: command.PostgreSQLParameterText, Value: "{status}"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("args mismatch:\n got %#v\nwant %#v", rendered.Args, wantArgs)
@@ -322,7 +322,7 @@ func TestRenderFiltersBindValuesAndPaths(t *testing.T) {
 			t.Fatalf("filter data %q leaked into SQL:\n%s", leaked, rendered.SQL)
 		}
 	}
-	if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != `"final"` {
+	if got := rendered.Args[5]; got.Type != command.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != `"final"` {
 		t.Fatalf("status value arg = %#v", got)
 	}
 	if got := rendered.Args[7]; string(got.Value.(json.RawMessage)) != `3` {
@@ -665,9 +665,9 @@ func TestRenderIsDeterministicAndDoesNotAliasPlanData(t *testing.T) {
 }
 
 func TestRenderedResultCopiesConstructorSlices(t *testing.T) {
-	args := []compiler.PostgreSQLParameter{{Type: compiler.PostgreSQLParameterText, Value: "x"}}
+	args := []command.PostgreSQLParameter{{Type: command.PostgreSQLParameterText, Value: "x"}}
 	columns := []string{"a"}
-	rendered, err := compiler.NewRenderedPostgresPhysicalPlan(`SELECT $1`, args, columns)
+	rendered, err := command.NewRenderedPostgresPhysicalPlan(`SELECT $1`, args, columns)
 	if err != nil {
 		t.Fatalf("construct: %v", err)
 	}
@@ -698,7 +698,7 @@ func TestRenderNotEqualsOnTypedColumnIsTwoValued(t *testing.T) {
 	if strings.Contains(rendered.SQL, `"x"`) {
 		t.Fatalf("bind value leaked into SQL:\n%s", rendered.SQL)
 	}
-	if got := rendered.Args[4]; got.Type != compiler.PostgreSQLParameterText || got.Value != "x" {
+	if got := rendered.Args[4]; got.Type != command.PostgreSQLParameterText || got.Value != "x" {
 		t.Fatalf("NOT_EQUALS column value arg = %#v", got)
 	}
 }
@@ -722,7 +722,7 @@ func TestRenderEmptyColumnINBindsEmptyArray(t *testing.T) {
 	}
 	// JSON null would make jsonb_array_elements_text raise at execution; an
 	// empty array makes ANY false, matching the AQL x IN [] reading.
-	if got := rendered.Args[4]; got.Type != compiler.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != `[]` {
+	if got := rendered.Args[4]; got.Type != command.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != `[]` {
 		t.Fatalf("empty IN arg = %#v, want JSONB []", got)
 	}
 }

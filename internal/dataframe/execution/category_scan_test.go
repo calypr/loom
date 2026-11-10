@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/expression"
@@ -34,7 +35,7 @@ func TestScanCategoriesCompiledReportsCompleteAtBoundAndOverflowAtBoundPlusOne(t
 		{257, 256, false, true},
 	} {
 		t.Run(fmt.Sprintf("rows_%d", test.rows), func(t *testing.T) {
-			engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 				query, binds, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -74,7 +75,7 @@ func TestScanCategoriesCompiledUsesExactOverflowWitnessBeforeFullScan(t *testing
 			compiled := compiledCategoryScan(2)
 			compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Command: mustAQLCommand("witness", map[string]any{"scope": "same"})}
 			fullScan := false
-			engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 				query, binds, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -124,7 +125,7 @@ func TestScanCategoriesCompiledPreservesOrderedMissingNullAndFalseyValues(t *tes
 		{"present": true, "value": float64(0)},
 		{"present": true, "value": ""},
 	}
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -152,7 +153,7 @@ func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked
 	compiled.Proof.PresenceTracked = true
 	compiled.OverflowWitness = &compiler.CategoryOverflowWitness{Command: mustAQLCommand("witness", nil)}
 	mainScanned := false
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		query, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -183,7 +184,7 @@ func TestScanCategoriesCompiledContinuesAfterMissingWitnessWhenPresenceIsTracked
 
 func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	engine := &Engine{queryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -200,8 +201,8 @@ func TestScanCategoriesCompiledHonorsContextCancellation(t *testing.T) {
 
 func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
 	called := false
-	engine := &Engine{
-		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
+		queryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -210,7 +211,7 @@ func TestScanCategoriesCompiledUsesBoundedPreviewExecutor(t *testing.T) {
 			t.Fatal("category discovery used the unbounded execution query path")
 			return nil
 		},
-		previewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		previewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			query, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -235,8 +236,8 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 	prepareFinished := make(chan struct{})
 	var prepareCalls atomic.Int32
 	var queryCalls atomic.Int32
-	engine := &Engine{
-		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
+		queryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -259,7 +260,7 @@ func TestScanCategoriesCompiledPrewarmsPreviewIndexWithoutBlockingAndDedupes(t *
 				return ctx.Err()
 			}
 		},
-		previewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		previewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			query, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -308,7 +309,7 @@ func TestScanCategoriesReturnsTypedCompilerRefusalForUnsupportedColumn(t *testin
 			Name: "structured", Kind: string(expression.KindObject), Cardinality: string(expression.OptionalOne),
 		}},
 	}}}}
-	_, err := (&Engine{}).ScanCategories(context.Background(), resolved, CategoryScanRequest{Output: "output", Column: "structured", MaxValues: 256})
+	_, err := (&Engine{compileTarget: compiler.ArangoTarget()}).ScanCategories(context.Background(), resolved, CategoryScanRequest{Output: "output", Column: "structured", MaxValues: 256})
 	code, ok := compiler.CategoryScanRefusalCodeOf(err)
 	if !ok || code != compiler.CategoryScanColumnUnsupported {
 		t.Fatalf("refusal = %q/%t, error = %v", code, ok, err)
@@ -336,7 +337,7 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	var query string
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -362,12 +363,12 @@ func TestScanCategoriesExecutesExactConstructionStagePrefix(t *testing.T) {
 
 func TestScanCategoriesPreparesCategoryIndexBeforeQuery(t *testing.T) {
 	prepared := false
-	engine := &Engine{
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
 		preparePreviewIndex: func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
 			prepared = true
 			return nil
 		},
-		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

@@ -186,7 +186,7 @@ func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstAra
 		if err != nil {
 			t.Fatalf("resolve two-scan Pivot fixture plan: %v", err)
 		}
-		queries, err := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+		queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile two-scan Pivot fixture: %v", err)
 		}
@@ -281,7 +281,7 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 		}
 		compile := func(limit int) CompiledQuery {
 			t.Helper()
-			queries, compileErr := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+			queries, compileErr := CompileResolvedRecipePlan(ArangoTarget(), resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 			if compileErr != nil {
 				t.Fatalf("compile %s Pivot preview: %v", policy, compileErr)
 			}
@@ -806,7 +806,7 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 		t.Fatal(err)
 	}
 	compiledOutput := compiled.Outputs[0]
-	query, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile auth-scoped grouped pivot: %v", err)
 	}
@@ -817,7 +817,7 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 	}
 	assertAuthScopedPivotRows(t, executeReshapeOracleQuery(t, ctx, client, query))
 
-	page, err := CompileRecipeOutputPageWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile auth-scoped grouped pivot materialization page: %v", err)
 	}
@@ -1090,7 +1090,7 @@ func runReshapeOracleExclusionQuery(t *testing.T, ctx context.Context, client *s
 	if err != nil {
 		t.Fatalf("compile exclusion oracle output: %v", err)
 	}
-	query, err := CompileTableShapeExclusionsWithPolicy(compiled, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileTableShapeExclusions(ArangoTarget(), compiled, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile exact table-shape exclusions: %v", err)
 	}
@@ -1201,7 +1201,7 @@ func compileReshapeOracle(output recipe.Output, project, generation string, limi
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}
@@ -1693,7 +1693,7 @@ func queryReshapeOracle(t *testing.T, ctx context.Context, client *store.Client,
 
 func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
-	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := CompileCellTraceOutput(ArangoTarget(), output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}

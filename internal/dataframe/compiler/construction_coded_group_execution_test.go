@@ -18,7 +18,7 @@ func TestCodedGroupPreviewWithSourceIdentityKeepsStageInputScoped(t *testing.T) 
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"BodyStructure/allowed"},
 	}
 	compiled := lowerConstructionOutput(t, bodyStructureCodedGroupOutput(), bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCodedGroupInlinesPopulationSelectedRootScan(t *testing.T) {
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"BodyStructure/allowed"},
 	}
 	compiled := lowerConstructionOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

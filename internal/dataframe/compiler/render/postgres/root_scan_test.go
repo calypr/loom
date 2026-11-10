@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
@@ -106,11 +106,11 @@ func TestRootScanGoldenRestrictedSQLAndArguments(t *testing.T) {
 	if rendered.SQL != wantSQL {
 		t.Fatalf("restricted SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq01Project},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq01Gen},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Encounter"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq01Project},
+		{Type: command.PostgreSQLParameterText, Value: pgsq01Gen},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Encounter"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("restricted args = %#v, want %#v", rendered.Args, wantArgs)
@@ -167,10 +167,10 @@ func TestRootScanGoldenUnrestrictedSQLAndArguments(t *testing.T) {
 	if rendered.SQL != wantSQL {
 		t.Fatalf("unrestricted SQL =\n%s\nwant\n%s", rendered.SQL, wantSQL)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq01Project},
-		{Type: compiler.PostgreSQLParameterText, Value: ""},
-		{Type: compiler.PostgreSQLParameterText, Value: "Observation"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq01Project},
+		{Type: command.PostgreSQLParameterText, Value: ""},
+		{Type: command.PostgreSQLParameterText, Value: "Observation"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("unrestricted args = %#v, want %#v", rendered.Args, wantArgs)
@@ -193,7 +193,7 @@ func TestRootScanEmptyRestrictedPathSetRendersEmptyArrayParameter(t *testing.T) 
 		if got, ok := rendered.Args[2].Value.(json.RawMessage); !ok || string(got) != "[]" {
 			t.Fatalf("empty restricted set arg = %#v, want JSON empty array", rendered.Args[2].Value)
 		}
-		if rendered.Args[2].Type != compiler.PostgreSQLParameterJSONB {
+		if rendered.Args[2].Type != command.PostgreSQLParameterJSONB {
 			t.Fatalf("empty restricted set type = %q", rendered.Args[2].Type)
 		}
 	}
@@ -599,7 +599,7 @@ func (s *pgsq01Service) run(t *testing.T, sql string, args ...any) [][]string {
 	return out
 }
 
-func (s *pgsq01Service) runRendered(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) [][]string {
+func (s *pgsq01Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
@@ -652,11 +652,11 @@ func TestPGSQ01RootScanReturnsOnlySelectedProjectGenerationType(t *testing.T) {
 	}
 
 	// Exact ordered arguments, asserted before execution.
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq01Project},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq01Gen},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq01Project},
+		{Type: command.PostgreSQLParameterText, Value: pgsq01Gen},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", rendered.Args, wantArgs)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -57,9 +58,10 @@ func valControl(t *testing.T, revisions *valRevisions) (*Engine, *valNamedAbsent
 	t.Helper()
 	registry := &valNamedAbsent{}
 	engine, err := New(Config{
-		Registry:  registry,
-		Revisions: revisions,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		Revisions:     revisions,
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

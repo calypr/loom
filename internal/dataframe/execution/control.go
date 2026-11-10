@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -96,7 +97,7 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 		}
 		if live {
 			switch compiled.Command.Backend() {
-			case compiler.CompiledBackendPostgreSQL:
+			case command.CompiledBackendPostgreSQL:
 				if c.ExplainPostgreSQLConnection == nil {
 					return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires a PostgreSQL connection")
 				}
@@ -131,7 +132,7 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 // fingerprint the PostgreSQL stream reports as planFingerprint — for
 // PostgreSQL-tagged commands.
 func explainPlanFingerprint(compiled compiler.CompiledQuery) string {
-	if compiled.Command.Backend() == compiler.CompiledBackendPostgreSQL {
+	if compiled.Command.Backend() == command.CompiledBackendPostgreSQL {
 		return compiled.PlanDiagnostics.Fingerprint
 	}
 	return CompiledQueryFingerprint(compiled)

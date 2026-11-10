@@ -128,7 +128,7 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 		AuthResourcePaths: []string{"Observation/visible"},
 	}
 	output := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), bindings)
-	preview, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 		AuthResourcePaths: []string{"Observation/visible"},
 	}
 	unfiltered := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), bindings)
-	unfilteredPreview, err := CompileRecipeOutputWithPolicy(unfiltered, bindings, 200, ir.DefaultPhysicalOptimizationPolicy())
+	unfilteredPreview, err := CompileRecipeOutput(ArangoTarget(), unfiltered, bindings, 200, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 	}
 
 	output := lowerConstructionOutput(t, constructionGroupFilterLineageOutput(104, 103), bindings)
-	preview, err := CompileRecipeOutputWithPolicy(output, bindings, 200, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 200, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -749,7 +749,7 @@ func TestConstructionGroupMissingKeyPoliciesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile ERROR recipe: %v", err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile ERROR query: %v", err)
 	}
@@ -974,7 +974,7 @@ func compileConstructionOutputQueryWithBindings(t *testing.T, output recipe.Outp
 	t.Helper()
 	bindings.Project, bindings.DatasetGeneration = project, generation
 	compiledOutput := lowerConstructionOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile construction query: %v", err)
 	}
@@ -1063,7 +1063,7 @@ func TestPreviewSourceIdentityStaysPrivateThroughConstructionExpand(t *testing.T
 		stageInputProjections[index] = projectionNames(stage.InputProjections)
 		stageOutputProjections[index] = projectionNames(stage.OutputProjections)
 	}
-	if _, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
+	if _, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy()); err != nil {
 		t.Fatalf("compile query-only clone with source identity: %v", err)
 	}
 	for index, operation := range compiledOutput.Plan.Operations {

@@ -1,7 +1,7 @@
 package execution
 
 // ServiceConfig wires the single AQL row-stream adapter the service may
-// invoke. QueryRows accepts only a parent-tagged compiler.CompiledCommand;
+// invoke. QueryRows accepts only a parent-tagged command.CompiledCommand;
 // there is no loose query-text entry point.
 type ServiceConfig struct {
 	QueryRows QueryRows

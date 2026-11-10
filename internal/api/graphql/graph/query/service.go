@@ -17,6 +17,7 @@ import (
 )
 
 type Service struct {
+	compileTarget          compiler.Target
 	discoverReferencesFn   func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	discoverFieldsFn       func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	dataframes             *dataframeexecution.Service
@@ -32,7 +33,11 @@ type Config struct {
 	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
 	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 	Dataframes         *dataframeexecution.Service
-	ScopeResolver      *authscope.ScopeResolver
+	// CompileTarget is the closed compile target selected once by
+	// composition. It is required: FHIR query compilation, graph mode, and
+	// preview all compile through the same target-aware compiler boundary.
+	CompileTarget compiler.Target
+	ScopeResolver *authscope.ScopeResolver
 	// ActiveManifestResolver is optional. When present, builder catalog
 	// discovery and recipe preparation resolve one READY active generation
 	// before inspecting any fields or relationship routes.
@@ -42,6 +47,7 @@ type Config struct {
 
 func NewService(cfg Config) *Service {
 	service := &Service{
+		compileTarget:          cfg.CompileTarget,
 		scopeResolver:          cfg.ScopeResolver,
 		activeManifestResolver: cfg.ActiveManifestResolver,
 		explain:                cfg.Explain,
@@ -99,8 +105,8 @@ func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindi
 	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
 }
 
-func compileSingleQuery(resolved semantic.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+func compileSingleQuery(target compiler.Target, resolved semantic.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
+	queries, err := compiler.CompileResolvedRecipePlan(target, resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return dataframeexecution.CompiledQuery{}, err
 	}
@@ -144,7 +150,7 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	}
 	requestPreparationDuration := s.clockNow().Sub(preparationStarted)
 	compileStarted := s.clockNow()
-	compiled, err := compileSingleQuery(resolved, rowLimit)
+	compiled, err := compileSingleQuery(s.compileTarget, resolved, rowLimit)
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}

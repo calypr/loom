@@ -142,7 +142,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("composed cohort FILTER lineage capability = %#v", capability)
 	}
-	previewQuery, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	previewQuery, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile filtered cohort preview: %v", err)
 	}

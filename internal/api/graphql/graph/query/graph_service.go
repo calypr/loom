@@ -190,7 +190,7 @@ func (s *Service) RunFHIRGraph(ctx context.Context, input FHIRGraphQuery) (*FHIR
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
-	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compiler.CompileResolvedGraphQuery(s.compileTarget, resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
@@ -240,7 +240,7 @@ func (s *Service) ExplainFHIRGraph(ctx context.Context, input FHIRGraphQuery, li
 	// executing the result query. When requested, the runtime issues only an
 	// Arango EXPLAIN call; this transport contract never exposes AQL or bind
 	// variables.
-	compiled, err := compiler.CompileResolvedGraphQueryWithPolicy(resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := compiler.CompileResolvedGraphQuery(s.compileTarget, resolved, normalized.Limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return nil, err
 	}

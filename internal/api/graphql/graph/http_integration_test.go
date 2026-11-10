@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -112,7 +113,7 @@ func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 			query, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -125,7 +126,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 		},
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
+		DataframeQuery: queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {
@@ -206,7 +207,7 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 			query, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -224,7 +225,7 @@ func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 		},
 	})
 	graphResolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
-		DataframeQuery: queryapi.Config{
+		DataframeQuery: queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 			ActiveManifestResolver: testActiveManifestResolver{},
 			DiscoverFields: func(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 				switch opts.ResourceType {

@@ -54,6 +54,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"reflect"
@@ -334,7 +335,7 @@ func (r *c19RowStore) observations() (int, []int) {
 // its limit that way, internal/dataframe/execution/engine.go:1098-1101) stops the walk
 // immediately, like a real backend cursor would.
 func (r *c19RowStore) previewRows() dataframeexecution.QueryRows {
-	return func(_ context.Context, command compiler.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+	return func(_ context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
@@ -409,14 +410,14 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 	rows := &c19RowStore{}
 	// Compile-time row reads stay empty: C19 claims nothing about compile-time execution,
 	// and a non-empty read here would be indistinguishable from a preview read.
-	emptyRows := func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	emptyRows := func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
 		}
 		return nil
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: emptyRows, PreviewQueryRows: rows.previewRows()})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: emptyRows, PreviewQueryRows: rows.previewRows()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1103,14 +1104,14 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		t.Fatal(err)
 	}
 	rows := &c19RowStore{}
-	emptyRows := func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	emptyRows := func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
 		}
 		return nil
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: emptyRows, PreviewQueryRows: rows.previewRows()})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: emptyRows, PreviewQueryRows: rows.previewRows()})
 	if err != nil {
 		t.Fatal(err)
 	}

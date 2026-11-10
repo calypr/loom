@@ -11,6 +11,7 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/store/arango"
@@ -42,7 +43,7 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 		}
 		return indexes, nil
 	}
-	engine.previewCollectionScans = func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 		explainCalls++
 		if collection != required.Collection {
 			t.Fatalf("scan collection = %q, want %q", collection, required.Collection)
@@ -68,7 +69,7 @@ func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.
 		t.Fatal("covering candidate should skip the sequential-scan assessment")
 		return 0, nil
 	}
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -103,7 +104,7 @@ func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExist
 		}}, nil
 	}
 	explainCalls, scopeCountCalls := 0, 0
-	engine.previewCollectionScans = func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 		explainCalls++
 		if collection != required.Collection {
 			t.Fatalf("scan collection = %q, want %q", collection, required.Collection)
@@ -118,7 +119,7 @@ func TestChooseGroupPreviewScanKeepsSequentialFallbackWhenNoCompatibleIndexExist
 		return notCoveringGroupScans(), nil
 	}
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, batchSize int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -173,7 +174,7 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 				return []PreviewCollectionIndex{candidate}, nil
 			}
 			explainCalls := 0
-			engine.previewCollectionScans = func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+			engine.previewCollectionScans = func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 				explainCalls++
 				if collection != query.PreviewGroupScan.Collection && collection != query.PreviewCoveringIndex.Collection {
 					t.Fatalf("scan collection = %q", collection)
@@ -188,7 +189,7 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 				return test.candidate, nil
 			}
 			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-			stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 				_, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -223,7 +224,7 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 			Fields:     []string{"project", "dataset_generation", "auth_resource_path", "payload.code.coding"},
 		}}, nil
 	}
-	engine.previewCollectionScans = func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 		if collection != query.PreviewGroupProjection.Collection {
 			t.Fatalf("scan collection = %q, want %q", collection, query.PreviewGroupProjection.Collection)
 		}
@@ -237,7 +238,7 @@ func TestChooseGroupPreviewScanDoesNotReplaceSequentialChoiceWithProjectionIndex
 		return notCoveringGroupScans(), nil
 	}
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -290,16 +291,17 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 		StoredValues: []string{"payload.valueQuantity"},
 	}
 	engine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-preview-existing-index" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "group-preview-existing-index" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
 			return nil
 		},
-		PreviewQueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+		PreviewQueryRows: func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -316,7 +318,7 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 			return []PreviewCollectionIndex{index}, nil
 		},
 		PreviewCollectionRevision: func(context.Context, string) (string, error) { return "revision-1", nil },
-		PreviewCollectionScans: func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+		PreviewCollectionScans: func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 			if collection != index.Collection {
 				return PreviewCollectionScanEvidence{}, nil
 			}
@@ -350,16 +352,17 @@ func TestPreviewOutputReusesStoredValuesGroupIndexWithoutPrewarmingIt(t *testing
 func compiledGroupPreviewScanFixture(t *testing.T, bindings recipe.RuntimeBindings) (*Engine, compiler.CompiledQuery, OutputStream) {
 	t.Helper()
 	engine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-preview-scan-test" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "group-preview-scan-test" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -403,7 +406,7 @@ func unknownCoverageGroupScans() PreviewCollectionScanEvidence {
 func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *testing.T) {
 	explainCalls, scopeCountCalls, collectionCountCalls := 0, 0, 0
 	engine, query, stream := groupPreviewScanFixture()
-	engine.previewCollectionScans = func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 		explainCalls++
 		if collection != "Specimen" {
 			t.Fatalf("scan collection = %q, want Specimen", collection)
@@ -424,7 +427,7 @@ func TestChooseGroupPreviewScanUsesSequentialOnlyForBroadNonCoveringIndex(t *tes
 		}
 		return 1000, nil
 	}
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, batchSize int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -477,7 +480,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			// failures explicit.
 			name: "covering index",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return unknownCoverageGroupScans(), nil
 				}
 			},
@@ -485,7 +488,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 		{
 			name: "covering output projections",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return unknownCoverageGroupScans(), nil
 				}
 			},
@@ -493,7 +496,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 		{
 			name: "unknown coverage",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return unknownCoverageGroupScans(), nil
 				}
 			},
@@ -501,7 +504,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 		{
 			name: "unknown output coverage",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return unknownCoverageGroupScans(), nil
 				}
 			},
@@ -509,7 +512,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 		{
 			name: "unknown plan",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, nil
 				}
 			},
@@ -517,7 +520,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 		{
 			name: "explain error",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, errors.New("unavailable")
 				}
 			},
@@ -534,7 +537,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			// fallback needs exactly one certified not-covering node.
 			name: "enumeration with not covering",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{
 						FullCollectionEnumeration: true,
 						IndexNodes:                []PreviewIndexNodeEvidence{{Coverage: PreviewIndexCoverageNotCovering}},
@@ -545,7 +548,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 		{
 			name: "multiple not covering nodes",
 			setup: func(engine *Engine) {
-				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{IndexNodes: []PreviewIndexNodeEvidence{
 						{Coverage: PreviewIndexCoverageNotCovering},
 						{Coverage: PreviewIndexCoverageNotCovering},
@@ -571,7 +574,7 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			engine, query, stream := groupPreviewScanFixture()
 			engine.previewCollectionScans = nonCoveringGroupScansFn
 			engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-			stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 				_, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -605,7 +608,7 @@ func TestChooseGroupPreviewScanPropagatesRequestCancellation(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
-		engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 			cancel()
 			return PreviewCollectionScanEvidence{}, context.Canceled
 		}
@@ -625,7 +628,7 @@ func TestChooseGroupPreviewScanPropagatesRequestCancellation(t *testing.T) {
 			t.Fatal("collection count called after scoped-count cancellation")
 			return 0, nil
 		}
-		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -647,7 +650,7 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 	engine, query, stream := groupPreviewScanFixture()
 	query.PreviewGroupScan = nil
 	called := false
-	engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 		called = true
 		return PreviewCollectionScanEvidence{}, nil
 	}
@@ -660,13 +663,13 @@ func TestChooseGroupPreviewScanKeepsNoneligiblePlansOnCanonicalQuery(t *testing.
 }
 
 func groupPreviewScanFixture() (*Engine, compiler.CompiledQuery, OutputStream) {
-	return &Engine{}, compiler.CompiledQuery{
+	return &Engine{compileTarget: compiler.ArangoTarget()}, compiler.CompiledQuery{
 			Command: mustAQLCommand("normal-query", map[string]any{"scan": "normal"}),
 			PreviewGroupScan: &compiler.PreviewGroupScanSpec{
 				Collection: "Specimen", Sequential: mustAQLCommand("sequential-query", map[string]any{"scan": "sequential"}),
 				ScopeCount: mustAQLCommand("scope-count-query", map[string]any{"scope": true}),
 			},
-		}, OutputStream{command: mustAQLCommand("normal-query", map[string]any{"scan": "normal"}), stream: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		}, OutputStream{command: mustAQLCommand("normal-query", map[string]any{"scan": "normal"}), stream: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -676,16 +679,17 @@ func groupPreviewScanFixture() (*Engine, compiler.CompiledQuery, OutputStream) {
 		}}
 }
 
-func nonCoveringGroupScansFn(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+func nonCoveringGroupScansFn(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 	return notCoveringGroupScans(), nil
 }
 
 func semanticGroupProjectionExecutionFixture(t *testing.T, previewRows QueryRows) (*Engine, Resolved, compiler.CompiledQuery, OutputStream) {
 	t.Helper()
 	engine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "group-projection-runtime-test" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "group-projection-runtime-test" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -761,7 +765,7 @@ func configureSemanticGroupProjectionIndex(
 	t *testing.T,
 	engine *Engine,
 	query compiler.CompiledQuery,
-) (PreviewCollectionIndex, compiler.CompiledCommand, compiler.CompiledCommand) {
+) (PreviewCollectionIndex, command.CompiledCommand, command.CompiledCommand) {
 	t.Helper()
 	if query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil {
 		t.Fatalf("semantic Group has no read-only projection index descriptor: %+v", query.PreviewGroupProjection)
@@ -788,7 +792,7 @@ func configureSemanticGroupProjectionIndex(
 		}
 		return []PreviewCollectionIndex{index}, nil
 	}
-	engine.previewCollectionScans = func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 		if collection != index.Collection {
 			return PreviewCollectionScanEvidence{}, nil
 		}
@@ -815,7 +819,7 @@ func TestChooseGroupProjectionFactorizationAdmitsLowDiversityAndCachesDecision(t
 		t.Fatal("could not construct exact projection decision key")
 	}
 	countCalls, sampleCalls, finalCalls := 0, 0, 0
-	engine.previewQueryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine.previewQueryRows = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -861,7 +865,7 @@ func TestChooseGroupProjectionFactorizationAdmitsLowDiversityAndCachesDecision(t
 			}
 		}
 	}
-	if factoredCommand.Backend() != compiler.CompiledBackendAQL || index.Name == "" {
+	if factoredCommand.Backend() != command.CompiledBackendAQL || index.Name == "" {
 		t.Fatalf("missing selected projection index or rendered binds: index=%+v", index)
 	}
 }
@@ -871,7 +875,7 @@ func TestChooseGroupProjectionFactorizationContinuesAfterCoveringIndexSelection(
 	index, assessmentCommand, factoredCommand := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-covered", nil }
 	sampleCalls := 0
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -909,7 +913,7 @@ func TestChooseGroupProjectionFactorizationRejectsHighEntropyAndAllEmptySamples(
 			_, assessmentCommand, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 			engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
 			ordinaryQuery := commandText(t, query.Command)
-			stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 				queryText, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -939,7 +943,7 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 	engine, resolved, query, stream := semanticGroupProjectionExecutionFixture(t, nil)
 	_, assessmentCommand, factoredCommand := configureSemanticGroupProjectionIndex(t, engine, query)
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-unique-tail", nil }
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -968,7 +972,7 @@ func TestChooseGroupProjectionFactorizationKeepsPrefixEstimateAdvisory(t *testin
 		t.Fatalf("advisory estimate=%d valid=%t", estimate, ok)
 	}
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-unique-tail", nil }
-	engine.previewQueryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine.previewQueryRows = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -1016,7 +1020,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		_, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "", errors.New("revision unavailable") }
 		ordinaryQuery := commandText(t, query.Command)
-		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1038,7 +1042,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		_, _, _ = configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-1", nil }
 		ordinaryQuery := commandText(t, query.Command)
-		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			queryText, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1063,7 +1067,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 			Collection: query.PreviewGroupProjection.Collection,
 			ScopeCount: query.PreviewGroupProjection.ScopeCount,
 		}
-		engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 			return PreviewCollectionScanEvidence{}, nil
 		}
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) {
@@ -1071,7 +1075,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 			return "", nil
 		}
 		ordinaryQuery := commandText(t, query.Command)
-		stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1093,7 +1097,7 @@ func TestChooseGroupProjectionFactorizationFallsBackOnUnknownEvidenceAndDeadline
 		_, assessmentCommand, _ := configureSemanticGroupProjectionIndex(t, engine, query)
 		engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-deadline", nil }
 		ordinaryQuery := commandText(t, query.Command)
-		stream.stream = func(ctx context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		stream.stream = func(ctx context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			queryText, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1123,7 +1127,7 @@ func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *test
 	engine.previewCollectionRevision = func(context.Context, string) (string, error) { return "revision-error", nil }
 	wantErr := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "AQL: query would use more memory than allowed"}
 	countCalls, sampleCalls, factoredCalls, ordinaryCalls := 0, 0, 0, 0
-	engine.previewQueryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine.previewQueryRows = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		queryText, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

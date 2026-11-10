@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -33,7 +34,7 @@ func (e *TableShapeExclusionRefusal) Error() string { return string(e.Code) }
 // derived from one finalized output plan. It has no caller-supplied paths or
 // query fragments.
 type CompiledTableShapeExclusionQuery struct {
-	Command              CompiledCommand
+	Command              command.CompiledCommand
 	ResourceTypeField    string
 	ResourceIDField      string
 	IdentityStatusField  string
@@ -48,7 +49,13 @@ type CompiledTableShapeExclusionQuery struct {
 	Diagnostics          ir.CompilerPlanDiagnostics
 }
 
-func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledTableShapeExclusionQuery, error) {
+func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutput, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledTableShapeExclusionQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledTableShapeExclusionQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("table shape exclusion compilation"); err != nil {
+		return CompiledTableShapeExclusionQuery{}, err
+	}
 	if offset < 0 {
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidOffset}
 	}
@@ -137,12 +144,12 @@ func CompileTableShapeExclusionsWithPolicy(output lower.CompiledRecipeOutput, of
 	if strings.TrimSpace(output.Name) == "" {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
 	}
-	command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if commandErr != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("tag table-shape exclusion command: %w", commandErr)
 	}
 	return CompiledTableShapeExclusionQuery{
-		Command:              command,
+		Command:              compiledCommand,
 		ResourceTypeField:    ir.PhysicalTableShapeExclusionResourceTypeField,
 		ResourceIDField:      ir.PhysicalTableShapeExclusionResourceIDField,
 		IdentityStatusField:  ir.PhysicalTableShapeExclusionIdentityStatusField,

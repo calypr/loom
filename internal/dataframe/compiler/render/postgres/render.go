@@ -13,7 +13,7 @@
 //
 // Unsupported plans fail closed with ErrUnsupportedPostgresPlan; there is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion anywhere in this
-// package. The rendered result is a compiler.RenderedPostgresPhysicalPlan,
+// package. The rendered result is a command.RenderedPostgresPhysicalPlan,
 // which additionally refuses AQL bind syntax and placeholder/argument
 // mismatch at construction.
 //
@@ -47,7 +47,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -81,9 +81,9 @@ var resourceFilterColumns = map[string]bool{
 // binding always yield byte-identical SQL and value-identical ordered
 // arguments, and it never aliases plan data (every bound value is copied or
 // re-encoded).
-func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// Full-backstop defense in depth (unnest.go contract): a plan that
 	// mentions UNNEST is pinned to the registered slice as the first
@@ -96,33 +96,33 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {
 			if err := validateUnnestPlanSurface(plan); err != nil {
-				return compiler.RenderedPostgresPhysicalPlan{}, err
+				return command.RenderedPostgresPhysicalPlan{}, err
 			}
 			break
 		}
 	}
 	if err := plan.Validate(); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
 	if plan.Engine != "" && plan.Engine != ir.PhysicalEngineAQL {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: engine %q has no PostgreSQL source; the source graph IR is backend-neutral and ClickHouse plans are not PostgreSQL-rendered",
 			ErrUnsupportedPostgresPlan, string(plan.Engine))
 	}
 	if plan.ClickHouseCombine != nil || plan.ClickHousePrefix != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: ClickHouse combine/prefix payloads have no PostgreSQL rendering", ErrUnsupportedPostgresPlan)
 	}
 	if plan.StageSequence != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: staged row-operator sequences are not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if plan.PreviewSourceWindowByRootID {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: preview source windowing is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if len(plan.DeferredExpressionLets) != 0 {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: completed plans must not carry deferred expression lets", ErrUnsupportedPostgresPlan)
 	}
 
@@ -132,13 +132,13 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 		parameters: map[string]int{},
 	}
 	if err := renderer.loadScope(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	if err := renderer.renderOperations(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	sql := renderer.assemble()
-	return compiler.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
+	return command.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
 }
 
 // rowScope records the renderer-owned SQL placement of one plan variable.
@@ -160,7 +160,7 @@ type rowScope struct {
 
 type planRenderer struct {
 	storage ir.PostgresStorageBinding
-	args    []compiler.PostgreSQLParameter
+	args    []command.PostgreSQLParameter
 	// parameters deduplicates identical scalar scope binds (project,
 	// generation, resource types, label, auth array) so repeated predicates
 	// reference one placeholder.
@@ -190,7 +190,7 @@ type planRenderer struct {
 
 // addParameter appends one ordered argument and returns its $n index. A
 // non-empty cacheKey deduplicates equal scalar bindings.
-func (r *planRenderer) addParameter(parameter compiler.PostgreSQLParameter, cacheKey string) int {
+func (r *planRenderer) addParameter(parameter command.PostgreSQLParameter, cacheKey string) int {
 	if cacheKey != "" {
 		if index, ok := r.parameters[cacheKey]; ok {
 			return index
@@ -205,11 +205,11 @@ func (r *planRenderer) addParameter(parameter compiler.PostgreSQLParameter, cach
 }
 
 func (r *planRenderer) textParameter(value, cacheKey string) int {
-	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: value}, cacheKey)
+	return r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: value}, cacheKey)
 }
 
 func (r *planRenderer) jsonbParameter(raw json.RawMessage) int {
-	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterJSONB, Value: append(json.RawMessage(nil), raw...)}, "")
+	return r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: append(json.RawMessage(nil), raw...)}, "")
 }
 
 func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
@@ -439,7 +439,7 @@ func (r *planRenderer) renderLimit(plan ir.PhysicalPlan, limit ir.PhysicalLimit)
 	if !ok || value <= 0 {
 		return fmt.Errorf("%w: limit bind %q must be a positive int", ErrUnsupportedPostgresPlan, limit.BindKey)
 	}
-	index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterBigint, Value: int64(value)}, "")
+	index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(value)}, "")
 	r.limitClause = " LIMIT $" + strconv.Itoa(index)
 	return nil
 }

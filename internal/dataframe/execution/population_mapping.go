@@ -89,7 +89,7 @@ func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, reque
 	if strings.TrimSpace(request.Output) == "" {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping output is required")
 	}
-	compiled, err := compilePopulationMappingOutput(resolved, request.Output)
+	compiled, err := compilePopulationMappingOutput(e.compileTarget, resolved, request.Output)
 	if err != nil {
 		return PopulationMappingResult{}, err
 	}
@@ -221,12 +221,12 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	}, nil
 }
 
-func compilePopulationMappingOutput(resolved Resolved, name string) (compiler.CompiledPopulationMappingQuery, error) {
+func compilePopulationMappingOutput(target compiler.Target, resolved Resolved, name string) (compiler.CompiledPopulationMappingQuery, error) {
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != name {
 			continue
 		}
-		return compiler.CompilePopulationMappingOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, ir.DefaultPhysicalOptimizationPolicy())
+		return compiler.CompilePopulationMappingOutput(target, output, resolved.Semantic.SemanticPlan.Bindings, ir.DefaultPhysicalOptimizationPolicy())
 	}
 	return compiler.CompiledPopulationMappingQuery{}, fmt.Errorf("population mapping output %q was not found", name)
 }

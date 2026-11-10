@@ -3,6 +3,7 @@ package queryapi
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -23,7 +24,7 @@ func (f fhirLimitResourceAccess) GetAllowedResources(_ context.Context, _ string
 }
 
 func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
-	if _, err := NewService(Config{}).ListFHIR(context.Background(), FHIRListRequest{
+	if _, err := NewService(Config{CompileTarget: compiler.ArangoTarget()}).ListFHIR(context.Background(), FHIRListRequest{
 		Project: "P1", ResourceType: "Patient", Limit: FHIRMaxReadLimit + 1,
 	}); err == nil {
 		t.Fatal("ListFHIR() accepted an uncapped read without a scope resolver")
@@ -46,14 +47,14 @@ func TestFHIRLimitRequiresProjectWriteAccessAboveReadCap(t *testing.T) {
 					return []string{"example-allowed"}, nil
 				},
 			})
-			service := NewService(Config{
+			service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 				ScopeResolver:          scopeResolver,
 				ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 				DiscoverFields: func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 					return nil, nil
 				},
 				Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-					QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+					QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 						_, _, deriveErr := command.AQLParameters()
 						if deriveErr != nil {
 							return deriveErr

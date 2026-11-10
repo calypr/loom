@@ -12,12 +12,13 @@ package execution
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/store/arango"
 )
@@ -105,13 +106,14 @@ func runPreviewCapabilityBoundary(t *testing.T, options previewCapabilityBoundar
 		limit = 1
 	}
 	engine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "preview-capability-boundary" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "preview-capability-boundary" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			return dispatchErr
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			text, binds, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -167,7 +169,7 @@ func comparablePreviewSummary(summary PreviewSummary) PreviewSummary {
 func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	t.Run("preview contracts carry no vendor plan or index types", func(t *testing.T) {
 		seen := map[reflect.Type]bool{}
-		if offenders := previewContractVendorOffenders(reflect.TypeOf(Config{}), seen, 0); len(offenders) != 0 {
+		if offenders := previewContractVendorOffenders(reflect.TypeOf(Config{CompileTarget: compiler.ArangoTarget()}), seen, 0); len(offenders) != 0 {
 			t.Fatalf("execution Config references vendor preview types: %v", offenders)
 		}
 		if offenders := previewContractVendorOffenders(reflect.TypeOf(Engine{}), seen, 0); len(offenders) != 0 {
@@ -243,7 +245,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				}
 				return []PreviewCollectionIndex{index}, nil
 			},
-			scans: func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+			scans: func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 				scanCalls++
 				if collection != "Observation" {
 					t.Fatalf("scan collection = %q, want Observation", collection)
@@ -288,7 +290,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		}{
 			{
 				name: "scan inspection fails",
-				scans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, errors.New("inspection unavailable")
 				},
 				coveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
@@ -301,7 +303,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 			},
 			{
 				name: "empty evidence certifies nothing",
-				scans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, nil
 				},
 				coveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
@@ -317,7 +319,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				// attempted; the ordinary broad-scan check still consults
 				// the capability, and empty evidence certifies nothing.
 				name: "index listing fails",
-				scans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, nil
 				},
 				coveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
@@ -426,7 +428,7 @@ func TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityC
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scanCalls := 0
-	engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 		scanCalls++
 		// The inspection returns a covering verdict, but the budget dies
 		// while it is in flight: the post-call guard owns the abort.
@@ -461,7 +463,7 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	engine, query, stream := groupPreviewScanFixture()
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
 	scopeCountExecutions := 0
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -470,7 +472,7 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 		return visit(map[string]any{"count": float64(950)})
 	}
 	scanCalls := 0
-	engine.previewCollectionScans = func(ctx context.Context, _ compiler.CompiledCommand, _ string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(ctx context.Context, _ command.CompiledCommand, _ string) (PreviewCollectionScanEvidence, error) {
 		scanCalls++
 		// Certify broad non-covering, but only after the assessment budget
 		// has expired during the call.

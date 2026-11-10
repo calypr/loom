@@ -23,7 +23,7 @@ func TestSemanticGroupScalarKeyPreviewFrontierActivatesOnCompiledPlan(t *testing
 		targetSystem, targetVersion, codingPath,
 	)
 	compiled := lowerConstructionOutput(t, output, bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group preview: %v", err)
 	}
@@ -94,11 +94,11 @@ func TestSemanticGroupScalarKeyPreviewMatchesFullQueryAgainstArango(t *testing.T
 	)
 	compiled := lowerConstructionOutput(t, output, bindings)
 	const previewLimit = 4
-	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, previewLimit, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, previewLimit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group preview: %v", err)
 	}
-	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile full semantic Group query: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestSemanticGroupScalarKeyPreviewMatchesFullQueryAgainstArango(t *testing.T
 		"component":          []any{semanticGroupComponent(targetSystem, targetVersion, "late", "Late")},
 	}})
 	for _, limit := range []int{previewLimit, 0} {
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile semantic Group query with malformed scalar key and limit %d: %v", limit, err)
 		}

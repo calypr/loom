@@ -384,7 +384,7 @@ func TestExpandedCodingGroupLineageCapabilityAcceptsExactPopulationRouteFixture(
 	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("exact population/route/UNNEST Coding Group lineage capability = %#v", capability)
 	}
-	groupQuery, err := CompileRecipeOutputWithPolicy(output, recipe.RuntimeBindings{
+	groupQuery, err := CompileRecipeOutput(ArangoTarget(), output, recipe.RuntimeBindings{
 		Project: "row-lineage-project", SelectionProject: "row-lineage-project",
 		SelectionMembersCollection: "loom_explorer_selection_members", DatasetGeneration: "row-lineage-generation",
 	}, 100, ir.DefaultPhysicalOptimizationPolicy())

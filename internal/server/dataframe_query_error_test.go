@@ -16,7 +16,7 @@ import (
 	"testing"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
@@ -165,21 +165,21 @@ func TestPreserveConfiguredQueryErrorMapsAuthorizationCodes(t *testing.T) {
 
 func TestConfiguredAQLQueryRowsWiresExecutionBudgetIntoArangoAdapter(t *testing.T) {
 	var captured context.Context
-	adapter := configuredAQLQueryRows(nil, "test_phase", func(ctx context.Context, _ compiler.CompiledCommand, _ int, _ dataframeexecution.RowVisitor) error {
+	adapter := configuredAQLQueryRows(nil, "test_phase", func(ctx context.Context, _ command.CompiledCommand, _ int, _ dataframeexecution.RowVisitor) error {
 		captured = ctx
 		return nil
 	})
-	command := testAQLCommand(t, "RETURN 1", nil)
+	compiledCommand := testAQLCommand(t, "RETURN 1", nil)
 
 	ctx := dataframeexecution.WithQueryMemoryBudget(context.Background(), 900000)
-	if err := adapter(ctx, command, 10, func(map[string]any) error { return nil }); err != nil {
+	if err := adapter(ctx, compiledCommand, 10, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if limit, ok := arangostore.QueryMemoryLimitFromContext(captured); !ok || limit != 900000 {
 		t.Fatalf("adapter memory limit = %d/%t, want the execution budget 900000", limit, ok)
 	}
 
-	if err := adapter(context.Background(), command, 10, func(map[string]any) error { return nil }); err != nil {
+	if err := adapter(context.Background(), compiledCommand, 10, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if limit, ok := arangostore.QueryMemoryLimitFromContext(captured); ok {

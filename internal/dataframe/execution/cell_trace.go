@@ -84,7 +84,7 @@ func (e *Engine) CellTrace(ctx context.Context, resolved Resolved, request CellT
 	if strings.TrimSpace(request.Output) == "" {
 		return CellTraceResult{}, fmt.Errorf("cell trace output is required")
 	}
-	compiled, err := compileCellTraceOutput(resolved, request)
+	compiled, err := compileCellTraceOutput(e.compileTarget, resolved, request)
 	if err != nil {
 		return CellTraceResult{}, err
 	}
@@ -161,10 +161,10 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 	return CellTraceResult{}, dataframeerrors.Wrap(ErrCellTraceRowNotFound, dataframeerrors.CodeInvalidRequest, fmt.Sprintf("published row %q was not found in output %q", rowID, request.Output), dataframeerrors.WithDetails(map[string]any{"rowId": rowID, "output": request.Output}))
 }
 
-func compileCellTraceOutput(resolved Resolved, request CellTraceRequest) (compiler.CompiledCellTraceQuery, error) {
+func compileCellTraceOutput(target compiler.Target, resolved Resolved, request CellTraceRequest) (compiler.CompiledCellTraceQuery, error) {
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
-			return compiler.CompileCellTraceOutputWithPolicy(output, request.Column, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
+			return compiler.CompileCellTraceOutput(target, output, request.Column, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
 		}
 	}
 	return compiler.CompiledCellTraceQuery{}, fmt.Errorf("cell trace output %q was not found", request.Output)

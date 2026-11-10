@@ -11,6 +11,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -36,8 +37,9 @@ func TestPlanHasExecutionWindowRecognizesStandaloneGroupRowsLimit(t *testing.T) 
 
 func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -67,7 +69,7 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 	if err != nil || unboundedMode != chartifact.ScopeModeWhole || unboundedEvidence == nil || unboundedIdentity == nil {
 		t.Fatalf("complete GroupRows source scope=(%q,%v,%v), err=%v; want whole-relation capture evidence", unboundedMode, unboundedEvidence != nil, unboundedIdentity != nil, err)
 	}
-	preview, err := compiler.CompileRecipeOutputWithPolicy(output, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), output, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile bounded GroupRows preview: %v", err)
 	}
@@ -82,8 +84,9 @@ func TestCompiledArtifactScopeKeepsBoundedGroupRowsPreviewWhole(t *testing.T) {
 
 func TestCompiledArtifactScopeAcceptsAuthorizedProjectAliasesAndRejectsScopeDrift(t *testing.T) {
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -176,8 +179,9 @@ func (r invalidRecipeRegistry) LoadRecipeVersion(ctx context.Context, name, _ st
 
 func TestMaterializeMarksResolutionFailures(t *testing.T) {
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -223,9 +227,10 @@ func TestCohortPreviewDoesNotInventSingleSourceIdentityOrPageItsInput(t *testing
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			engine, err := New(Config{
-				Registry:    invalidRecipeRegistry{},
-				ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-				QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{},
+				ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+				QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 					_, _, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr
@@ -302,7 +307,7 @@ func testCohortCompositionBundle() recipe.Bundle {
 }
 
 func testEngine(queryRows QueryRows) *Engine {
-	engine, err := New(Config{
+	engine, err := New(Config{CompileTarget: compiler.ArangoTarget(),
 		Registry:    invalidRecipeRegistry{},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
 		QueryRows:   queryRows,
@@ -314,7 +319,7 @@ func testEngine(queryRows QueryRows) *Engine {
 }
 
 func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing.T) {
-	e := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	e := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -351,9 +356,10 @@ func TestPreviewOutputFiltersInternalColumnsAndReturnsSafePlanSummary(t *testing
 func TestPreviewOutputCarriesFHIRSourceWithoutVisibleRootID(t *testing.T) {
 	sourceIDProjected := false
 	e, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -477,13 +483,14 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 			}}},
 		}},
 	}
-	engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
-		_, _, dispatchErr := command.AQLParameters()
-		if dispatchErr != nil {
-			return dispatchErr
-		}
-		return nil
-	}, ScopeDigest: func(recipe.RuntimeBindings) string { return "coded-group" }, RootPageRows: 1})
+	engine, err := New(Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: invalidRecipeRegistry{}, QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		}, ScopeDigest: func(recipe.RuntimeBindings) string { return "coded-group" }, RootPageRows: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +517,7 @@ func TestCodedGroupPreviewRunsAgainstWholeInput(t *testing.T) {
 
 func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testing.T) {
 	var ordinaryCalls, previewCalls int
-	ordinaryQuery := func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	ordinaryQuery := func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -519,7 +526,7 @@ func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testi
 		ordinaryCalls++
 		return visit(map[string]any{"id": "ordinary", "_key": "ordinary-key"})
 	}
-	previewQuery := func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	previewQuery := func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -528,7 +535,7 @@ func TestPreviewOutputUsesPreviewExecutorWithoutChangingOrdinaryStreams(t *testi
 		previewCalls++
 		return visit(map[string]any{"id": "preview"})
 	}
-	e, err := New(Config{
+	e, err := New(Config{CompileTarget: compiler.ArangoTarget(),
 		Registry:         invalidRecipeRegistry{},
 		ScopeDigest:      func(recipe.RuntimeBindings) string { return "test-scope" },
 		QueryRows:        ordinaryQuery,
@@ -564,16 +571,17 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 	queryFinished := make(chan struct{})
 	prepared := make(chan bool, 1)
 	groupEngine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
 			}
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -621,7 +629,7 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 		rows              QueryRows
 		cancelDuringQuery bool
 	}{
-		{name: "query failure", rows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		{name: "query failure", rows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -637,7 +645,7 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 			defer cancel()
 			rows := test.rows
 			if test.cancelDuringQuery {
-				rows = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+				rows = func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 					_, _, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr
@@ -648,9 +656,10 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 				}
 			}
 			engine, err := New(Config{
-				Registry:    invalidRecipeRegistry{},
-				ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-				QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{},
+				ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+				QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 					_, _, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr
@@ -689,9 +698,10 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 	pivotOutput := executionPivotPreviewOutput()
 	preparedBeforeQuery := false
 	pivotEngine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -702,7 +712,7 @@ func TestPreviewOutputDefersOnlyGroupIndexPreparation(t *testing.T) {
 			preparedBeforeQuery = true
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -781,7 +791,7 @@ func executionPivotPreviewOutput() recipe.Output {
 }
 
 func TestPreviewOutputCanExposeStableRowIdentityForComparisonSinks(t *testing.T) {
-	e := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	e := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -807,7 +817,7 @@ func TestPreviewOutputCanExposeStableRowIdentityForComparisonSinks(t *testing.T)
 
 func TestPreviewOutputExecutesOnlyRequestedOutputAndRejectsUnknownBeforeQuery(t *testing.T) {
 	queries := 0
-	e := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	e := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -843,7 +853,7 @@ func TestPreviewOutputExecutesOnlyRequestedOutputAndRejectsUnknownBeforeQuery(t 
 
 func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 	rowsSeen := 0
-	e := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	e := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -881,7 +891,7 @@ func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 		t.Fatalf("canceled preview error = %v, want CLIENT_CANCELED", err)
 	}
 
-	cancelEngine := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	cancelEngine := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -908,7 +918,7 @@ func TestPreviewOutputEnforcesLimitAndCancellation(t *testing.T) {
 }
 
 func TestPreviewOutputMarksNaturalExhaustionComplete(t *testing.T) {
-	e := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	e := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -933,7 +943,7 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 	type calls struct{ keys, rows int }
 	newPagedEngine := func(observed *calls) *Engine {
 		t.Helper()
-		queryRows := func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryRows := func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, binds, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -976,7 +986,7 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 			}
 			return nil
 		}
-		engine, err := New(Config{Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 2})
+		engine, err := New(Config{CompileTarget: compiler.ArangoTarget(), Registry: invalidRecipeRegistry{}, QueryRows: queryRows, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1033,7 +1043,7 @@ func TestRootKeyPagingPreservesExpandedRowsAndAdvancesPastEmptyRoots(t *testing.
 
 func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
 	var pageSizes []int
-	queryRows := func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	queryRows := func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -1065,7 +1075,7 @@ func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
 		}
 		return nil
 	}
-	engine, err := New(Config{
+	engine, err := New(Config{CompileTarget: compiler.ArangoTarget(),
 		Registry: invalidRecipeRegistry{}, QueryRows: queryRows,
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 250,
 	})
@@ -1090,7 +1100,7 @@ func TestPreviewRootPageRowsAreClampedToRequestedLimit(t *testing.T) {
 }
 
 func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
-	driftEngine := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	driftEngine := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -1113,7 +1123,7 @@ func TestPreviewOutputNormalizesVisitorAndDynamicSchemaErrors(t *testing.T) {
 	}
 
 	visitorErr := errors.New("visitor failed")
-	visitorEngine := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	visitorEngine := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -1187,13 +1197,14 @@ func TestPreviewLimitsHaveStableDefaultAndMaximum(t *testing.T) {
 func TestCompileResolvedBundleSkipsCatalogResolverAndRetainsBundle(t *testing.T) {
 	resolverCalls := 0
 	e, err := New(Config{
-		Registry: invalidRecipeRegistry{},
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
 		ResolveBundle: func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error) {
 			resolverCalls++
 			return recipe.Bundle{}, errors.New("catalog resolver must not be called")
 		},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1231,13 +1242,14 @@ func TestCompileResolvedBundleSkipsCatalogResolverAndRetainsBundle(t *testing.T)
 func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testing.T) {
 	resolverCalls := 0
 	e, err := New(Config{
-		Registry: invalidRecipeRegistry{},
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
 		ResolveBundle: func(_ context.Context, bundle recipe.Bundle, _ recipe.RuntimeBindings) (recipe.Bundle, error) {
 			resolverCalls++
 			return bundle, nil
 		},
 		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1286,9 +1298,10 @@ func TestResolveBundleUsesResolverButResolvedPreviewAndMaterializeDoNot(t *testi
 
 func TestCompileResolvedBundleRejectsUnresolvedDynamicDeclarations(t *testing.T) {
 	e, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "test-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "test-scope" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -1327,7 +1340,7 @@ func TestAdaptiveRelatedPreviewPagesPreserveSparseRoots(t *testing.T) {
 			Rows:     mustAQLCommand("ROWS", map[string]any{compiler.RootPageKeysBind: []string{}}),
 		},
 	}
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

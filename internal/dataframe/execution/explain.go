@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 // CompiledQueryFingerprint returns a deterministic, value-safe identifier for
@@ -20,7 +20,7 @@ import (
 func CompiledQueryFingerprint(compiled CompiledQuery) string {
 	var queryText string
 	var bindVars map[string]any
-	if compiled.Command.Backend() == compiler.CompiledBackendAQL {
+	if compiled.Command.Backend() == command.CompiledBackendAQL {
 		text, binds, dispatchErr := compiled.Command.AQLParameters()
 		if dispatchErr != nil {
 			return ""

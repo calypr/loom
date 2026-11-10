@@ -3,7 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -118,7 +118,7 @@ func TestOutputStreamRejectsMalformedRowFromUnenumeratedDynamicFamily(t *testing
 				"category_keys":   {"stage": {ColumnName: "category_stage", ValueType: "string"}},
 				"identifier_keys": {"count": {ColumnName: "identifier_count", ValueType: "integer"}},
 			},
-			stream: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+			stream: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 				_, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr

@@ -27,7 +27,7 @@ package postgres
 // refusal that yields no SQL. There is no fallback to the AQL renderer and
 // no AQL-to-SQL conversion here.
 //
-// Planner-facing command registration (compiler.CompiledCommandForBackend)
+// Planner-facing command registration (the compiler's target-aware PostgreSQL compile path)
 // stays fail-closed for PostgreSQL exactly as in pg-sql-01/02: this entry
 // point — not command dispatch — is where the selector-extraction operation
 // is implemented and registered.
@@ -46,7 +46,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -72,9 +72,9 @@ import (
 // contradictory scope binds, and ir.ErrUnregisteredPostgresIdentifier for a
 // binding that did not come from ir.NewPostgresStorageBinding. A rejected
 // plan never produces SQL and never routes to AQL.
-func RenderSelectorExtraction(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+func RenderSelectorExtraction(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := validateSelectorExtractionPlan(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// The closed shape passed, so RenderPhysicalPlan's own gates (binding
 	// trust, plan validation including schema validation of selector

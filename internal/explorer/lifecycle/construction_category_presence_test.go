@@ -7,6 +7,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -106,7 +107,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 		if err != nil {
 			t.Fatalf("lower lifecycle receipt recipe: %v", err)
 		}
-		query, err := compiler.CompileCategoryScanStageWithPolicy(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := compiler.CompileCategoryScanStage(compiler.ArangoTarget(), compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile lifecycle category stage: %v", err)
 		}
@@ -119,7 +120,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			{query.PresentColumn: true, query.ValueColumn: nil},
 			{query.PresentColumn: false, query.ValueColumn: nil},
 		}
-		queryRows := func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		queryRows := func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 			_, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -132,7 +133,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			}
 			return nil
 		}
-		engine, err := dataframeexecution.New(dataframeexecution.Config{
+		engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(),
 			Registry: categoryDiscoveryEmptyRecipeReader{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
 		})
 		if err != nil {

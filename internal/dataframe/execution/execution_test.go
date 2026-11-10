@@ -3,7 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"reflect"
 	"testing"
 
@@ -34,7 +34,7 @@ func TestFlattenPivotFieldsCreatesStableFlattenedKeys(t *testing.T) {
 
 func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -72,7 +72,7 @@ func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 
 func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -121,7 +121,7 @@ func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.
 
 func TestStreamQueryReturnsPartialProgressWhenVisitorStops(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -279,7 +279,7 @@ func TestStreamQueryPreservesBackendErrorOverCancellation(t *testing.T) {
 	defer cancel()
 	backendErr := assertError("arango cursor failed")
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

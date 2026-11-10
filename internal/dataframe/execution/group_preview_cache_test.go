@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,11 +17,12 @@ import (
 func newGroupPreviewCacheTestEngine(t *testing.T, rows QueryRows, revision func(context.Context, string) (string, error)) (*Engine, Resolved) {
 	t.Helper()
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
 		ScopeDigest: func(recipe.RuntimeBindings) string {
 			return "cache-test-scope"
 		},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -53,7 +55,7 @@ func compileGroupPreviewCacheTestOutput(t *testing.T, engine *Engine, bindings r
 }
 
 func groupPreviewCacheRows() QueryRows {
-	return func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	return func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -74,7 +76,7 @@ func groupPreviewCacheRows() QueryRows {
 func TestGroupPreviewRowsCacheReusesRawRowsAndSeparatesRevisionBindingsAndLimit(t *testing.T) {
 	queryCalls := 0
 	currentRevision := "revision-1"
-	engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+	engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -130,7 +132,7 @@ func TestGroupPreviewRowsCacheOnlyStoresSuccessfulStableSourceReads(t *testing.T
 		queryCalls := 0
 		revisions := []string{"before", "after", "after", "after"}
 		revisionCall := 0
-		engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+		engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -156,7 +158,7 @@ func TestGroupPreviewRowsCacheOnlyStoresSuccessfulStableSourceReads(t *testing.T
 	t.Run("revision read failure bypasses lookup and insertion", func(t *testing.T) {
 		queryCalls := 0
 		revisionCalls := 0
-		engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+		engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -191,7 +193,7 @@ func TestGroupPreviewRowsCacheOnlyStoresSuccessfulStableSourceReads(t *testing.T
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			queryCalls := 0
-			engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+			engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
 				_, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -226,7 +228,7 @@ func TestGroupPreviewRowsCacheOnlyStoresSuccessfulStableSourceReads(t *testing.T
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		revisionCalls := 0
-		engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command compiler.CompiledCommand, batch int, visit RowVisitor) error {
+		engine, resolved := newGroupPreviewCacheTestEngine(t, func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -256,7 +258,7 @@ func TestGroupPreviewRowsCacheOnlyStoresSuccessfulStableSourceReads(t *testing.T
 func TestGroupPreviewRowsCacheReplaysDefensiveRawRowsAndOnlyEligiblePlans(t *testing.T) {
 	queryCalls := 0
 	revisionCalls := 0
-	engine, resolved := newGroupPreviewCacheTestEngine(t, func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine, resolved := newGroupPreviewCacheTestEngine(t, func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
-	engine := &Engine{batchSize: 32, queryRows: func(_ context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 32, queryRows: func(_ context.Context, command command.CompiledCommand, batchSize int, visit RowVisitor) error {
 		query, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -39,7 +40,7 @@ func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
 }
 
 func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -53,7 +54,7 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 	if !errors.Is(err, ErrRowLineageRowNotFound) {
 		t.Fatalf("keyed zero-match Group error = %v, want row not found", err)
 	}
-	engine.queryRows = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine.queryRows = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -73,7 +74,7 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 }
 
 func TestRowLineageRejectsQueryResultsLargerThanRequestedPage(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

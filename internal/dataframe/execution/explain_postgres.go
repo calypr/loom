@@ -7,7 +7,7 @@ package execution
 // through the typed CompiledCommand boundary established by arch-backend-01:
 // statement SQL and ordered arguments are read exclusively via
 // CompiledCommand.PostgreSQLParameters, the EXPLAIN wrapper is re-tagged
-// through compiler.NewPostgreSQLCommand, and the injected runner receives
+// through command.NewPostgreSQLCommand, and the injected runner receives
 // nothing but that tagged command. Raw EXPLAIN JSON stays inside this file:
 // the parser lifts only the agreed backend/node/estimate fields into
 // PostgreSQLPlanAssessment and drops every other key, so statement text,
@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -74,7 +75,7 @@ var (
 // binding belong to the adapter (internal/dataframe/postgres.(*Executor)
 // satisfies the dispatch requirement). The raw JSON it returns is internal
 // to PostgreSQLExplainPlan and never escapes the sanitizer.
-type PostgreSQLPlanJSONExecutor func(ctx context.Context, command compiler.CompiledCommand) (json.RawMessage, error)
+type PostgreSQLPlanJSONExecutor func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error)
 
 // BuildPostgreSQLExplainCommand derives the EXPLAIN-tagged command for one
 // compiled query through closed dispatch. The statement SQL and ordered
@@ -84,14 +85,14 @@ type PostgreSQLPlanJSONExecutor func(ctx context.Context, command compiler.Compi
 // ErrCompiledCommandBackendMismatch and an untagged or unknown-tag command
 // with ErrCompiledCommandBackendNotRegistered, so no command can reach the
 // PostgreSQL EXPLAIN context without naming PostgreSQL.
-func BuildPostgreSQLExplainCommand(compiled CompiledQuery) (compiler.CompiledCommand, error) {
+func BuildPostgreSQLExplainCommand(compiled CompiledQuery) (command.CompiledCommand, error) {
 	sqlText, args, err := compiled.Command.PostgreSQLParameters()
 	if err != nil {
-		return compiler.CompiledCommand{}, err
+		return command.CompiledCommand{}, err
 	}
-	explainCommand, err := compiler.NewPostgreSQLCommand(postgreSQLExplainPrefix+sqlText, args)
+	explainCommand, err := command.NewPostgreSQLCommand(postgreSQLExplainPrefix+sqlText, args)
 	if err != nil {
-		return compiler.CompiledCommand{}, fmt.Errorf("tag EXPLAIN command: %w", err)
+		return command.CompiledCommand{}, fmt.Errorf("tag EXPLAIN command: %w", err)
 	}
 	return explainCommand, nil
 }
@@ -217,7 +218,7 @@ func sanitizePostgreSQLPlanJSON(raw json.RawMessage) (PostgreSQLPlanAssessment, 
 		return PostgreSQLPlanAssessment{}, err
 	}
 	assessment := PostgreSQLPlanAssessment{
-		Backend:      string(compiler.CompiledBackendPostgreSQL),
+		Backend:      string(command.CompiledBackendPostgreSQL),
 		Nodes:        builder.nodes,
 		FullScans:    builder.fullScans,
 		IndexScans:   builder.indexScans,
@@ -317,7 +318,7 @@ func requiredEstimate(value *float64, field string) (float64, error) {
 // Explain assesses the exact command execution will use.
 func (c Control) explainCompiledForOutput(ctx context.Context, resolved Resolved, output lower.CompiledRecipeOutput, limit int) (compiler.CompiledQuery, error) {
 	if c.Engine.resolvePostgreSQLCommands == nil || output.Plan.Engine == ir.PhysicalEngineClickHouse {
-		return compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		return compiler.CompileRecipeOutput(c.Engine.compileTarget, output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	}
 	switch output.Plan.Engine {
 	case "", ir.PhysicalEngineAQL:
@@ -330,7 +331,7 @@ func (c Control) explainCompiledForOutput(ctx context.Context, resolved Resolved
 		return compiler.CompiledQuery{}, fmt.Errorf("output %q: postgres command resolution: %w", output.Name, err)
 	}
 	if selection == nil {
-		return compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		return compiler.CompileRecipeOutput(c.Engine.compileTarget, output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	}
 	return postgreSQLExplainCompiledQuery(resolved, output, bindings, limit, selection)
 }

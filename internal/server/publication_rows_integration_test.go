@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"reflect"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
@@ -121,14 +122,15 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
-		query, vars, deriveErr := command.AQLParameters()
-		if deriveErr != nil {
-			return deriveErr
-		}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+			query, vars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
 
-		return graph.QueryRows(ctx, query, batch, vars, storearango.RowVisitor(visit))
-	}})
+			return graph.QueryRows(ctx, query, batch, vars, storearango.RowVisitor(visit))
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}

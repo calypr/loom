@@ -26,7 +26,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	for _, codingEmptyPolicy := range []string{"GROUP", "EXCLUDE", "ERROR"} {
 		output := connectedGroupOutputFromJSON(t, source, codingEmptyPolicy)
 		compiled := lowerConstructionOutput(t, output, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile connected Coding Group with coding-empty %s policy: %v", codingEmptyPolicy, err)
 		}

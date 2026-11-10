@@ -1,6 +1,8 @@
-package compiler
+package command
 
-// PostgreSQL renderer result contract (pg-ir-02).
+// PostgreSQL renderer result contract (pg-ir-02), owned by this leaf so both
+// dialect renderers and the root compiler can share one checked executable
+// representation without a renderer-to-compiler-root import.
 //
 // RenderedPostgresPhysicalPlan is the PostgreSQL counterpart of
 // aql.RenderedPhysicalPlan: it carries statement SQL plus ordered, typed

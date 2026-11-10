@@ -15,7 +15,7 @@ func TestConstructionCodedPivotPreviewLimitsRootsBeforeCodedExtraction(t *testin
 		t.Fatal("direct-root CODED_PIVOT should allow an indexed source-root preview window")
 	}
 
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

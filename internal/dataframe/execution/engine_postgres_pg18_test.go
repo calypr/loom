@@ -5,7 +5,7 @@ package execution
 // LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service).
 //
 // Every test drives the production Engine with a parent-tagged
-// compiler.CompiledCommand through the real internal/dataframe/postgres
+// command.CompiledCommand through the real internal/dataframe/postgres
 // adapter onto the real server engine. The AQL QueryRows/PreviewQueryRows
 // adapters and every Arango preview control are armed landmines that fail
 // the test the moment a PostgreSQL-served plan touches them, while the
@@ -51,6 +51,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
@@ -278,8 +279,9 @@ func (s *exec02Service) qualifiedTable(name string) string {
 // landmine: a PostgreSQL-served plan that touches any of them fails.
 func exec02ForbidArango() Config {
 	return Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -287,7 +289,7 @@ func exec02ForbidArango() Config {
 
 			return errors.New("AQL QueryRows must never run for a PostgreSQL-served plan")
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -304,7 +306,7 @@ func exec02ForbidArango() Config {
 		PreviewCollectionRevision: func(context.Context, string) (string, error) {
 			return "", errors.New("previewCollectionRevision must never run for a PostgreSQL-served plan")
 		},
-		PreviewCollectionScans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		PreviewCollectionScans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 			return PreviewCollectionScanEvidence{}, errors.New("previewCollectionScans must never run for a PostgreSQL-served plan")
 		},
 		PreviewCollectionCount: func(context.Context, string) (int64, error) {
@@ -321,7 +323,7 @@ func exec02EngineConfig(s *exec02Service, selection *ResolvedPostgreSQLCommand) 
 	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
 		return selection, nil
 	}
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
 		return s.executor.QueryRows(ctx, command, columns, dataframepostgres.RowVisitor(visit))
 	}
 	return config
@@ -447,16 +449,16 @@ func (s *exec02Service) convergePreview(engine *Engine, resolved Resolved, limit
 const exec02ScopedSQLFmt = `SELECT id, logical_id, score, active, payload, note FROM %s WHERE project = $1 AND dataset_generation = $2 ORDER BY id`
 
 func exec02ScopedSelection(s *exec02Service) *ResolvedPostgreSQLCommand {
-	command, err := compiler.NewPostgreSQLCommand(
+	compiledCommand, err := command.NewPostgreSQLCommand(
 		fmt.Sprintf(exec02ScopedSQLFmt, s.qualifiedTable("exec02_resource")),
-		[]compiler.PostgreSQLParameter{
-			{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-			{Type: compiler.PostgreSQLParameterText, Value: "gen-a"},
+		[]command.PostgreSQLParameter{
+			{Type: command.PostgreSQLParameterText, Value: "P1"},
+			{Type: command.PostgreSQLParameterText, Value: "gen-a"},
 		})
 	if err != nil {
 		panic(err)
 	}
-	return &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id", "logical_id", "score", "active", "payload", "note"}}
+	return &ResolvedPostgreSQLCommand{Command: compiledCommand, Columns: []string{"id", "logical_id", "score", "active", "payload", "note"}}
 }
 
 func exec02DigestRows(rows []map[string]any) string {
@@ -672,15 +674,15 @@ func TestPostgresEngineTwoRealConnectionRaceDistinctBackends(t *testing.T) {
 	s := newExec02Service(t)
 	s.seedFixture(t, "exec02_resource")
 	streamSQL := `SELECT pg_backend_pid() AS backend, id, logical_id, score, active, payload, note FROM ` + s.qualifiedTable("exec02_resource") + ` WHERE project = $1 AND dataset_generation = $2 ORDER BY id`
-	command, err := compiler.NewPostgreSQLCommand(streamSQL, []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-		{Type: compiler.PostgreSQLParameterText, Value: "gen-a"},
+	compiledCommand, err := command.NewPostgreSQLCommand(streamSQL, []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "P1"},
+		{Type: command.PostgreSQLParameterText, Value: "gen-a"},
 	})
 	if err != nil {
 		t.Fatalf("build race command: %v", err)
 	}
 	engine, err := New(exec02EngineConfig(s, &ResolvedPostgreSQLCommand{
-		Command: command,
+		Command: compiledCommand,
 		Columns: []string{"backend", "id", "logical_id", "score", "active", "payload", "note"},
 	}))
 	if err != nil {
@@ -817,18 +819,18 @@ func TestPostgresEngineParameterizedValuesCannotChangeShape(t *testing.T) {
 	s.seedFixture(t, "exec02_resource")
 	before := s.countRows(t, "exec02_resource")
 	injection := `x'; DROP TABLE "` + s.schema + `"."exec02_resource"; --`
-	command, err := compiler.NewPostgreSQLCommand(
+	compiledCommand, err := command.NewPostgreSQLCommand(
 		`SELECT id, logical_id, score, active, payload, note FROM `+s.qualifiedTable("exec02_resource")+` WHERE project = $1 AND dataset_generation = $2 AND logical_id = $3 ORDER BY id`,
-		[]compiler.PostgreSQLParameter{
-			{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-			{Type: compiler.PostgreSQLParameterText, Value: "gen-a"},
-			{Type: compiler.PostgreSQLParameterText, Value: injection},
+		[]command.PostgreSQLParameter{
+			{Type: command.PostgreSQLParameterText, Value: "P1"},
+			{Type: command.PostgreSQLParameterText, Value: "gen-a"},
+			{Type: command.PostgreSQLParameterText, Value: injection},
 		})
 	if err != nil {
 		t.Fatalf("build injection command: %v", err)
 	}
 	engine, err := New(exec02EngineConfig(s, &ResolvedPostgreSQLCommand{
-		Command: command,
+		Command: compiledCommand,
 		Columns: []string{"id", "logical_id", "score", "active", "payload", "note"},
 	}))
 	if err != nil {
@@ -885,14 +887,14 @@ func TestPostgresEngineCrossTagRefusedBeforeServer(t *testing.T) {
 		t.Fatalf("NewExecutor: %v", err)
 	}
 	config := exec02ForbidArango()
-	crossTag, err := compiler.NewAQLCommand("FOR d IN exec02_resource RETURN d", map[string]any{"project": "P1"})
+	crossTag, err := command.NewAQLCommand("FOR d IN exec02_resource RETURN d", map[string]any{"project": "P1"})
 	if err != nil {
 		t.Fatalf("build AQL command: %v", err)
 	}
 	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
 		return &ResolvedPostgreSQLCommand{Command: crossTag, Columns: []string{"id"}}, nil
 	}
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
 		return executor.QueryRows(ctx, command, columns, dataframepostgres.RowVisitor(visit))
 	}
 	engine, err := New(config)
@@ -900,7 +902,7 @@ func TestPostgresEngineCrossTagRefusedBeforeServer(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	_, _, err = engine.streamForOutput(s.ctx, exec02Resolved("resources", "P1", "gen-a", false), "resources", 5)
-	if !errors.Is(err, compiler.ErrCompiledCommandBackendMismatch) {
+	if !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("cross-tag dispatch must report the exact mismatch sentinel: %v", err)
 	}
 	if !strings.Contains(err.Error(), "refusing to pass AQL query to the PostgreSQL statement executor") {
@@ -943,14 +945,14 @@ func TestPostgresEngineBackendKillConverges(t *testing.T) {
 	// delivered in full before any kill could land (verified against the
 	// real server: kills after full delivery leave no error).
 	streamSQL := `SELECT pg_backend_pid() AS backend, id, logical_id, score, active, payload, note, repeat('x', 500000) AS blob, pg_sleep(0.25) IS NOT NULL AS tick FROM ` + s.qualifiedTable("exec02_resource") + ` WHERE project = $1 AND dataset_generation = $2 ORDER BY id`
-	command, err := compiler.NewPostgreSQLCommand(streamSQL, []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-		{Type: compiler.PostgreSQLParameterText, Value: "gen-a"},
+	compiledCommand, err := command.NewPostgreSQLCommand(streamSQL, []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "P1"},
+		{Type: command.PostgreSQLParameterText, Value: "gen-a"},
 	})
 	if err != nil {
 		t.Fatalf("build kill command: %v", err)
 	}
-	selection := &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"backend", "id", "logical_id", "score", "active", "payload", "note", "blob", "tick"}}
+	selection := &ResolvedPostgreSQLCommand{Command: compiledCommand, Columns: []string{"backend", "id", "logical_id", "score", "active", "payload", "note", "blob", "tick"}}
 	engine, err := New(exec02EngineConfig(s, selection))
 	if err != nil {
 		t.Fatalf("New: %v", err)

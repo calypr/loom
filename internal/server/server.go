@@ -25,6 +25,7 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -82,7 +83,7 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 }
 
 func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframeexecution.QueryRows) dataframeexecution.QueryRows {
-	return func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
+	return func(ctx context.Context, command command.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
 		// The logging and hash policy derives the AQL view through closed
 		// dispatch: a command that is not AQL-tagged is rejected here, before
 		// execute and long before any driver call, and PostgreSQL statement
@@ -463,7 +464,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
 		query, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -472,6 +473,15 @@ func run(ctx context.Context, serverConfig Config) error {
 	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
+	// The compile target is selected once here, from the source store
+	// configuration: this deployment serves sources from Arango, so every
+	// compiler boundary (recipe engine, FHIR query compilation, graph mode,
+	// and preview) uses the AQL target through the same target-aware
+	// compiler operations. A PostgreSQL deployment would select
+	// compiler.PostgreSQLTarget once instead; per-request dialect selection
+	// is not available to any caller.
+	sourceCompileTarget := compiler.ArangoTarget()
+
 	publishedRegistry, err := bundlearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create published dataframe registry: %w", err)
@@ -504,8 +514,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("create private dataframe artifact catalog: %w", err)
 		}
-		privateClickHouseArtifacts, err = chartifact.New(chartifact.Config{
-			Catalog: privateArtifactCatalog, ClickHouse: clickhouse,
+		privateClickHouseArtifacts, err = chartifact.New(chartifact.Config{Catalog: privateArtifactCatalog, ClickHouse: clickhouse,
 			BatchRows: serverConfig.Server.RecipeBatchRows, BatchBytes: serverConfig.Server.RecipeBatchBytes,
 		})
 		if err != nil {
@@ -529,6 +538,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		withExecutionReadPins = materializationReader.WithExecutionReadPins
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: sourceCompileTarget,
 		Registry:      recipeRegistry,
 		Revisions:     recipeRevisions,
 		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
@@ -558,7 +568,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return previewCollectionIndexesFromStore(indexes), nil
 		},
 		PreviewCollectionRevision: lifecycleClient.CollectionRevision,
-		PreviewCollectionScans: func(ctx context.Context, command compiler.CompiledCommand, collection string) (dataframeexecution.PreviewCollectionScanEvidence, error) {
+		PreviewCollectionScans: func(ctx context.Context, command command.CompiledCommand, collection string) (dataframeexecution.PreviewCollectionScanEvidence, error) {
 			query, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dataframeexecution.PreviewCollectionScanEvidence{}, dispatchErr
@@ -571,7 +581,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
+		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, command command.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
 			query, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -581,7 +591,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
+		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, command command.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
 			query, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -665,6 +675,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
+			CompileTarget:          sourceCompileTarget,
 			DiscoverReferences:     discoverReferences,
 			DiscoverFields:         discoverFields,
 			Dataframes:             dataframes,

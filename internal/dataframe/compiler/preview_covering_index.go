@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
@@ -21,12 +22,12 @@ var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation",
 // after runtime index metadata identifies an existing compatible definition.
 // The rerendered plan is handed to runtime only as a parent-tagged AQL
 // command; runtime cannot receive loose text or binds from this surface.
-func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (CompiledCommand, error) {
+func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
 	if err != nil {
-		return CompiledCommand{}, err
+		return command.CompiledCommand{}, err
 	}
-	return CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
 func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
@@ -293,7 +294,7 @@ func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSp
 	if err != nil {
 		return nil
 	}
-	scopeCountCommand, err := CompiledCommandForBackend(CompiledBackendAQL, scopeCount)
+	scopeCountCommand, err := command.NewAQLCommand(scopeCount.Query, scopeCount.BindVars)
 	if err != nil {
 		return nil
 	}
@@ -301,7 +302,7 @@ func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSp
 	if err != nil {
 		return nil
 	}
-	sequentialCommand, err := CompiledCommandForBackend(CompiledBackendAQL, sequential)
+	sequentialCommand, err := command.NewAQLCommand(sequential.Query, sequential.BindVars)
 	if err != nil {
 		return nil
 	}

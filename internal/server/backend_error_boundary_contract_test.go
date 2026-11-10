@@ -20,7 +20,7 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -34,7 +34,7 @@ import (
 // adapter itself classifies its driver failures at its own seam).
 func driveAQLAdapter(t *testing.T, adapterFailure error) error {
 	t.Helper()
-	adapter := configuredAQLQueryRows(nil, "contract", func(context.Context, compiler.CompiledCommand, int, dataframeexecution.RowVisitor) error {
+	adapter := configuredAQLQueryRows(nil, "contract", func(context.Context, command.CompiledCommand, int, dataframeexecution.RowVisitor) error {
 		return adapterFailure
 	})
 	err := adapter(context.Background(), testAQLCommand(t, "RETURN 1", nil), 10, func(map[string]any) error { return nil })

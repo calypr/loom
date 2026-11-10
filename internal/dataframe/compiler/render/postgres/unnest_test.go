@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -134,7 +134,7 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 	if strings.Contains(sql, "identifier") {
 		t.Fatalf("selector field leaked into SQL text: %s", sql)
 	}
-	if _, err := compiler.NewRenderedPostgresPhysicalPlan(sql, rendered.Args, rendered.OutputColumns); err != nil {
+	if _, err := command.NewRenderedPostgresPhysicalPlan(sql, rendered.Args, rendered.OutputColumns); err != nil {
 		t.Fatalf("rendered plan contract violated: %v", err)
 	}
 	if !reflect.DeepEqual(rendered.OutputColumns, []string{"logical_id", "item", "position", "has_item"}) {
@@ -145,7 +145,7 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 	if len(rendered.Args) != 5 {
 		t.Fatalf("args = %v, want four scope args plus one path", rendered.Args)
 	}
-	if got := rendered.Args[4]; got.Type != compiler.PostgreSQLParameterText || got.Value != "{identifier}" {
+	if got := rendered.Args[4]; got.Type != command.PostgreSQLParameterText || got.Value != "{identifier}" {
 		t.Fatalf("path argument = %#v, want text {identifier}", got)
 	}
 
@@ -262,7 +262,7 @@ func TestUnnestDerivedItemPathAndValueExpressionProjectAsBoundPaths(t *testing.T
 		t.Fatalf("args = %v, want four scope args plus {identifier}, {system}, {value}", rendered.Args)
 	}
 	for index, want := range []string{"{identifier}", "{system}", "{value}"} {
-		if got := rendered.Args[4+index]; got.Type != compiler.PostgreSQLParameterText || got.Value != want {
+		if got := rendered.Args[4+index]; got.Type != command.PostgreSQLParameterText || got.Value != want {
 			t.Fatalf("path argument %d = %#v, want text %s", 4+index, got, want)
 		}
 	}
@@ -335,7 +335,7 @@ func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
 		t.Fatalf("args = %v, want four scope args plus {identifier}, {telecom}, {value}, {system}", rendered.Args)
 	}
 	for index, want := range []string{"{identifier}", "{telecom}", "{value}", "{system}"} {
-		if got := rendered.Args[4+index]; got.Type != compiler.PostgreSQLParameterText || got.Value != want {
+		if got := rendered.Args[4+index]; got.Type != command.PostgreSQLParameterText || got.Value != want {
 			t.Fatalf("path argument %d = %#v, want text %s", 4+index, got, want)
 		}
 	}
@@ -446,6 +446,11 @@ func aqlScopeOperations(variable string) []ir.PhysicalOperation {
 func TestUnnestCommandDispatchStaysFailClosedForPostgreSQL(t *testing.T) {
 	// Capability discovery stays closed: the registration surface is
 	// RenderUnnest, not command dispatch (pg-sql-01/02/03 discipline).
+	// Under the closed tagged-union leaf, a command exists only when a
+	// constructor validates it: the AQL text registers through
+	// NewAQLCommand, and there is no dispatch-time conversion that could
+	// tag an AQL render as PostgreSQL — an unregistered tag dispatches
+	// nowhere.
 	plan := unnestPlan(expansionProjections()...)
 	unnestOpCopy := plan.Operations[1]
 	unnestOpCopy.Source = ir.PhysicalSource{ResourceType: "Patient", SemanticField: "expand"}
@@ -457,11 +462,15 @@ func TestUnnestCommandDispatchStaysFailClosedForPostgreSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aql render: %v", err)
 	}
-	if _, err := compiler.CompiledCommandForBackend(compiler.CompiledBackendAQL, rendered); err != nil {
+	if _, err := command.NewAQLCommand(rendered.Query, rendered.BindVars); err != nil {
 		t.Fatalf("AQL command dispatch: %v", err)
 	}
-	if _, err := compiler.CompiledCommandForBackend(compiler.CompiledBackendPostgreSQL, rendered); !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-		t.Fatalf("PostgreSQL command dispatch error = %v, want not-registered while the planner gate stays fail-closed", err)
+	unregistered := command.CompiledCommand{}
+	if _, _, err := unregistered.PostgreSQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+		t.Fatalf("unregistered command dispatch error = %v, want not-registered while the planner gate stays fail-closed", err)
+	}
+	if _, _, err := unregistered.AQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+		t.Fatalf("unregistered command dispatch error = %v, want not-registered on the AQL side too", err)
 	}
 
 	// The same registered plan still renders through PostgreSQL, proving
@@ -912,7 +921,7 @@ func (s *sql09Service) insertEdge(t *testing.T, rec pgstore.EdgeOccurrenceRow) {
 	}
 }
 
-func (s *sql09Service) runRendered(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) [][]string {
+func (s *sql09Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	return s.queryRows(t, rendered.SQL, parameterValues(rendered.Args)...)
 }
@@ -975,7 +984,7 @@ func (s *sql09Service) witness(t *testing.T, sql string, args ...any) [][]string
 // driver decodes the jsonb 'null' scalar to Go nil like SQL NULL, only
 // this server-side probe can prove that OUTER pad rows carry SQL NULL
 // item/ordinality while every surviving item row carries present values.
-func (s *sql09Service) sql09IsNullProbe(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan, columns ...string) [][]string {
+func (s *sql09Service) sql09IsNullProbe(t *testing.T, rendered command.RenderedPostgresPhysicalPlan, columns ...string) [][]string {
 	t.Helper()
 	selects := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -985,7 +994,7 @@ func (s *sql09Service) sql09IsNullProbe(t *testing.T, rendered compiler.Rendered
 	return s.queryRows(t, sql, parameterValues(rendered.Args)...)
 }
 
-func parameterValues(args []compiler.PostgreSQLParameter) []any {
+func parameterValues(args []command.PostgreSQLParameter) []any {
 	values := make([]any, len(args))
 	for index, parameter := range args {
 		values[index] = parameter.Value

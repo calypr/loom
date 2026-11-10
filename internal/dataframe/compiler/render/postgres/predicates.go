@@ -94,7 +94,7 @@ package postgres
 // ErrUnsupportedPostgresPlan refusal that yields no SQL. There is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion here.
 //
-// Planner-facing command registration (compiler.CompiledCommandForBackend)
+// Planner-facing command registration (command.CompiledCommandForBackend)
 // stays fail-closed for PostgreSQL exactly as in pg-sql-01/02/03: this file
 // — not command dispatch — is where the scalar filter comparison and
 // boolean predicate operations are implemented and registered.
@@ -135,7 +135,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -350,7 +350,7 @@ func (r *planRenderer) renderColumnComparison(left, operator string, kind spec.F
 		if err != nil {
 			return predicateFragment{}, err
 		}
-		index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
+		index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
 		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(index)}, nil
 	}
 	if kind != "" && kind != spec.FilterString && kind != spec.FilterCode {
@@ -608,7 +608,7 @@ func (r *planRenderer) renderTemporalPayloadComparison(left, operator string, ki
 	if err != nil {
 		return predicateFragment{}, err
 	}
-	index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
+	index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
 	// The stored side is SQL NULL for missing keys and for never-comparable
 	// stored strings, so the comparison is three-valued; NOT must be guarded.
 	return predicateFragment{
@@ -799,7 +799,7 @@ func (r *planRenderer) selectorMatchExpression(extraction, operator string, kind
 			if err != nil {
 				return "", err
 			}
-			index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
+			index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
 			// Never-comparable stored strings read NULL; under the presence
 			// AND they mean "no item matched", the fail-closed AQL-parity
 			// reading for values AQL would fold only with DATE_TIMESTAMP.

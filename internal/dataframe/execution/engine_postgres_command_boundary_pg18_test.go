@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
@@ -47,7 +47,7 @@ func TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer(t *testing.T) {
 	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
 		return selection, nil
 	}
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
 		return executor.QueryRows(ctx, command, columns, dataframepostgres.RowVisitor(visit))
 	}
 	engine, err := New(config)
@@ -133,9 +133,9 @@ func TestVerifyArch01PostgreSQLBoundaryRaceDistinctBackendsOverlapRounds(t *test
 	s := newExec02Service(t)
 	s.seedFixture(t, "exec02_resource")
 	raceSQL := `SELECT pg_backend_pid() AS backend, id, logical_id, score, active, payload, note FROM ` + s.qualifiedTable("exec02_resource") + ` WHERE project = $1 AND dataset_generation = $2 ORDER BY id`
-	raceCommand, err := compiler.NewPostgreSQLCommand(raceSQL, []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: "P1"},
-		{Type: compiler.PostgreSQLParameterText, Value: "gen-a"},
+	raceCommand, err := command.NewPostgreSQLCommand(raceSQL, []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "P1"},
+		{Type: command.PostgreSQLParameterText, Value: "gen-a"},
 	})
 	if err != nil {
 		t.Fatalf("build race command: %v", err)
@@ -233,9 +233,9 @@ func TestVerifyArch01PostgreSQLNamedRefusalsTouchNoServer(t *testing.T) {
 	zeroEngine, err := New(func() Config {
 		config := exec02ForbidArango()
 		config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
-			return &ResolvedPostgreSQLCommand{Command: compiler.CompiledCommand{}, Columns: []string{"id"}}, nil
+			return &ResolvedPostgreSQLCommand{Command: command.CompiledCommand{}, Columns: []string{"id"}}, nil
 		}
-		config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+		config.PostgreSQLQueryRows = func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
 			return executor.QueryRows(ctx, command, columns, dataframepostgres.RowVisitor(visit))
 		}
 		return config
@@ -243,21 +243,21 @@ func TestVerifyArch01PostgreSQLNamedRefusalsTouchNoServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New zero-tag engine: %v", err)
 	}
-	if _, _, err := zeroEngine.streamForOutput(s.ctx, exec02Resolved("resources", "P1", "gen-a", false), "resources", 5); !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-		t.Fatalf("zero-tag selection: err = %v, want %v", err, compiler.ErrCompiledCommandBackendNotRegistered)
+	if _, _, err := zeroEngine.streamForOutput(s.ctx, exec02Resolved("resources", "P1", "gen-a", false), "resources", 5); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+		t.Fatalf("zero-tag selection: err = %v, want %v", err, command.ErrCompiledCommandBackendNotRegistered)
 	}
 
 	// Guard drop 2: bypass the engine seam entirely and hand the real
 	// adapter an AQL-tagged command. The adapter itself must refuse by name.
-	crossTag, err := compiler.NewAQLCommand("FOR d IN x RETURN d", nil)
+	crossTag, err := command.NewAQLCommand("FOR d IN x RETURN d", nil)
 	if err != nil {
 		t.Fatalf("forge AQL command: %v", err)
 	}
-	if err := executor.QueryRows(s.ctx, crossTag, []string{"id"}, func(map[string]any) error { return nil }); !errors.Is(err, compiler.ErrCompiledCommandBackendMismatch) {
-		t.Fatalf("adapter-level cross tag: err = %v, want %v", err, compiler.ErrCompiledCommandBackendMismatch)
+	if err := executor.QueryRows(s.ctx, crossTag, []string{"id"}, func(map[string]any) error { return nil }); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+		t.Fatalf("adapter-level cross tag: err = %v, want %v", err, command.ErrCompiledCommandBackendMismatch)
 	}
-	if err := executor.QueryRows(s.ctx, compiler.CompiledCommand{}, []string{"id"}, func(map[string]any) error { return nil }); !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-		t.Fatalf("adapter-level zero tag: err = %v, want %v", err, compiler.ErrCompiledCommandBackendNotRegistered)
+	if err := executor.QueryRows(s.ctx, command.CompiledCommand{}, []string{"id"}, func(map[string]any) error { return nil }); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+		t.Fatalf("adapter-level zero tag: err = %v, want %v", err, command.ErrCompiledCommandBackendNotRegistered)
 	}
 
 	mu.Lock()
@@ -288,7 +288,7 @@ func TestVerifyArch01PostgreSQLCrashBeforeDriverNeverReachesServer(t *testing.T)
 	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
 		return selection, nil
 	}
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
 		// Crash in the sliver after the seam selected this adapter and
 		// before the driver is invoked: the command is in hand, the context
 		// dies, and the driver call never happens.

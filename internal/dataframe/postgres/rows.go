@@ -3,7 +3,7 @@
 // PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
 // control persistence; Arango remains supported and ClickHouse remains the
 // publication data plane. This package streams result rows for one
-// parent-tagged compiler.CompiledCommand through the backend-tagged dispatch
+// parent-tagged command.CompiledCommand through the backend-tagged dispatch
 // surface: an AQL-tagged or unregistered command is rejected before any
 // statement executes, SQL arrives only through the tagged command, and the
 // adapter never translates AQL into SQL or falls back to another backend on
@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -39,7 +39,7 @@ type RowVisitor func(map[string]any) error
 // the tagged command envelope: execution never hands loose SQL text or a
 // named bind map to a PostgreSQL adapter. (*Executor).QueryRows satisfies
 // this signature.
-type QueryRows func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error
+type QueryRows func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error
 
 // Querier is the narrow, pool-shaped surface the Executor needs.
 // *pgxpool.Pool, *pgxpool.Conn, and *pgx.Conn all satisfy it; production
@@ -155,7 +155,7 @@ var _ QueryRows = (*Executor)(nil).QueryRows
 // errors.As(err, &*storepostgres.TranslatedError{})). The raw driver cause
 // is reachable only through TranslatedError.Cause behind the redaction
 // guards, never through errors.As.
-func (e *Executor) QueryRows(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+func (e *Executor) QueryRows(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidExecution)
 	}
@@ -294,7 +294,7 @@ var statementPlaceholderRE = regexp.MustCompile(`\$\d+`)
 // argument must appear as a placeholder. Placeholders may repeat; a hole in
 // the numbering means the renderer and the argument list disagree and the
 // command is refused before execution.
-func validateStatementShape(sqlText string, args []compiler.PostgreSQLParameter) error {
+func validateStatementShape(sqlText string, args []command.PostgreSQLParameter) error {
 	matches := statementPlaceholderRE.FindAllString(sqlText, -1)
 	if len(args) == 0 {
 		if len(matches) > 0 {
@@ -324,7 +324,7 @@ func validateStatementShape(sqlText string, args []compiler.PostgreSQLParameter)
 // declared compiler parameter type. This is the adapter's single canonical
 // source for the three-state value contract; nothing is approximated on the
 // SQL side and the driver receives canonical Go values only.
-func bindParameters(args []compiler.PostgreSQLParameter) ([]any, error) {
+func bindParameters(args []command.PostgreSQLParameter) ([]any, error) {
 	bound := make([]any, 0, len(args))
 	for i, arg := range args {
 		value, err := bindParameter(arg)
@@ -337,38 +337,38 @@ func bindParameters(args []compiler.PostgreSQLParameter) ([]any, error) {
 	return bound, nil
 }
 
-func bindParameter(arg compiler.PostgreSQLParameter) (any, error) {
+func bindParameter(arg command.PostgreSQLParameter) (any, error) {
 	switch arg.Type {
-	case compiler.PostgreSQLParameterNull:
+	case command.PostgreSQLParameterNull:
 		if arg.Value != nil {
 			return nil, errors.New("an sql-null parameter must carry a nil value; a JSON null belongs on a json or jsonb parameter")
 		}
 		return nil, nil
-	case compiler.PostgreSQLParameterText:
+	case command.PostgreSQLParameterText:
 		value, ok := arg.Value.(string)
 		if !ok {
 			return nil, errors.New("a text parameter must carry a string")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterBigint:
+	case command.PostgreSQLParameterBigint:
 		value, ok := arg.Value.(int64)
 		if !ok {
 			return nil, errors.New("a bigint parameter must carry an int64")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterDoublePrecision:
+	case command.PostgreSQLParameterDoublePrecision:
 		value, ok := arg.Value.(float64)
 		if !ok {
 			return nil, errors.New("a double precision parameter must carry a float64")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterBoolean:
+	case command.PostgreSQLParameterBoolean:
 		value, ok := arg.Value.(bool)
 		if !ok {
 			return nil, errors.New("a boolean parameter must carry a bool")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterDate:
+	case command.PostgreSQLParameterDate:
 		value, ok := arg.Value.(time.Time)
 		if !ok {
 			return nil, errors.New("a date parameter must carry a time.Time")
@@ -377,13 +377,13 @@ func bindParameter(arg compiler.PostgreSQLParameter) (any, error) {
 			return nil, errors.New("a date parameter must carry a midnight calendar time; absolute instants belong on the timestamp with time zone type")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterTimestamptz:
+	case command.PostgreSQLParameterTimestamptz:
 		value, ok := arg.Value.(time.Time)
 		if !ok {
 			return nil, errors.New("a timestamp with time zone parameter must carry a time.Time")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterJSON, compiler.PostgreSQLParameterJSONB:
+	case command.PostgreSQLParameterJSON, command.PostgreSQLParameterJSONB:
 		raw, ok := jsonBytes(arg.Value)
 		if !ok {
 			return nil, errors.New("a json or jsonb parameter must carry a string or json.RawMessage")

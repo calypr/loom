@@ -140,7 +140,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 	}
 	output := constructionCodedGroupTestOutput()
 	compiled := lowerConstructionOutput(t, output, bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +252,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	}
 	allOutput := constructionCodedGroupTestOutput()
 	allCompiled := lowerConstructionOutput(t, allOutput, bindings)
-	allQuery, err := CompileRecipeOutputWithPolicy(allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	allQuery, err := CompileRecipeOutput(ArangoTarget(), allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	selectedBindings.SelectionProject = project
 	selectedBindings.SelectionMembersCollection = populationCollection
 	selectedCompiled := lowerConstructionOutput(t, selectedOutput, selectedBindings)
-	selectedQuery, err := CompileRecipeOutputWithPolicy(selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	selectedQuery, err := CompileRecipeOutput(ArangoTarget(), selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

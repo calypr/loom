@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -161,14 +162,15 @@ func TestDerivedArithmeticPoliciesAgainstArango(t *testing.T) {
 	if err = graph.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
-	engine, err := execution.New(execution.Config{Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit execution.RowVisitor) error {
-		query, binds, deriveErr := command.AQLParameters()
-		if deriveErr != nil {
-			return deriveErr
-		}
+	engine, err := execution.New(execution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command command.CompiledCommand, batch int, visit execution.RowVisitor) error {
+			query, binds, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
 
-		return graph.QueryRows(ctx, query, batch, binds, storearango.RowVisitor(visit))
-	}})
+			return graph.QueryRows(ctx, query, batch, binds, storearango.RowVisitor(visit))
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}

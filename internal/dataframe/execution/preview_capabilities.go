@@ -3,7 +3,7 @@ package execution
 import (
 	"context"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 // Neutral preview observation contracts (arch-backend-02).
@@ -81,4 +81,4 @@ type PreviewCollectionScanEvidence struct {
 // inspection call, decodes the vendor plan, and returns only neutral
 // evidence. A nil capability (or an error) leaves execution on the
 // canonical bounded fallback.
-type PreviewCollectionScans func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error)
+type PreviewCollectionScans func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error)

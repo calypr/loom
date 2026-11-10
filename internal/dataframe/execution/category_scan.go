@@ -54,9 +54,9 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 		var compiled compiler.CompiledCategoryScanQuery
 		var err error
 		if request.StageID != "" {
-			compiled, err = compiler.CompileCategoryScanStageWithPolicy(output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err = compiler.CompileCategoryScanStage(e.compileTarget, output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		} else {
-			compiled, err = compiler.CompileCategoryScanOutputWithPolicy(output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err = compiler.CompileCategoryScanOutput(e.compileTarget, output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		}
 		if err != nil {
 			return CategoryScanResult{}, err

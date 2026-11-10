@@ -73,7 +73,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	compile := func(policy recipe.ConstructionGroupMissingKeyPolicy) CompiledQuery {
 		t.Helper()
 		if policy == recipe.ConstructionGroupMissingKeyGroup {
-			query, err := CompileRecipeOutputWithPolicy(groupedCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			query, err := CompileRecipeOutput(ArangoTarget(), groupedCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile semantic Group with %s missing-key policy: %v", policy, err)
 			}
@@ -89,7 +89,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 	if len(grouped) != 5 {
 		t.Fatalf("semantic Group rows = %#v, want four keyed groups plus one missing-key group", grouped)
 	}
-	unlimitedQuery, err := CompileRecipeOutputWithPolicy(groupedCompiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	unlimitedQuery, err := CompileRecipeOutput(ArangoTarget(), groupedCompiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile unlimited semantic Group query: %v", err)
 	}
@@ -356,7 +356,7 @@ func semanticGroupArangoOutput(
 func compileSemanticCategoryGroupQuery(t *testing.T, bindings recipe.RuntimeBindings, output recipe.Output) CompiledQuery {
 	t.Helper()
 	compiled := lowerConstructionOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group query: %v", err)
 	}

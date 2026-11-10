@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
@@ -162,7 +162,7 @@ func newPostgreSQLPlanJSONExecutor(querier dataframepostgres.Querier) (dataframe
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context, command compiler.CompiledCommand) (json.RawMessage, error) {
+	return func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error) {
 		var plans []string
 		if err := executor.QueryRows(ctx, command, []string{"QUERY PLAN"}, func(row map[string]any) error {
 			switch plan := row["QUERY PLAN"].(type) {

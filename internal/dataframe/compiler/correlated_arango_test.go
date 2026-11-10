@@ -275,7 +275,7 @@ func compileGroupRowsQuery(project, generation, revisionID, policy string) ([]Co
 	if err != nil {
 		return nil, err
 	}
-	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+	return CompileResolvedRecipePlan(ArangoTarget(), resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
 }
 
 func mustCompileGroupRowsQuery(t *testing.T, project, generation, revisionID, policy string) CompiledQuery {
@@ -1063,7 +1063,7 @@ func compileRecipeExpansionQuery(t *testing.T, project, generation string, outpu
 	if err != nil {
 		return nil, err
 	}
-	return CompileResolvedRecipePlanWithPolicy(resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
+	return CompileResolvedRecipePlan(ArangoTarget(), resolved, 100, ir.DefaultPhysicalOptimizationPolicy())
 }
 
 func expansionIdentityFromRow(t *testing.T, row map[string]any) map[string]any {

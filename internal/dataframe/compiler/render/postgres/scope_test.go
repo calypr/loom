@@ -44,7 +44,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
@@ -698,7 +698,7 @@ func (s *pgsq02Service) run(t *testing.T, sql string, args ...any) [][]string {
 	return out
 }
 
-func (s *pgsq02Service) runRendered(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) [][]string {
+func (s *pgsq02Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
@@ -711,7 +711,7 @@ func (s *pgsq02Service) runRendered(t *testing.T, rendered compiler.RenderedPost
 // separately acquired pool connections and proves they are two real server
 // processes: the returned pids must differ. Scope enforcement is thereby
 // shown to be a property of the statement, not of any session.
-func (s *pgsq02Service) runOnTwoDistinctConnections(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) ([][]string, [][]string, int32, int32) {
+func (s *pgsq02Service) runOnTwoDistinctConnections(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) ([][]string, [][]string, int32, int32) {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
@@ -820,11 +820,11 @@ func TestPGSQ02SameResourceIDTwoProjectsGenerationsReturnsAuthorizedTuple(t *tes
 	}
 
 	// Exact ordered arguments, asserted before execution.
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02ProjectA},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02GenOne},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq02ProjectA},
+		{Type: command.PostgreSQLParameterText, Value: pgsq02GenOne},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", rendered.Args, wantArgs)
@@ -972,7 +972,7 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 			t.Fatalf("deny-all %s scan: %v", resourceType, err)
 		}
 		if raw, ok := denyAll.Args[2].Value.(json.RawMessage); !ok || string(raw) != "[]" ||
-			denyAll.Args[2].Type != compiler.PostgreSQLParameterJSONB {
+			denyAll.Args[2].Type != command.PostgreSQLParameterJSONB {
 			t.Fatalf("deny-all auth argument = %#v, want JSON empty array", denyAll.Args[2])
 		}
 		if got := svc.runRendered(t, denyAll); len(got) != 0 {
@@ -991,13 +991,13 @@ func TestPGSQ02RestrictedPathsExactAndDenyAllZeroRowsRootAndEdge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restricted traversal: %v", err)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02ProjectA},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02GenOne},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Specimen"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02Label},
-		{Type: compiler.PostgreSQLParameterText, Value: "Specimen"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq02ProjectA},
+		{Type: command.PostgreSQLParameterText, Value: pgsq02GenOne},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Specimen"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
+		{Type: command.PostgreSQLParameterText, Value: pgsq02Label},
+		{Type: command.PostgreSQLParameterText, Value: "Specimen"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("traversal args = %#v, want %#v", rendered.Args, wantArgs)
@@ -1135,13 +1135,13 @@ func TestPGSQ02EdgeIdentityAcrossScopesStaysIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02ProjectA},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02GenOne},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Specimen"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
-		{Type: compiler.PostgreSQLParameterText, Value: pgsq02Label},
-		{Type: compiler.PostgreSQLParameterText, Value: "Specimen"},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: pgsq02ProjectA},
+		{Type: command.PostgreSQLParameterText, Value: pgsq02GenOne},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Specimen"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
+		{Type: command.PostgreSQLParameterText, Value: pgsq02Label},
+		{Type: command.PostgreSQLParameterText, Value: "Specimen"},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", rendered.Args, wantArgs)

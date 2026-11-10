@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -26,7 +27,7 @@ func TestTableShapeExclusionsCompiledPagesExactTypedRows(t *testing.T) {
 		tableShapeExclusionRow("Observation", "null", true, nil, "STRING", "row-null"),
 		tableShapeExclusionRow("Observation", "missing", false, nil, "STRING", "row-missing"),
 	}
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		query, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -70,7 +71,7 @@ func TestTableShapeExclusionsCompiledPagesAndMarksIdentityOmissionIncomplete(t *
 		tableShapeExclusionRow("", "", false, "not-a-real-id", "STRING", "row-three"),
 	}
 	makeEngine := func() *Engine {
-		return &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		return &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			query, binds, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -108,7 +109,7 @@ func TestTableShapeExclusionsCompiledPagesAndMarksIdentityOmissionIncomplete(t *
 }
 
 func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -124,7 +125,7 @@ func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t
 }
 
 func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
-	engine := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	engine := testEngine(func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

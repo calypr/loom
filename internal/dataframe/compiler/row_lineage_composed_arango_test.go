@@ -161,7 +161,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("composed related expansion row lineage capability = %#v", capability)
 	}
-	previewQuery, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	previewQuery, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

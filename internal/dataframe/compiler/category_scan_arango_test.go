@@ -126,7 +126,7 @@ func TestConstructionCategoryScanPreservesMissingAndNullAgainstArango(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		categoryScan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+		categoryScan, err := CompileCategoryScanStage(ArangoTarget(), compiled.Outputs[0], stageID, "birth_date_id", "patient_id", 10, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -272,7 +272,7 @@ func TestRootQuantityCategoryScanAugmentsStoredParentIndexAgainstArango(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan, err := CompileCategoryScanStageWithPolicy(compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
+	scan, err := CompileCategoryScanStage(ArangoTarget(), compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id", 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -244,7 +244,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("compiled category scan returned %d rows, want distinct MISSING, NULL, and STRING d: %#v", len(discoveredRows), discoveredRows)
 	}
 
-	pivotQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	pivotQuery, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile final typed-MISSING related Pivot: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 	nullOnlyOutput := relatedPresenceNullOnlyPivotOutput(recipe.PivotUnlistedCategoryError,
 		"root-null", "root-no-observation")
 	nullOnlyCompiled, _, _ := compileRelatedCategoryRuntimeScansWithBindings(t, nullOnlyOutput, bindings, MaxCategoryScanValues)
-	nullOnlyQuery, err := CompileRecipeOutputWithPolicy(nullOnlyCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	nullOnlyQuery, err := CompileRecipeOutput(ArangoTarget(), nullOnlyCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile NULL-only related Pivot: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 	nullOnlyErrorOutput := relatedPresenceNullOnlyPivotOutput(recipe.PivotUnlistedCategoryError,
 		"root-null", "root-absent-code", "root-no-observation")
 	nullOnlyErrorCompiled, _, _ := compileRelatedCategoryRuntimeScansWithBindings(t, nullOnlyErrorOutput, bindings, MaxCategoryScanValues)
-	nullOnlyErrorQuery, err := CompileRecipeOutputWithPolicy(nullOnlyErrorCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	nullOnlyErrorQuery, err := CompileRecipeOutput(ArangoTarget(), nullOnlyErrorCompiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile NULL-only related Pivot with unlisted error: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestRelatedConstructionPivotPresencePlanCompiles(t *testing.T) {
 	if !scanned.Proof.PresenceTracked || scanned.OverflowWitness != nil {
 		t.Fatalf("compiled related presence proof = %#v, want tracked category scan without conclusive-MISSING witness", scanned.Proof)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile final typed-MISSING Pivot: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"reflect"
 	"sync"
 	"testing"
@@ -76,7 +77,7 @@ type queryapiBackend struct {
 // queryRows blocks for cursorDelay before producing any row, which is the
 // execution service's ArangoQuery span. Inside a synctest bubble that block is
 // an exact virtual quantum.
-func (b *queryapiBackend) queryRows(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+func (b *queryapiBackend) queryRows(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 	query, bindVars, deriveErr := command.AQLParameters()
 	if deriveErr != nil {
 		return deriveErr
@@ -165,7 +166,7 @@ func queryapiGenderInput() model.FhirDataframeInput {
 
 func queryapiService(t *testing.T, backend *queryapiBackend, clock *controlledClock) *Service {
 	t.Helper()
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			backend.mu.Lock()

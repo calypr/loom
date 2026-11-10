@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"testing"
 
@@ -30,8 +31,9 @@ func newRunTestFixture(t *testing.T) (*Engine, *runOutputRegistry) {
 	t.Helper()
 	registry := &runOutputRegistry{}
 	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

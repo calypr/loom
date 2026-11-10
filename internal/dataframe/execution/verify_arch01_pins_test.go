@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -57,9 +58,10 @@ func (v *verifyArch01Trace) quietAQL(t *testing.T, stage string) {
 
 func verifyArch01Config(v *verifyArch01Trace) Config {
 	return Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "verify-arch01-scope" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "verify-arch01-scope" },
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			text, _, err := command.AQLParameters()
 			if err != nil {
 				return err
@@ -67,7 +69,7 @@ func verifyArch01Config(v *verifyArch01Trace) Config {
 			v.add(&v.aqlFull, text)
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
 			text, _, err := command.AQLParameters()
 			if err != nil {
 				return err
@@ -87,7 +89,7 @@ func verifyArch01Config(v *verifyArch01Trace) Config {
 			v.add(&v.controls, "previewCollectionRevision")
 			return "rev-arch01", nil
 		},
-		PreviewCollectionScans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		PreviewCollectionScans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 			v.add(&v.controls, "previewCollectionScans")
 			return PreviewCollectionScanEvidence{}, nil
 		},
@@ -133,19 +135,19 @@ func verifyArch01Schema(names ...string) []lower.CompiledOutputColumn {
 	return schema
 }
 
-func verifyArch01Command(t *testing.T) compiler.CompiledCommand {
+func verifyArch01Command(t *testing.T) command.CompiledCommand {
 	t.Helper()
-	command, err := compiler.NewPostgreSQLCommand(
+	compiledCommand, err := command.NewPostgreSQLCommand(
 		`SELECT id FROM loom.resource WHERE project = $1`,
-		[]compiler.PostgreSQLParameter{{Type: compiler.PostgreSQLParameterText, Value: "P1"}})
+		[]command.PostgreSQLParameter{{Type: command.PostgreSQLParameterText, Value: "P1"}})
 	if err != nil {
 		t.Fatalf("forge command: %v", err)
 	}
-	return command
+	return compiledCommand
 }
 
 func verifyArch01Row(v *verifyArch01Trace, target *[]string, rows []map[string]any) PostgreSQLQueryRows {
-	return func(ctx context.Context, command compiler.CompiledCommand, _ []string, visit RowVisitor) error {
+	return func(ctx context.Context, command command.CompiledCommand, _ []string, visit RowVisitor) error {
 		sqlText, _, err := command.PostgreSQLParameters()
 		if err != nil {
 			return err

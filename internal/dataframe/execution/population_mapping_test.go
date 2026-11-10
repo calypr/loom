@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
-	engine := &Engine{
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
 		batchSize: 1000,
-		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -54,9 +55,9 @@ func TestPopulationMappingCompiledDeduplicatesMembersAndRows(t *testing.T) {
 }
 
 func TestPopulationMappingCompiledReturnsIncompleteWithoutCountsOnLimit(t *testing.T) {
-	engine := &Engine{
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
 		batchSize: 1000,
-		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -136,9 +137,9 @@ func TestPopulationWitnessIdentityRejectsNullAndStructuredExplicitValues(t *test
 }
 
 func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities(t *testing.T) {
-	engine := &Engine{
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
 		batchSize: 1000,
-		queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

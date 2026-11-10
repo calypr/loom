@@ -51,7 +51,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -300,29 +300,29 @@ func (s *exec01Service) waitForActive(t *testing.T, app, tag string) int64 {
 	}
 }
 
-func pgSQL(t *testing.T, sql string, args ...compiler.PostgreSQLParameter) compiler.CompiledCommand {
+func pgSQL(t *testing.T, sql string, args ...command.PostgreSQLParameter) command.CompiledCommand {
 	t.Helper()
-	command, err := compiler.NewPostgreSQLCommand(sql, args)
+	compiledCommand, err := command.NewPostgreSQLCommand(sql, args)
 	if err != nil {
 		t.Fatalf("NewPostgreSQLCommand(%q): %v", sql, err)
 	}
-	return command
+	return compiledCommand
 }
 
-func bigint(v int64) compiler.PostgreSQLParameter {
-	return compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterBigint, Value: v}
+func bigint(v int64) command.PostgreSQLParameter {
+	return command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: v}
 }
 
-func textParam(v string) compiler.PostgreSQLParameter {
-	return compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: v}
+func textParam(v string) command.PostgreSQLParameter {
+	return command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: v}
 }
 
-func jsonbParam(raw string) compiler.PostgreSQLParameter {
-	return compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(raw)}
+func jsonbParam(raw string) command.PostgreSQLParameter {
+	return command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(raw)}
 }
 
-func sqlNullParam() compiler.PostgreSQLParameter {
-	return compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterNull, Value: nil}
+func sqlNullParam() command.PostgreSQLParameter {
+	return command.PostgreSQLParameter{Type: command.PostgreSQLParameterNull, Value: nil}
 }
 
 // expectQueryError asserts an execution-seam failure keeps its class, its
@@ -444,11 +444,11 @@ func TestExec01TempTableStreamsExactTypedRows(t *testing.T) {
 	}
 
 	columns := []string{"id", "label", "score", "active", "event_date", "event_ts", "payload", "meta", "note"}
-	command := pgSQL(t, `SELECT id, label, score, active, event_date, event_ts, payload, meta, note
+	compiledCommand := pgSQL(t, `SELECT id, label, score, active, event_date, event_ts, payload, meta, note
 		FROM exec01_typed_rows WHERE id IN ($1, $2) ORDER BY id`, bigint(1), bigint(2))
 
 	var visited []map[string]any
-	if err := executor.QueryRows(s.ctx, command, columns, func(row map[string]any) error {
+	if err := executor.QueryRows(s.ctx, compiledCommand, columns, func(row map[string]any) error {
 		visited = append(visited, row)
 		return nil
 	}); err != nil {
@@ -675,11 +675,11 @@ func TestExec01VisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 	}
 
 	streamSQL := `SELECT id, label FROM exec01_three ORDER BY id`
-	command := pgSQL(t, streamSQL)
+	compiledCommand := pgSQL(t, streamSQL)
 
 	boom := errors.New("visitor boom")
 	visits := 0
-	err = executor.QueryRows(s.ctx, command, []string{"id", "label"}, func(row map[string]any) error {
+	err = executor.QueryRows(s.ctx, compiledCommand, []string{"id", "label"}, func(row map[string]any) error {
 		visits++
 		if visits == 2 {
 			return boom
@@ -713,7 +713,7 @@ func TestExec01VisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 
 	// Control: the identical statement drains fully when the visitor accepts.
 	full := 0
-	if err := executor.QueryRows(s.ctx, command, []string{"id", "label"}, func(map[string]any) error { full++; return nil }); err != nil {
+	if err := executor.QueryRows(s.ctx, compiledCommand, []string{"id", "label"}, func(map[string]any) error { full++; return nil }); err != nil {
 		s.fail("full drain control", err)
 	}
 	if full != 3 {
@@ -831,11 +831,11 @@ func TestExec01CancellationReturnsCompatibleContextErrors(t *testing.T) {
 // streamTagged runs the server-cancel probe statement through the same
 // executor machinery with the fixed single-column contract.
 func (e *Executor) streamTagged(ctx context.Context, sql string) error {
-	command, err := compiler.NewPostgreSQLCommand(sql, nil)
+	compiledCommand, err := command.NewPostgreSQLCommand(sql, nil)
 	if err != nil {
 		return err
 	}
-	return e.QueryRows(ctx, command, []string{"tick", "g"}, func(map[string]any) error { return nil })
+	return e.QueryRows(ctx, compiledCommand, []string{"tick", "g"}, func(map[string]any) error { return nil })
 }
 
 // ---------------------------------------------------------------------------
@@ -975,12 +975,12 @@ func TestExec01ThreeStatePreservation(t *testing.T) {
 	}
 
 	columns := []string{"j", "jj", "t", "ab", "j_is_null", "j_is_json_null", "j_type", "jj_is_null", "t_is_null", "ab_is_null", "ab_type"}
-	command := pgSQL(t, `SELECT j, jj, t, ab,
+	compiledCommand := pgSQL(t, `SELECT j, jj, t, ab,
 		j IS NULL AS j_is_null, (j = 'null'::jsonb) AS j_is_json_null, jsonb_typeof(j) AS j_type,
 		jj IS NULL AS jj_is_null, t IS NULL AS t_is_null, ab IS NULL AS ab_is_null, jsonb_typeof(ab) AS ab_type
 		FROM `+s.table("exec01_states")+` WHERE id = $1`, bigint(1))
 	var row map[string]any
-	if err := executor.QueryRows(s.ctx, command, columns, func(r map[string]any) error { row = r; return nil }); err != nil {
+	if err := executor.QueryRows(s.ctx, compiledCommand, columns, func(r map[string]any) error { row = r; return nil }); err != nil {
 		s.fail("three-state stream", err)
 	}
 	if row == nil {
@@ -1017,7 +1017,7 @@ func TestExec01ThreeStatePreservation(t *testing.T) {
 	}
 	err = countingExecutor.QueryRows(s.ctx,
 		pgSQL(t, `SELECT id FROM `+s.table("exec01_states")+` WHERE id = $1`,
-			compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterBigint, Value: float64(1)}),
+			command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: float64(1)}),
 		[]string{"id"}, func(map[string]any) error { return nil })
 	requireNamed(t, err, ErrInvalidParameter, "argument 1", `"bigint"`, "must carry an int64")
 	if counting.calls != 0 {

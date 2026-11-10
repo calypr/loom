@@ -87,7 +87,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("COUNT_ROWS Group/Pivot row-lineage capability = %#v", capability)
 	}
-	preview, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

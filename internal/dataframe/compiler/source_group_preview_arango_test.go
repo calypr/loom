@@ -23,11 +23,11 @@ func TestSourceGroupPreviewMatchesGenericScopedExpandedGroupAgainstArango(t *tes
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 	}
 	compiledOutput := lowerConstructionOutput(t, sourceGroupPreviewArangoOutput(), bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile key-paged source Group preview: %v", err)
 	}
-	full, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile generic full-source Group: %v", err)
 	}

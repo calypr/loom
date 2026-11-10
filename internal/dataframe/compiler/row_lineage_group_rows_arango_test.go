@@ -188,7 +188,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	// Compare these identities with canonical GROUP_ROWS materialization so
 	// revoked members are filtered and a missing current resource remains an
 	// identity-only contributor in both renderers.
-	groupRowsQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	groupRowsQuery, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile canonical standalone GROUP_ROWS fixture: %v", err)
 	}

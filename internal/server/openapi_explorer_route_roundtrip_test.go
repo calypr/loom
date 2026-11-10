@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"reflect"
 	"sort"
@@ -111,9 +112,9 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(context.Context, compiler.CompiledCommand, int, dataframeexecution.RowVisitor) error { return nil }
+	queryRows := func(context.Context, command.CompiledCommand, int, dataframeexecution.RowVisitor) error { return nil }
 	if rowClient != nil {
-		queryRows = func(ctx context.Context, command compiler.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+		queryRows = func(ctx context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
 			query, variables, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -122,7 +123,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 			return rowClient.QueryRows(ctx, query, batch, variables, storearango.RowVisitor(visit))
 		}
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: queryRows})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: queryRows})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,16 +263,16 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if canceled.Version != 3 || canceled.Digest != digest || !bytes.Equal(raw, original) {
 		t.Fatal("unapplied proposal changed saved draft")
 	}
-	command := func(id string, version int64, expected string, commands string) string {
+	compiledCommand := func(id string, version int64, expected string, commands string) string {
 		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":%s}`, id, authoringv2.CurrentSemanticsVersion, snapshot.Token, version, expected, commands)
 	}
 	apply := fmt.Sprintf(`[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]`, *proposed.ProposalId)
-	rejected := requestJSON(t, app, http.MethodPost, base+"/commands", command("stale-route-apply", 2, digest, apply))
+	rejected := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("stale-route-apply", 2, digest, apply))
 	if rejected.StatusCode != http.StatusConflict {
 		t.Fatalf("stale Apply status=%d body=%s", rejected.StatusCode, rejected.Body)
 	}
 	assertRoute(load(), routeA)
-	appliedHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", command("apply-route-b", 3, digest, apply))
+	appliedHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("apply-route-b", 3, digest, apply))
 	if appliedHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Apply status=%d body=%s", appliedHTTP.StatusCode, appliedHTTP.Body)
 	}
@@ -283,14 +284,14 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if rowClient != nil {
 		assertRows(reconcile(applied.Version, applied.Digest), []string{"p1/o2"})
 	}
-	replay := requestJSON(t, app, http.MethodPost, base+"/commands", command("apply-route-b", 3, digest, apply))
+	replay := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("apply-route-b", 3, digest, apply))
 	if replay.StatusCode != http.StatusOK {
 		t.Fatalf("duplicate Apply status=%d body=%s", replay.StatusCode, replay.Body)
 	}
 	if got := load(); got.Version != applied.Version || got.Digest != applied.Digest {
 		t.Fatal("duplicate Apply mutated saved draft")
 	}
-	restoredHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", command("restore-route-a", applied.Version, applied.Digest, fmt.Sprintf(`[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]`, applied.Previous)))
+	restoredHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("restore-route-a", applied.Version, applied.Digest, fmt.Sprintf(`[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]`, applied.Previous)))
 	if restoredHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Restore status=%d body=%s", restoredHTTP.StatusCode, restoredHTTP.Body)
 	}
@@ -300,7 +301,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if restored.Version != 5 || restored.Digest != digest || !bytes.Equal(restoredRaw, original) {
 		t.Fatalf("restore did not recover exact route-A workspace/version: %#v", restored)
 	}
-	lateApply := requestJSON(t, app, http.MethodPost, base+"/commands", command("late-route-b", 3, digest, apply))
+	lateApply := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("late-route-b", 3, digest, apply))
 	if lateApply.StatusCode != http.StatusConflict {
 		t.Fatalf("late Apply after restore status=%d body=%s", lateApply.StatusCode, lateApply.Body)
 	}

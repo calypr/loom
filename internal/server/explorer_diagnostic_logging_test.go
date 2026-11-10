@@ -19,6 +19,7 @@ import (
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -36,7 +37,7 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 			query := "FOR d IN patients FILTER d.id == @secret RETURN d"
 			bindVars := map[string]any{"secret": "private-bind-value"}
 			failure := errors.New("arangodb unavailable: connection refused; query=RETURN @secret auth_token=private-auth-value")
-			gotErr := configuredAQLQueryRows(logger, phase, func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			gotErr := configuredAQLQueryRows(logger, phase, func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 				_, _, deriveErr := command.AQLParameters()
 				if deriveErr != nil {
 					return deriveErr
@@ -257,7 +258,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 
 	var queryDeadline time.Time
 	var queryRuntime time.Duration
-	queryRows := func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	queryRows := func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
@@ -271,7 +272,7 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 		queryRuntime = previewQueryMaxRuntime(ctx)
 		return visit(map[string]any{"present": true, "value": "patient-1"})
 	}
-	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{
+	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(),
 		Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
 	})
 	if err != nil {
@@ -301,8 +302,9 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 
 	backendFailure := errors.New("synthetic category backend failure")
 	failingEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 			_, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -407,8 +409,9 @@ func diagnosticCompileFixture(t *testing.T, compileRole string) (lifecycle.Compi
 		t.Fatal(err)
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
 			_, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr

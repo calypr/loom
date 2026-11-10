@@ -2,7 +2,7 @@ package execution
 
 import (
 	"context"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -47,7 +47,7 @@ func TestOutputStreamStripsCompilerOnlyColumnsAfterIdentity(t *testing.T) {
 		Columns:     []string{"id"},
 		RowIdentity: &spec.RowIdentity{Fields: []string{"_key"}},
 		command:     mustAQLCommand("FOR root IN DocumentReference RETURN root", map[string]any{"project": "P1"}),
-		stream: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		stream: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

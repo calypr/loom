@@ -3,7 +3,7 @@ package execution
 import (
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -24,7 +24,7 @@ func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 		// sha256 of the empty string: the pinned empty AQL shape.
 		wantEmpty = "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d"
 	)
-	aqlCommand, err := compiler.NewAQLCommand(aqlText, map[string]any{
+	aqlCommand, err := command.NewAQLCommand(aqlText, map[string]any{
 		"@collection":       "patients",
 		"p":                 "abc",
 		"__loom_page_size":  25,
@@ -39,7 +39,7 @@ func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 	if got != wantAQL {
 		t.Fatalf("AQL fingerprint drifted from the byte golden: got %s want %s", got, wantAQL)
 	}
-	flipped, err := compiler.NewAQLCommand(aqlText[:len(aqlText)-1]+"e", map[string]any{
+	flipped, err := command.NewAQLCommand(aqlText[:len(aqlText)-1]+"e", map[string]any{
 		"@collection":       "patients",
 		"p":                 "abc",
 		"__loom_page_size":  25,
@@ -52,8 +52,8 @@ func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 	if breakOne := CompiledQueryFingerprint(CompiledQuery{PhysicalPlan: plan, Command: flipped}); breakOne == wantAQL {
 		t.Fatalf("single-byte query flip did not change the digest: %s", breakOne)
 	}
-	pgCommand, err := compiler.NewPostgreSQLCommand("SELECT id FROM t WHERE p = $1",
-		[]compiler.PostgreSQLParameter{{Type: compiler.PostgreSQLParameterText, Value: "abc"}})
+	pgCommand, err := command.NewPostgreSQLCommand("SELECT id FROM t WHERE p = $1",
+		[]command.PostgreSQLParameter{{Type: command.PostgreSQLParameterText, Value: "abc"}})
 	if err != nil {
 		t.Fatalf("build PostgreSQL command: %v", err)
 	}
@@ -82,11 +82,11 @@ func TestCompiledQueryFingerprintExcludesBindValues(t *testing.T) {
 }
 
 func TestCompiledQueryFingerprintKeepsPostgreSQLShapeIndependentOfText(t *testing.T) {
-	first, err := compiler.NewPostgreSQLCommand("SELECT 1 AS id", []compiler.PostgreSQLParameter{{Type: compiler.PostgreSQLParameterBigint, Value: int64(1)}})
+	first, err := command.NewPostgreSQLCommand("SELECT 1 AS id", []command.PostgreSQLParameter{{Type: command.PostgreSQLParameterBigint, Value: int64(1)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := compiler.NewPostgreSQLCommand("SELECT 2 AS id WHERE x = $1", nil)
+	second, err := command.NewPostgreSQLCommand("SELECT 2 AS id WHERE x = $1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
