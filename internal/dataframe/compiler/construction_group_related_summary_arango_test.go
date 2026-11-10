@@ -107,7 +107,7 @@ func TestGroupedRelatedSourceDistinctRecordsAgainstArango(t *testing.T) {
 					query := compileConstructionOutputQuery(t, output, project, generation)
 					t.Cleanup(func() {
 						if t.Failed() {
-							t.Logf("query:\n%s\nbindings: %#v", query.Query, query.BindVars)
+							t.Logf("query:\n%s\nbindings: %#v", testAQLText(t, query.Command), testAQLBinds(t, query.Command))
 						}
 					})
 					rows := executeReshapeOracleQuery(t, ctx, client, query)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -18,7 +19,12 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 	queries := 0
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: compilerTestRegistry{},
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			queries++
 			if queries != 1 {
 				return fmt.Errorf("unrelated receipt output was streamed")

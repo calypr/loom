@@ -79,12 +79,12 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 	if e == nil || e.queryRows == nil {
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query executor is required")
 	}
-	if compiled.Query == "" || compiled.Limit <= 0 || compiled.Offset < 0 || compiled.ResourceTypeField == "" || compiled.ResourceIDField == "" || compiled.CategoryPresentField == "" || compiled.CategoryValueField == "" || compiled.CategoryTypeField == "" || compiled.OutputRowIDField == "" || compiled.ReasonField == "" || compiled.IdentityStatusField == "" || compiled.OmissionField == "" {
+	if compiled.Command.Backend() != compiler.CompiledBackendAQL || compiled.Limit <= 0 || compiled.Offset < 0 || compiled.ResourceTypeField == "" || compiled.ResourceIDField == "" || compiled.CategoryPresentField == "" || compiled.CategoryValueField == "" || compiled.CategoryTypeField == "" || compiled.OutputRowIDField == "" || compiled.ReasonField == "" || compiled.IdentityStatusField == "" || compiled.OmissionField == "" {
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query is missing typed result metadata")
 	}
 	rows := make([]TableShapeExclusion, 0, compiled.Limit+1)
 	tooMany := false
-	err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

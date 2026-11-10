@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
@@ -35,7 +36,12 @@ func blankProjectEngine(t *testing.T) (*dataframeexecution.Engine, *blankProject
 	registry := &blankProjectRegistryFailures{}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		Registry: registry,
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return errors.New("query executor consulted for blank project")
 		},
 	})

@@ -169,34 +169,34 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 		sequence.Stages[0].Group == nil || len(sequence.Stages[0].Group.RowValues) == 0 {
 		t.Fatalf("limit-1 output is not the exact typed terminal GROUP row-value plan: %#v", preview.PhysicalPlan.StageSequence)
 	}
-	assertTumorGroupLivenessPreviewFrontier(t, preview.Query)
+	assertTumorGroupLivenessPreviewFrontier(t, testAQLText(t, preview.Command))
 
-	if strings.Contains(preview.Query, "child_set_3") || strings.Contains(preview.Query, "child_set_4") || strings.Contains(preview.Query, "subject_Patient") {
-		t.Fatalf("unselected optional Patient→ResearchSubject path survived source projection liveness:\n%s", preview.Query)
+	if strings.Contains(testAQLText(t, preview.Command), "child_set_3") || strings.Contains(testAQLText(t, preview.Command), "child_set_4") || strings.Contains(testAQLText(t, preview.Command), "subject_Patient") {
+		t.Fatalf("unselected optional Patient→ResearchSubject path survived source projection liveness:\n%s", testAQLText(t, preview.Command))
 	}
 	for _, retained := range []string{
 		"child_set_1_label", "child_set_2_label", "child_set_1_scope_allowed", "child_set_2_scope_allowed",
 		"auth_resource_paths", "dataset_generation", "FILTER __correlation_version == @",
 	} {
-		if !strings.Contains(preview.Query, retained) && !strings.Contains(fmt.Sprint(preview.BindVars), retained) {
+		if !strings.Contains(testAQLText(t, preview.Command), retained) && !strings.Contains(fmt.Sprint(testAQLBinds(t, preview.Command)), retained) {
 			t.Errorf("live authorized Correlated Pivot query lost %q", retained)
 		}
 	}
 	versionFilter := "FILTER __correlation_version == @"
-	versionFilterStart := strings.Index(preview.Query, versionFilter)
+	versionFilterStart := strings.Index(testAQLText(t, preview.Command), versionFilter)
 	if versionFilterStart < 0 {
 		t.Fatal("compiled correlated Pivot query omitted exact Coding.version matching")
 	}
-	versionBindKey := strings.FieldsFunc(preview.Query[versionFilterStart+len(versionFilter):], func(r rune) bool {
+	versionBindKey := strings.FieldsFunc(testAQLText(t, preview.Command)[versionFilterStart+len(versionFilter):], func(r rune) bool {
 		return r == '\n' || r == '\r' || r == '\t' || r == ' ' || r == ')' || r == ';'
 	})
 	if len(versionBindKey) == 0 {
-		t.Fatalf("compiled version filter has no bind key: %s", preview.Query[versionFilterStart:])
+		t.Fatalf("compiled version filter has no bind key: %s", testAQLText(t, preview.Command)[versionFilterStart:])
 	}
-	if got, ok := preview.BindVars[versionBindKey[0]]; !ok || got != "" {
+	if got, ok := testAQLBinds(t, preview.Command)[versionBindKey[0]]; !ok || got != "" {
 		t.Fatalf("versionless Tumor key bind %q = %#v (present=%t), want exact empty version", versionBindKey[0], got, ok)
 	}
-	if got := preview.BindVars["auth_resource_paths"]; !reflect.DeepEqual(got, []string{"/allowed"}) {
+	if got := testAQLBinds(t, preview.Command)["auth_resource_paths"]; !reflect.DeepEqual(got, []string{"/allowed"}) {
 		t.Fatalf("authorization paths bind = %#v, want restricted /allowed scope", got)
 	}
 	rows := executeReshapeOracleQuery(t, ctx, client, preview)
@@ -219,8 +219,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 	}
 	allRows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{
 		PhysicalPlan: genericPlan,
-		Query:        genericRendered.Query,
-		BindVars:     genericRendered.BindVars,
+		Command:      testAQLCommand(genericRendered.Query, genericRendered.BindVars),
 	})
 	t.Logf("compiled all-groups AQL rows: %#v", allRows)
 	if len(allRows) != 2 {

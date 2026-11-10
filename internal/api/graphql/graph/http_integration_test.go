@@ -3,6 +3,7 @@ package graphqlapi_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -111,7 +112,12 @@ func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}
@@ -200,7 +206,12 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			if !strings.Contains(query, "LET child_set_") || !strings.Contains(query, "LENGTH(child_set_") {
 				t.Fatalf("expected physical child-set query, got:\n%s", query)
 			}

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"testing"
 
@@ -79,7 +80,13 @@ func TestReconcileSelectedOutputScopesReceiptAndPreviewPastStaleConsumer(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }
+	queryRows := func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		_, _, deriveErr := command.AQLParameters()
+		if deriveErr != nil {
+			return deriveErr
+		}
+		return nil
+	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows})
 	if err != nil {
 		t.Fatal(err)

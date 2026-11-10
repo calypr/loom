@@ -18,8 +18,7 @@ import (
 // the execution layer to hash with RowIdentity. Explicit recipe identities
 // use ExplicitIdentityColumn and preserve the compiled identity expression.
 type CompiledPopulationMappingQuery struct {
-	Query                  string
-	BindVars               map[string]any
+	Command                CompiledCommand
 	MemberColumn           string
 	IdentityPartsColumn    string
 	ExplicitIdentityColumn string
@@ -55,8 +54,12 @@ func CompilePopulationMappingOutputWithPolicy(output lower.CompiledRecipeOutput,
 	if err != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("render population mapping physical plan: %w", err)
 	}
+	command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	if commandErr != nil {
+		return CompiledPopulationMappingQuery{}, fmt.Errorf("tag population mapping command: %w", commandErr)
+	}
 	return CompiledPopulationMappingQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:                command,
 		MemberColumn:           ir.PhysicalPopulationMappingMemberField,
 		IdentityPartsColumn:    mappingIdentityPartsColumn(physical),
 		ExplicitIdentityColumn: mappingExplicitIdentityColumn(physical),

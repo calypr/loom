@@ -19,12 +19,14 @@ var previewCoveringIndexPrefixFields = []string{"project", "dataset_generation",
 // RenderPreviewPhysicalPlanWithRootIndexHint rerenders a compiled preview
 // plan with one compiler-owned, non-forcing root-index hint. It is used only
 // after runtime index metadata identifies an existing compatible definition.
-func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (string, map[string]any, error) {
+// The rerendered plan is handed to runtime only as a parent-tagged AQL
+// command; runtime cannot receive loose text or binds from this surface.
+func RenderPreviewPhysicalPlanWithRootIndexHint(plan ir.PhysicalPlan, indexName string) (CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithRootIndexHint(plan, indexName)
 	if err != nil {
-		return "", nil, err
+		return CompiledCommand{}, err
 	}
-	return rendered.Query, rendered.BindVars, nil
+	return CompiledCommandForBackend(CompiledBackendAQL, rendered)
 }
 
 func previewCoveringIndexSpec(plan ir.PhysicalPlan) *PreviewCoveringIndexSpec {
@@ -291,16 +293,22 @@ func previewGroupScanSpec(plan ir.PhysicalPlan, covering *PreviewCoveringIndexSp
 	if err != nil {
 		return nil
 	}
+	scopeCountCommand, err := CompiledCommandForBackend(CompiledBackendAQL, scopeCount)
+	if err != nil {
+		return nil
+	}
 	sequential, err := aql.RenderPhysicalPlanWithRootIndexDisabled(plan)
 	if err != nil {
 		return nil
 	}
+	sequentialCommand, err := CompiledCommandForBackend(CompiledBackendAQL, sequential)
+	if err != nil {
+		return nil
+	}
 	return &PreviewGroupScanSpec{
-		Collection:         covering.Collection,
-		SequentialQuery:    sequential.Query,
-		SequentialBindVars: sequential.BindVars,
-		ScopeCountQuery:    scopeCount.Query,
-		ScopeCountBindVars: scopeCount.BindVars,
+		Collection: covering.Collection,
+		Sequential: sequentialCommand,
+		ScopeCount: scopeCountCommand,
 	}
 }
 

@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"testing"
 
@@ -59,7 +60,12 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 			return []catalog.PopulatedReference{}, nil
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-			QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
+			QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+				_, bindVars, deriveErr := command.AQLParameters()
+				if deriveErr != nil {
+					return deriveErr
+				}
+
 				if unrestricted, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || unrestricted {
 					t.Fatalf("dataframe scope bypass = %#v, want false", bindVars["auth_resource_paths_unrestricted"])
 				}

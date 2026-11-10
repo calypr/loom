@@ -53,11 +53,11 @@ func TestPivotPresenceAudit(t *testing.T) {
 				}
 				audited := appendPresenceAuditPivot(fixture.output, stage, category, *value)
 				compiled := compilePopulationMappingOutput(t, audited)
-				result := auditCategoryAtStage(compiled, stage, category)
+				result := auditCategoryAtStage(t, compiled, stage, category)
 				if fixture.name == "unpivot" && stage.ID == "unpivot" && (category.Name == "amount" || category.Name == "measure") {
 					scanned, err := CompileCategoryScanStageWithPolicy(compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 					if err == nil {
-						for _, line := range strings.Split(scanned.Query, "\n") {
+						for _, line := range strings.Split(testAQLText(t, scanned.Command), "\n") {
 							if strings.Contains(line, "__loom_category_scan_presence") {
 								t.Logf("MARKER %s/%s: %s", stage.ID, category.Name, strings.TrimSpace(line))
 							}
@@ -96,7 +96,7 @@ func eligibleCategoryColumns(columns []lower.CompiledOutputColumn) []lower.Compi
 	return eligible
 }
 
-func auditCategoryAtStage(output lower.CompiledRecipeOutput, stage lower.CompiledStageDescriptor, category lower.CompiledOutputColumn) categoryAuditResult {
+func auditCategoryAtStage(t *testing.T, output lower.CompiledRecipeOutput, stage lower.CompiledStageDescriptor, category lower.CompiledOutputColumn) categoryAuditResult {
 	lastCode := ""
 	for _, value := range eligibleCategoryColumns(stage.Columns) {
 		if value.ID == category.ID {
@@ -113,8 +113,8 @@ func auditCategoryAtStage(output lower.CompiledRecipeOutput, stage lower.Compile
 		}
 		return categoryAuditResult{
 			status:   "SUPPORTED",
-			queryLen: len(scanned.Query),
-			forLoops: strings.Count(scanned.Query, "FOR "),
+			queryLen: len(testAQLText(t, scanned.Command)),
+			forLoops: strings.Count(testAQLText(t, scanned.Command), "FOR "),
 			presence: scanned.Proof.PresenceTracked,
 			indexed:  scanned.CategoryIndex != nil || scanned.PreviewCoveringIndex != nil,
 			witness:  scanned.OverflowWitness != nil,

@@ -37,25 +37,27 @@ type PreviewCoveringIndexReplacement struct {
 }
 
 // PreviewGroupScanSpec contains compiler-rendered alternatives for a narrow
-// direct-source Group preview. Runtime may choose SequentialQuery only after
+// direct-source Group preview. Runtime may choose Sequential only after
 // verifying the current scan is non-covering and that the exact scoped source
-// count is close to the collection cardinality.
+// count is close to the collection cardinality. Both alternatives are
+// parent-tagged AQL commands; execution hands them to the AQL row-stream
+// adapter unchanged and never extracts loose query text or bind maps from
+// them for execution.
 type PreviewGroupScanSpec struct {
-	Collection         string
-	SequentialQuery    string
-	SequentialBindVars map[string]any
-	ScopeCountQuery    string
-	ScopeCountBindVars map[string]any
+	Collection string
+	Sequential CompiledCommand
+	ScopeCount CompiledCommand
 }
 
 // PreviewGroupProjectionSpec marks a direct semantic Group whose complete
 // Coding-array projection can be safely factored. Runtime must use the exact
-// scoped count evidence before considering the alternative query.
+// scoped count evidence before considering the alternative query. ScopeCount
+// is a parent-tagged AQL command, executed only through the AQL row-stream
+// adapter.
 type PreviewGroupProjectionSpec struct {
-	Collection         string
-	ScopeCountQuery    string
-	ScopeCountBindVars map[string]any
-	ReadOnlyIndex      *PreviewGroupProjectionIndexSpec
+	Collection    string
+	ScopeCount    CompiledCommand
+	ReadOnlyIndex *PreviewGroupProjectionIndexSpec
 }
 
 // PreviewGroupProjectionIndexSpec describes read-only requirements for
@@ -67,12 +69,15 @@ type PreviewGroupProjectionIndexSpec struct {
 }
 
 // CompiledQuery is the executable result of the canonical recipe compiler.
-// It contains parameterized AQL plus stable metadata for execution, export,
-// and diagnostics; it does not expose a transport-specific request builder.
+// The only executable payload is Command: the single parent-tagged compiled
+// command produced by the canonical renderer. Shared execution consumes the
+// tagged command and hands it to exactly the adapter registered for its tag;
+// no caller receives loose rendered text or a named bind map as an execution
+// parameter, and there is no transport-specific request builder.
 type CompiledQuery struct {
 	// PhysicalPlan is the finalized execution plan after optimization and
 	// preview-window insertion. It is retained for server-owned execution
-	// preparation; Query and BindVars remain the rendered public result.
+	// preparation; Command remains the rendered executable result.
 	PhysicalPlan       ir.PhysicalPlan
 	Project            string
 	DatasetGeneration  string
@@ -84,9 +89,16 @@ type CompiledQuery struct {
 	TraversalCount     int
 	OptimizationRules  []string
 	RowIdentity        *spec.RowIdentity
-	Query              string
-	BindVars           map[string]any
-	Columns            []string
+	// Command is the parent-tagged executable produced by the canonical
+	// renderer for this output. AQL-served outputs carry an AQL-tagged
+	// command; a PostgreSQL-served output carries a PostgreSQL-tagged
+	// command set by the composition seam. Source execution fails a
+	// zero-tag Command closed; a ClickHouse Combine CompiledQuery carries
+	// no source command at all because Combine runs on its dedicated
+	// publication-plane path and can never be selected through a source
+	// command.
+	Command CompiledCommand
+	Columns []string
 	// OutputSchema is the compiler-owned ordered schema for the finalized
 	// physical RETURN projections. PublicColumns is the transport-safe view;
 	// Columns remains the legacy execution metadata used by generic runtime

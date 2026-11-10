@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -145,7 +146,12 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		// QueryRows stands in for Arango at the database boundary; the renderer test
 		// checks the generated assertion, while this route test supplies the two
 		// literal IDs from the retained raw fixture as the query result oracle.
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			previewQueryCalls++
 			if !strings.Contains(query, "root.payload.id") {
 				return fmt.Errorf("Patient.id chooser query did not read the raw source id: %s", query)

@@ -77,8 +77,13 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := &Engine{batchSize: 100, queryRows: func(queryCtx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-		return client.QueryRows(queryCtx, query, batchSize, bindVars, visit)
+	engine := &Engine{batchSize: 100, queryRows: func(queryCtx context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+		query, bindVars, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
+		return client.QueryRows(queryCtx, query, batchSize, bindVars, store.RowVisitor(visit))
 	}}
 	for _, want := range wants {
 		// Source identities include both tenant scope and the inserted Arango key.

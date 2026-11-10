@@ -136,7 +136,15 @@ func classifyDataframeQueryError(err error) error {
 }
 
 func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframeexecution.QueryRows) dataframeexecution.QueryRows {
-	return func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+	return func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
+		// The logging and hash policy derives the AQL view through closed
+		// dispatch: a command that is not AQL-tagged is rejected here, before
+		// execute and long before any driver call, and PostgreSQL statement
+		// SQL is never logged or hashed as if it were AQL.
+		query, bindVars, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
 		started := time.Now()
 		digest := sha256.Sum256([]byte(query))
 		queryHash := hex.EncodeToString(digest[:])
@@ -144,7 +152,7 @@ func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframe
 			logger.Info("dataframe AQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
 				"query_hash", queryHash, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
 		}
-		err := preserveConfiguredQueryError(execute(ctx, query, batchSize, bindVars, visit))
+		err := preserveConfiguredQueryError(execute(ctx, command, batchSize, visit))
 		level := slog.LevelInfo
 		if err != nil {
 			level = slog.LevelError
@@ -511,8 +519,12 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
-		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+		query, binds, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, arangostore.RowVisitor(visit)))
 	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
@@ -601,13 +613,21 @@ func run(ctx context.Context, serverConfig Config) error {
 		},
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
+			query, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
 			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
 		}),
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
+			query, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
 			return lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		}),
 		ScopeDigest:  recipeScopeDigest,

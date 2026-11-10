@@ -30,13 +30,19 @@ func CompileResolvedGraphQueryWithPolicy(resolved semantic.ResolvedRecipePlan, l
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render graph physical plan: %w", err)
 	}
+	// The graph frontend's rendering becomes execution input only as the
+	// parent-tagged AQL command; loose rendered text never reaches callers.
+	command, err := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	if err != nil {
+		return CompiledQuery{}, fmt.Errorf("tag graph command: %w", err)
+	}
 	output := resolved.SemanticPlan.Outputs[0]
 	bindings := resolved.SemanticPlan.Bindings
 	return CompiledQuery{
 		Project: bindings.Project, DatasetGeneration: normalizeDatasetGeneration(bindings.DatasetGeneration),
 		RootResourceType: output.RootResourceType, AuthResourcePaths: cloneStrings(bindings.AuthResourcePaths),
 		PlanMode: "physical", PlanProfile: "generic_fhir_graph_path", TraversalCount: physicalTraversalCount(physical),
-		OptimizationRules: recipeOptimizationRules(physical), Query: rendered.Query, BindVars: rendered.BindVars,
+		OptimizationRules: recipeOptimizationRules(physical), Command: command,
 		Columns: []string{"paths"}, PublicColumns: []string{"paths"}, Limit: limit,
 		PlanDiagnostics: physicalPlanDiagnostics(physical),
 	}, nil

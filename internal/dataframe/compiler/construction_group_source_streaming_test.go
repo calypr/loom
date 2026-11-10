@@ -86,34 +86,34 @@ func TestRelatedUnnestCountRowsStreamsSourceProjection(t *testing.T) {
 		"FILTER ASSERT(__loom_construction_group_key_1 == null OR TYPENAME(__loom_construction_group_key_1) == @",
 		"FILTER expansion_route_1_scope_allowed == @scope_allowed",
 	} {
-		if !strings.Contains(query.Query, want) {
-			t.Errorf("streamed related COUNT_ROWS query missing %q:\n%s", want, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), want) {
+			t.Errorf("streamed related COUNT_ROWS query missing %q:\n%s", want, testAQLText(t, query.Command))
 		}
 	}
-	if got := query.BindVars["__loom_physical_construction_construction_group_key_type_0"]; got != "string" {
+	if got := testAQLBinds(t, query.Command)["__loom_physical_construction_construction_group_key_type_0"]; got != "string" {
 		t.Fatalf("group key type bind = %#v, want string", got)
 	}
-	if strings.Contains(query.Query, "LET __loom_construction_source_projection = (") {
-		t.Fatalf("related COUNT_ROWS query retained the projected source array:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "LET __loom_construction_source_projection = (") {
+		t.Fatalf("related COUNT_ROWS query retained the projected source array:\n%s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "FOR __loom_construction_input_1 IN __loom_construction_source_projection") {
-		t.Fatalf("GROUP re-read materialized source rows:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "FOR __loom_construction_input_1 IN __loom_construction_source_projection") {
+		t.Fatalf("GROUP re-read materialized source rows:\n%s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "FILTER __loom_construction_input_1[@__loom_physical_construction_construction_group_key_column_0] != null") {
-		t.Fatalf("GROUP excluded missing keys instead of grouping null values:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "FILTER __loom_construction_input_1[@__loom_physical_construction_construction_group_key_column_0] != null") {
+		t.Fatalf("GROUP excluded missing keys instead of grouping null values:\n%s", testAQLText(t, query.Command))
 	}
-	projectionAt := strings.Index(query.Query, "LET __loom_construction_input_1 = {")
-	collectAt := strings.Index(query.Query, "COLLECT __loom_construction_group_key_1 = __loom_construction_input_1[@")
-	if projectionAt < 0 || collectAt <= projectionAt || !strings.Contains(query.Query[projectionAt:collectAt], "__loom_expansion_node_1.payload.subject.reference") {
-		t.Fatalf("projected source row does not feed GROUP directly:\n%s", query.Query)
+	projectionAt := strings.Index(testAQLText(t, query.Command), "LET __loom_construction_input_1 = {")
+	collectAt := strings.Index(testAQLText(t, query.Command), "COLLECT __loom_construction_group_key_1 = __loom_construction_input_1[@")
+	if projectionAt < 0 || collectAt <= projectionAt || !strings.Contains(testAQLText(t, query.Command)[projectionAt:collectAt], "__loom_expansion_node_1.payload.subject.reference") {
+		t.Fatalf("projected source row does not feed GROUP directly:\n%s", testAQLText(t, query.Command))
 	}
-	projectionLineEnd := strings.Index(query.Query[projectionAt:], "\n") + projectionAt
-	if strings.TrimSpace(query.Query[projectionLineEnd:collectAt]) != "" {
-		t.Fatalf("GROUP is not the next operation after its scalar source projection LET:\n%s", query.Query)
+	projectionLineEnd := strings.Index(testAQLText(t, query.Command)[projectionAt:], "\n") + projectionAt
+	if strings.TrimSpace(testAQLText(t, query.Command)[projectionLineEnd:collectAt]) != "" {
+		t.Fatalf("GROUP is not the next operation after its scalar source projection LET:\n%s", testAQLText(t, query.Command))
 	}
-	unnestAt := strings.Index(query.Query, "FOR __loom_physical_unnest_index_0 IN")
-	traversalAt := strings.Index(query.Query, "FOR __loom_expansion_edge_1 IN")
+	unnestAt := strings.Index(testAQLText(t, query.Command), "FOR __loom_physical_unnest_index_0 IN")
+	traversalAt := strings.Index(testAQLText(t, query.Command), "FOR __loom_expansion_edge_1 IN")
 	if traversalAt < 0 || unnestAt <= traversalAt || collectAt <= unnestAt {
-		t.Fatalf("relationship and UNNEST loops must remain before COUNT_ROWS COLLECT:\n%s", query.Query)
+		t.Fatalf("relationship and UNNEST loops must remain before COUNT_ROWS COLLECT:\n%s", testAQLText(t, query.Command))
 	}
 }

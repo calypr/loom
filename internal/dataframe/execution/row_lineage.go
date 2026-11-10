@@ -54,7 +54,7 @@ func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.Compi
 	}
 	var result RowLineageResult
 	found := false
-	if err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	if err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

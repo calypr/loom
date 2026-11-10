@@ -280,10 +280,20 @@ func (s *exec02Service) qualifiedTable(name string) string {
 func exec02ForbidArango() Config {
 	return Config{
 		Registry: invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return errors.New("AQL QueryRows must never run for a PostgreSQL-served plan")
 		},
-		PreviewQueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return errors.New("AQL PreviewQueryRows must never run for a PostgreSQL-served plan")
 		},
 		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
@@ -312,7 +322,7 @@ func exec02EngineConfig(s *exec02Service, selection *ResolvedPostgreSQLCommand) 
 	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
 		return selection, nil
 	}
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit PostgreSQLRowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 		return s.executor.QueryRows(ctx, command, columns, dataframepostgres.RowVisitor(visit))
 	}
 	return config
@@ -883,7 +893,7 @@ func TestPostgresEngineCrossTagRefusedBeforeServer(t *testing.T) {
 	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
 		return &ResolvedPostgreSQLCommand{Command: crossTag, Columns: []string{"id"}}, nil
 	}
-	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit PostgreSQLRowVisitor) error {
+	config.PostgreSQLQueryRows = func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 		return executor.QueryRows(ctx, command, columns, dataframepostgres.RowVisitor(visit))
 	}
 	engine, err := New(config)

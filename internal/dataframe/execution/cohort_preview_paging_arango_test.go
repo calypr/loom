@@ -145,7 +145,12 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 	queryErr := error(nil)
 	engine, err := New(Config{
 		Registry: invalidRecipeRegistry{}, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 1,
-		QueryRows: func(queryCtx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
+		QueryRows: func(queryCtx context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+			query, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if _, paged := bindVars[compiler.RootPageKeysBind]; paged {
 				rootPageQueries++
 			}
@@ -153,7 +158,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 				candidateScanQuery = query
 				candidateScanBinds = bindVars
 			}
-			queryErr = client.QueryRows(queryCtx, query, batchSize, bindVars, visit)
+			queryErr = client.QueryRows(queryCtx, query, batchSize, bindVars, store.RowVisitor(visit))
 			return queryErr
 		},
 	})

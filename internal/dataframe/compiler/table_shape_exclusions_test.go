@@ -45,24 +45,24 @@ func TestCompileTableShapeExclusionsUsesCanonicalGroupedPivotInputs(t *testing.T
 		"LIMIT @table_shape_exclusion_offset, @table_shape_exclusion_fetch_limit",
 		"__loom_physical_exclusion_output_row_id", "@__loom_physical_exclusion_category_column",
 	} {
-		if !strings.Contains(query.Query, want) {
-			t.Fatalf("exclusion query missing %q:\n%s", want, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), want) {
+			t.Fatalf("exclusion query missing %q:\n%s", want, testAQLText(t, query.Command))
 		}
 	}
-	if strings.Contains(query.Query, "derived-after-pivot") || strings.Contains(query.Query, "LET after =") {
-		t.Fatalf("diagnostic terminal evaluated work after the grouped pivot:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "derived-after-pivot") || strings.Contains(testAQLText(t, query.Command), "LET after =") {
+		t.Fatalf("diagnostic terminal evaluated work after the grouped pivot:\n%s", testAQLText(t, query.Command))
 	}
-	if query.Offset != 7 || query.Limit != 12 || query.BindVars["table_shape_exclusion_offset"] != 7 || query.BindVars["table_shape_exclusion_fetch_limit"] != 13 {
-		t.Fatalf("unexpected bounded page metadata: %#v %#v", query, query.BindVars)
+	if query.Offset != 7 || query.Limit != 12 || testAQLBinds(t, query.Command)["table_shape_exclusion_offset"] != 7 || testAQLBinds(t, query.Command)["table_shape_exclusion_fetch_limit"] != 13 {
+		t.Fatalf("unexpected bounded page metadata: %#v %#v", query, testAQLBinds(t, query.Command))
 	}
-	if !containsBindValue(query.BindVars, ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(query.BindVars, "string_category") || !containsBindValue(query.BindVars, "known") || !containsBindValue(query.BindVars, ir.PhysicalTableShapeExclusionCategoryPresentField) || !containsBindValue(query.BindVars, ir.PhysicalTableShapeExclusionReasonUnlistedCategory) {
-		t.Fatalf("query does not bind exact source document and canonical category identity: %#v", query.BindVars)
+	if !containsBindValue(testAQLBinds(t, query.Command), ir.PhysicalCellTraceSourceDocumentField) || !containsBindValue(testAQLBinds(t, query.Command), "string_category") || !containsBindValue(testAQLBinds(t, query.Command), "known") || !containsBindValue(testAQLBinds(t, query.Command), ir.PhysicalTableShapeExclusionCategoryPresentField) || !containsBindValue(testAQLBinds(t, query.Command), ir.PhysicalTableShapeExclusionReasonUnlistedCategory) {
+		t.Fatalf("query does not bind exact source document and canonical category identity: %#v", testAQLBinds(t, query.Command))
 	}
-	if !strings.Contains(query.Query, "HAS(") || !containsBindValue(query.BindVars, "__loom_exclusion_category_present") {
-		t.Fatalf("exclusion diagnostic lost source presence for ordinary value categories: %s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "HAS(") || !containsBindValue(testAQLBinds(t, query.Command), "__loom_exclusion_category_present") {
+		t.Fatalf("exclusion diagnostic lost source presence for ordinary value categories: %s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, `"known"`) {
-		t.Fatalf("category value was interpolated rather than retained as a typed canonical bind:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), `"known"`) {
+		t.Fatalf("category value was interpolated rather than retained as a typed canonical bind:\n%s", testAQLText(t, query.Command))
 	}
 }
 
