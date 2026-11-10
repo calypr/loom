@@ -339,3 +339,56 @@ func mustRender(t *testing.T, plan ir.PhysicalPlan, schema string) command.Rende
 	}
 	return rendered
 }
+
+// TestSetLiveRelatedExistsChainedRouteSemiJoin witnesses the multi-hop
+// assembly on real rows: a Patient reaches a Specimen only through the
+// Observation hop, so the chained EXISTS keeps exactly the parent whose
+// second hop also resolves, and the negation keeps the parent whose route
+// dead-ends. The chained path has no production lowering output yet (see
+// the sets.go header), so the live witness here is what keeps the
+// second-hop assembly from shipping as provably-refused-only.
+func TestSetLiveRelatedExistsChainedRouteSemiJoin(t *testing.T) {
+	svc := newSets08Service(t)
+	sets08TrackFixtures(t, svc)
+
+	setsInsertPatient(t, svc, "p-chain")
+	setsInsertPatient(t, svc, "p-deadend")
+	svc.insertResource(t, svc.schema, setsProj, setsGen, "Observation", "obs-mid", "FHIR/Observation", nil)
+	// The dead-end parent routes through its own mid Observation with no
+	// outgoing second hop: sharing one mid would make both chains resolve.
+	svc.insertResource(t, svc.schema, setsProj, setsGen, "Observation", "obs-alt", "FHIR/Observation", nil)
+	svc.insertResource(t, svc.schema, setsProj, setsGen, "Specimen", "spec-1", "FHIR/Specimen", nil)
+	setsInsertRouteEdge(t, svc, "p-chain", "obs-mid", "observation[0]")
+	setsInsertRouteEdge(t, svc, "p-deadend", "obs-alt", "observation[0]")
+	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+		Project: setsProj, DatasetGeneration: setsGen, AuthResourcePath: "FHIR/Observation",
+		Label: "has-specimen", SourceResourceType: "Observation", SourceLogicalID: "obs-mid",
+		TargetResourceType: "Specimen", TargetLogicalID: "spec-1", SourcePath: "specimen[0]", SourceOrdinal: 0,
+	})
+
+	// The chained route reaches Specimen, so the auth list must include it
+	// for the second hop's structural scope to admit the target row.
+	plan := setsRelatedExistsTwoHopPlan()
+	plan.BindVars["auth_resource_paths"] = []string{"FHIR/Patient", "FHIR/Observation", "FHIR/Specimen"}
+	positive := svc.runRendered(t, mustRender(t, plan, svc.schema))
+	if len(positive) != 1 || positive[0][0] != "p-chain" {
+		t.Fatalf("chained EXISTS must keep only the parent whose second hop resolves: %v", positive)
+	}
+
+	// Alive control: the shared first hop really exists for the excluded
+	// parent, so its exclusion is the second hop, never a missing route.
+	firstHop := svc.witness(t,
+		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence"`+
+			` WHERE project=$1 AND dataset_generation=$2 AND label=$3 AND source_logical_id='p-deadend'`,
+		setsProj, setsGen, setsEdgeLabel)
+	if len(firstHop) != 1 || firstHop[0][0] != "1" {
+		t.Fatalf("dead-end parent must store its first hop for the exclusion to mean anything: %v", firstHop)
+	}
+	secondHop := svc.witness(t,
+		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence"`+
+			` WHERE project=$1 AND dataset_generation=$2 AND label='has-specimen'`,
+		setsProj, setsGen)
+	if len(secondHop) != 1 || secondHop[0][0] != "1" {
+		t.Fatalf("the chained occurrence must be stored exactly once: %v", secondHop)
+	}
+}

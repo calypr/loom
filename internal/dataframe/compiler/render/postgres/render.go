@@ -57,9 +57,11 @@
 // sets (pg-sql-08) are registered in sets.go as their own closed operation
 // slice: the child_sets.go child set with its FIRST/ALL/DISTINCT selector
 // reductions renders as parent-preserving per-field scalar sublinks over
-// the deduplicated child items, and the RELATED eligibility existence
-// filter (with its registered top-level NOT form) shares the validated
-// correlated-hop renderer; the REQUIRED match EXISTS stays owned by
+// the deduplicated child items, and the hop-only canonical RELATED
+// existence shape (with its registered top-level NOT form) shares the
+// validated correlated-hop renderer; production related-eligibility plans
+// keep failing closed until the anchor prefix's subplan-argument call is
+// registered (sets.go header). The REQUIRED match EXISTS stays owned by
 // traversal.go unchanged. Endpoint-lookup traversals, repeated/indexed
 // selector predicates, correlated predicates, CONTAINS_TEXT, shared
 // subsets, prepared sets, node-path sets, subplans outside the two

@@ -1,9 +1,10 @@
 package postgres
 
 // This file registers the correlated related-record set and its reductions
-// as an implemented, closed PostgreSQL operation slice (pg-sql-08), plus the
-// RELATED existence filter the recipe builder lowers beside it. It is the
-// single authority in this package for the ir.PhysicalSetOp surface.
+// as an implemented, closed PostgreSQL operation slice (pg-sql-08), plus
+// the hop-only canonical RELATED existence shape (see the RELATED section
+// below for its exact reachability from current lowering). It is the single
+// authority in this package for the ir.PhysicalSetOp surface.
 //
 // The AQL counterpart of the set is render/aql/navigation_render.go
 // renderSet (lines 217-332): a LET over a FOR loop inside a LET, so the set
@@ -65,18 +66,33 @@ package postgres
 // never join (the INNER edge-to-target join is the traversal.go exactness
 // decision).
 //
-// The RELATED existence filter (lower/recipe_construction_related_eligibility.go
-// :208-213) is the FILTER-side sibling of the REQUIRED match: a bounded
-// correlated EXISTS over one or more chained hops, each hop followed by its
-// canonical scope block, typed FILTER operations over reached rows, and the
-// canonical scalar {_id} return physicalValueExpression emits. EXISTS is a
-// semi-join: it never multiplies parent rows, is total (never SQL NULL), so
-// the registered top-level NOT(EXISTS) form needs no COALESCE guard. The
+// The RELATED existence surface registered here is the hop-only canonical
+// shape: a bounded correlated EXISTS over one or more chained hops, each
+// hop closing with its canonical scope block, typed FILTER operations over
+// reached rows, and the canonical scalar {_id} return physicalValueExpression
+// emits (recipe_construction_related_expand.go:336). EXISTS is a semi-join:
+// it never multiplies parent rows, is total (never SQL NULL), so the
+// registered top-level NOT(EXISTS) form needs no COALESCE guard. The
 // predicate dispatch in predicates.go classifies each whole-FILTER EXISTS:
 // the REQUIRED constant-1 return stays with traversal.go
 // renderRequiredMatchExists unchanged; the canonical RELATED {_id} return is
 // rendered here; anything else keeps the legacy traversal.go refusal, so
 // every pre-existing golden error stays byte-identical.
+//
+// What production lowering emits today is NOT yet this reachable shape.
+// lowerConstructionRelatedEligibility (recipe_construction_related_eligibility.go
+// :93-130) prefixes every eligibility subplan with an anchor operation — a
+// COLLECTION_SCAN plus a variable-right Predicate FILTER for the
+// root/rootContributors kind, or a DOCUMENT_LOOKUP for activeRelatedRecord —
+// followed by the anchor variable's own canonical scope block, and its
+// filter attaches only as stage.Filter on a PhysicalStageRelatedEligibilityOp
+// (recipe_construction.go:1483), which RenderPhysicalPlan refuses before
+// operation dispatch (StageSequence != nil). Both anchor operations are
+// subplan-argument calls that stay unregistered this wave by the batch
+// ruling, so the anchor-prefixed eligibility plan fails closed here (witnessed
+// by TestRelatedExistsAnchorPrefixedProductionShapeStaysRefused), and the
+// registration above is what the later subplan-argument registration will
+// hand off to. No current lowering output reaches the hop-only renderer.
 //
 // Refusals (all ErrUnsupportedPostgresPlan, never an AQL fallback): shared
 // subsets over a materialized set (renderSharedSubset has no registered
@@ -474,12 +490,15 @@ func isRelatedExistsSubplan(subplan *ir.PhysicalSubplan) bool {
 		len(ret.Value.Path) == 1 && ret.Value.Path[0] == "_id"
 }
 
-// renderRelatedExists renders the RELATED eligibility semi-join:
-// lower/recipe_construction_related_eligibility.go:208-213 emits it for
-// RelatedEligibilityExists (and the NOT form) as a bounded correlated
-// EXISTS over one or more chained hops, each closing with its canonical
-// scope block, typed FILTERs over reached rows, and the canonical scalar
-// {_id} return (physicalValueExpression, recipe_construction_related_expand.go:336).
+// renderRelatedExists renders the hop-only RELATED existence semi-join:
+// chained hops, each closing with its canonical scope block, typed FILTERs
+// over reached rows, and the canonical scalar {_id} return
+// physicalValueExpression emits (recipe_construction_related_expand.go:336).
+// That is the return shape lower/recipe_construction_related_eligibility.go
+// :208-213 puts on RelatedEligibilityExists (and its NOT form), but the
+// emitted subplan additionally carries the anchor prefix refused this wave
+// (see the file header): no production lowering reaches this renderer yet,
+// so it registers the canonical hand-off shape rather than a live route.
 // EXISTS discards the value; the pin keeps the renderer from silently
 // accepting another surface's return. Like the REQUIRED match, projection
 // modifiers are refused (the AQL bounded renderSubplan refuses them too,

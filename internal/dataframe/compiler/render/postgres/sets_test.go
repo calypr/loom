@@ -13,12 +13,15 @@ import (
 
 // ---------------------------------------------------------------------------
 // pg-sql-08 offline registration tests: the closed child-set slice, its
-// FIRST/ALL/DISTINCT reductions, the RELATED eligibility existence filter,
-// and the refusal battery. Fixtures are built as plan.Validate-aware
-// structural mirrors of lower/child_sets.go
-// buildOptionalChildPhysicalSet and lower/
-// recipe_construction_related_eligibility.go, so every assertion below
-// exercises the renderer gate, never an IR escape.
+// FIRST/ALL/DISTINCT reductions, the hop-only canonical RELATED existence
+// shape, and the refusal battery. The set fixtures are plan.Validate-aware
+// structural mirrors of lower/child_sets.go buildOptionalChildPhysicalSet.
+// The RELATED existence fixtures are the hop-only canonical shape only:
+// production related-eligibility lowering prefixes its subplan with an
+// anchor operation and attaches the filter at stage level, so no lowered
+// plan reaches the hop-only renderer — that production shape's fail-closed
+// refusal is pinned here too (TestRelatedExistsAnchorPrefixedProductionShapeStaysRefused),
+// and every assertion exercises the renderer gate, never an IR escape.
 // ---------------------------------------------------------------------------
 
 const (
@@ -196,8 +199,10 @@ func TestSetChildSetReductionsRenderAsCorrelatedScalarSublinks(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// RELATED eligibility existence filter (lower/
-// recipe_construction_related_eligibility.go:208-213).
+// RELATED existence: the hop-only canonical shape (the canonical {_id}
+// return of lower/recipe_construction_related_eligibility.go:208-213 over
+// hops that close with their canonical scope blocks) and the refusal of
+// the anchor-prefixed shape production actually emits.
 // ---------------------------------------------------------------------------
 
 func setsRelatedExistsExpression(negate bool) ir.PhysicalPredicateExpression {
@@ -750,5 +755,182 @@ func TestTwoSetsRenderIndependentReducedObjects(t *testing.T) {
 		if !bound[want] {
 			t.Fatalf("selector path %q never bound: %v", want, rendered.Args)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Production-shape honesty: the eligibility subplans
+// lowerConstructionRelatedEligibility actually emits carry an anchor
+// operation (COLLECTION_SCAN + variable-right Predicate FILTER, or
+// DOCUMENT_LOOKUP) plus the anchor's own canonical scope block before the
+// first hop, and their filter attaches only as stage.Filter on a
+// PhysicalStageRelatedEligibilityOp (rejected upstream with StageSequence).
+// The anchor operations are subplan-argument calls, unregistered this wave,
+// so the production shape must fail closed here.
+// ---------------------------------------------------------------------------
+
+func setsAnchorPrefixedPlan(t *testing.T, anchorKind string) ir.PhysicalPlan {
+	t.Helper()
+	traversal := setsTraversal()
+	anchorVariable := "related_eligibility_0_anchor"
+	operations := make([]ir.PhysicalOperation, 0, 10)
+	switch anchorKind {
+	case "scan":
+		// recipe_construction_related_eligibility.go:95-115: the
+		// root/rootContributors anchor is a COLLECTION_SCAN plus a
+		// Predicate-form FILTER whose right side is a VARIABLE.
+		operations = append(operations,
+			ir.PhysicalOperation{Kind: ir.PhysicalCollectionScanOp, CollectionScan: &ir.PhysicalCollectionScan{
+				Variable: anchorVariable, CollectionBindKey: "root_collection",
+			}},
+			ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+				Operator: "EQUALS",
+				Left:     ir.PhysicalValue{Variable: anchorVariable, Path: []string{"_key"}},
+				Right:    &ir.PhysicalValue{Variable: "root", Path: []string{"_key"}},
+			}}})
+	case "lookup":
+		// :116-127: the activeRelatedRecord anchor is a DOCUMENT_LOOKUP.
+		operations = append(operations,
+			ir.PhysicalOperation{Kind: ir.PhysicalDocumentLookupOp, DocumentLookup: &ir.PhysicalDocumentLookup{
+				Variable: anchorVariable, CollectionBindKey: "related_eligibility_anchor_collection",
+				ExactID: ir.PhysicalValue{Variable: "root", Path: []string{"focus_id"}},
+			}})
+	default:
+		t.Fatalf("unknown anchor kind %q", anchorKind)
+	}
+	// :128-130: the anchor variable's own canonical scope block.
+	operations = appendScopeBlock(operations, []string{anchorVariable}, "related_eligibility_0_anchor_scope_allowed")
+	operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &traversal})
+	operations = appendScopeBlock(operations, []string{setsEdgeVariable, setsTargetVariable}, setsPrefix+"_scope_auth")
+	subplan := ir.PhysicalSubplan{
+		Captures:   []string{"root"},
+		Operations: operations,
+		Return: ir.PhysicalExpression{
+			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Value:        &ir.PhysicalValue{Variable: setsTargetVariable, Path: []string{"_id"}},
+		},
+	}
+	expression := ir.PhysicalPredicateExpression{Kind: ir.PhysicalExistsPredicate, Exists: &subplan}
+	plan := setsPlan()
+	plan.BindVars["related_eligibility_anchor_collection"] = "Observation"
+	plan.Operations = plan.Operations[:len(plan.Operations)-1]
+	plan.Operations = append(plan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &expression}},
+		setsReturn())
+	return plan
+}
+
+func TestRelatedExistsAnchorPrefixedProductionShapeStaysRefused(t *testing.T) {
+	for _, anchorKind := range []string{"scan", "lookup"} {
+		plan := setsAnchorPrefixedPlan(t, anchorKind)
+		_, err := RenderPhysicalPlan(plan, mustBinding(t))
+		wantUnsupported(t, err, "anchor-prefixed ("+anchorKind+") eligibility subplan")
+		// The refusal must be the subplan-argument gap, not an accidental
+		// success further along: the anchor operation is the first thing
+		// the loop sees.
+		if !strings.Contains(err.Error(), "has kind") {
+			t.Fatalf("%s anchor refusal must name the anchor operation kind: %v", anchorKind, err)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chained-hop happy path: the multipleTraversals surface (the hop-only
+// RELATED existence shape's multi-hop route) has no production caller yet,
+// so its second-hop assembly — the edge INNER JOIN carrying the full
+// predicate chain in ON, the chained anchor identity equality, the target
+// INNER JOIN, and the chained scope-block consumption — is pinned here and
+// witnessed live (sets_live_test.go) rather than left provably-refused-only.
+// ---------------------------------------------------------------------------
+
+func setsRelatedExistsTwoHopPlan() ir.PhysicalPlan {
+	hopOne := setsTraversal()
+	hopTwo := setsTraversal()
+	hopTwo.SourceVariable = setsTargetVariable
+	hopTwo.TargetVariable = setsPrefix + "_node2"
+	hopTwo.EdgeVariable = setsPrefix + "_edge2"
+	hopTwo.EdgeCollectionBindKey = setsPrefix + "_edge_collection2"
+	hopTwo.EdgeLabelBindKey = setsPrefix + "_edge_label2"
+	hopTwo.TargetTypeBindKey = setsPrefix + "_target_type2"
+	operations := []ir.PhysicalOperation{{Kind: ir.PhysicalTraversalOp, Traversal: &hopOne}}
+	operations = appendScopeBlock(operations, []string{setsEdgeVariable, setsTargetVariable}, setsPrefix+"_scope_auth")
+	operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalTraversalOp, Traversal: &hopTwo})
+	operations = appendScopeBlock(operations,
+		[]string{setsPrefix + "_edge2", setsPrefix + "_node2"}, setsPrefix+"_scope_auth2")
+	subplan := ir.PhysicalSubplan{
+		Captures:   []string{"root"},
+		Operations: operations,
+		Return: ir.PhysicalExpression{
+			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Value:        &ir.PhysicalValue{Variable: setsPrefix + "_node2", Path: []string{"_id"}},
+		},
+	}
+	expression := ir.PhysicalPredicateExpression{Kind: ir.PhysicalExistsPredicate, Exists: &subplan}
+	plan := setsPlan()
+	plan.BindVars[setsPrefix+"_edge_collection2"] = "fhir_edge"
+	plan.BindVars[setsPrefix+"_edge_label2"] = "has-specimen"
+	plan.BindVars[setsPrefix+"_target_type2"] = "Specimen"
+	plan.Operations = plan.Operations[:len(plan.Operations)-1]
+	plan.Operations = append(plan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Expression: &expression}},
+		setsReturn())
+	return plan
+}
+
+func TestRelatedExistsChainedRouteGoldenAssemblesBothHops(t *testing.T) {
+	rendered := renderOK(t, setsRelatedExistsTwoHopPlan())
+	sql := rendered.SQL
+	// FROM list: the first hop's edge relation carries the correlation in
+	// WHERE; every later hop joins its edge in ON with the full predicate
+	// chain, mirroring traversal.go's chained assembly.
+	for _, want := range []string{
+		`FROM "pgir02_it_unit"."fhir_edge_occurrence" AS e1`,
+		`INNER JOIN "pgir02_it_unit"."fhir_resource" AS x1 ON`,
+		`INNER JOIN "pgir02_it_unit"."fhir_edge_occurrence" AS e2 ON`,
+		`INNER JOIN "pgir02_it_unit"."fhir_resource" AS x2 ON`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("chained FROM missing %q:\n%s", want, sql)
+		}
+	}
+	// WHERE conjunction: only the first hop correlates to the outer row.
+	if !strings.Contains(sql, `e1."source_logical_id" = r0."logical_id"`) {
+		t.Fatalf("first hop must correlate on the outer row: %s", sql)
+	}
+	// The chained hop anchors on the first hop's reached row, carried in
+	// the second edge join's ON clause.
+	if !strings.Contains(sql, `e2."source_logical_id" = x1."logical_id"`) {
+		t.Fatalf("second hop must anchor on x1 with its full predicate chain: %s", sql)
+	}
+	// Second-hop discriminators bind their own label/type values.
+	if !strings.Contains(sql, `e2."label" = $`) || !strings.Contains(sql, `e2."target_resource_type" = $`) {
+		t.Fatalf("second hop must bind its label and reached type: %s", sql)
+	}
+	// Canonical auth survives structurally on every hop's rows (E4).
+	for _, want := range []string{`e1."auth_resource_path"`, `x1."auth_resource_path"`, `e2."auth_resource_path"`, `x2."auth_resource_path"`} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("chained semi-join must carry the canonical auth scope (%q missing): %s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "LIMIT") {
+		t.Fatalf("EXISTS stays limit-free: %s", sql)
+	}
+	// Bind-parameter discipline: exactly project, generation, auth array,
+	// Patient, label1, Observation, label2, Specimen — with the repeated
+	// Patient/Observation discriminators deduplicated by the shared cache.
+	if got := len(rendered.Args); got != 8 {
+		t.Fatalf("chained parameter count = %d, want 8 (deduped discriminators): %v", got, rendered.Args)
+	}
+	for _, leaked := range []string{"has-specimen", "Specimen", "has-observation"} {
+		if strings.Contains(sql, leaked) {
+			t.Fatalf("value %q leaked into statement text: %s", leaked, sql)
+		}
+	}
+	// Determinism: the same plan re-renders byte-identically.
+	again := renderOK(t, setsRelatedExistsTwoHopPlan())
+	if again.SQL != sql || !reflect.DeepEqual(again.Args, rendered.Args) {
+		t.Fatalf("chained rendering is not deterministic")
 	}
 }
