@@ -483,13 +483,18 @@ func TestUnnestZeroValueBindingFailsLikeSiblings(t *testing.T) {
 // outside the registered shape may produce SQL, and no case may fall back.
 // ---------------------------------------------------------------------------
 
-func TestUnnestRejectsSurfaceWithTypedErrors(t *testing.T) {
+// unnestSurfaceRejectCases is the closed-slice reject matrix, shared by the
+// entry-refusal test and the dispatch full-backstop witness.
+func unnestSurfaceRejectCases() []struct {
+	name   string
+	mutate func(*ir.PhysicalPlan)
+} {
 	mutate := func(edit func(*ir.PhysicalPlan, *ir.PhysicalUnnest)) func(*ir.PhysicalPlan) {
 		return func(plan *ir.PhysicalPlan) {
 			edit(plan, plan.Operations[1].Unnest)
 		}
 	}
-	cases := []struct {
+	return []struct {
 		name   string
 		mutate func(*ir.PhysicalPlan)
 	}{
@@ -682,7 +687,10 @@ func TestUnnestRejectsSurfaceWithTypedErrors(t *testing.T) {
 			p.Operations[2].Return.Projections[2] = valueProjection("position_value", "position", "x")
 		})},
 	}
-	for _, tc := range cases {
+}
+
+func TestUnnestRejectsSurfaceWithTypedErrors(t *testing.T) {
+	for _, tc := range unnestSurfaceRejectCases() {
 		plan := unnestPlan(expansionProjections()...)
 		tc.mutate(&plan)
 		if _, err := RenderUnnest(plan, mustBinding(t)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
@@ -690,6 +698,48 @@ func TestUnnestRejectsSurfaceWithTypedErrors(t *testing.T) {
 		}
 		if _, err := RenderPhysicalPlan(plan, mustBinding(t)); err == nil {
 			t.Errorf("%s: core dispatch accepted an unregistered shape", tc.name)
+		}
+	}
+}
+
+// TestUnnestDispatchGateIsFullBackstop is the named witness for the
+// full-backstop claim in the unnest.go header: RenderPhysicalPlan applies
+// validateUnnestPlanSurface as its first plan-facing act for any plan that
+// mentions UNNEST, so the core dispatch entry refuses the same slice
+// shapes with the same typed error and a byte-identical message as
+// RenderUnnest. Without the hoisted application, plan.Validate or scope
+// loading rejects first for shapes it also dislikes, and the dispatch
+// error drifts off the surface contract.
+func TestUnnestDispatchGateIsFullBackstop(t *testing.T) {
+	for _, tc := range unnestSurfaceRejectCases() {
+		plan := unnestPlan(expansionProjections()...)
+		tc.mutate(&plan)
+		_, entryErr := RenderUnnest(plan, mustBinding(t))
+		if !errors.Is(entryErr, ErrUnsupportedPostgresPlan) {
+			t.Fatalf("%s: RenderUnnest error = %v, want ErrUnsupportedPostgresPlan", tc.name, entryErr)
+		}
+		hasUnnest := false
+		for _, operation := range plan.Operations {
+			if operation.Kind == ir.PhysicalUnnestOp {
+				hasUnnest = true
+			}
+		}
+		if !hasUnnest {
+			// The at-least-one-UNNEST requirement is entry-specific:
+			// [ROOT_SCAN, RETURN] without UNNEST is the spine's own read
+			// plan, which RenderPhysicalPlan must keep accepting, so a
+			// dispatch refusal for that shape can only ever come from a
+			// spine gate. The dispatch contract covers plans that mention
+			// UNNEST, which is what this slice registers.
+			continue
+		}
+		_, dispatchErr := RenderPhysicalPlan(plan, mustBinding(t))
+		if !errors.Is(dispatchErr, ErrUnsupportedPostgresPlan) {
+			t.Errorf("%s: core dispatch error = %v, want the surface contract's ErrUnsupportedPostgresPlan", tc.name, dispatchErr)
+			continue
+		}
+		if entryErr.Error() != dispatchErr.Error() {
+			t.Errorf("%s: dispatch error %q diverged from entry error %q", tc.name, dispatchErr, entryErr)
 		}
 	}
 }
@@ -1371,6 +1421,42 @@ func TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL(t *testing.T) {
 	}
 	if rows := svc2.runRendered(t, inner); len(rows) != 0 {
 		t.Fatalf("falsy prefix rows = %v, want none (AQL ternary falsy set)", rows)
+	}
+}
+
+// TestPG18UnnestAncestorTerminalTruthyScalarRaisesLikeAQL witnesses the
+// qualified half of the parity contract end to end: with ancestors the
+// terminal step takes the prefix source form, so a stored truthy non-array
+// at the terminal selector reaches jsonb_array_elements and raises at
+// execution — the AQL lineage FOR loop over a non-array — while its falsy
+// sibling reads as the empty source and emits no rows.
+func TestPG18UnnestAncestorTerminalTruthyScalarRaisesLikeAQL(t *testing.T) {
+	svc := newSQL09Service(t)
+	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-terminal-truthy", "FHIR/Observation",
+		sql09JSON(t, `{"component": [{"code": {"coding": 5}}]}`))
+	outer, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestPreserveParent), sql09Binding(t, svc))
+	if err != nil {
+		t.Fatalf("RenderUnnest OUTER: %v", err)
+	}
+	rows, err := svc.iso.Query(svc.ctx, outer.SQL, parameterValues(outer.Args)...)
+	if err == nil {
+		for rows.Next() {
+		}
+		err = rows.Err()
+		rows.Close()
+	}
+	if err == nil {
+		t.Fatalf("truthy scalar at an ancestor-bearing terminal step expanded without error; AQL lineage parity requires an execution error")
+	}
+	svc2 := newSQL09Service(t)
+	svc2.insertResource(t, sql09Project, sql09Generation, "Observation", "o-terminal-falsy", "FHIR/Observation",
+		sql09JSON(t, `{"component": [{"code": {"coding": 0}}]}`))
+	inner, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestExclude), sql09Binding(t, svc2))
+	if err != nil {
+		t.Fatalf("RenderUnnest INNER: %v", err)
+	}
+	if rows := svc2.runRendered(t, inner); len(rows) != 0 {
+		t.Fatalf("falsy ancestor-terminal rows = %v, want none (AQL ternary falsy set)", rows)
 	}
 }
 

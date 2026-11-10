@@ -79,6 +79,22 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if err := storage.Validate(); err != nil {
 		return compiler.RenderedPostgresPhysicalPlan{}, err
 	}
+	// Full-backstop defense in depth (unnest.go contract): a plan that
+	// mentions UNNEST is pinned to the registered slice as the first
+	// plan-facing act here, before plan validation, scope loading, or any
+	// rendering can reject with an off-type error, so the dispatch entry
+	// enforces one contract with RenderUnnest, not a partial backstop.
+	// The re-check at the first UNNEST in renderUnnest stays as the local
+	// invariant; the check is total over any plan, so a malformed non-unnest
+	// plan reaches plan.Validate untouched.
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalUnnestOp {
+			if err := validateUnnestPlanSurface(plan); err != nil {
+				return compiler.RenderedPostgresPhysicalPlan{}, err
+			}
+			break
+		}
+	}
 	if err := plan.Validate(); err != nil {
 		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}

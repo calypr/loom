@@ -46,11 +46,14 @@ package postgres
 //     terminal one: AQL's falsy set is null, false, 0, and "", so SQL NULL
 //     (absent document or missing key), the JSON null scalar, and stored
 //     false/0/"" all read as the empty array with no error, at prefix and
-//     terminal alike. A truthy non-array at a prefix expansion reaches
-//     jsonb_array_elements and raises at execution, matching AQL's
-//     FOR-over-non-array collection error; a truthy non-array at the
-//     terminal expansion becomes one item, matching AQL's RETURN [value]
-//     that FLATTEN unwraps back to that single item. Missing, JSON-null,
+//     terminal alike. A truthy non-array at a prefix expansion, or at a
+//     terminal expansion that has ancestors, reaches jsonb_array_elements
+//     and raises at execution, matching AQL's FOR-over-non-array collection
+//     error and its lineage FOR loop; only an ancestor-free terminal
+//     expansion turns a truthy non-array into one item, matching AQL's
+//     RETURN [value] that FLATTEN unwraps back to that single item —
+//     renderUnnest dispatches the terminal source form on ancestor presence
+//     for exactly this reason. Missing, JSON-null,
 //     and SQL-NULL payload all read as the empty source, the same
 //     null-or-missing source collapse the AQL renderer applies and
 //     null_semantics.go documents. Parity is bounded by ir.Validate's
@@ -73,10 +76,15 @@ package postgres
 // sorts, limits, traversals, or any other operation are capability gaps:
 // typed ErrUnsupportedPostgresPlan refusals that yield no SQL. There is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion here. validateUnnestPlanSurface
-// is the single contract definition: RenderUnnest applies it before
-// delegation and the core renderOperations dispatch applies it at the first
-// UNNEST, so both entry points enforce one contract (defense in depth, not
-// two contracts).
+// is the single contract definition, applied as the first plan-facing act at
+// both entry points: RenderUnnest applies it before delegation, and
+// RenderPhysicalPlan — the read-spine dispatch — applies it before plan
+// validation, scope loading, or any rendering once a plan mentions UNNEST,
+// re-applying at the first UNNEST as a local invariant. The dispatch entry
+// is therefore a full backstop that refuses the same shapes with the same
+// typed error and message, not a partial one (witnessed by
+// TestUnnestDispatchGateIsFullBackstop; defense in depth, not two
+// contracts).
 //
 // Planner-facing command registration (compiler.CompiledCommandForBackend)
 // stays fail-closed for PostgreSQL exactly as in pg-sql-01/02/03: this entry
@@ -440,10 +448,10 @@ func validateUnnestOperationShape(plan ir.PhysicalPlan, unnest ir.PhysicalUnnest
 }
 
 // renderUnnest renders one registered UNNEST as a lateral expansion chain.
-// It is invoked only through the core dispatch, which pins the plan to the
-// registered slice at the first UNNEST via validateUnnestPlanSurface; each
-// operation's shape is re-checked here so one contract stands at both entry
-// points.
+// It is invoked only through the core dispatch, whose RenderPhysicalPlan
+// entry pins the whole plan to the registered slice before any plan
+// validation or rendering once a plan mentions UNNEST; this re-check keeps
+// that invariant local, so one contract stands at both entry points.
 func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnnest) error {
 	if r.unnestSeq == 0 {
 		if err := validateUnnestPlanSurface(plan); err != nil {
