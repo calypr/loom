@@ -1006,21 +1006,27 @@ func (r *planRenderer) renderCallNumericOperand(plan ir.PhysicalPlan, expression
 // jsonb operand (the double conversion itself is callDoubleOperand's):
 // numbers convert through their canonical text under a CASE-guarded cast
 // (never an unguarded cast — the planner does not promise AND-clause
-// ordering), decimal-form strings coerce through the documented arithmetic
-// reading (operators.md 275-277 shows 24/"12" // 2), and every other stored
-// kind — booleans, arrays, objects, and strings outside the registered
-// decimal grammar, Unicode-space-padded numerics included — reads NULL:
-// the registered non-numeric-operand arm (L2), the fail-closed reading of
-// the documented arithmetic policy, which promises only that invalid
-// values do not raise (operators.md 259-262; functions-type-cast.md 65-66
-// fixes the cast context's own invalid reading at 0, which the TO_NUMBER
-// arm applies).
+// ordering). The stored-number cast is safe by construction on the number
+// side: jsonb_in validates every stored number through numeric_in before
+// it can exist (PG18 measured: INSERT of '{"a": 1e999999999999}'::jsonb
+// raises 22003 at write time), so no storable number text can raise on
+// read. Decimal-form strings coerce through the registered decimal tiers
+// (callDecimalTierArms): texts the PostgreSQL input oracle accepts carry
+// the documented arithmetic reading (operators.md 275-277 shows 24/"12"
+// // 2), the provable-underflow tiers read 0 — the IEEE parse AQL would
+// coerce — and every other stored kind — booleans, arrays, objects,
+// representations the oracle rejects (the F-7 exponent/scale-overflow
+// class), and strings outside the registered decimal grammar,
+// Unicode-space-padded numerics included — reads NULL: the registered non-numeric-operand arm (L2), the
+// fail-closed reading of the documented arithmetic policy, which promises
+// only that invalid values do not raise (operators.md 259-262;
+// functions-type-cast.md 65-66 fixes the cast context's own invalid
+// reading at 0, which the TO_NUMBER arm applies).
 func callNumericCoercion(operand string) string {
 	return "(CASE" +
 		" WHEN " + operand + " IS NULL OR jsonb_typeof(" + operand + ") = 'null' THEN NULL" +
 		" WHEN jsonb_typeof(" + operand + ") = 'number' THEN (" + operand + " #>> '{}')::numeric" +
-		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ " + quoteSQLLiteral(callDecimalStringPattern) +
-		" THEN btrim((" + operand + " #>> '{}'), " + callDecimalTrimCharacters + ")::numeric" +
+		callDecimalTierArms(operand) +
 		" ELSE NULL END)"
 }
 
@@ -1042,14 +1048,96 @@ func callNumericCoercion(operand string) string {
 // registered NULL (L2) — both never-raising and locale-independent.
 const callDecimalWhitespace = " \t\n\v\f\r"
 
-// callDecimalStringPattern is the conservative registered numeric grammar:
+// The callDecimalUnderflow* constants bound the two provable-underflow
+// shapes (F-7). A text matching callDecimalStringPattern can still raise
+// 22003 "value overflows numeric format" inside numeric_in — PG18
+// measured "1e999999999999", "1e-16384", and a 20000-digit fraction
+// raising, while "1e-16383", "1e+99999", and a 100000-digit integer
+// parse — so the cast itself is gated by PostgreSQL's own input oracle,
+// pg_input_is_valid (PG16+; live-pinned to return false, not raise, on
+// exactly the probe grid's raise cells). The oracle keeps the
+// never-raise guarantee exact instead of approximated by digit-count
+// bounds (PG18's regex engine refuses the quantifier sizes such bounds
+// would need: SQLSTATE 2201B "invalid repetition count(s)" measured).
+// The remaining tier question is the READING of a representation the
+// oracle rejects: texts whose IEEE value is provably zero read the
+// registered 0, every other rejected text reads the registered
+// conservative NULL (fail-closed, never a wrong number).
+//
+// callDecimalUnderflowIntegerDigits × callDecimalUnderflowMinExponentDigits
+// make provability arithmetic, not measurement: the mantissa is
+// < 10^(callDecimalUnderflowIntegerDigits) (the fraction only shrinks
+// it), the negative exponent is ≤ -10^(callDecimalUnderflowMinExponentDigits-1)
+// = -10000, so the value is < 10^-9901 — below the gradual-subnormal
+// floor 4.95e-324, provably rounding to IEEE 0. Loosening the exponent
+// bound below 5 admits 2-4-digit exponents (min magnitude 10, 100, 1000)
+// under which a 99-digit mantissa is not provably zero, and the
+// structural test dies naming that arithmetic.
+const (
+	callDecimalUnderflowIntegerDigits     = 99
+	callDecimalUnderflowMinExponentDigits = 5
+)
+
+// callDecimalZeroPattern matches zero-valued texts: one or more integer
+// zeros with optional all-zero fraction, or an all-zero fraction alone,
+// each optionally exponent-scaled (zero times any power of ten is still
+// zero — no bound on the exponent digits is needed, and no bound is
+// used: this tier runs only for texts the input oracle already
+// rejected). It reads the registered 0, the IEEE/IEEE-parity reading of
+// the zero spellings whose scale or weight overflowed ("0." + 20000
+// zeros).
+var callDecimalZeroPattern = `^` + callWhitespaceRegexClass() + `*[+-]?` +
+	`(0+(\.0*)?|\.[0]+)([eE][+-]?[0-9]+)?` + callWhitespaceRegexClass() + `*$`
+
+// callDecimalUnderflowPattern matches a tiny mantissa (at most
+// callDecimalUnderflowIntegerDigits integer digits; the fraction cannot
+// push the value past one) against a negative exponent of at least
+// callDecimalUnderflowMinExponentDigits digits — provably IEEE-zero per
+// the constant-pair arithmetic above — so the registered 0 matches the
+// band-arm reading the spellings just inside the oracle's boundary
+// already take ("1e-10000" parses in numeric and band-reads 0;
+// "1e-999999999999" overflows the oracle and reads the same 0).
+var callDecimalUnderflowPattern = `^` + callWhitespaceRegexClass() + `*[+-]?` +
+	"[0-9]{1," + strconv.Itoa(callDecimalUnderflowIntegerDigits) + `}` +
+	`(\.[0-9]*)?[eE]-` +
+	"[0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits) + ",}" +
+	callWhitespaceRegexClass() + `*$`
+
+// callDecimalStringPattern is the conservative registered numeric shape:
 // optional surrounding whitespace (both arms derived from
 // callDecimalWhitespace), one sign, decimal digits with an optional
 // fraction and exponent — the shapes both ArangoDB's documented "valid
 // representation of a number" and PostgreSQL's double text parsing accept
 // identically. Wider JavaScript extensions (hexadecimal, "Infinity") stay
-// outside the registered grammar.
+// outside the registered grammar. The digit runs are deliberately
+// unbounded: magnitude is not a grammar property — the oracle gates the
+// cast and the tier readings below decide, so no text inside AQL's
+// "valid representation" set can be pushed into a non-numeric arm by a
+// digit-count bound.
 var callDecimalStringPattern = `^` + callWhitespaceRegexClass() + `*[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?` + callWhitespaceRegexClass() + `*$`
+
+// callDecimalTierArms renders the registered decimal-string tiers for one
+// dynamic jsonb operand, shared verbatim by the arithmetic coercion and
+// the TO_NUMBER table. Inside the registered shape: texts the PostgreSQL
+// input oracle accepts carry the btrim'd cast — identical to the pre-F-7
+// arm, and raise-free because pg_input_is_valid(text,'numeric') is false
+// exactly where numeric_in would raise 22003 (PG18-probed grid);
+// zero-valued and provably-IEEE-underflow texts read the registered 0
+// (the reading AQL's double parse gives, and the band-arm reading of
+// their castable neighbours); every other representation the oracle
+// rejected reads the registered conservative NULL — fail-closed, never a
+// raise, never a wrong number (F-7). CASE WHEN clauses evaluate in
+// written order, so the cast's textual position after the oracle is the
+// ordering guarantee, and every arm is raise-free on every input.
+func callDecimalTierArms(operand string) string {
+	text := "(" + operand + ` #>> '{}')`
+	btrim := "btrim(" + text + ", " + callDecimalTrimCharacters + ")"
+	return " WHEN jsonb_typeof(" + operand + ") = 'string' AND " + text + " ~ " + quoteSQLLiteral(callDecimalStringPattern) +
+		" THEN CASE WHEN pg_input_is_valid(" + btrim + ", 'numeric') THEN " + btrim + "::numeric" +
+		" WHEN (" + text + " ~ " + quoteSQLLiteral(callDecimalZeroPattern) +
+		" OR " + text + " ~ " + quoteSQLLiteral(callDecimalUnderflowPattern) + ") THEN 0" +
+		" ELSE NULL END"
+}
 
 // callDecimalTrimCharacters is btrim's explicit whitespace argument, built
 // from callDecimalWhitespace alone so it erases exactly what the grammar
@@ -1154,8 +1242,7 @@ func callToNumberDouble(operand string, depth int) string {
 		" WHEN jsonb_typeof(" + operand + ") = 'boolean' THEN CASE WHEN " + operand +
 		" = 'true'::jsonb THEN 1 ELSE 0 END" +
 		" WHEN jsonb_typeof(" + operand + ") = 'number' THEN (" + operand + " #>> '{}')::numeric" +
-		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ " + quoteSQLLiteral(callDecimalStringPattern) +
-		" THEN btrim((" + operand + " #>> '{}'), " + callDecimalTrimCharacters + ")::numeric" +
+		callDecimalTierArms(operand) +
 		" WHEN jsonb_typeof(" + operand + ") = 'string' THEN 0" +
 		" WHEN jsonb_typeof(" + operand + ") = 'array' THEN CASE" +
 		" WHEN jsonb_array_length(" + operand + ") = 0 THEN 0" +

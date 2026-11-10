@@ -15,6 +15,7 @@ import (
 	"math"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -335,6 +336,15 @@ func TestCallsWhitespaceSingleSource(t *testing.T) {
 	if got, want := callDecimalTrimCharacters, quoteSQLLiteral(callDecimalWhitespace); got != want {
 		t.Fatalf("btrim argument = %q, want the derived %q", got, want)
 	}
+	for _, pattern := range []string{
+		callDecimalZeroPattern, callDecimalUnderflowPattern,
+	} {
+		for _, forbidden := range []string{"[[:space:]]", "[[:blank:]]", `\s`, `\S`} {
+			if strings.Contains(pattern, forbidden) {
+				t.Fatalf("tier grammar carries %q instead of the derived class: %q", forbidden, pattern)
+			}
+		}
+	}
 	// Both guard sites consume the shared construction verbatim: the
 	// arithmetic coercion arm and the TO_NUMBER string arm.
 	for name, fragment := range map[string]string{
@@ -344,6 +354,127 @@ func TestCallsWhitespaceSingleSource(t *testing.T) {
 		if !strings.Contains(fragment, quoteSQLLiteral(callDecimalStringPattern)) ||
 			!strings.Contains(fragment, callDecimalTrimCharacters) {
 			t.Fatalf("%s guard arm does not embed the shared whitespace construction: %s", name, fragment)
+		}
+	}
+}
+
+// TestCallsDecimalTierSingleSource structurally enforces the ratified F-7
+// disposition: the cast is gated by PostgreSQL's own input oracle
+// (pg_input_is_valid) rather than digit-count bounds — the guard site
+// must embed the oracle before the textual cast, the two provable-
+// underflow tiers derive from the callDecimalUnderflow* constants and
+// their provability arithmetic, and no quantifier anywhere exceeds the
+// measured PG18 repetition limit (255). Loosening an underflow constant
+// breaks the provability inequality asserted below or the live reading
+// cells; removing the oracle gate lets "1e999999999999" reach the cast
+// and the live battery cells die with a 22003 raise.
+func TestCallsDecimalTierSingleSource(t *testing.T) {
+	// Provable-IEEE-zero arithmetic: mantissa < 10^UD, exponent
+	// ≤ -10^(MD-1), so the value magnitude is 10^(UD - 10^(MD-1)).
+	// Below the gradual-subnormal floor (≈10^-323.4) means the exponent
+	// difference must beat 324.
+	tenTo := func(n int) int {
+		v := 1
+		for range n {
+			v *= 10
+		}
+		return v
+	}
+	if callDecimalUnderflowIntegerDigits != 99 || callDecimalUnderflowMinExponentDigits != 5 {
+		t.Fatalf("underflow constants drifted from the registered values: %d %d",
+			callDecimalUnderflowIntegerDigits, callDecimalUnderflowMinExponentDigits)
+	}
+	if margin := tenTo(callDecimalUnderflowMinExponentDigits-1) - callDecimalUnderflowIntegerDigits; margin <= 324 {
+		t.Fatalf("underflow tiers are not provably IEEE-zero: 10^(%d-%d) = 10^-%d is not below the subnormal floor",
+			callDecimalUnderflowMinExponentDigits-1, callDecimalUnderflowIntegerDigits, margin)
+	}
+	// The only bounded digit quantifiers the grammar may contain,
+	// derived from the two underflow constants — and every repetition
+	// count anywhere stays within PG18's measured regex limit (a larger
+	// count is a compile error server-side, SQLSTATE 2201B).
+	derived := map[string]bool{
+		"[0-9]{1," + strconv.Itoa(callDecimalUnderflowIntegerDigits) + "}":    true,
+		"[0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits) + ",}": true,
+	}
+	quantifier := regexp.MustCompile(`\[(?:0-9|0)\]\{(\d+)(?:,(\d*))?\}`)
+	tiers := map[string]string{
+		"underflow-zero": callDecimalZeroPattern,
+		"underflow-tiny": callDecimalUnderflowPattern,
+		"unbounded":      callDecimalStringPattern,
+	}
+	for name, pattern := range tiers {
+		for _, run := range quantifier.FindAllStringSubmatch(pattern, -1) {
+			if !derived[run[0]] {
+				t.Fatalf("%s tier carries undervived digit run %q: %q", name, run[0], pattern)
+			}
+			for _, digits := range run[1:] {
+				if digits == "" {
+					continue
+				}
+				count, err := strconv.Atoi(digits)
+				if err != nil || count > 255 {
+					t.Fatalf("%s tier repetition count %q exceeds the PG18-measured 255 limit: %q", name, digits, pattern)
+				}
+			}
+		}
+	}
+	// The zero and tiny tiers are proper subsets of the registered
+	// shape: a text taking the registered 0 must also be a registered
+	// valid representation (Go RE2, matching PG18's probed acceptance).
+	wide := regexp.MustCompile(callDecimalStringPattern)
+	zero := regexp.MustCompile(callDecimalZeroPattern)
+	tiny := regexp.MustCompile(callDecimalUnderflowPattern)
+	for _, text := range []string{
+		"0", "-0", "0.", "0.0", ".0", "00", " 0.000\t", "0e999999999999",
+		"1e-999999999999", "-99.9e-10000", "1" + strings.Repeat("0", 98) + "e-99999",
+	} {
+		if (zero.MatchString(text) || tiny.MatchString(text)) && !wide.MatchString(text) {
+			t.Fatalf("registered-0 text %q falls outside the registered shape", text)
+		}
+	}
+	if !tiny.MatchString("1" + strings.Repeat("0", callDecimalUnderflowIntegerDigits-1) + "e-99999") {
+		t.Fatal("tiny tier must admit a mantissa of exactly the registered digit bound")
+	}
+	if tiny.MatchString("1" + strings.Repeat("0", callDecimalUnderflowIntegerDigits) + "e-99999") {
+		t.Fatal("tiny tier admits a mantissa beyond the registered digit bound")
+	}
+	if tiny.MatchString("1e-9999") {
+		t.Fatal("tiny tier admits an exponent below the registered digit bound")
+	}
+	// Both guard sites embed the registered arm shape: the shape test,
+	// then the oracle-gated cast (the textual cast strictly after its
+	// pg_input_is_valid gate — CASE ordering is the never-raise
+	// guarantee), then the provable-0 pair, then the fail-closed NULL.
+	// The oracle appears once per emitted tier arm: once in the
+	// coercion, and nine times in TO_NUMBER (the bounded recursion
+	// replicates the arm three ways, and callNumericToJSONB repeats the
+	// banded expression three ways — both registered shapes).
+	for name, cell := range map[string]struct {
+		fragment   string
+		wantOracle int
+	}{
+		"coercion":  {callNumericCoercion("o"), 1},
+		"to_number": {callToNumberExpression("o"), 9},
+	} {
+		fragment := cell.fragment
+		btrim := "btrim((o #>> '{}'), " + callDecimalTrimCharacters + ")"
+		ordered := []string{
+			quoteSQLLiteral(callDecimalStringPattern) + " THEN CASE WHEN ",
+			"pg_input_is_valid(" + btrim + ", 'numeric') THEN " + btrim + "::numeric",
+			quoteSQLLiteral(callDecimalZeroPattern),
+			quoteSQLLiteral(callDecimalUnderflowPattern) + ") THEN 0",
+			" ELSE NULL END",
+		}
+		last := -1
+		for _, marker := range ordered {
+			at := strings.Index(fragment, marker)
+			if at <= last {
+				t.Fatalf("%s arms missing or out of registered order at %q: %s", name, marker, fragment)
+			}
+			last = at
+		}
+		if got := strings.Count(fragment, "pg_input_is_valid("); got != cell.wantOracle {
+			t.Fatalf("%s embeds the input oracle %d times, want %d: %s", name, got, cell.wantOracle, fragment)
 		}
 	}
 }
@@ -391,7 +522,7 @@ func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
 	o := `(r0."payload" #> $5::text[])`
 	coercion := `(CASE WHEN ` + o + ` IS NULL OR jsonb_typeof(` + o + `) = 'null' THEN NULL` +
 		` WHEN jsonb_typeof(` + o + `) = 'number' THEN (` + o + ` #>> '{}')::numeric` +
-		` WHEN jsonb_typeof(` + o + `) = 'string' AND (` + o + ` #>> '{}') ~ '` + callDecimalStringPattern + `' THEN btrim((` + o + ` #>> '{}'), ` + callDecimalTrimCharacters + `)::numeric` +
+		sql10WantDecimalTierArms(o) +
 		` ELSE NULL END)`
 	plan := sql10Plan("Patient", map[string]any{"a": int64(3)},
 		sql10CallProjection("scaled", sql10Call("multiply", "",
@@ -417,6 +548,22 @@ func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
 // decimal-form string→parse, other string→0, []→0, [x]→TO_NUMBER(x),
 // ≥2→0, object→0) independently of calls.go's emitter, with the same
 // bounded recursion the contract comment registers.
+// sql10WantDecimalTierArms mirrors the registered decimal-string tiers
+// (F-7) independently of calls.go's emitter: inside the registered
+// shape, the PostgreSQL input oracle gates the btrim'd cast
+// (pg_input_is_valid is false exactly where numeric_in would raise
+// 22003), the provable-underflow pair reads the registered 0, and every
+// other oracle-rejected representation reads the registered conservative
+// NULL.
+func sql10WantDecimalTierArms(operand string) string {
+	text := "(" + operand + ` #>> '{}')`
+	btrim := "btrim(" + text + ", " + callDecimalTrimCharacters + ")"
+	return " WHEN jsonb_typeof(" + operand + ") = 'string' AND " + text + " ~ '" + callDecimalStringPattern +
+		"' THEN CASE WHEN pg_input_is_valid(" + btrim + ", 'numeric') THEN " + btrim + "::numeric" +
+		" WHEN (" + text + " ~ '" + callDecimalZeroPattern + "' OR " + text + " ~ '" + callDecimalUnderflowPattern + "') THEN 0" +
+		" ELSE NULL END"
+}
+
 func sql10WantToNumberDouble(operand string, depth int) string {
 	if depth >= callToNumberMaxRecursion {
 		return "0"
@@ -426,7 +573,7 @@ func sql10WantToNumberDouble(operand string, depth int) string {
 		" WHEN " + operand + " IS NULL OR jsonb_typeof(" + operand + ") = 'null' THEN 0" +
 		" WHEN jsonb_typeof(" + operand + ") = 'boolean' THEN CASE WHEN " + operand + " = 'true'::jsonb THEN 1 ELSE 0 END" +
 		" WHEN jsonb_typeof(" + operand + ") = 'number' THEN (" + operand + " #>> '{}')::numeric" +
-		" WHEN jsonb_typeof(" + operand + ") = 'string' AND (" + operand + " #>> '{}') ~ '" + callDecimalStringPattern + "' THEN btrim((" + operand + " #>> '{}'), " + callDecimalTrimCharacters + ")::numeric" +
+		sql10WantDecimalTierArms(operand) +
 		" WHEN jsonb_typeof(" + operand + ") = 'string' THEN 0" +
 		" WHEN jsonb_typeof(" + operand + ") = 'array' THEN CASE" +
 		" WHEN jsonb_array_length(" + operand + ") = 0 THEN 0" +

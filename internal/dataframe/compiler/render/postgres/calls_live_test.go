@@ -390,8 +390,141 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Cross-type comparison pins (review thread r4529630465): the stored-value
+// TestSQL10LiveDecimalTierReadBack pins the F-7 registered tiers on PG18:
+// valid representations whose numeric_in cast raises 22003 (the battery
+// cells below all raised before the oracle gate — "1e999999999999"
+// through both the TO_NUMBER cast table and the arithmetic coercion)
+// read the registered conservative arms instead of raising: the
+// pg_input_is_valid oracle gates the cast exactly where numeric_in
+// raises, provably-IEEE-zero spellings read 0, and every oracle-rejected
+// remainder reads the fail-closed NULL. The 10000-digit e-9999 spelling (a legitimate 1),
+// the 101-digit-mantissa e-10000 and the 7000-digit fraction e-9000
+// (both castable in numeric, band-reading 0), and the 32768-digit
+// integer (band NULL) pin that the gate re-reads nothing currently safe.
+// Every cell runs on STORED strings, the F-7 reach path.
+func TestSQL10LiveDecimalTierReadBack(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-tier", sql10Path,
+		map[string]any{
+			// The verifier battery cells: exponent-overflow texts.
+			"meta": map[string]any{
+				"versionId":   "1e999999999999",
+				"source":      "1e999999999998",
+				"lastUpdated": "1e-999999999999",
+			},
+			"deceasedBoolean": "-1e999999999999",
+			"birthDate":       " 1e2147483648 ",
+			// Oracle-rejected zero spelling: the all-zero fraction beyond
+			// numeric's display scale — reads the registered 0.
+			"deceasedDateTime": "0." + strings.Repeat("0", 20000),
+			"text": map[string]any{
+				// Legitimate arbitrary-precision spelling: 10^9999 ·
+				// 10^-9999 = 1 — the gate must still cast and read it.
+				"status": "1" + strings.Repeat("0", 9999) + "e-9999",
+				// Castable and band-zero — reads 0 through the oracle
+				// cast, the same reading the provable-underflow arm
+				// gives its rejected neighbours.
+				"div": "1" + strings.Repeat("0", 99) + "e-10000",
+			},
+			// Mantissa-digit-versus-exponent magnitudes: both castable in
+			// numeric (scale 10000 / 16000) and band-zero — the validity
+			// gate keeps their real readings, no registered sliver.
+			"maritalStatus":        "1" + strings.Repeat("0", 100) + "e-10000",
+			"managingOrganization": "0." + strings.Repeat("9", 7000) + "e-9000",
+			// Measured-storable huge integer: casts, then the band reads
+			// NULL (the same reading the unbounded grammar gave).
+			"gender": strings.Repeat("9", 32768),
+		})
+	binds := map[string]any{"zero": int64(0)}
+	str := func(path ...string) ir.PhysicalExpression {
+		return sql10Extract(t, "Patient", strings.Join(path, "."), ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	}
+	castOf := func(name string, path ...string) ir.PhysicalProjection {
+		return sql10CallProjection(name, sql10Call("cast", "INTEGER", str(path...)))
+	}
+	addOf := func(name string, path ...string) ir.PhysicalProjection {
+		return sql10CallProjection(name, sql10Call("add", "", str(path...), sql10Literal("zero")))
+	}
+	plan := sql10Plan("Patient", binds,
+		// Battery cells through TO_NUMBER: registered NULL for the
+		// overflow side, registered 0 for the underflow side — never
+		// the 22003 raise the pre-F-7 unguarded cast reached.
+		castOf("b1", "meta", "versionId"),
+		castOf("b2", "meta", "source"),
+		castOf("b3", "meta", "lastUpdated"),
+		castOf("b4", "deceasedBoolean"),
+		castOf("b5", "birthDate"),
+		// The same cells through arithmetic coercion: NULL propagates,
+		// the provable zero coerces to the 0 operand AQL parses.
+		addOf("b1a", "meta", "versionId"),
+		addOf("b3a", "meta", "lastUpdated"),
+		addOf("b5a", "birthDate"),
+		castOf("u1zero", "deceasedDateTime"),
+		castOf("safeLegit", "text", "status"),
+		castOf("u2tiny", "text", "div"),
+		addOf("u2add", "text", "div"),
+		castOf("mantissaS1", "maritalStatus"),
+		castOf("mantissaS2", "managingOrganization"),
+		castOf("safeCap", "gender"),
+	)
+	svc.runOne(t, svc.renderLive(t, plan),
+		"<null>", "<null>", "0", "<null>", "<null>",
+		"<null>", "0", "<null>",
+		"0", "1", "0", "0",
+		"0", "0", "<null>")
+}
+
+// TestSQL10LiveDecimalTierRejectedReads pins the remainder of the F-7
+// registered reading table: an oracle-rejected representation that is
+// neither zero-valued nor provably underflow reads the fail-closed NULL
+// through TO_NUMBER and through arithmetic coercion (a 18000-digit
+// fraction overflows numeric's display scale; its IEEE value would be a
+// real 0.777… decimal, which the register refuses to approximate from
+// stored text — fail-closed beats a wrong number, and the pre-F-7 path
+// here was a 22003 raise), while an oracle-rejected all-zero fraction
+// with a huge exponent still reads the registered 0 (zero times any
+// power of ten is zero, no cast needed).
+func TestSQL10LiveDecimalTierRejectedReads(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-oracle", sql10Path,
+		map[string]any{
+			"meta": map[string]any{"versionId": "0." + strings.Repeat("9", 18000)},
+			"text": map[string]any{"div": "0." + strings.Repeat("0", 18000) + "e99999"},
+		})
+	frac := sql10Extract(t, "Patient", "meta.versionId", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	zeroScaled := sql10Extract(t, "Patient", "text.div", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	plan := sql10Plan("Patient", map[string]any{"zero": int64(0)},
+		sql10CallProjection("fracCast", sql10Call("cast", "INTEGER", frac)),
+		sql10CallProjection("fracAdd", sql10Call("add", "", frac, sql10Literal("zero"))),
+		sql10CallProjection("zeroCast", sql10Call("cast", "INTEGER", zeroScaled)),
+	)
+	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "0")
+}
+
+// TestSQL10LiveDecimalTierStoredNumbers pins the number side of F-7:
+// jsonb_in itself rejects numbers numeric_in cannot represent
+// (PG18 measured: INSERT of '{"a": 1e999999999999}'::jsonb raises 22003
+// at write time), so every storable number text casts safely and the
+// unguarded number-arm cast needs no tier guard — the band arms do the
+// magnitude work. Both cells below store numbers at the measured
+// storable extremes (1e100000 and a 65536-digit integer) and read the
+// registered band NULL without a raise.
+func TestSQL10LiveDecimalTierStoredNumbers(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-num", sql10Path,
+		map[string]any{
+			"multipleBirthInteger": json.RawMessage(`1e100000`),
+			"deceasedBoolean":      json.RawMessage(`1` + strings.Repeat("0", 65535)),
+		})
+	plan := sql10Plan("Patient", nil,
+		sql10CallProjection("bigNum", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "multipleBirthInteger", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+		sql10CallProjection("longNum", sql10Call("cast", "INTEGER",
+			sql10Extract(t, "Patient", "deceasedBoolean", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))),
+	)
+	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>")
+}
+
 // readings that prove the registered strict-type basis — AQL comparisons
 // "do not perform implicit type casts if the compared operands have
 // different types" (operators.md 39-43) and rank data types before values
