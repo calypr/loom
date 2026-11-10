@@ -19,13 +19,19 @@
 //
 // The v1 supported surface is the scoped read spine: one direct root
 // resource scan, typed scope predicates (explicit project, dataset
-// generation, and an explicit auth mode), direct comparison filters over
-// typed columns or JSONB payload paths, depth-one typed edge-occurrence
-// joins, one column sort with deterministic identity tie-breaks, one bound
-// limit, and one positional return projection. Population/cohort roots,
-// endpoint-lookup traversals, selector extraction, sets, unnest, subplans,
-// graph returns, group rows, pivots, unpivots, stage sequences, and
-// ClickHouse payloads are capability gaps that return typed errors.
+// generation, and an explicit auth mode), scalar filter comparisons —
+// direct value comparisons over typed columns or JSONB payload paths with
+// typed (spec value-kind-checked) bind values, and the closed
+// selector-extraction comparisons whose ANY/NONE/ALL quantifier and
+// null/missing reading preserve the physical-predicate contract (all
+// predicate rendering and its capability registration live in
+// predicates.go) — boolean ALL/ANY/NOT predicate trees, depth-one typed
+// edge-occurrence joins, one column sort with deterministic identity
+// tie-breaks, one bound limit, and one positional return projection.
+// Population/cohort roots, endpoint-lookup traversals, repeated/indexed
+// selector predicates, correlated predicates, CONTAINS_TEXT, sets, unnest,
+// subplans, graph returns, group rows, pivots, unpivots, stage sequences,
+// and ClickHouse payloads are capability gaps that return typed errors.
 package postgres
 
 import (
@@ -35,7 +41,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -361,251 +366,6 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 // payloadPathSegmentPattern re-checks the frozen ir path contract at the
 // renderer boundary.
 var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-func (r *planRenderer) renderFilter(plan ir.PhysicalPlan, filter ir.PhysicalFilter) (string, error) {
-	if filter.Expression != nil {
-		return r.renderPredicateExpression(plan, *filter.Expression)
-	}
-	return r.renderComparison(plan, filter.Predicate)
-}
-
-func (r *planRenderer) renderPredicateExpression(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (string, error) {
-	fragment, err := r.renderPredicateFragment(plan, predicate)
-	if err != nil {
-		return "", err
-	}
-	return fragment.sql, nil
-}
-
-// predicateFragment carries rendered SQL plus whether the predicate can
-// evaluate to SQL NULL. A three-valued predicate under NOT drops rows that
-// AQL keeps (AQL coerces NOT(null) to true), so negation must know.
-type predicateFragment struct {
-	sql          string
-	mayYieldNull bool
-}
-
-func (r *planRenderer) renderPredicateFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicateExpression) (predicateFragment, error) {
-	switch predicate.Kind {
-	case ir.PhysicalComparisonPredicate:
-		if predicate.Comparison == nil {
-			return predicateFragment{}, fmt.Errorf("%w: COMPARISON predicate has no payload", ErrUnsupportedPostgresPlan)
-		}
-		return r.renderComparisonFragment(plan, *predicate.Comparison)
-	case ir.PhysicalNotPredicate:
-		if len(predicate.Children) != 1 {
-			return predicateFragment{}, fmt.Errorf("%w: NOT requires exactly one child", ErrUnsupportedPostgresPlan)
-		}
-		child, err := r.renderPredicateFragment(plan, predicate.Children[0])
-		if err != nil {
-			return predicateFragment{}, err
-		}
-		if child.mayYieldNull {
-			return predicateFragment{sql: "COALESCE(NOT (" + child.sql + "), true)"}, nil
-		}
-		return predicateFragment{sql: "NOT (" + child.sql + ")"}, nil
-	case ir.PhysicalAllPredicate:
-		if len(predicate.Children) == 0 {
-			return predicateFragment{}, fmt.Errorf("%w: ALL requires at least one child", ErrUnsupportedPostgresPlan)
-		}
-		parts := make([]string, 0, len(predicate.Children))
-		mayYieldNull := false
-		for _, child := range predicate.Children {
-			part, err := r.renderPredicateFragment(plan, child)
-			if err != nil {
-				return predicateFragment{}, err
-			}
-			mayYieldNull = mayYieldNull || part.mayYieldNull
-			parts = append(parts, "("+part.sql+")")
-		}
-		return predicateFragment{sql: strings.Join(parts, " AND "), mayYieldNull: mayYieldNull}, nil
-	default:
-		return predicateFragment{}, fmt.Errorf("%w: predicate kind %q is not yet implemented for PostgreSQL",
-			ErrUnsupportedPostgresPlan, string(predicate.Kind))
-	}
-}
-
-func (r *planRenderer) renderComparison(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (string, error) {
-	fragment, err := r.renderComparisonFragment(plan, predicate)
-	if err != nil {
-		return "", err
-	}
-	return fragment.sql, nil
-}
-
-func (r *planRenderer) renderComparisonFragment(plan ir.PhysicalPlan, predicate ir.PhysicalPredicate) (predicateFragment, error) {
-	if predicate.Correlation != nil || predicate.LeftExpression != nil {
-		return predicateFragment{}, fmt.Errorf("%w: selector-expression and correlated predicates are not yet implemented for PostgreSQL",
-			ErrUnsupportedPostgresPlan)
-	}
-	if predicate.Quantifier != "" {
-		return predicateFragment{}, fmt.Errorf("%w: array quantifier %q is not yet implemented for PostgreSQL",
-			ErrUnsupportedPostgresPlan, string(predicate.Quantifier))
-	}
-	if predicate.Left.BindKey != "" {
-		return predicateFragment{}, fmt.Errorf("%w: filter left side must be a row path, not a bind value", ErrUnsupportedPostgresPlan)
-	}
-	left, err := r.resolveValue(predicate.Left)
-	if err != nil {
-		return predicateFragment{}, err
-	}
-	operator := strings.ToUpper(strings.TrimSpace(predicate.Operator))
-	switch operator {
-	case "EXISTS", "MISSING":
-		if predicate.Right != nil {
-			return predicateFragment{}, fmt.Errorf("%w: %s must not carry a right value", ErrUnsupportedPostgresPlan, operator)
-		}
-		if isPayloadExpression(left) {
-			presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
-			if operator == "EXISTS" {
-				return predicateFragment{sql: presence + " <> 'null'"}, nil
-			}
-			return predicateFragment{sql: presence + " = 'null'"}, nil
-		}
-		// Registered storage columns are stored NOT NULL and jsonb_typeof has
-		// no text/timestamptz input, so column presence is nullability itself;
-		// emitting jsonb_typeof over a column would only fail at execution.
-		if operator == "EXISTS" {
-			return predicateFragment{sql: left + " IS NOT NULL"}, nil
-		}
-		return predicateFragment{sql: left + " IS NULL"}, nil
-	case "EQUALS", "NOT_EQUALS", "GT", "GTE", "LT", "LTE", "IN":
-	default:
-		return predicateFragment{}, fmt.Errorf("%w: filter operator %q is not part of the v1 PostgreSQL surface",
-			ErrUnsupportedPostgresPlan, predicate.Operator)
-	}
-	if predicate.Right == nil || predicate.Right.BindKey == "" {
-		return predicateFragment{}, fmt.Errorf("%w: %s requires a bind-backed right value", ErrUnsupportedPostgresPlan, operator)
-	}
-	value, ok := plan.BindVars[predicate.Right.BindKey]
-	if !ok {
-		return predicateFragment{}, fmt.Errorf("%w: filter value bind %q is not defined", ErrUnsupportedPostgresPlan, predicate.Right.BindKey)
-	}
-	if !isPayloadExpression(left) {
-		return r.renderColumnComparison(left, operator, value)
-	}
-	return r.renderPayloadComparison(left, operator, value)
-}
-
-func isPayloadExpression(expression string) bool { return strings.Contains(expression, " #> $") }
-
-// renderColumnComparison binds comparisons against typed columns. Values
-// arrive in their canonical Go types; anything else fails closed rather
-// than being stringified into the statement or silently coerced.
-func (r *planRenderer) renderColumnComparison(left, operator string, value any) (predicateFragment, error) {
-	if operator == "IN" {
-		paths, ok := value.([]string)
-		if !ok {
-			return predicateFragment{}, fmt.Errorf("%w: column IN requires a []string bind value", ErrUnsupportedPostgresPlan)
-		}
-		raw, err := json.Marshal(append([]string(nil), paths...))
-		if err != nil {
-			return predicateFragment{}, fmt.Errorf("%w: column IN values are not JSON-encodable: %v", ErrUnsupportedPostgresPlan, err)
-		}
-		if string(raw) == "null" {
-			// An empty (or nil) slice marshals to JSON null, and
-			// jsonb_array_elements_text over a jsonb null scalar raises
-			// "cannot extract elements from a scalar". Binding an empty array
-			// makes ANY read zero rows, so the predicate is false, matching
-			// the AQL reading of x IN [].
-			raw = []byte("[]")
-		}
-		return predicateFragment{sql: left + " = ANY (SELECT jsonb_array_elements_text($" + strconv.Itoa(r.jsonbParameter(raw)) + "::jsonb))"}, nil
-	}
-	switch {
-	case strings.HasSuffix(left, "."+r.storage.Resource.MustColumn("recorded_at").SQLText()):
-		timestamp, ok := value.(time.Time)
-		if !ok {
-			return predicateFragment{}, fmt.Errorf("%w: recorded_at comparisons require a time.Time bind value", ErrUnsupportedPostgresPlan)
-		}
-		index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterTimestamptz, Value: timestamp}, "")
-		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(index)}, nil
-	default:
-		text, ok := value.(string)
-		if !ok {
-			return predicateFragment{}, fmt.Errorf("%w: typed column comparisons require a string bind value, got %T",
-				ErrUnsupportedPostgresPlan, value)
-		}
-		return predicateFragment{sql: left + " " + sqlComparison(operator) + " $" + strconv.Itoa(r.textParameter(text, "text:"+text))}, nil
-	}
-}
-
-// renderPayloadComparison binds JSONB path comparisons. The whole document
-// path is one bound parameter and the value is one bound JSONB parameter,
-// so paths and values never become SQL text. MISSING/EXISTS semantics keep
-// present-but-JSON-null and missing indistinguishable, matching the AQL
-// null-or-missing reading; SQL NULL, JSON null, and missing remain distinct
-// in storage (migration 000002) and in this renderer they are only ever
-// bound, never flattened.
-func (r *planRenderer) renderPayloadComparison(left, operator string, value any) (predicateFragment, error) {
-	if operator == "IN" {
-		return predicateFragment{}, fmt.Errorf("%w: payload-path IN is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
-	}
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return predicateFragment{}, fmt.Errorf("%w: filter value %T is not JSON-encodable: %v", ErrUnsupportedPostgresPlan, value, err)
-	}
-	switch value.(type) {
-	case string, bool, int, int64, float64, json.RawMessage:
-	default:
-		return predicateFragment{}, fmt.Errorf("%w: payload comparisons accept string, bool, number, or raw JSON values, got %T",
-			ErrUnsupportedPostgresPlan, value)
-	}
-	if string(raw) == "null" {
-		// AQL reads a missing key and a stored JSON null alike as null, and
-		// AQL sorts null below every other value. Rendering the presence
-		// test for every operator would invert LT/LTE and over-select for
-		// GTE, so the null literal maps operator by operator; the two pure
-		// constants fail closed as dead-parameter shapes.
-		presence := "COALESCE(jsonb_typeof(" + left + "), 'null')"
-		switch operator {
-		case "EQUALS", "LTE":
-			return predicateFragment{sql: presence + " = 'null'"}, nil
-		case "NOT_EQUALS", "GT":
-			// GT coincides with the presence test: x > null holds exactly
-			// when x is present and not null.
-			return predicateFragment{sql: presence + " <> 'null'"}, nil
-		case "LT", "GTE":
-			// AQL constants these to false and true, but a bare constant
-			// would strand the resolved path parameter, and the plan
-			// contract requires every bound parameter to be referenced.
-			// The v1 surface fails these closed instead.
-			return predicateFragment{}, fmt.Errorf("%w: payload ordering %s against a JSON null literal is not part of the v1 PostgreSQL surface",
-				ErrUnsupportedPostgresPlan, operator)
-		default:
-			return predicateFragment{}, fmt.Errorf("%w: payload operator %q against a JSON null literal is not part of the v1 PostgreSQL surface",
-				ErrUnsupportedPostgresPlan, operator)
-		}
-	}
-	index := r.jsonbParameter(raw)
-	if operator == "NOT_EQUALS" {
-		return predicateFragment{sql: "(" + left + ") IS DISTINCT FROM ($" + strconv.Itoa(index) + "::jsonb)"}, nil
-	}
-	// The path extraction is SQL NULL for a missing key, so these comparisons
-	// are three-valued; NOT over them must be guarded for AQL parity.
-	return predicateFragment{sql: "(" + left + ") " + sqlComparison(operator) + " ($" + strconv.Itoa(index) + "::jsonb)", mayYieldNull: true}, nil
-}
-
-func sqlComparison(operator string) string {
-	switch operator {
-	case "EQUALS":
-		return "="
-	case "NOT_EQUALS":
-		// Identical to != over the NOT NULL storage columns and never NULL
-		// for nullable ones, mirroring the payload-path reading.
-		return "IS DISTINCT FROM"
-	case "GT":
-		return ">"
-	case "GTE":
-		return ">="
-	case "LT":
-		return "<"
-	case "LTE":
-		return "<="
-	default:
-		return ""
-	}
-}
 
 func (r *planRenderer) renderSort(sort ir.PhysicalSort) error {
 	for _, key := range sort.Keys {
