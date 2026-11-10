@@ -1502,6 +1502,46 @@ func TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBounda
 	}
 }
 
+// TestPostgresGenerationLoadApplicationNameTagging covers the witness
+// dependency offline: URL-form DSNs are tagged (or keep their explicit
+// tag), and a keyword/value DSN that cannot be tagged surfaces the skip
+// through the event sink instead of silently untagging the backend.
+func TestPostgresGenerationLoadApplicationNameTagging(t *testing.T) {
+	tagged, applied := joinApplicationName("postgres://u:p@h:5432/db", "app-x")
+	if !applied || !strings.Contains(tagged, "application_name=app-x") {
+		t.Fatalf("url dsn = %q applied=%v, want application_name=app-x", tagged, applied)
+	}
+	kept, applied := joinApplicationName("postgres://u:p@h:5432/db?application_name=mine", "app-x")
+	if !applied || !strings.Contains(kept, "application_name=mine") {
+		t.Fatalf("explicit tag = %q applied=%v, want the caller's mine preserved and counted as tagged", kept, applied)
+	}
+	untagged, applied := joinApplicationName("host=h dbname=d user=u", "app-x")
+	if applied || untagged != "host=h dbname=d user=u" {
+		t.Fatalf("keyword/value dsn = %q applied=%v, want unchanged and reported untagged", untagged, applied)
+	}
+
+	// The skip is announced, not silent: opening with a keyword/value DSN
+	// emits the event even though the pool open itself is a named refusal.
+	var events []string
+	_, err := openPGGenerationClient(PGSourceOptions{
+		DSN:             "host=h dbname=d user=u",
+		Schema:          "s",
+		ApplicationName: "app-x",
+	}, func(event string, _ map[string]any) { events = append(events, event) })
+	if err == nil {
+		t.Fatal("keyword/value DSN opened, want a named store refusal")
+	}
+	found := false
+	for _, event := range events {
+		if event == "go_pg_application_name_skipped" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("events = %v, want go_pg_application_name_skipped for the untaggable DSN", events)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Activation acceptance (explicit CAS via the generation repository).
 // ---------------------------------------------------------------------------

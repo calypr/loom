@@ -526,7 +526,7 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 	if strings.TrimSpace(pg.ApplicationName) == "" {
 		pg.ApplicationName = pgApplicationNameBase + "-activate"
 	}
-	client, err := openPGGenerationClient(pg)
+	client, err := openPGGenerationClient(pg, nil)
 	if err != nil {
 		return err
 	}
@@ -578,7 +578,7 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 // openPGGenerationClient validates the pool configuration through the
 // store's own Config before any network dial, so blank or malformed
 // settings are named store refusals rather than connect failures.
-func openPGGenerationClient(pg PGSourceOptions) (*storepostgres.Client, error) {
+func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*storepostgres.Client, error) {
 	maxConns := pg.MaxConns
 	if maxConns == 0 {
 		maxConns = 4
@@ -590,7 +590,17 @@ func openPGGenerationClient(pg PGSourceOptions) (*storepostgres.Client, error) {
 	dsn := strings.TrimSpace(pg.DSN)
 	application := strings.TrimSpace(pg.ApplicationName)
 	if application != "" {
-		dsn = joinApplicationName(dsn, application)
+		var tagged bool
+		dsn, tagged = joinApplicationName(dsn, application)
+		if !tagged {
+			// Operators (and the durability witnesses) attribute backends
+			// through pg_stat_activity.application_name; say so when the
+			// DSN shape prevents tagging instead of failing silently.
+			emitEvent(eventSink, "go_pg_application_name_skipped", map[string]any{
+				"application": application,
+				"reason":      "DSN is not URL-form; keyword/value DSNs keep an untagged connection rather than a guessed syntax",
+			})
+		}
 	}
 	return storepostgres.Open(context.Background(), storepostgres.Config{
 		DSN:            dsn,
@@ -601,7 +611,7 @@ func openPGGenerationClient(pg PGSourceOptions) (*storepostgres.Client, error) {
 }
 
 func (l *pgGenerationLoad) open() error {
-	client, err := openPGGenerationClient(l.pg)
+	client, err := openPGGenerationClient(l.pg, l.opts.EventSink)
 	if err != nil {
 		return err
 	}
@@ -1235,18 +1245,20 @@ func pgCommitOutcomeUnknown(err error) bool {
 // joinApplicationName appends application_name to a URL-form DSN that does
 // not already carry one. Keyword/value DSNs have no URL query to set, so
 // those callers keep an untagged connection rather than a guessed syntax.
-func joinApplicationName(dsn, application string) string {
+// tagged is false only for a DSN shape that prevents tagging (keyword/value
+// form); a DSN that already carries an application_name counts as tagged.
+func joinApplicationName(dsn, application string) (string, bool) {
 	parsed, err := url.Parse(dsn)
 	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
-		return dsn
+		return dsn, false
 	}
 	query := parsed.Query()
 	if query.Get("application_name") != "" {
-		return dsn
+		return dsn, true
 	}
 	query.Set("application_name", application)
 	parsed.RawQuery = query.Encode()
-	return parsed.String()
+	return parsed.String(), true
 }
 
 // pgRandomHexToken returns 12 hex characters of crypto-random entropy for
