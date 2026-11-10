@@ -149,16 +149,39 @@ func (r *planRenderer) renderFilter(plan ir.PhysicalPlan, filter ir.PhysicalFilt
 	}
 	if filter.Expression != nil {
 		if filter.Expression.Kind == ir.PhysicalExistsPredicate {
-			// The REQUIRED match filter is the traversal slice's
-			// whole-FILTER form: a root semi-join over the edge relation
-			// (traversal.go renderRequiredMatchExists). Nested EXISTS
-			// composition stays unregistered: renderPredicateFragment has
-			// no EXISTS case and refuses it as an unknown kind.
+			// Two registered correlated shapes share the whole-FILTER
+			// EXISTS form, split by canonical return (sets.go
+			// isRelatedExistsSubplan): the REQUIRED match's constant-1
+			// return stays with the traversal slice, and the related
+			// eligibility {_id} return renders through sets.go
+			// renderRelatedExists. Any other shape keeps the legacy
+			// traversal.go refusal, so pre-existing golden errors are
+			// unchanged.
+			if isRelatedExistsSubplan(filter.Expression.Exists) {
+				return r.renderRelatedExists(plan, *filter.Expression.Exists)
+			}
+			// Nested EXISTS composition stays unregistered:
+			// renderPredicateFragment has no EXISTS case and refuses it as
+			// an unknown kind.
 			fragment, err := r.renderRequiredMatchExists(plan, *filter.Expression)
 			if err != nil {
 				return "", err
 			}
 			return fragment.sql, nil
+		}
+		if filter.Expression.Kind == ir.PhysicalNotPredicate && len(filter.Expression.Children) == 1 &&
+			filter.Expression.Children[0].Kind == ir.PhysicalExistsPredicate &&
+			isRelatedExistsSubplan(filter.Expression.Children[0].Exists) {
+			// The registered top-level NOT(EXISTS) form for related
+			// eligibility (lower/recipe_construction_related_eligibility.go
+			// :213). EXISTS is total, so NOT needs no COALESCE guard. NOT
+			// over the REQUIRED constant-1 shape is not a lowering output
+			// and stays refused by the legacy path below.
+			clause, err := r.renderRelatedExists(plan, *filter.Expression.Children[0].Exists)
+			if err != nil {
+				return "", err
+			}
+			return "NOT (" + clause + ")", nil
 		}
 		return r.renderPredicateExpression(plan, *filter.Expression)
 	}

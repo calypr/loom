@@ -17,7 +17,7 @@ package postgres
 // validateGenericNavigationRootSort (navigation_layout.go:440-466: "SORT keys
 // do not match the stable row identity tuple").
 //
-// Two window shapes are registered, and this file is their single contract
+// Three window shapes are registered, and this file is their single contract
 // owner — every SORT/LIMIT decision in the package flows through the entry
 // points here (window discipline):
 //
@@ -56,6 +56,22 @@ package postgres
 //     * {ordinality} (bare) -> u_k.rn ASC, the renderer-derived stable
 //       zero-based item position (unnest.go), ordered by the WITH-ORDINALITY
 //       positions of the expansion chain.
+//
+//   - W3, the reshaped window over melted rows (with UNPIVOT): the plan
+//     may carry at most one SORT and one LIMIT only after the melt (the
+//     closed sequence [ROOT_SCAN, UNPIVOT, SORT?, LIMIT?, RETURN] is
+//     enforced by validateUnpivotPlanSurface in unpivot.go). The SORT
+//     key must be exactly one entry — the melt output row variable's
+//     stable row identity {meltOutput, ["__loom_row_id"]}, ASC — checked
+//     and supplied by renderFinalWindowSortUnpivot in unpivot.go, the
+//     melt's contribution to this file's window ownership, and a LIMIT
+//     requires that SORT to be present first (the ir reshaped-window
+//     guard's contract, re-read at the renderer). The identity term is
+//     renderer-composed; windowOrder then appends the storage witnesses
+//     and, after them, the renderer-minted slot-ordinality witnesses
+//     alias.slot_ord (unpivotOrdinals) — one per registered melt
+//     expansion, the ORDER BY counterpart of the AQL slot-array order,
+//     keeping duplicate slots of one source row deterministic.
 //
 //     Nothing on this path reads plan strings into SQL: the plan names
 //     variables, the renderer supplies every column from the trusted storage
@@ -125,6 +141,20 @@ type executionWindow struct {
 	// hasUnnest is set when a registered UNNEST has rendered, so the window
 	// entry points know whether they are completing W1 or W2.
 	hasUnnest bool
+	// hasUnpivot is set when the registered melt (unpivot.go, pg-sql-15)
+	// has rendered, so the single SORT entry point dispatches to W3 — the
+	// reshaped-window arm whose key contract (the exact stable row
+	// identity) is enforced by renderFinalWindowSortUnpivot in unpivot.go,
+	// the melt's contribution to this file's ownership of the window. The
+	// W1/W2 arms of renderWindowSort are untouched by the melt slice.
+	hasUnpivot bool
+	// unpivotOrdinals carries the renderer-minted slot-ordinality witness
+	// terms (one per melt expansion, plan order) that windowOrder appends
+	// after the storage witnesses: the ORDER BY counterpart of the AQL
+	// slot-array order, keeping duplicate slots of one source row
+	// deterministic. Registered through the same seam precedent as
+	// unnest.go's hasUnnest (unnest.go:670).
+	unpivotOrdinals []string
 	// edgeVars maps a plan edge variable to the renderer-minted alias of its
 	// join, so the route occurrence witness can resolve the variable the plan
 	// names without ever trusting a plan-supplied identifier.
@@ -161,6 +191,14 @@ func (r *planRenderer) renderWindowSort(plan ir.PhysicalPlan, sort ir.PhysicalSo
 	}
 	if r.window.hasUnnest {
 		if err := r.renderFinalWindowSort(plan, sort); err != nil {
+			return err
+		}
+	} else if r.window.hasUnpivot {
+		// W3, the reshaped window over melted rows (unpivot.go,
+		// pg-sql-15): the key contract and the identity term are the
+		// melt's own, checked and supplied by
+		// renderFinalWindowSortUnpivot.
+		if err := r.renderFinalWindowSortUnpivot(sort); err != nil {
 			return err
 		}
 	} else {
@@ -388,6 +426,17 @@ func (r *planRenderer) windowOrder() []string {
 			add("(" + lateral + ".rn IS NOT NULL) ASC")
 		}
 		add(lateral + ".rn ASC")
+	}
+	// Melt slot witnesses (unpivot.go, pg-sql-15): one renderer-minted
+	// slot-ordinality term per registered expansion, appended after the
+	// storage witnesses. The melt never coexists with expansions (the
+	// closed slices refuse), so these terms cannot collide with anything
+	// above and are appended verbatim: the dedicated list — not the unnest
+	// lateralAliases witnesses — keeps every existing term byte-identical,
+	// because the melt expansion exposes slot_ord (not rn) and a VALUES
+	// expansion never pads, so a has-item term would be vacuous.
+	for _, ordinal := range r.window.unpivotOrdinals {
+		terms = append(terms, ordinal+" ASC")
 	}
 	return terms
 }

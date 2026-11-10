@@ -205,6 +205,82 @@ func (e *ResolutionError) Unwrap() error {
 	return e.Err
 }
 
+// ErrPostgreSQLRootPageSteps reports a composition defect in parent-supplied
+// PostgreSQL root-page steps: a page parameter outside the rendered argument
+// list, a declared parameter type the engine would have to reinterpret,
+// colliding parameter positions, a non-positive page size, an unnamed root
+// identity column, or a row root key column missing from the declared output
+// contract. A step command carrying the wrong backend tag is refused by the
+// compiler's routing sentinels (ErrCompiledCommandBackendMismatch /
+// ErrCompiledCommandBackendNotRegistered) instead, before any page is
+// derived. Steps are consumed from the parent compiler only: no execution-side
+// producer exists until a parent-compiler ticket supplies one, and until then
+// no production path can attach them.
+var ErrPostgreSQLRootPageSteps = errors.New("postgresql root page steps are invalid")
+
+// ErrPostgreSQLResultContract reports that a root-page result violates the
+// execution result contract: a key page that is not strictly increasing
+// (duplicates included), a key page that does not advance past the previous
+// page tail (a parent key statement with a non-strict cursor filter, or one
+// that ignores the cursor argument, would otherwise re-emit overlapping
+// pages forever), a key page larger than requested, or a result row whose
+// root continuation identity is missing, malformed, or outside the requested
+// key page. The PostgreSQL row adapter's own ErrColumnContractMismatch
+// guards statement/contract column shape; this sentinel covers the root-page
+// invariants that are only judgeable from the decoded rows. Both are
+// errors.Is-classified typed result contracts.
+var ErrPostgreSQLResultContract = errors.New("postgresql root page result contract violation")
+
+// PostgreSQLRootPageSteps is the parent-supplied execution contract for one
+// bounded PostgreSQL root-page command sequence: the key step discovers the
+// next page of root continuation identities even when those roots emit no
+// output rows, and the row step executes the complete output for exactly that
+// page. Both commands are parent-tagged PostgreSQL statements built by the
+// canonical compiler path through command.NewPostgreSQLCommand; execution
+// renders no SQL. It is the PostgreSQL counterpart of the compiler-owned
+// compiler.CompiledOutputPage page templates, with the positional binding of
+// pg-ir-02 commands in place of AQL named binds: the key-step cursor binds
+// CursorArgIndex as text, the page size binds PageSizeArgIndex as bigint, and
+// the discovered key page binds PageKeysArgIndex on the row step as a jsonb
+// array of strings (the registered parameter types carry no array type).
+// Page parameters are rebound per page through the closed derivation helper,
+// which never mutates a template and never reinterprets a declared type.
+// Row order is owned by the compiled ORDER BY of the parent row statement (the
+// pg-sql-12 final-row window); execution visits rows in stream order and never
+// sorts.
+type PostgreSQLRootPageSteps struct {
+	// RootKeys discovers the next page of root continuation identities.
+	RootKeys command.CompiledCommand
+	// Rows executes the complete output for exactly one discovered key page.
+	Rows command.CompiledCommand
+	// RootKeyColumn is the sole declared result column of RootKeys.
+	RootKeyColumn string
+	// RowRootKeyColumn is the declared output column carrying each result
+	// row's root continuation identity. It must be part of the stream's
+	// declared output column contract.
+	RowRootKeyColumn string
+	// CursorArgIndex is the 0-based index into RootKeys' ordered arguments
+	// of the keyset cursor, declared as a text parameter.
+	CursorArgIndex int
+	// PageSizeArgIndex is the 0-based index into RootKeys' ordered arguments
+	// of the page size, declared as a bigint parameter.
+	PageSizeArgIndex int
+	// PageKeysArgIndex is the 0-based index into Rows' ordered arguments of
+	// the discovered key page, declared as a jsonb parameter.
+	PageKeysArgIndex int
+	// PageSize is the fixed positive number of roots requested per key page,
+	// sanity-bounded below maxPostgreSQLRootPageSize. The AQL-only adaptive
+	// first-page sizing does not extend to this route.
+	PageSize int
+}
+
+// maxPostgreSQLRootPageSize sanity-bounds the parent-supplied page size
+// before the engine allocates per-page capacity from it or encodes a key
+// page into the row step's jsonb argument. Legitimate keyset pages are
+// orders of magnitude smaller; a larger value is a composition defect, not
+// a tuning choice.
+const maxPostgreSQLRootPageSize = 1 << 20
+
 type OutputStream struct {
 	Name                     string
 	Columns                  []string
@@ -219,6 +295,7 @@ type OutputStream struct {
 	rootPageRows             int
 	initialRootPageRows      int
 	page                     *compiler.CompiledOutputPage
+	pgRootPage               *PostgreSQLRootPageSteps
 	physicalEngine           ir.PhysicalEngine
 	clickHouseCombine        *ir.PhysicalClickHouseCombine
 	project                  string
@@ -849,7 +926,12 @@ func (e *Engine) clickHouseStreamForOutput(ctx context.Context, resolved Resolve
 // and the AQL root-key page loop is never attached. The command already
 // carries its exhaustive PostgreSQL tag from the compiler; the row port
 // repeats the fail-closed tag check before any driver call, and there is no
-// PostgreSQL-to-AQL fallback and no AQL-to-SQL conversion.
+// PostgreSQL-to-AQL fallback and no AQL-to-SQL conversion. The bounded
+// root-page form of this route exists only as the parent-supplied
+// PostgreSQLRootPageSteps contract: this function never attaches steps, and
+// until a parent-compiler ticket supplies a PostgreSQL page producer (the
+// compiler still refuses root-key output paging for PostgreSQL), no
+// production path can attach them.
 func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, query compiler.CompiledQuery, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
 	if privateArtifactCapture {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
@@ -1614,10 +1696,20 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	if s.command.Backend() == command.CompiledBackendPostgreSQL && len(s.commandColumns) == 0 {
 		return fmt.Errorf("stream %q: PostgreSQL command requires a non-empty declared result column contract", s.Name)
 	}
+	// Backend-tagged root paging: the Arango key/row loop below attaches only
+	// to AQL-tagged streams carrying the compiler's CompiledOutputPage, and
+	// this branch attaches parent-supplied PostgreSQLRootPageSteps only to
+	// PostgreSQL-tagged streams. Neither route ever consults the other
+	// backend's page shape, and no fallback connects them.
+	if s.command.Backend() == command.CompiledBackendPostgreSQL && s.pgRootPage != nil {
+		return s.streamPostgreSQLRootPages(ctx, visit)
+	}
 	// The neutral query-memory budget and the root-key page loop are
 	// Arango-honored policies: they attach only to AQL-tagged commands.
 	// The PostgreSQL route streams its single parent-tagged statement with
-	// neither, even if a construction leak set the fields.
+	// neither, even if a construction leak set the AQL page fields; the only
+	// bounded root-page execution the PostgreSQL route can honor is the
+	// parent-supplied PostgreSQLRootPageSteps branch above.
 	if s.command.Backend() != command.CompiledBackendAQL || s.page == nil || s.rootPageRows == 0 {
 		if s.command.Backend() == command.CompiledBackendAQL && s.queryMemoryLimit > 0 {
 			ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
@@ -1682,6 +1774,210 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 			}
 		}
 	}
+}
+
+// streamPostgreSQLRootPages executes one parent-supplied bounded root-page
+// sequence through the single source row port, mirroring the Arango key/row
+// loop with PostgreSQL's positional binding. Each page runs the key step,
+// validates the discovered continuation identities (strictly increasing,
+// non-blank, strictly past the previous page tail — the cursor advance is
+// re-verified from the decoded rows because this route's key statement is
+// parent-supplied rather than compiler-owned, and a non-strict cursor filter
+// or an ignored cursor argument would otherwise re-emit overlapping pages
+// without ever reaching a loop exit — and no more than the requested page
+// size), and then runs the row
+// step for exactly that key page, validating every result row's root
+// continuation identity against the requested page before visiting it. An
+// empty key page ends the stream without any row call, and a short key page
+// ends it after its row step with no further key query. Rows are visited in
+// stream order: the compiled ORDER BY of the parent row statement (the
+// pg-sql-12 final-row window over the complete row identity) is the only
+// row-order owner and execution never sorts, so repeated children of one
+// page repeat exactly as the parent statement produced them. Cancellation is
+// observed before each key step and again between the key step and the row
+// step: once the request context has ended, the later statement is never
+// derived or dispatched and the stream never reports completion. The AQL-only
+// query-memory budget and adaptive first-page sizing are named exclusions
+// and do not apply to this route.
+func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVisitor) error {
+	steps := s.pgRootPage
+	if err := s.validatePostgreSQLRootPageSteps(); err != nil {
+		return err
+	}
+	after := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		keyCommand, err := withPostgreSQLPageParameters(steps.RootKeys, []postgreSQLPageParameter{
+			{index: steps.CursorArgIndex, parameter: command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: after}},
+			{index: steps.PageSizeArgIndex, parameter: command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(steps.PageSize)}},
+		})
+		if err != nil {
+			return err
+		}
+		keys := make([]string, 0, steps.PageSize)
+		if err := s.sourceRows(ctx, RowsRequest{Command: keyCommand, DeclaredColumns: []string{steps.RootKeyColumn}, BatchSize: s.batchSize}, func(row map[string]any) error {
+			key, ok := row[steps.RootKeyColumn].(string)
+			if !ok || key == "" {
+				return fmt.Errorf("%w: root-key page returned an invalid continuation identity in column %q", ErrPostgreSQLResultContract, steps.RootKeyColumn)
+			}
+			// Cursor advance is re-verified from the decoded rows: the key
+			// statement is parent-supplied, so a non-strict cursor filter
+			// (>= where > was intended) or an ignored cursor argument must
+			// not be able to keep serving overlapping full pages that
+			// re-emit already-delivered rows without ending the loop.
+			if after != "" && key <= after {
+				return fmt.Errorf("%w: root-key page does not advance past the previous page tail %q", ErrPostgreSQLResultContract, after)
+			}
+			if len(keys) != 0 && key <= keys[len(keys)-1] {
+				return fmt.Errorf("%w: root-key page is not strictly ordered", ErrPostgreSQLResultContract)
+			}
+			keys = append(keys, key)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(keys) == 0 {
+			return nil
+		}
+		if len(keys) > steps.PageSize {
+			return fmt.Errorf("%w: root-key page returned %d keys for a requested page of %d", ErrPostgreSQLResultContract, len(keys), steps.PageSize)
+		}
+		// Cancellation between the key step and the row step prevents the
+		// later call and never reports completion.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		keysJSON, err := json.Marshal(keys)
+		if err != nil {
+			return fmt.Errorf("%w: cannot encode the requested key page: %v", ErrPostgreSQLResultContract, err)
+		}
+		rowCommand, err := withPostgreSQLPageParameters(steps.Rows, []postgreSQLPageParameter{
+			{index: steps.PageKeysArgIndex, parameter: command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(keysJSON)}},
+		})
+		if err != nil {
+			return err
+		}
+		requested := make(map[string]struct{}, len(keys))
+		for _, key := range keys {
+			requested[key] = struct{}{}
+		}
+		if err := s.sourceRows(ctx, RowsRequest{Command: rowCommand, DeclaredColumns: append([]string(nil), s.commandColumns...), BatchSize: s.batchSize}, func(row map[string]any) error {
+			root, ok := row[steps.RowRootKeyColumn].(string)
+			if !ok || root == "" {
+				return fmt.Errorf("%w: result row is missing its root continuation identity in column %q", ErrPostgreSQLResultContract, steps.RowRootKeyColumn)
+			}
+			if _, belongs := requested[root]; !belongs {
+				return fmt.Errorf("%w: result row carries a root continuation identity outside the requested key page", ErrPostgreSQLResultContract)
+			}
+			return visit(row)
+		}); err != nil {
+			return err
+		}
+		after = keys[len(keys)-1]
+		if len(keys) < steps.PageSize {
+			return nil
+		}
+	}
+}
+
+// validatePostgreSQLRootPageSteps proves once, before the first adapter
+// call, that the parent-supplied steps are executable: both step commands
+// dispatch through the exhaustive PostgreSQL tag accessor (a cross-tag or
+// zero-tag command fails with the compiler's routing sentinels), every page
+// parameter index is inside its statement's rendered argument list with
+// exactly the declared parameter type the engine will rebind, the key-step
+// positions are distinct, the page size is positive, and both root identity
+// columns are named — the row one present in the declared output contract.
+func (s OutputStream) validatePostgreSQLRootPageSteps() error {
+	steps := s.pgRootPage
+	if steps == nil {
+		return fmt.Errorf("%w: no steps were supplied", ErrPostgreSQLRootPageSteps)
+	}
+	if steps.PageSize < 1 {
+		return fmt.Errorf("%w: page size must be positive, got %d", ErrPostgreSQLRootPageSteps, steps.PageSize)
+	}
+	if steps.PageSize > maxPostgreSQLRootPageSize {
+		return fmt.Errorf("%w: page size %d exceeds the sanity bound %d", ErrPostgreSQLRootPageSteps, steps.PageSize, maxPostgreSQLRootPageSize)
+	}
+	if strings.TrimSpace(steps.RootKeyColumn) == "" {
+		return fmt.Errorf("%w: the root-key result column must be named", ErrPostgreSQLRootPageSteps)
+	}
+	if strings.TrimSpace(steps.RowRootKeyColumn) == "" {
+		return fmt.Errorf("%w: the row root key column must be named", ErrPostgreSQLRootPageSteps)
+	}
+	declared := false
+	for _, column := range s.commandColumns {
+		if column == steps.RowRootKeyColumn {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return fmt.Errorf("%w: row root key column %q is not part of the declared output contract", ErrPostgreSQLRootPageSteps, steps.RowRootKeyColumn)
+	}
+	if steps.CursorArgIndex == steps.PageSizeArgIndex {
+		return fmt.Errorf("%w: the cursor and page size must occupy distinct key-step parameter positions", ErrPostgreSQLRootPageSteps)
+	}
+	if err := checkPostgreSQLPageParameter(steps.RootKeys, steps.CursorArgIndex, command.PostgreSQLParameterText, "key-step cursor"); err != nil {
+		return err
+	}
+	if err := checkPostgreSQLPageParameter(steps.RootKeys, steps.PageSizeArgIndex, command.PostgreSQLParameterBigint, "key-step page size"); err != nil {
+		return err
+	}
+	if err := checkPostgreSQLPageParameter(steps.Rows, steps.PageKeysArgIndex, command.PostgreSQLParameterJSONB, "row-step key page"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// postgreSQLPageParameter names one positional argument position to rebind
+// while deriving a page's command from the parent template.
+type postgreSQLPageParameter struct {
+	index     int
+	parameter command.PostgreSQLParameter
+}
+
+func checkPostgreSQLPageParameter(base command.CompiledCommand, index int, want command.PostgreSQLParameterType, name string) error {
+	_, args, err := base.PostgreSQLParameters()
+	if err != nil {
+		return err
+	}
+	if index < 0 || index >= len(args) {
+		return fmt.Errorf("%w: %s parameter index %d is outside the %d rendered statement arguments", ErrPostgreSQLRootPageSteps, name, index, len(args))
+	}
+	if args[index].Type != want {
+		return fmt.Errorf("%w: %s parameter %d is declared %q and cannot be rebound as %q", ErrPostgreSQLRootPageSteps, name, index+1, string(args[index].Type), string(want))
+	}
+	return nil
+}
+
+// withPostgreSQLPageParameters derives one page's command from a
+// parent-tagged template: the statement SQL is carried unchanged, every
+// non-page argument keeps its exact declared type and value, and only the
+// named positions are rebound — each with a value of the declared type, so a
+// page value can never reinterpret the statement's parameter shape. The
+// result is re-frozen through the canonical command constructor, the
+// positional counterpart of the closed WithAQLBinds derivation on the AQL
+// side: the template is never mutated, and no unrendered parameter can enter
+// an executed statement.
+func withPostgreSQLPageParameters(base command.CompiledCommand, replacements []postgreSQLPageParameter) (command.CompiledCommand, error) {
+	sqlText, args, err := base.PostgreSQLParameters()
+	if err != nil {
+		return command.CompiledCommand{}, err
+	}
+	updated := append([]command.PostgreSQLParameter(nil), args...)
+	for _, replacement := range replacements {
+		if replacement.index < 0 || replacement.index >= len(args) {
+			return command.CompiledCommand{}, fmt.Errorf("%w: page parameter index %d is outside the %d rendered statement arguments", ErrPostgreSQLRootPageSteps, replacement.index, len(args))
+		}
+		if args[replacement.index].Type != replacement.parameter.Type {
+			return command.CompiledCommand{}, fmt.Errorf("%w: page parameter %d is declared %q and cannot be rebound as %q", ErrPostgreSQLRootPageSteps, replacement.index+1, string(args[replacement.index].Type), string(replacement.parameter.Type))
+		}
+		updated[replacement.index] = replacement.parameter
+	}
+	return command.NewPostgreSQLCommand(sqlText, updated)
 }
 
 func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(context.Context, preparedClickHouseQuery) error) error {
