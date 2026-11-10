@@ -2289,7 +2289,17 @@ const (
 	grpmSeamTimeout = 5 * time.Second
 )
 
-var grpmNameRe = regexp.MustCompile(`^verify_grpm_[0-9]+_[0-9a-f]+$`)
+// grpmOwnedNameRe builds the name pattern for a fixture namespace
+// prefix (databases and schemas are "<prefix>_<unixnano>_<hex>").
+func grpmOwnedNameRe(prefix string) *regexp.Regexp {
+	return regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `_[0-9]+_[0-9a-f]+$`)
+}
+
+// grpmLikePattern renders a LIKE pattern (ESCAPE '\') matching every
+// name under a fixture namespace prefix.
+func grpmLikePattern(prefix string) string {
+	return strings.ReplaceAll(prefix, "_", `\`) + `\_%`
+}
 
 // Creation registry: every database/schema this suite creates is recorded
 // before the first write, so the ownership-scoped audit can prove both
@@ -2340,7 +2350,19 @@ type grpmFixture struct {
 
 func newGRPMFixture(t *testing.T) *grpmFixture {
 	t.Helper()
+	return newGRPMFixtureWithPrefix(t, "verify_grpm")
+}
+
+// newGRPMFixtureWithPrefix builds the identical isolated fixture under a
+// caller-owned namespace prefix, so a follow-up ticket can own its own
+// zero-leftover namespace (e.g. verify_e2rv_*) without disturbing the
+// merged suite's verify_grpm_* discipline. Names, patterns, and audits
+// all derive from the prefix.
+func newGRPMFixtureWithPrefix(t *testing.T, prefix string) *grpmFixture {
+	t.Helper()
 	raw := pgstate06TestPostgresURL(t)
+	nameRe := grpmOwnedNameRe(prefix)
+	likePattern := grpmLikePattern(prefix)
 
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
@@ -2377,8 +2399,8 @@ func newGRPMFixture(t *testing.T) *grpmFixture {
 	}
 	t.Cleanup(admin.Close)
 
-	dbName := fmt.Sprintf("verify_grpm_%d_%s", time.Now().UnixNano(), pgstate06RandomHex(t))
-	if !grpmNameRe.MatchString(dbName) {
+	dbName := fmt.Sprintf("%s_%d_%s", prefix, time.Now().UnixNano(), pgstate06RandomHex(t))
+	if !nameRe.MatchString(dbName) {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
@@ -2395,18 +2417,18 @@ func newGRPMFixture(t *testing.T) *grpmFixture {
 			t.Errorf("leftover audit: isolated database %s still exists", dbName)
 		}
 		var namespaceLeftovers int
-		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\_grpm\_%' ESCAPE '\'`).Scan(&namespaceLeftovers); err != nil {
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname LIKE $1 ESCAPE '\'`, likePattern).Scan(&namespaceLeftovers); err != nil {
 			t.Errorf("leftover audit: query database namespace: %s", scrub(err))
 		}
 		if namespaceLeftovers != 0 {
-			t.Errorf("leftover audit: %d verify_grpm_* databases remain", namespaceLeftovers)
+			t.Errorf("leftover audit: %d %s_* databases remain", namespaceLeftovers, prefix)
 		}
 		var schemaLeftovers int
-		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'verify\_grpm\_%' ESCAPE '\'`).Scan(&schemaLeftovers); err != nil {
+		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_namespace WHERE nspname LIKE $1 ESCAPE '\'`, likePattern).Scan(&schemaLeftovers); err != nil {
 			t.Errorf("leftover audit: query schema namespace: %s", scrub(err))
 		}
 		if schemaLeftovers != 0 {
-			t.Errorf("leftover audit: %d verify_grpm_* schemas remain in the service database", schemaLeftovers)
+			t.Errorf("leftover audit: %d %s_* schemas remain in the service database", schemaLeftovers, prefix)
 		}
 		grpmDeRegisterResource(dbName)
 	})
@@ -2439,8 +2461,8 @@ func newGRPMFixture(t *testing.T) *grpmFixture {
 	}
 	t.Cleanup(iso.Close)
 
-	schema := fmt.Sprintf("verify_grpm_%d_%s", time.Now().UnixNano(), pgstate06RandomHex(t))
-	if !grpmNameRe.MatchString(schema) {
+	schema := fmt.Sprintf("%s_%d_%s", prefix, time.Now().UnixNano(), pgstate06RandomHex(t))
+	if !nameRe.MatchString(schema) {
 		t.Fatalf("owned schema name %q does not match the required pattern", schema)
 	}
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
