@@ -94,7 +94,7 @@ package postgres
 // ErrUnsupportedPostgresPlan refusal that yields no SQL. There is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion here.
 //
-// Planner-facing command registration (command.CompiledCommandForBackend)
+// Planner-facing command registration (the selected compiler target)
 // stays fail-closed for PostgreSQL exactly as in pg-sql-01/02/03: this file
 // — not command dispatch — is where the scalar filter comparison and
 // boolean predicate operations are implemented and registered.
