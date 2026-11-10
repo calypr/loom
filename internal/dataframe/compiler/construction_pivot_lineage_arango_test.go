@@ -80,9 +80,7 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 				t.Fatalf("compile Pivot row lineage: %v", err)
 			}
 			err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })
-			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("row lineage error = %v, want global Pivot policy error %s", err, test.wantErrorCode)
-			}
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 		})
 	}
 }
