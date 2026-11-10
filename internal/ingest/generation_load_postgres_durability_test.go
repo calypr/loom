@@ -51,6 +51,7 @@ import (
 
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetpostgres "github.com/calypr/loom/internal/dataset/postgres"
+	storepostgres "github.com/calypr/loom/internal/store/postgres"
 )
 
 // ---------------------------------------------------------------------------
@@ -1051,7 +1052,7 @@ func ing03WriteSpillFixtures(t *testing.T, dir string, codedRows int) {
 	}
 	rows := make([]string, 0, codedRows)
 	for i := 0; i < codedRows; i++ {
-		rows = append(rows, ing03JSONLine(t, map[string]any{
+		document := map[string]any{
 			"resourceType": "Observation",
 			"id":           fmt.Sprintf("obs-s-%06d", i),
 			"status":       "final",
@@ -1060,7 +1061,21 @@ func ing03WriteSpillFixtures(t *testing.T, dir string, codedRows int) {
 				"system": ing03LoincSystem,
 				"code":   fmt.Sprintf("spill-%06d", i),
 			}}},
-		}))
+		}
+		// Non-uniform edge weight (a [4,4,4,2] subject/focus cycle):
+		// uniform per-row edge counts make the window accumulator land
+		// exactly on the 1000-edge cap and never cross it, which kept the
+		// first cap fix untested. With this cycle the accumulation reaches
+		// 998 and the next row alone would push it to 1002, so the
+		// lookahead split must fire at 998 - asserted below via the batch
+		// events. Every reference target (Patient/pat-0000,
+		// Observation/obs-s-000000) is itself written by this fixture.
+		if i%4 != 3 {
+			document["focus"] = []any{
+				map[string]any{"reference": "Observation/obs-s-000000"},
+			}
+		}
+		rows = append(rows, ing03JSONLine(t, document))
 	}
 	if err := os.WriteFile(filepath.Join(dir, "Observation.ndjson"),
 		[]byte(strings.Join(rows, "\n")+"\n"), 0o600); err != nil {
@@ -1084,12 +1099,23 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	refKill := ing03Ref(t, ing03Project, "gen-build-spill-kill")
 
 	// Reference: the same fixture and threshold, uninterrupted. Its spill
-	// write count is the non-vacuity witness that the mid-load branch runs.
+	// write count is the non-vacuity witness that the mid-load spill branch runs.
 	refOpts := service.loadOptions(metaDir, ing03Project, &refRef)
 	refSpillWrites := 0
-	refOpts.EventSink = func(event string, _ map[string]any) {
+	var refEdgeOffers []int64
+	refOpts.EventSink = func(event string, fields map[string]any) {
 		if event == "go_pg_semantic_write" {
 			refSpillWrites++
+		}
+		if event == "go_pg_edge_batch_commit" {
+			switch offered := fields["offered"].(type) {
+			case int:
+				refEdgeOffers = append(refEdgeOffers, int64(offered))
+			case int64:
+				refEdgeOffers = append(refEdgeOffers, offered)
+			case float64:
+				refEdgeOffers = append(refEdgeOffers, int64(offered))
+			}
 		}
 	}
 	pgRef := service.pgOptions(ing03AppBase + "-spill-ref")
@@ -1102,6 +1128,28 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	if refSpillWrites < 2 {
 		t.Fatalf("reference load emitted %d semantic writes at threshold %d with %d coded rows: the mid-load spill never ran (vacuous)",
 			refSpillWrites, flushThreshold, spillRows)
+	}
+	// Edge-window boundary witness: the [4,4,4,2] reference pattern makes
+	// the accumulator reach 998 while the next row alone carries 4 more,
+	// so the lookahead split must fire BEFORE the crossing row. Every
+	// offered batch stays within the store cap, and a crossing commit in
+	// [MaxBatchEdges-6, MaxBatchEdges-1] proves the split actually fired
+	// (uniform fixtures would only ever commit exactly at the cap).
+	if len(refEdgeOffers) == 0 {
+		t.Fatal("reference load emitted no edge batch commits: the boundary witness is vacuous")
+	}
+	crossed := false
+	for _, offered := range refEdgeOffers {
+		if offered > storepostgres.MaxBatchEdges {
+			t.Fatalf("edge batch offered %d, exceeding the store cap %d (batch events: %v)", offered, storepostgres.MaxBatchEdges, refEdgeOffers)
+		}
+		if offered >= storepostgres.MaxBatchEdges-6 && offered < storepostgres.MaxBatchEdges {
+			crossed = true
+		}
+	}
+	if !crossed {
+		t.Fatalf("no edge batch committed in the crossing band [%d,%d): the lookahead split never fired (offers: %v)",
+			storepostgres.MaxBatchEdges-6, storepostgres.MaxBatchEdges, refEdgeOffers)
 	}
 	refContribs := service.countTable("fhir_semantic_inventory_contribution", "dataset_generation = $1", refRef.Generation)
 	if refContribs < 2*flushThreshold {
@@ -1198,6 +1246,97 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	}
 	if state, found := service.manifestState(ing03Project, refKill.Generation); !found || state != string(publication.StateStaged) {
 		t.Fatalf("replayed manifest = %q found=%v, want STAGED", state, found)
+	}
+	ing03AssertLedgerEquality(t, service)
+}
+
+// TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows proves both
+// summary counters net replays out: the first attempt commits its first
+// edge window, is killed while the second window is parked (manifest
+// LOADING), and the resumer replays the first window (the store reports
+// the original commit count with Replay=true) while committing the rest
+// for real. A resumed load must therefore report exactly the newly
+// inserted rows - unguarded counters would report the replayed window's
+// original counts as fresh inserts.
+func TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows(t *testing.T) {
+	service := newIngest03Service(t)
+	service.migrate()
+	metaDir := t.TempDir()
+	const killRows = 3000
+	ing03WriteSpillFixtures(t, metaDir, killRows)
+	ref := ing03Ref(t, ing03Project, ing03Generation)
+
+	firstEdgeCommit := make(chan struct{}, 1)
+	opts := service.loadOptions(metaDir, ing03Project, &ref)
+	opts.EventSink = func(event string, _ map[string]any) {
+		if event == "go_pg_edge_batch_commit" {
+			select {
+			case firstEdgeCommit <- struct{}{}:
+			default:
+			}
+		}
+	}
+	app := ing03AppBase + "-replay-counter"
+	pg := service.pgOptions(app)
+	loadErrCh := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		_, err := LoadPostgresGeneration(ctx, opts, pg)
+		loadErrCh <- err
+	}()
+	select {
+	case <-firstEdgeCommit:
+	case loadErr := <-loadErrCh:
+		t.Fatalf("load ended (%v) before the first edge commit: the kill never armed", loadErr)
+	case <-time.After(90 * time.Second):
+		t.Fatal("no edge batch committed: the kill never armed")
+	}
+	release := service.blockTable("fhir_edge_occurrence")
+	defer release()
+	if _, parked := service.waitForBackendWaiting(app, 60*time.Second); !parked {
+		t.Fatalf("no backend for %s parked on the edge lock: the kill injection is vacuous", app)
+	}
+	if killed := service.terminateAppBackends(app); killed < 1 {
+		t.Fatalf("terminated %d backends, want >= 1", killed)
+	}
+	release()
+	var loadErr error
+	select {
+	case loadErr = <-loadErrCh:
+	case <-time.After(120 * time.Second):
+		t.Fatal("killed load did not return")
+	}
+	if !errors.Is(loadErr, ErrGenerationManifestOutcomeUnknown) {
+		t.Fatalf("killed load error = %T %v, want %v", loadErr, loadErr, ErrGenerationManifestOutcomeUnknown)
+	}
+	if state, found := service.manifestState(ing03Project, ing03Generation); !found || state != string(publication.StateLoading) {
+		t.Fatalf("manifest = %q found=%v, want LOADING", state, found)
+	}
+	edgesBefore := service.countTable("fhir_edge_occurrence", "")
+	if edgesBefore == 0 {
+		t.Fatal("no edge rows before the replay: the replay witness would be vacuous")
+	}
+
+	resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer resumeCancel()
+	summary, err := LoadPostgresGeneration(resumeCtx, service.loadOptions(metaDir, ing03Project, &ref),
+		service.pgOptions(ing03AppBase+"-replay-counter-resume"))
+	if err != nil {
+		t.Fatalf("resume after edge-window kill: %s", service.scrub(err))
+	}
+	if summary.BatchCounts["edge_batch_replay"] == 0 {
+		t.Fatalf("resume replayed no edge windows (batch counts %v): the replay witness never exercised the replayed path", summary.BatchCounts)
+	}
+	edgesAfter := service.countTable("fhir_edge_occurrence", "")
+	if int64(summary.EdgesInserted) != edgesAfter-edgesBefore {
+		t.Fatalf("resumed EdgesInserted = %d, want only the %d new rows (before=%d after=%d): replayed batches inflated the counter",
+			summary.EdgesInserted, edgesAfter-edgesBefore, edgesBefore, edgesAfter)
+	}
+	// Every resource window was committed before the edge kill, so the
+	// resume is a pure resource replay: zero fresh rows.
+	if summary.VerticesInserted != 0 {
+		t.Fatalf("resumed VerticesInserted = %d, want 0 (all resource windows were already durable): replayed batches inflated the counter", summary.VerticesInserted)
 	}
 	ing03AssertLedgerEquality(t, service)
 }

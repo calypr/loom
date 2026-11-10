@@ -957,8 +957,12 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 				// bounds rows per window: a reference-heavy row emits
 				// several edges, so a full row window can overflow the edge
 				// cap (this is exactly what a large reference-heavy fixture
-				// hit). Windows therefore split on the row window OR on the
-				// accumulated edge cap, whichever lands first. Both are pure
+				// hit). Windows therefore split on the row window OR when
+				// APPENDING the next row would push the accumulation past
+				// the cap — the commit fires before the crossing row is
+				// appended (lookahead bin-packing), so no offered batch can
+				// ever exceed the cap even when the crossing row alone
+				// carries nearly the whole budget. Both boundaries are pure
 				// functions of the staged bytes and schema identity, so a
 				// retry from any process reproduces identical window
 				// boundaries and the content-independent batch digest stays
@@ -967,11 +971,19 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 					return fmt.Errorf("%s %s row %d produces %d edges, exceeding the %d-per-batch edge bound; nothing was written",
 						filepath.Base(file), resourceType, lineNumber, len(built.edges), storepostgres.MaxBatchEdges)
 				}
+				if len(windowRows) > 0 && windowEdges+len(built.edges) > storepostgres.MaxBatchEdges {
+					if err := l.commitEdgeWindow(ctx, fileID, windowIndex, windowRows, summary); err != nil {
+						return err
+					}
+					windowRows = nil
+					windowEdges = 0
+					windowIndex++
+				}
 				if len(built.edges) > 0 {
 					windowRows = append(windowRows, built)
 					windowEdges += len(built.edges)
 				}
-				if lineNumber%l.edgeWindow == 0 || windowEdges >= storepostgres.MaxBatchEdges {
+				if lineNumber%l.edgeWindow == 0 {
 					if err := l.commitEdgeWindow(ctx, fileID, windowIndex, windowRows, summary); err != nil {
 						return err
 					}
@@ -1012,7 +1024,13 @@ func (l *pgGenerationLoad) commitEdgeWindow(ctx context.Context, fileID string, 
 	if err != nil {
 		return fmt.Errorf("commit postgres edge batch %s (%d rows): %w", batchID, len(rows), err)
 	}
-	summary.EdgesInserted += int(result.Committed)
+	// Same contract as the resource side: EdgeBatchResult reports the
+	// ledger's original commit count with Replay=true, so only non-replay
+	// batches count as newly inserted; replays stay visible through
+	// edge_batch_replay.
+	if !result.Replay {
+		summary.EdgesInserted += int(result.Committed)
+	}
 	summary.BatchCounts["edge_batch"]++
 	if result.Replay {
 		summary.BatchCounts["edge_batch_replay"]++
