@@ -478,7 +478,7 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{5, "explorer_compilation_receipt", "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a"},
 		{6, "explorer_revision", "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09"},
 		{9, "explorer_explicit_groups", "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f"},
-		{10, "explorer_explicit_group_memberships", "e3bba3c5b1556a11d3f3cdb0f38679694d76f85874dac64b09b0b64b49b17ead"},
+		{10, "explorer_explicit_group_memberships", "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"},
 	}
 	// The literal checksum registry above is the deliberate per-file pin
 	// (pg-store-02 convention): it must name every embedded migration file,

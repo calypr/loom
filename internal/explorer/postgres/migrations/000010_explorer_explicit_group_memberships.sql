@@ -339,10 +339,22 @@ BEGIN
     -- behaves identically no matter what search_path the calling session
     -- carries (same discipline as the definitions guard). FOUND is
     -- unreliable after EXECUTE ... INTO, so the row count drives the
-    -- absent-parent branch.
+    -- absent-parent branch. The lookup locks the parent FOR KEY SHARE --
+    -- the row-lock mode a foreign-key check takes, which conflicts with
+    -- every writer transition (the store claims the header FOR UPDATE)
+    -- -- so a concurrent completion can never flip the parent between
+    -- this read and the operation it authorizes: the intruding session
+    -- queues behind the completing transaction and then re-reads the
+    -- committed state. A plain SELECT here is a snapshot read and leaves
+    -- a TOCTOU window in which a direct-SQL INSERT (or an abort-channel
+    -- DELETE) is authorized against a stale STAGING image while the
+    -- parent completes in parallel; the store API fences its own paths,
+    -- but this guard is the last line for sessions that drive the tables
+    -- directly, which is exactly what it exists for.
     EXECUTE format(
         'SELECT state, project, generation, resource_type, writer_token, writer_expires_at'
-            || ' FROM %I.explorer_explicit_group_revisions WHERE id = $1',
+            || ' FROM %I.explorer_explicit_group_revisions WHERE id = $1'
+            || ' FOR KEY SHARE',
         TG_TABLE_SCHEMA
     ) INTO parent_state, parent_project, parent_generation, parent_resource_type,
            parent_writer_token, parent_expires_at

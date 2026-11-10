@@ -2251,7 +2251,7 @@ const (
 	// grpmMigrationChecksum is the byte-frozen SHA-256 of the membership
 	// migration SQL. The test recomputes it from the embedded bytes and
 	// refuses drift in either direction.
-	grpmMigrationChecksum = "e3bba3c5b1556a11d3f3cdb0f38679694d76f85874dac64b09b0b64b49b17ead"
+	grpmMigrationChecksum = "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"
 	// grpmSelectionsFixture* pins the composed selections migration --
 	// version 8 of the shared ledger, owned by the merged
 	// selection-revision-owner ticket and byte-frozen here the way the
