@@ -67,6 +67,7 @@ import (
 	catalogpostgres "github.com/calypr/loom/internal/catalog/postgres"
 	publication "github.com/calypr/loom/internal/dataset"
 	datasetpostgres "github.com/calypr/loom/internal/dataset/postgres"
+	"github.com/calypr/loom/internal/source"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -1313,7 +1314,7 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 		if err != nil {
 			t.Fatalf("resource repo: %v", err)
 		}
-		if _, err := resourceRepo.InsertResource(context.Background(), catalog.PGResourceRow{
+		if _, err := resourceRepo.InsertResource(context.Background(), source.Resource{
 			Project: ing03Project, DatasetGeneration: ing03Generation, ResourceType: "Patient",
 			LogicalID: "pat-0000", AuthResourcePath: ing03AuthPath,
 			Payload: json.RawMessage(`{"id":"pat-0000","resourceType":"Patient","gender":"seeded"}`),
@@ -1844,8 +1845,8 @@ func (e ing03EdgeSeed) row() storepostgres.EdgeOccurrenceRow {
 // schema holds byte-identical content: an identical replay is tolerated by
 // the batch contract, so the resource pass proceeds and the conflict lands
 // where it is meant to — the edge batch.
-func (s *ing03Service) sourceSeed(e ing03EdgeSeed) catalog.PGResourceRow {
-	return catalog.PGResourceRow{
+func (s *ing03Service) sourceSeed(e ing03EdgeSeed) source.Resource {
+	return source.Resource{
 		Project: ing03Project, DatasetGeneration: ing03Generation,
 		ResourceType: e.SourceType, LogicalID: e.SourceID, AuthResourcePath: ing03AuthPath,
 		Payload: json.RawMessage(s.resourcePayload(e.SourceType, e.SourceID)),

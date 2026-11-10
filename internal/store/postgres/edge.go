@@ -136,7 +136,7 @@ func (e *EdgeSourceMissingError) Unwrap() error { return ErrEdgeSourceMissing }
 
 // EdgeScope binds one PostgreSQL edge traversal to exactly one storage scope
 // and its authorization. It follows the explicit-mode convention of
-// catalog.PGResourceScope: there is no implicit-unrestricted mode, so
+// source.ResourceScope: there is no implicit-unrestricted mode, so
 // AuthResourcePathsUnrestricted must be set deliberately.
 type EdgeScope struct {
 	// Project is required and matched exactly.

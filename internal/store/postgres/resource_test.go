@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -187,7 +187,7 @@ func (s *resourceService) readLedger(t *testing.T) []LedgerRecord {
 
 // mustInsert inserts one row and returns its server-assigned storage
 // identity.
-func (s *resourceService) mustInsert(t *testing.T, repo *ResourceRepository, rec catalog.PGResourceRow) int64 {
+func (s *resourceService) mustInsert(t *testing.T, repo *ResourceRepository, rec source.Resource) int64 {
 	t.Helper()
 	seq, err := repo.InsertResource(s.ctx, rec)
 	if err != nil {
@@ -201,7 +201,7 @@ func (s *resourceService) mustInsert(t *testing.T, repo *ResourceRepository, rec
 }
 
 func (s *resourceService) mustGet(t *testing.T, repo *ResourceRepository,
-	scope catalog.PGResourceScope, resourceType, logicalID string) catalog.PGResourceRow {
+	scope source.ResourceScope, resourceType, logicalID string) ResourceRow {
 	t.Helper()
 	rec, err := repo.GetResource(s.ctx, scope, resourceType, logicalID)
 	if err != nil {
@@ -212,7 +212,7 @@ func (s *resourceService) mustGet(t *testing.T, repo *ResourceRepository,
 }
 
 func (s *resourceService) mustRead(t *testing.T, repo *ResourceRepository,
-	scope catalog.PGResourceScope, afterSeq int64, limit int) ([]catalog.PGResourceRow, bool) {
+	scope source.ResourceScope, afterSeq int64, limit int) ([]ResourceRow, bool) {
 	t.Helper()
 	rows, hasMore, err := repo.ReadResources(s.ctx, scope, afterSeq, limit)
 	if err != nil {
@@ -222,13 +222,37 @@ func (s *resourceService) mustRead(t *testing.T, repo *ResourceRepository,
 	return rows, hasMore
 }
 
+// TestPhysicalResourceRowRefusesOfferedStorageIdentity keeps the
+// server-assigned guard tested at the single boundary all writes cross. The
+// public write surface takes only source.Resource, which carries no storage
+// sequence, so no caller can reach this refusal by construction; the store's
+// physical row still carries the field, and any physical row offered to the
+// write engine with a non-zero sequence is refused before any round trip.
+func TestPhysicalResourceRowRefusesOfferedStorageIdentity(t *testing.T) {
+	base := source.Resource{
+		Project: "proj", DatasetGeneration: "gen", ResourceType: "Patient",
+		LogicalID: "p-1", AuthResourcePath: "practitioner/pr-1",
+		Payload: json.RawMessage(`{"id":"p-1"}`),
+	}
+	if err := validateResourceForInsert(ResourceRow{Resource: base}); err != nil {
+		t.Errorf("validateResourceForInsert with zero storage identity = %v, want nil", err)
+	}
+	err := validateResourceForInsert(ResourceRow{Resource: base, ResourceSeq: 7})
+	if !errors.Is(err, ErrInvalidResource) {
+		t.Fatalf("validateResourceForInsert with offered storage identity = %v, want ErrInvalidResource", err)
+	}
+	if !strings.Contains(err.Error(), "server-assigned") {
+		t.Errorf("refusal %v does not name the server-assigned contract", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Scope helpers
 // ---------------------------------------------------------------------------
 
-func restrictedScope(project, generation string, paths ...string) catalog.PGResourceScope {
+func restrictedScope(project, generation string, paths ...string) source.ResourceScope {
 	restricted := false
-	return catalog.PGResourceScope{
+	return source.ResourceScope{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: &restricted,
@@ -236,9 +260,9 @@ func restrictedScope(project, generation string, paths ...string) catalog.PGReso
 	}
 }
 
-func unrestrictedScope(project, generation string) catalog.PGResourceScope {
+func unrestrictedScope(project, generation string) source.ResourceScope {
 	unrestricted := true
-	return catalog.PGResourceScope{
+	return source.ResourceScope{
 		Project:                       project,
 		DatasetGeneration:             generation,
 		AuthResourcePathsUnrestricted: &unrestricted,
@@ -277,7 +301,7 @@ func assertPayloadEqual(t *testing.T, got json.RawMessage, want string) {
 	}
 }
 
-func assertRowScope(t *testing.T, got catalog.PGResourceRow, want catalog.PGResourceRow) {
+func assertRowScope(t *testing.T, got ResourceRow, want source.Resource) {
 	t.Helper()
 	if got.Project != want.Project || got.DatasetGeneration != want.DatasetGeneration ||
 		got.ResourceType != want.ResourceType || got.LogicalID != want.LogicalID ||
@@ -295,21 +319,20 @@ func TestResourceValidationRejectsInvalidInserts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResourceRepository: %v", err)
 	}
-	base := catalog.PGResourceRow{
+	base := source.Resource{
 		Project: "proj", DatasetGeneration: "gen", ResourceType: "Patient",
 		LogicalID: "p-1", AuthResourcePath: "practitioner/pr-1",
 		Payload: json.RawMessage(`{"id":"p-1"}`),
 	}
 	for _, tc := range []struct {
 		name   string
-		mutate func(*catalog.PGResourceRow)
+		mutate func(*source.Resource)
 	}{
-		{"caller-supplied storage identity", func(r *catalog.PGResourceRow) { r.ResourceSeq = 7 }},
-		{"blank project", func(r *catalog.PGResourceRow) { r.Project = "  " }},
-		{"blank resource type", func(r *catalog.PGResourceRow) { r.ResourceType = "" }},
-		{"blank logical id", func(r *catalog.PGResourceRow) { r.LogicalID = "\t" }},
-		{"malformed json payload", func(r *catalog.PGResourceRow) { r.Payload = json.RawMessage(`{"id":`) }},
-		{"whitespace payload", func(r *catalog.PGResourceRow) { r.Payload = json.RawMessage(`  `) }},
+		{"blank project", func(r *source.Resource) { r.Project = "  " }},
+		{"blank resource type", func(r *source.Resource) { r.ResourceType = "" }},
+		{"blank logical id", func(r *source.Resource) { r.LogicalID = "\t" }},
+		{"malformed json payload", func(r *source.Resource) { r.Payload = json.RawMessage(`{"id":`) }},
+		{"whitespace payload", func(r *source.Resource) { r.Payload = json.RawMessage(`  `) }},
 	} {
 		rec := base
 		tc.mutate(&rec)
@@ -335,7 +358,7 @@ func TestResourceScopeAndQueryValidation(t *testing.T) {
 	}
 
 	// nil AuthResourcePathsUnrestricted must never read as unrestricted.
-	scope := catalog.PGResourceScope{Project: "proj", AuthResourcePaths: []string{"a"}}
+	scope := source.ResourceScope{Project: "proj", AuthResourcePaths: []string{"a"}}
 	if _, err := repo.GetResource(ctx, scope, "Patient", "p-1"); !errors.Is(err, ErrInvalidResourceScope) {
 		t.Errorf("GetResource with nil unrestricted flag = %v, want ErrInvalidResourceScope", err)
 	}
@@ -542,7 +565,7 @@ func TestResourceInsertAndExactReadPreserveFHIRJSON(t *testing.T) {
 
 	const payload = `{"resourceType":"Observation","id":"obs-7","status":"final",` +
 		`"deceased":null,"category":[],"meta":{},"note":{"text":"keep"},"value":42}`
-	want := catalog.PGResourceRow{
+	want := source.Resource{
 		Project: "proj-f", DatasetGeneration: "gen-1", ResourceType: "Observation",
 		LogicalID: "obs-7", AuthResourcePath: "practitioner/pr-1",
 		Payload: json.RawMessage(payload),
@@ -602,19 +625,19 @@ func TestResourcePayloadDistinguishesSQLNullJSONNullAndMissingKey(t *testing.T) 
 	svc := newResourceService(t)
 	svc.mustMigrateEmbedded(t)
 	repo := svc.newRepository(t)
-	scope := func() catalog.PGResourceScope { return restrictedScope("proj-n", "gen-1", "") }
+	scope := func() source.ResourceScope { return restrictedScope("proj-n", "gen-1", "") }
 
-	absentSeq := svc.mustInsert(t, repo, catalog.PGResourceRow{
+	absentSeq := svc.mustInsert(t, repo, source.Resource{
 		Project: "proj-n", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "n-1", AuthResourcePath: "",
 		Payload: nil,
 	})
-	jsonNullSeq := svc.mustInsert(t, repo, catalog.PGResourceRow{
+	jsonNullSeq := svc.mustInsert(t, repo, source.Resource{
 		Project: "proj-n", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "n-2", AuthResourcePath: "",
 		Payload: json.RawMessage(`null`),
 	})
-	objectSeq := svc.mustInsert(t, repo, catalog.PGResourceRow{
+	objectSeq := svc.mustInsert(t, repo, source.Resource{
 		Project: "proj-n", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "n-3", AuthResourcePath: "",
 		Payload: json.RawMessage(`{"id":"n-3","a":null}`),
@@ -677,7 +700,7 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 
 	const original = `{"resourceType":"Patient","id":"dup-1","gender":"female"}`
 	const different = `{"resourceType":"Patient","id":"dup-1","gender":"male"}`
-	originalSeq := svc.mustInsert(t, repo, catalog.PGResourceRow{
+	originalSeq := svc.mustInsert(t, repo, source.Resource{
 		Project: "proj-c", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "dup-1", AuthResourcePath: "practitioner/pr-1",
 		Payload: json.RawMessage(original),
@@ -685,7 +708,7 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 
 	// Duplicate natural identity with a different payload — and even a
 	// different auth path — returns the typed conflict.
-	_, err := repo.InsertResource(svc.ctx, catalog.PGResourceRow{
+	_, err := repo.InsertResource(svc.ctx, source.Resource{
 		Project: "proj-c", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "dup-1", AuthResourcePath: "practitioner/pr-2",
 		Payload: json.RawMessage(different),
@@ -720,7 +743,7 @@ func TestResourceDuplicateNaturalIdentityConflict(t *testing.T) {
 
 	// Insert-only contract: even the identical payload is refused, so no
 	// caller can smuggle a silent upsert.
-	if _, err := repo.InsertResource(svc.ctx, catalog.PGResourceRow{
+	if _, err := repo.InsertResource(svc.ctx, source.Resource{
 		Project: "proj-c", DatasetGeneration: "gen-1", ResourceType: "Patient",
 		LogicalID: "dup-1", AuthResourcePath: "practitioner/pr-1",
 		Payload: json.RawMessage(original),
@@ -750,7 +773,7 @@ func TestResourceExactReadBindsScope(t *testing.T) {
 	svc.mustMigrateEmbedded(t)
 	repo := svc.newRepository(t)
 
-	seed := []catalog.PGResourceRow{
+	seed := []source.Resource{
 		{Project: "proj-a", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "p1", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"p1"}`)},
 		{Project: "proj-a", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "p2", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"p2"}`)},
 		{Project: "proj-a", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "p3", AuthResourcePath: "", Payload: json.RawMessage(`{"id":"p3"}`)},
@@ -774,7 +797,7 @@ func TestResourceExactReadBindsScope(t *testing.T) {
 
 	notFoundCases := []struct {
 		name         string
-		scope        catalog.PGResourceScope
+		scope        source.ResourceScope
 		resourceType string
 		logicalID    string
 	}{
@@ -827,14 +850,14 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	svc.mustMigrateEmbedded(t)
 	repo := svc.newRepository(t)
 
-	inScope := []catalog.PGResourceRow{
+	inScope := []source.Resource{
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k1", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"k1"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k2", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k2"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k3", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k3"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Observation", LogicalID: "k4", AuthResourcePath: "practitioner/pr-2", Payload: json.RawMessage(`{"id":"k4"}`)},
 		{Project: "proj-k", DatasetGeneration: "gen-1", ResourceType: "Patient", LogicalID: "k5", AuthResourcePath: "practitioner/pr-1", Payload: json.RawMessage(`{"id":"k5"}`)},
 	}
-	decoys := []catalog.PGResourceRow{
+	decoys := []source.Resource{
 		// Other project, other generation, and an unauthorized path,
 		// interleaved so their storage identities land among the
 		// in-scope rows.
@@ -846,7 +869,7 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	// Storage order deliberately contradicts the lexical id order and the
 	// authorized path list order: k3(pr-1), k1(pr-2), k5(pr-1), k2(pr-1),
 	// k4(pr-2), with decoys interleaved.
-	insertOrder := []catalog.PGResourceRow{
+	insertOrder := []source.Resource{
 		inScope[2], decoys[0], inScope[0], decoys[1], inScope[4], decoys[2], inScope[1], decoys[3], inScope[3],
 	}
 	for _, rec := range insertOrder {
@@ -871,7 +894,7 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 	// storage order.
 	wantPages := [][]string{{"k3", "k1"}, {"k5", "k2"}, {"k4"}}
 	scope := restrictedScope("proj-k", "gen-1", "practitioner/pr-1", "practitioner/pr-2")
-	var walked []catalog.PGResourceRow
+	var walked []ResourceRow
 	cursor := int64(0)
 	pages := 0
 	for {
@@ -936,7 +959,7 @@ func TestResourceKeysetReadStableOrderNeverCrossesScope(t *testing.T) {
 			t.Fatalf("walk is not strictly ascending by storage identity at position %d: %d then %d",
 				i, walked[i-1].ResourceSeq, rec.ResourceSeq)
 		}
-		var want catalog.PGResourceRow
+		var want source.Resource
 		for _, cand := range inScope {
 			if cand.ResourceType == rec.ResourceType && cand.LogicalID == rec.LogicalID {
 				want = cand
@@ -1000,15 +1023,15 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 	repo := svc.newRepository(t)
 	scope := restrictedScope("proj-w", "gen-1", "practitioner/pr-1")
 
-	mk := func(id string) catalog.PGResourceRow {
-		return catalog.PGResourceRow{
+	mk := func(id string) source.Resource {
+		return source.Resource{
 			Project: "proj-w", DatasetGeneration: "gen-1", ResourceType: "Patient",
 			LogicalID: id, AuthResourcePath: "practitioner/pr-1",
 			Payload: json.RawMessage(`{"id":"` + id + `"}`),
 		}
 	}
 	// Storage order: w3, w1, w4, w2 (all four land before the walk starts).
-	firstFour := []catalog.PGResourceRow{mk("w3"), mk("w1"), mk("w4"), mk("w2")}
+	firstFour := []source.Resource{mk("w3"), mk("w1"), mk("w4"), mk("w2")}
 	for _, rec := range firstFour {
 		svc.mustInsert(t, repo, rec)
 	}
@@ -1025,7 +1048,7 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 
 	// Insert while the walk is in flight (higher storage identities), again
 	// contradicting lexical order: w6 then w5.
-	lastTwo := []catalog.PGResourceRow{mk("w6"), mk("w5")}
+	lastTwo := []source.Resource{mk("w6"), mk("w5")}
 	for _, rec := range lastTwo {
 		svc.mustInsert(t, repo, rec)
 	}
@@ -1053,7 +1076,7 @@ func TestResourceKeysetWalkStableUnderInserts(t *testing.T) {
 
 	// Whole walk: six distinct rows, none skipped or duplicated.
 	seen := map[string]int{}
-	for _, rec := range append(append(append([]catalog.PGResourceRow(nil), page1...), page2...), page3...) {
+	for _, rec := range append(append(append([]ResourceRow(nil), page1...), page2...), page3...) {
 		seen[rec.LogicalID]++
 	}
 	if len(seen) != 6 {

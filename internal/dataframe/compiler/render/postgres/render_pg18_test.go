@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -217,7 +217,7 @@ func (s *pgir02Service) insertResource(t *testing.T, schema string, project, gen
 			t.Fatalf("build repository for schema %s: %v", schema, err)
 		}
 	}
-	seq, err := repo.InsertResource(s.ctx, catalog.PGResourceRow{
+	seq, err := repo.InsertResource(s.ctx, source.Resource{
 		Project:           project,
 		DatasetGeneration: generation,
 		ResourceType:      resourceType,
@@ -689,7 +689,7 @@ func TestPG18BindingSelectsOwnedSchemaOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("shadow repository: %v", err)
 	}
-	if _, err := shadowRepo.InsertResource(svc.ctx, catalog.PGResourceRow{
+	if _, err := shadowRepo.InsertResource(svc.ctx, source.Resource{
 		Project: itProject, DatasetGeneration: itGeneration, ResourceType: "Patient",
 		LogicalID: "p-in-shadow", AuthResourcePath: "FHIR/Patient",
 	}); err != nil {
