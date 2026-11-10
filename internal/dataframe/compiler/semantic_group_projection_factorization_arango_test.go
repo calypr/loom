@@ -455,19 +455,33 @@ func prepareSemanticGroupProjectionPreview(
 			callbacks.revisions++
 			return client.CollectionRevision(ctx, collection)
 		},
-		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
+		PreviewCollectionScans: func(ctx context.Context, command compiler.CompiledCommand, collection string) (execution.PreviewCollectionScanEvidence, error) {
 			callbacks.explains++
+			query, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return execution.PreviewCollectionScanEvidence{}, dispatchErr
+			}
 			result, err := client.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
 			callbacks.explainResults = append(callbacks.explainResults, semanticGroupProjectionExplainResult{query: query, result: result})
-			return result, err
+			if err != nil {
+				return execution.PreviewCollectionScanEvidence{}, err
+			}
+			return semanticGroupProjectionScanEvidence(result, collection), nil
 		},
-		PreviewCoveringIndexes: func(ctx context.Context, collection string) ([]arangostore.PreviewCoveringIndex, error) {
+		PreviewCoveringIndexes: func(ctx context.Context, collection string) ([]execution.PreviewCollectionIndex, error) {
 			callbacks.indexLists++
 			indexes, err := client.ListPreviewCoveringIndexes(ctx, collection)
+			converted := make([]execution.PreviewCollectionIndex, 0, len(indexes))
 			for _, index := range indexes {
 				callbacks.listedIndexNames = append(callbacks.listedIndexNames, index.Name)
+				converted = append(converted, execution.PreviewCollectionIndex{
+					Collection:   index.Collection,
+					Name:         index.Name,
+					Fields:       index.Fields,
+					StoredValues: index.StoredValues,
+				})
 			}
-			return indexes, err
+			return converted, err
 		},
 		PreviewCollectionCount: func(ctx context.Context, collection string) (int64, error) {
 			callbacks.collectionCount++
@@ -991,6 +1005,52 @@ func hasCoveringFactoredIndexExplain(records []semanticGroupProjectionExplainRes
 		}
 	}
 	return false
+}
+
+// semanticGroupProjectionScanEvidence adapts one live Arango explain response
+// to execution's neutral scan evidence for this integration harness. It
+// mirrors the production Arango adapter translation in
+// internal/server.PreviewCollectionScanEvidenceFromExplain, which is pinned
+// by dedicated decoder tests in the server package; this harness records the
+// raw response separately and re-verifies it independently below, so a
+// mis-decode here cannot produce a false pass.
+func semanticGroupProjectionScanEvidence(result arangostore.ExplainResult, collection string) execution.PreviewCollectionScanEvidence {
+	var plan *arangostore.ExplainPlan
+	switch {
+	case result.Plan != nil && len(result.Plans) == 0:
+		plan = result.Plan
+	case result.Plan == nil && len(result.Plans) == 1:
+		plan = &result.Plans[0]
+	default:
+		return execution.PreviewCollectionScanEvidence{}
+	}
+	evidence := execution.PreviewCollectionScanEvidence{}
+	for _, node := range plan.Nodes {
+		if node.Collection != collection {
+			continue
+		}
+		switch node.Type {
+		case "EnumerateCollectionNode":
+			evidence.FullCollectionEnumeration = true
+		case "IndexNode":
+			nodeEvidence := execution.PreviewIndexNodeEvidence{Coverage: execution.PreviewIndexCoverageUnknown}
+			if node.IndexCoversProjections != nil && node.IndexCoversOutProjections != nil {
+				switch {
+				case *node.IndexCoversProjections && *node.IndexCoversOutProjections:
+					nodeEvidence.Coverage = execution.PreviewIndexCoverageCovering
+				case !*node.IndexCoversProjections && !*node.IndexCoversOutProjections:
+					nodeEvidence.Coverage = execution.PreviewIndexCoverageNotCovering
+				}
+			}
+			for _, index := range node.Indexes {
+				if index.Collection == "" || index.Collection == collection {
+					nodeEvidence.IndexNames = append(nodeEvidence.IndexNames, index.Name)
+				}
+			}
+			evidence.IndexNodes = append(evidence.IndexNodes, nodeEvidence)
+		}
+	}
+	return evidence
 }
 
 func assertSemanticGroupProjectionExpectedDisplayCounts(t *testing.T, rows []map[string]any, want map[string][]float64) {

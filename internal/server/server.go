@@ -606,10 +606,24 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return err
 		}),
-		PreviewCoveringIndexes:    lifecycleClient.ListPreviewCoveringIndexes,
+		PreviewCoveringIndexes: func(ctx context.Context, collection string) ([]dataframeexecution.PreviewCollectionIndex, error) {
+			indexes, err := lifecycleClient.ListPreviewCoveringIndexes(ctx, collection)
+			if err != nil {
+				return nil, err
+			}
+			return previewCollectionIndexesFromStore(indexes), nil
+		},
 		PreviewCollectionRevision: lifecycleClient.CollectionRevision,
-		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
-			return lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
+		PreviewCollectionScans: func(ctx context.Context, command compiler.CompiledCommand, collection string) (dataframeexecution.PreviewCollectionScanEvidence, error) {
+			query, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dataframeexecution.PreviewCollectionScanEvidence{}, dispatchErr
+			}
+			result, err := lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
+			if err != nil {
+				return dataframeexecution.PreviewCollectionScanEvidence{}, err
+			}
+			return PreviewCollectionScanEvidenceFromExplain(result, collection), nil
 		},
 		PreviewCollectionCount: lifecycleClient.CollectionCount,
 		ClickHouseQueryRows:    clickHouseQueryRows,

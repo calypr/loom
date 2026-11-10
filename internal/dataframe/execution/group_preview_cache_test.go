@@ -11,7 +11,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 func newGroupPreviewCacheTestEngine(t *testing.T, rows QueryRows, revision func(context.Context, string) (string, error)) (*Engine, Resolved) {
@@ -387,7 +386,7 @@ func TestGroupPreviewProjectionDecisionCacheSeparatesExactScopeRevisionAndIndex(
 }
 
 func TestGroupProjectionIndexIdentityIncludesCompleteSelectedDefinition(t *testing.T) {
-	base := arango.PreviewCoveringIndex{
+	base := PreviewCollectionIndex{
 		Collection: "Observation", Name: "loom_pivot_preview_selected",
 		Fields:       []string{"project", "dataset_generation", "auth_resource_path", "payload.code.coding"},
 		StoredValues: []string{"payload.status"},
@@ -397,7 +396,7 @@ func TestGroupProjectionIndexIdentityIncludesCompleteSelectedDefinition(t *testi
 	fieldChanged.Fields[3] = "payload.component.code.coding"
 	storedValueChanged := base
 	storedValueChanged.StoredValues = []string{"payload.display"}
-	for _, variant := range []arango.PreviewCoveringIndex{fieldChanged, storedValueChanged} {
+	for _, variant := range []PreviewCollectionIndex{fieldChanged, storedValueChanged} {
 		if groupProjectionIndexIdentity(base) == groupProjectionIndexIdentity(variant) {
 			t.Fatalf("selected index identity ignored its full definition: base=%+v variant=%+v", base, variant)
 		}
