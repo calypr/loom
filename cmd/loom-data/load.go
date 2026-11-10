@@ -71,7 +71,7 @@ var (
 	ErrPGSchemaRequired         = errors.New("loom-data: --pg-schema is required for the postgres backend")
 	ErrPGTruncateForbidden      = errors.New("loom-data: --truncate is not permitted for a postgres generation load")
 	ErrPGApplicationNameInvalid = errors.New("loom-data: --pg-application-name must be 1-63 bytes of letters, digits, dot, underscore, or hyphen, starting with a letter or digit")
-	ErrPGMaxConnsInvalid        = errors.New("loom-data: --pg-max-conns cannot be negative")
+	ErrPGMaxConnsInvalid        = errors.New("loom-data: --pg-max-conns must be between 0 and 2147483647")
 )
 
 // pgApplicationNameRE bounds --pg-application_name so the value can never
@@ -412,12 +412,27 @@ func parsePostgresLoadCommand(args []string, errorHandling flag.ErrorHandling) (
 	if strings.TrimSpace(config.PG.Schema) == "" {
 		return postgresLoadCommandConfig{}, ErrPGSchemaRequired
 	}
-	if name := strings.TrimSpace(config.PG.ApplicationName); name != "" && !pgApplicationNameRE.MatchString(name) {
+	name := strings.TrimSpace(config.PG.ApplicationName)
+	switch {
+	case name == "":
+		// Unset (or blank-only) selects the loader's generated witness tag.
+		config.PG.ApplicationName = ""
+	case !pgApplicationNameRE.MatchString(name):
 		// The value is never echoed: a rejected application name may itself
 		// carry credential-shaped content, which is exactly why it is bounded.
 		return postgresLoadCommandConfig{}, ErrPGApplicationNameInvalid
+	default:
+		// Use the trimmed value for both consumers so validation and use
+		// stay on one string: the loader trims again at
+		// internal/ingest/generation_load.go:591, and openCatalogWriters
+		// places this exact value into the catalog DSN's application_name
+		// query parameter.
+		config.PG.ApplicationName = name
 	}
-	if config.pgMaxConnsInt < 0 {
+	if config.pgMaxConnsInt < 0 || config.pgMaxConnsInt > math.MaxInt32 {
+		// flag.IntVar range-checks against int (64-bit on shipped platforms),
+		// so an int32 conversion without this bound would silently wrap into
+		// a pool bound nobody asked for. Backend bounds are explicit here.
 		return postgresLoadCommandConfig{}, ErrPGMaxConnsInvalid
 	}
 	config.PG.MaxConns = int32(config.pgMaxConnsInt)

@@ -625,10 +625,19 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 			controlOK: func() []string { return append(pgBaseArgs(), "--pg-application-name=verify_clidisp-ok.1") },
 		},
 		{
-			name:      "max conns bounded",
+			name:      "max conns negative",
 			args:      func() []string { return append(pgBaseArgs(), "--pg-max-conns=-1") },
 			sentinel:  ErrPGMaxConnsInvalid,
 			controlOK: func() []string { return append(pgBaseArgs(), "--pg-max-conns=4") },
+		},
+		{
+			// Alive control for the int32 conversion wrap: flag.IntVar
+			// accepts this on 64-bit platforms, so without the explicit
+			// bound it would silently become MaxConns=705032704.
+			name:      "max conns int32 overflow",
+			args:      func() []string { return append(pgBaseArgs(), "--pg-max-conns=5000000000") },
+			sentinel:  ErrPGMaxConnsInvalid,
+			controlOK: func() []string { return append(pgBaseArgs(), "--pg-max-conns=2147483647") },
 		},
 	}
 	for _, tc := range cases {
@@ -689,6 +698,27 @@ func TestApplicationNamePassesThroughToLoader(t *testing.T) {
 	}
 	if spy.seenCatalogArgs[2] != "verify_clidisp_app" {
 		t.Fatalf("catalog pool did not receive the application name: %v", spy.seenCatalogArgs)
+	}
+}
+
+// TestApplicationNamePaddedUsesTrimmedEverywhere is the alive control for
+// the padded-value review finding: the string that is regex-validated must
+// be the exact string that reaches both the loader and the catalog pool DSN
+// application_name, never a padded variant.
+func TestApplicationNamePaddedUsesTrimmedEverywhere(t *testing.T) {
+	t.Setenv(pgDSNEnv, "")
+	spy := newSpyState()
+	ref := mustRef(t, "prj-cli", "gen-cli")
+	spy.pgSummary = ingest.LoadSummary{Dataset: &ref}
+	args := append(pgBaseArgs(), "--pg-application-name=  verify_clidisp_pad  ")
+	if err := captureErrorArgs(t, spy, args); err != nil {
+		t.Fatalf("padded application name must validate: %v", err)
+	}
+	if spy.seenPGOptions == nil || spy.seenPGOptions.ApplicationName != "verify_clidisp_pad" {
+		t.Fatalf("loader saw a non-trimmed application name: %+v", spy.seenPGOptions)
+	}
+	if spy.seenCatalogArgs[2] != "verify_clidisp_pad" {
+		t.Fatalf("catalog pool saw a non-trimmed application name: %q", spy.seenCatalogArgs[2])
 	}
 }
 
@@ -1065,13 +1095,49 @@ var (
 	cliDispUsed         bool
 )
 
+// cliDispDSNSecrets enumerates every credential view of a test-service URL
+// so no diagnostic can echo it (LOOM_TEST_POSTGRES_URL is never printed;
+// the pattern follows internal/ingest/generation_load_postgres_test.go:362-378).
+func cliDispDSNSecrets(raw string) []string {
+	secrets := []string{raw}
+	if parsed, err := url.Parse(raw); err == nil && parsed.User != nil {
+		if info := parsed.User.String(); info != "" {
+			secrets = append(secrets, info)
+		}
+		if pw, ok := parsed.User.Password(); ok && pw != "" {
+			secrets = append(secrets, pw)
+		}
+	}
+	return secrets
+}
+
+// cliDispScrubber renders any value with every credential view of the test
+// service URL replaced. Every fatal/diagnostic in the live leg goes through
+// it: pgxpool.New parse failures echo the full connection string, password
+// included.
+func cliDispScrubber(raw string) func(any) string {
+	secrets := cliDispDSNSecrets(raw)
+	return func(v any) string {
+		s := fmt.Sprintf("%v", v)
+		for _, secret := range secrets {
+			if secret != "" {
+				s = strings.ReplaceAll(s, secret, "<redacted>")
+			}
+		}
+		return s
+	}
+}
+
 func cliDispCaptureBaseline(raw string) {
 	cliDispBaselineOnce.Do(func() {
+		// Errors are stored already-scrubbed: the pgxpool.New failure text
+		// carries the DSN, and the stored error is printed by callers.
+		scrub := cliDispScrubber(raw)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		admin, err := pgxpool.New(ctx, raw)
 		if err != nil {
-			cliDispBaselineErr = fmt.Errorf("connect for baseline: %w", err)
+			cliDispBaselineErr = fmt.Errorf("connect for baseline: %s", scrub(err))
 			return
 		}
 		defer admin.Close()
@@ -1080,7 +1146,7 @@ func cliDispCaptureBaseline(raw string) {
 		if err := admin.QueryRow(ctx,
 			"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_clidisp\\_%' ESCAPE '\\'").
 			Scan(&count); err != nil {
-			cliDispBaselineErr = fmt.Errorf("count baseline: %w", err)
+			cliDispBaselineErr = fmt.Errorf("count baseline: %s", scrub(err))
 			return
 		}
 		cliDispBaseline = count
@@ -1125,15 +1191,7 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
-	secrets := []string{raw}
-	if parsed.User != nil {
-		if info := parsed.User.String(); info != "" {
-			secrets = append(secrets, info)
-		}
-		if pw, ok := parsed.User.Password(); ok && pw != "" {
-			secrets = append(secrets, pw)
-		}
-	}
+	secrets := cliDispDSNSecrets(raw)
 	scrub := func(v any) string {
 		s := fmt.Sprintf("%v", v)
 		for _, secret := range secrets {
@@ -1447,18 +1505,22 @@ func TestZZCLIDispLiveOwnershipAudit(t *testing.T) {
 		t.Skip("live leg did not run in this process")
 	}
 	if cliDispBaselineErr != nil {
+		// Stored already-scrubbed by cliDispCaptureBaseline.
 		t.Fatalf("baseline was never captured: %v", cliDispBaselineErr)
 	}
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	// pgxpool.New echoes the full DSN (password included) on parse failure:
+	// every audit diagnostic goes through the scrubber.
+	scrub := cliDispScrubber(raw)
 	admin, err := pgxpool.New(context.Background(), raw)
 	if err != nil {
-		t.Fatalf("connect for audit: %v", err)
+		t.Fatalf("connect for audit: %s", scrub(err))
 	}
 	defer admin.Close()
 	var count int64
 	if err := admin.QueryRow(context.Background(),
 		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_clidisp\\_%' ESCAPE '\\'").Scan(&count); err != nil {
-		t.Fatalf("audit count: %v", err)
+		t.Fatalf("audit count: %s", scrub(err))
 	}
 	if count != cliDispBaseline {
 		t.Errorf("verify_clidisp_* database count = %d, want baseline %d (zero own-prefix survivors)", count, cliDispBaseline)
