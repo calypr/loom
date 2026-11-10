@@ -721,6 +721,15 @@ func run(ctx context.Context, serverConfig Config) error {
 		Logger:                logger,
 		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
 			return explainCompiledQuery(ctx, lifecycleClient, compiled)
+		}, ExplainPostgreSQLConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
+			// The PostgreSQL source runtime is configuration-only until its
+			// wiring slice lands (run() refuses to start on that backend), so
+			// no pool-shaped executor exists here yet. A PostgreSQL-tagged
+			// command therefore fails closed with a typed backend failure;
+			// it is never routed to the Arango EXPLAIN policy surface. When
+			// the runtime lands, pass newPostgreSQLPlanJSONExecutor over the
+			// readiness-checked pool instead of nil.
+			return explainPostgreSQLCompiledQuery(ctx, nil, compiled)
 		}},
 		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
 		RecipeRevisions:  recipeRevisions,
