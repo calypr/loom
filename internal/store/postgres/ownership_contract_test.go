@@ -1087,10 +1087,20 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		// ("add a new version instead of editing history"), so an
 		// already-deployed 11-maximum schema can NEVER retroactively gain
 		// 4/7/8: history editing is impossible, which is the manifest's
-		// immutability clause enforced by the runner. The supported
+		// immutability clause enforced by the runner. This refusal is
+		// DELIBERATE DESIGN, not a deferred fix -- an upgrade that
+		// silently filled version holes would be the bug. No production
+		// gap-schema exists today: S2/S3/S4 (explorer_control,
+		// publication_control, dataset_release) have no production
+		// startup callers yet, so no deployed ledger can sit at version
+		// 11 without 4/7/8 (the source series' only production migrator
+		// is generation load, and its history has never had gaps). If a
+		// future deployment ever reports this typed error, it is the
+		// actionable signal that its schema was assembled by a non-owner
+		// path, and the OutOfOrderMigrationError (pending version vs
+		// recorded max) names the exact disagreement. The supported
 		// upgrade witness for the pre-refactor state is the adjacent
-		// fixture-composition subtest; a truly retro-fitted schema would
-		// be surfaced by this refusal as non-owner-assembled.
+		// fixture-composition subtest.
 		owner, err := explorerpg.OwnerMigrations()
 		if err != nil {
 			t.Fatalf("owner history: %v", err)
