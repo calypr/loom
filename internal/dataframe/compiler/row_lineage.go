@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -44,7 +45,7 @@ func (err *RowLineageUnsupportedError) Error() string {
 var _ error = (*RowLineageUnsupportedError)(nil)
 
 type CompiledRowLineageQuery struct {
-	Command            CompiledCommand
+	Command            command.CompiledCommand
 	Offset             int
 	Limit              int
 	FoundColumn        string
@@ -643,7 +644,17 @@ func rowLineageHasDirectRootSource(operations []ir.PhysicalOperation) bool {
 	return rootScans == 1
 }
 
-func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledRowLineageQuery, error) {
+func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, rowID string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledRowLineageQuery, error) {
+	// Row lineage is an AQL-rendered auxiliary surface: its cohort and
+	// group contributor renderers have no PostgreSQL source, so a
+	// PostgreSQL-selected target is refused by name instead of letting an
+	// AQL-tagged command reach the PostgreSQL row port.
+	if err := target.validate(); err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("row lineage compilation"); err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
 	rowID = strings.TrimSpace(rowID)
 	if rowID == "" {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage row ID is required")
@@ -684,12 +695,12 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		if err != nil {
 			return CompiledRowLineageQuery{}, fmt.Errorf("render composed cohort row lineage: %w", err)
 		}
-		command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+		compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 		if commandErr != nil {
 			return CompiledRowLineageQuery{}, fmt.Errorf("tag composed cohort row lineage command: %w", commandErr)
 		}
 		return CompiledRowLineageQuery{
-			Command: command, Offset: offset, Limit: limit,
+			Command: compiledCommand, Offset: offset, Limit: limit,
 			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 		}, nil
 	}
@@ -704,12 +715,12 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 		if err != nil {
 			return CompiledRowLineageQuery{}, fmt.Errorf("render explicit group row lineage: %w", err)
 		}
-		command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+		compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 		if commandErr != nil {
 			return CompiledRowLineageQuery{}, fmt.Errorf("tag explicit group row lineage command: %w", commandErr)
 		}
 		return CompiledRowLineageQuery{
-			Command: command, Offset: offset, Limit: limit,
+			Command: compiledCommand, Offset: offset, Limit: limit,
 			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 		}, nil
 	}
@@ -872,12 +883,12 @@ func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, of
 	if err != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("render row lineage physical plan: %w", err)
 	}
-	command, commandErr := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if commandErr != nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("tag row lineage command: %w", commandErr)
 	}
 	return CompiledRowLineageQuery{
-		Command: command, Offset: offset, Limit: limit,
+		Command: compiledCommand, Offset: offset, Limit: limit,
 		FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 	}, nil
 }

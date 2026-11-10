@@ -310,7 +310,7 @@ func executeAcceptanceObservationAQL(
 	expectValues("direct-render", rawRows[0])
 	previewBindings := bindings.Clone()
 	previewBindings.PreviewLimit = 25
-	full, err := compiler.CompileRecipeOutputWithPolicy(output, previewBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), output, previewBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile production full-preview query: %v", err)
 	}
@@ -321,7 +321,7 @@ func executeAcceptanceObservationAQL(
 	t.Logf("production full-preview AQL:\n%s\nBINDVARS: %s", testAQLText(t, full.Command), fullBindLog)
 	fullRows := execute("production-full", testAQLText(t, full.Command), cloneBinds(testAQLBinds(t, full.Command)))
 	expectValues("production-full", fullRows[0])
-	page, err := compiler.CompileRecipeOutputPageWithPolicy(output, previewBindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := compiler.CompileRecipeOutputPage(compiler.ArangoTarget(), output, previewBindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile production selected-root page: %v", err)
 	}

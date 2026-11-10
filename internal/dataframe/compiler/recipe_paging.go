@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -24,17 +25,23 @@ const (
 // that page. Both templates are AQL-tagged commands whose only mutable page
 // binds are the compiler-owned RootPageAfterKeyBind, RootPageSizeBind, and
 // RootPageKeysBind; callers replace those values through
-// CompiledCommand.WithAQLBinds, which never mutates the templates.
+// command.CompiledCommand.WithAQLBinds, which never mutates the templates.
 type CompiledOutputPage struct {
-	RootKeys        CompiledCommand
-	Rows            CompiledCommand
+	RootKeys        command.CompiledCommand
+	Rows            command.CompiledCommand
 	RowsDiagnostics ir.CompilerPlanDiagnostics
 }
 
 // CompileRecipeOutputPageWithPolicy builds typed key-discovery and selected-
 // root templates. Page binds are compiler-owned and callers may only replace
 // their values between executions.
-func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, pageSize int, policy ir.PhysicalOptimizationPolicy) (CompiledOutputPage, error) {
+func CompileRecipeOutputPage(target Target, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, pageSize int, policy ir.PhysicalOptimizationPolicy) (CompiledOutputPage, error) {
+	if err := target.validate(); err != nil {
+		return CompiledOutputPage{}, err
+	}
+	if err := target.rejectPostgreSQL("root-key output paging"); err != nil {
+		return CompiledOutputPage{}, err
+	}
 	if workspaceOutputCaptureRequired(output) {
 		return CompiledOutputPage{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
 	}
@@ -90,11 +97,11 @@ func CompileRecipeOutputPageWithPolicy(output lower.CompiledRecipeOutput, bindin
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("render selected-root page: %w", err)
 	}
-	rootKeysCommand, err := CompiledCommandForBackend(CompiledBackendAQL, keys)
+	rootKeysCommand, err := command.NewAQLCommand(keys.Query, keys.BindVars)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("tag root-key page command: %w", err)
 	}
-	rowsCommand, err := CompiledCommandForBackend(CompiledBackendAQL, rows)
+	rowsCommand, err := command.NewAQLCommand(rows.Query, rows.BindVars)
 	if err != nil {
 		return CompiledOutputPage{}, fmt.Errorf("tag selected-root page command: %w", err)
 	}

@@ -3,12 +3,12 @@ package aql_test
 import (
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 // testAQLView derives the AQL diagnostic view of a compiled command for tests.
 // A dispatch failure is a test bug, not a runtime condition.
-func testAQLView(t *testing.T, command compiler.CompiledCommand) (string, map[string]any) {
+func testAQLView(t *testing.T, command command.CompiledCommand) (string, map[string]any) {
 	t.Helper()
 	query, bindVars, err := command.AQLParameters()
 	if err != nil {
@@ -17,22 +17,22 @@ func testAQLView(t *testing.T, command compiler.CompiledCommand) (string, map[st
 	return query, bindVars
 }
 
-func testAQLCommand(t *testing.T, query string, bindVars map[string]any) compiler.CompiledCommand {
+func testAQLCommand(t *testing.T, query string, bindVars map[string]any) command.CompiledCommand {
 	t.Helper()
-	command, err := compiler.NewAQLCommand(query, bindVars)
+	compiledCommand, err := command.NewAQLCommand(query, bindVars)
 	if err != nil {
 		t.Fatalf("build AQL command for test: %v", err)
 	}
-	return command
+	return compiledCommand
 }
 
-func testAQLText(t *testing.T, command compiler.CompiledCommand) string {
+func testAQLText(t *testing.T, command command.CompiledCommand) string {
 	t.Helper()
 	query, _ := testAQLView(t, command)
 	return query
 }
 
-func testAQLBinds(t *testing.T, command compiler.CompiledCommand) map[string]any {
+func testAQLBinds(t *testing.T, command command.CompiledCommand) map[string]any {
 	t.Helper()
 	_, bindVars := testAQLView(t, command)
 	return bindVars

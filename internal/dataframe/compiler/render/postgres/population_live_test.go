@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	explorer "github.com/calypr/loom/internal/explorer"
 	explorerpostgres "github.com/calypr/loom/internal/explorer/postgres"
@@ -109,7 +109,7 @@ func applyExplorerMembershipDDL(t *testing.T, svc *pgir02Service) {
 	}
 }
 
-func (s *pop18Service) render(t *testing.T, plan ir.PhysicalPlan) compiler.RenderedPostgresPhysicalPlan {
+func (s *pop18Service) render(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderPopulationRootScan(plan, s.binding, s.members)
 	if err != nil {
@@ -120,7 +120,7 @@ func (s *pop18Service) render(t *testing.T, plan ir.PhysicalPlan) compiler.Rende
 
 // runErr executes the rendered statement but returns the error instead of
 // failing, so guard-trigger cases can classify the SQLSTATE and message.
-func (s *pop18Service) runErr(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) ([][]string, error) {
+func (s *pop18Service) runErr(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) ([][]string, error) {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {

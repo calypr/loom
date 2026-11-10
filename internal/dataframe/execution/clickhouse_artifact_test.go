@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -190,7 +190,8 @@ func TestWithPrivateClickHouseArtifactsPinPublishedInputsThroughAllCaptures(t *t
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
 	for index := range sources {
 		outputID := sources[index].OutputID
-		sources[index].Stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		sources[index].Stream.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -224,7 +225,8 @@ func TestWithPrivateClickHouseArtifactsCleansEarlierCaptureAfterSecondFailure(t 
 		t.Fatal(err)
 	}
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-	sources[1].Stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	sources[1].Stream.sourceRows = func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -315,7 +317,8 @@ func TestWithPrivateClickHouseArtifactsCleansCapturesAfterCancellationAndConsume
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-		sources[1].Stream.stream = func(ctx context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		sources[1].Stream.sourceRows = func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -362,7 +365,8 @@ func TestWithPrivateClickHouseArtifactsLeaseLossCancelsNextSourceStream(t *testi
 		t.Fatal(err)
 	}
 	sources := []PrivateClickHouseArtifactSource{privateCaptureSource(t, "patients", "Ada"), privateCaptureSource(t, "observations", "registered")}
-	sources[1].Stream.stream = func(ctx context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	sources[1].Stream.sourceRows = func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -463,8 +467,10 @@ func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName
 		Outputs: []recipe.Output{makeOutput("patients"), makeOutput("observations")},
 	}
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -486,7 +492,8 @@ func compiledPrivateCaptureStreamWithBindings(t *testing.T, outputID, columnName
 	if stream.scopeEvidence == nil || stream.scopeEvidenceIdentity == nil || !stream.scopeEvidence.Matches(stream.physicalPlan, *stream.scopeEvidenceIdentity) {
 		t.Fatalf("fixture capture stream %q has no compiler-issued source evidence", outputID)
 	}
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

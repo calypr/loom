@@ -223,14 +223,15 @@ func newScopedCompileFixture(t *testing.T) *scopedCompileFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	queryRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		command := request.Command
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
 		}
 		return nil
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: queryRows, PreviewSourceRows: queryRows})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -45,8 +46,8 @@ type PreviewCoveringIndexReplacement struct {
 // them for execution.
 type PreviewGroupScanSpec struct {
 	Collection string
-	Sequential CompiledCommand
-	ScopeCount CompiledCommand
+	Sequential command.CompiledCommand
+	ScopeCount command.CompiledCommand
 }
 
 // PreviewGroupProjectionSpec marks a direct semantic Group whose complete
@@ -56,7 +57,7 @@ type PreviewGroupScanSpec struct {
 // adapter.
 type PreviewGroupProjectionSpec struct {
 	Collection    string
-	ScopeCount    CompiledCommand
+	ScopeCount    command.CompiledCommand
 	ReadOnlyIndex *PreviewGroupProjectionIndexSpec
 }
 
@@ -97,7 +98,7 @@ type CompiledQuery struct {
 	// no source command at all because Combine runs on its dedicated
 	// publication-plane path and can never be selected through a source
 	// command.
-	Command CompiledCommand
+	Command command.CompiledCommand
 	Columns []string
 	// OutputSchema is the compiler-owned ordered schema for the finalized
 	// physical RETURN projections. PublicColumns is the transport-safe view;

@@ -22,10 +22,10 @@ func TestWorkspaceOutputExecutionRemainsExplicitlyUnsupportedUntilCapture(t *tes
 		WorkspaceOutputSources: []lower.WorkspaceOutputSource{{InputIndex: 0, OutputID: "base", Schema: []lower.CompiledOutputColumn{{ID: "value", Kind: "string"}}}},
 	}
 	bindings := recipe.RuntimeBindings{Project: "project-a"}
-	if _, err := CompileRecipeOutputWithPolicy(output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
+	if _, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
 		t.Fatalf("query compile error = %v", err)
 	}
-	if _, err := CompileRecipeOutputPageWithPolicy(output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
+	if _, err := CompileRecipeOutputPage(ArangoTarget(), output, bindings, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "server-owned workspace capture is not available") {
 		t.Fatalf("page compile error = %v", err)
 	}
 }
@@ -49,7 +49,7 @@ func TestCompiledQueryRetainsFinalizedPlanThatRendersExecutedQuery(t *testing.T)
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
-	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("CompileResolvedRecipePlanWithPolicy: %v", err)
 	}

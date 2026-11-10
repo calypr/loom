@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
@@ -112,7 +113,7 @@ func TestGraphQLRecipeResolutionUsesScopedCatalogBeforeSemanticTyping(t *testing
 		t.Fatal(err)
 	}
 	var got catalog.PopulatedFieldOptions
-	service := NewService(Config{DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(), DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 		got = options
 		return []catalog.PopulatedField{{ResourceType: "Patient", Path: "gender", Kind: "scalar"}}, nil
 	}})

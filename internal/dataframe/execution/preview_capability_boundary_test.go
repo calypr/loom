@@ -12,13 +12,15 @@ package execution
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	exec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/store/arango"
 )
 
@@ -105,13 +107,16 @@ func runPreviewCapabilityBoundary(t *testing.T, options previewCapabilityBoundar
 		limit = 1
 	}
 	engine, err := New(Config{
-		Registry:    invalidRecipeRegistry{},
-		ScopeDigest: func(recipe.RuntimeBindings) string { return "preview-capability-boundary" },
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		ScopeDigest:   func(recipe.RuntimeBindings) string { return "preview-capability-boundary" },
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			return dispatchErr
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		PreviewSourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			text, binds, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -167,7 +172,7 @@ func comparablePreviewSummary(summary PreviewSummary) PreviewSummary {
 func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	t.Run("preview contracts carry no vendor plan or index types", func(t *testing.T) {
 		seen := map[reflect.Type]bool{}
-		if offenders := previewContractVendorOffenders(reflect.TypeOf(Config{}), seen, 0); len(offenders) != 0 {
+		if offenders := previewContractVendorOffenders(reflect.TypeOf(Config{CompileTarget: compiler.ArangoTarget()}), seen, 0); len(offenders) != 0 {
 			t.Fatalf("execution Config references vendor preview types: %v", offenders)
 		}
 		if offenders := previewContractVendorOffenders(reflect.TypeOf(Engine{}), seen, 0); len(offenders) != 0 {
@@ -243,7 +248,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				}
 				return []PreviewCollectionIndex{index}, nil
 			},
-			scans: func(_ context.Context, command compiler.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
+			scans: func(_ context.Context, command command.CompiledCommand, collection string) (PreviewCollectionScanEvidence, error) {
 				scanCalls++
 				if collection != "Observation" {
 					t.Fatalf("scan collection = %q, want Observation", collection)
@@ -288,7 +293,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		}{
 			{
 				name: "scan inspection fails",
-				scans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, errors.New("inspection unavailable")
 				},
 				coveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
@@ -301,7 +306,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 			},
 			{
 				name: "empty evidence certifies nothing",
-				scans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, nil
 				},
 				coveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
@@ -317,7 +322,7 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 				// attempted; the ordinary broad-scan check still consults
 				// the capability, and empty evidence certifies nothing.
 				name: "index listing fails",
-				scans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+				scans: func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 					return PreviewCollectionScanEvidence{}, nil
 				},
 				coveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
@@ -373,15 +378,39 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	})
 
 	t.Run("compile only explain works without a database", func(t *testing.T) {
-		callbacks := &exec10Callbacks{}
-		engine := exec10Engine(t, callbacks, nil)
+		// A local AQL engine (no adapter armed) proves the compile-only
+		// Explain needs no backend and live dispatch stays tag-routed.
+		aqlCalls, pgCalls := 0, 0
+		engine, err := New(Config{
+			CompileTarget: compiler.ArangoTarget(),
+			Registry:      previewBoundaryExplainRegistry{},
+			ScopeDigest:   func(recipe.RuntimeBindings) string { return "preview-boundary" },
+			SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				if _, _, err := request.Command.AQLParameters(); err != nil {
+					return err
+				}
+				aqlCalls++
+				return nil
+			},
+			PreviewSourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				if _, _, err := request.Command.AQLParameters(); err != nil {
+					return err
+				}
+				aqlCalls++
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		bindings := recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1", PreviewLimit: 25, OutputNames: []string{"resources"}}
 		control := Control{Engine: engine}
-		result, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), false)
+		result, err := control.ExplainPhysical(context.Background(), "preview-boundary", bindings, false)
 		if err != nil {
 			t.Fatalf("compile-only ExplainPhysical: %v", err)
 		}
-		if callbacks.aqlCalls != 0 || callbacks.pgCalls != 0 {
-			t.Fatalf("compile-only Explain touched adapters: aql=%d pg=%d", callbacks.aqlCalls, callbacks.pgCalls)
+		if aqlCalls != 0 || pgCalls != 0 {
+			t.Fatalf("compile-only Explain touched adapters: aql=%d pg=%d", aqlCalls, pgCalls)
 		}
 		for _, output := range result.Outputs {
 			if output.Live != nil || output.LivePostgreSQL != nil {
@@ -390,12 +419,11 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		}
 		// Live dispatch stays backend-tagged: an AQL-tagged output must be
 		// refused when only the PostgreSQL connection is armed.
-		pgCalls := 0
-		liveOnly := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
+		liveOnly := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (PostgreSQLPlanAssessment, error) {
 			pgCalls++
 			return PostgreSQLPlanAssessment{}, nil
 		}}
-		if _, err := liveOnly.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true); err == nil ||
+		if _, err := liveOnly.ExplainPhysical(context.Background(), "preview-boundary", bindings, true); err == nil ||
 			!strings.Contains(err.Error(), "Arango") {
 			t.Fatalf("AQL live Explain without an Arango connection: err=%v, want refusal", err)
 		}
@@ -426,7 +454,7 @@ func TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityC
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	scanCalls := 0
-	engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(context.Context, command.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
 		scanCalls++
 		// The inspection returns a covering verdict, but the budget dies
 		// while it is in flight: the post-call guard owns the abort.
@@ -461,7 +489,8 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	engine, query, stream := groupPreviewScanFixture()
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
 	scopeCountExecutions := 0
-	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -470,7 +499,7 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 		return visit(map[string]any{"count": float64(950)})
 	}
 	scanCalls := 0
-	engine.previewCollectionScans = func(ctx context.Context, _ compiler.CompiledCommand, _ string) (PreviewCollectionScanEvidence, error) {
+	engine.previewCollectionScans = func(ctx context.Context, _ command.CompiledCommand, _ string) (PreviewCollectionScanEvidence, error) {
 		scanCalls++
 		// Certify broad non-covering, but only after the assessment budget
 		// has expired during the call.
@@ -493,4 +522,24 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	if got := commandText(t, query.Command); got != "normal-query" {
 		t.Fatalf("expired budget switched the command to %q", got)
 	}
+}
+
+// previewBoundaryExplainRegistry serves one compilable bundle for the
+// compile-only Explain subtest.
+type previewBoundaryExplainRegistry struct{}
+
+func (previewBoundaryExplainRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
+	return exec.Entry{Bundle: recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "preview-boundary",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "resources", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		}},
+	}}, nil
+}
+
+func (r previewBoundaryExplainRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
+	return r.LoadRecipe(ctx, name)
 }

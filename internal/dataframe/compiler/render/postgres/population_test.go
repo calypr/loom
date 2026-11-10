@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -39,7 +39,7 @@ func populationBindingOK(t *testing.T) PostgresPopulationRootBinding {
 	return binding
 }
 
-func renderPopulationOK(t *testing.T, plan ir.PhysicalPlan) compiler.RenderedPostgresPhysicalPlan {
+func renderPopulationOK(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderPopulationRootScan(plan, mustBinding(t), populationBindingOK(t))
 	if err != nil {

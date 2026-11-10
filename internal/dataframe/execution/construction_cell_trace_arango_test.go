@@ -73,11 +73,13 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 		t.Fatal(err)
 	}
 	compiledOutput := compiled.Outputs[0]
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(compiledOutput, "total", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), compiledOutput, "total", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := &Engine{batchSize: 100, queryRows: func(queryCtx context.Context, command compiler.CompiledCommand, batchSize int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 100, sourceRows: func(queryCtx context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		batchSize := request.BatchSize
 		query, bindVars, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

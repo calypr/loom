@@ -54,7 +54,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatal("full scoped terminal MISSING-category Pivot did not pass the streaming eligibility proof")
 	}
 
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	}
 	identityBindings := bindings
 	identityBindings.IncludeSourceIdentity = true
-	identityQuery, err := CompileRecipeOutputWithPolicy(identityCompiled.Outputs[0], identityBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	identityQuery, err := CompileRecipeOutput(ArangoTarget(), identityCompiled.Outputs[0], identityBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 			t.Fatalf("streaming Pivot lost full-population %s check before the preview window: assertion=%d limit=%d\n%s", code, assertAt, errorLimitAt, testAQLText(t, identityQuery.Command))
 		}
 	}
-	ordinaryIdentityQuery, err := CompileRecipeOutputWithPolicy(identityCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	ordinaryIdentityQuery, err := CompileRecipeOutput(ArangoTarget(), identityCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertionQuery, err := CompileRecipeOutputWithPolicy(assertionOutputs.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	assertionQuery, err := CompileRecipeOutput(ArangoTarget(), assertionOutputs.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

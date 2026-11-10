@@ -28,8 +28,10 @@ func (r *reviewBlankRegistry) LoadRecipeVersion(context.Context, string, string)
 func TestEngineResolveBlankProjectDirectClassification(t *testing.T) {
 	registry := &reviewBlankRegistry{}
 	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -74,8 +76,10 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	}
 	registry := &reviewBlankRegistry{}
 	engine, err := New(Config{
-		Registry: registry,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -112,8 +116,10 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	// attempt ever becomes a rejection, the two predicates converged.
 	divergeRegistry := &reviewBlankRegistry{}
 	divergeEngine, err := New(Config{
-		Registry: divergeRegistry,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      divergeRegistry,
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

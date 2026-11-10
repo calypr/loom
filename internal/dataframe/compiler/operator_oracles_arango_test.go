@@ -709,7 +709,7 @@ func executeOracleTrace(t *testing.T, ctx context.Context, client *store.Client,
 
 func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
-	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := CompileCellTraceOutput(ArangoTarget(), output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}

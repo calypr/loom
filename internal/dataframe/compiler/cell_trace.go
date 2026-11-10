@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -18,7 +19,7 @@ const traceReshapeRowID = "__loom_row_id"
 // only the contributor page is diagnostic-only. Command is the single
 // parent-tagged executable, delivered to the AQL row-stream adapter only.
 type CompiledCellTraceQuery struct {
-	Command                CompiledCommand
+	Command                command.CompiledCommand
 	ValueColumn            string
 	ContributionsColumn    string
 	StatusColumn           string
@@ -38,15 +39,21 @@ type CompiledCellTraceQuery struct {
 // cellTraceCommand tags the rendered cell trace plan as the parent-tagged AQL
 // command that execution accepts; the loose rendered pair never leaves the
 // compiler.
-func cellTraceCommand(rendered aql.RenderedPhysicalPlan) (CompiledCommand, error) {
-	command, err := CompiledCommandForBackend(CompiledBackendAQL, rendered)
+func cellTraceCommand(rendered aql.RenderedPhysicalPlan) (command.CompiledCommand, error) {
+	compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if err != nil {
-		return CompiledCommand{}, fmt.Errorf("tag cell trace command: %w", err)
+		return command.CompiledCommand{}, fmt.Errorf("tag cell trace command: %w", err)
 	}
-	return command, nil
+	return compiledCommand, nil
 }
 
-func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledCellTraceQuery, error) {
+func CompileCellTraceOutput(target Target, output lower.CompiledRecipeOutput, column string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledCellTraceQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledCellTraceQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("cell trace compilation"); err != nil {
+		return CompiledCellTraceQuery{}, err
+	}
 	column = strings.TrimSpace(column)
 	if column == "" {
 		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace column is required")
@@ -110,12 +117,12 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
 	}
-	command, commandErr := cellTraceCommand(rendered)
+	compiledCommand, commandErr := cellTraceCommand(rendered)
 	if commandErr != nil {
 		return CompiledCellTraceQuery{}, commandErr
 	}
 	query := CompiledCellTraceQuery{
-		Command:     command,
+		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),
@@ -159,12 +166,12 @@ func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.P
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render group-row cell trace physical plan: %w", err)
 	}
-	command, commandErr := cellTraceCommand(rendered)
+	compiledCommand, commandErr := cellTraceCommand(rendered)
 	if commandErr != nil {
 		return CompiledCellTraceQuery{}, commandErr
 	}
 	return CompiledCellTraceQuery{
-		Command:     command,
+		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, ExplicitIdentityColumn: ir.PhysicalCellTraceExplicitIdentityField,
@@ -199,12 +206,12 @@ func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *i
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render construction cell trace physical plan: %w", err)
 	}
-	command, commandErr := cellTraceCommand(rendered)
+	compiledCommand, commandErr := cellTraceCommand(rendered)
 	if commandErr != nil {
 		return CompiledCellTraceQuery{}, commandErr
 	}
 	query := CompiledCellTraceQuery{
-		Command:     command,
+		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),

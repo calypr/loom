@@ -376,7 +376,7 @@ func TestReadEmptyInitialRetainedSourceFailsWhenGenerationFieldProfileProvesPopu
 		t.Fatalf("empty profiled source error = %v, want ErrRetainedSemanticSourceMissing", err)
 	}
 	if !strings.Contains(retainedSemanticInventoryFieldProfileAQL, "RETURN {doc_count: d.doc_count}") {
-		t.Fatalf("field-profile query must return an object row for QueryRows: %s", retainedSemanticInventoryFieldProfileAQL)
+		t.Fatalf("field-profile query must return an object row for SourceRows: %s", retainedSemanticInventoryFieldProfileAQL)
 	}
 }
 

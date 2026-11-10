@@ -21,7 +21,7 @@ func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t 
 	}
 	compiled := compileConstructionRootIDTestOutput(t, output, bindings)
 
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t 
 		t.Fatalf("root ID fast path changed auth paths: %#v", testAQLBinds(t, query.Command)["auth_resource_paths"])
 	}
 
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t 
 		t.Fatalf("selected-root query lost the original source-column filter:\n%s", testAQLText(t, page.Rows))
 	}
 
-	fullQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	fullQuery, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestConstructionPreviewPushesLeadingRootIDFilterAndRetainsStagePredicate(t 
 
 	fullBindings := bindings
 	fullBindings.PreviewLimit = 0
-	fullPage, err := CompileRecipeOutputPageWithPolicy(compiled, fullBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	fullPage, err := CompileRecipeOutputPage(ArangoTarget(), compiled, fullBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestConstructionPreviewRootIDFilterRequiresExactPayloadIDProjection(t *test
 	output.Fields[0].Expr.Select = "root.status"
 	bindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
 	compiled := compileConstructionRootIDTestOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

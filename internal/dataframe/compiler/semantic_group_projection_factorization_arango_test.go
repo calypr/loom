@@ -18,6 +18,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/execution"
@@ -303,7 +304,7 @@ func TestSemanticGroupProjectionFactorizationProjectsSimpleCodingArrayWhole(t *t
 	if err != nil {
 		t.Fatalf("lower simple-path semantic Group plan: %v", err)
 	}
-	query, err := compiler.CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 32, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), compiled.Outputs[0], bindings, 32, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile simple-path semantic Group preview: %v", err)
 	}
@@ -432,15 +433,20 @@ func prepareSemanticGroupProjectionPreview(
 	bundle := semanticGroupProjectionBundle(output)
 	callbacks := &semanticGroupProjectionCallbackCounts{}
 	engine, err := execution.New(execution.Config{
-		Registry: semanticGroupProjectionRegistry{bundle: bundle},
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit execution.RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      semanticGroupProjectionRegistry{bundle: bundle},
+		SourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
 			query, bindVars, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}
 			return client.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		},
-		PreviewQueryRows: func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit execution.RowVisitor) error {
+		PreviewSourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
 			query, bindVars, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -455,7 +461,7 @@ func prepareSemanticGroupProjectionPreview(
 			callbacks.revisions++
 			return client.CollectionRevision(ctx, collection)
 		},
-		PreviewCollectionScans: func(ctx context.Context, command compiler.CompiledCommand, collection string) (execution.PreviewCollectionScanEvidence, error) {
+		PreviewCollectionScans: func(ctx context.Context, command command.CompiledCommand, collection string) (execution.PreviewCollectionScanEvidence, error) {
 			callbacks.explains++
 			query, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
@@ -495,7 +501,7 @@ func prepareSemanticGroupProjectionPreview(
 	if err != nil {
 		t.Fatalf("resolve semantic Group projection fixture: %v", err)
 	}
-	ordinaryQuery, err := compiler.CompileRecipeOutputWithPolicy(
+	ordinaryQuery, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(),
 		resolved.Compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy(),
 	)
 	if err != nil {
@@ -520,7 +526,7 @@ func compileSemanticGroupProjectionPolicy(
 	if err != nil {
 		t.Fatalf("resolve semantic Group %s policy: %v", output.Construction.Steps[0].Operation.Group.MissingKeyPolicy, err)
 	}
-	query, err := compiler.CompileRecipeOutputWithPolicy(resolved.Compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), resolved.Compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group %s policy: %v", output.Construction.Steps[0].Operation.Group.MissingKeyPolicy, err)
 	}

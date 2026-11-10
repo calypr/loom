@@ -39,7 +39,7 @@ func TestCompileRecipeOutputPageSelectsRootsBeforeExpansion(t *testing.T) {
 	plan.Operations = append(plan.Operations, ir.PhysicalOperation{})
 	copy(plan.Operations[6:], plan.Operations[5:])
 	plan.Operations[5] = unnest
-	page, err := CompileRecipeOutputPageWithPolicy(lower.CompiledRecipeOutput{
+	page, err := CompileRecipeOutputPage(ArangoTarget(), lower.CompiledRecipeOutput{
 		Name: "patients", RootResourceType: "Patient", Plan: plan,
 	}, recipe.RuntimeBindings{Project: "p"}, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -113,7 +113,7 @@ func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile paged related-source output: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestCompileRecipeOutputPageKeepsRelatedStageOutOfRootKeyDiscovery(t *testin
 func TestCompileRecipeOutputPageKeepsAggregationOnCollectionFilterPath(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "project-a", DatasetGeneration: "generation-a"}
 	compiled := lowerConstructionOutput(t, constructionOracleOutput(), bindings)
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile aggregated output page: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T)
 	compiled := lowerConstructionOutput(t, output, bindings)
 
 	bindings.PreviewLimit = 3
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 10, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile terminal related-expansion preview page: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T)
 		t.Fatalf("related deduplication or final identity ordering was removed:\n%s", testAQLText(t, page.Rows))
 	}
 
-	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile full related-expansion output: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestRelatedExpandPreviewPageCapsOnlyTerminalIdentityPartition(t *testing.T)
 		Outputs: append([]recipe.StageColumn(nil), expand.Outputs...),
 	})
 	filtered := lowerConstructionOutput(t, filteredOutput, recipe.RuntimeBindings{Project: bindings.Project, DatasetGeneration: bindings.DatasetGeneration})
-	filteredPage, err := CompileRecipeOutputPageWithPolicy(filtered, bindings, 10, ir.DefaultPhysicalOptimizationPolicy())
+	filteredPage, err := CompileRecipeOutputPage(ArangoTarget(), filtered, bindings, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile nonterminal related-expansion page: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestCompileRecipeOutputPageRetainsSinglePopulationComputation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestCompileRecipeOutputPageFiltersConstructionRowsBeforeRootWindow(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +324,7 @@ func TestCompileRecipeOutputPageFiltersRelatedConstructionRowsBeforeRootWindow(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestCompileRecipeOutputPageFiltersMissingConstructionRowsBeforeRootWindow(t
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -443,7 +443,7 @@ func TestCompileRecipeOutputPageDirectRootExistsOrdersPredicateBeforeLimit(t *te
 		t.Fatal(err)
 	}
 	pageSize := 2
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, pageSize, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +520,7 @@ func TestCompileRecipeOutputPageRendersEveryValueFilterBeforeRootWindow(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+			page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}

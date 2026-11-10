@@ -102,7 +102,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -384,12 +384,12 @@ func RenderPopulationRootScan(
 	plan ir.PhysicalPlan,
 	storage ir.PostgresStorageBinding,
 	binding PostgresPopulationRootBinding,
-) (compiler.RenderedPostgresPhysicalPlan, error) {
+) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	if err := ValidatePopulationRootSource(plan, binding); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// The gates below mirror RenderPhysicalPlan exactly (engine, ClickHouse,
 	// staged sequences, preview windowing, deferred lets, and the UNNEST
@@ -400,30 +400,30 @@ func RenderPopulationRootScan(
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {
 			if err := validateUnnestPlanSurface(plan); err != nil {
-				return compiler.RenderedPostgresPhysicalPlan{}, err
+				return command.RenderedPostgresPhysicalPlan{}, err
 			}
 			break
 		}
 	}
 	if plan.Engine != "" && plan.Engine != ir.PhysicalEngineAQL {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: engine %q has no PostgreSQL source; the source graph IR is backend-neutral and ClickHouse plans are not PostgreSQL-rendered",
 			ErrUnsupportedPostgresPlan, string(plan.Engine))
 	}
 	if plan.ClickHouseCombine != nil || plan.ClickHousePrefix != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: ClickHouse combine/prefix payloads have no PostgreSQL rendering", ErrUnsupportedPostgresPlan)
 	}
 	if plan.StageSequence != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: staged row-operator sequences are not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if plan.PreviewSourceWindowByRootID {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: preview source windowing is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if len(plan.DeferredExpressionLets) != 0 {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: completed plans must not carry deferred expression lets", ErrUnsupportedPostgresPlan)
 	}
 	bound := binding
@@ -434,12 +434,12 @@ func RenderPopulationRootScan(
 		membership: &bound,
 	}
 	if err := renderer.loadScope(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	if err := renderer.renderOperations(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
-	return compiler.NewRenderedPostgresPhysicalPlan(renderer.assemble(), renderer.args, renderer.outputColumns)
+	return command.NewRenderedPostgresPhysicalPlan(renderer.assemble(), renderer.args, renderer.outputColumns)
 }
 
 // renderRootSources is the dispatch target of render.go's single

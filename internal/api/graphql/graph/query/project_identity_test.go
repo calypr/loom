@@ -40,7 +40,7 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 			t.Fatalf("catalog auth paths = %#v, want %#v", paths, []string{scopePath})
 		}
 	}
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: active,
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
@@ -60,8 +60,8 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 			return []catalog.PopulatedReference{}, nil
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-			QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-				_, bindVars, deriveErr := command.AQLParameters()
+			SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+				_, bindVars, deriveErr := request.Command.AQLParameters()
 				if deriveErr != nil {
 					return deriveErr
 				}

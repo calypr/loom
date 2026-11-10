@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
@@ -12,7 +13,7 @@ func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 	var gotRefOpts catalog.PopulatedReferenceOptions
 	var gotFieldOpts []catalog.PopulatedFieldOptions
 
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverReferences: func(ctx context.Context, opts catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error) {
 			gotRefOpts = opts
@@ -68,7 +69,7 @@ func TestServiceIntrospectUsesCallerScope(t *testing.T) {
 }
 
 func TestServiceIntrospectRejectsUnauthorizedScope(t *testing.T) {
-	service := NewService(Config{})
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget()})
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Subject:           "u1",
 		Projects:          []string{"P1"},
@@ -86,7 +87,7 @@ func TestServiceIntrospectRejectsUnauthorizedScope(t *testing.T) {
 }
 
 func TestServiceIntrospectRejectsUnauthorizedProject(t *testing.T) {
-	service := NewService(Config{})
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget()})
 	ctx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
 		Subject:  "u1",
 		Projects: []string{"P1"},

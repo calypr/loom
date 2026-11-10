@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
@@ -24,9 +25,10 @@ import (
 //     parameterized SQL with no AQL bind syntax, and rejects everything else
 //     with a typed ErrUnsupportedPostgresPlan. It never emits AQL text and
 //     never converts AQL to SQL.
-//   - The planner-facing gate from pg-ir-01 stays fail-closed: a PostgreSQL
-//     request through CompiledCommandForBackend yields no command until a
-//     PostgreSQL command adapter is registered by a later ticket.
+//   - Compile selection is closed: the zero target is refused, and a
+//     PostgreSQL request compiles only through the PostgreSQL renderer —
+//     unsupported plans fail with a typed ErrUnsupportedPostgresPlan and
+//     never yield an AQL-tagged fallback.
 func TestPostgresParityFixture(t *testing.T) {
 	bindings := recipe.RuntimeBindings{Project: "parity-project", DatasetGeneration: "parity-generation"}
 	bundle := recipe.Bundle{
@@ -46,7 +48,7 @@ func TestPostgresParityFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveRecipePlan: %v", err)
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("CompileResolvedRecipePlanWithPolicy: %v", err)
 	}
@@ -66,24 +68,48 @@ func TestPostgresParityFixture(t *testing.T) {
 		if !strings.Contains(rendered.Query, "@") {
 			t.Fatalf("expected the AQL path to keep its named bind syntax")
 		}
-		command, err := compiler.CompiledCommandForBackend(compiler.CompiledBackendAQL, rendered)
+		compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 		if err != nil {
 			t.Fatalf("AQL command registration: %v", err)
 		}
-		if _, _, err := command.PostgreSQLParameters(); !errors.Is(err, compiler.ErrCompiledCommandBackendMismatch) {
+		if _, _, err := compiledCommand.PostgreSQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 			t.Fatalf("AQL command to the PostgreSQL executor error = %v, want mismatch", err)
 		}
 	})
 
-	t.Run("PostgreSQLGateStaysFailClosed", func(t *testing.T) {
-		// Planner capability discovery must keep reporting PostgreSQL as
-		// unsupported until a command adapter registers; no AQL fallback.
-		rendered, err := aql.RenderPhysicalPlan(compiled.PhysicalPlan)
-		if err != nil {
-			t.Fatalf("AQL render: %v", err)
+	t.Run("CompileSelectionStaysFailClosed", func(t *testing.T) {
+		// The zero target is never a hidden default: every compile entry
+		// point refuses it before lowering or rendering, and an invalid
+		// PostgreSQL binding is refused at selection.
+		if _, err := compiler.CompileResolvedRecipePlan(compiler.Target{}, resolved, 7, ir.DefaultPhysicalOptimizationPolicy()); !errors.Is(err, compiler.ErrTargetNotSelected) {
+			t.Fatalf("zero-target compile error = %v, want ErrTargetNotSelected", err)
 		}
-		if _, err := compiler.CompiledCommandForBackend(compiler.CompiledBackendPostgreSQL, rendered); !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
-			t.Fatalf("PostgreSQL request error = %v, want not-registered", err)
+		if _, err := compiler.PostgreSQLTarget(ir.PostgresStorageBinding{}); err == nil {
+			t.Fatal("unbound PostgreSQL target accepted")
+		}
+		// A PostgreSQL compile either produces a PostgreSQL-tagged command
+		// from the real renderer or fails explicitly with the typed
+		// unsupported-plan error; it never produces an AQL-tagged command.
+		storage, err := ir.NewPostgresStorageBinding("pgir02_it_parity")
+		if err != nil {
+			t.Fatalf("NewPostgresStorageBinding: %v", err)
+		}
+		target, err := compiler.PostgreSQLTarget(storage)
+		if err != nil {
+			t.Fatalf("PostgreSQLTarget: %v", err)
+		}
+		pgQueries, pgErr := compiler.CompileResolvedRecipePlan(target, resolved, 7, ir.DefaultPhysicalOptimizationPolicy())
+		if pgErr != nil {
+			if !errors.Is(pgErr, postgresrender.ErrUnsupportedPostgresPlan) {
+				t.Fatalf("PostgreSQL compile error = %v, want ErrUnsupportedPostgresPlan", pgErr)
+			}
+			return
+		}
+		if len(pgQueries) != 1 {
+			t.Fatalf("PostgreSQL compiled outputs = %d, want 1", len(pgQueries))
+		}
+		if pgQueries[0].Command.Backend() != command.CompiledBackendPostgreSQL {
+			t.Fatalf("PostgreSQL compile produced tag %q; AQL fallback is forbidden", pgQueries[0].Command.Backend())
 		}
 	})
 
@@ -148,14 +174,14 @@ func TestPostgresParityFixture(t *testing.T) {
 		if strings.Contains(first.SQL, "@") {
 			t.Fatalf("PostgreSQL SQL carries AQL bind syntax: %s", first.SQL)
 		}
-		command, err := compiler.NewPostgreSQLCommand(first.SQL, first.Args)
+		compiledCommand, err := command.NewPostgreSQLCommand(first.SQL, first.Args)
 		if err != nil {
 			t.Fatalf("PostgreSQL command construction from rendered plan: %v", err)
 		}
-		if _, _, err := command.AQLParameters(); !errors.Is(err, compiler.ErrCompiledCommandBackendMismatch) {
+		if _, _, err := compiledCommand.AQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 			t.Fatalf("PostgreSQL command to the AQL adapter error = %v, want mismatch", err)
 		}
-		sql, args, err := command.PostgreSQLParameters()
+		sql, args, err := compiledCommand.PostgreSQLParameters()
 		if err != nil || sql != first.SQL || !reflect.DeepEqual(args, first.Args) {
 			t.Fatalf("PostgreSQL dispatch round trip lost the rendered result")
 		}

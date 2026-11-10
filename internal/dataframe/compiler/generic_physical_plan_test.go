@@ -158,7 +158,7 @@ func TestCompileRecipeOutputPreservesMixedChildDependencyOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compiled, err := CompileRecipeOutputWithPolicy(lower.CompiledRecipeOutput{
+	compiled, err := CompileRecipeOutput(ArangoTarget(), lower.CompiledRecipeOutput{
 		Name:             "patients",
 		RootResourceType: "Patient",
 		RowGrain:         "patient",

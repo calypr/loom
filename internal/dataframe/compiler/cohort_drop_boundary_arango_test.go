@@ -190,7 +190,7 @@ func TestPreCohortDropStagesExcludeMissingPinnedMembersAgainstArango(t *testing.
 		if cohort == nil || cohort.PreserveMissingMembers {
 			t.Fatalf("%s PreserveMissingMembers = %#v, want false", name, cohort)
 		}
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile %s cohort query: %v", name, err)
 		}

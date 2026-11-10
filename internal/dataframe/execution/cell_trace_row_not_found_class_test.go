@@ -38,7 +38,8 @@ func assertCellTraceMissingRowUserFault(t *testing.T, err error, wantRowID, want
 
 func TestEngineCellTraceCompiledMissingRowIsUserFault(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -51,7 +52,8 @@ func TestEngineCellTraceCompiledMissingRowIsUserFault(t *testing.T) {
 
 func TestEngineCellTraceMissingPublishedRowIsUserFault(t *testing.T) {
 	output := compileComposedCohortIdentityOutput(t)
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -66,7 +68,8 @@ func TestEngineCellTraceMissingPublishedRowIsUserFault(t *testing.T) {
 
 func TestEngineCellTraceKnownRowNeverTakesTheNotFoundArm(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

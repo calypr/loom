@@ -53,8 +53,10 @@ func TestPreviewOutputMaterializesPopulationSourceForKeylessGroupContributors(t 
 			var executedQuery string
 			var executedBindVars map[string]any
 			engine, err := New(Config{
-				Registry: invalidRecipeRegistry{},
-				QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{},
+				SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+					command := request.Command
 					query, bindVars, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr

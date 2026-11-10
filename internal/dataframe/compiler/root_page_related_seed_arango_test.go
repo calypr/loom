@@ -23,7 +23,7 @@ func TestRootPageRelatedSeedConstructionFilterPlacement(t *testing.T) {
 	const project, generation, targetID = "root-page-related-seed-project", "root-page-related-seed-generation", "patient-match"
 	bindings := rootPageRelatedSeedBindings(project, generation)
 	compiled := compileRootPageRelatedSeedOutput(t, rootPageRelatedSeedOutput(targetID), bindings)
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile related root page: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 
 	bindings := rootPageRelatedSeedBindings(project, generation)
 	compiled := compileRootPageRelatedSeedOutput(t, rootPageRelatedSeedOutput(targetID), bindings)
-	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile full related construction output: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *test
 		t.Fatalf("unpaged related construction has duplicate rows per root: %#v", fullRows)
 	}
 
-	page, err := CompileRecipeOutputPageWithPolicy(compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile paged related construction output: %v", err)
 	}

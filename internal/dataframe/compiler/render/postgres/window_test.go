@@ -28,7 +28,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/source"
@@ -147,7 +147,7 @@ func TestWindowSpineSortLimitSQLIsByteIdentical(t *testing.T) {
 	if rendered.SQL != wantSQL {
 		t.Fatalf("window.go drifted the spine golden:\n got %s\nwant %s", rendered.SQL, wantSQL)
 	}
-	if len(rendered.Args) != 6 || rendered.Args[4].Type != compiler.PostgreSQLParameterBigint || rendered.Args[4].Value != int64(10) {
+	if len(rendered.Args) != 6 || rendered.Args[4].Type != command.PostgreSQLParameterBigint || rendered.Args[4].Value != int64(10) {
 		t.Fatalf("window args drifted: %#v", rendered.Args)
 	}
 }
@@ -308,14 +308,33 @@ func requireRebindRefusal(t *testing.T, plan ir.PhysicalPlan, wantFragment strin
 	check("dispatch", dispatchErr)
 }
 
-func TestWindowSpineRejectsIdentitySpellingAndPayloadSorts(t *testing.T) {
-	// The _key spelling is W2 tuple vocabulary only; the spine keeps the
-	// merged typed-column contract, and payload paths stay refused.
+func TestWindowSpineSortsRootKeyByLogicalIdAndRejectsPayloadSorts(t *testing.T) {
+	// The _key spelling keeps its own tuple-vocabulary checks on W2 below.
+	// On the spine, the generic execution window's root _key sort is the
+	// canonical identity spelling: since the row-execution path became the
+	// compiled renderer path (arch-backend-11), every PostgreSQL stream
+	// carries a root _key spine sort, and the renderer maps it onto the
+	// logical_id storage column — exactly the term W2's identity segments
+	// emit. The mapping is live-verified by the engine stream witnesses
+	// (ORDER BY logical_id ASC, resource_seq ASC). Payload paths stay refused.
+	t.Run("RootKeySortRendersLogicalIdOrdering", func(t *testing.T) {
+		plan := basePlan()
+		plan.Operations = []ir.PhysicalOperation{
+			plan.Operations[0], windowSortOp(ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}), windowLimitOp("limit"),
+			windowReturnOp(valueProjection("logical_id", "root", "logical_id")),
+		}
+		rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
+		if err != nil {
+			t.Fatalf("root _key spine sort must render through the canonical identity mapping: %v", err)
+		}
+		if got := windowOrderByClause(t, rendered.SQL); got != `r0."logical_id" ASC, r0."resource_seq" ASC` {
+			t.Fatalf("root _key spine sort must order by the logical_id storage column, got %q", got)
+		}
+	})
 	for _, tc := range []struct {
 		name string
 		key  ir.PhysicalValue
 	}{
-		{"root _key on the spine", ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}},
 		{"payload path sort", ir.PhysicalValue{Variable: "root", Path: []string{"status"}}},
 		{"multi-segment path", ir.PhysicalValue{Variable: "root", Path: []string{"payload", "status"}}},
 	} {
@@ -353,13 +372,13 @@ func TestWindowFinalSortLimitOverExpansionIsExact(t *testing.T) {
 	if strings.Contains(rendered.SQL, "@") {
 		t.Fatalf("windowed SQL carries AQL bind syntax:\n%s", rendered.SQL)
 	}
-	wantArgs := []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: "proj-a"},
-		{Type: compiler.PostgreSQLParameterText, Value: "gen-1"},
-		{Type: compiler.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Observation"]`)},
-		{Type: compiler.PostgreSQLParameterText, Value: "Patient"},
-		{Type: compiler.PostgreSQLParameterText, Value: "{identifier}"},
-		{Type: compiler.PostgreSQLParameterBigint, Value: int64(3)},
+	wantArgs := []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: "proj-a"},
+		{Type: command.PostgreSQLParameterText, Value: "gen-1"},
+		{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(`["FHIR/Patient","FHIR/Observation"]`)},
+		{Type: command.PostgreSQLParameterText, Value: "Patient"},
+		{Type: command.PostgreSQLParameterText, Value: "{identifier}"},
+		{Type: command.PostgreSQLParameterBigint, Value: int64(3)},
 	}
 	if !reflect.DeepEqual(rendered.Args, wantArgs) {
 		t.Fatalf("window args =\n got %#v\nwant %#v", rendered.Args, wantArgs)
@@ -815,7 +834,7 @@ func (s *sql12Service) insertEdge(t *testing.T, rec pgstore.EdgeOccurrenceRow) {
 	}
 }
 
-func (s *sql12Service) runRendered(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) [][]string {
+func (s *sql12Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	return s.queryRows(t, rendered.SQL, windowParameterValues(rendered.Args)...)
 }
@@ -850,7 +869,7 @@ func (s *sql12Service) witness(t *testing.T, sql string, args ...any) [][]string
 	return s.queryRows(t, sql, args...)
 }
 
-func windowParameterValues(args []compiler.PostgreSQLParameter) []any {
+func windowParameterValues(args []command.PostgreSQLParameter) []any {
 	values := make([]any, len(args))
 	for index, parameter := range args {
 		values[index] = parameter.Value
@@ -862,7 +881,7 @@ func windowParameterValues(args []compiler.PostgreSQLParameter) []any {
 // requires every execution to return the identical page. Expected pages are
 // additionally compared against literal rows supplied by the test, never
 // derived from renderer output.
-func windowRepeat(t *testing.T, svc *sql12Service, rendered compiler.RenderedPostgresPhysicalPlan, executions int, want [][]string) {
+func windowRepeat(t *testing.T, svc *sql12Service, rendered command.RenderedPostgresPhysicalPlan, executions int, want [][]string) {
 	t.Helper()
 	for run := 1; run <= executions; run++ {
 		got := svc.runRendered(t, rendered)
@@ -881,7 +900,7 @@ func sql12Binding(t *testing.T, schema string) ir.PostgresStorageBinding {
 	return binding
 }
 
-func (s *sql12Service) render(t *testing.T, plan ir.PhysicalPlan) compiler.RenderedPostgresPhysicalPlan {
+func (s *sql12Service) render(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
 	t.Helper()
 	rendered, err := RenderPhysicalPlan(plan, sql12Binding(t, s.schema))
 	if err != nil {

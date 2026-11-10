@@ -42,7 +42,7 @@ func TestRootPageRoutedExistsKeepsEligibleRootsAcrossCursorAgainstArango(t *test
 	if err != nil {
 		t.Fatalf("lower routed root-page recipe: %v", err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed EXISTS root page: %v", err)
 	}

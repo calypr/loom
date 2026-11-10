@@ -1,4 +1,4 @@
-package execution
+package execution_test
 
 // Sanitized live PostgreSQL Explain tests (pg-exec-10).
 //
@@ -9,7 +9,7 @@ package execution
 // with LOOM_TEST_POSTGRES_URL set.
 //
 // Sanitization is the ticket's purpose, so every rendered surface — the
-// sanitized assessment, the full PhysicalExplanation JSON, and the typed
+// sanitized assessment, the full execution.PhysicalExplanation JSON, and the typed
 // user-error view — is asserted hostile-sentinel-free with sentinels
 // embedded in data (bound values, SQL literals, row values) AND identifiers
 // (relation, index, column, schema names). Offline tests feed the parser
@@ -46,9 +46,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -96,19 +98,19 @@ func exec10HostileSQL(qualifiedTable string) string {
 		exec10SentinelColumn, qualifiedTable, exec10SentinelColumn, exec10SentinelColumn, exec10SentinelLiteral)
 }
 
-func exec10HostileParameters() []compiler.PostgreSQLParameter {
-	return []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterText, Value: exec10SentinelBind},
+func exec10HostileParameters() []command.PostgreSQLParameter {
+	return []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterText, Value: exec10SentinelBind},
 	}
 }
 
-func exec10HostileCommand(t *testing.T, qualifiedTable string) compiler.CompiledCommand {
+func exec10HostileCommand(t *testing.T, qualifiedTable string) command.CompiledCommand {
 	t.Helper()
-	command, err := compiler.NewPostgreSQLCommand(exec10HostileSQL(qualifiedTable), exec10HostileParameters())
+	compiledCommand, err := command.NewPostgreSQLCommand(exec10HostileSQL(qualifiedTable), exec10HostileParameters())
 	if err != nil {
 		t.Fatalf("build hostile PostgreSQL command: %v", err)
 	}
-	return command
+	return compiledCommand
 }
 
 // exec10AssertSentinelFree fails on any sentinel (and any additional secret)
@@ -141,11 +143,11 @@ func exec10Clip(value string) string {
 func TestPostgresExplainBuildCommandClosedDispatch(t *testing.T) {
 	pgCommand := exec10HostileCommand(t, `"public"."some_table"`)
 
-	explainCommand, err := BuildPostgreSQLExplainCommand(CompiledQuery{Command: pgCommand})
+	explainCommand, err := execution.BuildPostgreSQLExplainCommand(compiler.CompiledQuery{Command: pgCommand})
 	if err != nil {
-		t.Fatalf("BuildPostgreSQLExplainCommand: %v", err)
+		t.Fatalf("execution.BuildPostgreSQLExplainCommand: %v", err)
 	}
-	if explainCommand.Backend() != compiler.CompiledBackendPostgreSQL {
+	if explainCommand.Backend() != command.CompiledBackendPostgreSQL {
 		t.Fatalf("EXPLAIN command must stay PostgreSQL-tagged, got %q", explainCommand.Backend())
 	}
 	sqlText, args, err := explainCommand.PostgreSQLParameters()
@@ -179,17 +181,17 @@ func TestPostgresExplainBuildCommandClosedDispatch(t *testing.T) {
 
 	// Paired refusal controls: AQL never reaches the PostgreSQL EXPLAIN
 	// context, and untagged commands fail closed as unregistered.
-	aqlCommand, err := compiler.NewAQLCommand("FOR d IN c RETURN d", nil)
+	aqlCommand, err := command.NewAQLCommand("FOR d IN c RETURN d", nil)
 	if err != nil {
 		t.Fatalf("AQL control command: %v", err)
 	}
-	if _, err := BuildPostgreSQLExplainCommand(CompiledQuery{Command: aqlCommand}); !errors.Is(err, compiler.ErrCompiledCommandBackendMismatch) {
+	if _, err := execution.BuildPostgreSQLExplainCommand(compiler.CompiledQuery{Command: aqlCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("AQL-tagged command into PostgreSQL EXPLAIN: got %v, want ErrCompiledCommandBackendMismatch", err)
 	}
-	if _, err := BuildPostgreSQLExplainCommand(CompiledQuery{}); !errors.Is(err, compiler.ErrCompiledCommandBackendNotRegistered) {
+	if _, err := execution.BuildPostgreSQLExplainCommand(compiler.CompiledQuery{}); !errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
 		t.Fatalf("zero-tag command into PostgreSQL EXPLAIN: got %v, want ErrCompiledCommandBackendNotRegistered", err)
 	}
-	unknown, err := compiler.NewPostgreSQLCommand("SELECT 1", nil)
+	unknown, err := command.NewPostgreSQLCommand("SELECT 1", nil)
 	if err != nil {
 		t.Fatalf("unknown-tag build: %v", err)
 	}
@@ -242,12 +244,16 @@ func exec10HostilePlanJSON(t *testing.T) string {
 }
 
 func TestPostgresExplainSanitizerKeepsOnlyAgreedFields(t *testing.T) {
+	// The sanitizer is exercised through its only public entry:
+	// PostgreSQLExplainPlan with a custom executor. The parser-direct
+	// classification, malformed-rejection, and operator-vocabulary tests
+	// live in postgres_explain_parser_internal_test.go (internal package).
 	raw := json.RawMessage(exec10HostilePlanJSON(t))
-	assessment, err := sanitizePostgreSQLPlanJSON(raw)
-	if err != nil {
-		t.Fatalf("sanitize hostile plan: %v", err)
-	}
-	if assessment.Backend != string(compiler.CompiledBackendPostgreSQL) {
+	commandForExplain := exec10HostileCommand(t, `"public"."t"`)
+	assessment, err := execution.PostgreSQLExplainPlan(context.Background(), func(context.Context, command.CompiledCommand) (json.RawMessage, error) {
+		return raw, nil
+	}, compiler.CompiledQuery{Command: commandForExplain})
+	if assessment.Backend != string(command.CompiledBackendPostgreSQL) {
 		t.Fatalf("backend tag: got %q", assessment.Backend)
 	}
 	if len(assessment.Nodes) != 2 {
@@ -257,7 +263,7 @@ func TestPostgresExplainSanitizerKeepsOnlyAgreedFields(t *testing.T) {
 	if root.Ordinal != 0 || root.ParentOrdinal != -1 || root.Depth != 0 || root.NodeType != "Bitmap Heap Scan" {
 		t.Fatalf("root node structure: %+v", root)
 	}
-	if root.Estimate != (PostgreSQLPlanEstimate{StartupCost: 0, TotalCost: 113.45, PlanRows: 2, PlanWidth: 34}) {
+	if root.Estimate != (execution.PostgreSQLPlanEstimate{StartupCost: 0, TotalCost: 113.45, PlanRows: 2, PlanWidth: 34}) {
 		t.Fatalf("root estimates: %+v", root.Estimate)
 	}
 	if assessment.RootEstimate != root.Estimate {
@@ -270,7 +276,7 @@ func TestPostgresExplainSanitizerKeepsOnlyAgreedFields(t *testing.T) {
 	if len(assessment.FullScans) != 0 {
 		t.Fatalf("no full scan in this plan: %+v", assessment.FullScans)
 	}
-	if len(assessment.IndexScans) != 1 || assessment.IndexScans[0] != (PostgreSQLScanEvidence{Ordinal: 1, NodeType: "Index Scan", ScanKind: PostgreSQLScanIndex}) {
+	if len(assessment.IndexScans) != 1 || assessment.IndexScans[0] != (execution.PostgreSQLScanEvidence{Ordinal: 1, NodeType: "Index Scan", ScanKind: execution.PostgreSQLScanIndex}) {
 		t.Fatalf("index classification: %+v", assessment.IndexScans)
 	}
 	rendered, err := json.Marshal(assessment)
@@ -284,125 +290,14 @@ func TestPostgresExplainSanitizerKeepsOnlyAgreedFields(t *testing.T) {
 	}
 }
 
-func TestPostgresExplainSanitizerClassifiesSequentialScan(t *testing.T) {
-	raw := json.RawMessage(`[{"Plan":{"Node Type":"Limit","Startup Cost":0,"Total Cost":1.5,"Plan Rows":1,"Plan Width":8,"Plans":[{"Node Type":"Seq Scan","Relation Name":"` + exec10SentinelTable + `","Filter":"(` + exec10SentinelColumn + ` = '` + exec10SentinelBind + `')","Startup Cost":0,"Total Cost":1.4,"Plan Rows":1,"Plan Width":8}]}}]`)
-	assessment, err := sanitizePostgreSQLPlanJSON(raw)
-	if err != nil {
-		t.Fatalf("sanitize: %v", err)
-	}
-	if len(assessment.FullScans) != 1 || assessment.FullScans[0] != (PostgreSQLScanEvidence{Ordinal: 1, NodeType: "Seq Scan", ScanKind: PostgreSQLScanSequential}) {
-		t.Fatalf("sequential classification: %+v", assessment.FullScans)
-	}
-	if len(assessment.IndexScans) != 0 {
-		t.Fatalf("unexpected index evidence: %+v", assessment.IndexScans)
-	}
-	// Zero-scan control: a Limit-only plan classifies nothing.
-	benign, err := sanitizePostgreSQLPlanJSON(json.RawMessage(`[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0.01,"Plan Rows":1,"Plan Width":4}}]`))
-	if err != nil || len(benign.FullScans) != 0 || len(benign.IndexScans) != 0 {
-		t.Fatalf("zero-scan control: %+v err=%v", benign, err)
-	}
-	rendered, _ := json.Marshal(assessment)
-	exec10AssertSentinelFree(t, "sequential assessment JSON", string(rendered))
-}
-
-func TestPostgresExplainSanitizerRejectsMalformedPlans(t *testing.T) {
-	nestedChain := func(levels int) string {
-		var builder strings.Builder
-		for i := 0; i < levels; i++ {
-			builder.WriteString(`{"Node Type":"Nested Loop","Startup Cost":0,"Total Cost":1,"Plan Rows":1,"Plan Width":4,"Plans":[`)
-		}
-		builder.WriteString(`{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}`)
-		builder.WriteString(strings.Repeat(`]}`, levels))
-		return builder.String()
-	}
-	deepNode := nestedChain(postgresExplainMaxDepth + 2)
-	wideNodes := func(count int) string {
-		var builder strings.Builder
-		builder.WriteString(`{"Node Type":"Append","Startup Cost":0,"Total Cost":1,"Plan Rows":1,"Plan Width":4,"Plans":[`)
-		for i := 0; i < count; i++ {
-			if i > 0 {
-				builder.WriteString(",")
-			}
-			builder.WriteString(`{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}`)
-		}
-		builder.WriteString(`]}`)
-		return builder.String()
-	}
-	tests := []struct {
-		name string
-		raw  string
-	}{
-		{name: "empty", raw: ``},
-		{name: "not json", raw: `EXPLAIN`},
-		{name: "object not array", raw: `{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}`},
-		{name: "empty array", raw: `[]`},
-		{name: "two statements", raw: `[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}},{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "no plan object", raw: `[{"NotPlan":{}}]`},
-		{name: "missing node type", raw: `[{"Plan":{"Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "missing estimate", raw: `[{"Plan":{"Node Type":"Result","Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "estimate as string", raw: `[{"Plan":{"Node Type":"Result","Startup Cost":"0","Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "fractional plan width", raw: `[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4.5}}]`},
-		{name: "negative estimate", raw: `[{"Plan":{"Node Type":"Result","Startup Cost":-1,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "node type with quotes", raw: `[{"Plan":{"Node Type":"Seq Scan' OR 1=1 --","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "node type with parens", raw: `[{"Plan":{"Node Type":"Index Scan (secret_idx)","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "node type with dollar sign", raw: `[{"Plan":{"Node Type":"Result $1","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "node type empty", raw: `[{"Plan":{"Node Type":"","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "node type leading digit", raw: `[{"Plan":{"Node Type":"9Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-		{name: "trailing document", raw: `[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}] []`},
-		{name: "depth overflow", raw: `[{"Plan":` + deepNode + `}]`},
-		{name: "node overflow", raw: `[{"Plan":` + wideNodes(postgresExplainMaxNodes+1) + `}]`},
-		{name: "nan literal", raw: `[{"Plan":{"Node Type":"Result","Startup Cost":NaN,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(test.raw)); err == nil {
-				t.Fatalf("malformed plan accepted: %s", exec10Clip(test.raw))
-			}
-		})
-	}
-	// Guard non-vacuity: the benign minimal plan (same shape minus the
-	// defect of each case above) must parse — the refusals are selective.
-	if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(`[{"Plan":{"Node Type":"Result","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`)); err != nil {
-		t.Fatalf("benign minimal plan refused: %v", err)
-	}
-	// Oversized raw payload refusal with a paired just-under control.
-	if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(strings.Repeat(" ", postgresExplainMaxRawBytes+1))); err == nil {
-		t.Fatal("oversized plan JSON accepted")
-	}
-	if _, err := sanitizePostgreSQLPlanJSON(json.RawMessage(`[` + strings.Repeat(" ", postgresExplainMaxRawBytes-16) + `]`)); err == nil {
-		// The size guard fires first, but the JSON is also invalid — this
-		// control only proves the guard does not reject *empty-ish* inputs.
-		_ = err
-	}
-}
-
-func TestPostgresExplainPlanNodeTypeVocabularyAcceptsRealOperators(t *testing.T) {
-	// Paired control for the node-pattern gate: genuine PostgreSQL operator
-	// names, including camel-case and multi-word forms, parse.
-	for _, nodeType := range []string{"Seq Scan", "Index Scan", "Index Only Scan", "Bitmap Index Scan", "Bitmap Heap Scan", "Hash Join", "Nested Loop", "Merge Join", "WindowAgg", "LockRows", "Tid Range Scan", "Shared Scan", "Limit", "Sort", "Aggregate", "Group Aggregate", "Gather Merge", "Memoize", "Sample Scan"} {
-		raw := json.RawMessage(`[{"Plan":{"Node Type":"` + nodeType + `","Startup Cost":0,"Total Cost":0,"Plan Rows":1,"Plan Width":4}}]`)
-		assessment, err := sanitizePostgreSQLPlanJSON(raw)
-		if err != nil {
-			t.Fatalf("real operator %q refused: %v", nodeType, err)
-		}
-		if assessment.Nodes[0].NodeType != nodeType {
-			t.Fatalf("operator %q mangled to %q", nodeType, assessment.Nodes[0].NodeType)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Offline: typed error mapping at this boundary.
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplainPlanErrorMapping(t *testing.T) {
 	pgCommand := exec10HostileCommand(t, `"public"."t"`)
-	compiled := CompiledQuery{Command: pgCommand}
+	compiled := compiler.CompiledQuery{Command: pgCommand}
 
 	t.Run("executor failure is typed backend unavailable with cause chain", func(t *testing.T) {
 		pgErr := &pgconn.PgError{Code: "42P01", Message: "relation \"" + exec10SentinelMissing + "\" does not exist"}
 		wrapped := &dataframepostgres.QueryError{Op: "query", Err: pgErr}
-		_, err := PostgreSQLExplainPlan(context.Background(), func(context.Context, compiler.CompiledCommand) (json.RawMessage, error) {
+		_, err := execution.PostgreSQLExplainPlan(context.Background(), func(context.Context, command.CompiledCommand) (json.RawMessage, error) {
 			return nil, wrapped
 		}, compiled)
 		if err == nil {
@@ -433,7 +328,7 @@ func TestPostgresExplainPlanErrorMapping(t *testing.T) {
 	t.Run("canceled context maps to client canceled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := PostgreSQLExplainPlan(ctx, func(context.Context, compiler.CompiledCommand) (json.RawMessage, error) {
+		_, err := execution.PostgreSQLExplainPlan(ctx, func(context.Context, command.CompiledCommand) (json.RawMessage, error) {
 			return nil, context.Canceled
 		}, compiled)
 		userErr, ok := dataframeerrors.AsUserError(err)
@@ -446,7 +341,7 @@ func TestPostgresExplainPlanErrorMapping(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 		defer cancel()
 		time.Sleep(5 * time.Millisecond)
-		_, err := PostgreSQLExplainPlan(ctx, func(context.Context, compiler.CompiledCommand) (json.RawMessage, error) {
+		_, err := execution.PostgreSQLExplainPlan(ctx, func(context.Context, command.CompiledCommand) (json.RawMessage, error) {
 			return nil, context.DeadlineExceeded
 		}, compiled)
 		userErr, ok := dataframeerrors.AsUserError(err)
@@ -457,7 +352,7 @@ func TestPostgresExplainPlanErrorMapping(t *testing.T) {
 
 	t.Run("plan shape violation is non-retryable and sentinel-free", func(t *testing.T) {
 		hostileRaw := json.RawMessage(exec10HostilePlanJSON(t)[:40]) // truncated: invalid JSON
-		_, err := PostgreSQLExplainPlan(context.Background(), func(context.Context, compiler.CompiledCommand) (json.RawMessage, error) {
+		_, err := execution.PostgreSQLExplainPlan(context.Background(), func(context.Context, command.CompiledCommand) (json.RawMessage, error) {
 			return hostileRaw, nil
 		}, compiled)
 		userErr, ok := dataframeerrors.AsUserError(err)
@@ -469,7 +364,7 @@ func TestPostgresExplainPlanErrorMapping(t *testing.T) {
 	})
 
 	t.Run("nil executor fails closed without fallback", func(t *testing.T) {
-		if _, err := PostgreSQLExplainPlan(context.Background(), nil, compiled); err == nil ||
+		if _, err := execution.PostgreSQLExplainPlan(context.Background(), nil, compiled); err == nil ||
 			!strings.Contains(err.Error(), "never fall back") {
 			t.Fatalf("nil executor: %v", err)
 		}
@@ -477,7 +372,7 @@ func TestPostgresExplainPlanErrorMapping(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Offline: Control.ExplainPhysical compile-only, Arango compatibility, and
+// Offline: execution.Control.ExplainPhysical compile-only, Arango compatibility, and
 // exhaustive tag dispatch.
 // ---------------------------------------------------------------------------
 
@@ -511,20 +406,25 @@ type exec10Callbacks struct {
 	pgCalls  int
 }
 
-// exec10Engine builds an Engine whose AQL adapter records calls and whose
-// PostgreSQL callbacks fail unless the test arms them.
-func exec10Engine(t *testing.T, callbacks *exec10Callbacks, seam ResolvePostgreSQLCommands) *Engine {
+// exec10Engine builds an execution.Engine for the selected compile target
+// whose AQL adapter records calls; PostgreSQL statement traffic fails closed
+// in the AQL-expecting port, and PostgreSQL EXPLAIN flows only through the
+// execution.Control callbacks the test arms.
+func exec10Engine(t *testing.T, callbacks *exec10Callbacks, target compiler.Target) *execution.Engine {
 	t.Helper()
-	config := Config{
-		Registry: exec10Registry{entry: recipeexec.Entry{Bundle: exec10Bundle()}},
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	config := execution.Config{
+		CompileTarget: target,
+		Registry:      exec10Registry{entry: recipeexec.Entry{Bundle: exec10Bundle()}},
+		SourceRows: func(_ context.Context, request execution.RowsRequest, _ execution.RowVisitor) error {
+			command := request.Command
 			if _, _, err := command.AQLParameters(); err != nil {
 				return err
 			}
 			callbacks.aqlCalls++
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		PreviewSourceRows: func(_ context.Context, request execution.RowsRequest, _ execution.RowVisitor) error {
+			command := request.Command
 			if _, _, err := command.AQLParameters(); err != nil {
 				return err
 			}
@@ -535,29 +435,113 @@ func exec10Engine(t *testing.T, callbacks *exec10Callbacks, seam ResolvePostgreS
 			return errors.New("ClickHouse callbacks must never run for exec10 plans")
 		},
 	}
-	if seam != nil {
-		config.ResolvePostgreSQLCommands = seam
-		config.PostgreSQLQueryRows = func(context.Context, compiler.CompiledCommand, []string, RowVisitor) error {
-			callbacks.pgCalls++
-			return nil
-		}
-	}
-	engine, err := New(config)
+	engine, err := execution.New(config)
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("execution.New: %v", err)
 	}
 	return engine
+}
+
+// exec10PostgreSQLTarget selects the PostgreSQL compiler target over the
+// canonical loom placement for the offline Explain dispatch tests.
+func exec10PostgreSQLTarget(t *testing.T) compiler.Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("loom")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := compiler.PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+// exec10ArgsCarrySentinel reports whether the hostile bind value reached the
+// command inside some ordered typed parameter (a text parameter or within a
+// restricted-auth JSON array parameter), never as statement text.
+func exec10ArgsCarrySentinel(args []command.PostgreSQLParameter) bool {
+	for _, arg := range args {
+		if fmt.Sprintf("%v", arg.Value) == exec10SentinelBind {
+			return true
+		}
+		if raw, ok := arg.Value.(json.RawMessage); ok && strings.Contains(string(raw), exec10SentinelBind) {
+			return true
+		}
+	}
+	return false
+}
+
+// exec10PGResolved builds the canonical PostgreSQL-renderable root-scan
+// plan for the Control dispatch tests: one root scan plus a RETURN of the
+// typed scope projection, with the canonical scope binds the renderer
+// re-reads. The compiler — not the test — renders the statement, so these
+// tests assess exactly what the selected target produces.
+func exec10PGResolved(bindings recipe.RuntimeBindings) execution.Resolved {
+	unrestricted := len(bindings.AuthResourcePaths) == 0
+	output := lower.CompiledRecipeOutput{
+		Name:             "resources",
+		RootResourceType: "Patient",
+		Columns:          []string{"id"},
+		OutputSchema: []lower.CompiledOutputColumn{
+			{ID: "id", Name: "id", Label: "id", Kind: "string", Cardinality: "one"},
+		},
+		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+		Plan: ir.PhysicalPlan{
+			Version: 1,
+			Engine:  ir.PhysicalEngineAQL,
+			BindVars: map[string]any{
+				"root_collection":                  "Patient",
+				"project":                          bindings.Project,
+				"dataset_generation":               bindings.DatasetGeneration,
+				"auth_resource_paths":              append([]string(nil), bindings.AuthResourcePaths...),
+				"auth_resource_paths_unrestricted": unrestricted,
+				"scope_allowed":                    true,
+			},
+			Operations: []ir.PhysicalOperation{
+				{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
+				{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"project"}}, Right: &ir.PhysicalValue{BindKey: "project"}}}},
+				{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root", Path: []string{"dataset_generation"}}, Right: &ir.PhysicalValue{BindKey: "dataset_generation"}}}},
+				{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &ir.PhysicalDerivedLet{Variable: "root_auth_allowed", Operator: "AUTH_RESOURCE_PATH_ALLOWED", Inputs: []ir.PhysicalValue{
+					{Variable: "root", Path: []string{"auth_resource_path"}},
+					{BindKey: "auth_resource_paths"},
+					{BindKey: "auth_resource_paths_unrestricted"},
+				}}},
+				{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{Operator: "EQUALS", Left: ir.PhysicalValue{Variable: "root_auth_allowed"}, Right: &ir.PhysicalValue{BindKey: "scope_allowed"}}}},
+				{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+					{Name: "id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+				}}},
+			},
+		},
+	}
+	return execution.Resolved{
+		Bundle: recipe.Bundle{Name: "exec10"},
+		Semantic: semantic.ResolvedRecipePlan{
+			SemanticPlan: semantic.RecipePlan{Bindings: bindings},
+		},
+		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
+		StoredRecipeDigest: "exec10-pg-resolved",
+	}
+}
+
+// exec10HostileBindings carries the hostile bind value through the closed
+// restricted-auth array bind, so the sentinel reaches the command only as a
+// typed parameter — never as statement text.
+func exec10HostileBindings() recipe.RuntimeBindings {
+	bindings := exec10Bindings()
+	bindings.AuthResourcePaths = []string{exec10SentinelBind}
+	return bindings
 }
 
 func TestPostgresExplainCompileOnlyWithoutDatabase(t *testing.T) {
 	// Acceptance 1: the compiler-only physical Explain works with no DB
 	// callback armed at all; nothing may touch a backend.
 	callbacks := &exec10Callbacks{}
-	engine := exec10Engine(t, callbacks, nil)
-	control := Control{Engine: engine}
+	engine := exec10Engine(t, callbacks, compiler.ArangoTarget())
+	control := execution.Control{Engine: engine}
 	result, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), false)
 	if err != nil {
-		t.Fatalf("compile-only ExplainPhysical: %v", err)
+		t.Fatalf("compile-only execution.ExplainPhysical: %v", err)
 	}
 	if len(result.Outputs) != 1 {
 		t.Fatalf("outputs: %+v", result.Outputs)
@@ -583,18 +567,18 @@ func TestPostgresExplainCompileOnlyWithoutDatabase(t *testing.T) {
 // exec10ArangoAssessment is the fixed Arango-shaped assessment DTO the
 // compatibility golden is captured with. It carries the same values the
 // server adapter now produces from the store's explain assessment.
-func exec10ArangoAssessment() ExplainAssessment {
-	return ExplainAssessment{
-		Plans: []ExplainPlanEstimate{
+func exec10ArangoAssessment() execution.ExplainAssessment {
+	return execution.ExplainAssessment{
+		Plans: []execution.ExplainPlanEstimate{
 			{Plan: 0, EstimatedCost: 12.5, EstimatedNrItems: 3},
 			{Plan: 1, EstimatedCost: 100.25, EstimatedNrItems: 10},
 		},
-		FullCollectionScans: []ExplainCollectionScan{{Plan: 1, NodeID: 4, Collection: "Patient"}},
-		Indexes: []ExplainIndexSummary{{
+		FullCollectionScans: []execution.ExplainCollectionScan{{Plan: 1, NodeID: 4, Collection: "Patient"}},
+		Indexes: []execution.ExplainIndexSummary{{
 			Collection: "Patient", ID: "Patient/idx1", Name: "idx1", Type: "skiplist",
-			Fields: []string{"id"}, Uses: []ExplainIndexLocation{{Plan: 0, NodeID: 2}},
+			Fields: []string{"id"}, Uses: []execution.ExplainIndexLocation{{Plan: 0, NodeID: 2}},
 		}},
-		Warnings:              []ExplainWarning{{Code: 1004, Message: "full collection scan"}},
+		Warnings:              []execution.ExplainWarning{{Code: 1004, Message: "full collection scan"}},
 		AppliedOptimizerRules: []string{"move-calculations-up"},
 	}
 }
@@ -606,16 +590,16 @@ func exec10ArangoAssessment() ExplainAssessment {
 // response-contract break, not a test-fixture drift.
 const exec10AQLGoldenJSON = `{"Outputs":[{"Name":"resources","PlanFingerprint":"354fb4517532d86fe9258a91307aebecf6d5868c5c16731ce3c1e0f49042a58b","Columns":["id"],"Diagnostics":{"Fingerprint":"cc21da1c6642c5ebc16063694e08f47962de98ef2cd81c12c3c4dc081537c586","TraversalSets":0,"EndpointTraversalCount":0,"NativeTraversalCount":0,"TraversalStrategies":null,"SharedTraversalCount":0,"RequiredMatchReuseCount":0,"ScopedSharingCandidateGroups":0,"ScopedSharingCandidateSets":0,"PotentialSharingOpportunityGroups":0,"PotentialSharingOpportunitySets":0,"RichSourceReuse":null,"RichConsumerGroups":null,"ExpressionBindingCount":0,"SharedKeyedMapCount":0,"ObjectLookupConsumerCount":0,"OptimizationPolicy":{"Policy":"conservative-structural-v1","Enabled":true,"MinimumSavings":1,"RuleStates":[{"Rule":"traversal_sharing","Enabled":true,"Reason":"enabled; candidate-specific decisions are reported separately"},{"Rule":"prepared_selectors","Enabled":false,"Reason":"disabled until implemented and profile-gated"},{"Rule":"compact_set_projection","Enabled":true,"Reason":"enabled; candidate-specific decisions are reported separately"},{"Rule":"endpoint_traversal","Enabled":true,"Reason":"enabled; candidate-specific decisions are reported separately"}],"Decisions":null}},"Live":{"Plans":[{"Plan":0,"EstimatedCost":12.5,"EstimatedNrItems":3},{"Plan":1,"EstimatedCost":100.25,"EstimatedNrItems":10}],"FullCollectionScans":[{"Plan":1,"NodeID":4,"Collection":"Patient"}],"Indexes":[{"Collection":"Patient","ID":"Patient/idx1","Name":"idx1","Type":"skiplist","Fields":["id"],"Uses":[{"Plan":0,"NodeID":2}]}],"Warnings":[{"Code":1004,"Message":"full collection scan"}],"AppliedOptimizerRules":["move-calculations-up"]}}]}`
 
-// exec10ContractProjection renders a PhysicalExplanation in the exact
+// exec10ContractProjection renders a execution.PhysicalExplanation in the exact
 // pre-pg-exec-10 field set — the current response contract — so the golden
 // comparison is not disturbed by the additive LivePostgreSQL field.
-func exec10ContractProjection(result PhysicalExplanation) string {
+func exec10ContractProjection(result execution.PhysicalExplanation) string {
 	type output struct {
 		Name            string
 		PlanFingerprint string
 		Columns         []string
 		Diagnostics     ir.CompilerPlanDiagnostics
-		Live            *ExplainAssessment
+		Live            *execution.ExplainAssessment
 	}
 	type explanation struct {
 		Outputs []output
@@ -636,20 +620,20 @@ func exec10ContractProjection(result PhysicalExplanation) string {
 
 func TestPostgresExplainArangoSurfaceByteFieldCompatible(t *testing.T) {
 	callbacks := &exec10Callbacks{}
-	engine := exec10Engine(t, callbacks, nil)
+	engine := exec10Engine(t, callbacks, compiler.ArangoTarget())
 	fixture := exec10ArangoAssessment()
-	control := Control{
+	control := execution.Control{
 		Engine: engine,
-		ExplainConnection: func(context.Context, CompiledQuery) (ExplainAssessment, error) {
+		ExplainConnection: func(context.Context, compiler.CompiledQuery) (execution.ExplainAssessment, error) {
 			return fixture, nil
 		},
-		ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
-			return PostgreSQLPlanAssessment{}, errors.New("the PostgreSQL callback must never run for an AQL plan")
+		ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
+			return execution.PostgreSQLPlanAssessment{}, errors.New("the PostgreSQL callback must never run for an AQL plan")
 		},
 	}
 	result, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true)
 	if err != nil {
-		t.Fatalf("live AQL ExplainPhysical: %v", err)
+		t.Fatalf("live AQL execution.ExplainPhysical: %v", err)
 	}
 	item := result.Outputs[0]
 	if item.Live == nil || item.LivePostgreSQL != nil {
@@ -660,7 +644,7 @@ func TestPostgresExplainArangoSurfaceByteFieldCompatible(t *testing.T) {
 		len(item.Live.AppliedOptimizerRules) != 1 {
 		t.Fatalf("assessment fields: %+v", item.Live)
 	}
-	if item.Live.Indexes[0].Uses[0] != (ExplainIndexLocation{Plan: 0, NodeID: 2}) {
+	if item.Live.Indexes[0].Uses[0] != (execution.ExplainIndexLocation{Plan: 0, NodeID: 2}) {
 		t.Fatalf("assessment nested fields: %+v", item.Live.Indexes[0])
 	}
 	rendered := exec10ContractProjection(result)
@@ -673,43 +657,41 @@ func TestPostgresExplainArangoSurfaceByteFieldCompatible(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Offline: exhaustive backend-tag dispatch in Control.ExplainPhysical.
+// Offline: exhaustive backend-tag dispatch in execution.Control.ExplainPhysical.
 // ---------------------------------------------------------------------------
-
-func exec10PGSelection(command compiler.CompiledCommand) ResolvePostgreSQLCommands {
-	return func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
-		return &ResolvedPostgreSQLCommand{Command: command, Columns: []string{"id"}}, nil
-	}
-}
 
 func TestPostgresExplainTagDispatchIsMutuallyExclusive(t *testing.T) {
 	callbacks := &exec10Callbacks{}
-	command := exec10HostileCommand(t, `"public"."t"`)
-	engine := exec10Engine(t, callbacks, exec10PGSelection(command))
+	engine := exec10Engine(t, callbacks, exec10PostgreSQLTarget(t))
+	bindings := exec10HostileBindings()
 
-	var received []compiler.CompiledBackend
-	var captured compiler.CompiledCommand
-	control := Control{
+	var received []command.CompiledBackend
+	var captured command.CompiledCommand
+	control := execution.Control{
 		Engine: engine,
-		ExplainConnection: func(context.Context, CompiledQuery) (ExplainAssessment, error) {
+		ExplainConnection: func(context.Context, compiler.CompiledQuery) (execution.ExplainAssessment, error) {
 			t.Fatal("the Arango policy surface must never assess a PostgreSQL-tagged command")
-			return ExplainAssessment{}, nil
+			return execution.ExplainAssessment{}, nil
 		},
-		ExplainPostgreSQLConnection: func(_ context.Context, compiled CompiledQuery) (PostgreSQLPlanAssessment, error) {
+		ExplainPostgreSQLConnection: func(_ context.Context, compiled compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
 			received = append(received, compiled.Command.Backend())
 			captured = compiled.Command
-			return PostgreSQLPlanAssessment{
-				Backend:      string(compiler.CompiledBackendPostgreSQL),
-				Nodes:        []PostgreSQLPlanNode{{Ordinal: 0, ParentOrdinal: -1, NodeType: "Index Scan", Estimate: PostgreSQLPlanEstimate{0, 1, 1, 8}}},
-				RootEstimate: PostgreSQLPlanEstimate{StartupCost: 0, TotalCost: 1, PlanRows: 1, PlanWidth: 8},
+			return execution.PostgreSQLPlanAssessment{
+				Backend:      string(command.CompiledBackendPostgreSQL),
+				Nodes:        []execution.PostgreSQLPlanNode{{Ordinal: 0, ParentOrdinal: -1, NodeType: "Index Scan", Estimate: execution.PostgreSQLPlanEstimate{0, 1, 1, 8}}},
+				RootEstimate: execution.PostgreSQLPlanEstimate{StartupCost: 0, TotalCost: 1, PlanRows: 1, PlanWidth: 8},
 			}, nil
 		},
 	}
-	result, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true)
+	// The selected PostgreSQL target compiles this canonical plan into a
+	// PostgreSQL-tagged command; ExplainResolved assesses the identical
+	// resolved outputs the stream would run.
+	resolved := exec10PGResolved(bindings)
+	result, err := control.ExplainResolved(context.Background(), resolved, true)
 	if err != nil {
-		t.Fatalf("live PostgreSQL ExplainPhysical: %v", err)
+		t.Fatalf("live PostgreSQL execution.ExplainResolved: %v", err)
 	}
-	if len(received) != 1 || received[0] != compiler.CompiledBackendPostgreSQL {
+	if len(received) != 1 || received[0] != command.CompiledBackendPostgreSQL {
 		t.Fatalf("PostgreSQL callback invocations: %v", received)
 	}
 	// The callback receives the parent-tagged compiled command itself, not
@@ -721,21 +703,23 @@ func TestPostgresExplainTagDispatchIsMutuallyExclusive(t *testing.T) {
 	if strings.HasPrefix(capturedSQL, "EXPLAIN") {
 		t.Fatalf("callback must receive the executable command, EXPLAIN is the runner's job: %q", exec10Clip(capturedSQL))
 	}
-	if len(capturedArgs) != 1 || capturedArgs[0].Value != exec10SentinelBind {
-		t.Fatalf("captured command arguments: %+v", capturedArgs)
+	if !exec10ArgsCarrySentinel(capturedArgs) {
+		t.Fatalf("hostile bind value must reach the command as a typed parameter: %+v", capturedArgs)
 	}
 	item := result.Outputs[0]
 	if item.Live != nil || item.LivePostgreSQL == nil {
 		t.Fatalf("live assessment placement: %+v", item)
 	}
-	// The Explain fingerprint must match the fingerprint the stream reports
-	// for the very same selection.
-	sqlText, args, err := command.PostgreSQLParameters()
+	// The Explain fingerprint is stable for the same selection: the
+	// compile-only run of the identical engine and bindings reports it
+	// unchanged (the stream-path equality is pinned in engine_postgres_test).
+	compileOnly, err := control.ExplainResolved(context.Background(), exec10PGResolved(bindings), false)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("compile-only execution.ExplainResolved: %v", err)
 	}
-	if want := postgreSQLCommandFingerprint(sqlText, args, []string{"id"}); item.PlanFingerprint != want {
-		t.Fatalf("PlanFingerprint must equal the stream fingerprint: got %s want %s", item.PlanFingerprint, want)
+	if compileOnly.Outputs[0].PlanFingerprint != item.PlanFingerprint {
+		t.Fatalf("PlanFingerprint drifted between live and compile-only runs: %s vs %s",
+			item.PlanFingerprint, compileOnly.Outputs[0].PlanFingerprint)
 	}
 	// The public projection comes from the declared column contract.
 	if len(item.Columns) != 1 || item.Columns[0] != "id" {
@@ -744,24 +728,21 @@ func TestPostgresExplainTagDispatchIsMutuallyExclusive(t *testing.T) {
 	rendered, _ := json.Marshal(result)
 	exec10AssertSentinelFree(t, "PostgreSQL explanation JSON", string(rendered))
 
-	// Paired control: with the same Control, an untagged command (seam not
-	// selecting this output) still routes only to the Arango surface.
-	noneSeam := func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
-		return nil, nil
-	}
+	// Paired control: with the same execution.Control, the AQL-selected
+	// engine still routes only to the Arango surface.
 	aqlCallbacks := &exec10Callbacks{}
-	aqlEngine := exec10Engine(t, aqlCallbacks, noneSeam)
+	aqlEngine := exec10Engine(t, aqlCallbacks, compiler.ArangoTarget())
 	aqlSurfaceHits := 0
 	pgSurfaceHits := 0
-	aqlControl := Control{
+	aqlControl := execution.Control{
 		Engine: aqlEngine,
-		ExplainConnection: func(context.Context, CompiledQuery) (ExplainAssessment, error) {
+		ExplainConnection: func(context.Context, compiler.CompiledQuery) (execution.ExplainAssessment, error) {
 			aqlSurfaceHits++
-			return ExplainAssessment{}, nil
+			return execution.ExplainAssessment{}, nil
 		},
-		ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
+		ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
 			pgSurfaceHits++
-			return PostgreSQLPlanAssessment{}, errors.New("must not run")
+			return execution.PostgreSQLPlanAssessment{}, errors.New("must not run")
 		},
 	}
 	if _, err := aqlControl.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true); err != nil {
@@ -774,37 +755,37 @@ func TestPostgresExplainTagDispatchIsMutuallyExclusive(t *testing.T) {
 
 func TestPostgresExplainMissingCallbackRefusals(t *testing.T) {
 	callbacks := &exec10Callbacks{}
-	command := exec10HostileCommand(t, `"public"."t"`)
-	engine := exec10Engine(t, callbacks, exec10PGSelection(command))
+	engine := exec10Engine(t, callbacks, exec10PostgreSQLTarget(t))
 
-	// PostgreSQL-tagged command with no PostgreSQL callback: refusal names
+	// PostgreSQL-selected engine with no PostgreSQL callback: refusal names
 	// the missing PostgreSQL connection and never touches Arango.
-	only := Control{Engine: engine}
-	_, err := only.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true)
+	resolved := exec10PGResolved(exec10Bindings())
+	only := execution.Control{Engine: engine}
+	_, err := only.ExplainResolved(context.Background(), resolved, true)
 	if err == nil || err.Error() != "live physical recipe Explain requires a PostgreSQL connection" {
 		t.Fatalf("missing PostgreSQL callback: %v", err)
 	}
 
-	// Paired guard control: the same Control with the callback armed proceeds.
-	armed := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
-		return PostgreSQLPlanAssessment{Backend: string(compiler.CompiledBackendPostgreSQL)}, nil
+	// Paired guard control: the same execution.Control with the callback armed proceeds.
+	armed := execution.Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
+		return execution.PostgreSQLPlanAssessment{Backend: string(command.CompiledBackendPostgreSQL)}, nil
 	}}
-	if _, err := armed.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true); err != nil {
+	if _, err := armed.ExplainResolved(context.Background(), resolved, true); err != nil {
 		t.Fatalf("armed PostgreSQL callback must proceed: %v", err)
 	}
 
 	// AQL-tagged command with no Arango callback keeps the historical
 	// message byte-for-byte, and the PostgreSQL callback is never consulted.
-	aqlEngine := exec10Engine(t, &exec10Callbacks{}, nil)
-	aqlOnly := Control{Engine: aqlEngine}
+	aqlEngine := exec10Engine(t, &exec10Callbacks{}, compiler.ArangoTarget())
+	aqlOnly := execution.Control{Engine: aqlEngine}
 	if _, err := aqlOnly.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true); err == nil ||
 		err.Error() != "live physical recipe Explain requires an Arango connection" {
 		t.Fatalf("missing Arango callback message drift: %v", err)
 	}
 	pgTouched := false
-	aqlOnlyPG := Control{Engine: aqlEngine, ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
+	aqlOnlyPG := execution.Control{Engine: aqlEngine, ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
 		pgTouched = true
-		return PostgreSQLPlanAssessment{}, nil
+		return execution.PostgreSQLPlanAssessment{}, nil
 	}}
 	if _, err := aqlOnlyPG.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true); err == nil ||
 		err.Error() != "live physical recipe Explain requires an Arango connection" {
@@ -817,13 +798,12 @@ func TestPostgresExplainMissingCallbackRefusals(t *testing.T) {
 
 func TestPostgresExplainControlPostgreSQLErrorIsTyped(t *testing.T) {
 	callbacks := &exec10Callbacks{}
-	command := exec10HostileCommand(t, `"public"."t"`)
-	engine := exec10Engine(t, callbacks, exec10PGSelection(command))
+	engine := exec10Engine(t, callbacks, exec10PostgreSQLTarget(t))
 	sentinelError := fmt.Errorf("backend exploded while planning %s against %s", exec10SentinelTable, exec10SentinelSchema)
-	control := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
-		return PostgreSQLPlanAssessment{}, sentinelError
+	control := execution.Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
+		return execution.PostgreSQLPlanAssessment{}, sentinelError
 	}}
-	_, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true)
+	_, err := control.ExplainResolved(context.Background(), exec10PGResolved(exec10Bindings()), true)
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
 		t.Fatalf("callback failure not typed: %v", err)
@@ -847,23 +827,19 @@ func TestPostgresExplainFullSurfaceSentinelSweep(t *testing.T) {
 	// error surfaces, and the runner must have seen the EXPLAIN-wrapped
 	// typed command with the ordered arguments preserved.
 	callbacks := &exec10Callbacks{}
-	command := exec10HostileCommand(t, `"public"."t"`)
-	engine := exec10Engine(t, callbacks, exec10PGSelection(command))
+	engine := exec10Engine(t, callbacks, exec10PostgreSQLTarget(t))
+	bindings := exec10HostileBindings()
 
-	var runnerSaw compiler.CompiledCommand
-	runner := func(context.Context, compiler.CompiledCommand) (json.RawMessage, error) {
-		return nil, errors.New("unused")
-	}
-	_ = runner
-	control := Control{Engine: engine, ExplainPostgreSQLConnection: func(_ context.Context, compiled CompiledQuery) (PostgreSQLPlanAssessment, error) {
-		return PostgreSQLExplainPlan(context.Background(), func(_ context.Context, explainCommand compiler.CompiledCommand) (json.RawMessage, error) {
+	var runnerSaw command.CompiledCommand
+	control := execution.Control{Engine: engine, ExplainPostgreSQLConnection: func(_ context.Context, compiled compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
+		return execution.PostgreSQLExplainPlan(context.Background(), func(_ context.Context, explainCommand command.CompiledCommand) (json.RawMessage, error) {
 			runnerSaw = explainCommand
 			return json.RawMessage(exec10HostilePlanJSON(t)), nil
 		}, compiled)
 	}}
-	result, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true)
+	result, err := control.ExplainResolved(context.Background(), exec10PGResolved(bindings), true)
 	if err != nil {
-		t.Fatalf("live PostgreSQL ExplainPhysical: %v", err)
+		t.Fatalf("live PostgreSQL execution.ExplainResolved: %v", err)
 	}
 	runnerSQL, runnerArgs, err := runnerSaw.PostgreSQLParameters()
 	if err != nil {
@@ -872,7 +848,7 @@ func TestPostgresExplainFullSurfaceSentinelSweep(t *testing.T) {
 	if !strings.HasPrefix(runnerSQL, "EXPLAIN (FORMAT JSON)\n") {
 		t.Fatalf("runner must receive the EXPLAIN-wrapped command: %q", exec10Clip(runnerSQL))
 	}
-	if len(runnerArgs) != 1 || runnerArgs[0].Value != exec10SentinelBind || runnerArgs[0].Type != compiler.PostgreSQLParameterText {
+	if !exec10ArgsCarrySentinel(runnerArgs) {
 		t.Fatalf("ordered typed arguments must survive the EXPLAIN wrap: %+v", runnerArgs)
 	}
 	rendered, err := json.Marshal(result)
@@ -1005,6 +981,7 @@ type exec10Service struct {
 	racePool *pgxpool.Pool
 	database string
 	schema   string
+	dsn      string
 	scrub    func(any) string
 	fail     func(step string, err error)
 }
@@ -1140,7 +1117,12 @@ func newExec10Service(t *testing.T) *exec10Service {
 		}
 	})
 
-	return &exec10Service{ctx: ctx, admin: admin, iso: iso, racePool: racePool, database: dbName, schema: schema, scrub: scrub, fail: fail}
+	// The stored dsn must be the ISOLATED database URL: the owned schema
+	// lives in dbName, so any dsn-driven migrate/store path has to target
+	// that database. Storing the raw shared-database URL here sends
+	// MigrateSchema to the shared database, whose "caller owns schema
+	// lifecycle" guard then correctly refuses it.
+	return &exec10Service{ctx: ctx, admin: admin, iso: iso, racePool: racePool, database: dbName, schema: schema, dsn: dsn, scrub: scrub, fail: fail}
 }
 
 func exec10RandomHex(t *testing.T) string {
@@ -1150,6 +1132,42 @@ func exec10RandomHex(t *testing.T) string {
 		t.Fatalf("generate isolation suffix: %v", err)
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// postgreSQLTarget binds the compiler PostgreSQL target to this service's
+// live owned schema, so the engine compiles the same relation shape the
+// stream would run.
+func (s *exec10Service) postgreSQLTarget(t *testing.T) compiler.Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding(s.schema)
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := compiler.PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+// migrate installs the production pg-store-02 resource placement in the
+// owned schema so compiled plans render and EXPLAIN against the real
+// relation shape.
+func (s *exec10Service) migrate(t *testing.T) {
+	t.Helper()
+	client, err := storepg.Open(s.ctx, storepg.Config{
+		DSN:            s.dsn,
+		MaxConns:       4,
+		MinConns:       1,
+		AcquireTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		s.fail("open pg-store client", err)
+	}
+	defer client.Close()
+	if _, err := storepg.MigrateSchema(s.ctx, client, s.schema); err != nil {
+		s.fail("migrate owned schema", err)
+	}
 }
 
 func (s *exec10Service) qualifiedTable(name string) string {
@@ -1177,39 +1195,39 @@ func (s *exec10Service) seedHostileFixture(t *testing.T) string {
 	return table
 }
 
-func exec10SequentialCommand(table string) compiler.CompiledCommand {
+func exec10SequentialCommand(table string) command.CompiledCommand {
 	sqlText := fmt.Sprintf(`SELECT "%s" FROM %s WHERE "%s" = $1`, exec10SentinelColumn, table, exec10SentinelColumn)
-	command, err := compiler.NewPostgreSQLCommand(sqlText, exec10HostileParameters())
+	compiledCommand, err := command.NewPostgreSQLCommand(sqlText, exec10HostileParameters())
 	if err != nil {
 		panic(err)
 	}
-	return command
+	return compiledCommand
 }
 
-func exec10IndexedCommand(table string) compiler.CompiledCommand {
+func exec10IndexedCommand(table string) command.CompiledCommand {
 	sqlText := fmt.Sprintf(`SELECT resource_seq FROM %s WHERE resource_seq = $1 ORDER BY resource_seq`, table)
-	command, err := compiler.NewPostgreSQLCommand(sqlText, []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterBigint, Value: int64(42)},
+	compiledCommand, err := command.NewPostgreSQLCommand(sqlText, []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterBigint, Value: int64(42)},
 	})
 	if err != nil {
 		panic(err)
 	}
-	return command
+	return compiledCommand
 }
 
 // exec10PoolRunner builds the same runner shape the server adapter uses,
 // over the given Querier.
-func exec10PoolRunner(t *testing.T, querier dataframepostgres.Querier) (PostgreSQLPlanJSONExecutor, *int64) {
+func exec10PoolRunner(t *testing.T, querier dataframepostgres.Querier) (execution.PostgreSQLPlanJSONExecutor, *int64) {
 	t.Helper()
 	executor, err := dataframepostgres.NewExecutor(querier)
 	if err != nil {
 		t.Fatalf("NewExecutor: %v", err)
 	}
 	var queries int64
-	return func(ctx context.Context, command compiler.CompiledCommand) (json.RawMessage, error) {
+	return func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error) {
 		atomic.AddInt64(&queries, 1)
 		var plans []string
-		if err := executor.QueryRows(ctx, command, []string{"QUERY PLAN"}, func(row map[string]any) error {
+		if err := executor.SourceRows(ctx, execution.RowsRequest{Command: command, DeclaredColumns: []string{"QUERY PLAN"}}, func(row map[string]any) error {
 			switch plan := row["QUERY PLAN"].(type) {
 			case string:
 				plans = append(plans, plan)
@@ -1231,16 +1249,20 @@ func exec10PoolRunner(t *testing.T, querier dataframepostgres.Querier) (PostgreS
 	}, &queries
 }
 
-func exec10AssertSanitizedIndexed(t *testing.T, assessment PostgreSQLPlanAssessment) {
+// exec10NodePattern mirrors the parser's operator-vocabulary gate so live
+// assessments are re-checked independently of the sanitizer at this seam.
+var exec10NodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 ]{0,63}$`)
+
+func exec10AssertSanitizedIndexed(t *testing.T, assessment execution.PostgreSQLPlanAssessment) {
 	t.Helper()
-	if assessment.Backend != string(compiler.CompiledBackendPostgreSQL) {
+	if assessment.Backend != string(command.CompiledBackendPostgreSQL) {
 		t.Fatalf("backend: %q", assessment.Backend)
 	}
 	if len(assessment.Nodes) == 0 || assessment.Nodes[0].Ordinal != 0 || assessment.Nodes[0].ParentOrdinal != -1 {
 		t.Fatalf("nodes: %+v", assessment.Nodes)
 	}
 	for _, node := range assessment.Nodes {
-		if !postgresExplainNodePattern.MatchString(node.NodeType) {
+		if !exec10NodePattern.MatchString(node.NodeType) {
 			t.Fatalf("kept node type outside the operator vocabulary: %q", node.NodeType)
 		}
 		if node.Estimate.TotalCost < node.Estimate.StartupCost || node.Estimate.PlanRows < 0 || node.Estimate.PlanWidth < 0 {
@@ -1252,7 +1274,7 @@ func exec10AssertSanitizedIndexed(t *testing.T, assessment PostgreSQLPlanAssessm
 	}
 }
 
-func exec10AssertSanitizedSequential(t *testing.T, assessment PostgreSQLPlanAssessment) {
+func exec10AssertSanitizedSequential(t *testing.T, assessment execution.PostgreSQLPlanAssessment) {
 	t.Helper()
 	if len(assessment.FullScans) == 0 {
 		t.Fatalf("sequential fixture query must classify at least one sequential scan: %+v", assessment)
@@ -1273,7 +1295,7 @@ func TestPostgresExplainLivePG18IndexedAndSequentialPlans(t *testing.T) {
 	// Acceptance 2: live PostgreSQL Explain returns the agreed sanitized
 	// backend/node/estimate fields for the indexed and sequential fixture
 	// query, through the typed command path onto real PG18.
-	indexed, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: exec10IndexedCommand(table)})
+	indexed, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: exec10IndexedCommand(table)})
 	if err != nil {
 		s.fail("indexed live Explain", err)
 	}
@@ -1281,7 +1303,7 @@ func TestPostgresExplainLivePG18IndexedAndSequentialPlans(t *testing.T) {
 	renderedIndexed, _ := json.Marshal(indexed)
 	exec10AssertSentinelFree(t, "live indexed assessment", string(renderedIndexed), secrets...)
 
-	sequential, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: exec10SequentialCommand(table)})
+	sequential, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: exec10SequentialCommand(table)})
 	if err != nil {
 		s.fail("sequential live Explain", err)
 	}
@@ -1292,7 +1314,7 @@ func TestPostgresExplainLivePG18IndexedAndSequentialPlans(t *testing.T) {
 	// The hostile command (literal in WHERE + bound hostile value) proves
 	// real redaction: PG18 deparses both into plan-text strings, and the
 	// sanitized assessment must contain neither.
-	hostile, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: exec10HostileCommand(t, table)})
+	hostile, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: exec10HostileCommand(t, table)})
 	if err != nil {
 		s.fail("hostile live Explain", err)
 	}
@@ -1305,63 +1327,37 @@ func TestPostgresExplainLivePG18IndexedAndSequentialPlans(t *testing.T) {
 		t.Fatalf("plan-text keys survived sanitization: %s", exec10Clip(string(renderedHostile)))
 	}
 
-	// Control-level integration: the ExplainPhysical seam assesses the same
-	// command the stream reports, with identical fingerprints.
+	// execution.Control-level integration: ExplainResolved assesses the
+	// compiler-rendered command for the live schema through the selected
+	// PostgreSQL target, and the fingerprint is stable across the live and
+	// compile-only runs of the identical selection. The explain-to-stream
+	// fingerprint equality is pinned in engine_postgres_test (internal
+	// package).
+	s.migrate(t)
 	callbacks := &exec10Callbacks{}
-	command := exec10SequentialCommand(table)
-	engine := exec10Engine(t, callbacks, exec10PGSelection(command))
-	control := Control{Engine: engine, ExplainPostgreSQLConnection: func(ctx context.Context, compiled CompiledQuery) (PostgreSQLPlanAssessment, error) {
-		return PostgreSQLExplainPlan(ctx, runner, compiled)
+	engine := exec10Engine(t, callbacks, s.postgreSQLTarget(t))
+	control := execution.Control{Engine: engine, ExplainPostgreSQLConnection: func(ctx context.Context, compiled compiler.CompiledQuery) (execution.PostgreSQLPlanAssessment, error) {
+		return execution.PostgreSQLExplainPlan(ctx, runner, compiled)
 	}}
-	result, err := control.ExplainPhysical(s.ctx, "exec10", exec10Bindings(), true)
+	resolved := exec10PGResolved(exec10Bindings())
+	result, err := control.ExplainResolved(s.ctx, resolved, true)
 	if err != nil {
-		s.fail("control live ExplainPhysical", err)
+		s.fail("control live execution.ExplainResolved", err)
 	}
 	item := result.Outputs[0]
 	if item.LivePostgreSQL == nil || item.Live != nil {
 		t.Fatalf("control live placement: %+v", item)
 	}
-	sqlText, args, err := command.PostgreSQLParameters()
+	compileOnly, err := control.ExplainResolved(s.ctx, exec10PGResolved(exec10Bindings()), false)
 	if err != nil {
-		t.Fatal(err)
+		s.fail("control compile-only execution.ExplainResolved", err)
 	}
-	if want := postgreSQLCommandFingerprint(sqlText, args, []string{"id"}); item.PlanFingerprint != want {
-		t.Fatalf("fingerprint mismatch against the stream fingerprint: %s vs %s", item.PlanFingerprint, want)
-	}
-	// Cross-check with the real stream path: the stream the engine would
-	// run for this selection reports the same planFingerprint.
-	resolved := exec10ResolvedFor(table)
-	_, stream, err := engine.streamForCompiledOutput(s.ctx, resolved, resolved.Compiled.Outputs[0], 25)
-	if err != nil {
-		s.fail("build comparison stream", err)
-	}
-	if stream.PlanDiagnostics.Fingerprint != item.PlanFingerprint {
-		t.Fatalf("stream fingerprint %s != explain fingerprint %s", stream.PlanDiagnostics.Fingerprint, item.PlanFingerprint)
+	if compileOnly.Outputs[0].PlanFingerprint != item.PlanFingerprint {
+		t.Fatalf("fingerprint drifted between live and compile-only runs: %s vs %s",
+			item.PlanFingerprint, compileOnly.Outputs[0].PlanFingerprint)
 	}
 	renderedResult, _ := json.Marshal(result)
 	exec10AssertSentinelFree(t, "control live explanation", string(renderedResult), secrets...)
-}
-
-func exec10ResolvedFor(table string) Resolved {
-	_ = table
-	output := lower.CompiledRecipeOutput{
-		Name:             "resources",
-		RootResourceType: "Patient",
-		Columns:          []string{"id"},
-		OutputSchema:     []lower.CompiledOutputColumn{{ID: "id", Name: "id", Label: "id", Kind: "string", Cardinality: "one"}},
-		RowIdentity:      &spec.RowIdentity{Fields: []string{"id"}},
-		Plan:             ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL},
-	}
-	return Resolved{
-		Bundle: recipe.Bundle{Name: "exec10"},
-		Semantic: semantic.ResolvedRecipePlan{
-			SemanticPlan: semantic.RecipePlan{Bindings: recipe.RuntimeBindings{
-				Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"resources"},
-			}},
-		},
-		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
-		StoredRecipeDigest: "exec10-live",
-	}
 }
 
 // TestPostgresExplainLivePG18PermissionAndAbsence exercises the EXPLAIN
@@ -1380,22 +1376,22 @@ func TestPostgresExplainLivePG18PermissionAndAbsence(t *testing.T) {
 	// The runner must share the session that performs SET ROLE, otherwise
 	// the EXPLAIN would run as the owner on a different pooled connection.
 	runner, queryCount := exec10PoolRunner(t, conn)
-	command := exec10IndexedCommand(table)
+	compiledCommand := exec10IndexedCommand(table)
 
 	// Guard bracket 1: the owner succeeds on the exact statement.
-	if _, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command}); err != nil {
+	if _, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand}); err != nil {
 		s.fail("owner EXPLAIN", err)
 	}
 
 	// Absence: undefined hostile relation maps to a typed backend failure.
 	missingSQL := `SELECT resource_seq FROM "` + s.schema + `"."` + exec10SentinelMissing + `" WHERE resource_seq = $1`
-	missingCommand, err := compiler.NewPostgreSQLCommand(missingSQL, []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterBigint, Value: int64(1)},
+	missingCommand, err := command.NewPostgreSQLCommand(missingSQL, []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterBigint, Value: int64(1)},
 	})
 	if err != nil {
 		t.Fatalf("build missing-relation command: %v", err)
 	}
-	_, err = PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: missingCommand})
+	_, err = execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: missingCommand})
 	s.assertTypedPgError(t, err, "42P01", "undefined relation")
 	exec10AssertSentinelFree(t, "undefined relation error surface", exec10UserSurface(err))
 
@@ -1434,7 +1430,7 @@ func TestPostgresExplainLivePG18PermissionAndAbsence(t *testing.T) {
 	defer resetRole()
 
 	setRole()
-	_, err = PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command})
+	_, err = execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 	s.assertTypedPgError(t, err, "42501", "permission-denied EXPLAIN at schema level")
 	// The user-facing surface must not reveal the denied schema/table names.
 	exec10AssertSentinelFree(t, "permission error surface", exec10UserSurface(err), s.schema, exec10SentinelTable)
@@ -1443,7 +1439,7 @@ func TestPostgresExplainLivePG18PermissionAndAbsence(t *testing.T) {
 	// Even with schema USAGE the table itself is still denied.
 	s.exec(t, `GRANT USAGE ON SCHEMA "`+s.schema+`" TO "`+role+`"`)
 	setRole()
-	_, err = PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command})
+	_, err = execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 	s.assertTypedPgError(t, err, "42501", "permission-denied EXPLAIN at table level")
 	resetRole()
 
@@ -1451,7 +1447,7 @@ func TestPostgresExplainLivePG18PermissionAndAbsence(t *testing.T) {
 	// once privileges exist, so the refusals above were selective.
 	s.exec(t, `GRANT SELECT ON `+table+` TO "`+role+`"`)
 	setRole()
-	granted, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command})
+	granted, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 	resetRole()
 	if err != nil {
 		s.fail("granted-role EXPLAIN (paired control)", err)
@@ -1461,11 +1457,11 @@ func TestPostgresExplainLivePG18PermissionAndAbsence(t *testing.T) {
 	// Cross-tag refusal before the server: the runner rejects an
 	// AQL-tagged command through closed dispatch without issuing a query.
 	before := atomic.LoadInt64(queryCount)
-	aqlCommand, err := compiler.NewAQLCommand("FOR d IN c RETURN d", nil)
+	aqlCommand, err := command.NewAQLCommand("FOR d IN c RETURN d", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: aqlCommand}); !errors.Is(err, compiler.ErrCompiledCommandBackendMismatch) {
+	if _, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: aqlCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("cross-tag EXPLAIN: %v", err)
 	}
 	if after := atomic.LoadInt64(queryCount); after != before {
@@ -1504,7 +1500,7 @@ func (s *exec10Service) assertTypedPgError(t *testing.T, err error, wantSQLState
 }
 
 // TestPostgresExplainLivePG18ConcurrentRounds runs 10 rounds of concurrent
-// live ExplainPhysical over a multi-connection pool. EXPLAIN itself returns
+// live execution.ExplainPhysical over a multi-connection pool. EXPLAIN itself returns
 // plan JSON, not rows, so the in-row pg_backend_pid witness rides on paired
 // row queries through the same pool and executor in each round: the three
 // paired queries per round must witness three distinct backends inside the
@@ -1516,9 +1512,9 @@ func TestPostgresExplainLivePG18ConcurrentRounds(t *testing.T) {
 	s := newExec10Service(t)
 	table := s.seedHostileFixture(t)
 	runner, _ := exec10PoolRunner(t, s.racePool)
-	command := exec10IndexedCommand(table)
+	compiledCommand := exec10IndexedCommand(table)
 
-	baselineAssessment, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command})
+	baselineAssessment, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 	if err != nil {
 		s.fail("serialized baseline EXPLAIN", err)
 	}
@@ -1529,8 +1525,8 @@ func TestPostgresExplainLivePG18ConcurrentRounds(t *testing.T) {
 	// query can finish and release its connection before a sibling acquires,
 	// and backend identity would stop proving simultaneous spread.
 	pidSQL := fmt.Sprintf(`SELECT pg_backend_pid()::bigint AS backend, resource_seq, pg_sleep(0.05) AS dwell FROM %s WHERE resource_seq = $1`, table)
-	pidCommand, err := compiler.NewPostgreSQLCommand(pidSQL, []compiler.PostgreSQLParameter{
-		{Type: compiler.PostgreSQLParameterBigint, Value: int64(42)},
+	pidCommand, err := command.NewPostgreSQLCommand(pidSQL, []command.PostgreSQLParameter{
+		{Type: command.PostgreSQLParameterBigint, Value: int64(42)},
 	})
 	if err != nil {
 		t.Fatalf("build backend-pid witness command: %v", err)
@@ -1568,7 +1564,7 @@ func TestPostgresExplainLivePG18ConcurrentRounds(t *testing.T) {
 					}
 				}
 				defer atomic.AddInt64(&inFlight, -1)
-				assessment, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command})
+				assessment, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 				if err != nil {
 					errs[i] = err
 					return
@@ -1593,7 +1589,10 @@ func TestPostgresExplainLivePG18ConcurrentRounds(t *testing.T) {
 				}
 				defer atomic.AddInt64(&inFlight, -1)
 				var seen []int64
-				err := pidExecutor.QueryRows(s.ctx, pidCommand, []string{"backend", "resource_seq", "dwell"}, func(row map[string]any) error {
+				err := pidExecutor.SourceRows(s.ctx, execution.RowsRequest{
+					Command:         pidCommand,
+					DeclaredColumns: []string{"backend", "resource_seq", "dwell"},
+				}, func(row map[string]any) error {
 					if pid, ok := exec02AsInt64(row["backend"]); ok {
 						seen = append(seen, pid)
 					}
@@ -1647,7 +1646,7 @@ func TestPostgresExplainLivePG18ConcurrentRounds(t *testing.T) {
 		t.Fatalf("no round achieved positive overlap (peak %d)", peakInFlight)
 	}
 	// Post-race serialized control: identical again (no lasting churn).
-	afterAssessment, err := PostgreSQLExplainPlan(s.ctx, runner, CompiledQuery{Command: command})
+	afterAssessment, err := execution.PostgreSQLExplainPlan(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 	if err != nil {
 		s.fail("post-race serialized EXPLAIN", err)
 	}

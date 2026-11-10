@@ -63,7 +63,7 @@ func TestRelatedEligibilityCategoryScanUsesScopedReverseFrontier(t *testing.T) {
 			Inputs: []ir.PhysicalValue{{Variable: "root", Path: []string{"payload", "name"}}},
 		},
 	}
-	query, err := compiler.CompileCategoryScanStageWithPolicy(categoryOutput, "eligible_patients", "active", "patient_id", compiler.MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := compiler.CompileCategoryScanStage(compiler.ArangoTarget(), categoryOutput, "eligible_patients", "active", "patient_id", compiler.MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

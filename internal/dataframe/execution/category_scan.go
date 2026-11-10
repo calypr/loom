@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"sync"
 	"time"
@@ -54,9 +55,9 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 		var compiled compiler.CompiledCategoryScanQuery
 		var err error
 		if request.StageID != "" {
-			compiled, err = compiler.CompileCategoryScanStageWithPolicy(output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err = compiler.CompileCategoryScanStage(e.compileTarget, output, request.StageID, request.ColumnID, request.ValueColumnID, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		} else {
-			compiled, err = compiler.CompileCategoryScanOutputWithPolicy(output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+			compiled, err = compiler.CompileCategoryScanOutput(e.compileTarget, output, request.Column, request.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		}
 		if err != nil {
 			return CategoryScanResult{}, err
@@ -66,8 +67,17 @@ func (e *Engine) ScanCategories(ctx context.Context, resolved Resolved, request 
 	return CategoryScanResult{}, fmt.Errorf("category scan output %q was not found", request.Output)
 }
 
+// previewRowsPort returns the preview row port, falling back to the
+// canonical row port when no preview override is installed.
+func (e *Engine) previewRowsPort() SourceRows {
+	if e.previewSourceRows != nil {
+		return e.previewSourceRows
+	}
+	return e.sourceRows
+}
+
 func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return CategoryScanResult{}, fmt.Errorf("category scan query executor is required")
 	}
 	if compiled.PresentColumn == "" || compiled.ValueColumn == "" || compiled.Proof.MaxValues < 1 {
@@ -87,14 +97,13 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	}
 	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
 	overflow := false
-	queryRows := e.queryRows
-	if e.previewQueryRows != nil {
-		queryRows = e.previewQueryRows
+	queryRows := func(ctx context.Context, cmd command.CompiledCommand, _ int, visit RowVisitor) error {
+		return e.previewRowsPort()(ctx, RowsRequest{Command: cmd, BatchSize: e.batchSize}, visit)
 	}
 	if compiled.OverflowWitness != nil {
 		witnessCount := 0
 		missing := false
-		err := queryRows(ctx, compiled.OverflowWitness.Command, e.batchSize, func(row map[string]any) error {
+		err := queryRows(ctx, compiled.OverflowWitness.Command, 0, func(row map[string]any) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -122,7 +131,7 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 			return CategoryScanResult{ConclusiveMissing: true, Proof: compiled.Proof}, nil
 		}
 	}
-	err := queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
+	err := queryRows(ctx, compiled.Command, 0, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

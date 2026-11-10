@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
@@ -254,7 +254,7 @@ func (s *pgir02Service) insertEdge(t *testing.T, rec pgstore.EdgeOccurrenceRow) 
 // driver arguments and returns stringified positional rows. Only text-y
 // columns (logical ids, JSON scalars) are selected by these tests, so
 // stringify comparison is exact.
-func (s *pgir02Service) runRendered(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan) [][]string {
+func (s *pgir02Service) runRendered(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) [][]string {
 	t.Helper()
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {

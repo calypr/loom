@@ -20,7 +20,7 @@
 //
 // Unsupported plans fail closed with ErrUnsupportedPostgresPlan; there is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion anywhere in this
-// package. The rendered result is a compiler.RenderedPostgresPhysicalPlan,
+// package. The rendered result is a command.RenderedPostgresPhysicalPlan,
 // which additionally refuses AQL bind syntax and placeholder/argument
 // mismatch at construction.
 //
@@ -60,7 +60,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -80,6 +80,21 @@ var ErrInvalidPostgresPlanScope = errors.New("postgres renderer: invalid plan sc
 // JSONB payload path and is bound as one whole text-path parameter. Storage
 // identity sequences (resource_seq, edge_seq) are reserved for
 // renderer-generated ordering and are never user-addressable columns.
+// canonicalKeyColumn maps the Arango document-key references the shared
+// lowering path uses (root "_key" and root document "id") onto the storage
+// column that carries the same validated identity in the PostgreSQL store.
+// Within one scoped root scan the generation-qualified key derives from the
+// natural identity, so logical_id ordering and equality match the Arango
+// document-key semantics exactly.
+func canonicalKeyColumn(path string) string {
+	switch path {
+	case "_key", "id":
+		return "logical_id"
+	default:
+		return path
+	}
+}
+
 var resourceFilterColumns = map[string]bool{
 	"project":            true,
 	"dataset_generation": true,
@@ -94,9 +109,9 @@ var resourceFilterColumns = map[string]bool{
 // binding always yield byte-identical SQL and value-identical ordered
 // arguments, and it never aliases plan data (every bound value is copied or
 // re-encoded).
-func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// Full-backstop defense in depth (unnest.go contract): a plan that
 	// mentions UNNEST is pinned to the registered slice as the first
@@ -109,49 +124,50 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {
 			if err := validateUnnestPlanSurface(plan); err != nil {
-				return compiler.RenderedPostgresPhysicalPlan{}, err
+				return command.RenderedPostgresPhysicalPlan{}, err
 			}
 			break
 		}
 	}
 	if err := plan.Validate(); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
 	if plan.Engine != "" && plan.Engine != ir.PhysicalEngineAQL {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: engine %q has no PostgreSQL source; the source graph IR is backend-neutral and ClickHouse plans are not PostgreSQL-rendered",
 			ErrUnsupportedPostgresPlan, string(plan.Engine))
 	}
 	if plan.ClickHouseCombine != nil || plan.ClickHousePrefix != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: ClickHouse combine/prefix payloads have no PostgreSQL rendering", ErrUnsupportedPostgresPlan)
 	}
 	if plan.StageSequence != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: staged row-operator sequences are not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if plan.PreviewSourceWindowByRootID {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: preview source windowing is not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if len(plan.DeferredExpressionLets) != 0 {
-		return compiler.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: completed plans must not carry deferred expression lets", ErrUnsupportedPostgresPlan)
 	}
 
 	renderer := &planRenderer{
-		storage:    storage,
-		rows:       map[string]rowScope{},
-		parameters: map[string]int{},
+		storage:           storage,
+		rows:              map[string]rowScope{},
+		parameters:        map[string]int{},
+		canonicalAuthLets: map[string]string{},
 	}
 	if err := renderer.loadScope(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	if err := renderer.renderOperations(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	sql := renderer.assemble()
-	return compiler.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
+	return command.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
 }
 
 // rowScope records the renderer-owned SQL placement of one plan variable.
@@ -177,12 +193,17 @@ type rowScope struct {
 
 type planRenderer struct {
 	storage ir.PostgresStorageBinding
-	args    []compiler.PostgreSQLParameter
+	args    []command.PostgreSQLParameter
 	// parameters deduplicates identical scalar scope binds (project,
 	// generation, resource types, label, auth array) so repeated predicates
 	// reference one placeholder.
 	parameters map[string]int
 	rows       map[string]rowScope
+	// canonicalAuthLets maps each dropped canonical AUTH_RESOURCE_PATH_ALLOWED
+	// LET variable to the registered scope row it was proven over
+	// (scope_ops.go). The LET and its closing equality carry no PostgreSQL
+	// meaning; loadScope owns the scope.
+	canonicalAuthLets map[string]string
 
 	// scope is the re-read canonical scope established by loadScope (its
 	// definition and predicate mapping live in scope.go).
@@ -224,7 +245,7 @@ type planRenderer struct {
 
 // addParameter appends one ordered argument and returns its $n index. A
 // non-empty cacheKey deduplicates equal scalar bindings.
-func (r *planRenderer) addParameter(parameter compiler.PostgreSQLParameter, cacheKey string) int {
+func (r *planRenderer) addParameter(parameter command.PostgreSQLParameter, cacheKey string) int {
 	if cacheKey != "" {
 		if index, ok := r.parameters[cacheKey]; ok {
 			return index
@@ -239,11 +260,11 @@ func (r *planRenderer) addParameter(parameter compiler.PostgreSQLParameter, cach
 }
 
 func (r *planRenderer) textParameter(value, cacheKey string) int {
-	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterText, Value: value}, cacheKey)
+	return r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: value}, cacheKey)
 }
 
 func (r *planRenderer) jsonbParameter(raw json.RawMessage) int {
-	return r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterJSONB, Value: append(json.RawMessage(nil), raw...)}, "")
+	return r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: append(json.RawMessage(nil), raw...)}, "")
 }
 
 func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
@@ -266,11 +287,33 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if phase != 0 {
 				return fmt.Errorf("%w: filters must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
+			canonical, err := r.acceptCanonicalScopeFilter(operation.Filter)
+			if err != nil {
+				return err
+			}
+			if canonical {
+				// loadScope already enforces this predicate from the
+				// re-read canonical binds; the plan operation adds nothing.
+				continue
+			}
 			clause, err := r.renderFilter(plan, *operation.Filter)
 			if err != nil {
 				return err
 			}
 			r.where = append(r.where, clause)
+		case ir.PhysicalDerivedLetOp:
+			if phase != 0 {
+				return fmt.Errorf("%w: derived lets must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			canonical, err := r.acceptCanonicalAuthLet(operation.DerivedLet)
+			if err != nil {
+				return err
+			}
+			if canonical {
+				continue
+			}
+			return fmt.Errorf("%w: operation %q is not part of the v1 PostgreSQL render surface",
+				ErrUnsupportedPostgresPlan, string(operation.Kind))
 		case ir.PhysicalTraversalOp:
 			if phase != 0 {
 				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)

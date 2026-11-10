@@ -83,7 +83,7 @@ FOR document IN %s
 				}
 				audited := appendPresenceAuditPivot(fixture.output, stage, category, *value)
 				compiled := compilePresenceAuditOutput(t, audited, project, generation, []string{allowedPath})
-				scanned, err := CompileCategoryScanStageWithPolicy(compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+				scanned, err := CompileCategoryScanStage(ArangoTarget(), compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Logf("%s\t%s\t%s\tCOMPILE_REFUSED\t%v", fixture.name, stage.ID, category.Name, err)
 					continue

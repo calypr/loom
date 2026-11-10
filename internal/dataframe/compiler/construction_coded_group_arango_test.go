@@ -140,7 +140,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 	}
 	output := constructionCodedGroupTestOutput()
 	compiled := lowerConstructionOutput(t, output, bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 	}
 	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile CODED_GROUP row-lineage page at %d: %v", offset, compileErr)
 		}
@@ -252,7 +252,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	}
 	allOutput := constructionCodedGroupTestOutput()
 	allCompiled := lowerConstructionOutput(t, allOutput, bindings)
-	allQuery, err := CompileRecipeOutputWithPolicy(allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	allQuery, err := CompileRecipeOutput(ArangoTarget(), allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	selectedBindings.SelectionProject = project
 	selectedBindings.SelectionMembersCollection = populationCollection
 	selectedCompiled := lowerConstructionOutput(t, selectedOutput, selectedBindings)
-	selectedQuery, err := CompileRecipeOutputWithPolicy(selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	selectedQuery, err := CompileRecipeOutput(ArangoTarget(), selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

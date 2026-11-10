@@ -191,7 +191,7 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		t.Fatal(err)
 	}
 	output := compiledRecipe.Outputs[0]
-	compiled, err := CompilePopulationMappingOutputWithPolicy(output, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompilePopulationMappingOutput(ArangoTarget(), output, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

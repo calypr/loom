@@ -57,9 +57,11 @@ func valControl(t *testing.T, revisions *valRevisions) (*Engine, *valNamedAbsent
 	t.Helper()
 	registry := &valNamedAbsent{}
 	engine, err := New(Config{
-		Registry:  registry,
-		Revisions: revisions,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		Revisions:     revisions,
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

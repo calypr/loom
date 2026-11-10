@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 const (
@@ -33,7 +33,7 @@ type groupPreviewRowsKey struct {
 // command: dispatch through AQLParameters is the only way the key builder
 // obtains query text and binds, so a non-AQL command never keys the AQL row
 // cache. The derived pair is hashed exactly as before.
-func newGroupPreviewRowsKey(command compiler.CompiledCommand, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
+func newGroupPreviewRowsKey(command command.CompiledCommand, collection, revision string, limit int) (groupPreviewRowsKey, int, bool) {
 	if collection == "" || revision == "" || limit <= 0 {
 		return groupPreviewRowsKey{}, 0, false
 	}
@@ -59,7 +59,7 @@ func newGroupPreviewRowsKey(command compiler.CompiledCommand, collection, revisi
 // newGroupPreviewProjectionDecisionKey derives the projection-decision
 // identity from a tagged AQL command through AQLParameters, the same closed
 // dispatch as the row cache key.
-func newGroupPreviewProjectionDecisionKey(command compiler.CompiledCommand, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
+func newGroupPreviewProjectionDecisionKey(command command.CompiledCommand, collection, revision, indexIdentity string) (groupPreviewRowsKey, int, bool) {
 	if collection == "" || revision == "" || indexIdentity == "" {
 		return groupPreviewRowsKey{}, 0, false
 	}

@@ -26,7 +26,8 @@ func TestTableShapeExclusionsCompiledPagesExactTypedRows(t *testing.T) {
 		tableShapeExclusionRow("Observation", "null", true, nil, "STRING", "row-null"),
 		tableShapeExclusionRow("Observation", "missing", false, nil, "STRING", "row-missing"),
 	}
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		query, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -70,7 +71,8 @@ func TestTableShapeExclusionsCompiledPagesAndMarksIdentityOmissionIncomplete(t *
 		tableShapeExclusionRow("", "", false, "not-a-real-id", "STRING", "row-three"),
 	}
 	makeEngine := func() *Engine {
-		return &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		return &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			query, binds, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -108,7 +110,8 @@ func TestTableShapeExclusionsCompiledPagesAndMarksIdentityOmissionIncomplete(t *
 }
 
 func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t *testing.T) {
-	engine := &Engine{queryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -124,7 +127,8 @@ func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t
 }
 
 func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
-	engine := testEngine(func(_ context.Context, command compiler.CompiledCommand, _ int, _ RowVisitor) error {
+	engine := testEngine(func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

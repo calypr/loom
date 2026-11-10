@@ -106,7 +106,7 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 		if err != nil {
 			t.Fatalf("lower lifecycle receipt recipe: %v", err)
 		}
-		query, err := compiler.CompileCategoryScanStageWithPolicy(compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := compiler.CompileCategoryScanStage(compiler.ArangoTarget(), compiled.Outputs[0], scan.StageID, scan.ColumnID, scan.ValueColumnID, scan.MaxValues, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile lifecycle category stage: %v", err)
 		}
@@ -119,8 +119,8 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			{query.PresentColumn: true, query.ValueColumn: nil},
 			{query.PresentColumn: false, query.ValueColumn: nil},
 		}
-		queryRows := func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, _, deriveErr := command.AQLParameters()
+		queryRows := func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}
@@ -132,8 +132,8 @@ func TestDiscoverConstructionCategoriesCompilesPresenceForFilteredOrdinaryProbe(
 			}
 			return nil
 		}
-		engine, err := dataframeexecution.New(dataframeexecution.Config{
-			Registry: categoryDiscoveryEmptyRecipeReader{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
+		engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(),
+			Registry: categoryDiscoveryEmptyRecipeReader{}, SourceRows: queryRows, PreviewSourceRows: queryRows,
 		})
 		if err != nil {
 			t.Fatalf("make lifecycle category engine: %v", err)

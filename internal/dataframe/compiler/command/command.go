@@ -1,12 +1,22 @@
-package compiler
+// Package command owns Loom's executable compiled-command representation:
+// the tagged union of rendered backend commands, their ordered parameter
+// types, and the checked constructors that freeze them.
+//
+// It is a leaf with standard-library-only dependencies. The root compiler
+// package and both dialect renderers (render/aql, render/postgres) may
+// import it; renderer children must not import the compiler root. The leaf
+// holds executable representation only — no plan semantics, drivers, scope
+// policy, metrics, or generic repositories. Placeholder/type/null/copy checks
+// run at construction here, so a hand-assembled payload can never reach an
+// adapter. Dialect parameter encoding stays with each renderer: shared IR
+// carries no SQL or AQL parameter shapes.
+package command
 
 import (
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
-
-	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
 // CompiledBackend tags which storage dialect a CompiledCommand targets. The
@@ -22,9 +32,10 @@ const (
 	// bind variables.
 	CompiledBackendAQL CompiledBackend = "AQL"
 	// CompiledBackendPostgreSQL tags a rendered PostgreSQL statement with
-	// ordered positional arguments. No PostgreSQL renderer is registered in
-	// this baseline, so no compiler path produces this tag yet; see
-	// CompiledCommandForBackend.
+	// ordered positional arguments. Only the compiler's PostgreSQL compile
+	// target produces this tag, through the PostgreSQL renderer
+	// (internal/dataframe/compiler/render/postgres); no path converts AQL
+	// into SQL.
 	CompiledBackendPostgreSQL CompiledBackend = "POSTGRESQL"
 )
 
@@ -98,11 +109,11 @@ type PostgreSQLCommand struct {
 
 // CompiledCommand is the tagged union of rendered backend commands produced
 // by the canonical compiler pipeline. Commands are built only through
-// NewAQLCommand, NewPostgreSQLCommand, or CompiledCommandForBackend, each of
-// which validates the tag/payload pairing at construction; the zero value
-// carries no backend and dispatches nowhere. Exhaustive dispatch is provided
-// by AQLParameters, PostgreSQLParameters, and Dispatch, all of which reject
-// mismatched backend/command pairs before any query executes.
+// NewAQLCommand or NewPostgreSQLCommand, each of which validates the
+// tag/payload pairing at construction; the zero value carries no backend and
+// dispatches nowhere. Exhaustive dispatch is provided by AQLParameters,
+// PostgreSQLParameters, and Dispatch, all of which reject mismatched
+// backend/command pairs before any query executes.
 type CompiledCommand struct {
 	backend    CompiledBackend
 	aql        AQLCommand
@@ -259,28 +270,5 @@ func (c CompiledCommand) Dispatch(aqlAdapter func(AQLCommand) error, postgreSQLA
 	default:
 		return fmt.Errorf("%w: cannot dispatch command with unregistered backend %q",
 			ErrCompiledCommandBackendNotRegistered, string(c.backend))
-	}
-}
-
-// CompiledCommandForBackend is the compiler's single registration surface for
-// tagged commands: the backend tag selects the render result accepted, and
-// the returned command is what execution may dispatch. Only AQL is
-// implemented and registered today. A PostgreSQL request fails closed with
-// ErrCompiledCommandBackendNotRegistered until a PostgreSQL renderer is
-// implemented and registered here as an additional exhaustive case; a
-// PostgreSQL request must never fall back to the AQL renderer or any
-// AQL-to-SQL conversion, and Planner capability discovery must report
-// PostgreSQL as unsupported until then.
-func CompiledCommandForBackend(backend CompiledBackend, rendered aql.RenderedPhysicalPlan) (CompiledCommand, error) {
-	switch backend {
-	case CompiledBackendAQL:
-		return NewAQLCommand(rendered.Query, rendered.BindVars)
-	case CompiledBackendPostgreSQL:
-		return CompiledCommand{}, fmt.Errorf(
-			"%w: no PostgreSQL command renderer is implemented or registered; PostgreSQL compilation fails closed and never converts AQL to SQL",
-			ErrCompiledCommandBackendNotRegistered)
-	default:
-		return CompiledCommand{}, fmt.Errorf("%w: unknown compiled command backend %q",
-			ErrCompiledCommandBackendNotRegistered, string(backend))
 	}
 }

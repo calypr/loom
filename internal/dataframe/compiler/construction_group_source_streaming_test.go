@@ -64,9 +64,9 @@ func TestRelatedUnnestCountRowsStreamsSourceProjection(t *testing.T) {
 		t.Fatalf("source unnest = %#v, want one relationship owner route", unnest)
 	}
 
-	query, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		t.Fatalf("CompileRecipeOutputWithPolicy() error = %v", err)
+		t.Fatalf("CompileRecipeOutput(ArangoTarget(), ) error = %v", err)
 	}
 	for _, want := range []string{
 		"FILTER root.project == @project",
