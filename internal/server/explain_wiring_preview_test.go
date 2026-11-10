@@ -186,3 +186,52 @@ func TestPreviewCollectionIndexesFromStoreConvertsFieldForField(t *testing.T) {
 		t.Fatalf("listing conversion = %+v, want %+v", got, want)
 	}
 }
+
+// TestPreviewCollectionScanEvidenceFromExplainUnknownNodeKindNeverImpliesEnumeration
+// pins the decoder half of the tri-state guarantee (verdict F-1): the
+// full-collection-enumeration fact has exactly one source — the adapter's
+// EnumerateCollectionNode decode. Every other node kind, named or foreign,
+// must leave evidence silent so UNKNOWN can never degrade into a blocking
+// enumeration (or out of it). Assertion strength matters here: an
+// enumeration-bit check per node kind is the minimum that dies when a
+// catch-all default starts setting the bit.
+func TestPreviewCollectionScanEvidenceFromExplainUnknownNodeKindNeverImpliesEnumeration(t *testing.T) {
+	for _, nodeType := range []string{
+		"FilterNode", "CalculationNode", "SortNode", "LimitNode",
+		"MaterializedDocumentSourceNode", "RemoteExecutionNode",
+		"EnumerationNode", "IndexNodeAlias", "FetchNode", "WindowNode",
+		"unknown-kind", "",
+	} {
+		got := PreviewCollectionScanEvidenceFromExplain(arangostore.ExplainResult{Plan: &arangostore.ExplainPlan{
+			Nodes: []arangostore.ExplainNode{{Type: nodeType, Collection: "Observation"}},
+		}}, "Observation")
+		if got.FullCollectionEnumeration {
+			t.Fatalf("node kind %q implicitly certified a full collection enumeration: %+v", nodeType, got)
+		}
+		if len(got.IndexNodes) != 0 {
+			t.Fatalf("node kind %q produced index-node evidence: %+v", nodeType, got.IndexNodes)
+		}
+	}
+	// Exhaustiveness posture: the two recognized kinds keep their exclusive
+	// meanings, and unknown kinds riding alongside stay inert — the
+	// enumeration bit moves only with EnumerateCollectionNode.
+	mixed := PreviewCollectionScanEvidenceFromExplain(arangostore.ExplainResult{Plan: &arangostore.ExplainPlan{
+		Nodes: []arangostore.ExplainNode{
+			{Type: "FilterNode", Collection: "Observation"},
+			{Type: "ForeignScanNode", Collection: "Observation"},
+			{Type: "IndexNode", Collection: "Observation", IndexCoversProjections: explainBool(true), IndexCoversOutProjections: explainBool(true)},
+		},
+	}}, "Observation")
+	if mixed.FullCollectionEnumeration || len(mixed.IndexNodes) != 1 || mixed.IndexNodes[0].Coverage != dataframeexecution.PreviewIndexCoverageCovering {
+		t.Fatalf("unknown kinds rode into the evidence alongside a covering index node: %+v", mixed)
+	}
+	enumerated := PreviewCollectionScanEvidenceFromExplain(arangostore.ExplainResult{Plan: &arangostore.ExplainPlan{
+		Nodes: []arangostore.ExplainNode{
+			{Type: "WindowNode", Collection: "Observation"},
+			{Type: "EnumerateCollectionNode", Collection: "Observation"},
+		},
+	}}, "Observation")
+	if !enumerated.FullCollectionEnumeration {
+		t.Fatalf("the only certified enumeration source stopped setting the fact: %+v", enumerated)
+	}
+}

@@ -404,3 +404,93 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		}
 	})
 }
+
+// TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityCall
+// pins the post-capability assessment-ctx boundary (verdict F-2): a covering
+// candidate whose inspection SUCCEEDS under an already-dead budget must never
+// reach DECIDE. The guard after the capability call, not the loop-top or the
+// final gate, is what keeps the hinted selection unapplied — deleting it
+// flips query.Command/stream.command to the hinted command before the final
+// context check can fail the preview, which this test's decision snapshot
+// catches.
+func TestChooseGroupPreviewScanHintLoopAbortsWhenContextExpiresDuringCapabilityCall(t *testing.T) {
+	engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
+	original := commandText(t, query.Command)
+	candidate := PreviewCollectionIndex{
+		Collection: query.PreviewCoveringIndex.Collection, Name: "loom_pivot_preview_verdict_hint",
+		Fields: append([]string(nil), query.PreviewCoveringIndex.Fields...),
+	}
+	engine.previewCoveringIndexes = func(context.Context, string) ([]PreviewCollectionIndex, error) {
+		return []PreviewCollectionIndex{candidate}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	scanCalls := 0
+	engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+		scanCalls++
+		// The inspection returns a covering verdict, but the budget dies
+		// while it is in flight: the post-call guard owns the abort.
+		cancel()
+		return PreviewCollectionScanEvidence{IndexNodes: []PreviewIndexNodeEvidence{
+			{IndexNames: []string{candidate.Name}, Coverage: PreviewIndexCoverageCovering},
+		}}, nil
+	}
+	err := engine.chooseGroupPreviewScan(ctx, &query, &stream)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want the canceled-budget path", err)
+	}
+	if scanCalls != 1 {
+		t.Fatalf("capability consultations = %d, want exactly one (the aborted candidate)", scanCalls)
+	}
+	if got := commandText(t, query.Command); got != original || strings.Contains(got, `indexHint: "`+candidate.Name+`"`) {
+		t.Fatalf("a canceled inspection still flipped the decision to the hinted command: %q", got)
+	}
+	if got := commandText(t, stream.command); got != original {
+		t.Fatalf("stream command drifted after the canceled inspection: %q", got)
+	}
+}
+
+// TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired
+// pins the ordinary-path conjunct of the same boundary (verdict F-3): once
+// the assessment budget expires while the broad-scan inspection is in
+// flight, the advisory decision must be observably skipped — the scoped
+// count query is not executed at all — rather than merely ending non-fatally.
+// readGroupPreviewCount's own ctx hygiene makes the resulting STATE look
+// identical under a dropped conjunct, so the executor counter is the witness.
+func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t *testing.T) {
+	engine, query, stream := groupPreviewScanFixture()
+	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
+	scopeCountExecutions := 0
+	stream.stream = func(_ context.Context, command compiler.CompiledCommand, _ int, visit RowVisitor) error {
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+		scopeCountExecutions++
+		return visit(map[string]any{"count": float64(950)})
+	}
+	scanCalls := 0
+	engine.previewCollectionScans = func(ctx context.Context, _ compiler.CompiledCommand, _ string) (PreviewCollectionScanEvidence, error) {
+		scanCalls++
+		// Certify broad non-covering, but only after the assessment budget
+		// has expired during the call.
+		<-ctx.Done()
+		return notCoveringGroupScans(), nil
+	}
+	// The assessment budget is advisory: its expiry must silently void the
+	// broad-scan decision (the user preview survives a slow external
+	// inspection), unlike a canceled REQUEST which fails through
+	// contextError(ctx) on the parent.
+	if err := engine.chooseGroupPreviewScan(context.Background(), &query, &stream); err != nil {
+		t.Fatalf("advisory budget expiry failed the preview: %v", err)
+	}
+	if scanCalls != 1 {
+		t.Fatalf("capability consultations = %d, want the ordinary-path check to have run", scanCalls)
+	}
+	if scopeCountExecutions != 0 {
+		t.Fatalf("expired budget still executed the scoped count query %d times; the decision must be skipped", scopeCountExecutions)
+	}
+	if got := commandText(t, query.Command); got != "normal-query" {
+		t.Fatalf("expired budget switched the command to %q", got)
+	}
+}
