@@ -215,6 +215,11 @@ type planRenderer struct {
 	laterals       []string
 	lateralAliases []string
 	unnestSeq      int
+
+	// membership is the trusted membership binding, set only by
+	// RenderPopulationRootScan (population.go); nil keeps membership roots a
+	// capability gap on the plain spine.
+	membership *PostgresPopulationRootBinding
 }
 
 // addParameter appends one ordered argument and returns its $n index. A
@@ -322,7 +327,12 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 }
 
 func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) error {
-	if scan.Population != nil || scan.CohortSource != nil || scan.PageCandidateSeed != nil {
+	if scan.Population != nil || scan.CohortSource != nil {
+		// Membership roots are registered by population.go (pg-sql-18); the
+		// binding gate lives there, and the candidate seed below stays refused.
+		return r.renderRootSources(plan, scan)
+	}
+	if scan.PageCandidateSeed != nil {
 		return fmt.Errorf("%w: population, cohort, and candidate-seed roots are not yet implemented for PostgreSQL",
 			ErrUnsupportedPostgresPlan)
 	}
