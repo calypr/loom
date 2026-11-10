@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -501,41 +503,6 @@ func TestPG18RecordedAtTypedDateLiteral(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Zero-leftover audit for this ticket's owned resources.
-// ---------------------------------------------------------------------------
-
-func TestZZNoLeftoverVerifySQL05Resources(t *testing.T) {
-	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-	if raw == "" {
-		// No service was used; nothing can have been created.
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	admin, err := pgxpool.New(ctx, raw)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer admin.Close()
-	var databases int
-	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_sql05_%'").Scan(&databases); err != nil {
-		t.Fatalf("count databases: %v", err)
-	}
-	if databases != 0 {
-		t.Fatalf("%d verify_sql05_* databases still exist", databases)
-	}
-	var schemas int
-	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'verify_sql05_%'").Scan(&schemas); err != nil {
-		t.Fatalf("count schemas: %v", err)
-	}
-	if schemas != 0 {
-		t.Fatalf("%d verify_sql05_* schemas still exist in the service database", schemas)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // F7/F8 boundary sweep. Expected kept/excluded sets are derived in-test
 // from calendar rules by sql05ArmOrderableAtOrAfter2020 — an independent
 // implementation (Go stdlib calendar parsing plus one explicit
@@ -550,9 +517,83 @@ func TestZZNoLeftoverVerifySQL05Resources(t *testing.T) {
 // SQLSTATE 22009; '2024-03-15T10:20:30,5' and '2024-03-15T10:20:30,5Z'
 // raised ERROR: invalid input syntax for type timestamp with time zone,
 // SQLSTATE 22007; control casts of '+15:59', '-15:59', '+14:00' and
-// '30.5Z' succeeded. Those probe results are why the oracle bounds
-// displacement at ±15:59, where Go's own parser would accept ±23:59.
+// '30.5Z' succeeded. Those hand-run observations are not
+// left as claims nobody re-checks:
+// TestPG18TemporalGuardExcludedSideProbes re-runs exactly those casts with
+// direct SQL on every live run and requires each documented SQLSTATE, and
+// the oracle reads the same bound through sql05MaxAdmittedOffsetSeconds.
+// If the server ever disagrees with this record, the guard pattern must be
+// widened, not the assertion relaxed — over-exclusion is a live divergence
+// from AQL, not a safe default.
 // ---------------------------------------------------------------------------
+
+// sql05MaxAdmittedOffsetSeconds is the largest UTC displacement, in
+// seconds, that a stored instant may carry before PostgreSQL refuses the
+// timestamptz cast with SQLSTATE 22009 — measured sixty seconds beyond
+// this value by TestPG18TemporalGuardExcludedSideProbes, which re-witnesses
+// the boundary on every live run. The renderer's offset regex and the
+// oracle below share this one figure through that test rather than each
+// asserting it independently.
+const sql05MaxAdmittedOffsetSeconds = 15*3600 + 59*60
+
+// TestPG18TemporalGuardExcludedSideProbes is the excluded-side witness for
+// the guard boundary. The sweep proves the guard excludes out-of-range
+// shapes; only these direct casts prove PostgreSQL would have rejected
+// them — without that proof, an over-tight pattern would silently drop
+// orderable stored instants that AQL DATE_TIMESTAMP folds and compares.
+// Each shape is cast in its own statement over a literal value (no schema,
+// no rows, read-only) and must either raise the documented SQLSTATE or
+// cast cleanly. If any assertion here ever disagrees with real server
+// behavior, widen the guard pattern; do not relax the assertion.
+func TestPG18TemporalGuardExcludedSideProbes(t *testing.T) {
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		t.Skip("LOOM_TEST_POSTGRES_URL not set")
+	}
+	pool, err := pgxpool.New(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	probes := []struct {
+		value  string
+		expect string // SQLSTATE that must be raised; "" means must cast
+	}{
+		{"2024-03-15T10:20:30+16:00", "22009"},
+		{"2024-03-15T10:20:30-16:00", "22009"},
+		{"2024-03-15T10:20:30+23:59", "22009"},
+		{"2024-03-15T10:20:30-23:59", "22009"},
+		{"2024-03-15T10:20:30,5", "22007"},
+		{"2024-03-15T10:20:30,5Z", "22007"},
+		{"2024-03-15T10:20:30+15:59", ""},
+		{"2024-03-15T10:20:30-15:59", ""},
+		{"2024-03-15T10:20:30+14:00", ""},
+		{"2024-03-15T10:20:30.5Z", ""},
+	}
+	for _, p := range probes {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		_, err := pool.Exec(ctx, "SELECT $1::text::timestamptz", p.value)
+		cancel()
+		if p.expect == "" {
+			if err != nil {
+				t.Errorf("control cast of %q failed: %v", p.value, err)
+			}
+			continue
+		}
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) {
+			if err == nil {
+				t.Errorf("cast of excluded shape %q succeeded: widen the guard pattern, do not relax this assertion", p.value)
+			} else {
+				t.Errorf("cast of %q: want SQLSTATE %s, got error %v", p.value, p.expect, err)
+			}
+			continue
+		}
+		if pgErr.Code != p.expect {
+			t.Errorf("cast of %q: want SQLSTATE %s, got %s (%s)", p.value, p.expect, pgErr.Code, pgErr.Message)
+		}
+	}
+}
 
 // sql05ArmOrderableAtOrAfter2020 decides, independently of the renderer,
 // whether a stored string is inside the space the guard may cast AND
@@ -581,8 +622,10 @@ func sql05ArmOrderableAtOrAfter2020(value string) bool {
 			continue
 		}
 		_, offsetSeconds := instant.Zone()
-		if offsetSeconds > 15*3600+59*60 || offsetSeconds < -(15*3600+59*60) {
-			// SQLSTATE 22009 beyond ±15:59: never cast, never-comparable.
+		if offsetSeconds > sql05MaxAdmittedOffsetSeconds ||
+			offsetSeconds < -sql05MaxAdmittedOffsetSeconds {
+			// SQLSTATE 22009 beyond the probe-witnessed bound: never
+			// cast, never-comparable.
 			return false
 		}
 		return !instant.UTC().Before(bound)
@@ -684,5 +727,40 @@ func TestSQL05TemporalGuardOracleSelfCheck(t *testing.T) {
 		if got := sql05ArmOrderableAtOrAfter2020(value); got != want {
 			t.Errorf("oracle(%q) = %v, want %v", value, got, want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Zero-leftover audit for this ticket's owned resources.
+// ---------------------------------------------------------------------------
+
+func TestZZNoLeftoverVerifySQL05Resources(t *testing.T) {
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		// No service was used; nothing can have been created.
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer admin.Close()
+	var databases int
+	if err := admin.QueryRow(ctx,
+		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_sql05_%'").Scan(&databases); err != nil {
+		t.Fatalf("count databases: %v", err)
+	}
+	if databases != 0 {
+		t.Fatalf("%d verify_sql05_* databases still exist", databases)
+	}
+	var schemas int
+	if err := admin.QueryRow(ctx,
+		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'verify_sql05_%'").Scan(&schemas); err != nil {
+		t.Fatalf("count schemas: %v", err)
+	}
+	if schemas != 0 {
+		t.Fatalf("%d verify_sql05_* schemas still exist in the service database", schemas)
 	}
 }

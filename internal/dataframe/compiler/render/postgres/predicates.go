@@ -109,11 +109,13 @@ package postgres
 // guard's regexes are calendar-aware precisely so its THEN branches never
 // hand PostgreSQL a string it would reject: the renderer never includes a
 // row it cannot order and never raises on stored data; exclusion is the
-// fail-closed outcome, and the live fixture pins it. On the literal side a
-// comma decimal such as 10:20:30,5 is a typed refusal at render time (the
-// spec-bound Go parse rejects it), where AQL would execute the comparison
-// with DATE_TIMESTAMP(literal) folding to NaN and simply match nothing:
-// same visible outcome, zero rows, but refused loudly rather than silently.
+// fail-closed outcome, and the live fixture pins it. On the literal side
+// the outcomes are not the same: a comma-decimal literal such as
+// 10:20:30,5 is a plan refusal — the RFC3339Nano parse in
+// temporalComparisonValue fails and the renderer returns
+// ErrUnsupportedPostgresPlan — where AQL executes the comparison, folds
+// DATE_TIMESTAMP(literal) to NaN, and returns zero rows. PG refuses the
+// plan; AQL matches nothing.
 // A second ordering divergence is closed the same way: INTEGER/DECIMAL ordering comparisons
 // over a document path require jsonb_typeof of the stored item to be
 // 'number' before any ordering operator reaches it. PostgreSQL orders jsonb
@@ -536,7 +538,14 @@ func validatePayloadBindType(kind spec.FilterValueKind, value any) error {
 // stop at ±15:59, because PostgreSQL raises SQLSTATE 22007 on a comma
 // decimal ("10:20:30,5") and SQLSTATE 22009 ("time zone displacement out
 // of range") on ±16:00 through ±23:59 — the patterns end exactly where the
-// casts start raising. Year 0000 and any shape outside these branches are
+// casts start raising. That boundary is witnessed, not asserted:
+// TestPG18TemporalGuardExcludedSideProbes casts each excluded shape in its
+// own direct-SQL statement on every live run and requires the documented
+// SQLSTATE (22009 for the four out-of-range offsets, 22007 for the two
+// comma shapes), and requires the admitted controls to cast. If
+// PostgreSQL ever disagrees, the pattern must be widened, not the
+// assertion relaxed — over-exclusion silently drops orderable stored
+// instants that AQL DATE_TIMESTAMP would fold and compare. Year 0000 and any shape outside these branches are
 // never-comparable, never cast; that also matches the AQL reading, where
 // DATE_TIMESTAMP yields NaN and every NaN comparison is false. The live
 // matrix and the boundary sweep store invalid-calendar, over-range offset,
