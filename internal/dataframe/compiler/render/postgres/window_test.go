@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"reflect"
@@ -32,7 +33,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/source"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -721,9 +721,9 @@ type sql12Service struct {
 	ctx       context.Context
 	admin     *pgxpool.Pool
 	iso       *pgxpool.Pool
-	client    *pgstore.Client
+	client    *control.Client
 	schema    string
-	resources *pgstore.ResourceRepository
+	resources *control.ResourceRepository
 	fail      func(step string, err error)
 }
 
@@ -793,15 +793,15 @@ func newSQL12Service(t *testing.T) *sql12Service {
 		}
 	})
 
-	client, err := pgstore.Open(ctx, pgstore.Config{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
+	client, err := control.OpenPool(ctx, control.ClientConfig{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
 	if err != nil {
 		t.Fatalf("open pg-store client (requires a PostgreSQL 18 service): %v", err)
 	}
 	t.Cleanup(client.Close)
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		t.Fatalf("migrate owned schema: %v", err)
 	}
-	resources, err := pgstore.NewResourceRepository(client, schema)
+	resources, err := control.NewResourceRepository(client, schema)
 	if err != nil {
 		t.Fatalf("build resource repository: %v", err)
 	}
@@ -823,9 +823,9 @@ func (s *sql12Service) insertResource(t *testing.T, resourceType, logicalID, aut
 	}
 }
 
-func (s *sql12Service) insertEdge(t *testing.T, rec pgstore.EdgeOccurrenceRow) {
+func (s *sql12Service) insertEdge(t *testing.T, rec control.EdgeOccurrenceRow) {
 	t.Helper()
-	edges, err := pgstore.NewEdgeRepository(s.client, s.schema)
+	edges, err := control.NewEdgeRepository(s.client, s.schema)
 	if err != nil {
 		s.fail("build edge repository", err)
 	}
@@ -992,14 +992,14 @@ func TestPG18WindowOwnerOccurrencesPageStably(t *testing.T) {
 	svc.insertResource(t, "Patient", "q-own", "FHIR/Patient", map[string]any{})
 	svc.insertResource(t, "Patient", "q-ta", "FHIR/Patient", map[string]any{})
 	for index, target := range []string{"p-ta", "p-tb"} {
-		svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+		svc.insertEdge(t, control.EdgeOccurrenceRow{
 			Project: sql12Project, DatasetGeneration: sql12Generation, AuthResourcePath: "FHIR/Patient",
 			Label: "has-item-owner", SourceResourceType: "Patient", SourceLogicalID: "p-own",
 			TargetResourceType: "Patient", TargetLogicalID: target,
 			SourcePath: fmt.Sprintf("item[%d]", index), SourceOrdinal: int64(index),
 		})
 	}
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: sql12Project, DatasetGeneration: sql12Generation, AuthResourcePath: "FHIR/Patient",
 		Label: "has-item-owner", SourceResourceType: "Patient", SourceLogicalID: "q-own",
 		TargetResourceType: "Patient", TargetLogicalID: "q-ta",

@@ -20,17 +20,15 @@ import (
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/connection"
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/catalog"
-	catalogpostgres "github.com/calypr/loom/internal/catalog/postgres"
 	publication "github.com/calypr/loom/internal/dataset"
-	datasetpostgres "github.com/calypr/loom/internal/dataset/postgres"
 	"github.com/calypr/loom/internal/ingest"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 )
 
 // Backend tags are the only routing keys. The tag is resolved and validated
 // before any backend-specific setting is parsed (the tag-first law of the
-// PostgreSQL command leaf, internal/dataframe/postgres/rows.go:158-181: a
+// PostgreSQL command leaf, internal/backends/postgres/internal/rows/rows.go:158-181: a
 // mistagged request is rejected "before the Querier is touched"), and the
 // dispatch switch is exhaustive with a fail-closed default, mirroring
 // internal/dataframe/execution/engine.go:1679-1701. There is no URL-based
@@ -535,74 +533,58 @@ func runPostgresLoadGeneration(ctx context.Context, args []string, runner loadRu
 // rather than a guessed syntax, same as the loader.
 func openCatalogWriters(ctx context.Context, dsn, schema, application string) (ingest.GenerationCatalogWriters, func() error, error) {
 	poolDSN, _ := joinApplicationName(dsn, application)
-	client, err := storepostgres.Open(ctx, storepostgres.Config{
+	schemas := make(postgres.SeriesSchemas, len(postgres.AllSeries()))
+	for _, series := range postgres.AllSeries() {
+		schemas[series] = schema
+	}
+	// SetupNone matches the historical bare-pool open: this pool serves the
+	// four catalog evidence writers, and schema setup belongs to the
+	// loader's own measured bootstrap, not to the caller-side wiring.
+	runtime, err := postgres.Open(ctx, postgres.Config{
 		DSN:            poolDSN,
 		MaxConns:       4,
 		MinConns:       0,
 		AcquireTimeout: 30 * time.Second,
+		Schemas:        schemas,
+		Setup:          postgres.SetupNone,
 	})
 	if err != nil {
 		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("open postgres catalog pool: %w", err)
 	}
-	profileRepo, err := storepostgres.NewFieldProfileRepository(client, schema)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("field profile repository: %w", err)
-	}
-	profiles, err := catalogpostgres.NewFieldProfileStore(profileRepo)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("field profile store: %w", err)
-	}
-	inventoryRepo, err := storepostgres.NewInventoryRepository(client, schema)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("inventory repository: %w", err)
-	}
-	inventory, err := catalogpostgres.New(inventoryRepo)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("inventory store: %w", err)
-	}
-	relationshipsRepo, err := catalogpostgres.NewRelationshipEvidenceRepository(client, schema)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("relationship evidence repository: %w", err)
-	}
-	relationships, err := catalogpostgres.NewRelationshipEvidenceStore(relationshipsRepo)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("relationship evidence store: %w", err)
-	}
-	contributions, err := catalogpostgres.NewSemanticContributionRepository(client, schema)
-	if err != nil {
-		client.Close()
-		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("semantic contribution repository: %w", err)
+	if runtime.FieldProfiles == nil || runtime.Inventory == nil || runtime.Relationships == nil || runtime.Contributions == nil {
+		_ = runtime.Close()
+		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("postgres runtime assembled without catalog evidence ports")
 	}
 	return ingest.GenerationCatalogWriters{
-		FieldProfiles: profiles,
-		Inventory:     inventory,
-		Relationships: relationships,
-		Contributions: contributions,
-	}, func() error { client.Close(); return nil }, nil
+		FieldProfiles: runtime.FieldProfiles,
+		Inventory:     runtime.Inventory,
+		Relationships: runtime.Relationships,
+		Contributions: runtime.Contributions,
+	}, func() error { return runtime.Close() }, nil
 }
 
 // verifyStagedManifest reads the manifest back through the store so the CLI
 // only exits 0 on a STAGED-verified generation.
 func verifyStagedManifest(ctx context.Context, ref publication.Ref, dsn, schema string) error {
-	client, err := storepostgres.Open(ctx, storepostgres.Config{
+	schemas := make(postgres.SeriesSchemas, len(postgres.AllSeries()))
+	for _, series := range postgres.AllSeries() {
+		schemas[series] = schema
+	}
+	runtime, err := postgres.Open(ctx, postgres.Config{
 		DSN:            dsn,
 		MaxConns:       1,
 		MinConns:       0,
 		AcquireTimeout: 30 * time.Second,
+		Schemas:        schemas,
+		Setup:          postgres.SetupNone,
 	})
 	if err != nil {
 		return err
 	}
-	defer client.Close()
-	store, err := datasetpostgres.New(client, schema)
-	if err != nil {
-		return err
+	defer func() { _ = runtime.Close() }()
+	store := runtime.Manifests
+	if store == nil {
+		return fmt.Errorf("postgres runtime exposes no dataset manifest lifecycle port")
 	}
 	manifest, err := store.ReadManifest(ctx, ref)
 	if err != nil {
@@ -640,7 +622,7 @@ func (e *redactedPGError) Unwrap() error { return e.original }
 
 // redactPGDiagnostic renders every PostgreSQL-route diagnostic with all
 // credential material removed. The store's Open path formats the pgx pool
-// parse error with %v (internal/store/postgres/client.go:141-143), which can
+// parse error with %v (internal/backends/postgres/internal/store/client.go:141-143), which can
 // echo the connection string including userinfo, so the redaction belongs at
 // this CLI boundary and nowhere deeper.
 func redactPGDiagnostic(err error, dsn string) error {

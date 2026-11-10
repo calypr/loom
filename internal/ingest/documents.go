@@ -144,7 +144,7 @@ func collectionID(resourceType, id string) string {
 // must be refused, not guessed at. This is the endpoint-parsing counterpart
 // for a future PostgreSQL edge write path that converts EdgeDocument
 // endpoints into the typed edge store's endpoint identity columns; the
-// current EdgeRepository (internal/store/postgres) takes those typed
+// current EdgeRepository (internal/backends/postgres/internal/store) takes those typed
 // identities directly and does not parse endpoints, so no mirror exists
 // there yet.
 func SplitCollectionID(value string) (resourceType, logicalID string, ok bool) {

@@ -82,7 +82,7 @@ type PostgreSQLConfig struct {
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
 	// Schemas is the reserved declaration of schema ownership for each
 	// production migration series (see
-	// internal/store/postgres/migration_ownership.go). It is VALIDATED
+	// internal/backends/postgres/internal/store/migration_ownership.go). It is VALIDATED
 	// ONLY and not yet consumed: no production factory passes an assigned
 	// schema to MigrateSchema or to a store constructor -- the source
 	// series is migrated by the ingest CLI (ingest.PGSourceOptions.Schema)

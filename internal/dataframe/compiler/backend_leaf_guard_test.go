@@ -102,7 +102,7 @@ func TestCompilerProductionFilesNeverImportBackendsOrDrivers(t *testing.T) {
 		// The same scanner must flag the real PostgreSQL row adapter (it
 		// legitimately imports jackc/pgx outside the compiler subtree).
 		if offenders := backendImportOffenders(filepath.Join("..", "postgres"), false); len(offenders) == 0 {
-			t.Fatal("scanner missed the known PostgreSQL driver imports in internal/dataframe/postgres")
+			t.Fatal("scanner missed the known PostgreSQL driver imports in internal/backends/postgres/internal/rows")
 		}
 	})
 }

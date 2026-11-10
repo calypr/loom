@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"reflect"
@@ -16,7 +17,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -28,7 +28,7 @@ import (
 // for the restricted and unrestricted auth modes, plus typed fail-closed
 // refusals for every shape outside the closed slice.
 //
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — pgstore.Open/Ping
+// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — control.Open/Ping
 // refuses any other major, and every fixture test acquires its pool
 // through it): each test owns one pgsq01_it_* database and one owned
 // schema, migrates through the real pg-store-02 runner, stores literal
@@ -418,7 +418,7 @@ func TestRootScanRejectsUntrustedStorageBinding(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Real PostgreSQL 18 fixtures. A skip here only keeps unrelated CI lanes
 // green; for this ticket's acceptance the run below is live, and the
-// report pins it. pgstore.Open Ping-verifies the server is PostgreSQL 18
+// report pins it. control.Open Ping-verifies the server is PostgreSQL 18
 // before any fixture touches it.
 // ---------------------------------------------------------------------------
 
@@ -426,7 +426,7 @@ type pgsq01Service struct {
 	ctx    context.Context
 	admin  *pgxpool.Pool
 	iso    *pgxpool.Pool
-	client *pgstore.Client
+	client *control.Client
 	schema string
 	scrub  func(string) string
 	fail   func(step string, err error)
@@ -514,9 +514,9 @@ func newPGSQ01Service(t *testing.T) *pgsq01Service {
 		}
 	})
 
-	// pgstore.Open Ping-verifies PostgreSQL 18 and fails otherwise: every
+	// control.Open Ping-verifies PostgreSQL 18 and fails otherwise: every
 	// live assertion below is real-PG18 evidence by construction.
-	client, err := pgstore.Open(ctx, pgstore.Config{
+	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
 		MinConns:       1,
@@ -529,9 +529,9 @@ func newPGSQ01Service(t *testing.T) *pgsq01Service {
 	// The agreed resource relation arrives through the real pg-store-02
 	// runner over its own embedded sources: migrate.go NewMigrationRunner
 	// merges the registered sources and sorts them by version
-	// (internal/store/postgres/migrate.go), so this fixture needs no new
+	// (internal/backends/postgres/internal/store/migrate.go), so this fixture needs no new
 	// migration files of its own.
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
 	return &pgsq01Service{ctx: ctx, admin: admin, iso: iso, client: client, schema: schema, scrub: scrub, fail: fail}
@@ -548,7 +548,7 @@ func pgsq01ResourceName(t *testing.T) string {
 
 func (s *pgsq01Service) insertResource(t *testing.T, project, generation, resourceType, logicalID, authPath string, payload map[string]any) int64 {
 	t.Helper()
-	repo, err := pgstore.NewResourceRepository(s.client, s.schema)
+	repo, err := control.NewResourceRepository(s.client, s.schema)
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
 	}
@@ -855,14 +855,14 @@ func TestPGSQ01DuplicatePhysicalDocumentsAreNotCollapsed(t *testing.T) {
 
 	// The store layer agrees: a duplicate natural identity through the
 	// real repository returns the typed conflict, never a silent collapse.
-	repo, err := pgstore.NewResourceRepository(svc.client, svc.schema)
+	repo, err := control.NewResourceRepository(svc.client, svc.schema)
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
 	}
 	if _, err := repo.InsertResource(svc.ctx, source.Resource{
 		Project: pgsq01Project, DatasetGeneration: pgsq01Gen, ResourceType: "Patient",
 		LogicalID: "d-1", AuthResourcePath: pgsq01Path,
-	}); !errors.Is(err, pgstore.ErrResourceConflict) {
+	}); !errors.Is(err, control.ErrResourceConflict) {
 		t.Fatalf("duplicate repository insert = %v, want ErrResourceConflict", err)
 	}
 }

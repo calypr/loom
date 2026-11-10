@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"os"
 	"strings"
 	"testing"
@@ -15,8 +16,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	explorer "github.com/calypr/loom/internal/explorer"
-	explorerpostgres "github.com/calypr/loom/internal/explorer/postgres"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 )
 
 // ---------------------------------------------------------------------------
@@ -38,8 +37,8 @@ const (
 
 type pop18Service struct {
 	*pgir02Service
-	store   *explorerpostgres.Store
-	groups  *explorerpostgres.ExplicitGroupStore
+	store   *control.ExplorerStore
+	groups  *control.ExplicitGroupStore
 	binding ir.PostgresStorageBinding
 	members PostgresPopulationRootBinding
 }
@@ -48,11 +47,11 @@ func newPop18Service(t *testing.T) *pop18Service {
 	t.Helper()
 	svc := newOwnedService(t, 0, "verify_pop18")
 	applyExplorerMembershipDDL(t, svc)
-	store, err := explorerpostgres.New(svc.client, svc.schema)
+	store, err := control.NewExplorerStore(svc.client, svc.schema)
 	if err != nil {
 		svc.fail("open explorer store", err)
 	}
-	groups, err := explorerpostgres.NewExplicitGroupStore(svc.client, svc.schema)
+	groups, err := control.NewExplicitGroupStore(svc.client, svc.schema)
 	if err != nil {
 		svc.fail("open explicit-group store", err)
 	}
@@ -75,14 +74,14 @@ func newPop18Service(t *testing.T) *pop18Service {
 // one-history-per-schema is inviolable. The fixture therefore composes the
 // explorer-family tables LEDGER-FREE (the explorers.go:85-95 precedent
 // these fixtures already follow): it executes the same authoritative
-// migration bodies -- exported verbatim by explorerpostgres.OwnerMigrations
+// migration bodies -- exported verbatim by control.OwnerMigrations
 // -- with the session search_path pinned to the owned schema, the same pin
 // the pg-store-02 runner applies, skipping version 1 (the ledger table,
 // owned by the store history). No explorer history rows are ever registered
 // into a store-migrated schema.
 func applyExplorerMembershipDDL(t *testing.T, svc *pgir02Service) {
 	t.Helper()
-	migrations, err := explorerpostgres.OwnerMigrations()
+	migrations, err := control.OwnerMigrations()
 	if err != nil {
 		svc.fail("load owner migrations", err)
 	}
@@ -285,21 +284,21 @@ func seedPopulationFixture(t *testing.T, s *pop18Service) {
 	s.seedSelection(t, "sel18_obs_x", pop18Foreign, "Observation", []string{"O3"}, "pop18-writer-x")
 	// P1: the fully valid route.
 	pop18Patient(t, s, pop18Project, "P1", pop18PatientAuth)
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P1",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
 	// P2 routes to O2, which is not a member.
 	pop18Patient(t, s, pop18Project, "P2", pop18PatientAuth)
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P2",
 		TargetResourceType: "Observation", TargetLogicalID: "O2", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
 	// P3 routes to the member O3 through a foreign label.
 	pop18Patient(t, s, pop18Project, "P3", pop18PatientAuth)
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: "provenance-entity", SourceResourceType: "Patient", SourceLogicalID: "P3",
 		TargetResourceType: "Observation", TargetLogicalID: "O3", SourcePath: "focus[0]", SourceOrdinal: 0,
@@ -313,14 +312,14 @@ func seedPopulationFixture(t *testing.T, s *pop18Service) {
 		map[string]any{"resourceType": "Patient", "id": "P4"})
 	s.insertResource(t, s.schema, pop18Project, "gen-2", "Observation", "O3", pop18ObsAuth,
 		map[string]any{"resourceType": "Observation", "id": "O3"})
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: "gen-2", AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P4",
 		TargetResourceType: "Observation", TargetLogicalID: "O3", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
 	// P5 is a fully valid route whose patient row sits outside the auth set.
 	pop18Patient(t, s, pop18Project, "P5", pop18SecretAuth)
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P5",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[0]", SourceOrdinal: 0,
@@ -331,21 +330,21 @@ func seedPopulationFixture(t *testing.T, s *pop18Service) {
 	// predicates are what exclude the foreign edge.
 	pop18Patient(t, s, pop18Project, "P6", pop18PatientAuth)
 	pop18Patient(t, s, pop18Foreign, "P6", pop18PatientAuth)
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Foreign, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P6",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
 	// P7 routes to O3, which is a member only of the foreign selection.
 	pop18Patient(t, s, pop18Project, "P7", pop18PatientAuth)
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P7",
 		TargetResourceType: "Observation", TargetLogicalID: "O3", SourcePath: "focus[0]", SourceOrdinal: 0,
 	})
 	// A duplicate route edge for P1 proves candidate dedup: one row must
 	// survive the identity DISTINCT join.
-	s.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	s.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: pop18Project, DatasetGeneration: pop18Generation, AuthResourcePath: pop18PatientAuth,
 		Label: pop18RouteLabel, SourceResourceType: "Patient", SourceLogicalID: "P1",
 		TargetResourceType: "Observation", TargetLogicalID: "O1", SourcePath: "focus[1]", SourceOrdinal: 1,

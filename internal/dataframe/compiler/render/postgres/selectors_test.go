@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"reflect"
@@ -18,7 +19,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/source"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -29,7 +29,7 @@ import (
 // forms (in null_semantics_test.go) and typed, exact-named fail-closed
 // refusals for every shape outside the closed slice here.
 //
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — pgstore.Open
+// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — control.Open
 // Ping-verifies the major and every fixture acquires its pool through
 // it): each test owns one pgsq03_it_* database and one owned schema,
 // migrates through the real pg-store-02 runner, stores literal documents
@@ -358,7 +358,7 @@ type pgsq03Service struct {
 	ctx    context.Context
 	admin  *pgxpool.Pool
 	iso    *pgxpool.Pool
-	client *pgstore.Client
+	client *control.Client
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -444,14 +444,14 @@ func newPGSQ03Service(t *testing.T) *pgsq03Service {
 		}
 	})
 
-	// pgstore.Open Ping-verifies PostgreSQL 18: every live assertion below
+	// control.Open Ping-verifies PostgreSQL 18: every live assertion below
 	// is real-PG18 evidence by construction. The agreed resource relation
 	// arrives through the real pg-store-02 runner over its own embedded
 	// sources — migrate.go NewMigrationRunner merges the registered sources
 	// and composes them in sorted version order
-	// (internal/store/postgres/migrate.go:385), so this fixture needs no new
+	// (internal/backends/postgres/internal/store/migrate.go:385), so this fixture needs no new
 	// migration files.
-	client, err := pgstore.Open(ctx, pgstore.Config{
+	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
 		MinConns:       1,
@@ -461,7 +461,7 @@ func newPGSQ03Service(t *testing.T) *pgsq03Service {
 		fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
 	t.Cleanup(client.Close)
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
 	return &pgsq03Service{ctx: ctx, admin: admin, iso: iso, client: client, schema: schema, scrub: scrub, fail: fail}
@@ -480,7 +480,7 @@ func (s *pgsq03Service) insertResource(t *testing.T, resourceType, logicalID str
 		}
 		raw = encoded
 	}
-	repo, err := pgstore.NewResourceRepository(s.client, s.schema)
+	repo, err := control.NewResourceRepository(s.client, s.schema)
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
 	}

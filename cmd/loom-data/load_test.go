@@ -18,10 +18,10 @@ import (
 	"testing"
 	"time"
 
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -153,7 +153,7 @@ func (s *spyState) runner() loadRunner {
 // network, never standing in for a commit (no positive claims ride on them).
 type stubFieldProfiles struct{}
 
-func (stubFieldProfiles) WriteFieldProfile(context.Context, storepostgres.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
+func (stubFieldProfiles) WriteFieldProfile(context.Context, postgres.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
 	return nil
 }
 
@@ -274,7 +274,7 @@ func TestNormalizeBackendTag(t *testing.T) {
 }
 
 // TestBackendTagValidatedBeforeDialect is the alive control for the
-// tag-before-dialect ordering law (internal/dataframe/postgres/rows.go:172-178):
+// tag-before-dialect ordering law (internal/backends/postgres/internal/rows/rows.go:172-178):
 // every backend-specific setting is simultaneously invalid, and the error
 // must still be the backend sentinel. Reordering the stages flips the error
 // identity and fails this test.
@@ -1030,7 +1030,7 @@ func TestPostgresRouteUsageSurface(t *testing.T) {
 
 // TestBadDSNErrsWithoutCredential is the coordinator-mandated live leg of
 // the boundary-redaction law: the REAL binary takes the REAL
-// storepostgres.Open path (client.go:141-143 pgx parse echo and the
+// the pool-open path (client.go pgx parse echo and the
 // loopback-connect path) with a sentinel password and must exit nonzero
 // with the password absent from every diagnostic.
 func TestBadDSNErrsWithoutCredential(t *testing.T) {

@@ -16,6 +16,9 @@ import {
   OWNERSHIP_INTEGRATION_FILTER,
   OWNERSHIP_INTEGRATION_PACKAGE,
   OWNERSHIP_INTEGRATION_TESTS,
+  FACTORY_INTEGRATION_FILTER,
+  FACTORY_INTEGRATION_PACKAGE,
+  FACTORY_INTEGRATION_TESTS,
   PROBE_SOURCE,
   REQUIRED_INTEGRATION_TEST,
   REQUIRED_MAJOR_VERSION,
@@ -37,7 +40,15 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.includes(OWNERSHIP_INTEGRATION_FILTER)
+  stdout: events(args.includes(FACTORY_INTEGRATION_FILTER)
+    ? [
+      ...FACTORY_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'factorypkg', Test: name },
+        { Action: 'pass', Package: 'factorypkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'factorypkg' },
+    ]
+    : args.includes(OWNERSHIP_INTEGRATION_FILTER)
     ? [
       ...OWNERSHIP_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'ownershippkg', Test: name },
@@ -259,14 +270,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 6, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, and ownership lanes must all run');
+  assert.equal(goCalls.length, 7, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, and factory lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
-  assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
+  assert.ok(goCalls[0].args.includes('./internal/backends/postgres/internal/store'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -313,12 +324,17 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.ok(goCalls[5].args.includes('-run'), 'the ownership lane must carry its never-skipped -run filter');
   assert.ok(goCalls[5].args.includes(OWNERSHIP_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
   assert.deepEqual(goCalls[5].args.slice(-1), [OWNERSHIP_INTEGRATION_PACKAGE]);
+  assert.ok(goCalls[6].args.includes(FACTORY_INTEGRATION_FILTER), 'the factory lane must run the exact contract filter');
+  assert.deepEqual(goCalls[6].args.slice(-1), [FACTORY_INTEGRATION_PACKAGE]);
   assert.ok(goCalls[5].args.includes('-json') && goCalls[5].args.includes('-count=1'));
   assert.ok(goCalls[5].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the ownership lane stays within the aligned 180s Go budget');
   assert.deepEqual(evidence.ownershipIntegration.anchors, [...OWNERSHIP_INTEGRATION_TESTS]);
   for (const name of OWNERSHIP_INTEGRATION_TESTS) assert.ok(evidence.ownershipIntegration.passes.includes(name));
   assert.ok(readFileSync(join(out, 'ownership-integration.jsonl'), 'utf8').includes(OWNERSHIP_INTEGRATION_TESTS[0]));
+  assert.deepEqual(evidence.factoryIntegration.anchors, [...FACTORY_INTEGRATION_TESTS]);
+  for (const name of FACTORY_INTEGRATION_TESTS) assert.ok(evidence.factoryIntegration.passes.includes(name));
+  assert.ok(readFileSync(join(out, 'factory-integration.jsonl'), 'utf8').includes(FACTORY_INTEGRATION_TESTS[0]));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
@@ -337,7 +353,7 @@ test('a failing dataset lane fails the run and its evidence is still scrubbed', 
   });
   const evidence = await run();
   assert.equal(evidence.status, 'failed');
-  assert.match(evidence.error, /internal\/dataset\/postgres real-PG suite failed/);
+  assert.match(evidence.error, /internal\/backends\/postgres\/internal\/dataset real-PG suite failed/);
   assert.equal(goCalls.length, 2, 'the dataset lane must actually be attempted after pg-store-01 passes');
   assert.ok(!('datasetIntegration' in evidence), 'a failed lane records no pass evidence');
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');
@@ -384,7 +400,7 @@ test('a failing explorer lane fails the run and its evidence is still scrubbed',
   });
   const evidence = await run();
   assert.equal(evidence.status, 'failed');
-  assert.match(evidence.error, /internal\/explorer\/postgres real-PG suite failed/);
+  assert.match(evidence.error, /internal\/backends\/postgres\/internal\/explorer real-PG suite failed/);
   assert.equal(goCalls.length, 3, 'the explorer lane must actually be attempted after the dataset lane passes');
   assert.ok(!('explorerIntegration' in evidence), 'a failed lane records no pass evidence');
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');

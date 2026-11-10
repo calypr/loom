@@ -716,7 +716,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			// no pool-shaped executor exists here yet. A PostgreSQL-tagged
 			// command therefore fails closed with a typed backend failure;
 			// it is never routed to the Arango EXPLAIN policy surface. When
-			// the runtime lands, pass newPostgreSQLPlanJSONExecutor over the
+			// the runtime lands, pass Runtime.PlanJSON (postgres.Open) over the
 			// readiness-checked pool instead of nil.
 			return explainPostgreSQLCompiledQuery(ctx, nil, compiled)
 		}},

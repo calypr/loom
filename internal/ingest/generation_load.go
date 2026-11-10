@@ -90,7 +90,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -100,11 +99,9 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	datasetpostgres "github.com/calypr/loom/internal/dataset/postgres"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Batch identities are "ing03:<pass>:<digest>" where the digest covers the
@@ -187,23 +184,19 @@ var (
 // The four catalog evidence writers a PostgreSQL generation load drives
 // after the resource and edge passes. The interfaces are declared on the
 // consumer side so internal/ingest composes the load without importing
-// internal/catalog/postgres (whose in-package tests import ingest, which
-// would form an import cycle). The production adapters are the
-// catalog/postgres stores wired by the caller over the same DSN/schema:
-//
-//	profileRepo, _ := storepostgres.NewFieldProfileRepository(src, schema)
-//	profiles, _ := catalogpostgres.NewFieldProfileStore(profileRepo)
-//	inventoryRepo, _ := storepostgres.NewInventoryRepository(src, schema)
-//	inventory, _ := catalogpostgres.New(inventoryRepo)
-//	relationsRepo, _ := catalogpostgres.NewRelationshipEvidenceRepository(src, schema)
-//	relations, _ := catalogpostgres.NewRelationshipEvidenceStore(relationsRepo)
-//	contribs, _ := catalogpostgres.NewSemanticContributionRepository(src, schema)
+// internal backend implementations (whose in-package tests import ingest,
+// which would form an import cycle). The production adapters are the typed
+// catalog ports assembled by the public factory (arch-backend-06): a single
+// postgres.Open over the load's DSN/schema returns them pre-wired on the
+// Runtime (FieldProfiles, Inventory, Relationships, Contributions), so the
+// caller packs them straight into PGSourceOptions.Catalog; the exported
+// postgres.NewCatalog* constructors remain for deliberately custom wiring.
 //
 // The store-layer constructors keep their full validation and commit
 // guards: the load performs no catalog computation of its own and keeps no
 // SQL here.
 type GenerationFieldProfileWriter interface {
-	WriteFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error
+	WriteFieldProfile(ctx context.Context, scope postgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error
 }
 
 type GenerationInventoryRebuilder interface {
@@ -242,8 +235,8 @@ type pgGenerationLoad struct {
 	plan *generationLoadPlan
 	ref  publication.Ref
 
-	client      *storepostgres.Client
-	lifecycle   *datasetpostgres.Store
+	runtime     *postgres.Runtime
+	lifecycle   publication.ManifestLifecycle
 	resourceW   *PostgresResourceWriter
 	edgeW       *PostgresEdgeWriter
 	profiles    GenerationFieldProfileWriter
@@ -403,7 +396,7 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 		"truncate": false,
 	})
 	bootstrapStart := time.Now()
-	if _, err := storepostgres.MigrateSchema(ctx, load.client, pg.Schema); err != nil {
+	if _, err := load.runtime.MigrateSchema(ctx); err != nil {
 		return summary, err
 	}
 	summary.StageSeconds["pg_bootstrap"] = time.Since(bootstrapStart).Seconds()
@@ -476,7 +469,7 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 			return summary, fmt.Errorf("%w: stage dataset generation %s/%s: %w",
 				ErrGenerationManifestOutcomeUnknown, plan.Dataset.Project, plan.Dataset.Generation, transitionErr)
 		}
-		if errors.Is(transitionErr, datasetpostgres.ErrManifestTransitionConflict) {
+		if errors.Is(transitionErr, postgres.ErrManifestTransitionConflict) {
 			// A concurrent loader of the same immutable identity decided
 			// the outcome first: the stored terminal state is read back
 			// and named, never re-run and never overwritten.
@@ -515,7 +508,7 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 // is ever activated without this call. A generation that is not STAGED
 // (LOADING or FAILED) is refused with publication.ErrGenerationNotReady; a
 // concurrent pointer move yields the repository's typed
-// datasetpostgres.ErrActivationConflict and leaves the pointer untouched.
+// postgres.ErrActivationConflict and leaves the pointer untouched.
 // An unreachable repository is surfaced as ActivationOutcomeError, which —
 // like the Arango path — leaves STAGED for an operator to reconcile and
 // never downgrades it.
@@ -531,9 +524,9 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 		return err
 	}
 	defer client.Close()
-	store, err := datasetpostgres.New(client, pg.Schema)
-	if err != nil {
-		return err
+	store := client.Manifests
+	if store == nil {
+		return fmt.Errorf("postgres runtime exposes no dataset manifest lifecycle port; the DatasetReleaseSeries schema must be assigned in the factory config")
 	}
 	manifest, err := store.ReadManifest(ctx, ref)
 	if err != nil {
@@ -562,7 +555,7 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 		expected = nil
 	}
 	if activationErr := store.ActivateGeneration(ctx, manifest, expected); activationErr != nil {
-		if errors.Is(activationErr, datasetpostgres.ErrActivationConflict) ||
+		if errors.Is(activationErr, postgres.ErrActivationConflict) ||
 			errors.Is(activationErr, publication.ErrGenerationNotReady) ||
 			errors.Is(activationErr, publication.ErrInvalidActiveGeneration) {
 			return activationErr
@@ -575,10 +568,17 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 	return nil
 }
 
-// openPGGenerationClient validates the pool configuration through the
-// store's own Config before any network dial, so blank or malformed
-// settings are named store refusals rather than connect failures.
-func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*storepostgres.Client, error) {
+// openPGGenerationClient opens the load's PostgreSQL runtime through the
+// public backend factory: postgres.Config validates the pool bounds and the
+// schema assignment through the store's own authoritative validators before
+// any network dial, so blank or malformed settings are named refusals rather
+// than connect failures. The runtime owns exactly one readiness-gated pool,
+// the schema setup policy, and the assembled control-plane ports. The
+// application-name witness tag is joined into the DSN here (not through
+// Config.ApplicationName, which is reserved for the factory's own-prefix
+// nonce) so an operator's attribution tag survives verbatim into
+// pg_stat_activity; the factory preserves an already-tagged DSN.
+func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.Runtime, error) {
 	maxConns := pg.MaxConns
 	if maxConns == 0 {
 		maxConns = 4
@@ -602,20 +602,29 @@ func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*storepost
 			})
 		}
 	}
-	return storepostgres.Open(context.Background(), storepostgres.Config{
+	schemas := make(postgres.SeriesSchemas, len(postgres.AllSeries()))
+	for _, series := range postgres.AllSeries() {
+		schemas[series] = pg.Schema
+	}
+	return postgres.Open(context.Background(), postgres.Config{
 		DSN:            dsn,
 		MaxConns:       maxConns,
 		MinConns:       0,
 		AcquireTimeout: acquireTimeout,
+		Schemas:        schemas,
+		// SetupVerify keeps schema setup at the load's own measured
+		// bootstrap stage (runtime.MigrateSchema), matching the historical
+		// flow where activation never migrates.
+		Setup: postgres.SetupVerify,
 	})
 }
 
 func (l *pgGenerationLoad) open() error {
-	client, err := openPGGenerationClient(l.pg, l.opts.EventSink)
+	runtime, err := openPGGenerationClient(l.pg, l.opts.EventSink)
 	if err != nil {
 		return err
 	}
-	l.client = client
+	l.runtime = runtime
 	if err := l.bind(); err != nil {
 		l.close()
 		return err
@@ -624,9 +633,9 @@ func (l *pgGenerationLoad) open() error {
 }
 
 func (l *pgGenerationLoad) close() error {
-	if l.client != nil {
-		l.client.Close()
-		l.client = nil
+	if l.runtime != nil {
+		_ = l.runtime.Close()
+		l.runtime = nil
 	}
 	return nil
 }
@@ -634,13 +643,14 @@ func (l *pgGenerationLoad) close() error {
 func (l *pgGenerationLoad) bind() error {
 	schema := l.pg.Schema
 	var err error
-	if l.lifecycle, err = datasetpostgres.New(l.client, schema); err != nil {
+	if l.runtime.Manifests == nil {
+		return fmt.Errorf("postgres runtime exposes no dataset manifest lifecycle port; the DatasetReleaseSeries schema must be assigned in the factory config")
+	}
+	l.lifecycle = l.runtime.Manifests
+	if l.resourceW, err = NewPostgresResourceWriter(l.runtime.ConnSource(), schema); err != nil {
 		return err
 	}
-	if l.resourceW, err = NewPostgresResourceWriter(l.client, schema); err != nil {
-		return err
-	}
-	if l.edgeW, err = NewPostgresEdgeWriter(l.client, schema); err != nil {
+	if l.edgeW, err = NewPostgresEdgeWriter(l.runtime.ConnSource(), schema); err != nil {
 		return err
 	}
 	// The catalog evidence writers arrive wired via PGSourceOptions.Catalog
@@ -657,10 +667,10 @@ func (l *pgGenerationLoad) bind() error {
 			l.semanticFlush = pgSemanticFlushMinimum
 		}
 	}
-	l.resourceWindow = min(l.opts.BatchSize, storepostgres.MaxBatchResources)
-	l.edgeWindow = min(l.opts.BatchSize, storepostgres.MaxBatchEdges)
-	l.profileBatch = min(l.opts.BatchSize, storepostgres.MaxFieldProfileWriteBatch)
-	l.inventoryBatch = min(l.opts.BatchSize, storepostgres.MaxInventoryWriteBatch)
+	l.resourceWindow = min(l.opts.BatchSize, postgres.MaxBatchResources)
+	l.edgeWindow = min(l.opts.BatchSize, postgres.MaxBatchEdges)
+	l.profileBatch = min(l.opts.BatchSize, postgres.MaxFieldProfileWriteBatch)
+	l.inventoryBatch = min(l.opts.BatchSize, postgres.MaxInventoryWriteBatch)
 	return nil
 }
 
@@ -677,7 +687,7 @@ func (l *pgGenerationLoad) claimManifest(ctx context.Context) error {
 		})
 		return nil
 	}
-	if !errors.Is(err, datasetpostgres.ErrManifestAlreadyExists) {
+	if !errors.Is(err, postgres.ErrManifestAlreadyExists) {
 		if pgCommitOutcomeUnknown(err) {
 			return fmt.Errorf("%w: create dataset generation manifest %s/%s: %w",
 				ErrGenerationManifestOutcomeUnknown, l.ref.Project, l.ref.Generation, err)
@@ -953,7 +963,7 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 					return fmt.Errorf("%s %s row %d rebuilt with error: %w", filepath.Base(file), resourceType, lineNumber, buildErr)
 				}
 				// The store bounds a batch by OFFERED EDGES
-				// (storepostgres.MaxBatchEdges), not rows, while BatchSize
+				// (postgres.MaxBatchEdges), not rows, while BatchSize
 				// bounds rows per window: a reference-heavy row emits
 				// several edges, so a full row window can overflow the edge
 				// cap (this is exactly what a large reference-heavy fixture
@@ -967,11 +977,11 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 				// retry from any process reproduces identical window
 				// boundaries and the content-independent batch digest stays
 				// replay-stable.
-				if len(built.edges) > storepostgres.MaxBatchEdges {
+				if len(built.edges) > postgres.MaxBatchEdges {
 					return fmt.Errorf("%s %s row %d produces %d edges, exceeding the %d-per-batch edge bound; nothing was written",
-						filepath.Base(file), resourceType, lineNumber, len(built.edges), storepostgres.MaxBatchEdges)
+						filepath.Base(file), resourceType, lineNumber, len(built.edges), postgres.MaxBatchEdges)
 				}
-				if len(windowRows) > 0 && windowEdges+len(built.edges) > storepostgres.MaxBatchEdges {
+				if len(windowRows) > 0 && windowEdges+len(built.edges) > postgres.MaxBatchEdges {
 					if err := l.commitEdgeWindow(ctx, fileID, windowIndex, windowRows, summary); err != nil {
 						return err
 					}
@@ -1057,7 +1067,7 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 		if err := ctx.Err(); err != nil {
 			return safePointCancel(err)
 		}
-		scope := storepostgres.FieldProfileScope{
+		scope := postgres.FieldProfileScope{
 			Project:           key.project,
 			DatasetGeneration: key.datasetGeneration,
 			AuthResourcePath:  key.authResourcePath,
@@ -1081,8 +1091,8 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 	// scan of the committed rows; the lock orders persistence, never
 	// fabricates results.
 	var inventory catalog.ResourceInventoryRebuildSummary
-	inventoryErr := storepostgres.WithAdvisoryLock(ctx, l.client,
-		storepostgres.GenerationAdvisoryLockKey(
+	inventoryErr := postgres.WithAdvisoryLock(ctx, l.runtime.ConnSource(),
+		postgres.GenerationAdvisoryLockKey(
 			l.plan.Dataset.Project, l.plan.Dataset.Generation),
 		func() error {
 			var rebuildErr error
@@ -1235,30 +1245,13 @@ func pgCommitOutcomeUnknown(err error) bool {
 	if errors.As(err, &safeCancel) {
 		return false
 	}
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		// Class 08 (connection exception) and 57P01/57P02 (backend
-		// shutdown/crash) leave the outcome unknown; every other
-		// server-answered error means the transaction did not commit.
-		return strings.HasPrefix(pgErr.Code, "08") || pgErr.Code == "57P01" || pgErr.Code == "57P02"
-	}
-	if errors.Is(err, storepostgres.ErrCommitOutcomeUnknown) {
-		// The store/postgres runtime error boundary (errors.go) names the
-		// failed-COMMIT-with-unknown-effect case; honoring the sentinel
-		// keeps classification correct even where the raw *pgconn.PgError
-		// is no longer Is/As-visible through a translated wrapper.
-		return true
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		// A cancellation surfacing through a store call (not a safe point)
-		// raced an in-flight statement.
-		return true
-	}
-	if errors.Is(err, storepostgres.ErrConnect) || errors.Is(err, storepostgres.ErrBatchWrite) {
-		return true
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	// The driver-aware half of the classification — SQLSTATE 08xx/57P01/
+	// 57P02, the store sentinels (ErrCommitOutcomeUnknown, ErrConnect,
+	// ErrBatchWrite), context cancellation outside safe points, and
+	// net.Error — belongs to the backend, which owns the driver surface.
+	// Only the domain-specific case above (a safe-point cancellation is a
+	// known outcome) is decided here.
+	if postgres.CommitOutcomeUnknown(err) {
 		return true
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {

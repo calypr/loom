@@ -44,8 +44,8 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/backends/postgres"
+	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/server"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 )
 
 // driverRegisterEntry is one line of the PostgreSQL driver confinement
@@ -61,27 +61,16 @@ type driverRegisterEntry struct {
 // productionDriverImportAllowlist is the exact set of production (non-test)
 // file/dir prefixes allowed to import the PostgreSQL driver today.
 var productionDriverImportAllowlist = []driverRegisterEntry{
-	// The backend home (public factory + private implementations). Zone:
-	// the factory itself must stay driver-free (checked separately); its
-	// private tree is the driver's only legitimate resident.
-	{prefix: "internal/backends/", claimedLive: false},
-	// The nine concrete PostgreSQL implementation packages (pre-move homes;
-	// this ticket retires these entries when the tree lands under
-	// internal/backends/).
-	{prefix: "internal/store/postgres/", claimedLive: true},
-	{prefix: "internal/catalog/postgres/", claimedLive: true},
-	{prefix: "internal/dataset/postgres/", claimedLive: true},
-	{prefix: "internal/explorer/postgres/", claimedLive: true},
-	{prefix: "internal/dataframe/postgres/", claimedLive: true},
-	{prefix: "internal/dataframe/recipe/postgres/", claimedLive: true},
-	{prefix: "internal/dataframe/recipe/exec/postgres/", claimedLive: true},
-	{prefix: "internal/dataframe/publication/postgres/", claimedLive: true},
-	{prefix: "internal/dataframe/execution/chartifact/postgres/", claimedLive: true},
-	// Named exception: the one raw *pgconn.PgError classification in the
-	// generation load, scheduled for removal by the arch-backend-06 ingest
-	// caller migration. Its disappearance must update this register in that
-	// commit, not silently.
-	{prefix: "internal/ingest/generation_load.go", claimedLive: true},
+	// The backend home: the private implementation tree under
+	// internal/backends/postgres/internal/ is the driver's only legitimate
+	// production resident (arch-backend-06 atomic move retired the nine
+	// per-package entries and the named ingest/generation_load.go pgconn
+	// exception in the move commit itself — the deliberate, loud deletion
+	// this register exists to force). claimedLive: the private store tree
+	// is a live offender, so relocating the driver elsewhere without
+	// updating this register bleeds. The public factory package itself must
+	// stay driver-free, checked by a separate subtest.
+	{prefix: "internal/backends/", claimedLive: true},
 }
 
 func repoRoot(t *testing.T) string {
@@ -220,9 +209,17 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 			}
 		})
 
-		t.Run("named_exception_is_the_only_ingest_driver_touch", func(t *testing.T) {
-			// Alive control for the freeze/blast boundary: ingest touches the
-			// driver in exactly one production file, the named exception.
+		t.Run("named_exception_shrank_to_zero_in_the_move_commit", func(t *testing.T) {
+			// The register once carried a named exception for the single raw
+			// *pgconn.PgError classification in internal/ingest/generation_load.go
+			// and stated that its disappearance must update this register in
+			// the same commit, not silently. The arch-backend-06 caller
+			// migration retired it: ingest now reaches the driver classes only
+			// through postgres.CommitOutcomeUnknown, so the set is empty. Any
+			// re-introduction is caught twice over: this assertion and, for
+			// every production file outside the backend tree, the
+			// register-confinement scan above (internal/ingest is not a
+			// registered prefix).
 			var touched []string
 			walkProductionGo(t, filepath.Join(root, "internal", "ingest"), func(relPath, absPath string) {
 				for _, importPath := range fileImports(t, absPath) {
@@ -232,9 +229,8 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 				}
 			})
 			sort.Strings(touched)
-			want := []string{"generation_load.go"}
-			if strings.Join(touched, ",") != strings.Join(want, ",") {
-				t.Fatalf("ingest driver-touch set = %v, want %v (the caller migration must shrink this to zero)", touched, want)
+			if len(touched) != 0 {
+				t.Fatalf("ingest driver-touch set = %v, want [] (the named exception was retired in the move commit; driver classes arrive only through the factory)", touched)
 			}
 		})
 	})
