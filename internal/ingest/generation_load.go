@@ -40,9 +40,9 @@
 //     a retry from any process offers byte-identical batches and the
 //     store's ledger classifies them as replays. Semantic contributions
 //     may spill to the store in bounded chunks during the resource pass
-//     (they are content-addressed and replay-safe, and no reader consults
-//     them until the generation is STAGED); the remainder always lands in
-//     the semantic step.
+//     (they are content-addressed and replay-safe); the remainder always
+//     lands in the semantic step. See the served-state note below for
+//     what PostgreSQL readers observe from these rows today.
 //  5. Only after every pass commits does TransitionManifest CAS the
 //     manifest LOADING->STAGED. Activation is never implicit here: the
 //     separate explicit call ActivatePostgresGeneration performs the CAS
@@ -62,6 +62,21 @@
 //     which is exactly the unknown-outcome case the LOADING state encodes.
 //   - After STAGED, nothing is rolled back; an activation error is an
 //     unknown outcome surfaced as ActivationOutcomeError.
+//
+// Served state of PostgreSQL semantic evidence: the Arango route wraps
+// its contribution writes in the file-sourced semantic-inventory build
+// lifecycle (Begin/Advance/CompleteSemanticInventoryBuild with the Fail
+// pairing), and its page read serves only from a complete build row. The
+// PostgreSQL side has no production creator of that build row yet: the
+// merged catalog/postgres build slice deliberately refuses file-sourced
+// claims (semantic_build.go), so PageSemanticInventory reports
+// Unknown/empty for a loaded generation until the follow-up catalog slice
+// that owns the file-sourced PG build lifecycle lands — the load must not
+// invent that state here. Contributions persist with deterministic keys
+// and digests, so the evidence is already durable and replay-idempotent
+// for that slice to serve; TestPostgresGenerationLoadSemanticContributions
+// PersistWithServedStateBoundary pins the current behavior and flips into
+// the tripwire when the owning slice wires the lifecycle.
 //
 // The Arango Load behavior and default route are untouched: this entry
 // point is explicit and the separate cutover owner alone decides when
@@ -853,7 +868,13 @@ func (l *pgGenerationLoad) commitResourceWindow(ctx context.Context, fileID stri
 	if err != nil {
 		return fmt.Errorf("commit postgres resource batch %s (%d rows): %w", batchID, len(rows), err)
 	}
-	summary.VerticesInserted += int(result.Committed)
+	// A replay's Committed is the ledger's prior count, not new work: the
+	// summary counts only what this attempt actually inserted, so a
+	// resumed load never reports the already-durable table as freshly
+	// written. Replays remain visible through the *_batch_replay counts.
+	if !result.Replay {
+		summary.VerticesInserted += int(result.Committed)
+	}
 	summary.BatchCounts["resource_batch"]++
 	if result.Replay {
 		summary.BatchCounts["resource_batch_replay"]++
@@ -896,6 +917,7 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 		var windowRows []rowBuildResult
 		windowIndex := 0
 		lineNumber := 0
+		windowEdges := 0
 		scanErr := func() (loopErr error) {
 			defer func() {
 				if loopErr == nil && len(windowRows) > 0 {
@@ -920,14 +942,31 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 					// staged-input inconsistency, not a row error.
 					return fmt.Errorf("%s %s row %d rebuilt with error: %w", filepath.Base(file), resourceType, lineNumber, buildErr)
 				}
+				// The store bounds a batch by OFFERED EDGES
+				// (storepostgres.MaxBatchEdges), not rows, while BatchSize
+				// bounds rows per window: a reference-heavy row emits
+				// several edges, so a full row window can overflow the edge
+				// cap (this is exactly what a large reference-heavy fixture
+				// hit). Windows therefore split on the row window OR on the
+				// accumulated edge cap, whichever lands first. Both are pure
+				// functions of the staged bytes and schema identity, so a
+				// retry from any process reproduces identical window
+				// boundaries and the content-independent batch digest stays
+				// replay-stable.
+				if len(built.edges) > storepostgres.MaxBatchEdges {
+					return fmt.Errorf("%s %s row %d produces %d edges, exceeding the %d-per-batch edge bound; nothing was written",
+						filepath.Base(file), resourceType, lineNumber, len(built.edges), storepostgres.MaxBatchEdges)
+				}
 				if len(built.edges) > 0 {
 					windowRows = append(windowRows, built)
+					windowEdges += len(built.edges)
 				}
-				if lineNumber%l.edgeWindow == 0 {
+				if lineNumber%l.edgeWindow == 0 || windowEdges >= storepostgres.MaxBatchEdges {
 					if err := l.commitEdgeWindow(ctx, fileID, windowIndex, windowRows, summary); err != nil {
 						return err
 					}
 					windowRows = nil
+					windowEdges = 0
 					windowIndex++
 				}
 			}
@@ -1070,7 +1109,11 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 // flushSemanticContributions persists the buffered contributions in bounded
 // chunks. The store classifies every skipped row exactly (byte replay versus
 // named conflict), so a retry from any process rewrites identical rows as
-// no-ops.
+// no-ops. Served-state caveat (see the file header): PostgreSQL page reads
+// report Unknown/empty for these rows until the catalog slice owning the
+// file-sourced semantic-inventory build lifecycle creates the build row;
+// unlike the Arango route, no begin/advance/complete pairing exists to
+// drive here yet.
 func (l *pgGenerationLoad) flushSemanticContributions(ctx context.Context, summary *LoadSummary) error {
 	if len(l.semanticBuffer) == 0 {
 		return nil

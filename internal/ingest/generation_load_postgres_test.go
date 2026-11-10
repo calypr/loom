@@ -272,9 +272,10 @@ type ing03Service struct {
 // exactly (internal/ingest deliberately does not import catalog/postgres,
 // so the fault seam lives here with the wiring).
 type ing03CatalogFaults struct {
-	wrapFieldProfile func(catalogpostgres.FieldProfileStore) catalogpostgres.FieldProfileStore
-	wrapInventory    func(catalogpostgres.InventoryStore) catalogpostgres.InventoryStore
-	wrapRelationship func(catalogpostgres.RelationshipStore) catalogpostgres.RelationshipStore
+	wrapFieldProfile  func(catalogpostgres.FieldProfileStore) catalogpostgres.FieldProfileStore
+	wrapInventory     func(catalogpostgres.InventoryStore) catalogpostgres.InventoryStore
+	wrapRelationship  func(catalogpostgres.RelationshipStore) catalogpostgres.RelationshipStore
+	wrapContributions func(inner GenerationSemanticContributor) GenerationSemanticContributor
 }
 
 // ing03WireCatalogWriters builds the four production catalog evidence
@@ -324,11 +325,15 @@ func ing03WireCatalogWriters(src storepostgres.ConnSource, schema string, faults
 	if err != nil {
 		fail(fmt.Errorf("semantic contribution repository: %w", err))
 	}
+	var contributions GenerationSemanticContributor = contribs
+	if faults != nil && faults.wrapContributions != nil {
+		contributions = faults.wrapContributions(contribs)
+	}
 	return GenerationCatalogWriters{
 		FieldProfiles: profiles,
 		Inventory:     inventory,
 		Relationships: relations,
-		Contributions: contribs,
+		Contributions: contributions,
 	}
 }
 
@@ -1388,7 +1393,7 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 	})
 
 	t.Run("catalog failures mark FAILED with scoped partials", func(t *testing.T) {
-		for _, seam := range []string{"field-profile", "inventory", "relationship"} {
+		for _, seam := range []string{"field-profile", "inventory", "relationship", "semantic-contributions"} {
 			t.Run(seam, func(t *testing.T) {
 				service := newIngest03Service(t)
 				metaDir := t.TempDir()
@@ -1433,10 +1438,68 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 					if markers := service.countTable("fhir_resource_inventory_build", ""); markers != 1 {
 						t.Fatalf("inventory marker = %d, want the published 1", markers)
 					}
+				case "semantic-contributions":
+					// Contributions run last: every earlier evidence store
+					// completed, and the failed contribution batch wrote
+					// nothing at all.
+					if markers := service.countTable("fhir_resource_inventory_build", ""); markers != 1 {
+						t.Fatalf("inventory marker = %d, want the published 1", markers)
+					}
+					if edges := service.countTable("fhir_edge_occurrence", ""); edges == 0 {
+						t.Fatalf("edge occurrences = %d, want the committed rows from the completed edge pass", edges)
+					}
+					if rows := service.countTable("fhir_semantic_inventory_contribution", ""); rows != 0 {
+						t.Fatalf("contribution rows = %d, want 0 (the failed batch wrote nothing)", rows)
+					}
 				}
 			})
 		}
 	})
+}
+
+// TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBoundary
+// pins what a successful load guarantees about semantic evidence today:
+// contributions are durable and deterministic, while the PostgreSQL page
+// read still reports Unknown/empty because no production path creates the
+// fhir_semantic_inventory_build row a served page requires. catalog/postgres
+// deliberately refuses file-sourced build claims (semantic_build.go: the
+// retained-backfill entry point is the only production INSERT into that
+// table); the file-sourced build lifecycle (begin/advance/complete plus the
+// fail pairing the Arango route drives around the same writes) is owned by
+// a follow-up catalog slice, not this load. When that slice lands, this
+// test must flip to asserting served entries - it is the tripwire, not an
+// endorsement of the gap.
+func TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBoundary(t *testing.T) {
+	service := newIngest03Service(t)
+	metaDir := t.TempDir()
+	ing03WriteFixtures(t, metaDir, 25, false)
+	ref := ing03Ref(t, ing03Project, ing03Generation)
+
+	if _, err := LoadPostgresGeneration(context.Background(),
+		service.loadOptions(metaDir, ing03Project, &ref), service.pgOptions(ing03AppBase+"-semantics-pin")); err != nil {
+		t.Fatalf("load: %s", service.scrub(err))
+	}
+	written := service.countTable("fhir_semantic_inventory_contribution", "")
+	if written == 0 {
+		t.Fatal("control load persisted no contributions: the witness is vacuous")
+	}
+
+	readRepo, err := catalogpostgres.NewSemanticReadRepository(service.iso, service.schema)
+	if err != nil {
+		t.Fatalf("semantic read repository: %s", service.scrub(err))
+	}
+	unrestricted := true
+	page, err := readRepo.PageSemanticInventory(context.Background(), catalog.SemanticInventoryPageOptions{
+		Project:                       ing03Project,
+		DatasetGeneration:             ing03Generation,
+		AuthResourcePathsUnrestricted: &unrestricted,
+	})
+	if err != nil {
+		t.Fatalf("page semantic inventory: %s", service.scrub(err))
+	}
+	if page.State != catalog.SemanticInventoryUnknown || len(page.Entries) != 0 {
+		t.Fatalf("page = state %q entries %d, want Unknown/empty while the file-sourced PG build lifecycle is unwired (flip this assertion when the owning slice serves the build row)", page.State, len(page.Entries))
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1653,6 +1716,18 @@ func (r *injectedRelationshipStore) ScanRelationshipOccurrences(ctx context.Cont
 	return r.inner.ScanRelationshipOccurrences(ctx, scope)
 }
 
+type injectedContributionWriter struct {
+	inner    GenerationSemanticContributor
+	failNext bool
+}
+
+func (w *injectedContributionWriter) WriteSemanticInventoryContributions(ctx context.Context, contributions []catalog.SemanticInventoryContribution, batchSize int) error {
+	if w.failNext {
+		return fmt.Errorf("%w: contribution write", errInjectedCatalogFault)
+	}
+	return w.inner.WriteSemanticInventoryContributions(ctx, contributions, batchSize)
+}
+
 func (s *ing03Service) installCatalogFault(t *testing.T, seam string) {
 	t.Helper()
 	switch seam {
@@ -1672,6 +1747,12 @@ func (s *ing03Service) installCatalogFault(t *testing.T, seam string) {
 		s.faults = &ing03CatalogFaults{
 			wrapRelationship: func(inner catalogpostgres.RelationshipStore) catalogpostgres.RelationshipStore {
 				return &injectedRelationshipStore{inner: inner, failNext: true}
+			},
+		}
+	case "semantic-contributions":
+		s.faults = &ing03CatalogFaults{
+			wrapContributions: func(inner GenerationSemanticContributor) GenerationSemanticContributor {
+				return &injectedContributionWriter{inner: inner, failNext: true}
 			},
 		}
 	default:

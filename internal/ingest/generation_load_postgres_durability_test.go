@@ -1034,3 +1034,170 @@ func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Mid-load semantic spill: kill during a spill statement and replay to the
+// reference convergence. The spill branch (generation_load.go's mid-scan
+// flush at len(buffer) >= SemanticFlushThreshold) is only reachable when
+// contribution volume exceeds the threshold, so this fixture scales coded
+// observations with unique concepts and the load sets an explicit flush
+// threshold (the default floors at max(2*BatchSize, 2000)).
+// ---------------------------------------------------------------------------
+
+func ing03WriteSpillFixtures(t *testing.T, dir string, codedRows int) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir spill fixtures: %v", err)
+	}
+	rows := make([]string, 0, codedRows)
+	for i := 0; i < codedRows; i++ {
+		rows = append(rows, ing03JSONLine(t, map[string]any{
+			"resourceType": "Observation",
+			"id":           fmt.Sprintf("obs-s-%06d", i),
+			"status":       "final",
+			"subject":      map[string]any{"reference": "Patient/pat-0000"},
+			"code": map[string]any{"coding": []any{map[string]any{
+				"system": ing03LoincSystem,
+				"code":   fmt.Sprintf("spill-%06d", i),
+			}}},
+		}))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Observation.ndjson"),
+		[]byte(strings.Join(rows, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("write spill Observation fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Patient.ndjson"),
+		[]byte(ing03PatientLine(t, "pat-0000")+"\n"), 0o600); err != nil {
+		t.Fatalf("write spill Patient fixture: %v", err)
+	}
+}
+
+func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *testing.T) {
+	const spillRows = 2100
+	const flushThreshold = 250
+
+	service := newIngest03Service(t)
+	service.migrate()
+	metaDir := t.TempDir()
+	ing03WriteSpillFixtures(t, metaDir, spillRows)
+	refRef := ing03Ref(t, ing03Project, "gen-build-spill-ref")
+	refKill := ing03Ref(t, ing03Project, "gen-build-spill-kill")
+
+	// Reference: the same fixture and threshold, uninterrupted. Its spill
+	// write count is the non-vacuity witness that the mid-load branch runs.
+	refOpts := service.loadOptions(metaDir, ing03Project, &refRef)
+	refSpillWrites := 0
+	refOpts.EventSink = func(event string, _ map[string]any) {
+		if event == "go_pg_semantic_write" {
+			refSpillWrites++
+		}
+	}
+	pgRef := service.pgOptions(ing03AppBase + "-spill-ref")
+	pgRef.SemanticFlushThreshold = flushThreshold
+	refCtx, refCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer refCancel()
+	if _, err := LoadPostgresGeneration(refCtx, refOpts, pgRef); err != nil {
+		t.Fatalf("reference spill load: %s", service.scrub(err))
+	}
+	if refSpillWrites < 2 {
+		t.Fatalf("reference load emitted %d semantic writes at threshold %d with %d coded rows: the mid-load spill never ran (vacuous)",
+			refSpillWrites, flushThreshold, spillRows)
+	}
+	refContribs := service.countTable("fhir_semantic_inventory_contribution", "dataset_generation = $1", refRef.Generation)
+	if refContribs < 2*flushThreshold {
+		t.Fatalf("reference persisted %d contributions, want >= %d: fixture volume never crossed the spill threshold",
+			refContribs, 2*flushThreshold)
+	}
+
+	// Killed load: arm the contribution-table block once the first spill
+	// has committed, so the victim statement is verifiably a spill write.
+	spillFirst := make(chan struct{}, 1)
+	killOpts := service.loadOptions(metaDir, ing03Project, &refKill)
+	killOpts.EventSink = func(event string, _ map[string]any) {
+		if event == "go_pg_semantic_write" {
+			select {
+			case spillFirst <- struct{}{}:
+			default:
+			}
+		}
+	}
+	app := ing03AppBase + "-spill-kill"
+	pgKill := service.pgOptions(app)
+	pgKill.SemanticFlushThreshold = flushThreshold
+	loadErrCh := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		_, err := LoadPostgresGeneration(ctx, killOpts, pgKill)
+		loadErrCh <- err
+	}()
+	select {
+	case <-spillFirst:
+	case loadErr := <-loadErrCh:
+		t.Fatalf("killed load ended (%v) before the first spill commit: the spill kill never armed", loadErr)
+	case <-time.After(90 * time.Second):
+		t.Fatal("no spill write happened: the spill kill never armed")
+	}
+	release := service.blockTable("fhir_semantic_inventory_contribution")
+	defer release()
+	if _, parked := service.waitForBackendWaiting(app, 60*time.Second); !parked {
+		t.Fatalf("no backend for %s parked on the contribution lock mid-spill: the kill injection is vacuous", app)
+	}
+	if killed := service.terminateAppBackends(app); killed < 1 {
+		t.Fatalf("pg_terminate_backend terminated %d backends for %s, want >= 1: the spill kill never landed", killed, app)
+	}
+	release()
+	var loadErr error
+	select {
+	case loadErr = <-loadErrCh:
+	case <-time.After(120 * time.Second):
+		t.Fatal("killed spill load did not return")
+	}
+	if loadErr == nil {
+		t.Fatal("killed spill load reported success")
+	}
+	if !errors.Is(loadErr, ErrGenerationManifestOutcomeUnknown) {
+		t.Fatalf("killed spill load error = %T %v, want %v (the killed spill's outcome is genuinely unknown)",
+			loadErr, loadErr, ErrGenerationManifestOutcomeUnknown)
+	}
+	if state, found := service.manifestState(ing03Project, refKill.Generation); !found || state != string(publication.StateLoading) {
+		t.Fatalf("manifest state = %q found=%v, want LOADING (unknown spill outcome must not mark FAILED)", state, found)
+	}
+	ing03AssertNeverActive(t, service, "after spill kill")
+	ing03AssertLedgerEquality(t, service)
+	partial := service.countTable("fhir_semantic_inventory_contribution", "dataset_generation = $1", refKill.Generation)
+	if partial < flushThreshold {
+		t.Fatalf("partial contributions = %d, want >= %d (the first spill committed)", partial, flushThreshold)
+	}
+	if partial >= refContribs {
+		t.Fatalf("partial contributions = %d, want < reference %d: the killed load persisted as if complete", partial, refContribs)
+	}
+
+	// Replay: the resumer re-spills from scratch and must converge to the
+	// reference content exactly (deterministic keys make rewrites idempotent).
+	resumeOpts := service.loadOptions(metaDir, ing03Project, &refKill)
+	resumeSpills := 0
+	resumeOpts.EventSink = func(event string, _ map[string]any) {
+		if event == "go_pg_semantic_write" {
+			resumeSpills++
+		}
+	}
+	pgResume := service.pgOptions(ing03AppBase + "-spill-resume")
+	pgResume.SemanticFlushThreshold = flushThreshold
+	resumeCtx, resumeCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer resumeCancel()
+	if _, err := LoadPostgresGeneration(resumeCtx, resumeOpts, pgResume); err != nil {
+		t.Fatalf("spill replay load: %s", service.scrub(err))
+	}
+	if resumeSpills < 2 {
+		t.Fatalf("replay emitted %d spill writes, want >= 2: replay skipped the mid-load branch", resumeSpills)
+	}
+	final := service.countTable("fhir_semantic_inventory_contribution", "dataset_generation = $1", refKill.Generation)
+	if final != refContribs {
+		t.Fatalf("replayed contributions = %d, want the reference %d (convergence)", final, refContribs)
+	}
+	if state, found := service.manifestState(ing03Project, refKill.Generation); !found || state != string(publication.StateStaged) {
+		t.Fatalf("replayed manifest = %q found=%v, want STAGED", state, found)
+	}
+	ing03AssertLedgerEquality(t, service)
+}
