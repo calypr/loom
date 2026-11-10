@@ -1024,6 +1024,85 @@ func TestRenderRejectsStringKindOrderingInAllThreeForms(t *testing.T) {
 	pgsq05Reject(t, selectorPlan, "LT over STRING kind in selector form")
 }
 
+// TestRenderRejectsCommaDecimalLiteralsInAllThreeForms pins the F9 guard
+// in temporalComparisonValue. Go's time.Parse accepts a comma as the
+// fractional-second separator (stdlib-documented; measured in this tree:
+// without the guard "2024-03-15T10:20:30,5Z" rendered and bound the
+// instant .5Z — over-selection against AQL's DATE_TIMESTAMP, which folds
+// comma fractions to NaN and matches nothing), so refusal must be
+// explicit, before parsing. If the guard is removed, every case below
+// turns into a render success and this test goes RED by name — that is
+// the guard's liveness control.
+func TestRenderRejectsCommaDecimalLiteralsInAllThreeForms(t *testing.T) {
+	for _, value := range []string{
+		"2024-03-15T10:20:30,5Z",
+		"2024-03-15T10:20:30,5+02:00",
+		"2024-03-15T10:20:30,5",
+	} {
+		columnPlan := pgsq05Plan("Patient")
+		columnPlan.BindVars["at_value"] = value
+		columnPlan = pgsq05AddFilter(columnPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+			Operator:  "GTE",
+			ValueKind: spec.FilterDateTime,
+			Left:      ir.PhysicalValue{Variable: "root", Path: []string{"recorded_at"}},
+			Right:     &ir.PhysicalValue{BindKey: "at_value"},
+		}))
+		pgsq05Reject(t, columnPlan, "DATE_TIME column comparison against comma decimal "+value)
+
+		directPlan := pgsq05Plan("Patient")
+		directPlan.BindVars["at_value"] = value
+		directPlan = pgsq05AddFilter(directPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+			Operator:  "LT",
+			ValueKind: spec.FilterDateTime,
+			Left:      ir.PhysicalValue{Variable: "root", Path: []string{"payload", "meta", "lastUpdated"}},
+			Right:     &ir.PhysicalValue{BindKey: "at_value"},
+		}))
+		pgsq05Reject(t, directPlan, "DATE_TIME payload comparison against comma decimal "+value)
+
+		selectorPlan := pgsq05Plan("Patient")
+		selectorPlan.BindVars["at_value"] = value
+		selectorPlan = pgsq05AddFilter(selectorPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
+			"Patient", "gender", "LTE", spec.QuantifierAll, spec.FilterDateTime, "at_value", true)))
+		pgsq05Reject(t, selectorPlan, "DATE_TIME selector comparison against comma decimal "+value)
+	}
+}
+
+// TestRenderNormalizesFixedZoneTimeTimeBind exercises the .UTC()
+// normalization on the time.Time bind path with the displacement this
+// ticket bounds: a +16:00 FixedZone instant (beyond PostgreSQL's ±15:59
+// text-cast range) must reach the driver as the same instant in UTC, so
+// its RFC3339 text encoding is always "+00:00"/"Z" regardless of driver
+// encoding choices.
+func TestRenderNormalizesFixedZoneTimeTimeBind(t *testing.T) {
+	bind := time.Date(2024, 3, 14, 18, 20, 30, 0, time.FixedZone("Etc/GMT-16", 16*3600))
+	plan := pgsq05Plan("Patient")
+	plan.BindVars["at_value"] = bind
+	plan = pgsq05AddFilter(plan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+		Operator:  "GTE",
+		ValueKind: spec.FilterDateTime,
+		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"recorded_at"}},
+		Right:     &ir.PhysicalValue{BindKey: "at_value"},
+	}))
+	rendered := renderOK(t, plan)
+	arg := rendered.Args[4]
+	if arg.Type != compiler.PostgreSQLParameterTimestamptz {
+		t.Fatalf("bind arg type = %q, want timestamptz", arg.Type)
+	}
+	stamp, ok := arg.Value.(time.Time)
+	if !ok {
+		t.Fatalf("bind arg value = %#v, want time.Time", arg.Value)
+	}
+	if !stamp.Equal(bind) {
+		t.Fatalf("bind changed the instant: %v vs %v", stamp, bind)
+	}
+	if stamp.Location() != time.UTC {
+		t.Fatalf("bind location = %v, want UTC", stamp.Location())
+	}
+	if got, want := stamp.Format(time.RFC3339Nano), bind.UTC().Format(time.RFC3339Nano); got != want {
+		t.Fatalf("bind text encoding = %q, want %q", got, want)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Real unit arms for the temporal guard patterns (independent of the
 // captured goldens, which encode the pattern strings and therefore cannot

@@ -27,8 +27,8 @@ import (
 // are isolated by resource type so each matrix cell names exactly the rows
 // that must answer; rows are inserted in logical_id order, matching the
 // witness ORDER BY. A skipped required case is a blocker for this ticket's
-// acceptance, never a pass. TestZZNoLeftoverVerifySQL05Resources audits that
-// nothing survives.
+// acceptance, never a pass. The package TestMain (main_test.go) audits, after the
+// whole package has run, that nothing survives.
 // ---------------------------------------------------------------------------
 
 const (
@@ -595,6 +595,45 @@ func TestPG18TemporalGuardExcludedSideProbes(t *testing.T) {
 	}
 }
 
+// TestPG18FixedZoneInstantBindReturnsNormalizedMatches witnesses the
+// time.Time bind normalization on the real parameter path: a +16:00
+// FixedZone instant — a displacement whose TEXT form PostgreSQL's
+// timestamptz casts refuse (SQLSTATE 22009, see
+// TestPG18TemporalGuardExcludedSideProbes) — is bound as the same instant
+// in UTC, so the statement executes without raising and orders exactly by
+// the UTC instant. The .UTC() normalization is a same-instant guarantee,
+// not raise prevention: pgx binds a typed time.Time as binary timestamptz.
+// (The time.Time bind form is registered on the recorded_at comparison
+// path; payload and selector comparisons require string literals.)
+func TestPG18FixedZoneInstantBindReturnsNormalizedMatches(t *testing.T) {
+	svc := newSQL05Service(t)
+	sql05Insert(t, svc, "Encounter", "fz-a", map[string]any{"recorded": "2024-01-01T00:00:00Z"})
+	sql05Insert(t, svc, "Encounter", "fz-b", map[string]any{"recorded": "2024-01-02T00:00:00Z"})
+
+	recordedGTE := func(bind time.Time) ir.PhysicalPlan {
+		plan := sql05Plan("Encounter")
+		plan.BindVars["when_value"] = bind
+		return pgsq05AddFilter(plan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+			Operator:  "GTE",
+			ValueKind: spec.FilterDateTime,
+			Left:      ir.PhysicalValue{Variable: "root", Path: []string{"recorded_at"}},
+			Right:     &ir.PhysicalValue{BindKey: "when_value"},
+		}))
+	}
+	eastSixteen := func(t time.Time) *time.Location {
+		return time.FixedZone("Etc/GMT-16", 16*3600)
+	}
+	// Rows were ingested moments ago: GTE one hour ago keeps both, GTE
+	// one hour ahead keeps none — a +16:00 displacement reaching PG text
+	// would instead abort the statement (22009).
+	if got := sql05RenderedSelect(t, svc, recordedGTE(time.Now().Add(-time.Hour).In(eastSixteen(time.Now())))); !reflect.DeepEqual(got, sql05Rows("fz-a", "fz-b")) {
+		t.Fatalf("fixed-zone GTE (now-1h) rows = %v, want both", got)
+	}
+	if got := sql05RenderedSelect(t, svc, recordedGTE(time.Now().Add(time.Hour).In(eastSixteen(time.Now())))); len(got) != 0 {
+		t.Fatalf("fixed-zone GTE (now+1h) rows = %v, want none", got)
+	}
+}
+
 // sql05ArmOrderableAtOrAfter2020 decides, independently of the renderer,
 // whether a stored string is inside the space the guard may cast AND
 // orders at or after the filter instant 2020-01-01T00:00:00Z. The Go
@@ -727,40 +766,5 @@ func TestSQL05TemporalGuardOracleSelfCheck(t *testing.T) {
 		if got := sql05ArmOrderableAtOrAfter2020(value); got != want {
 			t.Errorf("oracle(%q) = %v, want %v", value, got, want)
 		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Zero-leftover audit for this ticket's owned resources.
-// ---------------------------------------------------------------------------
-
-func TestZZNoLeftoverVerifySQL05Resources(t *testing.T) {
-	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-	if raw == "" {
-		// No service was used; nothing can have been created.
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	admin, err := pgxpool.New(ctx, raw)
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer admin.Close()
-	var databases int
-	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_sql05_%'").Scan(&databases); err != nil {
-		t.Fatalf("count databases: %v", err)
-	}
-	if databases != 0 {
-		t.Fatalf("%d verify_sql05_* databases still exist", databases)
-	}
-	var schemas int
-	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'verify_sql05_%'").Scan(&schemas); err != nil {
-		t.Fatalf("count schemas: %v", err)
-	}
-	if schemas != 0 {
-		t.Fatalf("%d verify_sql05_* schemas still exist in the service database", schemas)
 	}
 }

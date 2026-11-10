@@ -110,12 +110,13 @@ package postgres
 // hand PostgreSQL a string it would reject: the renderer never includes a
 // row it cannot order and never raises on stored data; exclusion is the
 // fail-closed outcome, and the live fixture pins it. On the literal side
-// the outcomes are not the same: a comma-decimal literal such as
-// 10:20:30,5 is a plan refusal — the RFC3339Nano parse in
-// temporalComparisonValue fails and the renderer returns
-// ErrUnsupportedPostgresPlan — where AQL executes the comparison, folds
-// DATE_TIMESTAMP(literal) to NaN, and returns zero rows. PG refuses the
-// plan; AQL matches nothing.
+// a comma-decimal instant such as 10:20:30,5Z is refused as a typed plan
+// error: Go's time.Parse accepts a comma as the fractional separator, so
+// temporalComparisonValue rejects any literal containing a comma before
+// parsing (measured: without that guard the shape folds to .5Z, binds,
+// and would return rows — over-selection against AQL, which folds such
+// literals to NaN and matches nothing). PG refuses the plan; AQL matches
+// nothing.
 // A second ordering divergence is closed the same way: INTEGER/DECIMAL ordering comparisons
 // over a document path require jsonb_typeof of the stored item to be
 // 'number' before any ordering operator reaches it. PostgreSQL orders jsonb
@@ -374,14 +375,27 @@ func temporalComparisonValue(kind spec.FilterValueKind, value any) (time.Time, e
 	switch typed := value.(type) {
 	case time.Time:
 		if kind == "" || kind == spec.FilterDate || kind == spec.FilterDateTime {
-			// Normalize to UTC: the same instant, but the bind text
-			// PostgreSQL encodes always carries +00:00, so no time.Time
-			// carrying a local zone can smuggle a displacement past the
-			// ±15:59 range PostgreSQL accepts in a timestamptz cast.
+			// Normalize to UTC: a same-instant guarantee, not raise
+			// prevention — pgx sends a typed time.Time as binary
+			// timestamptz, so no local zone can reach PG text here
+			// anyway. The normalization keeps one zone discipline at the
+			// bind site whatever the driver's encoding, so the bound
+			// value's RFC3339 text encoding is always +00:00 ("Z").
 			return typed.UTC(), nil
 		}
 		return time.Time{}, fmt.Errorf("%w: value kind %q cannot bind a timestamp", ErrUnsupportedPostgresPlan, string(kind))
 	case string:
+		// Explicit comma guard, before any parse: Go's time.Parse accepts
+		// a comma as the fractional-second separator (stdlib-documented),
+		// so a bare RFC3339Nano parse would silently fold "10:20:30,5Z"
+		// into ".5Z" — a shape AQL DATE_TIMESTAMP folds to NaN and never
+		// matches, but which would here bind a real instant and return
+		// rows: over-selection, the same class as the unguarded typeof
+		// case below. Refuse it as a typed error instead.
+		if strings.Contains(typed, ",") {
+			return time.Time{}, fmt.Errorf("%w: comparison literal %q uses a comma decimal, which the PostgreSQL renderer refuses (AQL DATE_TIMESTAMP folds comma fractions to NaN and never matches)",
+				ErrUnsupportedPostgresPlan, typed)
+		}
 		if kind == spec.FilterDate {
 			parsed, err := time.Parse("2006-01-02", typed)
 			if err != nil {
