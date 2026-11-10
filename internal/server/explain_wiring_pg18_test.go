@@ -8,7 +8,7 @@ package server
 // PG18 server with hostile sentinels in identifiers, statement literals,
 // and bound values.
 //
-// Fixtures are uniquely owned as verify_exec10_* and dropped by the test
+// Fixtures are uniquely owned as verify_exec10w_* and dropped by the test
 // that created them; TestZZ is ownership-scoped (exact registered names and
 // own prefix only, never a global pg_database count). PG-mutating runs hold
 // a session-level advisory lock so concurrent cross-package witnesses
@@ -39,11 +39,11 @@ import (
 )
 
 const (
-	exec10wPrefix  = "verify_exec10_"
+	exec10wPrefix  = "verify_exec10w_"
 	exec10wNameFmt = exec10wPrefix + "%d_%s"
 )
 
-var exec10wNamePattern = regexp.MustCompile(`^verify_exec10_[0-9]+_[0-9a-f]+$`)
+var exec10wNamePattern = regexp.MustCompile(`^verify_exec10w_[0-9]+_[0-9a-f]+$`)
 
 const (
 	exec10wTable   = "pat_SENTINEL-TBL-9c14"
@@ -106,7 +106,7 @@ func exec10wCaptureBaseline(raw string) {
 			return
 		}
 		defer admin.Close()
-		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec10\\_%' ESCAPE '\\'")
+		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec10w\\_%' ESCAPE '\\'")
 		if err != nil {
 			exec10wBaselineErr = fmt.Errorf("read database baseline: %w", err)
 			return
@@ -121,7 +121,7 @@ func exec10wCaptureBaseline(raw string) {
 			exec10wBaselineDBs = append(exec10wBaselineDBs, name)
 		}
 		rows.Close()
-		roleRows, err := admin.Query(ctx, "SELECT rolname FROM pg_roles WHERE rolname LIKE 'verify\\_exec10\\_%' ESCAPE '\\'")
+		roleRows, err := admin.Query(ctx, "SELECT rolname FROM pg_roles WHERE rolname LIKE 'verify\\_exec10w\\_%' ESCAPE '\\'")
 		if err != nil {
 			exec10wBaselineErr = fmt.Errorf("read role baseline: %w", err)
 			return
@@ -436,7 +436,7 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	// Permission-denied EXPLAIN context through the same wiring: the typed
 	// failure renders no identifiers.
 	role := fmt.Sprintf(exec10wPrefix+"r_%d_%s", time.Now().UnixNano(), exec10wRandomHex(t))
-	if !regexp.MustCompile(`^verify_exec10_r_[0-9]+_[0-9a-f]+$`).MatchString(role) {
+	if !regexp.MustCompile(`^verify_exec10w_r_[0-9]+_[0-9a-f]+$`).MatchString(role) {
 		t.Fatalf("role name %q outside the owned pattern", role)
 	}
 	if _, err := s.iso.Exec(s.ctx, `CREATE ROLE "`+role+`" NOSUPERUSER NOLOGIN`); err != nil {
@@ -541,7 +541,7 @@ func TestZZZeroLeftoverExec10WiringPostgresFixtures(t *testing.T) {
 		}
 		rows.Close()
 		if len(survivors) != len(baseline) {
-			t.Fatalf("%s verify_exec10_* survivors beyond baseline: got %v, baseline %v", kind, survivors, baseline)
+			t.Fatalf("%s verify_exec10w_* survivors beyond baseline: got %v, baseline %v", kind, survivors, baseline)
 		}
 		known := map[string]bool{}
 		for _, name := range baseline {
@@ -549,10 +549,10 @@ func TestZZZeroLeftoverExec10WiringPostgresFixtures(t *testing.T) {
 		}
 		for _, name := range survivors {
 			if !known[name] {
-				t.Fatalf("unregistered verify_exec10_* %s survivor (fatal): %s", kind, name)
+				t.Fatalf("unregistered verify_exec10w_* %s survivor (fatal): %s", kind, name)
 			}
 		}
 	}
-	count("SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec10\\_%' ESCAPE '\\'", exec10wBaselineDBs, "database")
-	count("SELECT rolname FROM pg_roles WHERE rolname LIKE 'verify\\_exec10\\_%' ESCAPE '\\'", exec10wBaselineRoles, "role")
+	count("SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec10w\\_%' ESCAPE '\\'", exec10wBaselineDBs, "database")
+	count("SELECT rolname FROM pg_roles WHERE rolname LIKE 'verify\\_exec10w\\_%' ESCAPE '\\'", exec10wBaselineRoles, "role")
 }
