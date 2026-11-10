@@ -47,7 +47,8 @@ package postgres
 // 000010 by TestMembershipAllowlistsMatchMigrationsLiterally; a migration
 // rename fails closed. Plan strings never become SQL text.
 //
-// Exactness decisions (coordinator-ratified D1-D5):
+// Exactness decisions D1-D5 (self-drafted in this ticket's plan; the plan
+// as a whole was ratified by the coordinator on 2026-11-10):
 //
 //   - D1: candidate sets deduplicate via SELECT DISTINCT over the full typed
 //     identity (population) and UNION over logical ids (cohort). No AQL

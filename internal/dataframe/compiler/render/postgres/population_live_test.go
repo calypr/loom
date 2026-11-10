@@ -363,9 +363,35 @@ func TestPopulationLiveSelectedRowsOnly(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("population rows = %v, want %v", got, want)
 	}
-	// Dedup witness: the duplicate route edge produced exactly one row.
+	// Dedup witness: the duplicate route edge produced exactly one row,
+	// against a candidate join that itself yields the full identity tuple
+	// twice (my own duplicate insertion).
 	if len(rows) != 1 {
 		t.Fatalf("duplicate route edge leaked a second row: %v", rows)
+	}
+	edgeCount := s.witness(t, `SELECT count(*) FROM "`+s.schema+`".fhir_edge_occurrence
+		WHERE project = $1 AND dataset_generation = $2 AND label = $3
+		  AND source_resource_type = 'Patient' AND source_logical_id = 'P1'`,
+		pop18Project, pop18Generation, pop18RouteLabel)
+	if len(edgeCount) != 1 || edgeCount[0][0] != "2" {
+		t.Fatalf("duplicate route edge insertion not present: %v", edgeCount)
+	}
+	candDupes := s.witness(t, `SELECT count(*) FROM (
+		SELECT x1."project", x1."dataset_generation", x1."resource_type", x1."logical_id"
+		FROM "`+s.schema+`"."selection_members" pm
+		INNER JOIN "`+s.schema+`"."fhir_resource" x0 ON x0."project" = $1 AND x0."dataset_generation" = $2
+		  AND x0."resource_type" = 'Observation' AND x0."logical_id" = pm."id"
+		INNER JOIN "`+s.schema+`"."fhir_edge_occurrence" e1 ON e1."project" = $1 AND e1."dataset_generation" = $2
+		  AND e1."label" = $3 AND e1."target_resource_type" = 'Observation'
+		  AND e1."target_logical_id" = x0."logical_id" AND e1."source_resource_type" = 'Patient'
+		INNER JOIN "`+s.schema+`"."fhir_resource" x1 ON x1."project" = $1 AND x1."dataset_generation" = $2
+		  AND x1."resource_type" = 'Patient' AND x1."logical_id" = e1."source_logical_id"
+		WHERE pm."selection_id" = 'sel18_obs' AND pm."project" = $1
+		  AND pm."generation" = $2 AND pm."resource_type" = 'Observation') t
+		WHERE t."logical_id" = 'P1'`,
+		pop18Project, pop18Generation, pop18RouteLabel)
+	if len(candDupes) != 1 || candDupes[0][0] != "2" {
+		t.Fatalf("undistinct candidate join must yield the P1 identity tuple twice, got %v", candDupes)
 	}
 	// fhir_resource identity uniqueness holds in the fixture (hand-written
 	// direct-SQL witness).
@@ -452,9 +478,17 @@ func seedCohortFixture(t *testing.T, s *pop18Service) pop18CohortFixture {
 	pop18Patient(t, s, pop18Project, "R9", pop18PatientAuth)
 	source := s.seedSelection(t, "sel18_pat", pop18Project, "Patient",
 		[]string{"R1", "R2", "R3", "R4"}, "pop18-cwriter")
-	definitions := []explorer.ExplicitGroupDefinition{{ID: "group-alpha", Label: "Alpha", Ordinal: 0}}
-	memberships := []explorer.ExplicitGroupMembership{{GroupID: "group-alpha", Ref: explorer.ResourceRef{
-		Project: pop18Project, Generation: pop18Generation, ResourceType: "Patient", ID: "R1"}}}
+	definitions := []explorer.ExplicitGroupDefinition{
+		{ID: "group-alpha", Label: "Alpha", Ordinal: 0},
+		// R1 under a second group: the duplicate membership row is the
+		// UNION-side duplicate the candidate dedup must survive.
+		{ID: "group-beta", Label: "Beta", Ordinal: 1},
+	}
+	var memberships []explorer.ExplicitGroupMembership
+	for _, group := range []string{"group-alpha", "group-beta"} {
+		memberships = append(memberships, explorer.ExplicitGroupMembership{GroupID: explorer.ExplicitGroupID(group), Ref: explorer.ResourceRef{
+			Project: pop18Project, Generation: pop18Generation, ResourceType: "Patient", ID: "R1"}})
+	}
 	group := s.seedGroup(t, "pop18-group-a", source, definitions, memberships, "pop18-gwriter")
 	return pop18CohortFixture{source: source, group: group}
 }
@@ -469,6 +503,19 @@ func TestCohortLiveAssignedUnassignedAndScoping(t *testing.T) {
 	// the root auth predicate.
 	if got := strings.Join(singleColumnRows(first), ","); got != "R1,R2,R3" {
 		t.Fatalf("cohort rows = %q, want R1,R2,R3", got)
+	}
+	// UNION-duplicate witness: the candidate set before dedup carries R1
+	// three times (selection side once, membership side twice — R1 sits
+	// under two groups), while the rendered join yields R1 exactly once.
+	unionDupes := s.witness(t, `SELECT count(*) FROM (
+		SELECT sm."id" FROM "`+s.schema+`"."selection_members" sm
+		WHERE sm."selection_id" = 'sel18_pat' AND sm."project" = $1 AND sm."generation" = $2 AND sm."resource_type" = 'Patient'
+		UNION ALL
+		SELECT mm."resource_id" FROM "`+s.schema+`"."explorer_explicit_group_memberships" mm
+		WHERE mm."revision_id" = $3 AND mm."project" = $1 AND mm."generation" = $2 AND mm."resource_type" = 'Patient') u
+		WHERE u."id" = 'R1'`, pop18Project, pop18Generation, string(fixture.group.ID))
+	if len(unionDupes) != 1 || unionDupes[0][0] != "3" {
+		t.Fatalf("undeduplicated candidates must carry R1 three times, got %v", unionDupes)
 	}
 	// Determinism and order stability across runs.
 	second, err := s.runErr(t, s.render(t, plan))
@@ -493,6 +540,34 @@ func TestCohortLiveAssignedUnassignedAndScoping(t *testing.T) {
 	}
 }
 
+// TestCohortLiveGuardIsUncorrelatedInitPlan proves the guard-execution
+// claim (requirement B) with the executor's own words: EXPLAIN must show
+// the WHERE-clause sublinks as InitPlans (evaluated once at initialization)
+// and never as SubPlans (which would mean per-row correlated evaluation).
+func TestCohortLiveGuardIsUncorrelatedInitPlan(t *testing.T) {
+	s := newPop18Service(t)
+	fixture := seedCohortFixture(t, s)
+	rendered := s.render(t, liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE"))
+	args := make([]any, len(rendered.Args))
+	for index, parameter := range rendered.Args {
+		args[index] = parameter.Value
+	}
+	planRows := s.witness(t, "EXPLAIN (FORMAT TEXT) "+rendered.SQL, args...)
+	var text strings.Builder
+	for _, row := range planRows {
+		text.WriteString(strings.Join(row, "\n"))
+		text.WriteString("\n")
+	}
+	planText := text.String()
+	if !strings.Contains(planText, "InitPlan") {
+		t.Fatalf("guard sublinks must execute as InitPlans, plan:\n%s", planText)
+	}
+	if strings.Contains(planText, "SubPlan") {
+		t.Fatalf("guard must stay uncorrelated (no per-row SubPlans), plan:\n%s", planText)
+	}
+	t.Logf("plan:\n%s", planText)
+}
+
 func TestCohortLiveUnassignedErrorPolicy(t *testing.T) {
 	s := newPop18Service(t)
 	fixture := seedCohortFixture(t, s)
@@ -511,6 +586,75 @@ func TestCohortLiveUnassignedErrorPolicy(t *testing.T) {
 		liveCohortPlan(string(assigned.ID), []string{pop18PatientAuth}, false, true, "ERROR")))
 	if got := strings.Join(singleColumnRows(rows), ","); got != "R1,R2,R3" {
 		t.Fatalf("fully assigned ERROR rows = %q, want R1,R2,R3", got)
+	}
+}
+
+// TestCohortLiveNullMembershipSubstitutedControls covers the unassigned-
+// guard substitutions the coordinator approved on 2026-11-10. The original
+// case -- an explicit-group membership row with a NULL membership_id -- is
+// IMPOSSIBLE BY SCHEMA: every column of explorer_explicit_group_memberships
+// (000010) is NOT NULL with a CHECK (<> ”), and the primary key
+// (revision_id, group_id, project, generation, resource_type, resource_id)
+// includes all of them, so a NULL reference can never exist to be
+// misclassified. The reachable violations are used instead; each is a
+// RED-kills-it control (dropping the unassigned arm from the guard turns
+// that subtest red, proven in the PR-body sabotage run):
+//
+//   - dangling reference: a selection member (R8) whose fhir_resource row
+//     does not exist. It is unassigned, so the ERROR arm must still fire
+//     even though every existing resource is assigned -- and under EXCLUDE
+//     it must simply never appear as a root row.
+//   - foreign scope: memberships for R2/R3 recorded under a DIFFERENT group
+//     revision must not mark R2/R3 assigned for this revision; the
+//     NOT-EXISTS arm's revision_id scoping is exactly what keeps ERROR
+//     firing.
+//   - plain unassigned: R2/R3 with no membership row at all (fixture
+//     default), asserted in TestCohortLiveUnassignedErrorPolicy above.
+func TestCohortLiveNullMembershipSubstitutedControls(t *testing.T) {
+	s := newPop18Service(t)
+	fixture := seedCohortFixture(t, s)
+	// Dangling-reference control. Revision C assigns every EXISTING member
+	// (R1-R4) but leaves the dangling member R8 unassigned. R8 has no
+	// fhir_resource row.
+	definitionsC := []explorer.ExplicitGroupDefinition{{ID: "group-d", Label: "D", Ordinal: 0}}
+	var membershipsC []explorer.ExplicitGroupMembership
+	for _, id := range []string{"R1", "R2", "R3", "R4"} {
+		membershipsC = append(membershipsC, explorer.ExplicitGroupMembership{GroupID: "group-d", Ref: explorer.ResourceRef{
+			Project: pop18Project, Generation: pop18Generation, ResourceType: "Patient", ID: id}})
+	}
+	danglingSource := s.seedSelection(t, "sel18_pat_d", pop18Project, "Patient",
+		[]string{"R1", "R2", "R3", "R4", "R8"}, "pop18-cwriter-d")
+	revisionC := s.seedGroup(t, "pop18-group-d", danglingSource, definitionsC, membershipsC, "pop18-gwriter-d")
+	// ERROR must fire solely because of the dangling unassigned member.
+	_, err := s.runErr(t, s.render(t,
+		liveCohortPlan(string(revisionC.ID), []string{pop18PatientAuth}, false, true, "ERROR")))
+	wantGuardTag(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
+	// EXCLUDE on the same revision: rows are the in-auth existing members
+	// (R4 is out-of-auth in this fixture), and the dangling id R8 never
+	// surfaces as a root row.
+	if got := strings.Join(singleColumnRows(s.runRendered(t, s.render(t,
+		liveCohortPlan(string(revisionC.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))), ","); got != "R1,R2,R3" {
+		t.Fatalf("dangling-reference EXCLUDE rows = %q, want R1,R2,R3", got)
+	}
+	// Foreign-scope control. A second revision records memberships for
+	// R2/R3 under ITS OWN header. For the fixture revision those rows are
+	// foreign scope: the unassigned arm stays fired.
+	definitionsE := []explorer.ExplicitGroupDefinition{{ID: "group-e", Label: "E", Ordinal: 0}}
+	var membershipsE []explorer.ExplicitGroupMembership
+	for _, id := range []string{"R2", "R3"} {
+		membershipsE = append(membershipsE, explorer.ExplicitGroupMembership{GroupID: "group-e", Ref: explorer.ResourceRef{
+			Project: pop18Project, Generation: pop18Generation, ResourceType: "Patient", ID: id}})
+	}
+	revisionE := s.seedGroup(t, "pop18-group-e", fixture.source, definitionsE, membershipsE, "pop18-gwriter-e")
+	_, err = s.runErr(t, s.render(t,
+		liveCohortPlan(string(fixture.group.ID), []string{pop18PatientAuth}, false, true, "ERROR")))
+	wantGuardTag(t, err, "EXPLICIT_GROUP_UNASSIGNED_MEMBER")
+	// Alive control for the scoping itself: under EXCLUDE the foreign
+	// memberships change nothing about fixture rows, and revision E renders
+	// (its own unassigned set R1/R4 only matters under ERROR).
+	if got := strings.Join(singleColumnRows(s.runRendered(t, s.render(t,
+		liveCohortPlan(string(revisionE.ID), []string{pop18PatientAuth}, false, true, "EXCLUDE")))), ","); got != "R1,R2,R3" {
+		t.Fatalf("foreign-scope control rows = %q, want R1,R2,R3", got)
 	}
 }
 
