@@ -68,15 +68,18 @@ func newPop18Service(t *testing.T) *pop18Service {
 }
 
 // applyExplorerMembershipDDL hosts the four membership relations beside the
-// source-store tables in one fixture schema. The store and Explorer histories
-// are one-history-per-schema by contract (explorers.go:85-95), so the
-// Explorer runner must not touch a store-migrated schema. The fixture instead
-// executes the same authoritative migration bodies -- exported verbatim by
-// explorerpostgres.OwnerMigrations -- with the session search_path pinned to
-// the owned schema, the same pin the pg-store-02 runner applies, skipping
-// version 1 (the ledger table, already owned by the store history). This is
-// a fixture-only composition; the deployment profile that unifies the two
-// families in one schema is outside this slice.
+// source-store tables in one fixture schema. Schema ownership is split and
+// was ruled by the coordinator on 2026-11-10: the STORE migration history
+// owns the unified runtime schema — fhir_resource (000002) and the four
+// membership relations (000010) are store-side DDL, and
+// one-history-per-schema is inviolable. The fixture therefore composes the
+// explorer-family tables LEDGER-FREE (the explorers.go:85-95 precedent
+// these fixtures already follow): it executes the same authoritative
+// migration bodies -- exported verbatim by explorerpostgres.OwnerMigrations
+// -- with the session search_path pinned to the owned schema, the same pin
+// the pg-store-02 runner applies, skipping version 1 (the ledger table,
+// owned by the store history). No explorer history rows are ever registered
+// into a store-migrated schema.
 func applyExplorerMembershipDDL(t *testing.T, svc *pgir02Service) {
 	t.Helper()
 	migrations, err := explorerpostgres.OwnerMigrations()
@@ -688,6 +691,48 @@ func TestCohortLiveRevisionInvalidFiresAtZeroRows(t *testing.T) {
 		liveCohortPlan(string(fixture.group.ID), []string{"FHIR/Nothing"}, false, true, "EXCLUDE")))
 	if len(rows) != 0 {
 		t.Fatalf("impossible-auth cohort rows = %v, want none", rows)
+	}
+}
+
+// TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze is the coordinator's
+// ruling-1 proof (2026-11-10): the typed guard raise is PROVEN, not
+// asserted, through EXPLAIN (ANALYZE). The violating revision is STAGING
+// and the auth set matches no root row, so the outer query would retrieve
+// zero rows -- yet the uncorrelated guard InitPlan raises SQLSTATE 22P02
+// naming EXPLICIT_GROUP_REVISION_INVALID during execution. The healthy
+// control in TestCohortLiveRevisionInvalidFiresAtZeroRows supplies the
+// silence side: same shape, all arms unselected, rows flow, no raise.
+func TestCohortLiveGuardFiresAtZeroRowsUnderExplainAnalyze(t *testing.T) {
+	s := newPop18Service(t)
+	fixture := seedCohortFixture(t, s)
+	staging := explorer.ExplicitGroupRevision{
+		ID:      explorer.ExplicitGroupRevisionIDFor(pop18Project, "pop18-group-analyze"),
+		Project: pop18Project, Generation: pop18Generation, ScopeDigest: fixture.source.ScopeDigest,
+		ResourceType: fixture.source.ResourceType, SourceSelectionRevisionID: fixture.source.ID,
+		SourceMembershipDigest: fixture.source.MembershipDigest,
+		State:                  explorer.ExplicitGroupRevisionStaging,
+		IdempotencyKey:         "pop18-group-analyze", CreatedAt: time.Now().UTC(),
+	}
+	if _, err := s.groups.BeginExplicitGroupRevision(s.ctx, staging, fixture.source, "pop18-gwriter-analyze"); err != nil {
+		s.fail("begin staging group for analyze", err)
+	}
+	rendered := s.render(t, liveCohortPlan(string(staging.ID), []string{"FHIR/Nothing"}, false, true, "EXCLUDE"))
+	args := make([]any, len(rendered.Args))
+	for index, parameter := range rendered.Args {
+		args[index] = parameter.Value
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
+	defer cancel()
+	_, err := s.iso.Exec(ctx, "EXPLAIN (ANALYZE, TIMING OFF, SUMMARY OFF) "+rendered.SQL, args...)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "22P02" || !strings.Contains(pgErr.Message, "EXPLICIT_GROUP_REVISION_INVALID") {
+		t.Fatalf("EXPLAIN ANALYZE zero-row guard raise = %v, want 22P02 naming EXPLICIT_GROUP_REVISION_INVALID", err)
+	}
+	// Same statement without execution (plain EXPLAIN): plans fine, proving
+	// the raise is executor-initiated at zero rows, not a parse failure.
+	planRows := s.witness(t, "EXPLAIN "+rendered.SQL, args...)
+	if len(planRows) == 0 {
+		t.Fatalf("plain EXPLAIN produced no plan under the violating guard")
 	}
 }
 

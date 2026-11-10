@@ -604,11 +604,29 @@ func TestPlainSpineKeepsTheBindingGate(t *testing.T) {
 	if _, err := RenderPhysicalPlan(plan, mustBinding(t)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
 		t.Fatalf("population without binding error = %v, want ErrUnsupportedPostgresPlan", err)
 	}
+	// Candidate seed stays refused on BOTH entries, at the RENDER gate: the
+	// seed carries a structurally valid uncorrelated subplan (an empty one
+	// would die earlier at plan.Validate, proving nothing about the split
+	// branch), so the refusal under test is renderRootScan's.
 	seeded := basePlan()
-	seeded.Operations[0].RootScan.PageCandidateSeed = &ir.PhysicalRootPageCandidateSeed{}
-	if _, err := RenderPopulationRootScan(seeded, mustBinding(t), populationBindingOK(t)); err == nil ||
-		(!errors.Is(err, ErrUnsupportedPostgresPlan) && !strings.Contains(err.Error(), "validate physical plan")) {
-		t.Fatalf("candidate seed error = %v, want a fail-closed gate", err)
+	seeded.BindVars["seed_collection"] = "Observation"
+	seedValue := ir.PhysicalValue{Variable: "seed_scan", Path: []string{"logical_id"}}
+	seeded.Operations[0].RootScan.PageCandidateSeed = &ir.PhysicalRootPageCandidateSeed{
+		Subplan: ir.PhysicalSubplan{
+			Operations: []ir.PhysicalOperation{
+				{Kind: ir.PhysicalCollectionScanOp, CollectionScan: &ir.PhysicalCollectionScan{
+					Variable: "seed_scan", CollectionBindKey: "seed_collection"}},
+			},
+			Return: ir.PhysicalExpression{Kind: ir.PhysicalValueExpression,
+				Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
+				Value: &seedValue},
+		},
+	}
+	if _, err := RenderPhysicalPlan(seeded, mustBinding(t)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
+		t.Fatalf("candidate seed via spine error = %v, want ErrUnsupportedPostgresPlan (render gate, not ir)", err)
+	}
+	if _, err := RenderPopulationRootScan(seeded, mustBinding(t), populationBindingOK(t)); !errors.Is(err, ErrUnsupportedPostgresPlan) {
+		t.Fatalf("candidate seed via membership entry error = %v, want ErrUnsupportedPostgresPlan (render gate, not ir)", err)
 	}
 }
 
