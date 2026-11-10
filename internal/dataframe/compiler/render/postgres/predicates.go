@@ -108,7 +108,17 @@ package postgres
 // guard's regexes are calendar-aware precisely so its THEN branches never
 // hand PostgreSQL a string it would reject: the renderer never includes a
 // row it cannot order and never raises on stored data; exclusion is the
-// fail-closed outcome, and the live fixture pins it.
+// fail-closed outcome, and the live fixture pins it. A second ordering
+// divergence is closed the same way: INTEGER/DECIMAL ordering comparisons
+// over a document path require jsonb_typeof of the stored item to be
+// 'number' before any ordering operator reaches it. PostgreSQL orders jsonb
+// across types as Null, String, Number, Boolean, Array, Object while
+// ArangoDB orders null, false, true, numbers, strings, arrays, objects —
+// exactly the swap this ticket's typed ordering registers touch — so a raw
+// jsonb ordering comparison would over-select under LTE/LT and under-select
+// under GTE/GT against AQL. A non-numeric stored value reads
+// never-comparable and is excluded; the live matrix stores a string under a
+// numeric kind to pin it.
 
 import (
 	"encoding/json"
@@ -434,6 +444,21 @@ func (r *planRenderer) renderPayloadComparison(left, operator string, kind spec.
 			return r.renderTemporalPayloadComparison(left, operator, kind, value)
 		}
 	}
+	if isNumericOrdering(operator, kind) {
+		// PostgreSQL orders jsonb across types as Null, String, Number,
+		// Boolean, Array, Object — the opposite cross-type position for
+		// strings and numbers from ArangoDB's null < false < true <
+		// numbers < strings < arrays < objects. A raw jsonb ordering
+		// comparison would over-select under LTE/LT and under-select
+		// under GTE/GT relative to AQL. Require the stored value to be a
+		// JSON number; a non-numeric stored value (or a missing key)
+		// reads never-comparable and is excluded, mirroring the temporal
+		// guard. The result can still be SQL NULL (missing key), so NOT
+		// needs the truth-table guard.
+		index := r.jsonbParameter(raw)
+		return predicateFragment{sql: "(jsonb_typeof((" + left + ")) = 'number' AND (" + left + ") " +
+			sqlComparison(operator) + " ($" + strconv.Itoa(index) + "::jsonb))", mayYieldNull: true}, nil
+	}
 	index := r.jsonbParameter(raw)
 	if operator == "NOT_EQUALS" {
 		return predicateFragment{sql: "(" + left + ") IS DISTINCT FROM ($" + strconv.Itoa(index) + "::jsonb)"}, nil
@@ -711,14 +736,12 @@ func (r *planRenderer) selectorMatchExpression(extraction, operator string, kind
 			ErrUnsupportedPostgresPlan)
 	}
 	if operator == "IN" {
+		if err := validateSelectorInList(kind, value); err != nil {
+			return "", err
+		}
 		raw, err := json.Marshal(value)
 		if err != nil {
 			return "", fmt.Errorf("%w: selector IN values are not JSON-encodable: %v", ErrUnsupportedPostgresPlan, err)
-		}
-		switch value.(type) {
-		case []any, []string:
-		default:
-			return "", fmt.Errorf("%w: selector IN requires a []any or []string bind value, got %T", ErrUnsupportedPostgresPlan, value)
 		}
 		if string(raw) == "null" {
 			raw = []byte("[]")
@@ -727,14 +750,6 @@ func (r *planRenderer) selectorMatchExpression(extraction, operator string, kind
 		// EXISTS is total even when the bound list is empty, matching the
 		// AQL reading of POSITION(...) == -1 for x IN [].
 		return "EXISTS (SELECT 1 FROM jsonb_array_elements($" + strconv.Itoa(index) + "::jsonb) AS loom_selector_item WHERE loom_selector_item = (" + extraction + "))", nil
-	}
-	if operator == "CONTAINS_TEXT" {
-		needle, ok := value.(string)
-		if !ok {
-			return "", fmt.Errorf("%w: selector CONTAINS_TEXT requires a string bind value, got %T", ErrUnsupportedPostgresPlan, value)
-		}
-		index := r.textParameter(needle, "text:"+needle)
-		return "jsonb_typeof(" + extraction + ") = 'string' AND strpos(" + extraction + " #>> '{}', $" + strconv.Itoa(index) + ") > 0", nil
 	}
 	if err := validatePayloadBindType(kind, value); err != nil {
 		return "", err
@@ -772,5 +787,64 @@ func (r *planRenderer) selectorMatchExpression(extraction, operator string, kind
 		// the fragment contract does not declare.
 		comparison = "<>"
 	}
+	if isNumericOrdering(operator, kind) {
+		// See renderPayloadComparison: jsonb cross-type order disagrees
+		// with AQL where strings and numbers swap. Requiring a JSON
+		// number makes a non-numeric stored item never-comparable; under
+		// the presence conjunct the COALESCE keeps the quantifier
+		// fragment total, so NOT needs no guard.
+		return "COALESCE(jsonb_typeof(" + extraction + ") = 'number' AND (" + extraction + ") " +
+			comparison + " ($" + strconv.Itoa(r.jsonbParameter(raw)) + "::jsonb), false)", nil
+	}
 	return "(" + extraction + ") " + comparison + " ($" + strconv.Itoa(r.jsonbParameter(raw)) + "::jsonb)", nil
+}
+
+func isNumericOrdering(operator string, kind spec.FilterValueKind) bool {
+	switch operator {
+	case "GT", "GTE", "LT", "LTE":
+		return kind == spec.FilterInteger || kind == spec.FilterDecimal
+	}
+	return false
+}
+
+// validateSelectorInList pins each IN list element to the canonical Go
+// type lower/filter_literal.go produces for the declared kind, so a bind
+// whose element types contradict the kind is a typed refusal before any
+// SQL text exists — the same boundary contract validatePayloadBindType
+// enforces for scalar filter values. The []string shorthand is admitted
+// only for the string-carrying kinds.
+func validateSelectorInList(kind spec.FilterValueKind, value any) error {
+	var elements []any
+	switch list := value.(type) {
+	case []string:
+		if kind != spec.FilterString && kind != spec.FilterCode {
+			return fmt.Errorf("%w: selector IN with a []string bind is admitted only for STRING and CODE kinds, got kind %q",
+				ErrUnsupportedPostgresPlan, string(kind))
+		}
+		return nil
+	case []any:
+		elements = list
+	default:
+		return fmt.Errorf("%w: selector IN requires a []any or []string bind value, got %T", ErrUnsupportedPostgresPlan, value)
+	}
+	for _, element := range elements {
+		var ok bool
+		switch kind {
+		case spec.FilterString, spec.FilterCode, spec.FilterDate, spec.FilterDateTime:
+			_, ok = element.(string)
+		case spec.FilterBoolean:
+			_, ok = element.(bool)
+		case spec.FilterInteger:
+			_, ok = element.(int64)
+		case spec.FilterDecimal:
+			_, ok = element.(float64)
+		default:
+			return fmt.Errorf("%w: selector IN value kind %q is not registered", ErrUnsupportedPostgresPlan, string(kind))
+		}
+		if !ok {
+			return fmt.Errorf("%w: selector IN element %T contradicts the declared value kind %q",
+				ErrUnsupportedPostgresPlan, element, string(kind))
+		}
+	}
+	return nil
 }

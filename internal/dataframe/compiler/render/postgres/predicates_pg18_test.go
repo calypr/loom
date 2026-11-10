@@ -135,6 +135,10 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	sql05Insert(t, svc, "Observation", "score-decimal", map[string]any{"score": 2.5})
 	sql05Insert(t, svc, "Observation", "score-missing", map[string]any{"unrelated": 2})
 	sql05Insert(t, svc, "Observation", "score-seven", map[string]any{"score": 7})
+	// String under a numeric kind: jsonb type order would place it below
+	// every number and over-select under LTE/LT against AQL; the type
+	// guard must exclude it from both range cells.
+	sql05Insert(t, svc, "Observation", "score-string", map[string]any{"score": "seven"})
 	// Invalid-calendar and leap-day controls: the guards must exclude
 	// these without ever casting them (a cast would abort the statement),
 	// while a true leap day orders normally.
@@ -149,6 +153,7 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	// DATE_TIMESTAMP would coerce but the renderer's guards read as
 	// never-comparable (contract header, predicates.go).
 	sql05Insert(t, svc, "Condition", "date-partial", map[string]any{"observed": "2024"})
+	sql05Insert(t, svc, "Condition", "date-string", map[string]any{"observed": "not-a-date"})
 	// Out-of-range time and offset shapes: digit-valid, cast-fatal.
 	sql05Insert(t, svc, "Encounter", "instant-bad-offset", map[string]any{"recorded": "2024-03-15T10:20:30+99:99"})
 	sql05Insert(t, svc, "Encounter", "instant-bad-time", map[string]any{"recorded": "2024-01-01T25:70:99Z"})
@@ -224,19 +229,25 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 			label: "integer range lower bound", resourceType: "Observation", operator: "GTE", field: "score",
 			kind: spec.FilterInteger, bindKey: "score_value", bind: int64(5),
 			want:    sql05Rows("score-seven"),
-			witness: `(payload #> '{score}'::text[]) >= '5'::jsonb`,
+			witness: `jsonb_typeof((payload #> '{score}'::text[])) = 'number' AND ((payload #> '{score}'::text[])) >= '5'::jsonb`,
 		},
 		{
 			label: "decimal range upper bound inclusive", resourceType: "Observation", operator: "LTE", field: "score",
 			kind: spec.FilterDecimal, bindKey: "score_value", bind: 7.0,
 			want:    sql05Rows("score-decimal", "score-seven"),
-			witness: `(payload #> '{score}'::text[]) <= '7'::jsonb`,
+			witness: `jsonb_typeof((payload #> '{score}'::text[])) = 'number' AND ((payload #> '{score}'::text[])) <= '7'::jsonb`,
 		},
 		{
 			label: "date range orders full and leap dates and excludes never-comparable partials and invalid calendars", resourceType: "Condition", operator: "GTE", field: "observed",
 			kind: spec.FilterDate, bindKey: "date_value", bind: "2024-02-01",
 			want:    sql05Rows("date-feb29-leap", "date-march"),
 			witness: storedDateWitness("observed") + ` >= '2024-02-01T00:00:00+00:00'::timestamptz`,
+		},
+		{
+			label: "payload-path date ordering upper bound excludes never-comparable strings", resourceType: "Condition", operator: "LTE", field: "observed",
+			kind: spec.FilterDate, bindKey: "date_value", bind: "2024-02-01",
+			want:    sql05Rows("date-january"),
+			witness: storedDateWitness("observed") + ` <= '2024-02-01T00:00:00+00:00'::timestamptz`,
 		},
 		{
 			label: "date-time equality stays raw text (AQL parity)", resourceType: "Encounter", operator: "EQUALS", field: "recorded",

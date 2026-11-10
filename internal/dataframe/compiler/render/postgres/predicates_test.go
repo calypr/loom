@@ -932,3 +932,92 @@ func TestRenderWidenedSurfaceIsDeterministicAndLeakFree(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Review findings: numeric ordering type guard and IN list kind discipline.
+// ---------------------------------------------------------------------------
+
+func TestRenderNumericOrderingRequiresStoredNumber(t *testing.T) {
+	// jsonb orders strings below numbers across types, the reverse of
+	// ArangoDB; both forms must refuse to order a non-numeric stored
+	// item instead of silently using jsonb type order.
+	selectorPlan := pgsq05Plan("Patient")
+	selectorPlan.BindVars["score_value"] = int64(5)
+	selectorPlan = pgsq05AddFilter(selectorPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
+		"Patient", "gender", "GTE", spec.QuantifierAny, spec.FilterInteger, "score_value", true)))
+	selectorClause := pgsq05WhereClause(t, renderOK(t, selectorPlan))
+	wantSelector := `COALESCE(jsonb_typeof(r0."payload" #> $5::text[]), 'null') <> 'null' AND ` +
+		`COALESCE(jsonb_typeof(r0."payload" #> $5::text[]) = 'number' AND ` +
+		`(r0."payload" #> $5::text[]) >= ($6::jsonb), false)`
+	if !strings.Contains(selectorClause, wantSelector) {
+		t.Fatalf("numeric selector ordering clause =\n%s\nwant substring\n%s", selectorClause, wantSelector)
+	}
+
+	directPlan := pgsq05Plan("Patient")
+	directPlan.BindVars["score_value"] = 2.5
+	directPlan = pgsq05AddFilter(directPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+		Operator:  "LTE",
+		ValueKind: spec.FilterDecimal,
+		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"payload", "score"}},
+		Right:     &ir.PhysicalValue{BindKey: "score_value"},
+	}))
+	directClause := pgsq05WhereClause(t, renderOK(t, directPlan))
+	wantDirect := `(jsonb_typeof((r0."payload" #> $5::text[])) = 'number' AND ` +
+		`(r0."payload" #> $5::text[]) <= ($6::jsonb))`
+	if !strings.Contains(directClause, wantDirect) {
+		t.Fatalf("numeric direct ordering clause =\n%s\nwant substring\n%s", directClause, wantDirect)
+	}
+}
+
+func TestRenderRejectsKindMismatchedSelectorInList(t *testing.T) {
+	// Each IN element must carry the canonical Go type of the declared
+	// kind; the []string shorthand belongs to the string-carrying kinds.
+	inPlan := func(kind spec.FilterValueKind, bind any) ir.PhysicalPlan {
+		plan := pgsq05Plan("Patient")
+		plan.BindVars["list"] = bind
+		return pgsq05AddFilter(plan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
+			"Patient", "gender", "IN", spec.QuantifierAny, kind, "list", true)))
+	}
+	pgsq05Reject(t, inPlan(spec.FilterInteger, []string{"1"}), "INTEGER kind IN with a []string bind")
+	pgsq05Reject(t, inPlan(spec.FilterBoolean, []any{"true"}), "BOOLEAN kind IN with string elements")
+	pgsq05Reject(t, inPlan(spec.FilterDecimal, []any{int64(1)}), "DECIMAL kind IN with int64 elements")
+	pgsq05Reject(t, inPlan(spec.FilterString, []any{int64(1)}), "STRING kind IN with int64 elements")
+
+	// The canonical types render: INTEGER accepts []any of int64.
+	plan := inPlan(spec.FilterInteger, []any{int64(1), int64(2)})
+	rendered := renderOK(t, plan)
+	if got := rendered.Args[5]; got.Type != compiler.PostgreSQLParameterJSONB ||
+		string(got.Value.(json.RawMessage)) != "[1,2]" {
+		t.Fatalf("INTEGER IN arg = %#v", got)
+	}
+}
+
+func TestRenderRejectsStringKindOrderingInAllThreeForms(t *testing.T) {
+	// OperatorSupportsKind is re-read at the renderer boundary, so a
+	// hand-built plan cannot order a STRING kind in any registered form.
+	columnPlan := pgsq05Plan("Patient")
+	columnPlan.BindVars["v"] = "Patient"
+	columnPlan = pgsq05AddFilter(columnPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+		Operator:  "GT",
+		ValueKind: spec.FilterString,
+		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"resource_type"}},
+		Right:     &ir.PhysicalValue{BindKey: "v"},
+	}))
+	pgsq05Reject(t, columnPlan, "GT over STRING kind on a column")
+
+	directPlan := pgsq05Plan("Patient")
+	directPlan.BindVars["v"] = "a"
+	directPlan = pgsq05AddFilter(directPlan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
+		Operator:  "GTE",
+		ValueKind: spec.FilterString,
+		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"payload", "status"}},
+		Right:     &ir.PhysicalValue{BindKey: "v"},
+	}))
+	pgsq05Reject(t, directPlan, "GTE over STRING kind on a payload path")
+
+	selectorPlan := pgsq05Plan("Patient")
+	selectorPlan.BindVars["v"] = "a"
+	selectorPlan = pgsq05AddFilter(selectorPlan, pgsq05FilterByPredicate(pgsq05SelectorPredicate(
+		"Patient", "gender", "LT", spec.QuantifierAny, spec.FilterString, "v", true)))
+	pgsq05Reject(t, selectorPlan, "LT over STRING kind in selector form")
+}
