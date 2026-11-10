@@ -54,7 +54,6 @@ import (
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/store/arango"
 	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -581,20 +580,21 @@ func TestPostgresExplainCompileOnlyWithoutDatabase(t *testing.T) {
 	exec10AssertSentinelFree(t, "compile-only explanation JSON", string(rendered))
 }
 
-// exec10ArangoAssessment is the fixed Arango assessment the compatibility
-// golden is captured with.
-func exec10ArangoAssessment() arango.ExplainAssessment {
-	return arango.ExplainAssessment{
-		Plans: []arango.ExplainPlanEstimate{
+// exec10ArangoAssessment is the fixed Arango-shaped assessment DTO the
+// compatibility golden is captured with. It carries the same values the
+// server adapter now produces from the store's explain assessment.
+func exec10ArangoAssessment() ExplainAssessment {
+	return ExplainAssessment{
+		Plans: []ExplainPlanEstimate{
 			{Plan: 0, EstimatedCost: 12.5, EstimatedNrItems: 3},
 			{Plan: 1, EstimatedCost: 100.25, EstimatedNrItems: 10},
 		},
-		FullCollectionScans: []arango.ExplainCollectionScan{{Plan: 1, NodeID: 4, Collection: "Patient"}},
-		Indexes: []arango.ExplainIndexSummary{{
+		FullCollectionScans: []ExplainCollectionScan{{Plan: 1, NodeID: 4, Collection: "Patient"}},
+		Indexes: []ExplainIndexSummary{{
 			Collection: "Patient", ID: "Patient/idx1", Name: "idx1", Type: "skiplist",
-			Fields: []string{"id"}, Uses: []arango.ExplainIndexLocation{{Plan: 0, NodeID: 2}},
+			Fields: []string{"id"}, Uses: []ExplainIndexLocation{{Plan: 0, NodeID: 2}},
 		}},
-		Warnings:              []arango.ExplainWarning{{Code: 1004, Message: "full collection scan"}},
+		Warnings:              []ExplainWarning{{Code: 1004, Message: "full collection scan"}},
 		AppliedOptimizerRules: []string{"move-calculations-up"},
 	}
 }
@@ -637,7 +637,7 @@ func exec10ContractProjection(result PhysicalExplanation) string {
 func TestPostgresExplainArangoSurfaceByteFieldCompatible(t *testing.T) {
 	callbacks := &exec10Callbacks{}
 	engine := exec10Engine(t, callbacks, nil)
-	fixture := AssessmentFromArango(exec10ArangoAssessment())
+	fixture := exec10ArangoAssessment()
 	control := Control{
 		Engine: engine,
 		ExplainConnection: func(context.Context, CompiledQuery) (ExplainAssessment, error) {

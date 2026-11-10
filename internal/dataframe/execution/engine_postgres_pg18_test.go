@@ -57,7 +57,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/store/arango"
 	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -299,14 +298,14 @@ func exec02ForbidArango() Config {
 		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
 			return errors.New("preparePreviewIndex must never run for a PostgreSQL-served plan")
 		},
-		PreviewCoveringIndexes: func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+		PreviewCoveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
 			return nil, errors.New("previewCoveringIndexes must never run for a PostgreSQL-served plan")
 		},
 		PreviewCollectionRevision: func(context.Context, string) (string, error) {
 			return "", errors.New("previewCollectionRevision must never run for a PostgreSQL-served plan")
 		},
-		PreviewExplainQuery: func(context.Context, string, map[string]any) (arango.ExplainResult, error) {
-			return arango.ExplainResult{}, errors.New("previewExplainQuery must never run for a PostgreSQL-served plan")
+		PreviewCollectionScans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+			return PreviewCollectionScanEvidence{}, errors.New("previewCollectionScans must never run for a PostgreSQL-served plan")
 		},
 		PreviewCollectionCount: func(context.Context, string) (int64, error) {
 			return 0, errors.New("previewCollectionCount must never run for a PostgreSQL-served plan")
