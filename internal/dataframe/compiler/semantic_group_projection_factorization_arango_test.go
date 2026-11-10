@@ -435,14 +435,18 @@ func prepareSemanticGroupProjectionPreview(
 	engine, err := execution.New(execution.Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      semanticGroupProjectionRegistry{bundle: bundle},
-		QueryRows: func(ctx context.Context, command command.CompiledCommand, batchSize int, visit execution.RowVisitor) error {
+		SourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
 			query, bindVars, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}
 			return client.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
 		},
-		PreviewQueryRows: func(ctx context.Context, command command.CompiledCommand, batchSize int, visit execution.RowVisitor) error {
+		PreviewSourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
 			query, bindVars, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr

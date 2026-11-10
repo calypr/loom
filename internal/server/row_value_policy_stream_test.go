@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
@@ -21,8 +20,8 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      compilerTestRegistry{},
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, _, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

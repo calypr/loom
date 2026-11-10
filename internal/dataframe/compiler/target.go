@@ -50,6 +50,11 @@ func PostgreSQLTarget(binding ir.PostgresStorageBinding) (Target, error) {
 // invalid and every target-aware entry point refuses it.
 func (t Target) Valid() bool { return t.selected }
 
+// Backend names the backend this target renders for. It lets composition
+// pin the tag its row port must receive without re-deriving dialect from
+// configuration; the zero Target reports the empty backend.
+func (t Target) Backend() command.CompiledBackend { return t.backend }
+
 // ErrTargetNotSelected reports a compile request that arrived without a
 // selected target. Selection is composition's obligation; execution never
 // defaults a dialect per request.

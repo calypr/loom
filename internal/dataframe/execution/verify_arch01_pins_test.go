@@ -61,7 +61,8 @@ func verifyArch01Config(v *verifyArch01Trace) Config {
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      invalidRecipeRegistry{},
 		ScopeDigest:   func(recipe.RuntimeBindings) string { return "verify-arch01-scope" },
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			text, _, err := command.AQLParameters()
 			if err != nil {
 				return err
@@ -69,7 +70,8 @@ func verifyArch01Config(v *verifyArch01Trace) Config {
 			v.add(&v.aqlFull, text)
 			return nil
 		},
-		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		PreviewSourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			text, _, err := command.AQLParameters()
 			if err != nil {
 				return err
@@ -146,10 +148,16 @@ func verifyArch01Command(t *testing.T) command.CompiledCommand {
 	return compiledCommand
 }
 
-func verifyArch01Row(v *verifyArch01Trace, target *[]string, rows []map[string]any) PostgreSQLQueryRows {
-	return func(ctx context.Context, command command.CompiledCommand, _ []string, visit RowVisitor) error {
-		sqlText, _, err := command.PostgreSQLParameters()
+// verifyArch01PostgreSQLPort is the source row port for a PostgreSQL-selected
+// engine: it records the dispatched statement (through tagged dispatch, so a
+// non-PostgreSQL tag fails before the record) and visits the fixed rows. An
+// AQL-tagged request on a PostgreSQL port is a composition violation and is
+// traced separately so fallback can never hide.
+func verifyArch01PostgreSQLPort(v *verifyArch01Trace, target *[]string, rows []map[string]any) SourceRows {
+	return func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+		sqlText, _, err := request.Command.PostgreSQLParameters()
 		if err != nil {
+			v.add(&v.aqlFull, "misrouted:"+err.Error())
 			return err
 		}
 		v.add(target, sqlText)
@@ -169,21 +177,22 @@ func verifyArch01Rows() []map[string]any {
 	return []map[string]any{{"id": "one"}, {"id": "two"}}
 }
 
-func verifyArch01Resolver(selection *ResolvedPostgreSQLCommand, failure error) ResolvePostgreSQLCommands {
-	return func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
-		return selection, failure
-	}
-}
-
 // P1 (folded): a PANICKING resolver must surface the panic (fail closed) and
 // must not fall through to AQL nor touch any adapter.
+// P1 (folded, re-expressed for the selected-target seam): a PANICKING row
+// port must surface the panic (fail closed) and must not fall through to AQL
+// nor touch any adapter. The former composition resolver seam is gone — the
+// compiler produces the tagged command for the selected PostgreSQL target —
+// so the panic is injected at the one required row port, the seam where
+// source selection meets execution today.
 func TestVerifyArch01ResolverPanicFailsClosedNoCallbacks(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
-	config.ResolvePostgreSQLCommands = func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error) {
+	config.CompileTarget = verifyArch01PostgreSQLTarget(t)
+	config.SourceRows = func(context.Context, RowsRequest, RowVisitor) error {
 		panic("resolver exploded")
 	}
-	config.PostgreSQLQueryRows = verifyArch01Row(v, &v.pgFull, verifyArch01Rows())
+	config.PreviewSourceRows = nil
 	engine, err := New(config)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -191,19 +200,22 @@ func TestVerifyArch01ResolverPanicFailsClosedNoCallbacks(t *testing.T) {
 	defer func() {
 		recovered := recover()
 		if recovered == nil {
-			t.Fatalf("resolver panic was swallowed; engine must not silently continue")
+			t.Fatalf("port panic was swallowed; engine must not silently continue")
 		}
 		if msg := fmt.Sprint(recovered); !strings.Contains(msg, "resolver exploded") {
 			t.Fatalf("panic identity lost: %v", recovered)
 		}
 		aqlFull, aqlPreview, pgFull, _, controls, ch := v.snapshot()
 		if len(aqlFull) != 0 || len(aqlPreview) != 0 || len(pgFull) != 0 || len(controls) != 0 || ch != 0 {
-			t.Fatalf("resolver panic touched adapters: aql=%v preview=%v pg=%d controls=%v ch=%d",
+			t.Fatalf("port panic touched adapters: aql=%v preview=%v pg=%d controls=%v ch=%d",
 				aqlFull, aqlPreview, len(pgFull), controls, ch)
 		}
 	}()
-	_, err = engine.Streams(context.Background(), verifyArch01Resolved([]string{"id"}, verifyArch01Schema("id")))
-	t.Fatalf("panic must propagate; Streams returned err=%v", err)
+	// Streams only builds streams; the row port is consulted at consumption,
+	// so Run (which drives every stream to exhaustion) is the seam where a
+	// panicking port must surface.
+	_, err = engine.Run(context.Background(), verifyArch01PostgreSQLResolved("resources", []string{"id"}))
+	t.Fatalf("panic must propagate; Run returned err=%v", err)
 }
 
 // P11 (folded): an outer visitor error (visitorErr path) must clear the
@@ -211,14 +223,15 @@ func TestVerifyArch01ResolverPanicFailsClosedNoCallbacks(t *testing.T) {
 func TestVerifyArch01VisitorErrorClearsMarkers(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
-	config.ResolvePostgreSQLCommands = verifyArch01Resolver(&ResolvedPostgreSQLCommand{Command: verifyArch01Command(t), Columns: []string{"id"}}, nil)
-	config.PostgreSQLQueryRows = verifyArch01Row(v, &v.pgFull, verifyArch01Rows())
+	config.CompileTarget = verifyArch01PostgreSQLTarget(t)
+	config.SourceRows = verifyArch01PostgreSQLPort(v, &v.pgFull, verifyArch01Rows())
+	config.PreviewSourceRows = nil
 	engine, err := New(config)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	visitorFailure := errors.New("verify_arch01 visitor refused")
-	summary, err := engine.PreviewOutput(context.Background(), verifyArch01Resolved([]string{"id"}, verifyArch01Schema("id")),
+	summary, err := engine.PreviewOutput(context.Background(), verifyArch01PostgreSQLResolved("resources", []string{"id"}),
 		PreviewRequest{Output: "resources", Limit: 10}, func(map[string]any) error { return visitorFailure })
 	if !errors.Is(err, visitorFailure) {
 		t.Fatalf("visitor failure must surface: %v", err)
@@ -235,8 +248,9 @@ func TestVerifyArch01VisitorErrorClearsMarkers(t *testing.T) {
 func TestVerifyArch01ContextErrorAfterFinalRowClearsMarkers(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
-	config.ResolvePostgreSQLCommands = verifyArch01Resolver(&ResolvedPostgreSQLCommand{Command: verifyArch01Command(t), Columns: []string{"id"}}, nil)
-	config.PostgreSQLQueryRows = verifyArch01Row(v, &v.pgFull, verifyArch01Rows())
+	config.CompileTarget = verifyArch01PostgreSQLTarget(t)
+	config.SourceRows = verifyArch01PostgreSQLPort(v, &v.pgFull, verifyArch01Rows())
+	config.PreviewSourceRows = nil
 	engine, err := New(config)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -244,7 +258,7 @@ func TestVerifyArch01ContextErrorAfterFinalRowClearsMarkers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	rows := 0
-	summary, err := engine.PreviewOutput(ctx, verifyArch01Resolved([]string{"id"}, verifyArch01Schema("id")),
+	summary, err := engine.PreviewOutput(ctx, verifyArch01PostgreSQLResolved("resources", []string{"id"}),
 		PreviewRequest{Output: "resources", Limit: 10}, func(map[string]any) error {
 			rows++
 			if rows == 2 { // cancel on the last row: the stream then ends cleanly

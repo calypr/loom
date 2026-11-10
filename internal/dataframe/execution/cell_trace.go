@@ -98,7 +98,7 @@ func (e *Engine) CellTraceCompiled(ctx context.Context, compiled compiler.Compil
 }
 
 func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.CompiledCellTraceQuery, request CellTraceRequest) (CellTraceResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return CellTraceResult{}, fmt.Errorf("cell trace query executor is required")
 	}
 	rowID := strings.TrimSpace(request.RowID)
@@ -124,7 +124,7 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 
 	var result CellTraceResult
 	witnessRows := int64(0)
-	err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
+	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

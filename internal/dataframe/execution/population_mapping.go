@@ -105,7 +105,7 @@ func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled compile
 }
 
 func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query executor is required")
 	}
 	if reader == nil {
@@ -158,7 +158,7 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	mapped := make(map[string]struct{})
 	emitted := make(map[string]struct{})
 	witnessRows := int64(0)
-	err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
+	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

@@ -143,7 +143,7 @@ func TestConstructionGroupRowLineagePagesScopedContributorsAgainstArango(t *test
 
 	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(output, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), output, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Group row-lineage page at %d: %v", offset, compileErr)
 		}
@@ -281,7 +281,7 @@ func TestConstructionGroupFilterRowLineagePagesScopedContributorsAgainstArango(t
 
 	compilePage := func(compiled lower.CompiledRecipeOutput, id string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiled, id, offset, 50, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), compiled, id, offset, 50, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile filtered Group row-lineage page at %d: %v", offset, compileErr)
 		}

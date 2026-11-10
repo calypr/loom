@@ -141,7 +141,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		query, err := CompileRowLineageOutput(compiled, string(rowID), offset, limit, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRowLineageOutput(ArangoTarget(), compiled, string(rowID), offset, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile standalone cohort lineage page for %s at %d: %v", groupID, offset, err)
 		}
@@ -224,7 +224,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged, err := CompileRowLineageOutput(compiled, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	forged, err := CompileRowLineageOutput(ArangoTarget(), compiled, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile forged cross-revision row identity: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleQuery, err := CompileRowLineageOutput(staleCompiled, string(staleRowID), 0, 1, ir.DefaultPhysicalOptimizationPolicy())
+	staleQuery, err := CompileRowLineageOutput(ArangoTarget(), staleCompiled, string(staleRowID), 0, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile stale standalone cohort row lineage: %v", err)
 	}

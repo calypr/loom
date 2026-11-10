@@ -1058,7 +1058,7 @@ func assertExpandedCodingGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage for %q: %v", row["coding"], err)
 	}

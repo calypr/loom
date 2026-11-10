@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	"regexp"
 	"strconv"
 	"strings"
@@ -30,16 +31,7 @@ import (
 // RowVisitor consumes one decoded result row. The adapter hands each row its
 // own freshly allocated map with copied byte slices, so a visitor may retain
 // the map after returning without aliasing driver buffers.
-type RowVisitor func(map[string]any) error
-
-// QueryRows is the execution-visitor boundary signature for PostgreSQL result
-// streaming: one parent-tagged compiled command, the fixed declared result
-// column contract, and a row visitor. It mirrors the ClickHouseQueryRows
-// boundary while keeping the statement and its ordered typed arguments inside
-// the tagged command envelope: execution never hands loose SQL text or a
-// named bind map to a PostgreSQL adapter. (*Executor).QueryRows satisfies
-// this signature.
-type QueryRows func(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error
+type RowVisitor = execution.RowVisitor
 
 // Querier is the narrow, pool-shaped surface the Executor needs.
 // *pgxpool.Pool, *pgxpool.Conn, and *pgx.Conn all satisfy it; production
@@ -125,9 +117,9 @@ func NewExecutor(querier Querier) (*Executor, error) {
 	return &Executor{querier: querier}, nil
 }
 
-var _ QueryRows = (*Executor)(nil).QueryRows
+var _ execution.SourceRows = (*Executor)(nil).SourceRows
 
-// QueryRows dispatches exactly one parent-tagged PostgreSQL command, streams
+// SourceRows dispatches exactly one parent-tagged PostgreSQL command, streams
 // its result rows, and visits decoded rows as they arrive.
 //
 // Dispatch is backend-tagged: a command tagged for AQL is rejected with the
@@ -155,7 +147,14 @@ var _ QueryRows = (*Executor)(nil).QueryRows
 // errors.As(err, &*storepostgres.TranslatedError{})). The raw driver cause
 // is reachable only through TranslatedError.Cause behind the redaction
 // guards, never through errors.As.
-func (e *Executor) QueryRows(ctx context.Context, command command.CompiledCommand, columns []string, visit RowVisitor) error {
+// SourceRows is the PostgreSQL adapter's implementation of the single
+// execution row port (execution.SourceRows): it consumes the parent-tagged
+// command and the declared column contract from one execution.RowsRequest,
+// keeping the statement and its ordered typed arguments inside the tagged
+// command envelope. Execution never hands loose SQL text or a named bind map
+// to this adapter. request.BatchSize tunes Arango fetch batching and is
+// ignored here; the driver streams result rows as they arrive.
+func (e *Executor) SourceRows(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidExecution)
 	}
@@ -165,6 +164,7 @@ func (e *Executor) QueryRows(ctx context.Context, command command.CompiledComman
 	if visit == nil {
 		return fmt.Errorf("%w: row visitor is required", ErrInvalidExecution)
 	}
+	columns := request.DeclaredColumns
 	if err := validateColumns(columns); err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func (e *Executor) QueryRows(ctx context.Context, command command.CompiledComman
 	// Backend-tagged dispatch fails closed on an AQL-tagged command, an
 	// unregistered tag, and the zero value before anything touches the
 	// Querier. The returned argument slice is already a copy.
-	sqlText, args, err := command.PostgreSQLParameters()
+	sqlText, args, err := request.Command.PostgreSQLParameters()
 	if err != nil {
 		return err
 	}
@@ -278,8 +278,15 @@ func checkColumnContract(columns []string, descriptions []pgconn.FieldDescriptio
 		return fmt.Errorf("%w: statement returns %d column(s), contract declares %d",
 			ErrColumnContractMismatch, len(descriptions), len(columns))
 	}
+	// The declared contract is authoritative for result naming: rows are
+	// keyed by the contract, so a statement that returns a column name the
+	// contract did not declare is refused. The one accepted exception is the
+	// compiler renderer's positional output aliases (c0, c1, ...), which
+	// deliberately keep recipe-provided projection names out of the SQL text
+	// entirely; those results take their public names from the contract.
+	var positionalAlias = regexp.MustCompile(`^c[0-9]+$`)
 	for i, column := range columns {
-		if got := descriptions[i].Name; got != column {
+		if got := descriptions[i].Name; got != column && !positionalAlias.MatchString(got) {
 			return fmt.Errorf("%w: result column %d is %q, contract declares %q",
 				ErrColumnContractMismatch, i+1, got, column)
 		}

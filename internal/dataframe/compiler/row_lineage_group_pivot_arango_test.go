@@ -126,7 +126,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 
 	compilePage := func(requestedID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		compiled, compileErr := CompileRowLineageOutput(compiledOutput, requestedID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), compiledOutput, requestedID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Group/Pivot lineage page at offset %d: %v", offset, compileErr)
 		}

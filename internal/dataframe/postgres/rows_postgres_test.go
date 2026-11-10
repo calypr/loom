@@ -42,6 +42,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	"net/url"
 	"os"
 	"regexp"
@@ -448,7 +449,7 @@ func TestExec01TempTableStreamsExactTypedRows(t *testing.T) {
 		FROM exec01_typed_rows WHERE id IN ($1, $2) ORDER BY id`, bigint(1), bigint(2))
 
 	var visited []map[string]any
-	if err := executor.QueryRows(s.ctx, compiledCommand, columns, func(row map[string]any) error {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: compiledCommand, DeclaredColumns: columns}, func(row map[string]any) error {
 		visited = append(visited, row)
 		return nil
 	}); err != nil {
@@ -520,7 +521,7 @@ func TestExec01TempTableStreamsExactTypedRows(t *testing.T) {
 	empty := pgSQL(t, `SELECT id, label, score, active, event_date, event_ts, payload, meta, note
 		FROM exec01_typed_rows WHERE id IN ($1, $2) ORDER BY id`, bigint(98), bigint(99))
 	emptyVisits := 0
-	if err := executor.QueryRows(s.ctx, empty, columns, func(map[string]any) error { emptyVisits++; return nil }); err != nil {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: empty, DeclaredColumns: columns}, func(map[string]any) error { emptyVisits++; return nil }); err != nil {
 		s.fail("empty control stream", err)
 	}
 	if emptyVisits != 0 {
@@ -552,7 +553,7 @@ func TestExec01BoundPunctuationRemainsAValue(t *testing.T) {
 	bind := pgSQL(t, `SELECT label, body FROM `+s.table("exec01_punct")+` WHERE label = $1 AND body = $2`,
 		textParam(goldenPunctKill), textParam(goldenPunctStudents))
 	var rows []map[string]any
-	if err := executor.QueryRows(s.ctx, bind, []string{"label", "body"}, func(row map[string]any) error {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: bind, DeclaredColumns: []string{"label", "body"}}, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
@@ -566,7 +567,7 @@ func TestExec01BoundPunctuationRemainsAValue(t *testing.T) {
 	}
 
 	dollar := pgSQL(t, `SELECT label, body FROM `+s.table("exec01_punct")+` WHERE label = $1`, textParam(goldenPunctDollar))
-	if err := executor.QueryRows(s.ctx, dollar, []string{"label", "body"}, func(row map[string]any) error {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: dollar, DeclaredColumns: []string{"label", "body"}}, func(row map[string]any) error {
 		if row["label"] != goldenPunctDollar || row["body"] != goldenPunctBackslash {
 			t.Fatalf("dollar-quoted value altered: %#v", row)
 		}
@@ -598,7 +599,7 @@ func TestExec01BoundPunctuationRemainsAValue(t *testing.T) {
 	// proves the parameterization claim above is not vacuous.
 	interpolated := pgSQL(t, `SELECT label FROM `+s.table("exec01_punct")+` WHERE label = '`+goldenPunctKill+`'`)
 	interpolatedVisits := 0
-	err := executor.QueryRows(s.ctx, interpolated, []string{"label"}, func(map[string]any) error { interpolatedVisits++; return nil })
+	err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: interpolated, DeclaredColumns: []string{"label"}}, func(map[string]any) error { interpolatedVisits++; return nil })
 	expectQueryError(t, err, "query", "42601", `syntax error at or near ")"`)
 	if interpolatedVisits != 0 {
 		t.Fatalf("interpolated payload visited %d rows, want 0", interpolatedVisits)
@@ -613,7 +614,7 @@ func TestExec01BoundPunctuationRemainsAValue(t *testing.T) {
 	witness := pgSQL(t, witnessSQL, textParam(goldenPunctKill))
 	witnessVisits := 0
 	witnessStarted := time.Now()
-	err = executor.QueryRows(s.ctx, witness, []string{"backend", "slept", "payload", "pad"}, func(row map[string]any) error {
+	err = executor.SourceRows(s.ctx, execution.RowsRequest{Command: witness, DeclaredColumns: []string{"backend", "slept", "payload", "pad"}}, func(row map[string]any) error {
 		witnessVisits++
 		if witnessVisits != 1 {
 			return nil
@@ -679,7 +680,7 @@ func TestExec01VisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 
 	boom := errors.New("visitor boom")
 	visits := 0
-	err = executor.QueryRows(s.ctx, compiledCommand, []string{"id", "label"}, func(row map[string]any) error {
+	err = executor.SourceRows(s.ctx, execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"id", "label"}}, func(row map[string]any) error {
 		visits++
 		if visits == 2 {
 			return boom
@@ -713,7 +714,7 @@ func TestExec01VisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 
 	// Control: the identical statement drains fully when the visitor accepts.
 	full := 0
-	if err := executor.QueryRows(s.ctx, compiledCommand, []string{"id", "label"}, func(map[string]any) error { full++; return nil }); err != nil {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"id", "label"}}, func(map[string]any) error { full++; return nil }); err != nil {
 		s.fail("full drain control", err)
 	}
 	if full != 3 {
@@ -759,7 +760,7 @@ func TestExec01CancellationReturnsCompatibleContextErrors(t *testing.T) {
 	t.Run("control without cancel streams every row slowly", func(t *testing.T) {
 		started := time.Now()
 		visits := 0
-		if err := executor.QueryRows(s.ctx, pgSQL(t, streamSQL), columns, func(row map[string]any) error {
+		if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, streamSQL), DeclaredColumns: columns}, func(row map[string]any) error {
 			visits++
 			if _, ok := row["g"].(int64); !ok {
 				t.Fatalf("unexpected streamed row: %#v", row)
@@ -793,7 +794,7 @@ func TestExec01CancellationReturnsCompatibleContextErrors(t *testing.T) {
 	t.Run("already-cancelled context fails at the seam", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(s.ctx)
 		cancel()
-		err := executor.QueryRows(ctx, pgSQL(t, streamSQL), columns, func(map[string]any) error { return nil })
+		err := executor.SourceRows(ctx, execution.RowsRequest{Command: pgSQL(t, streamSQL), DeclaredColumns: columns}, func(map[string]any) error { return nil })
 		if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrQuery) {
 			t.Fatalf("pre-cancelled context error not errors.Is-compatible: %v", err)
 		}
@@ -835,7 +836,7 @@ func (e *Executor) streamTagged(ctx context.Context, sql string) error {
 	if err != nil {
 		return err
 	}
-	return e.QueryRows(ctx, compiledCommand, []string{"tick", "g"}, func(map[string]any) error { return nil })
+	return e.SourceRows(ctx, execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"tick", "g"}}, func(map[string]any) error { return nil })
 }
 
 // ---------------------------------------------------------------------------
@@ -861,15 +862,11 @@ func TestExec01SQLErrorsRetainIdentifiableCauses(t *testing.T) {
 	}
 
 	t.Run("undefined relation keeps SQLSTATE 42P01", func(t *testing.T) {
-		err := executor.QueryRows(s.ctx,
-			pgSQL(t, `SELECT id FROM `+s.table("exec01_nope")+` ORDER BY id`), []string{"id"},
-			func(map[string]any) error { return nil })
+		err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT id FROM `+s.table("exec01_nope")+` ORDER BY id`), DeclaredColumns: []string{"id"}}, func(map[string]any) error { return nil })
 		expectQueryError(t, err, "query", "42P01", `relation "`+s.schema+`.exec01_nope" does not exist`)
 		// Control: the identical shape over the real table streams.
 		count := 0
-		if err := executor.QueryRows(s.ctx,
-			pgSQL(t, `SELECT id FROM `+s.table("exec01_three")+` ORDER BY id`), []string{"id"},
-			func(map[string]any) error { count++; return nil }); err != nil {
+		if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT id FROM `+s.table("exec01_three")+` ORDER BY id`), DeclaredColumns: []string{"id"}}, func(map[string]any) error { count++; return nil }); err != nil {
 			s.fail("42P01 control", err)
 		}
 		if count != 2 {
@@ -878,21 +875,16 @@ func TestExec01SQLErrorsRetainIdentifiableCauses(t *testing.T) {
 	})
 
 	t.Run("syntax error keeps SQLSTATE 42601", func(t *testing.T) {
-		err := executor.QueryRows(s.ctx, pgSQL(t, `SELECT FROM WHERE`), []string{"x"},
-			func(map[string]any) error { return nil })
+		err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT FROM WHERE`), DeclaredColumns: []string{"x"}}, func(map[string]any) error { return nil })
 		expectQueryError(t, err, "query", "42601", `syntax error at or near "WHERE"`)
 	})
 
 	t.Run("operator type error keeps SQLSTATE 42883", func(t *testing.T) {
-		err := executor.QueryRows(s.ctx,
-			pgSQL(t, `SELECT 1::bigint + $1::text`, textParam("x")), []string{"?"},
-			func(map[string]any) error { return nil })
+		err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint + $1::text`, textParam("x")), DeclaredColumns: []string{"?"}}, func(map[string]any) error { return nil })
 		expectQueryError(t, err, "query", "42883", `operator does not exist: bigint + text`)
 		// Control: the typed sibling computes.
 		var sum int64
-		if err := executor.QueryRows(s.ctx,
-			pgSQL(t, `SELECT 1::bigint + $1::bigint AS total`, bigint(2)), []string{"total"},
-			func(row map[string]any) error { sum, _ = row["total"].(int64); return nil }); err != nil {
+		if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint + $1::bigint AS total`, bigint(2)), DeclaredColumns: []string{"total"}}, func(row map[string]any) error { sum, _ = row["total"].(int64); return nil }); err != nil {
 			s.fail("42883 control", err)
 		}
 		if sum != 3 {
@@ -902,9 +894,7 @@ func TestExec01SQLErrorsRetainIdentifiableCauses(t *testing.T) {
 
 	t.Run("unique violation via RETURNING keeps constraint identity", func(t *testing.T) {
 		visits := 0
-		err := executor.QueryRows(s.ctx,
-			pgSQL(t, `INSERT INTO `+s.table("exec01_uniq")+`(label) VALUES ($1) RETURNING label`, textParam("dup")),
-			[]string{"label"}, func(map[string]any) error { visits++; return nil })
+		err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `INSERT INTO `+s.table("exec01_uniq")+`(label) VALUES ($1) RETURNING label`, textParam("dup")), DeclaredColumns: []string{"label"}}, func(map[string]any) error { visits++; return nil })
 		// The duplicate surfaces while streaming results, not at prepare.
 		expectQueryError(t, err, "rows", "23505", `duplicate key value violates unique constraint "exec01_uniq_pkey"`)
 		if visits != 0 {
@@ -919,9 +909,7 @@ func TestExec01SQLErrorsRetainIdentifiableCauses(t *testing.T) {
 		}
 		// Control: a fresh label inserts and streams its RETURNING row.
 		returned := ""
-		if err := executor.QueryRows(s.ctx,
-			pgSQL(t, `INSERT INTO `+s.table("exec01_uniq")+`(label) VALUES ($1) RETURNING label`, textParam("fresh")),
-			[]string{"label"}, func(row map[string]any) error { returned, _ = row["label"].(string); return nil }); err != nil {
+		if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `INSERT INTO `+s.table("exec01_uniq")+`(label) VALUES ($1) RETURNING label`, textParam("fresh")), DeclaredColumns: []string{"label"}}, func(row map[string]any) error { returned, _ = row["label"].(string); return nil }); err != nil {
 			s.fail("RETURNING control", err)
 		}
 		if returned != "fresh" {
@@ -957,17 +945,15 @@ func TestExec01ThreeStatePreservation(t *testing.T) {
 	// SQL-null-typed parameter, a text value that merely spells "null",
 	// and a missing argument (column ab omitted entirely).
 	inserted := ""
-	if err := executor.QueryRows(s.ctx,
-		pgSQL(t, `INSERT INTO `+s.table("exec01_states")+`(id, j, jj, t) VALUES ($1, $2, $3, $4) RETURNING id`,
-			bigint(1), jsonbParam("null"), sqlNullParam(), textParam("null")),
-		[]string{"id"}, func(row map[string]any) error {
-			id, ok := row["id"].(int64)
-			if !ok || id != 1 {
-				t.Fatalf("RETURNING id = %#v, want int64(1)", row["id"])
-			}
-			inserted = "1"
-			return nil
-		}); err != nil {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `INSERT INTO `+s.table("exec01_states")+`(id, j, jj, t) VALUES ($1, $2, $3, $4) RETURNING id`,
+		bigint(1), jsonbParam("null"), sqlNullParam(), textParam("null")), DeclaredColumns: []string{"id"}}, func(row map[string]any) error {
+		id, ok := row["id"].(int64)
+		if !ok || id != 1 {
+			t.Fatalf("RETURNING id = %#v, want int64(1)", row["id"])
+		}
+		inserted = "1"
+		return nil
+	}); err != nil {
 		s.fail("three-state insert via adapter", err)
 	}
 	if inserted != "1" {
@@ -980,7 +966,7 @@ func TestExec01ThreeStatePreservation(t *testing.T) {
 		jj IS NULL AS jj_is_null, t IS NULL AS t_is_null, ab IS NULL AS ab_is_null, jsonb_typeof(ab) AS ab_type
 		FROM `+s.table("exec01_states")+` WHERE id = $1`, bigint(1))
 	var row map[string]any
-	if err := executor.QueryRows(s.ctx, compiledCommand, columns, func(r map[string]any) error { row = r; return nil }); err != nil {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: compiledCommand, DeclaredColumns: columns}, func(r map[string]any) error { row = r; return nil }); err != nil {
 		s.fail("three-state stream", err)
 	}
 	if row == nil {
@@ -1015,10 +1001,8 @@ func TestExec01ThreeStatePreservation(t *testing.T) {
 	if err != nil {
 		s.fail("wrap counting executor", err)
 	}
-	err = countingExecutor.QueryRows(s.ctx,
-		pgSQL(t, `SELECT id FROM `+s.table("exec01_states")+` WHERE id = $1`,
-			command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: float64(1)}),
-		[]string{"id"}, func(map[string]any) error { return nil })
+	err = countingExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT id FROM `+s.table("exec01_states")+` WHERE id = $1`,
+		command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: float64(1)}), DeclaredColumns: []string{"id"}}, func(map[string]any) error { return nil })
 	requireNamed(t, err, ErrInvalidParameter, "argument 1", `"bigint"`, "must carry an int64")
 	if counting.calls != 0 {
 		t.Fatalf("invalid parameter reached the pool (%d calls)", counting.calls)
@@ -1058,13 +1042,13 @@ func TestExec01ColumnContractAgainstRealServer(t *testing.T) {
 	visit := func(map[string]any) error { visits++; return nil }
 
 	// Wrong-name probe: server-folded lowercase vs a declared capital name.
-	err := executor.QueryRows(s.ctx, pgSQL(t, sqlText), []string{"ID", "label"}, visit)
+	err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, sqlText), DeclaredColumns: []string{"ID", "label"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, `column 1 is "id", contract declares "ID"`)
 
 	// Wrong-count probes both directions.
-	err = executor.QueryRows(s.ctx, pgSQL(t, sqlText), []string{"id"}, visit)
+	err = executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, sqlText), DeclaredColumns: []string{"id"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, "returns 2 column(s), contract declares 1")
-	err = executor.QueryRows(s.ctx, pgSQL(t, sqlText), []string{"id", "label", "extra"}, visit)
+	err = executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, sqlText), DeclaredColumns: []string{"id", "label", "extra"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, "returns 2 column(s), contract declares 3")
 	if visits != 0 {
 		t.Fatalf("broken contracts visited %d rows, want 0", visits)
@@ -1074,7 +1058,7 @@ func TestExec01ColumnContractAgainstRealServer(t *testing.T) {
 	// quoted mixed-case alias that matches the declaration streams.
 	alias := `SELECT id AS "Id", label AS "Label" FROM ` + s.table("exec01_named")
 	aliased := map[string]any{}
-	if err := executor.QueryRows(s.ctx, pgSQL(t, alias), []string{"Id", "Label"}, func(row map[string]any) error {
+	if err := executor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, alias), DeclaredColumns: []string{"Id", "Label"}}, func(row map[string]any) error {
 		aliased = row
 		return nil
 	}); err != nil {
@@ -1112,7 +1096,7 @@ func TestExec01TwoRealConnectionRaces(t *testing.T) {
 	streamRace := func(ctx context.Context) (int64, string, error) {
 		var backend int64
 		var lines []string
-		err := executor.QueryRows(ctx, pgSQL(t, raceSQL), raceColumns, func(row map[string]any) error {
+		err := executor.SourceRows(ctx, execution.RowsRequest{Command: pgSQL(t, raceSQL), DeclaredColumns: raceColumns}, func(row map[string]any) error {
 			pid, ok := row["backend"].(int32)
 			if !ok {
 				return fmt.Errorf("backend column decoded as %#v", row["backend"])
@@ -1157,7 +1141,7 @@ func TestExec01TwoRealConnectionRaces(t *testing.T) {
 			// writer's own stream sees the dirty digest. Without this pin a
 			// no-op UPDATE would make the whole surface vacuous.
 			var dirtyLines []string
-			if err := writerExecutor.QueryRows(s.ctx, pgSQL(t, raceSQL), raceColumns, func(row map[string]any) error {
+			if err := writerExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, raceSQL), DeclaredColumns: raceColumns}, func(row map[string]any) error {
 				id, _ := row["id"].(int64)
 				label, _ := row["label"].(string)
 				score, _ := row["score"].(float64)
@@ -1242,9 +1226,8 @@ func TestExec01TwoRealConnectionRaces(t *testing.T) {
 			siblingErr := make(chan error, 1)
 			go func() {
 				defer ccancel()
-				err := sibExecutor.QueryRows(cctx, pgSQL(t,
-					`SELECT /*exec01-sibling*/ pg_sleep(0.02) IS NULL AS tick, g FROM generate_series(1::bigint, 30::bigint) g`),
-					[]string{"tick", "g"}, func(map[string]any) error { return nil })
+				err := sibExecutor.SourceRows(cctx, execution.RowsRequest{Command: pgSQL(t,
+					`SELECT /*exec01-sibling*/ pg_sleep(0.02) IS NULL AS tick, g FROM generate_series(1::bigint, 30::bigint) g`), DeclaredColumns: []string{"tick", "g"}}, func(map[string]any) error { return nil })
 				siblingErr <- err
 			}()
 
@@ -1348,14 +1331,12 @@ func TestExec01CrashWindowAtEverySeam(t *testing.T) {
 			s.fail("witness executor", err)
 		}
 		var digest strings.Builder
-		if err := witnessExecutor.QueryRows(s.ctx,
-			pgSQL(t, `SELECT id, label FROM `+s.table("exec01_crash")+` ORDER BY id`),
-			[]string{"id", "label"}, func(row map[string]any) error {
-				id, _ := row["id"].(int64)
-				label, _ := row["label"].(string)
-				digest.WriteString(fmt.Sprintf("%d|%s;", id, label))
-				return nil
-			}); err != nil {
+		if err := witnessExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT id, label FROM `+s.table("exec01_crash")+` ORDER BY id`), DeclaredColumns: []string{"id", "label"}}, func(row map[string]any) error {
+			id, _ := row["id"].(int64)
+			label, _ := row["label"].(string)
+			digest.WriteString(fmt.Sprintf("%d|%s;", id, label))
+			return nil
+		}); err != nil {
 			s.fail("post-"+seam+"-convergence stream", err)
 		}
 		if want := "1|a;2|b;3|c;"; digest.String() != want {
@@ -1373,7 +1354,7 @@ func TestExec01CrashWindowAtEverySeam(t *testing.T) {
 		tagged := `SELECT /*exec01-terminate-inflight*/ pg_sleep(0.3) IS NOT NULL AS tick, g FROM generate_series(1::bigint, 15::bigint) g`
 		errc := make(chan error, 1)
 		go func() {
-			err := seamExecutor.QueryRows(s.ctx, pgSQL(t, tagged), []string{"tick", "g"}, func(map[string]any) error { return nil })
+			err := seamExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, tagged), DeclaredColumns: []string{"tick", "g"}}, func(map[string]any) error { return nil })
 			errc <- err
 		}()
 		pid := s.waitForActive(t, exec01Prefix+"crash-inflight", "exec01-terminate-inflight")
@@ -1407,7 +1388,7 @@ func TestExec01CrashWindowAtEverySeam(t *testing.T) {
 		streamSQL := `SELECT pg_backend_pid() AS backend, id, label FROM ` + s.table("exec01_crash") + ` ORDER BY id`
 		boom := errors.New("visitor boom during backend death")
 		var visits int
-		err = visitorExecutor.QueryRows(s.ctx, pgSQL(t, streamSQL), []string{"backend", "id", "label"}, func(row map[string]any) error {
+		err = visitorExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, streamSQL), DeclaredColumns: []string{"backend", "id", "label"}}, func(row map[string]any) error {
 			visits++
 			if visits == 1 {
 				pid32, _ := row["backend"].(int32)
@@ -1442,7 +1423,7 @@ func TestExec01CrashWindowAtEverySeam(t *testing.T) {
 		// 300ms per-row sleep.
 		streamSQL := `SELECT pg_backend_pid() AS backend, pg_sleep(0.3) IS NOT NULL AS tick, g, repeat(md5(g::text), 50000) AS blob FROM generate_series(1::bigint, 8::bigint) g`
 		var visits int
-		err = scanExecutor.QueryRows(s.ctx, pgSQL(t, streamSQL), []string{"backend", "tick", "g", "blob"}, func(row map[string]any) error {
+		err = scanExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, streamSQL), DeclaredColumns: []string{"backend", "tick", "g", "blob"}}, func(row map[string]any) error {
 			visits++
 			if visits == 1 {
 				if _, ok := row["blob"].(string); !ok {
@@ -1482,9 +1463,7 @@ func TestExec01CrashWindowAtEverySeam(t *testing.T) {
 		if err != nil {
 			s.fail("doomed executor", err)
 		}
-		startErr := doomedExecutor.QueryRows(s.ctx,
-			pgSQL(t, `SELECT g FROM generate_series(1::bigint, 3::bigint) g`), []string{"g"},
-			func(map[string]any) error { return nil })
+		startErr := doomedExecutor.SourceRows(s.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT g FROM generate_series(1::bigint, 3::bigint) g`), DeclaredColumns: []string{"g"}}, func(map[string]any) error { return nil })
 		if startErr == nil || !errors.Is(startErr, ErrQuery) {
 			t.Fatalf("query start on a dead connection was not classified: %v", startErr)
 		}

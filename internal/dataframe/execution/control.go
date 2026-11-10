@@ -22,14 +22,14 @@ type Control struct {
 	// ExplainConnection is the live Arango assessment callback used for
 	// AQL-tagged (and, preserving the historical policy surface, untagged)
 	// commands.
-	ExplainConnection func(context.Context, CompiledQuery) (ExplainAssessment, error)
+	ExplainConnection func(context.Context, compiler.CompiledQuery) (ExplainAssessment, error)
 	// ExplainPostgreSQLConnection is the live PostgreSQL assessment
 	// callback used for PostgreSQL-tagged commands. It receives only the
 	// parent-tagged command and must derive the EXPLAIN view through closed
 	// dispatch (see PostgreSQLExplainPlan). A PostgreSQL-tagged command is
 	// never handed to ExplainConnection and an AQL command is never handed
 	// to this callback.
-	ExplainPostgreSQLConnection func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error)
+	ExplainPostgreSQLConnection func(context.Context, compiler.CompiledQuery) (PostgreSQLPlanAssessment, error)
 }
 
 func (c Control) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Validation, error) {
@@ -81,7 +81,20 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 	if err != nil {
 		return PhysicalExplanation{}, err
 	}
-	limit := bindings.PreviewLimit
+	return c.ExplainResolved(ctx, resolved, live)
+}
+
+// ExplainResolved assesses an already-resolved canonical plan with the
+// identical compile-and-dispatch loop ExplainPhysical uses: every output is
+// compiled once by the selected target, so the assessment always sees the
+// exact command the stream will run. The plan's bindings supply the preview
+// limit. Server wiring resolves once and shares the Resolved across the
+// stream and its Explain instead of re-resolving per surface.
+func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bool) (PhysicalExplanation, error) {
+	if c.Engine == nil {
+		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
+	}
+	limit := resolved.Semantic.SemanticPlan.Bindings.PreviewLimit
 	if limit <= 0 {
 		limit = 25
 	}

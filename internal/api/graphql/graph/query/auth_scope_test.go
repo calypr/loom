@@ -3,7 +3,6 @@ package queryapi
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
@@ -41,8 +40,8 @@ func TestRunPreservesRestrictedEmptyScopeIntoDataframeService(t *testing.T) {
 		// This intentionally has no ScopeResolver. The one-shot GraphQL recipe
 		// is already catalog- and scope-resolved before reaching execution, so
 		// execution must not perform a second recipe preparation pass.
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, bindVars, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

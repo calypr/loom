@@ -168,7 +168,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 	}
 	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile CODED_GROUP row-lineage page at %d: %v", offset, compileErr)
 		}

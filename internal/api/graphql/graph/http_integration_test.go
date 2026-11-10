@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,7 +112,8 @@ func TestProjectDataframeDatasetsResolverIsWired(t *testing.T) {
 
 func TestGraphQLRunDataframeMutation(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
 			query, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -207,7 +207,8 @@ func TestGraphQLRunDataframeMutation(t *testing.T) {
 
 func TestGraphQLRunDataframeTraversalBuilder(t *testing.T) {
 	dfService := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
 			query, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr

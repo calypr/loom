@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"reflect"
 	"sort"
@@ -112,9 +111,11 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(context.Context, command.CompiledCommand, int, dataframeexecution.RowVisitor) error { return nil }
+	queryRows := func(context.Context, dataframeexecution.RowsRequest, dataframeexecution.RowVisitor) error { return nil }
 	if rowClient != nil {
-		queryRows = func(ctx context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+		queryRows = func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			batch := request.BatchSize
 			query, variables, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
@@ -123,7 +124,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 			return rowClient.QueryRows(ctx, query, batch, variables, storearango.RowVisitor(visit))
 		}
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: queryRows})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: queryRows})
 	if err != nil {
 		t.Fatal(err)
 	}

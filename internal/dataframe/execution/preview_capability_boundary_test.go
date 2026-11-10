@@ -20,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	exec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/store/arango"
 )
 
@@ -109,11 +110,13 @@ func runPreviewCapabilityBoundary(t *testing.T, options previewCapabilityBoundar
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      invalidRecipeRegistry{},
 		ScopeDigest:   func(recipe.RuntimeBindings) string { return "preview-capability-boundary" },
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			return dispatchErr
 		},
-		PreviewQueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+		PreviewSourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			text, binds, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -375,15 +378,39 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 	})
 
 	t.Run("compile only explain works without a database", func(t *testing.T) {
-		callbacks := &exec10Callbacks{}
-		engine := exec10Engine(t, callbacks, nil)
+		// A local AQL engine (no adapter armed) proves the compile-only
+		// Explain needs no backend and live dispatch stays tag-routed.
+		aqlCalls, pgCalls := 0, 0
+		engine, err := New(Config{
+			CompileTarget: compiler.ArangoTarget(),
+			Registry:      previewBoundaryExplainRegistry{},
+			ScopeDigest:   func(recipe.RuntimeBindings) string { return "preview-boundary" },
+			SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				if _, _, err := request.Command.AQLParameters(); err != nil {
+					return err
+				}
+				aqlCalls++
+				return nil
+			},
+			PreviewSourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				if _, _, err := request.Command.AQLParameters(); err != nil {
+					return err
+				}
+				aqlCalls++
+				return nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		bindings := recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1", PreviewLimit: 25, OutputNames: []string{"resources"}}
 		control := Control{Engine: engine}
-		result, err := control.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), false)
+		result, err := control.ExplainPhysical(context.Background(), "preview-boundary", bindings, false)
 		if err != nil {
 			t.Fatalf("compile-only ExplainPhysical: %v", err)
 		}
-		if callbacks.aqlCalls != 0 || callbacks.pgCalls != 0 {
-			t.Fatalf("compile-only Explain touched adapters: aql=%d pg=%d", callbacks.aqlCalls, callbacks.pgCalls)
+		if aqlCalls != 0 || pgCalls != 0 {
+			t.Fatalf("compile-only Explain touched adapters: aql=%d pg=%d", aqlCalls, pgCalls)
 		}
 		for _, output := range result.Outputs {
 			if output.Live != nil || output.LivePostgreSQL != nil {
@@ -392,12 +419,11 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		}
 		// Live dispatch stays backend-tagged: an AQL-tagged output must be
 		// refused when only the PostgreSQL connection is armed.
-		pgCalls := 0
-		liveOnly := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error) {
+		liveOnly := Control{Engine: engine, ExplainPostgreSQLConnection: func(context.Context, compiler.CompiledQuery) (PostgreSQLPlanAssessment, error) {
 			pgCalls++
 			return PostgreSQLPlanAssessment{}, nil
 		}}
-		if _, err := liveOnly.ExplainPhysical(context.Background(), "exec10", exec10Bindings(), true); err == nil ||
+		if _, err := liveOnly.ExplainPhysical(context.Background(), "preview-boundary", bindings, true); err == nil ||
 			!strings.Contains(err.Error(), "Arango") {
 			t.Fatalf("AQL live Explain without an Arango connection: err=%v, want refusal", err)
 		}
@@ -463,7 +489,8 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	engine, query, stream := groupPreviewScanFixture()
 	engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 1000, nil }
 	scopeCountExecutions := 0
-	stream.stream = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	stream.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -495,4 +522,24 @@ func TestChooseGroupPreviewScanOrdinaryPathSkippedWhenAssessmentBudgetExpired(t 
 	if got := commandText(t, query.Command); got != "normal-query" {
 		t.Fatalf("expired budget switched the command to %q", got)
 	}
+}
+
+// previewBoundaryExplainRegistry serves one compilable bundle for the
+// compile-only Explain subtest.
+type previewBoundaryExplainRegistry struct{}
+
+func (previewBoundaryExplainRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
+	return exec.Entry{Bundle: recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "preview-boundary",
+		TranslationVersion:  "test",
+		Outputs: []recipe.Output{{
+			Name: "resources", RootResourceType: "Patient", RowGrain: "patient",
+			Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		}},
+	}}, nil
+}
+
+func (r previewBoundaryExplainRegistry) LoadRecipeVersion(ctx context.Context, name, _ string) (exec.Entry, error) {
+	return r.LoadRecipe(ctx, name)
 }

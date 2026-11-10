@@ -23,7 +23,7 @@ type Service struct {
 	dataframes             *dataframeexecution.Service
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
-	explain                func(context.Context, dataframeexecution.CompiledQuery) error
+	explain                func(context.Context, compiler.CompiledQuery) error
 	// now is the single clock seam for the run-phase diagnostics so a test can
 	// hold the backend open without racing wall-clock speed thresholds.
 	now func() time.Time
@@ -42,7 +42,7 @@ type Config struct {
 	// discovery and recipe preparation resolve one READY active generation
 	// before inspecting any fields or relationship routes.
 	ActiveManifestResolver publication.ActiveResolver
-	Explain                func(context.Context, dataframeexecution.CompiledQuery) error
+	Explain                func(context.Context, compiler.CompiledQuery) error
 }
 
 func NewService(cfg Config) *Service {
@@ -105,13 +105,13 @@ func (s *Service) resolveRecipe(ctx context.Context, bundle recipe.Bundle, bindi
 	return semantic.ResolveRecipePlan(plan, "", bindings.DatasetGeneration)
 }
 
-func compileSingleQuery(target compiler.Target, resolved semantic.ResolvedRecipePlan, limit int) (dataframeexecution.CompiledQuery, error) {
+func compileSingleQuery(target compiler.Target, resolved semantic.ResolvedRecipePlan, limit int) (compiler.CompiledQuery, error) {
 	queries, err := compiler.CompileResolvedRecipePlan(target, resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
-		return dataframeexecution.CompiledQuery{}, err
+		return compiler.CompiledQuery{}, err
 	}
 	if len(queries) != 1 {
-		return dataframeexecution.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
+		return compiler.CompiledQuery{}, dataframeerrors.NewError(dataframeerrors.CodeInvalidRequest, "")
 	}
 	return queries[0], nil
 }

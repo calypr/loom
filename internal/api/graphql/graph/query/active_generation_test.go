@@ -3,7 +3,6 @@ package queryapi
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"testing"
 
@@ -84,8 +83,8 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
 	}
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, bindVars, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

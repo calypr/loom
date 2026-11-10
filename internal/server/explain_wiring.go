@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -17,7 +18,7 @@ import (
 // from the command through closed dispatch, so a PostgreSQL-tagged, untagged,
 // or unknown-tag command is refused here and never sent to the Arango EXPLAIN
 // endpoint.
-func explainCompiledQuery(ctx context.Context, client *arangostore.Client, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
+func explainCompiledQuery(ctx context.Context, client *arangostore.Client, compiled compiler.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
 	query, bindVars, dispatchErr := compiled.Command.AQLParameters()
 	if dispatchErr != nil {
 		return dataframeexecution.ExplainAssessment{}, dispatchErr
@@ -139,7 +140,7 @@ func previewCollectionIndexesFromStore(indexes []arangostore.PreviewCoveringInde
 // to the Arango EXPLAIN endpoint. With an executor, the sanitized assessment
 // comes from execution.PostgreSQLExplainPlan, which reaches PostgreSQL only
 // through the parent-tagged EXPLAIN command.
-func explainPostgreSQLCompiledQuery(ctx context.Context, executor dataframeexecution.PostgreSQLPlanJSONExecutor, compiled dataframeexecution.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
+func explainPostgreSQLCompiledQuery(ctx context.Context, executor dataframeexecution.PostgreSQLPlanJSONExecutor, compiled compiler.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
 	if executor == nil {
 		return dataframeexecution.PostgreSQLPlanAssessment{}, dataframeerrors.Wrap(
 			errors.New("live PostgreSQL recipe Explain requires a PostgreSQL connection; the PostgreSQL source runtime is not wired"),
@@ -164,7 +165,7 @@ func newPostgreSQLPlanJSONExecutor(querier dataframepostgres.Querier) (dataframe
 	}
 	return func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error) {
 		var plans []string
-		if err := executor.QueryRows(ctx, command, []string{"QUERY PLAN"}, func(row map[string]any) error {
+		if err := executor.SourceRows(ctx, dataframeexecution.RowsRequest{Command: command, DeclaredColumns: []string{"QUERY PLAN"}}, func(row map[string]any) error {
 			switch plan := row["QUERY PLAN"].(type) {
 			case string:
 				plans = append(plans, plan)

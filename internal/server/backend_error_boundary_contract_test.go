@@ -5,7 +5,7 @@ package server
 // database adapters keep vendor interpretation and cause identity, and
 // equivalent supported failures produce the existing Loom public semantics
 // without SQL, query text, binds, or credentials in public payloads. It runs
-// the real composition paths (configuredAQLQueryRows,
+// the real composition paths (configuredAQLSourceRows,
 // preserveConfiguredQueryError, previewRouteError) over adapter-classified
 // failures and the merged PostgreSQL boundary.
 
@@ -20,7 +20,6 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	arangostore "github.com/calypr/loom/internal/store/arango"
@@ -34,10 +33,10 @@ import (
 // adapter itself classifies its driver failures at its own seam).
 func driveAQLAdapter(t *testing.T, adapterFailure error) error {
 	t.Helper()
-	adapter := configuredAQLQueryRows(nil, "contract", func(context.Context, command.CompiledCommand, int, dataframeexecution.RowVisitor) error {
+	adapter := configuredAQLSourceRows(nil, "contract", func(context.Context, dataframeexecution.RowsRequest, dataframeexecution.RowVisitor) error {
 		return adapterFailure
 	})
-	err := adapter(context.Background(), testAQLCommand(t, "RETURN 1", nil), 10, func(map[string]any) error { return nil })
+	err := adapter(context.Background(), dataframeexecution.RowsRequest{Command: testAQLCommand(t, "RETURN 1", nil), BatchSize: 10}, func(map[string]any) error { return nil })
 	if err == nil {
 		t.Fatal("adapter failure was swallowed by the composition")
 	}

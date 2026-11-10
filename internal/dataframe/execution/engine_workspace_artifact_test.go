@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"reflect"
 	"strings"
 	"testing"
@@ -259,7 +258,8 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	engine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			query, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -481,7 +481,8 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			engine, err := New(Config{
 				CompileTarget: compiler.ArangoTarget(),
 				Registry:      invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-				QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+				SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+					command := request.Command
 					query, bindVars, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr
@@ -640,7 +641,8 @@ func TestOrdinaryRestrictedPreviewDoesNotRequirePrivateCaptureProof(t *testing.T
 	engine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -730,7 +732,8 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 	engine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

@@ -625,7 +625,7 @@ func assertConnectedGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile connected Group lineage for row %#v: %v", row, err)
 	}

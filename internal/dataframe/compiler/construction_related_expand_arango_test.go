@@ -141,7 +141,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		for parent, parentRows := range byParent {
 			for _, row := range parentRows {
 				rowID, _ := row["__loom_row_id"].(string)
-				compiled, err := CompileRowLineageOutput(directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+				compiled, err := CompileRowLineageOutput(ArangoTarget(), directOutput, rowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatalf("compile row lineage for %s: %v", parent, err)
 				}
@@ -170,7 +170,7 @@ func TestRelatedExpandDistinctTerminalRowsAndEmptyPoliciesAgainstArango(t *testi
 		stage := directOutput.Plan.StageSequence.Stages[0]
 		constructionID := directOutput.Plan.BindVars[stage.RelatedExpand.ConstructionIDBindKey].(string)
 		forgedRowID := relatedExpandRowID(t, project+"_p1", constructionID, "Observation/"+project+"_forged")
-		forged, err := CompileRowLineageOutput(directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+		forged, err := CompileRowLineageOutput(ArangoTarget(), directOutput, forgedRowID, 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}

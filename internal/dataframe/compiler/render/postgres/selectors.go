@@ -208,6 +208,17 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 			ErrUnsupportedPostgresPlan)
 	}
 	if projection.Hidden {
+		// The canonical preview source identity column (compiler/output and
+		// recipe_execution attach it when IncludeSourceIdentity is set) is
+		// the one hidden projection with a registered PostgreSQL rendering:
+		// exactly the root row's logical id, published through the internal
+		// column contract and never as public output.
+		if projection.Name == ir.PreviewSourceResourceIDColumn &&
+			projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
+			projection.Value.Variable != "" && projection.Value.BindKey == "" &&
+			len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key") {
+			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
+		}
 		return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q is hidden executor-side metadata with no registered PostgreSQL rendering",
 			ErrUnsupportedPostgresPlan, projection.Name)
 	}
@@ -451,7 +462,7 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 		switch c.kind {
 		case extractionDirectValue:
 			value := c.projection.Value
-			if len(value.Path) != 1 || !resourceFilterColumns[value.Path[0]] {
+			if len(value.Path) != 1 || !resourceFilterColumns[canonicalKeyColumn(value.Path[0])] {
 				return fmt.Errorf("%w: projection %q must read exactly one typed scope column of the root row; payload values reach PostgreSQL through EXTRACT selectors, not direct values",
 					ErrUnsupportedPostgresPlan, c.projection.Name)
 			}

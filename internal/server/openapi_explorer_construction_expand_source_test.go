@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"strings"
 	"testing"
@@ -232,7 +231,8 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      compilerTestRegistry{},
-		QueryRows: func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
 			_, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr

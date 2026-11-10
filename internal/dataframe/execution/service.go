@@ -1,16 +1,16 @@
 package execution
 
-// ServiceConfig wires the single AQL row-stream adapter the service may
-// invoke. QueryRows accepts only a parent-tagged command.CompiledCommand;
-// there is no loose query-text entry point.
+// ServiceConfig wires the one source row port the service may invoke.
+// SourceRows accepts only a parent-tagged command.CompiledCommand carried by
+// RowsRequest; there is no loose query-text entry point.
 type ServiceConfig struct {
-	QueryRows QueryRows
+	SourceRows SourceRows
 }
 
 type Service struct {
-	queryRows QueryRows
+	sourceRows SourceRows
 }
 
 func NewService(cfg ServiceConfig) *Service {
-	return &Service{queryRows: cfg.QueryRows}
+	return &Service{sourceRows: cfg.SourceRows}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"reflect"
@@ -177,7 +176,9 @@ func TestCurrentDraftAppendRowsAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := execution.New(execution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command command.CompiledCommand, batch int, visit execution.RowVisitor) error {
+	engine, err := execution.New(execution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+		command := request.Command
+		batch := request.BatchSize
 		query, vars, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr

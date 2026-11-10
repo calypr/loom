@@ -5,7 +5,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"reflect"
 	"testing"
@@ -97,8 +96,8 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, bindVars, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

@@ -5,7 +5,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -148,8 +147,8 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		// QueryRows stands in for Arango at the database boundary; the renderer test
 		// checks the generated assertion, while this route test supplies the two
 		// literal IDs from the retained raw fixture as the query result oracle.
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			query, _, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

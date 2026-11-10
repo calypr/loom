@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"testing"
 
@@ -77,8 +76,8 @@ func TestValidateReceiptEnginePublicColumnsUsesExplicitGroupSchema(t *testing.T)
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      compilerTestRegistry{},
 		RootPageRows:  25,
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, _, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

@@ -138,7 +138,7 @@ func TestSemanticCategoryGroupPreservesExactMembershipAndRowMultiplicityAgainstA
 		t.Fatalf("active shared-code Group row with two contributors is missing: %#v", grouped)
 	}
 	sharedCodeRowID, _ := sharedCodeRow["__loom_row_id"].(string)
-	lineageQuery, err := CompileRowLineageOutput(groupedCompiled, sharedCodeRowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+	lineageQuery, err := CompileRowLineageOutput(ArangoTarget(), groupedCompiled, sharedCodeRowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile semantic Group row-lineage page: %v", err)
 	}

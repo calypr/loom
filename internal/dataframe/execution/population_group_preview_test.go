@@ -3,7 +3,6 @@ package execution
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"testing"
 
@@ -56,7 +55,8 @@ func TestPreviewOutputMaterializesPopulationSourceForKeylessGroupContributors(t 
 			engine, err := New(Config{
 				CompileTarget: compiler.ArangoTarget(),
 				Registry:      invalidRecipeRegistry{},
-				QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+				SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+					command := request.Command
 					query, bindVars, dispatchErr := command.AQLParameters()
 					if dispatchErr != nil {
 						return dispatchErr

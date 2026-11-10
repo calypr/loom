@@ -34,7 +34,7 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 		// even if a preview scan spec were somehow attached to it.
 		return contextError(ctx)
 	}
-	if query == nil || stream == nil || stream.stream == nil ||
+	if query == nil || stream == nil || stream.sourceRows == nil ||
 		(query.PreviewGroupScan == nil && query.PreviewGroupProjection == nil) {
 		return contextError(ctx)
 	}
@@ -147,12 +147,12 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 }
 
 func readGroupPreviewCount(ctx context.Context, stream *OutputStream, scopeCount command.CompiledCommand) (int64, bool) {
-	if stream == nil || stream.stream == nil || scopeCount.Backend() != command.CompiledBackendAQL {
+	if stream == nil || stream.sourceRows == nil || scopeCount.Backend() != command.CompiledBackendAQL {
 		return 0, false
 	}
 	var count int64
 	seen := false
-	err := stream.stream(ctx, scopeCount, 1, func(row map[string]any) error {
+	err := stream.sourceRows(ctx, RowsRequest{Command: scopeCount, BatchSize: 1}, func(row map[string]any) error {
 		if seen {
 			return errors.New("root scope count returned more than one row")
 		}
@@ -354,7 +354,7 @@ func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *
 	assessmentCtx := WithQueryMemoryBudget(ctx, groupPreviewQueryMemoryLimitBytes)
 	var sample groupProjectionSample
 	seen := false
-	err := stream.stream(assessmentCtx, assessmentCommand, 1, func(row map[string]any) error {
+	err := stream.sourceRows(assessmentCtx, RowsRequest{Command: assessmentCommand, BatchSize: 1}, func(row map[string]any) error {
 		if seen {
 			return errors.New("Group projection sample returned more than one row")
 		}

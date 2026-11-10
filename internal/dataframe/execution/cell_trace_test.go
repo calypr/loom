@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
@@ -167,7 +166,8 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 		previewRowID,
 		`{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`,
 	} {
-		engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -210,7 +210,8 @@ func TestComposedCohortCellTraceObjectIdentityRejectsMalformedAndExtraKeys(t *te
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			queried := false
-			engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+				command := request.Command
 				_, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -269,7 +270,8 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		t.Fatalf("group-row CellTrace identity = %#v, want Preview's typed object identity", trace)
 	}
 	rowIdentity := map[string]any{"group_revision_id": "grouprev_cell_trace", "group_id": "cohort-a"}
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		query, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -307,7 +309,8 @@ func TestSourceOnlyGroupRowsCellTraceMatchesPreviewObjectAndReturnsMemberField(t
 		`["grouprev_cell_trace","cohort-a"]`,
 	} {
 		queried := false
-		malformedEngine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+		malformedEngine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -350,7 +353,8 @@ func TestComposedCohortPivotKeepsCompilerProvenScalarIdentity(t *testing.T) {
 		t.Fatalf("cohort Pivot CellTrace identity = %#v, want scalar explicit identity", trace)
 	}
 	rowID := `["GROUPED_PIVOT","cohort_pivot_identity",["STRING","pair"]]`
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -461,7 +465,8 @@ func TestCellTraceCompiledFindsPublishedDefaultIdentityAndReturnsEvidence(t *tes
 		StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", IdentityPartsColumn: "identity",
 		RowIdentity: &spec.RowIdentity{Fields: []string{"id", "generation"}}, ContributionLimit: 1,
 	}
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		queryText, bindVars, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -510,7 +515,8 @@ func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *tes
 		}
 	}
 	contributors := []any{contributor("observation-1", nil), contributor("observation-1", nil), contributor("observation-2", "final")}
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -539,7 +545,8 @@ func TestCellTraceRelatedSourcePreservesDuplicateOccurrencesAndNullValues(t *tes
 
 func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -555,7 +562,8 @@ func TestCellTraceCompiledMatchesExplicitPublishedIdentity(t *testing.T) {
 
 func TestCellTraceCompiledReportsWitnessBoundAsIncomplete(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -585,7 +593,8 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 		{code: dataframeerrors.CodeInvalidData, status: CellTraceInvalidType},
 	} {
 		t.Run(string(test.code), func(t *testing.T) {
-			engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+				command := request.Command
 				_, _, dispatchErr := command.AQLParameters()
 				if dispatchErr != nil {
 					return dispatchErr
@@ -604,7 +613,8 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
 	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
 	t.Run("malformed", func(t *testing.T) {
-		engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -617,7 +627,8 @@ func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {
 		}
 	})
 	t.Run("missing", func(t *testing.T) {
-		engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

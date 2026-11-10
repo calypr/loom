@@ -644,7 +644,17 @@ func rowLineageHasDirectRootSource(operations []ir.PhysicalOperation) bool {
 	return rootScans == 1
 }
 
-func CompileRowLineageOutput(output lower.CompiledRecipeOutput, rowID string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledRowLineageQuery, error) {
+func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, rowID string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledRowLineageQuery, error) {
+	// Row lineage is an AQL-rendered auxiliary surface: its cohort and
+	// group contributor renderers have no PostgreSQL source, so a
+	// PostgreSQL-selected target is refused by name instead of letting an
+	// AQL-tagged command reach the PostgreSQL row port.
+	if err := target.validate(); err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("row lineage compilation"); err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
 	rowID = strings.TrimSpace(rowID)
 	if rowID == "" {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage row ID is required")

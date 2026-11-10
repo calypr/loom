@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"reflect"
@@ -123,7 +122,9 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			batch := request.BatchSize
 			query, vars, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr

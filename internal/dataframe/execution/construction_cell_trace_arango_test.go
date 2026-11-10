@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -78,7 +77,9 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 100, queryRows: func(queryCtx context.Context, command command.CompiledCommand, batchSize int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 100, sourceRows: func(queryCtx context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		batchSize := request.BatchSize
 		query, bindVars, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

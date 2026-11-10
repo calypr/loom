@@ -3,7 +3,6 @@ package resolver
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"strings"
 	"sync"
 	"testing"
@@ -341,8 +340,8 @@ type fhirReferenceTestProbe struct {
 
 // queryRows emulates the compiled id-IN reference query against one pinned
 // dataset generation, including the authorization filter and row limit.
-func (p *fhirReferenceTestProbe) queryRows(_ context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-	_, bindVars, deriveErr := command.AQLParameters()
+func (p *fhirReferenceTestProbe) queryRows(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+	_, bindVars, deriveErr := request.Command.AQLParameters()
 	if deriveErr != nil {
 		return deriveErr
 	}
@@ -449,7 +448,7 @@ func newFHIRReferenceTestHarnessWithScope(t *testing.T, rows []fhirReferenceTest
 			}}, nil
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-			QueryRows: probe.queryRows,
+			SourceRows: probe.queryRows,
 		}),
 	})
 	return &fhirReferenceTestHarness{

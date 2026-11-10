@@ -77,7 +77,7 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 // TableShapeExclusionsCompiled is the narrow execution seam for callers and
 // tests holding the compiler-produced canonical diagnostic query.
 func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled compiler.CompiledTableShapeExclusionQuery) (TableShapeExclusionResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query executor is required")
 	}
 	if compiled.Command.Backend() != command.CompiledBackendAQL || compiled.Limit <= 0 || compiled.Offset < 0 || compiled.ResourceTypeField == "" || compiled.ResourceIDField == "" || compiled.CategoryPresentField == "" || compiled.CategoryValueField == "" || compiled.CategoryTypeField == "" || compiled.OutputRowIDField == "" || compiled.ReasonField == "" || compiled.IdentityStatusField == "" || compiled.OmissionField == "" {
@@ -85,7 +85,7 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 	}
 	rows := make([]TableShapeExclusion, 0, compiled.Limit+1)
 	tooMany := false
-	err := e.queryRows(ctx, compiled.Command, e.batchSize, func(row map[string]any) error {
+	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}

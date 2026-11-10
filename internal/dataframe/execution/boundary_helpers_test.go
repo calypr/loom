@@ -31,11 +31,13 @@ func mustAQLCommand(query string, bindVars map[string]any) command.CompiledComma
 }
 
 // aqlRows adapts a loose legacy test fake (query text, batch, bind map,
-// visitor) into the typed AQL QueryRows contract. The fake never sees a
+// visitor) into the typed AQL SourceRows contract. The fake never sees a
 // command it cannot interpret: dispatch through AQLParameters rejects a
 // non-AQL-tagged command before the fake runs.
-func aqlRows(fake func(context.Context, string, int, map[string]any, func(map[string]any) error) error) QueryRows {
-	return func(ctx context.Context, command command.CompiledCommand, batch int, visit RowVisitor) error {
+func aqlRows(fake func(context.Context, string, int, map[string]any, func(map[string]any) error) error) SourceRows {
+	return func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		batch := request.BatchSize
 		query, bindVars, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

@@ -38,47 +38,30 @@ import (
 // materialization policy.
 type RowVisitor func(map[string]any) error
 
-// QueryRows is the AQL row-stream contract: one parent-tagged
-// command.CompiledCommand, the batch size, and a row visitor. Execution
-// dispatches on the command's tag and hands this adapter only AQL-tagged
-// commands; the adapter extracts (query, bindVars) through
-// CompiledCommand.AQLParameters(), which rejects a PostgreSQL-tagged,
-// untagged, or unknown-tag command before any driver call. Loose query text
-// and bind maps are not part of this contract.
-type QueryRows func(context.Context, command.CompiledCommand, int, RowVisitor) error
-
-// PostgreSQLQueryRows is the execution row-stream contract for PostgreSQL
-// source plans: one parent-tagged command.CompiledCommand, the fixed
-// declared result column contract, and a row visitor. Execution consumes the
-// tagged command without extracting loose SQL text or ordered arguments;
-// driver calls, parameter binding, and vendor decoding belong to the
-// PostgreSQL adapter (internal/dataframe/postgres.(*Executor).QueryRows
-// satisfies this contract). A command whose tag does not name PostgreSQL is
-// rejected by the adapter before any statement runs.
-type PostgreSQLQueryRows func(context.Context, command.CompiledCommand, []string, RowVisitor) error
-
-// ResolvedPostgreSQLCommand is the execution-side view of one compiler-owned
-// PostgreSQL command for a single compiled output: the parent-tagged command
-// plus the exact ordered result column contract its statement declares.
-type ResolvedPostgreSQLCommand struct {
-	Command command.CompiledCommand
-	Columns []string
+// RowsRequest is the one source-agnostic row-execution request: the
+// parent-tagged compiler command, the exact ordered result column contract
+// its statement declares (empty when the source derives its own columns),
+// and the batch-size hint. BatchSize tunes AQL fetch batching and is
+// advisory for other sources; it never alters which rows are produced.
+// Execution extracts nothing from the command: the adapter dispatches on the
+// tag and rejects a command whose tag names a backend it does not serve,
+// before any driver call. Loose query text, bind maps, SQL text, and ordered
+// arguments are not part of this contract.
+type RowsRequest struct {
+	Command         command.CompiledCommand
+	DeclaredColumns []string
+	BatchSize       int
 }
 
-// ResolvePostgreSQLCommands is the composition-owned seam that decides
-// whether one lowered, non-ClickHouse compiled output is served by
-// PostgreSQL and, if so, hands execution the compiler-produced tagged
-// command plus declared columns. It renders nothing itself: the PostgreSQL
-// renderer is compiler-owned (internal/dataframe/compiler/render/postgres),
-// and this seam never converts AQL to SQL. A nil result selects the existing
-// AQL path; a non-nil result must carry a PostgreSQL-tagged command, and
-// execution rejects AQL-tagged, unregistered, or zero-tag commands from this
-// seam before any adapter callback runs. Panic recovery for this seam is the
-// composition owner's responsibility: the composition that installs a
-// resolver must recover a panicking renderer and return an error instead of
-// letting the panic unwind, because execution performs no recover and a
-// resolver panic would crash the request process.
-type ResolvePostgreSQLCommands func(context.Context, lower.CompiledRecipeOutput, ir.PhysicalPlan, recipe.RuntimeBindings, int) (*ResolvedPostgreSQLCommand, error)
+// SourceRows is the single required row-execution port. The selected
+// compiler target produces the tagged command carried by the request, and
+// the composition that selected that target installs the adapter that serves
+// it (internal/dataframe/postgres.(*Executor).SourceRows satisfies the
+// contract for PostgreSQL; the Arango adapter satisfies it for AQL).
+// Execution owns no backend switch: a request tagged for a backend the port
+// does not serve fails in the adapter with a typed error before any driver
+// call, and there is no fallback between backends.
+type SourceRows func(context.Context, RowsRequest, RowVisitor) error
 
 // ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
 // result column contract and positional values. SQL fragments never come from
@@ -137,9 +120,14 @@ type Config struct {
 	// composition and used by every authoritative compile in this engine.
 	// It is required: the zero target (never selected) fails construction;
 	// there is no per-request dialect default.
-	CompileTarget       compiler.Target
-	QueryRows           QueryRows
-	PreviewQueryRows    QueryRows
+	CompileTarget compiler.Target
+	// SourceRows is the single required row-execution port for the selected
+	// compile target. The composition that selected the target installs the
+	// adapter that serves its command tag; construction fails without it.
+	SourceRows SourceRows
+	// PreviewSourceRows is the optional bounded-preview capability for
+	// source plans. When unset, previews use SourceRows.
+	PreviewSourceRows   SourceRows
 	PreparePreviewIndex func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	// PreviewCoveringIndexes lists the compiler-owned persistent indexes the
 	// owning backend adapter observes on a collection. The adapter enumerates
@@ -150,26 +138,8 @@ type Config struct {
 	// PreviewCollectionScans is the optional plan-inspection capability
 	// described in preview_capabilities.go. It is advisory: unset, erroring,
 	// or empty evidence leaves execution on the canonical bounded fallback.
-	PreviewCollectionScans PreviewCollectionScans
-	PreviewCollectionCount func(context.Context, string) (int64, error)
-	// PostgreSQLQueryRows streams result rows of parent-tagged PostgreSQL
-	// compiled commands. It is the PostgreSQL source executor; PostgreSQL
-	// plans never reach the AQL QueryRows/PreviewQueryRows adapters, and
-	// these callbacks receive only tagged PostgreSQL commands. When
-	// ResolvePostgreSQLCommands selects a PostgreSQL command and this
-	// executor is nil, execution fails closed with
-	// command.ErrCompiledCommandBackendNotRegistered before any callback
-	// runs; there is no PostgreSQL-to-AQL fallback.
-	PostgreSQLQueryRows PostgreSQLQueryRows
-	// PreviewPostgreSQLQueryRows is the optional bounded-preview capability
-	// for PostgreSQL plans, mirroring PreviewQueryRows for AQL. When unset,
-	// previews use PostgreSQLQueryRows.
-	PreviewPostgreSQLQueryRows PostgreSQLQueryRows
-	// ResolvePostgreSQLCommands is the composition-owned per-output seam
-	// that hands execution the compiler-produced tagged command for
-	// PostgreSQL-served outputs. Unset means no output is PostgreSQL-served
-	// and every non-ClickHouse plan keeps the exact existing AQL path.
-	ResolvePostgreSQLCommands  ResolvePostgreSQLCommands
+	PreviewCollectionScans     PreviewCollectionScans
+	PreviewCollectionCount     func(context.Context, string) (int64, error)
 	ClickHouseQueryRows        ClickHouseQueryRows
 	ResolveClickHouseInputs    ResolveClickHouseInputs
 	WithExecutionReadPins      WithExecutionReadPins
@@ -186,17 +156,14 @@ type Engine struct {
 	revisions                  recipe.RevisionStore
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
 	compileTarget              compiler.Target
-	queryRows                  QueryRows
-	previewQueryRows           QueryRows
+	sourceRows                 SourceRows
+	previewSourceRows          SourceRows
 	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
 	previewCoveringIndexes     func(context.Context, string) ([]PreviewCollectionIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
 	previewCollectionScans     PreviewCollectionScans
 	previewCollectionCount     func(context.Context, string) (int64, error)
 	groupPreviewRowsCache      groupPreviewRowsCache
-	postgreSQLQueryRows        PostgreSQLQueryRows
-	previewPostgreSQLQueryRows PostgreSQLQueryRows
-	resolvePostgreSQLCommands  ResolvePostgreSQLCommands
 	clickHouseQueryRows        ClickHouseQueryRows
 	resolveClickHouseInputs    ResolveClickHouseInputs
 	withExecutionReadPins      WithExecutionReadPins
@@ -245,9 +212,9 @@ type OutputStream struct {
 	RowIdentity              *spec.RowIdentity
 	DynamicChecks            map[string]map[string]DynamicColumnCheck
 	command                  command.CompiledCommand
+	expectedBackend          command.CompiledBackend
 	commandColumns           []string
-	stream                   QueryRows
-	postgreSQLQueryRows      PostgreSQLQueryRows
+	sourceRows               SourceRows
 	batchSize                int
 	rootPageRows             int
 	initialRootPageRows      int
@@ -323,16 +290,17 @@ func New(cfg Config) (*Engine, error) {
 	if !cfg.CompileTarget.Valid() {
 		return nil, fmt.Errorf("compile target is required: %w", compiler.ErrTargetNotSelected)
 	}
-	if cfg.QueryRows == nil {
-		return nil, fmt.Errorf("recipe query executor is required")
+	// One selected target compiles; one required port streams. A composition
+	// that selected a compile target without the row port that serves it is
+	// a capability misconfiguration, not a fallback: fail at construction
+	// rather than at first stream. PreviewSourceRows is an optional preview
+	// override; unset previews reuse SourceRows.
+	if cfg.SourceRows == nil {
+		return nil, fmt.Errorf("source row port is required: composition must install the row adapter for the selected compile target")
 	}
-	// A composition that can select PostgreSQL commands without a PostgreSQL
-	// row executor is a capability misconfiguration, not a fallback: fail at
-	// construction rather than at first stream. PreviewPostgreSQLQueryRows is
-	// an optional preview override; PostgreSQLQueryRows is the required full
-	// stream executor, mirroring QueryRows/PreviewQueryRows for AQL.
-	if cfg.ResolvePostgreSQLCommands != nil && cfg.PostgreSQLQueryRows == nil {
-		return nil, fmt.Errorf("postgres command resolution requires a PostgreSQL row executor")
+	previewRows := cfg.PreviewSourceRows
+	if previewRows == nil {
+		previewRows = cfg.SourceRows
 	}
 	batch := cfg.BatchSize
 	if batch <= 0 {
@@ -344,14 +312,12 @@ func New(cfg Config) (*Engine, error) {
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
 		compileTarget: cfg.CompileTarget,
-		queryRows:     cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		sourceRows:    cfg.SourceRows, previewSourceRows: previewRows, preparePreviewIndex: cfg.PreparePreviewIndex,
 		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
 		previewCollectionRevision: cfg.PreviewCollectionRevision, previewCollectionScans: cfg.PreviewCollectionScans,
-		previewCollectionCount: cfg.PreviewCollectionCount,
-		postgreSQLQueryRows:    cfg.PostgreSQLQueryRows, previewPostgreSQLQueryRows: cfg.PreviewPostgreSQLQueryRows,
-		resolvePostgreSQLCommands: cfg.ResolvePostgreSQLCommands,
-		clickHouseQueryRows:       cfg.ClickHouseQueryRows,
-		resolveClickHouseInputs:   cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
+		previewCollectionCount:  cfg.PreviewCollectionCount,
+		clickHouseQueryRows:     cfg.ClickHouseQueryRows,
+		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
 		privateClickHouseArtifacts: cfg.PrivateClickHouseArtifacts,
 		scopeDigest:                cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
 	}, nil
@@ -694,23 +660,28 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 		// executor, nor a ClickHouse callback is invoked for this output.
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
 	}
-	// Backend-tagged source dispatch: a PostgreSQL-served output is decided
-	// only by the composition seam handing execution a parent-tagged
-	// PostgreSQL command. Absent that selection the output keeps the exact
-	// existing AQL compile-and-stream path; a PostgreSQL request never
-	// falls back to AQL and AQL text is never converted to SQL.
-	if e.resolvePostgreSQLCommands != nil {
-		pgSelection, resolveErr := e.resolvePostgreSQLCommands(ctx, output, output.Plan, bindings, limit)
-		if resolveErr != nil {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: postgres command resolution: %w", output.Name, resolveErr)
+	// PostgreSQL selection refusals run before compilation so a refused
+	// selection never renders (and never reaches) a command. These are
+	// selection-level guarantees, not renderer accidents: the checked
+	// messages are the same the PostgreSQL route asserts post-compile.
+	if e.compileTarget.Backend() == command.CompiledBackendPostgreSQL {
+		if privateArtifactCapture {
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
 		}
-		if pgSelection != nil {
-			return e.postgreSQLStreamForOutput(resolved, output, limit, bindings, pgSelection, privateArtifactCapture)
+		if output.Plan.ClickHouseCombine != nil {
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 		}
 	}
+	// One selected target compiles every authoritative output. When the
+	// selected target is PostgreSQL the compiler itself produces the
+	// parent-tagged PostgreSQL command; execution never consults the AQL
+	// renderer for it and never converts AQL to SQL.
 	query, err := compiler.CompileRecipeOutput(e.compileTarget, output, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
+	}
+	if query.Command.Backend() == command.CompiledBackendPostgreSQL {
+		return e.postgreSQLStreamForOutput(resolved, output, limit, bindings, query, privateArtifactCapture)
 	}
 	rootPageRows := e.rootPageRows
 	if limit > 0 && limit < rootPageRows {
@@ -718,8 +689,8 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 	}
 	stream := OutputStream{
 		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
-		DynamicChecks: dynamicChecks(output.DynamicColumns), command: query.Command,
-		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
+		DynamicChecks: dynamicChecks(output.DynamicColumns), command: query.Command, expectedBackend: e.compileTarget.Backend(),
+		sourceRows: e.sourceRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
 		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
 		bindings: bindings,
 		stageID:  compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
@@ -871,115 +842,47 @@ func (e *Engine) clickHouseStreamForOutput(ctx context.Context, resolved Resolve
 	return stream, query, nil
 }
 
-// postgreSQLStreamForOutput routes one compiler-resolved PostgreSQL command
-// to the PostgreSQL row executor. The AQL compiler is never consulted for a
-// PostgreSQL-served output: no AQL text or named bind map is produced, the
-// Arango query memory-limit context never applies, and the AQL root-key page
-// loop is never attached. Command selection goes through the parent-tagged
-// envelope, which rejects an AQL-tagged, zero-tagged, or otherwise
-// unregistered command with a typed error before any adapter callback runs.
-// There is no PostgreSQL-to-AQL fallback and no AQL-to-SQL conversion.
-func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, selection *ResolvedPostgreSQLCommand, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
+// postgreSQLStreamForOutput attaches the row stream for one
+// compiler-produced PostgreSQL command from the selected PostgreSQL target.
+// The AQL compiler is never consulted for this output: no AQL text or named
+// bind map is produced, the Arango query memory-limit context never applies,
+// and the AQL root-key page loop is never attached. The command already
+// carries its exhaustive PostgreSQL tag from the compiler; the row port
+// repeats the fail-closed tag check before any driver call, and there is no
+// PostgreSQL-to-AQL fallback and no AQL-to-SQL conversion.
+func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, query compiler.CompiledQuery, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
 	if privateArtifactCapture {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
 	}
 	if output.Plan.ClickHouseCombine != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 	}
-	if e.postgreSQLQueryRows == nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("%w: output %q selected a PostgreSQL command but no PostgreSQL row executor is registered; PostgreSQL requests never fall back to AQL",
+	if e.sourceRows == nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("%w: output %q selected a PostgreSQL command but no source row port serves it; PostgreSQL requests never fall back to AQL",
 			command.ErrCompiledCommandBackendNotRegistered, output.Name)
 	}
-	// Exhaustive tagged dispatch: this is the seam's fail-closed check that
-	// the selected command really names PostgreSQL. A mismatched tag fails
-	// here, before the row executor is invoked.
-	sqlText, args, err := selection.Command.PostgreSQLParameters()
-	if err != nil {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
+	if len(query.Columns) == 0 {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL command requires a non-empty declared result column contract", output.Name)
 	}
-	if len(selection.Columns) == 0 {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL command selection requires a non-empty declared result column contract", output.Name)
-	}
-	outputSchema := lower.CloneCompiledOutputSchema(output.OutputSchema)
-	publicColumns := publicPostgreSQLColumns(outputSchema, selection.Columns)
-	if len(outputSchema) > 0 && len(publicColumns) == 0 {
+	if len(output.OutputSchema) > 0 && len(query.PublicColumns) == 0 {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: every declared PostgreSQL result column is an internal projection; refusing to publish internal columns in the public row", output.Name)
 	}
-	query := compiler.CompiledQuery{
-		Command:            selection.Command,
-		Project:            bindings.Project,
-		DatasetGeneration:  bindings.DatasetGeneration,
-		RootResourceType:   output.RootResourceType,
-		TranslationVersion: output.TranslationVersion,
-		AuthResourcePaths:  append([]string(nil), bindings.AuthResourcePaths...),
-		PlanMode:           previewPlanMode,
-		PlanProfile:        previewPlanProfile,
-		RowIdentity:        output.RowIdentity.Clone(),
-		Columns:            append([]string(nil), selection.Columns...),
-		PublicColumns:      append([]string(nil), publicColumns...),
-		OutputSchema:       outputSchema,
-		Limit:              limit,
-		PlanDiagnostics:    ir.CompilerPlanDiagnostics{Fingerprint: postgreSQLCommandFingerprint(sqlText, args, selection.Columns)},
-	}
 	stream := OutputStream{
-		Name: output.Name, Columns: append([]string(nil), publicColumns...),
-		sourceIdentityMode: previewSourceIdentityMode(output, outputSchema), RowIdentity: output.RowIdentity.Clone(),
+		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...),
+		sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
 		DynamicChecks: dynamicChecks(output.DynamicColumns),
 		batchSize:     e.batchSize, queryLimit: limit,
 		recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
 		bindings: bindings, stageID: compiledOutputFinalStageID(output),
-		outputSchema:        append([]lower.CompiledOutputColumn(nil), outputSchema...),
-		compiledOutput:      true,
-		physicalPlan:        output.Plan,
-		postgreSQLQueryRows: e.postgreSQLQueryRows,
-		command:             selection.Command,
-		commandColumns:      append([]string(nil), selection.Columns...),
+		outputSchema:    lower.CloneCompiledOutputSchema(query.OutputSchema),
+		compiledOutput:  true,
+		physicalPlan:    query.PhysicalPlan,
+		sourceRows:      e.sourceRows,
+		command:         query.Command,
+		expectedBackend: command.CompiledBackendPostgreSQL,
+		commandColumns:  append([]string(nil), query.Columns...),
 	}
 	return stream, query, nil
-}
-
-// publicPostgreSQLColumns derives the public preview projection from the
-// compiler-owned ordered output schema, restricted to columns the PostgreSQL
-// command actually declares; with no schema it publishes the whole declared
-// contract (there is no internal marking to honor). Compiler-only internal
-// projections never appear: an empty public intersection is returned as-is
-// and the caller refuses the selection rather than leaking internals.
-func publicPostgreSQLColumns(schema []lower.CompiledOutputColumn, declared []string) []string {
-	if len(schema) == 0 {
-		return append([]string(nil), declared...)
-	}
-	declaredSet := make(map[string]struct{}, len(declared))
-	for _, column := range declared {
-		declaredSet[column] = struct{}{}
-	}
-	public := make([]string, 0, len(declared))
-	for _, column := range schema {
-		if column.Internal {
-			continue
-		}
-		if _, ok := declaredSet[column.Name]; !ok {
-			continue
-		}
-		public = append(public, column.Name)
-	}
-	return public
-}
-
-// postgreSQLCommandFingerprint is the stable plan fingerprint for a
-// PostgreSQL-served output, computed over the tagged statement SQL, its
-// ordered typed arguments, and the declared result column contract. The
-// fingerprint is diagnostic-safe (no row data) and deterministic.
-func postgreSQLCommandFingerprint(sqlText string, args []command.PostgreSQLParameter, columns []string) string {
-	payload, err := json.Marshal(struct {
-		SQL     string
-		Args    []command.PostgreSQLParameter
-		Columns []string
-	}{SQL: sqlText, Args: args, Columns: columns})
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(payload)
-	return hex.EncodeToString(digest[:])
 }
 
 func requiresRestrictedRowAuthPathCapture(output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) bool {
@@ -1284,16 +1187,11 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			return PreviewSummary{}, err
 		}
 	}
-	if postgreSQLPreview {
-		// The PostgreSQL adapter already refuses a non-PostgreSQL tag; the
-		// AQL preview executor is never substituted into a PostgreSQL
-		// stream, and the PostgreSQL preview executor only replaces the
-		// PostgreSQL full-stream executor.
-		if e.previewPostgreSQLQueryRows != nil {
-			stream.postgreSQLQueryRows = e.previewPostgreSQLQueryRows
-		}
-	} else if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
-		stream.stream = e.previewQueryRows
+	if stream.physicalEngine != ir.PhysicalEngineClickHouse {
+		// Previews take the one optional preview port; it already falls back
+		// to the full source port at construction. The port performs the
+		// exhaustive tag check, so no per-backend substitution happens here.
+		stream.sourceRows = e.previewSourceRows
 	}
 	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
 		return PreviewSummary{}, err
@@ -1687,34 +1585,47 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 			return s.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)
 		})
 	}
-	// Exhaustive tag dispatch: one command tag selects exactly one adapter,
-	// and no branch extracts loose query text or bind maps from the command.
-	// A zero or unknown tag fails closed before any adapter callback runs.
-	switch s.command.Backend() {
-	case command.CompiledBackendPostgreSQL:
-		// The PostgreSQL stream consumes only the parent-tagged command
-		// through the PostgreSQL row executor. The neutral query-memory
-		// budget is an Arango-honored policy and is never attached here, and
-		// the AQL root-key page loop never runs for a PostgreSQL plan.
-		if s.postgreSQLQueryRows == nil {
-			return fmt.Errorf("%w: PostgreSQL stream %q has no PostgreSQL row executor; PostgreSQL requests never fall back to AQL",
-				command.ErrCompiledCommandBackendNotRegistered, s.Name)
+	// One port, one request: execution forwards the parent-tagged command,
+	// the declared column contract, and the batch hint without extracting
+	// loose query text, bind maps, SQL, or arguments. The adapter performs
+	// exhaustive tag dispatch and fails a zero, unknown, or unserved tag
+	// with a typed error before any driver call.
+	if s.sourceRows == nil {
+		return fmt.Errorf("%w: stream %q has no source row port",
+			command.ErrCompiledCommandBackendNotRegistered, s.Name)
+	}
+	streamRequest := func(cmd command.CompiledCommand) RowsRequest {
+		return RowsRequest{Command: cmd, DeclaredColumns: append([]string(nil), s.commandColumns...), BatchSize: s.batchSize}
+	}
+	// Envelope guard: the command must still carry the selected target's
+	// tag. This is identity verification of the composition invariant, not
+	// a dialect switch: a zero tag names no adapter at all, and a tag that
+	// differs from the selected target could only come from a broken
+	// selection, so it is refused before the port is consulted. The port
+	// adapter still performs its own exhaustive tag dispatch first.
+	if s.command.Backend() == "" {
+		return fmt.Errorf("%w: stream %q carries an unregistered backend tag",
+			command.ErrCompiledCommandBackendNotRegistered, s.Name)
+	}
+	if s.expectedBackend != "" && s.command.Backend() != s.expectedBackend {
+		return fmt.Errorf("%w: stream %q command is tagged %q while the selected target serves %q",
+			command.ErrCompiledCommandBackendMismatch, s.Name, string(s.command.Backend()), string(s.expectedBackend))
+	}
+	if s.command.Backend() == command.CompiledBackendPostgreSQL && len(s.commandColumns) == 0 {
+		return fmt.Errorf("stream %q: PostgreSQL command requires a non-empty declared result column contract", s.Name)
+	}
+	// The neutral query-memory budget and the root-key page loop are
+	// Arango-honored policies: they attach only to AQL-tagged commands.
+	// The PostgreSQL route streams its single parent-tagged statement with
+	// neither, even if a construction leak set the fields.
+	if s.command.Backend() != command.CompiledBackendAQL || s.page == nil || s.rootPageRows == 0 {
+		if s.command.Backend() == command.CompiledBackendAQL && s.queryMemoryLimit > 0 {
+			ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
 		}
-		return s.postgreSQLQueryRows(ctx, s.command, s.commandColumns, visit)
-	case command.CompiledBackendAQL:
-		if s.stream == nil {
-			return fmt.Errorf("%w: AQL stream %q has no AQL row adapter registered",
-				command.ErrCompiledCommandBackendNotRegistered, s.Name)
-		}
-	default:
-		return fmt.Errorf("%w: stream %q carries a command with unregistered backend %q; only registered compiled command backends execute",
-			command.ErrCompiledCommandBackendNotRegistered, s.Name, string(s.command.Backend()))
+		return s.sourceRows(ctx, streamRequest(s.command), visit)
 	}
 	if s.queryMemoryLimit > 0 {
 		ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
-	}
-	if s.page == nil || s.rootPageRows == 0 {
-		return s.stream(ctx, s.command, s.batchSize, visit)
 	}
 	after := ""
 	pageRows := s.rootPageRows
@@ -1730,7 +1641,7 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 		if keyBindErr != nil {
 			return keyBindErr
 		}
-		if err := s.stream(ctx, keyCommand, s.batchSize, func(row map[string]any) error {
+		if err := s.sourceRows(ctx, streamRequest(keyCommand), func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("root-key page returned an invalid _key")
@@ -1753,7 +1664,7 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 			return rowBindErr
 		}
 		emitted := 0
-		if err := s.stream(ctx, rowCommand, s.batchSize, func(row map[string]any) error {
+		if err := s.sourceRows(ctx, streamRequest(rowCommand), func(row map[string]any) error {
 			emitted++
 			return visit(row)
 		}); err != nil {

@@ -3,6 +3,7 @@ package execution
 import (
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
@@ -35,7 +36,7 @@ func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 		t.Fatalf("build AQL command: %v", err)
 	}
 	plan := ir.PhysicalPlan{Version: 1, Engine: ir.PhysicalEngineAQL}
-	got := CompiledQueryFingerprint(CompiledQuery{PhysicalPlan: plan, Command: aqlCommand})
+	got := CompiledQueryFingerprint(compiler.CompiledQuery{PhysicalPlan: plan, Command: aqlCommand})
 	if got != wantAQL {
 		t.Fatalf("AQL fingerprint drifted from the byte golden: got %s want %s", got, wantAQL)
 	}
@@ -49,7 +50,7 @@ func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build flipped command: %v", err)
 	}
-	if breakOne := CompiledQueryFingerprint(CompiledQuery{PhysicalPlan: plan, Command: flipped}); breakOne == wantAQL {
+	if breakOne := CompiledQueryFingerprint(compiler.CompiledQuery{PhysicalPlan: plan, Command: flipped}); breakOne == wantAQL {
 		t.Fatalf("single-byte query flip did not change the digest: %s", breakOne)
 	}
 	pgCommand, err := command.NewPostgreSQLCommand("SELECT id FROM t WHERE p = $1",
@@ -57,17 +58,17 @@ func TestCompiledQueryFingerprintByteGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build PostgreSQL command: %v", err)
 	}
-	if got := CompiledQueryFingerprint(CompiledQuery{PhysicalPlan: plan, Command: pgCommand}); got != wantEmpty {
+	if got := CompiledQueryFingerprint(compiler.CompiledQuery{PhysicalPlan: plan, Command: pgCommand}); got != wantEmpty {
 		t.Fatalf("PostgreSQL-tagged command must contribute the pinned empty AQL shape: got %s want %s", got, wantEmpty)
 	}
-	if got := CompiledQueryFingerprint(CompiledQuery{PhysicalPlan: plan}); got != wantEmpty {
+	if got := CompiledQueryFingerprint(compiler.CompiledQuery{PhysicalPlan: plan}); got != wantEmpty {
 		t.Fatalf("untagged command must contribute the pinned empty AQL shape: got %s want %s", got, wantEmpty)
 	}
 }
 
 func TestCompiledQueryFingerprintExcludesBindValues(t *testing.T) {
 	query := "FOR root IN Patient FILTER root.id == @id RETURN root"
-	left := CompiledQuery{Command: mustAQLCommand(query, map[string]any{"id": "one"}), Columns: []string{"id"}}
+	left := compiler.CompiledQuery{Command: mustAQLCommand(query, map[string]any{"id": "one"}), Columns: []string{"id"}}
 	right := left
 	// Commands are immutable; the value-varied and key-varied plans rebuild
 	// the tagged command rather than mutating shared bind state.
@@ -90,8 +91,8 @@ func TestCompiledQueryFingerprintKeepsPostgreSQLShapeIndependentOfText(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	left := CompiledQuery{Command: first, Columns: []string{"id"}}
-	right := CompiledQuery{Command: second, Columns: []string{"id"}}
+	left := compiler.CompiledQuery{Command: first, Columns: []string{"id"}}
+	right := compiler.CompiledQuery{Command: second, Columns: []string{"id"}}
 	if got, want := CompiledQueryFingerprint(left), CompiledQueryFingerprint(right); got != want {
 		t.Fatalf("PostgreSQL plan fingerprint must keep the pre-boundary empty AQL shape: left=%q right=%q", got, want)
 	}

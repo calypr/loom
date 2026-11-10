@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
@@ -17,7 +18,7 @@ import (
 // PostgreSQL-tagged or untagged command contributes the same empty shape the
 // pre-boundary fingerprint computed for those plans, so the hash input is
 // byte-identical.
-func CompiledQueryFingerprint(compiled CompiledQuery) string {
+func CompiledQueryFingerprint(compiled compiler.CompiledQuery) string {
 	var queryText string
 	var bindVars map[string]any
 	if compiled.Command.Backend() == command.CompiledBackendAQL {

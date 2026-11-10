@@ -54,7 +54,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"net/http"
 	"os"
 	"reflect"
@@ -328,22 +327,22 @@ func (r *c19RowStore) observations() (int, []int) {
 	return r.calls, append([]int(nil), r.batches...)
 }
 
-// previewRows is the engine's PreviewQueryRows seam. Each row is deep-copied before the
-// visitor sees it, because the engine writes the stable row identity into the map it is
-// given (internal/dataframe/execution/engine.go:1754-1783); the authored fixture must stay
-// unchanged so one row set can drive several previews. A visitor error (the engine signals
-// its limit that way, internal/dataframe/execution/engine.go:1098-1101) stops the walk
+// previewRows is the engine's preview lane of the single SourceRows port.
+// Each row is deep-copied before the visitor sees it, because the engine
+// writes the stable row identity into the map it is given; the authored
+// fixture must stay unchanged so one row set can drive several previews. A
+// visitor error (the engine signals its limit that way) stops the walk
 // immediately, like a real backend cursor would.
-func (r *c19RowStore) previewRows() dataframeexecution.QueryRows {
-	return func(_ context.Context, command command.CompiledCommand, batch int, visit dataframeexecution.RowVisitor) error {
-		_, _, deriveErr := command.AQLParameters()
+func (r *c19RowStore) previewRows() dataframeexecution.SourceRows {
+	return func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		_, _, deriveErr := request.Command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
 		}
 
 		r.mu.Lock()
 		r.calls++
-		r.batches = append(r.batches, batch)
+		r.batches = append(r.batches, request.BatchSize)
 		pending := append([]map[string]any(nil), r.rows...)
 		r.mu.Unlock()
 		for _, row := range pending {
@@ -410,14 +409,15 @@ func c19NewFixture(t *testing.T) (*coreProtocolFixture, *c19RowStore) {
 	rows := &c19RowStore{}
 	// Compile-time row reads stay empty: C19 claims nothing about compile-time execution,
 	// and a non-empty read here would be indistinguishable from a preview read.
-	emptyRows := func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	emptyRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		command := request.Command
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
 		}
 		return nil
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: emptyRows, PreviewQueryRows: rows.previewRows()})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: emptyRows, PreviewSourceRows: rows.previewRows()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1104,14 +1104,15 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 		t.Fatal(err)
 	}
 	rows := &c19RowStore{}
-	emptyRows := func(ctx context.Context, command command.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+	emptyRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		command := request.Command
 		_, _, deriveErr := command.AQLParameters()
 		if deriveErr != nil {
 			return deriveErr
 		}
 		return nil
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, QueryRows: emptyRows, PreviewQueryRows: rows.previewRows()})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: emptyRows, PreviewSourceRows: rows.previewRows()})
 	if err != nil {
 		t.Fatal(err)
 	}

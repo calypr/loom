@@ -29,9 +29,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -315,7 +315,7 @@ func TestPostgresExplainWiringNilExecutorFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = explainPostgreSQLCompiledQuery(context.Background(), nil, dataframeexecution.CompiledQuery{Command: compiledCommand})
+	_, err = explainPostgreSQLCompiledQuery(context.Background(), nil, compiler.CompiledQuery{Command: compiledCommand})
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
 		t.Fatalf("unwired PostgreSQL Explain must fail with a typed error: %v", err)
@@ -343,7 +343,7 @@ func TestPostgresExplainWiringCrossTagRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := explainCompiledQuery(context.Background(), nil, dataframeexecution.CompiledQuery{Command: pgCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+	if _, err := explainCompiledQuery(context.Background(), nil, compiler.CompiledQuery{Command: pgCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("PG-tagged command into the Arango surface: %v", err)
 	}
 	// The EXPLAIN runner builder refuses a nil querier rather than
@@ -362,7 +362,7 @@ func TestPostgresExplainWiringCrossTagRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := explainPostgreSQLCompiledQuery(context.Background(), runner, dataframeexecution.CompiledQuery{Command: aqlCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+	if _, err := explainPostgreSQLCompiledQuery(context.Background(), runner, compiler.CompiledQuery{Command: aqlCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("AQL-tagged command into the PostgreSQL surface: %v", err)
 	}
 	if querierCalled {
@@ -398,7 +398,7 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assessment, err := explainPostgreSQLCompiledQuery(s.ctx, runner, dataframeexecution.CompiledQuery{Command: compiledCommand})
+	assessment, err := explainPostgreSQLCompiledQuery(s.ctx, runner, compiler.CompiledQuery{Command: compiledCommand})
 	if err != nil {
 		s.fail("live explain through server wiring", err)
 	}
@@ -422,7 +422,7 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	indexed, err := explainPostgreSQLCompiledQuery(s.ctx, runner, dataframeexecution.CompiledQuery{Command: indexedCommand})
+	indexed, err := explainPostgreSQLCompiledQuery(s.ctx, runner, compiler.CompiledQuery{Command: indexedCommand})
 	if err != nil {
 		s.fail("live indexed explain through server wiring", err)
 	}
@@ -465,7 +465,7 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if err != nil {
 		s.fail("build production plan executor", err)
 	}
-	_, err = explainPostgreSQLCompiledQuery(s.ctx, planExecutor, dataframeexecution.CompiledQuery{Command: indexedCommand})
+	_, err = explainPostgreSQLCompiledQuery(s.ctx, planExecutor, compiler.CompiledQuery{Command: indexedCommand})
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok || userErr.Code() != string(dataframeerrors.CodeInternalError) {
 		t.Fatalf("permission-denied EXPLAIN must carry the boundary internal classification: %v", err)

@@ -75,7 +75,7 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 			if err != nil {
 				t.Fatal(err)
 			}
-			lineage, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+			lineage, err := CompileRowLineageOutput(ArangoTarget(), compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatalf("compile Pivot row lineage: %v", err)
 			}
@@ -137,7 +137,7 @@ func TestConstructionPivotRowLineagePagesTypedGroupPreimageAgainstArango(t *test
 	rowID := string(rowIDBytes)
 	compilePage := func(requestedRowID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiledOutput, requestedRowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), compiledOutput, requestedRowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile Pivot row-lineage page at %d: %v", offset, compileErr)
 		}

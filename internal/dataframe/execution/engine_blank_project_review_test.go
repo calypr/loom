@@ -3,7 +3,6 @@ package execution
 import (
 	"context"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -31,7 +30,8 @@ func TestEngineResolveBlankProjectDirectClassification(t *testing.T) {
 	engine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      registry,
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -78,7 +78,8 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	engine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      registry,
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr
@@ -117,7 +118,8 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	divergeEngine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      divergeRegistry,
-		QueryRows: func(_ context.Context, command command.CompiledCommand, _ int, _ RowVisitor) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
 			_, _, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

@@ -12,7 +12,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	compilerIR "github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
@@ -147,7 +146,9 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 	engine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      invalidRecipeRegistry{}, ScopeDigest: func(recipe.RuntimeBindings) string { return "scope" }, RootPageRows: 1,
-		QueryRows: func(queryCtx context.Context, command command.CompiledCommand, batchSize int, visit RowVisitor) error {
+		SourceRows: func(queryCtx context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			batchSize := request.BatchSize
 			query, bindVars, dispatchErr := command.AQLParameters()
 			if dispatchErr != nil {
 				return dispatchErr

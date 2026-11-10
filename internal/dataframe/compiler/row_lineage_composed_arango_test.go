@@ -216,7 +216,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	}
 	page := func(offset int) map[string]any {
 		t.Helper()
-		compiled, compileErr := CompileRowLineageOutput(output, fullRowID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), output, fullRowID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile composed row lineage at offset %d: %v", offset, compileErr)
 		}
@@ -253,7 +253,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		if oracle["observation_id"] != nil || oracle["returned_specimen_id"] != nil {
 			t.Fatalf("empty oracle row unexpectedly has related terminals: %#v", oracle)
 		}
-		compiled, compileErr := CompileRowLineageOutput(output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile preserved-empty composed lineage: %v", compileErr)
 		}
@@ -277,7 +277,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		"not-json",
 	}
 	for _, forged := range forgedRows {
-		compiled, compileErr := CompileRowLineageOutput(output, forged, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), output, forged, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile fail-closed composed identity %q: %v", forged, compileErr)
 		}

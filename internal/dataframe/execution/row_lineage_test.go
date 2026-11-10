@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 32, queryRows: func(_ context.Context, command command.CompiledCommand, batchSize int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 32, sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		batchSize := request.BatchSize
 		query, binds, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -40,7 +41,8 @@ func TestRowLineagePageIsBoundedAndKeepsOccurrenceIdentity(t *testing.T) {
 }
 
 func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testing.T) {
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -54,7 +56,8 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 	if !errors.Is(err, ErrRowLineageRowNotFound) {
 		t.Fatalf("keyed zero-match Group error = %v, want row not found", err)
 	}
-	engine.queryRows = func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine.sourceRows = func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
@@ -74,7 +77,8 @@ func TestRowLineageDistinguishesMissingKeyedGroupFromEmptyKeylessGroup(t *testin
 }
 
 func TestRowLineageRejectsQueryResultsLargerThanRequestedPage(t *testing.T) {
-	engine := &Engine{compileTarget: compiler.ArangoTarget(), queryRows: func(_ context.Context, command command.CompiledCommand, _ int, visit RowVisitor) error {
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
 		_, _, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr

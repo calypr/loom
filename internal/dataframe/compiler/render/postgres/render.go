@@ -67,6 +67,21 @@ var ErrInvalidPostgresPlanScope = errors.New("postgres renderer: invalid plan sc
 // JSONB payload path and is bound as one whole text-path parameter. Storage
 // identity sequences (resource_seq, edge_seq) are reserved for
 // renderer-generated ordering and are never user-addressable columns.
+// canonicalKeyColumn maps the Arango document-key references the shared
+// lowering path uses (root "_key" and root document "id") onto the storage
+// column that carries the same validated identity in the PostgreSQL store.
+// Within one scoped root scan the generation-qualified key derives from the
+// natural identity, so logical_id ordering and equality match the Arango
+// document-key semantics exactly.
+func canonicalKeyColumn(path string) string {
+	switch path {
+	case "_key", "id":
+		return "logical_id"
+	default:
+		return path
+	}
+}
+
 var resourceFilterColumns = map[string]bool{
 	"project":            true,
 	"dataset_generation": true,
@@ -127,9 +142,10 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	}
 
 	renderer := &planRenderer{
-		storage:    storage,
-		rows:       map[string]rowScope{},
-		parameters: map[string]int{},
+		storage:           storage,
+		rows:              map[string]rowScope{},
+		parameters:        map[string]int{},
+		canonicalAuthLets: map[string]string{},
 	}
 	if err := renderer.loadScope(plan); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
@@ -166,6 +182,11 @@ type planRenderer struct {
 	// reference one placeholder.
 	parameters map[string]int
 	rows       map[string]rowScope
+	// canonicalAuthLets maps each dropped canonical AUTH_RESOURCE_PATH_ALLOWED
+	// LET variable to the registered scope row it was proven over
+	// (scope_ops.go). The LET and its closing equality carry no PostgreSQL
+	// meaning; loadScope owns the scope.
+	canonicalAuthLets map[string]string
 
 	// scope is the re-read canonical scope established by loadScope (its
 	// definition and predicate mapping live in scope.go).
@@ -232,11 +253,33 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if phase != 0 {
 				return fmt.Errorf("%w: filters must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
+			canonical, err := r.acceptCanonicalScopeFilter(operation.Filter)
+			if err != nil {
+				return err
+			}
+			if canonical {
+				// loadScope already enforces this predicate from the
+				// re-read canonical binds; the plan operation adds nothing.
+				continue
+			}
 			clause, err := r.renderFilter(plan, *operation.Filter)
 			if err != nil {
 				return err
 			}
 			r.where = append(r.where, clause)
+		case ir.PhysicalDerivedLetOp:
+			if phase != 0 {
+				return fmt.Errorf("%w: derived lets must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			canonical, err := r.acceptCanonicalAuthLet(operation.DerivedLet)
+			if err != nil {
+				return err
+			}
+			if canonical {
+				continue
+			}
+			return fmt.Errorf("%w: operation %q is not part of the v1 PostgreSQL render surface",
+				ErrUnsupportedPostgresPlan, string(operation.Kind))
 		case ir.PhysicalTraversalOp:
 			if phase != 0 {
 				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)
@@ -410,7 +453,7 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 		return r.resolveDerivedValue(value, scope)
 	}
 	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
-		return scope.alias + "." + r.storage.Resource.MustColumn(value.Path[0]).SQLText(), nil
+		return scope.alias + "." + r.storage.Resource.MustColumn(canonicalKeyColumn(value.Path[0])).SQLText(), nil
 	}
 	return r.documentPathExpression(scope.alias, value.Path)
 }
@@ -425,11 +468,16 @@ func (r *planRenderer) renderSort(sort ir.PhysicalSort) error {
 		if !ok {
 			return fmt.Errorf("%w: sort variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, key.Variable)
 		}
-		if key.BindKey != "" || len(key.Path) != 1 || !resourceFilterColumns[key.Path[0]] {
+		if len(key.Path) != 1 {
 			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
 				ErrUnsupportedPostgresPlan)
 		}
-		r.orderBy = append(r.orderBy, scope.alias+"."+r.storage.Resource.MustColumn(key.Path[0]).SQLText()+" ASC")
+		column := canonicalKeyColumn(key.Path[0])
+		if key.BindKey != "" || !resourceFilterColumns[column] {
+			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
+				ErrUnsupportedPostgresPlan)
+		}
+		r.orderBy = append(r.orderBy, scope.alias+"."+r.storage.Resource.MustColumn(column).SQLText()+" ASC")
 	}
 	return nil
 }

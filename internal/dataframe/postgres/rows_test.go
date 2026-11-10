@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	"strings"
 	"testing"
 	"time"
@@ -173,7 +174,7 @@ func TestNewExecutorRejectsNilQuerier(t *testing.T) {
 	requireNamed(t, err, ErrInvalidExecution, "querier is required")
 }
 
-func TestQueryRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
+func TestSourceRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
 	pgSQL := mustPostgreSQLCommand(t, `SELECT id FROM t WHERE id = $1`,
 		command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(1)})
 	validVisit := func(map[string]any) error { return nil }
@@ -199,7 +200,7 @@ func TestQueryRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = executor.QueryRows(tc.ctx, pgSQL, tc.columns, tc.visit)
+			err = executor.SourceRows(tc.ctx, execution.RowsRequest{Command: pgSQL, DeclaredColumns: tc.columns}, tc.visit)
 			requireNamed(t, err, tc.wantSentinel, tc.want...)
 			if querier.calls != 0 {
 				t.Fatalf("guard let the statement reach the driver (%d calls)", querier.calls)
@@ -214,7 +215,7 @@ func TestQueryRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.QueryRows(context.Background(), pgSQL, []string{"id"}, validVisit); err != nil {
+	if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: pgSQL, DeclaredColumns: []string{"id"}}, validVisit); err != nil {
 		t.Fatalf("control request refused: %v", err)
 	}
 	if querier.calls != 1 {
@@ -223,12 +224,12 @@ func TestQueryRowsRequestGuardsRefuseBeforeQuerier(t *testing.T) {
 
 	// Zero-value executor fails closed the same way.
 	var zero Executor
-	if err := zero.QueryRows(context.Background(), pgSQL, []string{"id"}, validVisit); err == nil || !errors.Is(err, ErrInvalidExecution) {
+	if err := zero.SourceRows(context.Background(), execution.RowsRequest{Command: pgSQL, DeclaredColumns: []string{"id"}}, validVisit); err == nil || !errors.Is(err, ErrInvalidExecution) {
 		t.Fatalf("zero-value executor did not refuse: %v", err)
 	}
 }
 
-func TestQueryRowsDispatchIsBackendTagged(t *testing.T) {
+func TestSourceRowsDispatchIsBackendTagged(t *testing.T) {
 	visit := func(map[string]any) error { return nil }
 	const sql = `SELECT id FROM t`
 
@@ -239,7 +240,7 @@ func TestQueryRowsDispatchIsBackendTagged(t *testing.T) {
 		}
 		querier := &recordingQuerier{}
 		executor, _ := NewExecutor(querier)
-		err = executor.QueryRows(context.Background(), aql, []string{"id"}, visit)
+		err = executor.SourceRows(context.Background(), execution.RowsRequest{Command: aql, DeclaredColumns: []string{"id"}}, visit)
 		requireNamed(t, err, command.ErrCompiledCommandBackendMismatch, "refusing to pass AQL query to the PostgreSQL statement executor")
 		if querier.calls != 0 {
 			t.Fatalf("rendered AQL reached the PostgreSQL driver (%d calls)", querier.calls)
@@ -249,7 +250,7 @@ func TestQueryRowsDispatchIsBackendTagged(t *testing.T) {
 	t.Run("zero-value command is refused as unregistered", func(t *testing.T) {
 		querier := &recordingQuerier{}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(context.Background(), command.CompiledCommand{}, []string{"id"}, visit)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: command.CompiledCommand{}, DeclaredColumns: []string{"id"}}, visit)
 		requireNamed(t, err, command.ErrCompiledCommandBackendNotRegistered, `unregistered backend ""`)
 		if querier.calls != 0 {
 			t.Fatalf("unregistered tag reached the driver (%d calls)", querier.calls)
@@ -259,7 +260,7 @@ func TestQueryRowsDispatchIsBackendTagged(t *testing.T) {
 	// Control: the same statement tagged POSTGRESQL dispatches.
 	querier := &recordingQuerier{rows: &scriptedRows{fds: []pgconn.FieldDescription{textFD("id")}}}
 	executor, _ := NewExecutor(querier)
-	if err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, sql), []string{"id"}, visit); err != nil {
+	if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, sql), DeclaredColumns: []string{"id"}}, visit); err != nil {
 		t.Fatalf("tagged PostgreSQL control refused: %v", err)
 	}
 	if querier.calls != 1 || querier.lastSQL != sql {
@@ -267,7 +268,7 @@ func TestQueryRowsDispatchIsBackendTagged(t *testing.T) {
 	}
 }
 
-func TestQueryRowsStatementShapeGuards(t *testing.T) {
+func TestSourceRowsStatementShapeGuards(t *testing.T) {
 	visit := func(map[string]any) error { return nil }
 	bigint := func(v int64) command.PostgreSQLParameter {
 		return command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: v}
@@ -294,7 +295,7 @@ func TestQueryRowsStatementShapeGuards(t *testing.T) {
 			// the placeholder/argument agreement; the shape guard is the
 			// adapter's own and must fire on every hole.
 			compiledCommand := mustPostgreSQLCommand(t, tc.sql, tc.args...)
-			err := executor.QueryRows(context.Background(), compiledCommand, []string{"id"}, visit)
+			err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"id"}}, visit)
 			requireNamed(t, err, ErrMalformedStatement, tc.wantName)
 			if querier.calls != 0 {
 				t.Fatalf("malformed statement reached the driver (%d calls)", querier.calls)
@@ -313,7 +314,7 @@ func TestQueryRowsStatementShapeGuards(t *testing.T) {
 	} {
 		querier := &recordingQuerier{rows: &scriptedRows{fds: []pgconn.FieldDescription{textFD("id")}}}
 		executor, _ := NewExecutor(querier)
-		if err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, control.sql, control.args...), []string{"id"}, visit); err != nil {
+		if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, control.sql, control.args...), DeclaredColumns: []string{"id"}}, visit); err != nil {
 			t.Fatalf("well-formed statement %q refused: %v", control.sql, err)
 		}
 		if querier.calls != 1 {
@@ -353,7 +354,7 @@ func TestBindParametersCanonicalizesEveryDeclaredType(t *testing.T) {
 			querier := &recordingQuerier{rows: &scriptedRows{fds: []pgconn.FieldDescription{textFD("x")}}}
 			executor, _ := NewExecutor(querier)
 			compiledCommand := mustPostgreSQLCommand(t, `SELECT $1`, tc.param)
-			if err := executor.QueryRows(context.Background(), compiledCommand, []string{"x"}, func(map[string]any) error { return nil }); err != nil {
+			if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"x"}}, func(map[string]any) error { return nil }); err != nil {
 				t.Fatalf("valid parameter refused: %v", err)
 			}
 			if len(querier.lastArgs) != 1 {
@@ -424,7 +425,7 @@ func TestBindParametersRefusesEveryTypeViolation(t *testing.T) {
 			querier := &recordingQuerier{}
 			executor, _ := NewExecutor(querier)
 			compiledCommand := mustPostgreSQLCommand(t, `SELECT $1`, tc.param)
-			err := executor.QueryRows(context.Background(), compiledCommand, []string{"x"}, visit)
+			err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: compiledCommand, DeclaredColumns: []string{"x"}}, visit)
 			requireNamed(t, err, ErrInvalidParameter, "argument 1", string(tc.param.Type), tc.wantName)
 			if querier.calls != 0 {
 				t.Fatalf("invalid parameter reached the driver (%d calls)", querier.calls)
@@ -463,7 +464,7 @@ func TestBindParameterRefusesWhatTheCompilerConstructorAlsoRefuses(t *testing.T)
 // Column contract, decoding, and stream lifecycle.
 // ---------------------------------------------------------------------------
 
-func TestQueryRowsEnforcesTheColumnContract(t *testing.T) {
+func TestSourceRowsEnforcesTheColumnContract(t *testing.T) {
 	querier := &recordingQuerier{rows: &scriptedRows{
 		fds: []pgconn.FieldDescription{textFD("id"), jsonbFD("payload")},
 		rowValues: [][]any{
@@ -475,13 +476,11 @@ func TestQueryRowsEnforcesTheColumnContract(t *testing.T) {
 	visit := func(map[string]any) error { visits++; return nil }
 
 	// Wrong-name probe: a declaration that differs only in case is refused.
-	err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id, payload FROM t`),
-		[]string{"Id", "payload"}, visit)
+	err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id, payload FROM t`), DeclaredColumns: []string{"Id", "payload"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, `column 1 is "id", contract declares "Id"`)
 
 	// Count mismatch probe.
-	err = executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id, payload FROM t`),
-		[]string{"id"}, visit)
+	err = executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id, payload FROM t`), DeclaredColumns: []string{"id"}}, visit)
 	requireNamed(t, err, ErrColumnContractMismatch, "returns 2 column(s), contract declares 1")
 
 	if visits != 0 {
@@ -498,8 +497,7 @@ func TestQueryRowsEnforcesTheColumnContract(t *testing.T) {
 		rowValues: [][]any{{[]byte("1"), []byte(`{}`)}},
 	}
 	querier.rows = rows2
-	if err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id, payload FROM t`),
-		[]string{"id", "payload"}, visit); err != nil {
+	if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id, payload FROM t`), DeclaredColumns: []string{"id", "payload"}}, visit); err != nil {
 		t.Fatalf("exact contract refused: %v", err)
 	}
 	if visits != 1 {
@@ -510,7 +508,7 @@ func TestQueryRowsEnforcesTheColumnContract(t *testing.T) {
 	}
 }
 
-func TestQueryRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
+func TestSourceRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 	midnight := time.Date(2026, 2, 13, 0, 0, 0, 0, time.UTC)
 	sharedJSON := []byte(`{"k": 1}`)
 	sharedBytes := []byte("raw")
@@ -535,12 +533,10 @@ func TestQueryRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 	executor, _ := NewExecutor(querier)
 
 	var visited []map[string]any
-	err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT label, count, ratio, flag, day, payload, note, blob FROM t`),
-		[]string{"label", "count", "ratio", "flag", "day", "payload", "note", "blob"},
-		func(row map[string]any) error {
-			visited = append(visited, row)
-			return nil
-		})
+	err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT label, count, ratio, flag, day, payload, note, blob FROM t`), DeclaredColumns: []string{"label", "count", "ratio", "flag", "day", "payload", "note", "blob"}}, func(row map[string]any) error {
+		visited = append(visited, row)
+		return nil
+	})
 	if err != nil {
 		t.Fatalf("stream failed: %v", err)
 	}
@@ -592,7 +588,7 @@ func TestQueryRowsDecodesRowsIntoCopiedMaps(t *testing.T) {
 	}
 }
 
-func TestQueryRowsVisitorErrorStopsIterationAndClosesRows(t *testing.T) {
+func TestSourceRowsVisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 	boom := errors.New("visitor boom")
 	rows := &scriptedRows{
 		fds:       []pgconn.FieldDescription{textFD("id")},
@@ -602,14 +598,13 @@ func TestQueryRowsVisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 	executor, _ := NewExecutor(querier)
 
 	visits := 0
-	err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"},
-		func(map[string]any) error {
-			visits++
-			if visits == 2 {
-				return boom
-			}
-			return nil
-		})
+	err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, func(map[string]any) error {
+		visits++
+		if visits == 2 {
+			return boom
+		}
+		return nil
+	})
 	if !errors.Is(err, boom) || err != boom {
 		t.Fatalf("visitor error was altered: %#v", err)
 	}
@@ -624,8 +619,7 @@ func TestQueryRowsVisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 	rows2 := &scriptedRows{fds: rows.fds, rowValues: rows.rowValues}
 	querier.rows = rows2
 	full := 0
-	if err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"},
-		func(map[string]any) error { full++; return nil }); err != nil {
+	if err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, func(map[string]any) error { full++; return nil }); err != nil {
 		t.Fatalf("control stream failed: %v", err)
 	}
 	if full != 3 || !rows2.closed {
@@ -633,7 +627,7 @@ func TestQueryRowsVisitorErrorStopsIterationAndClosesRows(t *testing.T) {
 	}
 }
 
-func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
+func TestSourceRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 	visit := func(map[string]any) error { return nil }
 	fds := []pgconn.FieldDescription{textFD("id")}
 
@@ -641,7 +635,7 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 		pgErr := &pgconn.PgError{Code: "57014", Message: "query_canceled"}
 		querier := &recordingQuerier{rows: &scriptedRows{fds: fds, err: pgErr}}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, visit)
 		requireNamed(t, err, ErrQuery, "rows:")
 		var translated *storepostgres.TranslatedError
 		if !errors.As(err, &translated) || translated.Condition != storepostgres.ConditionQueryCanceled || translated.SQLState != "57014" {
@@ -657,7 +651,7 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 		scanErr := errors.New("cannot scan")
 		querier := &recordingQuerier{rows: &scriptedRows{fds: fds, rowValues: [][]any{{"x"}}, scanErr: scanErr}}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, visit)
 		requireNamed(t, err, ErrQuery, "scan:")
 		if !errors.Is(err, scanErr) {
 			t.Fatalf("scan error lost the cause: %v", err)
@@ -667,7 +661,7 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 	t.Run("cancellation during rows is errors.Is-compatible", func(t *testing.T) {
 		querier := &recordingQuerier{rows: &scriptedRows{fds: fds, err: context.Canceled}}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, visit)
 		if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrQuery) {
 			t.Fatalf("cancellation not classifiable: %v", err)
 		}
@@ -682,7 +676,7 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 		transportErr := errors.New("conn closed")
 		querier := &recordingQuerier{rows: &scriptedRows{fds: fds, err: transportErr}}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(ctx, mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
+		err := executor.SourceRows(ctx, execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, visit)
 		if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrQuery) {
 			t.Fatalf("post-cancel transport error not pinned to the context error: %v", err)
 		}
@@ -693,7 +687,7 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 		rows := &scriptedRows{fds: fds}
 		querier := &recordingQuerier{rows: rows, queryErr: pgErr, rowsEvenOnError: true}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, visit)
 		requireNamed(t, err, ErrQuery, "query:")
 		var translated *storepostgres.TranslatedError
 		if !errors.As(err, &translated) || translated.Condition != storepostgres.ConditionServerRejected || translated.SQLState != "42P01" {
@@ -711,20 +705,20 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 	t.Run("defensive: nil rows with nil error is a query failure", func(t *testing.T) {
 		querier := &recordingQuerier{}
 		executor, _ := NewExecutor(querier)
-		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
+		err := executor.SourceRows(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT id FROM t`), DeclaredColumns: []string{"id"}}, visit)
 		requireNamed(t, err, ErrQuery, "no result set")
 	})
 }
 
-// TestQueryRowsBoundarySignature pins that the executor method satisfies the
+// TestSourceRowsBoundarySignature pins that the executor method satisfies the
 // execution boundary function type, which is what the engine will hold.
-func TestQueryRowsBoundarySignature(t *testing.T) {
+func TestSourceRowsBoundarySignature(t *testing.T) {
 	executor, err := NewExecutor(&recordingQuerier{rows: &scriptedRows{fds: fdsFor("x")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var boundary QueryRows = executor.QueryRows
-	if err := boundary(context.Background(), mustPostgreSQLCommand(t, `SELECT 1`), []string{"x"},
+	var boundary execution.SourceRows = executor.SourceRows
+	if err := boundary(context.Background(), execution.RowsRequest{Command: mustPostgreSQLCommand(t, `SELECT 1`), DeclaredColumns: []string{"x"}},
 		func(map[string]any) error { return nil }); err != nil {
 		t.Fatalf("boundary call failed: %v", err)
 	}
