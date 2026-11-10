@@ -224,9 +224,9 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 	t.Run("unknown_unique_violation_is_not_a_cas_conflict", func(t *testing.T) {
 		pgErr := &pgconn.PgError{
 			Code: "23505", SeverityUnlocalized: "ERROR",
-			Message:    `duplicate key value violates unique constraint "uq_explorer_draft_revision_internal"`,
+			Message:        `duplicate key value violates unique constraint "uq_explorer_draft_revision_internal"`,
 			ConstraintName: "uq_explorer_draft_revision_internal",
-			Detail:     `Key (draft_id)=(42) already exists.`,
+			Detail:         `Key (draft_id)=(42) already exists.`,
 		}
 		translated, ok := postgresstore.TranslateError(fmt.Errorf("postgres rows: query: %w", pgErr))
 		if !ok {

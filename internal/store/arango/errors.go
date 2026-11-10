@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 // isQueryMemoryLimitExceeded reports whether ArangoDB rejected a query because

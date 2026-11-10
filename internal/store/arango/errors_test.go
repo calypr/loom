@@ -15,16 +15,16 @@ import (
 	"testing"
 	"time"
 
-	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 type translateGolden struct {
-	name       string
-	driverErr  shared.ArangoError
-	wantCode   string
-	wantPublic string
+	name        string
+	driverErr   shared.ArangoError
+	wantCode    string
+	wantPublic  string
 	wantDetails map[string]any
 }
 

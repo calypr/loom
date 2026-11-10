@@ -149,7 +149,7 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 	t.Run("unique_violation_never_becomes_a_cas_conflict", func(t *testing.T) {
 		translated := classifiedPostgresFailure(t, &pgconn.PgError{
 			Code: "23505", SeverityUnlocalized: "ERROR",
-			Message:    `duplicate key value violates unique constraint "uq_cas_revision"`,
+			Message:        `duplicate key value violates unique constraint "uq_cas_revision"`,
 			ConstraintName: "uq_cas_revision",
 		})
 		if errors.Is(translated, postgresstore.ErrUniqueConflict) {
