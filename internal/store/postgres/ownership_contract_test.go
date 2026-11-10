@@ -49,7 +49,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/calypr/loom/internal/authscope"
-	"github.com/calypr/loom/internal/catalog"
 	chartifact "github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	chartifactpg "github.com/calypr/loom/internal/dataframe/execution/chartifact/postgres"
 	"github.com/calypr/loom/internal/dataframe/publication"
@@ -62,6 +61,7 @@ import (
 	datasetpg "github.com/calypr/loom/internal/dataset/postgres"
 	"github.com/calypr/loom/internal/explorer"
 	explorerpg "github.com/calypr/loom/internal/explorer/postgres"
+	"github.com/calypr/loom/internal/source"
 	pgstore "github.com/calypr/loom/internal/store/postgres"
 )
 
@@ -701,7 +701,7 @@ func ab05RepresentativeDomainOperations(t *testing.T) {
 			t.Fatalf("bootstrap source: %v", err)
 		}
 		unrestricted := true
-		scope := catalog.PGResourceScope{
+		scope := source.ResourceScope{
 			Project: "verify-ab05", DatasetGeneration: "gen-1",
 			AuthResourcePathsUnrestricted: &unrestricted,
 		}
@@ -709,7 +709,7 @@ func ab05RepresentativeDomainOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resource repository: %v", err)
 		}
-		row := catalog.PGResourceRow{
+		row := source.Resource{
 			Project: scope.Project, DatasetGeneration: scope.DatasetGeneration,
 			ResourceType: "Patient", LogicalID: "pat-1", AuthResourcePath: "fhir/Patient",
 			Payload: json.RawMessage(`{"resourceType":"Patient","id":"pat-1"}`),
