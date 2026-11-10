@@ -155,6 +155,12 @@ func TestChooseGroupPreviewScanRequiresExplainToProveCoveringIndex(t *testing.T)
 			{IndexNames: []string{"loom_pivot_preview_unproven"}, Coverage: PreviewIndexCoverageCovering},
 			{IndexNames: []string{"loom_pivot_preview_unproven"}, Coverage: PreviewIndexCoverageCovering},
 		}}},
+		{name: "enumeration with covering", candidate: PreviewCollectionScanEvidence{
+			FullCollectionEnumeration: true,
+			IndexNodes: []PreviewIndexNodeEvidence{
+				{IndexNames: []string{"loom_pivot_preview_unproven"}, Coverage: PreviewIndexCoverageCovering},
+			},
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			engine, query, stream := compiledGroupPreviewScanFixture(t, recipe.RuntimeBindings{Project: "P1", DatasetGeneration: "G1"})
@@ -519,6 +525,31 @@ func TestChooseGroupPreviewScanFallsBackWhenNotProvenBroadAndNoncovering(t *test
 			name: "collection count error",
 			setup: func(engine *Engine) {
 				engine.previewCollectionCount = func(context.Context, string) (int64, error) { return 0, errors.New("unavailable") }
+			},
+		},
+		{
+			// A broad-scan certification must never be inferred: an
+			// enumeration fact vetoes every decision, and the sequential
+			// fallback needs exactly one certified not-covering node.
+			name: "enumeration with not covering",
+			setup: func(engine *Engine) {
+				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+					return PreviewCollectionScanEvidence{
+						FullCollectionEnumeration: true,
+						IndexNodes:                []PreviewIndexNodeEvidence{{Coverage: PreviewIndexCoverageNotCovering}},
+					}, nil
+				}
+			},
+		},
+		{
+			name: "multiple not covering nodes",
+			setup: func(engine *Engine) {
+				engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+					return PreviewCollectionScanEvidence{IndexNodes: []PreviewIndexNodeEvidence{
+						{Coverage: PreviewIndexCoverageNotCovering},
+						{Coverage: PreviewIndexCoverageNotCovering},
+					}}, nil
+				}
 			},
 		},
 		{
