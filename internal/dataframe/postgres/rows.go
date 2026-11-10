@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -82,13 +83,22 @@ var (
 
 // QueryError wraps one execution-seam failure. errors.Is(err, ErrQuery)
 // classifies it as an execution failure while the cause chain stays intact:
-// errors.As(err, &pgErr) reaches the *pgconn.PgError for SQL errors, and
+// for driver and server failures the As-visible identity is the
+// boundary-classified error — errors.As(err, &translated) reaches the
+// *storepostgres.TranslatedError carrying the stable condition, SQLSTATE,
+// and curated sentinels. The raw *pgconn.PgError is deliberately not
+// As-visible (its message can carry SQL text, constraint names, and
+// identifiers): server-side consumers reach it only through
+// TranslatedError.Cause behind the redaction guards, never via errors.As.
 // errors.Is(err, context.Canceled) / errors.Is(err, context.DeadlineExceeded)
 // still recognize cancellation.
 type QueryError struct {
 	// Op is the failing seam: "query", "scan", or "rows".
 	Op string
-	// Err is the underlying driver, server, or context error.
+	// Err is the cause: a store/postgres boundary-classified error for
+	// driver and server failures, a context error when the caller's
+	// context ended first, or an unchanged error the boundary does not
+	// own.
 	Err error
 }
 
@@ -140,8 +150,11 @@ var _ QueryRows = (*Executor)(nil).QueryRows
 // deadline expiry during execution returns an error that satisfies
 // errors.Is against the matching context error in addition to ErrQuery.
 // Statement, scan, and server errors return a *QueryError that matches
-// ErrQuery and retains the identifiable cause (for example
-// errors.As(err, &*pgconn.PgError{})).
+// ErrQuery and retains the boundary classification as the As-visible
+// identity (for example
+// errors.As(err, &*storepostgres.TranslatedError{})). The raw driver cause
+// is reachable only through TranslatedError.Cause behind the redaction
+// guards, never through errors.As.
 func (e *Executor) QueryRows(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidExecution)
@@ -428,6 +441,16 @@ func decodeColumn(target any) any {
 // context.DeadlineExceeded even when the driver surfaces an unrelated
 // transport error after the abort; otherwise the driver/server error is
 // retained as the cause.
+//
+// Vendor interpretation lives at this adapter boundary (arch-backend-03):
+// driver and server failures first pass through the store/postgres error
+// boundary, so execution above the adapter consumes Loom error identities
+// (stable condition, SQLSTATE, retryability) instead of interpreting
+// *pgconn.PgError fields or message text. The raw driver cause stays
+// reachable server-side only through (*TranslatedError).Cause and is never
+// Is/As-visible or rendered. Errors the boundary does not own pass through
+// unchanged; an already-classified error keeps its identity (double
+// application is stable).
 func classifyExecution(ctx context.Context, op string, err error) error {
 	if err == nil {
 		return nil
@@ -436,6 +459,9 @@ func classifyExecution(ctx context.Context, op string, err error) error {
 		if cause := ctx.Err(); cause != nil && !errors.Is(err, cause) {
 			return &QueryError{Op: op, Err: cause}
 		}
+	}
+	if translated, ok := storepostgres.TranslateError(err); ok {
+		return &QueryError{Op: op, Err: translated}
 	}
 	return &QueryError{Op: op, Err: err}
 }

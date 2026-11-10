@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -113,7 +112,7 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				assessedScopeCountAttempted = projectionScopeCount
 				countCtx := assessmentCtx
 				if projectionScopeCount {
-					countCtx = arango.WithQueryMemoryLimit(assessmentCtx, groupPreviewQueryMemoryLimitBytes)
+					countCtx = WithQueryMemoryBudget(assessmentCtx, groupPreviewQueryMemoryLimitBytes)
 				}
 				scanScopeCount, scanScopeCountKnown := readGroupPreviewCount(countCtx, stream, query.PreviewGroupScan.ScopeCount)
 				if projectionScopeCount && scanScopeCountKnown {
@@ -341,7 +340,7 @@ func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *
 	}
 
 	if !assessedScopeCountKnown && !assessedScopeCountAttempted {
-		countCtx := arango.WithQueryMemoryLimit(ctx, groupPreviewQueryMemoryLimitBytes)
+		countCtx := WithQueryMemoryBudget(ctx, groupPreviewQueryMemoryLimitBytes)
 		assessedScopeCount, assessedScopeCountKnown = readGroupPreviewCount(countCtx, stream, spec.ScopeCount)
 	}
 	if !assessedScopeCountKnown || assessedScopeCount <= 0 {
@@ -351,7 +350,7 @@ func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *
 	if renderErr != nil || assessmentCommand.Backend() != compiler.CompiledBackendAQL {
 		return nil
 	}
-	assessmentCtx := arango.WithQueryMemoryLimit(ctx, groupPreviewQueryMemoryLimitBytes)
+	assessmentCtx := WithQueryMemoryBudget(ctx, groupPreviewQueryMemoryLimitBytes)
 	var sample groupProjectionSample
 	seen := false
 	err := stream.stream(assessmentCtx, assessmentCommand, 1, func(row map[string]any) error {

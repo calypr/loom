@@ -188,9 +188,7 @@ func TestConstructionCountRowsGroupPivotRowLineageMatchesScopedSourcePreimageAga
 	insert([]fixture{{id: "zz_unlisted_other", patient: "Patient/unrelated", project: project, generation: generation, authPath: "/allowed", status: &unlisted}})
 	lineage := compilePage(rowID, 0)
 	err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "TABLE_PIVOT_UNLISTED_CATEGORY") {
-		t.Fatalf("unlisted category outside the requested row/page produced error %v, want TABLE_PIVOT_UNLISTED_CATEGORY", err)
-	}
+	requireStableRuntimeCode(t, err, "TABLE_PIVOT_UNLISTED_CATEGORY")
 }
 
 func constructionCountRowsGroupPivotLineageArangoOutput() recipe.Output {

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -642,9 +643,13 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 		executor, _ := NewExecutor(querier)
 		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
 		requireNamed(t, err, ErrQuery, "rows:")
+		var translated *storepostgres.TranslatedError
+		if !errors.As(err, &translated) || translated.Condition != storepostgres.ConditionQueryCanceled || translated.SQLState != "57014" {
+			t.Fatalf("rows error lost the boundary classification: %v", err)
+		}
 		var got *pgconn.PgError
-		if !errors.As(err, &got) || got.SQLState() != "57014" {
-			t.Fatalf("rows error lost the server cause: %v", err)
+		if !errors.As(translated.Cause(), &got) || got.SQLState() != "57014" {
+			t.Fatalf("translated error lost the server cause through Cause(): %v", err)
 		}
 	})
 
@@ -690,9 +695,13 @@ func TestQueryRowsSeamErrorsKeepClassAndCause(t *testing.T) {
 		executor, _ := NewExecutor(querier)
 		err := executor.QueryRows(context.Background(), mustPostgreSQLCommand(t, `SELECT id FROM t`), []string{"id"}, visit)
 		requireNamed(t, err, ErrQuery, "query:")
+		var translated *storepostgres.TranslatedError
+		if !errors.As(err, &translated) || translated.Condition != storepostgres.ConditionServerRejected || translated.SQLState != "42P01" {
+			t.Fatalf("query start error lost the boundary classification: %v", err)
+		}
 		var got *pgconn.PgError
-		if !errors.As(err, &got) || got.SQLState() != "42P01" {
-			t.Fatalf("query start error lost the server cause: %v", err)
+		if !errors.As(translated.Cause(), &got) || got.SQLState() != "42P01" {
+			t.Fatalf("query start error lost the server cause through Cause(): %v", err)
 		}
 		if !rows.closed {
 			t.Fatal("erroring rows handed back by Query were not closed")
