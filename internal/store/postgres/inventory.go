@@ -92,7 +92,7 @@ type InventorySourceGroup struct {
 
 // InventoryCountScope binds one published-build count sum to exactly one
 // storage identity, build, and authorization scope. It follows the explicit
-// mode convention of catalog.PGResourceScope: the unrestricted mode must be
+// mode convention of source.ResourceScope: the unrestricted mode must be
 // requested deliberately and carries no paths.
 type InventoryCountScope struct {
 	// Project is required and matched exactly.

@@ -42,7 +42,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -364,9 +364,10 @@ const (
 // ing01GoldenRows returns the four-row golden resource set: a nested
 // payload with a present-null key, a payload whose input key order differs
 // from the canonical order, a SQL NULL payload, and a JSON null document.
-// All rows carry zero ResourceSeq — the storage identity is server-assigned.
-func ing01GoldenRows(project, generation string) []catalog.PGResourceRow {
-	return []catalog.PGResourceRow{
+// The logical contract carries no storage sequence at all — the storage
+// identity is always server-assigned.
+func ing01GoldenRows(project, generation string) []source.Resource {
+	return []source.Resource{
 		{Project: project, DatasetGeneration: generation, ResourceType: "Patient", LogicalID: "p-1",
 			AuthResourcePath: "/fhir", Payload: []byte(ing01PayloadA)},
 		{Project: project, DatasetGeneration: generation, ResourceType: "Patient", LogicalID: "p-2",
@@ -569,7 +570,7 @@ func TestPostgresResourceWriterLegacyEmptyGenerationNamespaceCommits(t *testing.
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	rows := []catalog.PGResourceRow{{
+	rows := []source.Resource{{
 		Project: ing01Project, DatasetGeneration: "", ResourceType: "Patient", LogicalID: "p-1",
 		AuthResourcePath: "/fhir", Payload: []byte(ing01PayloadA),
 	}}
@@ -667,7 +668,7 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 	// A second batch re-offers p-1 under the same natural identity with a
 	// different payload, plus a brand-new row. The whole batch must roll
 	// back with the typed stored-row conflict.
-	rows := append(ing01GoldenRows(ing01Project, ing01GenA), catalog.PGResourceRow{
+	rows := append(ing01GoldenRows(ing01Project, ing01GenA), source.Resource{
 		Project: ing01Project, DatasetGeneration: ing01GenA, ResourceType: "Encounter", LogicalID: "enc-1",
 		AuthResourcePath: "/fhir", Payload: []byte(`{"resourceType":"Encounter","id":"enc-1"}`),
 	})
@@ -724,7 +725,7 @@ func TestPostgresResourceWriterInBatchDuplicateDifferentPayloadRollsBackWholeBat
 	writer := s.newWriter(t)
 
 	// Rows 0 and 2 share the natural identity with different payloads.
-	rows := []catalog.PGResourceRow{
+	rows := []source.Resource{
 		{Project: ing01Project, DatasetGeneration: ing01GenA, ResourceType: "Patient", LogicalID: "p-9",
 			AuthResourcePath: "/fhir", Payload: []byte(`{"resourceType":"Patient","id":"p-9","v":1}`)},
 		{Project: ing01Project, DatasetGeneration: ing01GenA, ResourceType: "Patient", LogicalID: "p-10",
@@ -816,14 +817,14 @@ func TestPostgresResourceWriterRejectsInvalidBatchesBeforeRoundTrip(t *testing.T
 	writer := s.newWriterOn(t, closed)
 
 	good := ing01GoldenRows(ing01Project, "gen-reject")
-	mutate := func(i int, f func(*catalog.PGResourceRow)) []catalog.PGResourceRow {
+	mutate := func(i int, f func(*source.Resource)) []source.Resource {
 		rows := ing01GoldenRows(ing01Project, "gen-reject")
 		f(&rows[i])
 		return rows
 	}
-	overCapacity := make([]catalog.PGResourceRow, 0, MaxBatchResources+1)
+	overCapacity := make([]source.Resource, 0, MaxBatchResources+1)
 	for i := 0; i <= MaxBatchResources; i++ {
-		overCapacity = append(overCapacity, catalog.PGResourceRow{
+		overCapacity = append(overCapacity, source.Resource{
 			Project: ing01Project, DatasetGeneration: "gen-over", ResourceType: "Patient",
 			LogicalID: fmt.Sprintf("p-%d", i), AuthResourcePath: "/fhir",
 		})
@@ -841,13 +842,11 @@ func TestPostgresResourceWriterRejectsInvalidBatchesBeforeRoundTrip(t *testing.T
 		{"no rows", ResourceBatch{ID: "ing01/reject/empty", Project: ing01Project, DatasetGeneration: "gen-reject", Rows: nil}, "carries no rows"},
 		{"over capacity", ResourceBatch{ID: "ing01/reject/over", Project: ing01Project, DatasetGeneration: "gen-over", Rows: overCapacity}, "want at most 1000"},
 		{"foreign row", ResourceBatch{ID: "ing01/reject/foreign", Project: ing01Project, DatasetGeneration: "gen-reject",
-			Rows: mutate(0, func(r *catalog.PGResourceRow) { r.DatasetGeneration = "gen-other" })}, "want the batch scope"},
-		{"supplied storage identity", ResourceBatch{ID: "ing01/reject/seq", Project: ing01Project, DatasetGeneration: "gen-reject",
-			Rows: mutate(1, func(r *catalog.PGResourceRow) { r.ResourceSeq = 42 })}, "server-assigned"},
+			Rows: mutate(0, func(r *source.Resource) { r.DatasetGeneration = "gen-other" })}, "want the batch scope"},
 		{"blank logical id", ResourceBatch{ID: "ing01/reject/lid", Project: ing01Project, DatasetGeneration: "gen-reject",
-			Rows: mutate(1, func(r *catalog.PGResourceRow) { r.LogicalID = " " })}, "logical id is blank"},
+			Rows: mutate(1, func(r *source.Resource) { r.LogicalID = " " })}, "logical id is blank"},
 		{"invalid json payload", ResourceBatch{ID: "ing01/reject/json", Project: ing01Project, DatasetGeneration: "gen-reject",
-			Rows: mutate(1, func(r *catalog.PGResourceRow) { r.Payload = []byte(`{"broken":`) })}, "not valid JSON"},
+			Rows: mutate(1, func(r *source.Resource) { r.Payload = []byte(`{"broken":`) })}, "not valid JSON"},
 	}
 	for _, tc := range cases {
 		_, err := writer.WriteResourceBatch(s.ctx, tc.batch)
@@ -1288,21 +1287,21 @@ func TestPostgresResourceWriterConcurrentDuplicateIdentityDifferentPayloadConver
 
 	for round := 0; round < rounds; round++ {
 		generation := fmt.Sprintf("gen-race3-%d", round)
-		row := func(payload string) catalog.PGResourceRow {
-			return catalog.PGResourceRow{Project: ing01Project, DatasetGeneration: generation,
+		row := func(payload string) source.Resource {
+			return source.Resource{Project: ing01Project, DatasetGeneration: generation,
 				ResourceType: "Patient", LogicalID: "p-dup", AuthResourcePath: "/fhir", Payload: []byte(payload)}
 		}
 		// A fresh companion row per batch proves the loser's whole batch
 		// rolled back, not just the conflicting row.
-		companion := func(name string) catalog.PGResourceRow {
-			return catalog.PGResourceRow{Project: ing01Project, DatasetGeneration: generation,
+		companion := func(name string) source.Resource {
+			return source.Resource{Project: ing01Project, DatasetGeneration: generation,
 				ResourceType: "Observation", LogicalID: "obs-" + name, AuthResourcePath: "",
 				Payload: []byte(`{"resourceType":"Observation","id":"obs-` + name + `"}`)}
 		}
 		batchA := ResourceBatch{ID: fmt.Sprintf("ing01/race3/a/%d", round), Project: ing01Project,
-			DatasetGeneration: generation, Rows: []catalog.PGResourceRow{row(aPayload), companion("a")}}
+			DatasetGeneration: generation, Rows: []source.Resource{row(aPayload), companion("a")}}
 		batchB := ResourceBatch{ID: fmt.Sprintf("ing01/race3/b/%d", round), Project: ing01Project,
-			DatasetGeneration: generation, Rows: []catalog.PGResourceRow{row(bPayload), companion("b")}}
+			DatasetGeneration: generation, Rows: []source.Resource{row(bPayload), companion("b")}}
 
 		o1, o2 := pair.raceBoth(s, batchA, batchB)
 		pair.requireDistinctBackends(t, round)

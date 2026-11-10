@@ -41,7 +41,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -58,6 +58,26 @@ const (
 // resourceColumns is the fixed column list for every resource read. The
 // order matches scanResourceRow exactly.
 const resourceColumns = "resource_seq, project, dataset_generation, resource_type, logical_id, auth_resource_path, payload"
+
+// ResourceRow is one physical FHIR resource row of the PostgreSQL source
+// store: the logical source contract plus the store-owned physical layout.
+// The logical identity fields (project, dataset generation, resource type,
+// logical id, auth path, payload) are defined once in internal/source and
+// are what writers offer; ResourceSeq is the PostgreSQL storage identity —
+// server-assigned on insert and the immutable keyset order key on reads.
+// Reads answer with this physical row; writes accept only the logical
+// source.Resource, so a caller can never supply or collide with a storage
+// sequence.
+type ResourceRow struct {
+	// source.Resource carries the logical identity and document; its
+	// fields are promoted, so readers see the same logical names writers
+	// offered.
+	source.Resource
+	// ResourceSeq is the server-assigned, immutable storage identity used
+	// for keyset ordering. It must be zero on insert; the database assigns
+	// it.
+	ResourceSeq int64
+}
 
 // Sentinel errors for classifying resource persistence failures without
 // string matching.
@@ -110,7 +130,7 @@ type ResourceNotFoundError struct {
 	ResourceType      string
 	LogicalID         string
 	// Restricted reports that the read was path-bound (the unrestricted
-	// mode is explicit; see catalog.PGResourceScope).
+	// mode is explicit; see source.ResourceScope).
 	Restricted bool
 }
 
@@ -147,14 +167,18 @@ func NewResourceRepository(src ConnSource, schema string) (*ResourceRepository, 
 	}, nil
 }
 
-// InsertResource stores one FHIR resource row and returns the
-// server-assigned storage identity. The record's ResourceSeq must be zero:
-// the database assigns it. A duplicate natural identity returns a
-// *ResourceConflictError matching ErrResourceConflict and leaves the stored
-// row untouched. A nil Payload stores SQL NULL; the bytes "null" store an
-// explicit JSON null document.
-func (r *ResourceRepository) InsertResource(ctx context.Context, rec catalog.PGResourceRow) (int64, error) {
-	if err := validateResourceForInsert(rec); err != nil {
+// InsertResource stores one logical FHIR resource and returns the
+// server-assigned storage identity. The logical contract carries no storage
+// sequence, so an insert can never offer or collide with one: the database
+// assigns it. A duplicate natural identity returns a *ResourceConflictError
+// matching ErrResourceConflict and leaves the stored row untouched. A nil
+// Payload stores SQL NULL; the bytes "null" store an explicit JSON null
+// document.
+func (r *ResourceRepository) InsertResource(ctx context.Context, rec source.Resource) (int64, error) {
+	// The physical row below carries the zero storage sequence; the shared
+	// write guard still refuses any offered one at the single boundary all
+	// writes cross.
+	if err := validateResourceForInsert(ResourceRow{Resource: rec}); err != nil {
 		return 0, err
 	}
 	// A nil payloadValue reaches PostgreSQL as NULL; a non-nil one is sent
@@ -199,16 +223,16 @@ func (r *ResourceRepository) InsertResource(ctx context.Context, rec catalog.PGR
 // restricted read also requires the row's auth path to be one of the bound
 // paths, and reports a not-found that does not disclose rows outside the
 // authorization. The unrestricted mode must be requested explicitly.
-func (r *ResourceRepository) GetResource(ctx context.Context, scope catalog.PGResourceScope, resourceType, logicalID string) (catalog.PGResourceRow, error) {
+func (r *ResourceRepository) GetResource(ctx context.Context, scope source.ResourceScope, resourceType, logicalID string) (ResourceRow, error) {
 	binding, err := normalizeResourceScope(scope)
 	if err != nil {
-		return catalog.PGResourceRow{}, err
+		return ResourceRow{}, err
 	}
 	if strings.TrimSpace(resourceType) == "" {
-		return catalog.PGResourceRow{}, fmt.Errorf("%w: resource type is blank", ErrInvalidResource)
+		return ResourceRow{}, fmt.Errorf("%w: resource type is blank", ErrInvalidResource)
 	}
 	if strings.TrimSpace(logicalID) == "" {
-		return catalog.PGResourceRow{}, fmt.Errorf("%w: logical id is blank", ErrInvalidResource)
+		return ResourceRow{}, fmt.Errorf("%w: logical id is blank", ErrInvalidResource)
 	}
 	notFound := &ResourceNotFoundError{
 		Project:           scope.Project,
@@ -219,7 +243,7 @@ func (r *ResourceRepository) GetResource(ctx context.Context, scope catalog.PGRe
 	}
 	if binding.restricted && len(binding.paths) == 0 {
 		// Restricted with no authorized path reads nothing; never widen.
-		return catalog.PGResourceRow{}, notFound
+		return ResourceRow{}, notFound
 	}
 
 	// Ordered parameters: $1 project, $2 generation, $3 type, $4 logical
@@ -234,16 +258,16 @@ func (r *ResourceRepository) GetResource(ctx context.Context, scope catalog.PGRe
 
 	conn, err := r.acquire(ctx)
 	if err != nil {
-		return catalog.PGResourceRow{}, err
+		return ResourceRow{}, err
 	}
 	defer conn.Release()
 
 	rec, err := scanResourceRow(conn.QueryRow(ctx, sql, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return catalog.PGResourceRow{}, notFound
+		return ResourceRow{}, notFound
 	}
 	if err != nil {
-		return catalog.PGResourceRow{}, fmt.Errorf("postgres: read resource %s/%s/%s/%s: %w",
+		return ResourceRow{}, fmt.Errorf("postgres: read resource %s/%s/%s/%s: %w",
 			scope.Project, scope.DatasetGeneration, resourceType, logicalID, err)
 	}
 	return rec, nil
@@ -257,7 +281,7 @@ func (r *ResourceRepository) GetResource(ctx context.Context, scope catalog.PGRe
 // before the walk began. A restricted scope with no authorized paths reads
 // nothing (empty page, no error); the unrestricted mode must be requested
 // explicitly.
-func (r *ResourceRepository) ReadResources(ctx context.Context, scope catalog.PGResourceScope, afterSeq int64, limit int) ([]catalog.PGResourceRow, bool, error) {
+func (r *ResourceRepository) ReadResources(ctx context.Context, scope source.ResourceScope, afterSeq int64, limit int) ([]ResourceRow, bool, error) {
 	binding, err := normalizeResourceScope(scope)
 	if err != nil {
 		return nil, false, err
@@ -299,7 +323,7 @@ func (r *ResourceRepository) ReadResources(ctx context.Context, scope catalog.PG
 	}
 	defer rows.Close()
 
-	var out []catalog.PGResourceRow
+	var out []ResourceRow
 	for rows.Next() {
 		rec, err := scanResourceRow(rows)
 		if err != nil {
@@ -330,14 +354,14 @@ func (r *ResourceRepository) acquire(ctx context.Context) (*pgxpool.Conn, error)
 
 // scanResourceRow scans one row of resourceColumns. A SQL NULL payload
 // scans as a nil json.RawMessage, distinct from the bytes "null".
-func scanResourceRow(row pgx.Row) (catalog.PGResourceRow, error) {
-	var rec catalog.PGResourceRow
+func scanResourceRow(row pgx.Row) (ResourceRow, error) {
+	var rec ResourceRow
 	var payload []byte
 	if err := row.Scan(
 		&rec.ResourceSeq, &rec.Project, &rec.DatasetGeneration,
 		&rec.ResourceType, &rec.LogicalID, &rec.AuthResourcePath, &payload,
 	); err != nil {
-		return catalog.PGResourceRow{}, err
+		return ResourceRow{}, err
 	}
 	if payload != nil {
 		rec.Payload = json.RawMessage(payload)
@@ -348,7 +372,7 @@ func scanResourceRow(row pgx.Row) (catalog.PGResourceRow, error) {
 // validateResourceForInsert enforces the column contract before a round
 // trip: the storage identity is server-assigned, the identity fields are
 // present, and a payload is either absent (SQL NULL) or exact valid JSON.
-func validateResourceForInsert(rec catalog.PGResourceRow) error {
+func validateResourceForInsert(rec ResourceRow) error {
 	if rec.ResourceSeq != 0 {
 		return fmt.Errorf("%w: ResourceSeq is %d; the storage identity is server-assigned, insert requires 0",
 			ErrInvalidResource, rec.ResourceSeq)
@@ -371,7 +395,7 @@ func validateResourceForInsert(rec catalog.PGResourceRow) error {
 	return nil
 }
 
-// resourceScopeBinding is the validated form of catalog.PGResourceScope for
+// resourceScopeBinding is the validated form of source.ResourceScope for
 // one query.
 type resourceScopeBinding struct {
 	// restricted is true unless the explicit unrestricted mode was chosen.
@@ -387,7 +411,7 @@ type resourceScopeBinding struct {
 // restricted mode binds exactly the authorized paths, including the empty
 // string when the legacy namespace is authorized. Values are bound verbatim:
 // the caller stores and reads with the same identity discipline.
-func normalizeResourceScope(scope catalog.PGResourceScope) (resourceScopeBinding, error) {
+func normalizeResourceScope(scope source.ResourceScope) (resourceScopeBinding, error) {
 	if strings.TrimSpace(scope.Project) == "" {
 		return resourceScopeBinding{}, fmt.Errorf("%w: project is blank", ErrInvalidResourceScope)
 	}

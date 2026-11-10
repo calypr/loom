@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 )
 
@@ -578,71 +577,4 @@ type fieldPlan struct {
 type pathStep struct {
 	field        string
 	iterateArray bool
-}
-
-// ---------------------------------------------------------------------------
-// PostgreSQL source store (pg-store-04): resource persistence contract.
-//
-// These types describe one FHIR resource row in the PostgreSQL alternative
-// for the source graph/catalog store. They mirror the Arango vertex identity
-// (project, dataset generation, resource type, logical FHIR id, auth path as
-// typed scope columns; the original resource object stored as JSONB, which
-// PostgreSQL canonicalizes rather than keeping byte-exact) so the same
-// logical identity reads identically from either backend. They
-// are PostgreSQL-side additions only and do not change any Arango behavior.
-// ---------------------------------------------------------------------------
-
-// PGResourceScope binds one PostgreSQL resource read to exactly one storage
-// identity and its authorization scope. It follows the explicit-mode
-// convention of CapabilityEvidenceOptions with one tightening: there is no
-// implicit-unrestricted legacy mode here, so AuthResourcePathsUnrestricted
-// must be set deliberately.
-type PGResourceScope struct {
-	// Project is required and matched exactly.
-	Project string
-	// DatasetGeneration is matched exactly. The empty string is the legacy
-	// dataset namespace, never "any generation".
-	DatasetGeneration string
-	// AuthResourcePathsUnrestricted must be non-nil: true selects the
-	// explicit unrestricted mode (then AuthResourcePaths must be empty),
-	// false selects restricted mode. A nil value is an error, not the
-	// legacy "empty means unrestricted" convention, so a restricted-empty
-	// authorization can never be mistaken for unrestricted access.
-	AuthResourcePathsUnrestricted *bool
-	// AuthResourcePaths are the authorized auth_resource_path values in
-	// restricted mode. An empty list in restricted mode is a legitimate
-	// authorization state that reads nothing.
-	AuthResourcePaths []string
-}
-
-// PGResourceRow is one persisted FHIR resource in the PostgreSQL source
-// store. The scope columns carry the storage identity; Payload carries the
-// stored resource object as PostgreSQL returns it from the JSONB column
-// (canonicalized text, not the caller's original bytes).
-type PGResourceRow struct {
-	// ResourceSeq is the server-assigned, immutable storage identity used
-	// for keyset ordering. It must be zero on insert; the database assigns
-	// it.
-	ResourceSeq int64
-	// Project is the owning project. Required, non-blank.
-	Project string
-	// DatasetGeneration is the owning immutable dataset generation. The
-	// empty string is the legacy dataset namespace.
-	DatasetGeneration string
-	// ResourceType is the canonical FHIR resource type. Required, non-blank.
-	ResourceType string
-	// LogicalID is the logical FHIR resource id (the payload "id").
-	// Required, non-blank. It is preserved unchanged, independent of the
-	// backend's physical key.
-	LogicalID string
-	// AuthResourcePath is the typed, non-null authorization scope value.
-	// The empty string is the legacy (unscoped) namespace.
-	AuthResourcePath string
-	// Payload is the original resource object as JSON bytes. A nil Payload
-	// is SQL NULL (no resource object present) and is distinct from the
-	// bytes "null", which is an explicit JSON null document. Within a JSON
-	// document a missing key stays absent, an explicit JSON null stays a
-	// present key with value null, and empty arrays and empty objects stay
-	// empty containers.
-	Payload json.RawMessage
 }
