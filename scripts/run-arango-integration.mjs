@@ -53,6 +53,26 @@ const pgExecDispatch = new Set([
     'TestPostgresExplainWiringLivePG18SanitizedPlan',
     'TestZZZeroLeftoverExec10WiringPostgresFixtures',
 ]);
+// pg-exec-05: the bounded PostgreSQL root-page live battery requires the
+// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
+// Arango. It runs against the real PG18 server under the ticket check-2
+// harness; in this Arango-only lane its explicit skips stay visible in the
+// proof summary.
+const pgExecRootPaging = new Set([
+    'TestPostgresRootPagingMultisetAcrossPages',
+    'TestPostgresRootPagingTerminatesWithoutExtraQuery/short_final_page_stops_without_another_key_query',
+    'TestPostgresRootPagingTerminatesWithoutExtraQuery/empty_final_page_issues_no_row_query',
+    'TestPostgresRootPagingCancellation/cancellation_between_key_and_row_steps_prevents_the_row_step',
+    'TestPostgresRootPagingCancellation/control:_uncancelled_run_completes_on_the_same_fixture',
+    'TestPostgresRootPagingResultContractSabotage/duplicate_root_key_fails_the_typed_result_contract',
+    'TestPostgresRootPagingResultContractSabotage/row_outside_the_requested_page_fails_the_typed_result_contract',
+    'TestPostgresRootPagingResultContractSabotage/key_page_not_advancing_past_the_previous_tail_is_refused',
+    'TestPostgresRootPagingResultContractSabotage/control:_unsabotaged_run_proceeds_on_the_same_fixture',
+    'TestPostgresRootPagingExplainBoundedness',
+    'TestPostgresRootPagingWholeInputBypass/whole-input_PostgreSQL_output_cannot_reach_the_root-page_loop',
+    'TestPostgresRootPagingWholeInputBypass/control:_non-group_PostgreSQL_stream_never_carries_page_fields',
+    'TestZZPostgresRootPagingOwnershipAudit',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -63,6 +83,7 @@ const external = new Set([
     ...formalReplay,
     ...dualStore,
     ...pgExecDispatch,
+    ...pgExecRootPaging,
 ]);
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],

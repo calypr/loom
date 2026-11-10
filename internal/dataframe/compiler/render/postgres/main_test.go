@@ -28,22 +28,20 @@ import (
 // (sets_live_test.go sets08RunDeltaAudit) wraps that, so each ticket owns
 // exactly its own prefix (sets_live_test.go). pg-sql-15's delta-scoped
 // audit (unpivot_test.go unpRunDeltaAudit) wraps that pair around the run
-// over its own disjoint verify_sql15_* namespace, composing three
-// independent delta audits. The verify_* prefixes are audited through one
-// parameterized helper: verify_sql05_ (pg-sql-05) and verify_sql10_
+// over its own disjoint verify_sql15_* namespace, and pg-sql-20's
+// delta-scoped audit (graph_test.go graph20RunDeltaAudit) wraps that trio
+// around the run over its own disjoint verify_sql20_* namespace, composing
+// four independent delta audits. The verify_* prefixes are audited through
+// one parameterized helper: verify_sql05_ (pg-sql-05) and verify_sql10_
 // (calls_live_test.go, pg-sql-10).
 func TestMain(m *testing.M) {
-	code := unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) })
-	if err := auditNoLeftoverVerifyNamespace("verify_sql05_"); err != nil {
-		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
-		if code == 0 {
-			code = 1
-		}
-	}
-	if err := auditNoLeftoverVerifyNamespace("verify_sql10_"); err != nil {
-		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
-		if code == 0 {
-			code = 1
+	code := graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	for _, prefix := range []string{"verify_sql05_", "verify_sql10_"} {
+		if err := auditNoLeftoverVerifyNamespace(prefix); err != nil {
+			fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
+			if code == 0 {
+				code = 1
+			}
 		}
 	}
 	os.Exit(code)

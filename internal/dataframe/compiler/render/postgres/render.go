@@ -69,10 +69,20 @@
 // raising the canonical TABLE_UNPIVOT_VALUE_TYPE_MISMATCH tag through the
 // guard barrier, the DROP-drops-null-rows / PRESERVE-keeps-them policy over
 // the missing-versus-JSON-null tri-state, and the compiler-owned melt
-// identity as the W3 stable order. Endpoint-lookup traversals,
+// identity as the W3 stable order. The authored finite graph path union
+// (pg-sql-20) is registered in graph.go as its own closed plan slice: one
+// direct root scan with the canonical root scope block, typed root filters,
+// and REQUIRED-match semi-joins, one PATH_SEED, one PATH_EXTEND per authored
+// hop correlated to its parent path set (each carrying its canonical
+// (edge, target) scope block and typed reached-row filters), and a terminal
+// GRAPH_RETURN that renders the path-set union, deterministic identity
+// deduplication, route order, and the bound limit+1 lookahead as one WITH
+// statement — dispatched whole at the RenderPhysicalPlan entry, the
+// structural twin of the AQL entry's pre-loop GRAPH_RETURN dispatch
+// (render/aql/render.go:473-476). Endpoint-lookup traversals,
 // repeated/indexed selector predicates, correlated predicates,
 // CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
-// outside the two registered correlated shapes, graph returns, group rows,
+// outside the two registered correlated shapes, group rows,
 // pivots, unpivots coexisting with filters, traversals, or unnests, stage
 // sequences, and ClickHouse payloads are capability gaps that return typed
 // errors.
@@ -138,6 +148,18 @@ var resourceFilterColumns = map[string]bool{
 func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
+	}
+	// Whole-plan graph delegation (graph.go contract, pg-sql-20): a plan
+	// mentioning PATH_SEED/PATH_EXTEND/GRAPH_RETURN is the authored graph
+	// shape and is rendered WHOLE by the registered graph slice — the
+	// structural twin of the AQL entry's pre-loop GRAPH_RETURN dispatch
+	// (render/aql/render.go:473-476). No spine arm ever sees a path
+	// operation; graph.go's validateGraphPlanSurface is the single contract
+	// behind this door and behind RenderGraphPhysicalPlan (entry==dispatch
+	// message equality), and every non-graph plan reaches the untouched
+	// spine below exactly as merged.
+	if graphPlanMentionsPathOperations(plan) {
+		return renderGraphPhysicalPlan(plan, storage)
 	}
 	// Full-backstop defense in depth (unnest.go contract): a plan that
 	// mentions UNNEST is pinned to the registered slice as the first
