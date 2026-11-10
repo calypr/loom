@@ -52,6 +52,28 @@ func pgstoreEdgeRow(project, generation, label, patient, specimen, path string) 
 	}
 }
 
+// trvInsertDanglingSourceEdge writes one edge row whose source resource is
+// deliberately not stored. The schema carries no source FK (migration
+// 000004): an unstored source is a legitimate storage state (a source
+// removed after publication), and excluding such rows at query time is
+// exactly what the traversal's INNER JOIN pair must prove. The repository's
+// insert gate models publication-time discipline and refuses the state, so
+// the fixture writes the literal row through the service pool, mirroring
+// the repository's own column list.
+func trvInsertDanglingSourceEdge(t *testing.T, svc *pgir02Service, label, sourceType, sourceID, targetType, targetID, authPath, path string) {
+	t.Helper()
+	_, err := svc.iso.Exec(svc.ctx,
+		`INSERT INTO "`+svc.schema+`"."fhir_edge_occurrence"`+
+			` (project, dataset_generation, auth_resource_path, label,`+
+			` source_resource_type, source_logical_id, target_resource_type, target_logical_id,`+
+			` source_path, source_ordinal)`+
+			` VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0)`,
+		itProject, itGeneration, authPath, label, sourceType, sourceID, targetType, targetID, path)
+	if err != nil {
+		svc.fail("insert dangling-source edge", err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Offline: OPTIONAL traversal — LEFT JOIN LATERAL golden statements.
 // ---------------------------------------------------------------------------
@@ -1306,8 +1328,8 @@ func TestPG18OptionalTraversalPreservesParentRows(t *testing.T) {
 	stored := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_edge_occurrence" WHERE project=$1 AND dataset_generation=$2 AND label='has-specimen'`,
 		itProject, itGeneration)
-	if len(stored) != 1 || stored[0][0] != "5" {
-		t.Fatalf("witness must show all five stored occurrences (two ghosts included): %v", stored)
+	if len(stored) != 1 || stored[0][0] != "6" {
+		t.Fatalf("witness must show all six stored occurrences (two ghosts included): %v", stored)
 	}
 	nullParents := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" r0`+
@@ -1498,7 +1520,10 @@ func TestPG18InboundTraversalOptionalAndRequired(t *testing.T) {
 	inbound("focus", "o-1", "st-1", "focus[0]")
 	inbound("focus", "o-2", "st-1", "focus[0]")
 	inbound("focus", "o-3", "st-2", "focus[0]")
-	inbound("focus", "o-ghost", "st-4", "focus[0]") // dangling source
+	// st-4's only incoming occurrence names a source that was never
+	// stored: the reached-side INNER JOIN must exclude it, leaving st-4
+	// parent-preserved with a NULL child.
+	trvInsertDanglingSourceEdge(t, svc, "focus", "Observation", "o-ghost", "Specimen", "st-4", "FHIR/Observation", "focus[0]")
 	// st-3: no incoming edges. A wrong-label decoy on st-3 proves exclusion.
 	inbound("other", "o-1", "st-3", "focus[1]")
 
