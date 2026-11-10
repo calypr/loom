@@ -248,6 +248,25 @@ func unp15ExecError(svc *pgir02Service, rendered command.RenderedPostgresPhysica
 	return rows.Err()
 }
 
+// unp15ExecConnError drains the rendered statement on a dedicated
+// connection, so session state (the barrier GUC) is set and read by the
+// executing session itself. Same drain discipline as unp15ExecError.
+func unp15ExecConnError(t *testing.T, svc *pgir02Service, conn *pgxpool.Conn, rendered command.RenderedPostgresPhysicalPlan) error {
+	t.Helper()
+	args := make([]any, len(rendered.Args))
+	for index, parameter := range rendered.Args {
+		args[index] = parameter.Value
+	}
+	rows, err := conn.Query(svc.ctx, rendered.SQL, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	return rows.Err()
+}
+
 // unp15StateProbe executes the rendered statement as a subquery and returns
 // (measure, amount, state) with state ∈ {SQL_NULL, JSON_NULL, VALUE} for the
 // amount column — the driver-decode collapse of SQL NULL and jsonb 'null'
@@ -638,20 +657,25 @@ func unp15LiveService(t *testing.T) *pgir02Service {
 	return svc
 }
 
-// unp15CanonicalPayloads seeds the four discriminating stored states across
-// two source rows: p1 stores a="alpha", b="beta"; p2 stores a absent, b as
-// explicit JSON null, plus p3 carrying an ordinary value to keep the
-// multiset non-degenerate.
+// unp15CanonicalPayloads seeds the discriminating stored states across
+// four source rows: p1 stores a="alpha", b="beta"; p2 stores a absent, b
+// as explicit JSON null; p3 carries an ordinary value with b absent; and
+// p4 stores the JSON STRING "null" in both columns — the sentinel that
+// separates the fourth stored state (a value whose text is "null") from
+// the explicit JSON null: it must survive DROP and read as VALUE, because
+// jsonb equality separates '"null"' from 'null'.
 func unp15SeedMeltStates(t *testing.T, svc *pgir02Service) {
 	t.Helper()
 	unp15Seed(t, svc, unp15Project, "p1", json.RawMessage(`{"a": "alpha", "b": "beta"}`))
 	unp15Seed(t, svc, unp15Project, "p2", json.RawMessage(`{"b": null}`))
 	unp15Seed(t, svc, unp15Project, "p3", json.RawMessage(`{"a": "gamma"}`))
+	unp15Seed(t, svc, unp15Project, "p4", json.RawMessage(`{"a": "null", "b": "null"}`))
 	// Non-vacuity: every stored state is really stored, byte-exact.
 	for _, state := range []struct{ id, payload string }{
 		{"p1", `{"a": "alpha", "b": "beta"}`},
 		{"p2", `{"b": null}`},
 		{"p3", `{"a": "gamma"}`},
+		{"p4", `{"a": "null", "b": "null"}`},
 	} {
 		rows := svc.witness(t, fmt.Sprintf(
 			`SELECT payload::text FROM %s.fhir_resource WHERE logical_id = $1 AND project = $2 AND dataset_generation = $3`,
@@ -676,12 +700,14 @@ func TestUnpivot15LiveNullPolicyMatrix(t *testing.T) {
 	// quotes and the explicit JSON null renders as the text "null" — the
 	// state column, not the text, is the tri-state assertion.
 	wantPreserved := [][3]string{
-		{`"first"`, "SQL_NULL", "<null>"},   // p2.a absent
-		{`"first"`, "VALUE", `"alpha"`},     // p1.a
-		{`"first"`, "VALUE", `"gamma"`},     // p3.a
-		{`"second"`, "SQL_NULL", "<null>"},  // p3.b absent
-		{`"second"`, "JSON_NULL", "null"},   // p2.b explicit JSON null
-		{`"second"`, "VALUE", `"beta"`},     // p1.b
+		{`"first"`, "SQL_NULL", "<null>"},  // p2.a absent
+		{`"first"`, "VALUE", `"alpha"`},    // p1.a
+		{`"first"`, "VALUE", `"gamma"`},    // p3.a
+		{`"first"`, "VALUE", `"null"`},     // p4.a — stored STRING "null", a VALUE
+		{`"second"`, "SQL_NULL", "<null>"}, // p3.b absent
+		{`"second"`, "JSON_NULL", "null"},  // p2.b explicit JSON null
+		{`"second"`, "VALUE", `"beta"`},    // p1.b
+		{`"second"`, "VALUE", `"null"`},    // p4.b — stored STRING "null", a VALUE
 	}
 	sortProbes := func(rows [][3]string) {
 		sort.Slice(rows, func(i, j int) bool { return rows[i][0]+rows[i][2]+rows[i][1] < rows[j][0]+rows[j][2]+rows[j][1] })
@@ -693,11 +719,14 @@ func TestUnpivot15LiveNullPolicyMatrix(t *testing.T) {
 	}
 
 	// Both null states — absent (SQL_NULL) and explicit JSON null — are
-	// dropped; the three ordinary values survive: 6 melt slots minus
-	// p2.a (absent), p2.b (JSON null), and p3.b (absent).
+	// dropped; the five ordinary values survive, and the stored STRING
+	// "null" values survive with them: 8 melt slots minus p2.a (absent),
+	// p2.b (JSON null), and p3.b (absent). The DROP conjunct compares
+	// jsonb equality (slot_value <> 'null'::jsonb), which cannot confuse
+	// the string "null" with JSON null.
 	dropped := unp15StateProbe(t, svc, unp15Plan(t, unp15Fixture{Policy: "DROP"}), "amount")
-	if len(dropped) != 3 {
-		t.Fatalf("DROP rows = %v, want the 3 non-null slots", dropped)
+	if len(dropped) != 5 {
+		t.Fatalf("DROP rows = %v, want the 5 non-null slots (string \"null\" included)", dropped)
 	}
 	for _, row := range dropped {
 		if row[1] != "VALUE" {
@@ -735,6 +764,29 @@ func TestUnpivot15LiveValueTypeRaise(t *testing.T) {
 	if execErr == nil {
 		t.Fatal("wrong-typed slot executed instead of raising")
 	}
+	// Independent reproduction of the fold-control claim (the population.go
+	// L-class sabotage pattern): with the barrier GUC set to a session-
+	// unique value on the executing connection, the raise must name the
+	// injected value in the 22P02 message. A plan-time fold of the CAST
+	// operand — the sabotage this barrier exists to catch — would name
+	// only the tag, never the injected value, because the folded operand
+	// could not observe a per-session GUC set after planning.
+	conn, err := svc.iso.Acquire(svc.ctx)
+	if err != nil {
+		svc.fail("acquire barrier connection", err)
+	}
+	defer conn.Release()
+	barrier := fmt.Sprintf("foldproof-%d", time.Now().UnixNano())
+	if _, err := conn.Exec(svc.ctx, "SET loom.explorer_guard_barrier = "+quoteSQLLiteral(barrier)); err != nil {
+		t.Fatalf("set barrier GUC: %v", err)
+	}
+	var barrierErr *pgconn.PgError
+	drainErr := unp15ExecConnError(t, svc, conn, rendered)
+	if !errors.As(drainErr, &barrierErr) || barrierErr.Code != "22P02" ||
+		!strings.Contains(barrierErr.Message, unpivotValueTypeTag) || !strings.Contains(barrierErr.Message, barrier) {
+		t.Fatalf("barrier raise = %v, want 22P02 naming %s and the injected barrier %q", drainErr, unpivotValueTypeTag, barrier)
+	}
+	t.Logf("fold-control raise with injected barrier: %s %s", barrierErr.Code, barrierErr.Message)
 	// Alive control: the same statement over only well-typed rows renders.
 	unp15Seed(t, svc, unp15Foreign, "bad-other", json.RawMessage(`{"a": 42}`))
 	svc.witness(t, `DELETE FROM "`+svc.schema+`".fhir_resource WHERE logical_id = 'bad1'`)
