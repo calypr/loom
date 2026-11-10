@@ -168,8 +168,20 @@ func (r *planRenderer) loadScope(plan ir.PhysicalPlan) error {
 // canonical deny (scope_allowed bound false) closes the chain with a literal
 // zero-row conjunct, so no resource row ever reads. This is the one
 // definition used for both the root row and the reached target row of an
-// edge join.
+// edge join. A statement whose root carries the cohort guards must use
+// scopedResourcePredicateDenyConjunct instead: a literal FALSE in the shared
+// top-level AND tree folds the whole tree away and prunes the guard
+// InitPlans (population.go explains the stable-false deny conjunct it
+// passes).
 func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) string {
+	return r.scopedResourcePredicateDenyConjunct(alias, typeIndex, " AND FALSE")
+}
+
+// scopedResourcePredicateDenyConjunct renders the same canonical chain with
+// the deny arm supplied by the caller. denyConjunct is used only when
+// scope_allowed was bound false and must be a literal always-false
+// expression -- never a bind parameter: the deny is shape-fixed.
+func (r *planRenderer) scopedResourcePredicateDenyConjunct(alias string, typeIndex int, denyConjunct string) string {
 	var builder strings.Builder
 	builder.WriteString(alias + "." + r.storage.Resource.MustColumn("project").SQLText() + " = $" + strconv.Itoa(r.scope.projectIndex))
 	builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("dataset_generation").SQLText() + " = $" + strconv.Itoa(r.scope.generationIndex))
@@ -181,7 +193,7 @@ func (r *planRenderer) scopedResourcePredicate(alias string, typeIndex int) stri
 		builder.WriteString(" AND " + alias + "." + r.storage.Resource.MustColumn("resource_type").SQLText() + " = $" + strconv.Itoa(typeIndex))
 	}
 	if r.scope.denied {
-		builder.WriteString(" AND FALSE")
+		builder.WriteString(denyConjunct)
 	}
 	return builder.String()
 }
