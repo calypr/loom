@@ -31,9 +31,14 @@ import (
 // over its own disjoint verify_sql15_* namespace, and pg-sql-20's
 // delta-scoped audit (graph_test.go graph20RunDeltaAudit) wraps that trio
 // around the run over its own disjoint verify_sql20_* namespace, composing
-// four independent delta audits.
+// four independent delta audits. pg-sql-11's delta-scoped audit
+// (objects_test.go obj11RunDeltaAudit) wraps that quartet around the run
+// over its own disjoint obj11_it_* namespace — and asserts the namespace
+// starts empty, since this ticket owns the prefix alone (ruling D5).
 func TestMain(m *testing.M) {
-	code := graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	code := obj11RunDeltaAudit(func() int {
+		return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	})
 	if err := auditNoLeftoverVerifySQL05(); err != nil {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 		if code == 0 {

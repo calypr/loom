@@ -79,7 +79,13 @@
 // deduplication, route order, and the bound limit+1 lookahead as one WITH
 // statement — dispatched whole at the RenderPhysicalPlan entry, the
 // structural twin of the AQL entry's pre-loop GRAPH_RETURN dispatch
-// (render/aql/render.go:473-476). Endpoint-lookup traversals,
+// (render/aql/render.go:473-476). The nested object and bounded slice
+// projections (pg-sql-11) are registered in objects.go as the closed
+// composite RETURN surface: jsonb_build_object with bound name
+// parameters, the per-field omission CASE at the AQL null reading, and
+// the bounded slice sublink with the logical_id tie-break over the
+// singleton root row or a sets.go-validated child set, recursion capped
+// at depth 4. Endpoint-lookup traversals,
 // repeated/indexed selector predicates, correlated predicates,
 // CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
 // outside the two registered correlated shapes, group rows,
@@ -316,6 +322,19 @@ type planRenderer struct {
 	// RenderPopulationRootScan (population.go); nil keeps membership roots a
 	// capability gap on the plain spine.
 	membership *PostgresPopulationRootBinding
+
+	// Composite state (objects.go, pg-sql-11): rootVariable names the
+	// SPINE root-scan variable — the only registered singleton slice
+	// source — set exactly where renderRootScan binds the direct-scan row
+	// (membership roots delegate before it, so they never register one);
+	// sliceSeq mints the renderer-owned aggregate aliases; setBodies
+	// records each successfully validated child set's correlated body
+	// (sets.go D2 hunk) so a registered SLICE over the set renders over
+	// the same deduplicated item relation the reductions read. All are
+	// renderer-owned; no plan string reaches SQL text through them.
+	rootVariable string
+	sliceSeq     int
+	setBodies    map[string]correlatedSetBody
 }
 
 // addParameter appends one ordered argument and returns its $n index. A
@@ -453,7 +472,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if !last || phase > 1 {
 				return fmt.Errorf("%w: RETURN must be the final operation", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderReturn(*operation.Return); err != nil {
+			if err := r.renderReturn(plan, *operation.Return); err != nil {
 				return err
 			}
 			phase = 2
@@ -484,6 +503,7 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 			ErrUnsupportedPostgresPlan, scan.CollectionBindKey)
 	}
 	r.rootAlias = "r0"
+	r.rootVariable = scan.Variable
 	r.rows[scan.Variable] = rowScope{alias: r.rootAlias, resourceType: resourceType}
 	r.where = append(r.where, r.scopedResourcePredicate(r.rootAlias,
 		r.textParameter(resourceType, "text:"+resourceType)))
@@ -587,8 +607,11 @@ var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // projection-contract definition, applied with the renderer's own row
 // bindings — and is then emitted from its classification: direct values and
 // VALUE expressions through resolveValue, selector extractions and presence
-// sidecars through the canonical mappings in null_semantics.go.
-func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
+// sidecars through the canonical mappings in null_semantics.go, and the
+// pg-sql-11 OBJECT/SLICE composites through their recursive renderers in
+// objects.go (plan flows through for the slice predicate's bind-backed
+// right side).
+func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn) error {
 	// A melted plan's terminal projection list reads only registered melt
 	// outputs (unpivot.go owns that contract, validateUnpivotReturn pins it
 	// at the surface); the spine classification below stays byte-identical
@@ -636,6 +659,18 @@ func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
 				return fmt.Errorf("presence projection %q: %w", projection.projection.Name, err)
 			}
 			expression = presence
+		case extractionObject:
+			value, err := r.renderObjectValue(plan, r.rows, *projection.projection.Expression, 1)
+			if err != nil {
+				return fmt.Errorf("projection %q: %w", projection.projection.Name, err)
+			}
+			expression = value
+		case extractionSlice:
+			value, err := r.renderSliceValue(plan, r.rows, *projection.projection.Expression, 1)
+			if err != nil {
+				return fmt.Errorf("projection %q: %w", projection.projection.Name, err)
+			}
+			expression = value
 		}
 		r.selects = append(r.selects, expression+` AS "c`+strconv.Itoa(len(r.selects))+`"`)
 		r.outputColumns = append(r.outputColumns, projection.projection.Name)
