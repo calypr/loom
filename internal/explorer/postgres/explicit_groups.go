@@ -5,14 +5,17 @@ package postgres
 //
 // Explicit groups keep three separate records -- revision header, ordered
 // definition rows, and membership rows (internal/explorer/explicit_group_
-// repository.go). This slice owns the header/writer lifecycle and the
-// definition rows only. Membership batching/streaming, the transactionally
-// verified final digest/count operation, and therefore completion itself
-// arrive with the membership ticket: nothing here can mark a header
-// COMPLETE, and the migration enforces that at the database -- a CHECK
-// pins state to 'STAGING' so even direct SQL cannot complete or abort
-// through a state transition, and the membership ticket's migration
-// replaces that constraint together with the guarded lifecycle machine.
+// repository.go). This file owns the header/writer lifecycle and the
+// definition rows; the membership half -- batching/streaming, the
+// transactionally verified final digest/count operation, and completion --
+// lives in explicit_group_memberships.go (pg-state-explicit-group-members-
+// v1). Nothing here can mark a header COMPLETE either: completion happens
+// only through the fenced CompleteExplicitGroupRevision CAS, and the
+// 000010 migration's guarded lifecycle machine enforces the transition at
+// the database -- headers are born STAGING, the only admitted UPDATE
+// channel out of STAGING demands the row's writer token and counts equal
+// to the stored definition and membership rows, and COMPLETE rows are
+// frozen history.
 //
 // Semantics mirror the Arango adapter (internal/explorer/arango/
 // explicit_groups.go) one-for-one where this slice reaches:
@@ -117,10 +120,13 @@ const (
 	explicitGroupDefinitionPKConstraint   = "explorer_explicit_group_definitions_pkey"
 	explicitGroupDefinitionOrdinalCK      = "explorer_explicit_group_definitions_revision_ordinal_key"
 	explicitGroupRevisionFKConstraint     = "explorer_explicit_group_definitions_revision_fkey"
-	explicitGroupRevisionStateConstraint  = "explorer_explicit_group_revisions_state_staging"
 	explicitGroupRevisionIdentityCheck    = "explorer_explicit_group_revisions_identity_binding"
-	explicitGroupRevisionStagingValuesCK  = "explorer_explicit_group_revisions_staging_values"
 	explicitGroupRevisionRequiredFieldsCK = "explorer_explicit_group_revisions_required_fields"
+	// The 000009 staging-only CHECKs (state_staging, staging_values) were
+	// replaced by the membership migration's single named
+	// explorer_explicit_group_revisions_lifecycle_values constraint --
+	// classified from the membership slice as
+	// explicitGroupRevisionLifecycleValuesCheck.
 )
 
 // explicitGroupColumns is the single source of truth for header column
@@ -237,22 +243,35 @@ var (
 	_ explicitGroupConn = pgx.Tx(nil)
 )
 
-// ExplicitGroupStore persists explicit-group revision headers and ordered
-// definition rows in one Explorer control-plane schema. It is the
-// header/definition half of explorer.ExplicitGroupRepository: the
-// membership-touching methods (Append, Digest, Complete, Visit) arrive
-// with the membership ticket, and until then no path -- store method or
-// direct SQL -- can move a header out of STAGING (see the file comment and
-// the migration's CHECK).
+// ExplicitGroupStore persists explicit-group revision headers, ordered
+// definition rows, and membership rows in one Explorer control-plane
+// schema. With the membership slice's methods (Append, Digest, Complete,
+// Visit -- explicit_group_memberships.go) it is the complete
+// explorer.ExplicitGroupRepository counterpart. Headers are born STAGING
+// and the only path out of STAGING is the guarded STAGING -> COMPLETE
+// transition the membership migration's machine enforces at the database:
+// a direct-SQL completion is refused unless the session holds the row's
+// writer token and the claimed counts equal the stored child rows.
 type ExplicitGroupStore struct {
 	client *pgstore.Client
 	stmts  explicitGroupStatements
+	// memberStmts are the membership lifecycle statements
+	// (explicit_group_memberships.go), built once for the same schema.
+	memberStmts explicitGroupMembershipStatements
 	// afterDefinitionsInserted and afterDefinitionsDeleted are the
 	// test-only fault/interleaving seams of PutExplicitGroupDefinitions
 	// and AbortExplicitGroupRevision (see the methods). Production never
 	// assigns them.
 	afterDefinitionsInserted func(context.Context, pgx.Tx) error
 	afterDefinitionsDeleted  func(context.Context, pgx.Tx) error
+	// afterMembershipsInserted is the test-only fault/interleaving seam
+	// of AppendExplicitGroupMemberships, beforeCompleteCommit the seam of
+	// the fenced CompleteExplicitGroupRevision, and membershipPageStreamed
+	// the observer of every fetched membership page (see
+	// explicit_group_memberships.go). Production never assigns them.
+	afterMembershipsInserted func(context.Context, pgx.Tx) error
+	beforeCompleteCommit     func(context.Context, pgx.Tx) error
+	membershipPageStreamed   func(rows int)
 }
 
 // NewExplicitGroupStore builds the explicit-group store for one Explorer
@@ -266,7 +285,11 @@ func NewExplicitGroupStore(client *pgstore.Client, schema string) (*ExplicitGrou
 	if !schemaNamePattern.MatchString(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
-	return &ExplicitGroupStore{client: client, stmts: newExplicitGroupStatements(schema)}, nil
+	return &ExplicitGroupStore{
+		client:      client,
+		stmts:       newExplicitGroupStatements(schema),
+		memberStmts: newExplicitGroupMembershipStatements(schema),
+	}, nil
 }
 
 // storedExplicitGroupHeader is one physically stored header row, writer
@@ -314,8 +337,10 @@ func scanExplicitGroupHeader(row rowScanner, out *storedExplicitGroupHeader) err
 }
 
 // headerArgs maps a canonical revision and its store-computed writer
-// lifecycle to explicitGroupColumns order. Completion columns stay at
-// their STAGING values because this slice never completes a header.
+// lifecycle to explicitGroupColumns order. Begin only ever creates STAGING
+// headers, so completion columns stay at their STAGING values here; the
+// only writer of completion facts is the fenced CAS in
+// explicit_group_memberships.go, guarded at the database by 000010.
 func headerArgs(revision explorer.ExplicitGroupRevision, writerToken string, writerExpiresAt time.Time) []any {
 	return []any{
 		string(revision.ID),
@@ -672,9 +697,11 @@ func (s *ExplicitGroupStore) renewExplicitGroupWriter(ctx context.Context, tx pg
 // rows that no longer canonicalize to themselves are
 // ErrCorruptExplicitGroupRevision, mirroring the adapter's read-side
 // verification. An empty set is legal only while the header is STAGING --
-// exactly the adapter's listExplicitGroupDefinitions contract. The
-// COMPLETE digest/count branch of the adapter is the membership ticket's
-// contract and is not reachable before it.
+// exactly the adapter's listExplicitGroupDefinitions contract. For a
+// COMPLETE header the adapter's digest/count branch also runs: the stored
+// ordered definitions must re-derive the header's frozen definition digest
+// and group count, or the revision is corruption -- history that no
+// longer agrees with its own frozen facts is never served.
 func (s *ExplicitGroupStore) listExplicitGroupDefinitions(ctx context.Context, conn explicitGroupConn, revisionID string, header *storedExplicitGroupHeader) ([]explorer.ExplicitGroupDefinition, error) {
 	groups := make([]explorer.ExplicitGroupDefinition, 0)
 	rows, err := conn.Query(ctx, s.stmts.defList, revisionID)
@@ -714,19 +741,32 @@ func (s *ExplicitGroupStore) listExplicitGroupDefinitions(ctx context.Context, c
 	if !reflect.DeepEqual(canonical, groups) {
 		return nil, explorer.ErrCorruptExplicitGroupRevision
 	}
+	if header.State == string(explorer.ExplicitGroupRevisionComplete) {
+		// The adapter's COMPLETE branch: history must agree with its own
+		// frozen facts. Definitions that no longer re-derive the header's
+		// definition digest and group count are corruption -- the frozen
+		// facts only ever come from the fenced completion CAS, so a
+		// disagreement means the stored rows were tampered with.
+		digest, err := explorer.ExplicitGroupDefinitionDigest(groups)
+		if err != nil || int64(len(groups)) != header.GroupCount || digest != header.DefinitionDigest {
+			return nil, explorer.ErrCorruptExplicitGroupRevision
+		}
+	}
 	return groups, nil
 }
 
-// AbortExplicitGroupRevision removes one staging revision and its
-// definition rows, idempotently and only for the owner: blank revision ID
-// is a no-op, blank token is the typed conflict, a header that no longer
-// exists is a no-op, and any header the writer guard refuses (non-STAGING
-// or foreign token) is the typed conflict without removing anything.
-// Definitions go first under the header lock, then the header itself under
-// the state+token CAS; the migration's DELETE triggers additionally demand
-// the session-local abort-token GUC matching the stored writer token, so
-// an un-authorized direct SQL delete -- of either table, including the
-// active-writer case -- is refused by PostgreSQL itself. A header CAS miss
+// AbortExplicitGroupRevision removes one staging revision, its membership
+// rows, and its definition rows, idempotently and only for the owner:
+// blank revision ID is a no-op, blank token is the typed conflict, a
+// header that no longer exists is a no-op, and any header the writer guard
+// refuses (non-STAGING or foreign token) is the typed conflict without
+// removing anything. Memberships go first under the header lock, then the
+// definitions, then the header itself under the state+token CAS -- the
+// dependency order the two RESTRICT foreign keys demand; the migrations'
+// DELETE triggers additionally demand the session-local abort-token GUC
+// matching the stored writer token, so an un-authorized direct SQL delete
+// -- of any of the three tables, including the active-writer case -- is
+// refused by PostgreSQL itself. A header CAS miss
 // after the definitions are gone is the typed conflict and the deferred
 // rollback restores nothing (the whole operation is one transaction, so
 // half-applied aborts are impossible).
@@ -767,13 +807,20 @@ func (s *ExplicitGroupStore) AbortExplicitGroupRevision(ctx context.Context, rev
 	if _, err := tx.Exec(ctx, s.stmts.setAbortTokenGUC, writerToken); err != nil {
 		return fmt.Errorf("postgres explorer store: set abort guard for %q: %w", revisionID, err)
 	}
+	// Children leave in dependency order: memberships first (the
+	// definitions are their foreign-key parent), then definitions, then
+	// the header -- every DELETE rides the same abort-token
+	// authorization.
+	if _, err := tx.Exec(ctx, s.memberStmts.memberDeleteRevision, string(revisionID)); err != nil {
+		return fmt.Errorf("postgres explorer store: delete explicit-group memberships for abort %q: %w", revisionID, err)
+	}
 	if _, err := tx.Exec(ctx, s.stmts.defDeleteBatch, []string{string(revisionID)}); err != nil {
 		return fmt.Errorf("postgres explorer store: delete explicit-group definitions for abort %q: %w", revisionID, err)
 	}
 
 	// Test-only seam between the definition removal and the header CAS
 	// (see afterDefinitionsInserted). An error here aborts the whole
-	// transaction: the definitions and the header both stay.
+	// transaction: the memberships, definitions, and header all stay.
 	if s.afterDefinitionsDeleted != nil {
 		if err := s.afterDefinitionsDeleted(ctx, tx); err != nil {
 			return fmt.Errorf("postgres explorer store: abort explicit-group revision %q after definition delete: %w",
@@ -850,6 +897,12 @@ func (s *ExplicitGroupStore) CleanupExplicitGroupStaging(ctx context.Context, be
 		}
 		return nil
 	}
+	// Dependency order: memberships, then definitions, then headers --
+	// every DELETE rides the same sweep-clock authorization the triggers
+	// re-enforce per row.
+	if _, err := tx.Exec(ctx, s.memberStmts.memberDeleteBatch, expired); err != nil {
+		return fmt.Errorf("postgres explorer store: delete memberships of expired explicit-group headers: %w", err)
+	}
 	if _, err := tx.Exec(ctx, s.stmts.defDeleteBatch, expired); err != nil {
 		return fmt.Errorf("postgres explorer store: delete definitions of expired explicit-group headers: %w", err)
 	}
@@ -902,9 +955,9 @@ func (s *ExplicitGroupStore) GetExplicitGroupRevision(ctx context.Context, proje
 // (created_at DESC, then ID in exact byte order -- the adapter's
 // createdAt DESC, _key ASC), limited to limit (limit <= 0 means the
 // default 100). STAGING revisions are hidden from listing: they are not
-// choices yet. The result is never nil. Because nothing can complete in
-// this slice, this lists empty today; the contract lands with the storage
-// so the membership ticket's completion path composes with it.
+// choices yet. The result is never nil. Only the fenced
+// CompleteExplicitGroupRevision CAS can produce a COMPLETE header, so
+// what listing shows is exactly what a verified completion froze.
 func (s *ExplicitGroupStore) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorer.ExplicitGroupRevision, error) {
 	if limit <= 0 {
 		limit = explicitGroupListLimit
