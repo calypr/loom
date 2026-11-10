@@ -70,7 +70,17 @@ type pgir02Service struct {
 
 func newPGIR02Service(t *testing.T, extraSchemaCount int) *pgir02Service {
 	t.Helper()
+	return newOwnedService(t, extraSchemaCount, "pgir02_it")
+}
+
+// newOwnedService creates one uniquely owned isolated database plus owned
+// schemas under the given resource prefix. Each later ticket registers its
+// own prefix so concurrent actors never audit or collide with one another's
+// resources (pg-sql-05 uses verify_sql05_*).
+func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02Service {
+	t.Helper()
 	raw := testPostgresURL(t)
+	namePattern := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `_[0-9]+_[0-9a-f]+$`)
 
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
@@ -108,8 +118,8 @@ func newPGIR02Service(t *testing.T, extraSchemaCount int) *pgir02Service {
 	}
 	t.Cleanup(admin.Close)
 
-	dbName := fmt.Sprintf("pgir02_it_%d_%s", time.Now().UnixNano(), randomHex(t))
-	if !pgir02ResourceNamePattern.MatchString(dbName) {
+	dbName := fmt.Sprintf(prefix+"_%d_%s", time.Now().UnixNano(), randomHex(t))
+	if !namePattern.MatchString(dbName) {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
@@ -138,8 +148,8 @@ func newPGIR02Service(t *testing.T, extraSchemaCount int) *pgir02Service {
 	}
 	t.Cleanup(iso.Close)
 
-	schema := fmt.Sprintf("pgir02_it_%d_%s", time.Now().UnixNano(), randomHex(t))
-	if !pgir02ResourceNamePattern.MatchString(schema) {
+	schema := fmt.Sprintf(prefix+"_%d_%s", time.Now().UnixNano(), randomHex(t))
+	if !namePattern.MatchString(schema) {
 		t.Fatalf("owned schema name %q does not match the required pattern", schema)
 	}
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
@@ -178,8 +188,8 @@ func newPGIR02Service(t *testing.T, extraSchemaCount int) *pgir02Service {
 		resources: resources, edges: edges, scrub: scrub, fail: fail,
 	}
 	for index := 0; index < extraSchemaCount; index++ {
-		extra := fmt.Sprintf("pgir02_it_%d_%s", time.Now().UnixNano(), randomHex(t))
-		if !pgir02ResourceNamePattern.MatchString(extra) {
+		extra := fmt.Sprintf(prefix+"_%d_%s", time.Now().UnixNano(), randomHex(t))
+		if !namePattern.MatchString(extra) {
 			t.Fatalf("extra owned schema name %q does not match the required pattern", extra)
 		}
 		if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+extra+`"`); err != nil {
