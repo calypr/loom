@@ -140,8 +140,20 @@ export const OWNERSHIP_INTEGRATION_TESTS = ['TestPostgresMigrationOwnershipContr
 // refusal sentinels with alive controls, and the real-PG Open assembly
 // half), so a skipped PostgreSQL half of the contract fails this lane.
 export const FACTORY_INTEGRATION_PACKAGE = './internal/backends/postgres';
-export const FACTORY_INTEGRATION_FILTER = '^TestPostgresFactoryOwnershipContract$';
-export const FACTORY_INTEGRATION_TESTS = ['TestPostgresFactoryOwnershipContract'];
+export const FACTORY_INTEGRATION_FILTER = '^(TestPostgresFactoryOwnershipContract|TestZZZeroLeftoverAB06LiveOpenFixtures)$';
+// The anchors name the contract suite, its live Open-assembly subtest
+// (open_live_test.go: real postgres.Open over the server — typed Runtime
+// ports, readiness-gated 18, own-prefix connection tag, caller-owned-schema
+// bootstrap, literal SourceRows row, EXPLAIN-retagged PlanJSON,
+// column-contract and cross-tag refusals, close semantics, and zero-leak
+// failure cleanup), and the verify_ab06_* zero-leftover sweep. The
+// zero-skip assertion therefore makes the live half mandatory: a skipped
+// PostgreSQL subtest is a lane failure, never acceptance.
+export const FACTORY_INTEGRATION_TESTS = [
+  'TestPostgresFactoryOwnershipContract',
+  'TestPostgresFactoryOwnershipContract/live_open_assembly',
+  'TestZZZeroLeftoverAB06LiveOpenFixtures',
+];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -817,9 +829,9 @@ export async function runPostgres(output, deps = {}) {
     budget(goTestBudgetMs + 30_000 + 90_000);
     evidence.phases.push('factory-integration');
     // arch-backend-06: same owned-service propagation and explicit-filter
-    // pattern. The contract's live half drives the real Open assembly, so a
-    // skipped PostgreSQL half fails the zero-skip assertion in
-    // checkGoEvents, never a pass.
+    // pattern. FACTORY_INTEGRATION_TESTS names the live Open-assembly
+    // subtest and the owned-namespace sweep, so a skipped PostgreSQL half
+    // fails the zero-skip assertion in checkGoEvents, never a pass.
     const factoryArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', FACTORY_INTEGRATION_FILTER, FACTORY_INTEGRATION_PACKAGE];
     const factory = await Promise.resolve(goTest(factoryArgs, childEnv));
     writeFileSync(join(directory, 'factory-integration.jsonl'), scrubSecrets(factory.stdout || '', secrets));

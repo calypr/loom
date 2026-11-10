@@ -47,11 +47,18 @@ type SeriesSchemas map[Series]string
 type SetupPolicy string
 
 const (
-	// SetupMigrate creates missing assigned schemas and applies each series'
-	// owner migrations (idempotent, advisory-locked through the store).
+	// SetupMigrate applies each series' owner migrations into its assigned
+	// schema (idempotent, advisory-locked through the store). Schemas are
+	// caller-owned: the migrate runner refuses an absent or unassigned
+	// schema with the named invalid-schema error and never creates one, so
+	// the caller must create the schema itself before Open under this
+	// policy.
 	SetupMigrate SetupPolicy = "migrate"
-	// SetupVerify refuses startup unless every assigned schema already
-	// carries its series' migrated state; it performs no DDL.
+	// SetupVerify converges each assigned schema onto its series' migrated
+	// state through the same idempotent, advisory-locked runner as
+	// SetupMigrate: pending migrations are applied, a schema the runner has
+	// already validated is a no-op, and an absent or unassigned schema is
+	// refused (schemas stay caller-owned, as under SetupMigrate).
 	SetupVerify SetupPolicy = "verify"
 	// SetupNone performs no schema setup at all: the caller has arranged
 	// (or does not need) schema state, matching the historical bare-pool

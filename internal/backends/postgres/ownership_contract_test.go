@@ -145,6 +145,11 @@ func allowedByDriverRegister(relPath string) bool {
 }
 
 func TestPostgresFactoryOwnershipContract(t *testing.T) {
+	// The live half lives in open_live_test.go as a named subtest so this
+	// suite's exact runner -run filter covers it and the lane's zero-skip
+	// anchors make a skipped PostgreSQL half a failure, never acceptance.
+	factoryOpenLiveAssembly(t)
+
 	root := repoRoot(t)
 
 	t.Run("public_factory_surface_is_driver_free", func(t *testing.T) {
