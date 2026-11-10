@@ -436,9 +436,7 @@ FOR document IN Observation
 				t.Fatalf("error case did not retain the direct-scalar streaming path:\n%s", testAQLText(t, errorQuery.Command))
 			}
 			err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 500, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil })
-			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("direct-scalar Pivot error = %v, want %s", err, test.wantErrorCode)
-			}
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 		})
 	}
 }
@@ -1501,9 +1499,7 @@ func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *s
 				t.Fatalf("compile error case: %v", err)
 			}
 			_, err = queryReshapeOracle(t, ctx, client, query)
-			if err == nil || !strings.Contains(err.Error(), test.stableErr) {
-				t.Fatalf("runtime error = %v, want stable code %s", err, test.stableErr)
-			}
+			requireStableRuntimeCode(t, err, test.stableErr)
 		})
 	}
 }

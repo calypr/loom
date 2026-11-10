@@ -67,9 +67,8 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 			output := constructionPivotLineageOutput()
 			pivot := output.Construction.Steps[0].Operation.Pivot
 			pivot.DuplicatePolicy, pivot.MissingCellPolicy = test.duplicate, test.missing
-			if err := executeConstructionOutputError(t, ctx, client, output, project, generation); err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("full Pivot error = %v, want global error %s", err, test.wantErrorCode)
-			}
+			err := executeConstructionOutputError(t, ctx, client, output, project, generation)
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 
 			compiledOutput := lowerConstructionOutput(t, output, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
 			rowID, err := json.Marshal([]any{"GROUPED_PIVOT", "row_lineage_pivot", []any{"STRING", "wanted"}})
@@ -81,9 +80,7 @@ func TestConstructionPivotRowLineageFailsWhenAnotherGroupViolatesGlobalPolicyAga
 				t.Fatalf("compile Pivot row lineage: %v", err)
 			}
 			err = client.QueryRows(ctx, testAQLText(t, lineage.Command), 32, testAQLBinds(t, lineage.Command), func(map[string]any) error { return nil })
-			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("row lineage error = %v, want global Pivot policy error %s", err, test.wantErrorCode)
-			}
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 		})
 	}
 }

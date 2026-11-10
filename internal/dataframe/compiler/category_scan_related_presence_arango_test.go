@@ -316,9 +316,7 @@ func TestRelatedConstructionPivotTracksMissingNullAndStringAgainstArango(t *test
 		t.Fatalf("compile NULL-only related Pivot with unlisted error: %v", err)
 	}
 	err = client.QueryRows(ctx, testAQLText(t, nullOnlyErrorQuery.Command), 100, testAQLBinds(t, nullOnlyErrorQuery.Command), func(map[string]any) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "TABLE_PIVOT_UNLISTED_CATEGORY") {
-		t.Fatalf("NULL-only Pivot with an absent category returned error %v, want TABLE_PIVOT_UNLISTED_CATEGORY", err)
-	}
+	requireStableRuntimeCode(t, err, "TABLE_PIVOT_UNLISTED_CATEGORY")
 }
 
 func relatedPresenceNullOnlyPivotOutput(unlistedPolicy recipe.PivotUnlistedCategoryPolicy, rootIDs ...string) recipe.Output {

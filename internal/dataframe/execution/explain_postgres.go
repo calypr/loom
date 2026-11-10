@@ -106,13 +106,15 @@ func BuildPostgreSQLExplainCommand(compiled CompiledQuery) (compiler.CompiledCom
 // become non-retryable backend-unavailable user errors reporting only the
 // violated invariant.
 //
-// Error-boundary seam (pg-store-01 #101, pending merge): until
-// internal/store/postgres gains its SQLSTATE classifier, this boundary
-// classifies every executor failure as retryable backend-unavailable
-// except context aborts; the underlying cause stays reachable via
-// errors.Is/errors.As (including *pgconn.PgError through the adapter's
-// QueryError) so the classification can be refined at the store boundary
-// without changing this seam.
+// Error-boundary seam (pg-store-01 #101 merged; arch-backend-03 wired): the
+// PostgreSQL rows adapter classifies driver and server failures at the
+// store/postgres boundary, so failures arriving here already carry their
+// authoritative Loom identity (stable condition, SQLSTATE, retryability).
+// Such errors pass through unchanged — execution never re-types a
+// boundary classification. Only failures the boundary did not classify
+// (custom executors, unclassified causes) get the coarse
+// retryable-backend-unavailable fallback, with the cause chain preserved
+// through QueryError for server-side logs.
 func PostgreSQLExplainPlan(ctx context.Context, executor PostgreSQLPlanJSONExecutor, compiled CompiledQuery) (PostgreSQLPlanAssessment, error) {
 	if executor == nil {
 		return PostgreSQLPlanAssessment{}, fmt.Errorf("live PostgreSQL Explain requires a plan JSON executor; PostgreSQL requests never fall back to Arango")
@@ -135,12 +137,20 @@ func PostgreSQLExplainPlan(ctx context.Context, executor PostgreSQLPlanJSONExecu
 // postgreSQLExplainExecutorError types one executor failure without echoing
 // the backend message: the cause is retained for errors.Is/errors.As and
 // server logs, while the user-facing message stays sentinel-free.
+// Failures already carrying a Loom user-error identity — including every
+// store/postgres boundary classification surfaced by the rows adapter —
+// pass through unchanged so the boundary's condition, SQLSTATE, and
+// retryability stay authoritative; only unclassified failures receive the
+// coarse fallback.
 func postgreSQLExplainExecutorError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
 	if errors.Is(err, context.Canceled) || (ctx != nil && errors.Is(ctx.Err(), context.Canceled)) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeClientCanceled, "live PostgreSQL recipe Explain canceled")
+	}
+	if _, classified := dataframeerrors.AsUserError(err); classified {
+		return err
 	}
 	if errors.Is(err, context.DeadlineExceeded) || (ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)) {
 		return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "live PostgreSQL recipe Explain timed out", dataframeerrors.WithRetryable(true))
