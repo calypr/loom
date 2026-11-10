@@ -120,6 +120,19 @@ export const EDGE_WRITER_INTEGRATION_TESTS = [
   'TestPostgresEdgeWriterCountsChangeOnlyAtCommit',
   'TestZZZeroLeftoverIngestPostgresEdgeFixtures',
 ];
+// The arch-backend-05 migration-ownership contract runs as a sixth
+// never-skipped lane: the single named suite TestPostgresMigrationOwnership
+// Contract proves the authored manifest equals every owner package's
+// embedded bytes, the frozen pre-refactor snapshots upgrade through the
+// production owner entry points, incompatible histories are refused with
+// witnesses unchanged, a representative domain operation runs on each
+// migrated series, and the suite's own TestZZ sweep leaves zero
+// verify_ab05_* schemas. The explicit -run filter keeps this lane scoped to
+// the contract suite while checkGoEvents' zero-skip assertion makes every
+// subtest mandatory: a PG half that skips is a failure here, never a pass.
+export const OWNERSHIP_INTEGRATION_PACKAGE = './internal/store/postgres';
+export const OWNERSHIP_INTEGRATION_FILTER = '^TestPostgresMigrationOwnershipContract$';
+export const OWNERSHIP_INTEGRATION_TESTS = ['TestPostgresMigrationOwnershipContract'];
 
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
@@ -771,6 +784,26 @@ export async function runPostgres(output, deps = {}) {
       propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
       anchors: [...EDGE_WRITER_INTEGRATION_TESTS],
       passes: edgeWriterPasses,
+    };
+    budget(goTestBudgetMs + 30_000 + 90_000);
+    evidence.phases.push('ownership-integration');
+    // arch-backend-05: same owned-service propagation and explicit-filter
+    // pattern as the writer lanes. checkGoEvents' zero-skip assertion makes
+    // every matched case (and subtest) mandatory, so the contract cannot
+    // pass by skipping its PostgreSQL halves.
+    const ownershipArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', OWNERSHIP_INTEGRATION_FILTER, OWNERSHIP_INTEGRATION_PACKAGE];
+    const ownership = await Promise.resolve(goTest(ownershipArgs, childEnv));
+    writeFileSync(join(directory, 'ownership-integration.jsonl'), scrubSecrets(ownership.stdout || '', secrets));
+    writeFileSync(join(directory, 'ownership-integration.stderr'), scrubSecrets(ownership.stderr || '', secrets));
+    assert.equal(ownership.status, 0, `migration-ownership real-PG suite failed: ${scrubSecrets(ownership.error?.message || ownership.stderr || '', secrets)}`);
+    const ownershipPasses = checkGoEvents(ownership.stdout, OWNERSHIP_INTEGRATION_TESTS).passes;
+    evidence.ownershipIntegration = {
+      status: 'passed',
+      package: OWNERSHIP_INTEGRATION_PACKAGE,
+      command: ['go', 'test', '-count=1', '-run', OWNERSHIP_INTEGRATION_FILTER, OWNERSHIP_INTEGRATION_PACKAGE],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...OWNERSHIP_INTEGRATION_TESTS],
+      passes: ownershipPasses,
     };
     evidence.status = 'passed';
   } catch (error) {

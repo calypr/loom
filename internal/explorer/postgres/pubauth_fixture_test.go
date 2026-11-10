@@ -9,21 +9,21 @@ package postgres
 // namespace at the end of the file order.
 //
 // One fixture owns one isolated database with two schemas: the Explorer
-// control-plane schema (this package's composed ledger [1..9]: owner
-// migrations [1 2 3 5 6 9] plus the merged root fixtures 4
-// (tests/migrations-capabilities), 7 (tests/migrations-interpretations), and
-// 8 (tests/migrations-selections) -- per the coordinator ledger ruling, no
-// new owner-dir migrations) and the release/generation lane schema
-// (pg-store embedded [1 ledger bootstrap, 3 dataset_generation_manifest]
-// plus the release lane's own package-local fixture 8
-// internal/dataset/postgres/testdata/migrations-releases/000008_project_
-// release.sql). The publish transaction spans both schemas of the one
-// database; the double-apply witnesses the FULL merged ledgers on the one
-// shared version space each, through the gap-tolerant sorted compose of
-// pgstore.NewMigrationRunner (internal/store/postgres/migrate.go:385 sorts
-// by version and never requires contiguity), and pins every root-fixture
-// file byte-for-byte: those files are owned by their merged tickets and
-// must never drift under this suite.
+// control-plane schema (this package's owner history [1..11]: ledger
+// bootstrap, owner, drafts, receipts, revisions, capability artifacts (4),
+// interpretation libraries (7), selection revisions (8), and the explicit-
+// group series (9-11), all embedded under migrations/ with bytes unchanged
+// from their earlier fixture directories per the coordinator ledger ruling)
+// and the release/generation lane schema (the internal/dataset/postgres
+// owner history [1,3,8]: ledger bootstrap, dataset generation manifest, and
+// project release, embedded under that package's migrations/). The publish
+// transaction spans both schemas of the one database; the double-apply
+// witnesses the FULL ledgers on the one shared version space each, through
+// the gap-tolerant sorted compose of pgstore.NewMigrationRunner
+// (internal/store/postgres/migrate.go sorts by version and never requires
+// contiguity), and pins every migrated file byte-for-byte via the checksum
+// constants in pubauthVerifyPins: those bytes are owned by their merged
+// tickets and must never drift under this suite.
 
 import (
 	"context"
@@ -269,79 +269,71 @@ func newPGPubAuthFixture(t *testing.T) *pubAuthFixture {
 }
 
 // ---------------------------------------------------------------------------
-// Migration composition (fixture-first: zero new owner-dir files).
+// Migration composition (authoritative owners only: zero DirFS assembly).
 // ---------------------------------------------------------------------------
 
-const (
-	pubauthCapabilityDir      = "tests/migrations-capabilities"
-	pubauthCapabilityName     = "capability_artifacts"
-	pubauthCapabilitySHA      = "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222"
-	pubauthInterpretationDir  = "tests/migrations-interpretations"
-	pubauthInterpretationName = "interpretation_library"
-	pubauthInterpretationSHA  = "5e308b21a3f567b3066c46458606dd361a9c90646db54ee71618902a544a9ba2"
-	pubauthSelectionDir       = "tests/migrations-selections"
-	pubauthSelectionName      = "selection_revisions"
-	pubauthSelectionSHA       = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
-	pubauthReleaseDir         = "internal/dataset/postgres/testdata/migrations-releases"
-	pubauthReleaseName        = "project_release"
-	pubauthReleaseSHA         = "1d581ec39731958dd0f79cdab18e92861a380007d3e85d6de4940800378480b1"
-)
-
-// pubauthRootFixture loads one byte-frozen root fixture file and pins its
-// version, name, and checksum against the merged sibling that owns it.
-func pubauthRootFixture(t *testing.T, dir, name string, version int64, sha string) pgstore.Migration {
-	t.Helper()
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), dir)
-	if err != nil {
-		t.Fatalf("load root fixture migrations %s: %v", dir, err)
-	}
-	if len(fixture) != 1 || fixture[0].Version != version || fixture[0].Name != name {
-		t.Fatalf("root fixture %s = %+v, want exactly version %d %s", dir, fixture, version, name)
-	}
-	if fixture[0].Checksum != sha {
-		t.Fatalf("root fixture %s checksum = %s, want the byte-frozen merge pin %s: the owning ticket's fixture drifted",
-			dir, fixture[0].Checksum, sha)
-	}
-	return fixture[0]
+// pubauthMigrationPin is one byte-frozen entry of an owner history: the
+// version/name/checksum identity of a migration that a merged sibling
+// applied and that must never drift under this suite.
+type pubauthMigrationPin struct {
+	version  int64
+	name     string
+	checksum string
 }
 
-// migrate applies the composed control-plane ledger [1..11] to ctlSchema
-// and the composed lane ledger [1,3,8] to lanesSchema, each twice: the
-// second apply witnesses ledger-identical no-op convergence on the FULL
-// merged version space.
-func (f *pubAuthFixture) migrate(t *testing.T) {
+// Pins for the capability/interpretation/selection migrations of the
+// Explorer owner history (moved in with bytes unchanged) and the
+// project-release migration of the dataset owner history.
+var (
+	pubauthControlPins = []pubauthMigrationPin{
+		{4, "capability_artifacts", "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222"},
+		{7, "interpretation_library", "5e308b21a3f567b3066c46458606dd361a9c90646db54ee71618902a544a9ba2"},
+		{8, "selection_revisions", "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"},
+	}
+	pubauthLanePins = []pubauthMigrationPin{
+		{1, "ledger", "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+		{3, "dataset_generation_manifest", "06c614680a9c1cd4ba2ef0ac0471053bcb3d8e471c36d3852e70682887a72f5d"},
+		{8, "project_release", "1d581ec39731958dd0f79cdab18e92861a380007d3e85d6de4940800378480b1"},
+	}
+)
+
+// pubauthVerifyPins checks that one owner history contains every pinned
+// version/name/checksum exactly, so byte-freeze is witnessed against the
+// owner's embedded bytes themselves.
+func pubauthVerifyPins(t *testing.T, label string, history []pgstore.Migration, pins []pubauthMigrationPin) {
 	t.Helper()
-	owner, err := OwnerMigrations()
-	if err != nil {
-		f.fail("owner migrations", err)
+	byVersion := make(map[int64]pgstore.Migration, len(history))
+	for _, m := range history {
+		byVersion[m.Version] = m
 	}
-	ctlHistory := append(append([]pgstore.Migration{}, owner...),
-		pubauthRootFixture(t, pubauthCapabilityDir, pubauthCapabilityName, 4, pubauthCapabilitySHA),
-		pubauthRootFixture(t, pubauthInterpretationDir, pubauthInterpretationName, 7, pubauthInterpretationSHA),
-		pubauthRootFixture(t, pubauthSelectionDir, pubauthSelectionName, 8, pubauthSelectionSHA),
-	)
-	embedded, err := pgstore.EmbeddedMigrations()
-	if err != nil {
-		f.fail("embedded migrations", err)
-	}
-	var ledgerBootstrap, generationManifest *pgstore.Migration
-	for i := range embedded {
-		switch embedded[i].Version {
-		case 1:
-			ledgerBootstrap = &embedded[i]
-		case 3:
-			generationManifest = &embedded[i]
+	for _, pin := range pins {
+		m, ok := byVersion[pin.version]
+		if !ok {
+			t.Fatalf("%s owner history lacks version %d (%s): the owning ticket's migration vanished", label, pin.version, pin.name)
+		}
+		if m.Name != pin.name || m.Checksum != pin.checksum {
+			t.Fatalf("%s owner history version %d = {Name:%q Checksum:%q}, want the byte-frozen merge pin {Name:%q Checksum:%q}: the owning ticket's migration drifted",
+				label, pin.version, m.Name, m.Checksum, pin.name, pin.checksum)
 		}
 	}
-	if ledgerBootstrap == nil || generationManifest == nil {
-		t.Fatalf("embedded history lacks the ledger bootstrap or migration 3: %+v", embedded)
+}
+
+// migrate applies the Explorer owner history [1..11] to ctlSchema and the
+// dataset owner history [1,3,8] to lanesSchema -- the two authoritative
+// production owner embeds -- each twice: the second apply witnesses
+// ledger-identical no-op convergence on the FULL version space.
+func (f *pubAuthFixture) migrate(t *testing.T) {
+	t.Helper()
+	ctlHistory, err := OwnerMigrations()
+	if err != nil {
+		f.fail("explorer owner migrations", err)
 	}
-	if ledgerBootstrap.Name != "ledger" || generationManifest.Name != "dataset_generation_manifest" {
-		t.Fatalf("embedded history versions 1/3 are %q/%q, want ledger/dataset_generation_manifest",
-			ledgerBootstrap.Name, generationManifest.Name)
+	pubauthVerifyPins(t, "explorer control", ctlHistory, pubauthControlPins)
+	lanesHistory, err := datasetpostgres.OwnerMigrations()
+	if err != nil {
+		f.fail("dataset owner migrations", err)
 	}
-	lanesHistory := []pgstore.Migration{*ledgerBootstrap, *generationManifest,
-		pubauthRootFixture(t, pubauthReleaseDir, pubauthReleaseName, 8, pubauthReleaseSHA)}
+	pubauthVerifyPins(t, "dataset lane", lanesHistory, pubauthLanePins)
 
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
 		DSN: f.dsn, MaxConns: 2, MinConns: 0, AcquireTimeout: 10 * time.Second,

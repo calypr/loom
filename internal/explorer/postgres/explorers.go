@@ -56,16 +56,24 @@ import (
 // migration 000002_explorer_owner.sql inside the store's schema.
 const OwnerTable = "explorers"
 
-// migrationsFS holds this package's contribution to the migration history:
-// the per-schema ledger bootstrap and the Explorer-owner table. Feature
-// tickets add further <version>_<name>.sql files here through the shared
-// pg-store-02 runner.
+// migrationsFS holds this package's authoritative Explorer control-plane
+// history: the per-schema ledger bootstrap and the complete Explorer
+// control-plane ledger, versions 1..11 (owner, draft revision, capability
+// artifacts, compilation receipts, immutable revisions, interpretation
+// libraries, selection revisions, explicit groups and their membership and
+// definition-guard migrations). The capability, interpretation, and selection
+// DDL moved in from their earlier state-scoped own-dir fixture directories
+// with bytes unchanged; dependent tickets append further <version>_<name>.sql
+// files here through the shared pg-store-02 runner and record the append in
+// internal/store/postgres/migration_ownership.go in the same change.
 //
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// OwnerMigrations returns this package's embedded migration history,
-// validated and sorted by version with the pg-store-02 loader.
+// OwnerMigrations returns this package's complete embedded Explorer
+// control-plane migration history, validated and sorted by version with the
+// pg-store-02 loader. Its identity is recorded in
+// internal/store/postgres/migration_ownership.go.
 func OwnerMigrations() ([]pgstore.Migration, error) {
 	migrations, err := pgstore.LoadMigrations(migrationsFS, "migrations")
 	if err != nil {

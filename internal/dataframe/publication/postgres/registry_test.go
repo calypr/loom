@@ -159,38 +159,20 @@ func newCatalogService(t *testing.T) *catalogService {
 	return s
 }
 
-// migrate applies this ticket's owned history -- the ledger bootstrap from
-// the embedded pg-store-02 set plus tests/migrations/000004_publication_bundle_catalog.sql --
-// through the real pg-store-02 runner, and asserts the ledger literally
-// records both rows. Only the ledger bootstrap is taken from the embedded
-// set: concurrent store tickets add their own migrations (000002_* and
-// onward) and those tables belong to the store owner's schema, not to this
-// catalog's metadata-only audit, so the catalog test history stays exactly
-// {1 ledger, 4 publication_bundle_catalog} regardless of how the store
-// history grows.
+// migrate applies this suite's slice of the authoritative publication
+// control-plane history -- the ledger bootstrap plus
+// 000004_publication_bundle_catalog.sql, both owned by this package's
+// embed (migrate.go) -- through the real pg-store-02 runner, and asserts the
+// ledger literally records both rows. The suite filters the owner history to
+// the versions its catalog audit owns: sibling publication tickets add their
+// own migrations (000006_* and onward) and those tables belong to the lease
+// and retention audits, not to this catalog's metadata-only audit, so the
+// catalog test history stays exactly {1 ledger, 4 publication_bundle_catalog}
+// regardless of how the owner history grows.
 func (s *catalogService) migrate(t *testing.T) {
 	t.Helper()
-	embedded, err := storepostgres.EmbeddedMigrations()
-	if err != nil {
-		s.fail("embedded migrations", err)
-	}
-	var ledger []storepostgres.Migration
-	for _, m := range embedded {
-		if m.Version == 1 && m.Name == "ledger" {
-			ledger = append(ledger, m)
-		}
-	}
-	if len(ledger) != 1 {
-		t.Fatalf("embedded history has %d migrations, want exactly one version 1 ledger bootstrap to compose against", len(embedded))
-	}
-	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
-	if err != nil {
-		s.fail("load tests/migrations", err)
-	}
-	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
-		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
-	}
-	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, append(append([]storepostgres.Migration(nil), ledger...), catalog...))
+	history := mustOwnerHistorySubset(t, 1, 4)
+	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
 	}
@@ -202,8 +184,8 @@ func (s *catalogService) migrate(t *testing.T) {
 		t.Fatalf("latest migration version = %d, want 4", result.LatestVersion)
 	}
 	wantLedger := []storepostgres.LedgerRecord{
-		{Version: 1, Name: "ledger", Checksum: ledger[0].Checksum},
-		{Version: 4, Name: "publication_bundle_catalog", Checksum: catalog[0].Checksum},
+		{Version: 1, Name: "ledger", Checksum: "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+		{Version: 4, Name: "publication_bundle_catalog", Checksum: "adcb4683ffd1611b9c68e7a49aaa4b8670d106d65df927cbb8e11866be224943"},
 	}
 	if len(result.Applied) != len(wantLedger) {
 		t.Fatalf("applied history = %+v, want %+v", result.Applied, wantLedger)
@@ -215,6 +197,39 @@ func (s *catalogService) migrate(t *testing.T) {
 				i, got.Version, got.Name, got.Checksum, want.Version, want.Name, want.Checksum)
 		}
 	}
+}
+
+// mustOwnerHistorySubset returns the authoritative owner history (the single
+// production source of this schema series' DDL) filtered to the given
+// versions, with every filtered-out entry validated away rather than
+// silently ignored: the owner must pin exactly one migration per requested
+// version and the result must be ascending.
+func mustOwnerHistorySubset(t *testing.T, versions ...int64) []storepostgres.Migration {
+	t.Helper()
+	owner, err := OwnerMigrations()
+	if err != nil {
+		t.Fatalf("owner migrations: %v", err)
+	}
+	want := make(map[int64]struct{}, len(versions))
+	for _, v := range versions {
+		want[v] = struct{}{}
+	}
+	seen := make(map[int64]struct{}, len(versions))
+	var out []storepostgres.Migration
+	for _, m := range owner {
+		if _, ok := want[m.Version]; !ok {
+			continue
+		}
+		if _, dup := seen[m.Version]; dup {
+			t.Fatalf("owner history has duplicate version %d", m.Version)
+		}
+		seen[m.Version] = struct{}{}
+		out = append(out, m)
+	}
+	if len(out) != len(versions) {
+		t.Fatalf("owner history covers versions %v of %v, want %v", seen, versions, versions)
+	}
+	return out
 }
 
 // mustExec runs a statement and fails the test on error.

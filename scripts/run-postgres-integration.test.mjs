@@ -13,6 +13,9 @@ import {
   EXPLORER_INTEGRATION_TESTS,
   EXPECTED_CHECKS,
   NAMESPACE_PREFIX,
+  OWNERSHIP_INTEGRATION_FILTER,
+  OWNERSHIP_INTEGRATION_PACKAGE,
+  OWNERSHIP_INTEGRATION_TESTS,
   PROBE_SOURCE,
   REQUIRED_INTEGRATION_TEST,
   REQUIRED_MAJOR_VERSION,
@@ -34,7 +37,15 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.includes(EDGE_WRITER_INTEGRATION_FILTER)
+  stdout: events(args.includes(OWNERSHIP_INTEGRATION_FILTER)
+    ? [
+      ...OWNERSHIP_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'ownershippkg', Test: name },
+        { Action: 'pass', Package: 'ownershippkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'ownershippkg' },
+    ]
+    : args.includes(EDGE_WRITER_INTEGRATION_FILTER)
     ? [
       ...EDGE_WRITER_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'edgewriterpkg', Test: name },
@@ -248,14 +259,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 5, 'the pg-store-01, dataset, explorer, resource-writer, and edge-writer lanes must all run');
+  assert.equal(goCalls.length, 6, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, and ownership lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/store/postgres'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -294,6 +305,20 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
     'the edge-writer lane stays within the aligned 180s Go budget');
   assert.deepEqual(evidence.edgeWriterIntegration.anchors, [...EDGE_WRITER_INTEGRATION_TESTS]);
   for (const name of EDGE_WRITER_INTEGRATION_TESTS) assert.ok(evidence.edgeWriterIntegration.passes.includes(name));
+  // The arch-backend-05 ownership lane carries an explicit -run filter over
+  // the store package (never whole-package: it holds every other PG-gated
+  // suite), and the filter plus zero-skip gate is its never-skipped
+  // guarantee.
+  assert.equal(goCalls[5].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
+  assert.ok(goCalls[5].args.includes('-run'), 'the ownership lane must carry its never-skipped -run filter');
+  assert.ok(goCalls[5].args.includes(OWNERSHIP_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
+  assert.deepEqual(goCalls[5].args.slice(-1), [OWNERSHIP_INTEGRATION_PACKAGE]);
+  assert.ok(goCalls[5].args.includes('-json') && goCalls[5].args.includes('-count=1'));
+  assert.ok(goCalls[5].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
+    'the ownership lane stays within the aligned 180s Go budget');
+  assert.deepEqual(evidence.ownershipIntegration.anchors, [...OWNERSHIP_INTEGRATION_TESTS]);
+  for (const name of OWNERSHIP_INTEGRATION_TESTS) assert.ok(evidence.ownershipIntegration.passes.includes(name));
+  assert.ok(readFileSync(join(out, 'ownership-integration.jsonl'), 'utf8').includes(OWNERSHIP_INTEGRATION_TESTS[0]));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
@@ -487,6 +512,53 @@ test('an edge-writer lane that never runs an anchor case fails the run', async (
   const { out, run } = harness({
     go: args => args.includes(EDGE_WRITER_INTEGRATION_FILTER)
       ? { status: 0, stdout: events([{ Action: 'pass', Package: 'postgrespkg' }, { Action: 'pass', Package: 'ingestpkg' }]), stderr: '' }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /did not run/);
+});
+
+test('a failing ownership lane fails the run after the edge-writer lane passed', async () => {
+  const { goCalls, out, run } = harness({
+    go: args => args.includes(OWNERSHIP_INTEGRATION_FILTER)
+      ? { status: 1, stdout: events([{ Action: 'fail', Package: 'postgrespkg' }]), stderr: `connection refused for ${ADMIN_URL}` }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed');
+  assert.match(evidence.error, /migration-ownership real-PG suite failed/);
+  assert.equal(goCalls.length, 6, 'the ownership lane must actually be attempted after the edge-writer lane passes');
+  assert.ok(!('ownershipIntegration' in evidence), 'a failed lane records no pass evidence');
+  assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }], 'cleanup must still own its namespace');
+  const stderr = readFileSync(join(out, 'ownership-integration.stderr'), 'utf8');
+  assert.ok(!stderr.includes('s3cret-test-password'), 'ownership lane evidence must be credential-free');
+  assert.ok(stderr.includes('[redacted]'), 'ownership lane evidence must record the redaction');
+});
+
+test('an ownership lane that skips any matched case is a blocker, never acceptance', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(OWNERSHIP_INTEGRATION_FILTER)
+      ? {
+        status: 0,
+        stdout: events([
+          { Action: 'run', Package: 'postgrespkg', Test: OWNERSHIP_INTEGRATION_TESTS[0] },
+          { Action: 'skip', Package: 'postgrespkg', Test: OWNERSHIP_INTEGRATION_TESTS[0] },
+          { Action: 'pass', Package: 'postgrespkg' },
+        ]),
+        stderr: '',
+      }
+      : passingGo(args),
+  });
+  const evidence = await run();
+  assert.equal(evidence.status, 'failed', 'a skipped ownership case cannot masquerade as real-PG acceptance');
+  assert.match(evidence.error, new RegExp(OWNERSHIP_INTEGRATION_TESTS[0]));
+});
+
+test('an ownership lane that never runs its anchor case fails the run', async () => {
+  const { out, run } = harness({
+    go: args => args.includes(OWNERSHIP_INTEGRATION_FILTER)
+      ? { status: 0, stdout: events([{ Action: 'pass', Package: 'postgrespkg' }]), stderr: '' }
       : passingGo(args),
   });
   const evidence = await run();

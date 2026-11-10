@@ -5,11 +5,10 @@ package postgres
 // LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
 // database (pgpubrel01_it_*) plus one owned schema (pgpubrel01_it_*) inside
 // it and drops both in its cleanups, so the suite leaves zero leftovers.
-// The fixture history is composed through the real pg-store-02 runner from
-// the embedded ledger bootstrap, the embedded pg-store-03 generation-manifest
-// migration (this ticket's declared dependency), and this ticket's
-// package-local internal/dataset/postgres/testdata/migrations-releases
-// 000008_project_release.sql; the ledger rows are asserted literally.
+// The fixture history is the package's authoritative owner embed
+// (migrate.go: ledger bootstrap, the pg-store-03 generation-manifest
+// migration, and 000008_project_release) applied through the real pg-store-02
+// runner; the ledger rows are asserted literally.
 // Expected rows are asserted literally through a witness pool that is a
 // third, physically distinct backend connection, and stale-writer proofs run
 // over two single-connection pools with provably distinct pg_backend_pid
@@ -35,7 +34,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -224,40 +222,24 @@ func (s *releaseService) backendPID(t *testing.T, pool *pgxpool.Pool, label stri
 	return pid
 }
 
-// migrate composes and applies the owned history -- the ledger bootstrap and
-// the pg-store-03 generation-manifest migration from the embedded set, plus
-// this ticket's package-local 000008 project-release fixture -- through the
-// real pg-store-02 runner, and asserts the ledger literally records all
-// three rows with their checksums. The generation lane keeps loading its
-// own history, so this ticket's SQL lives beside it in a package-local
-// directory (shared numbers 000006/000007 stay untouched).
+// migrate applies this package's authoritative owner history -- the ledger
+// bootstrap, the pg-store-03 generation-manifest migration, and
+// 000008_project_release, all from the package embed (migrate.go) -- through
+// the real pg-store-02 runner, and asserts the ledger literally records all
+// three rows with their checksums: the full production setup path, not a
+// test-composed fixture assembly.
 func (s *releaseService) migrate(t *testing.T) {
 	t.Helper()
-	embedded, err := storepostgres.EmbeddedMigrations()
+	history, err := OwnerMigrations()
 	if err != nil {
-		s.fail("embedded migrations", err)
+		s.fail("owner migrations", err)
 	}
-	var history []storepostgres.Migration
-	var ledgerBootstrap, generationManifest *storepostgres.Migration
-	for i := range embedded {
-		switch {
-		case embedded[i].Version == 1 && embedded[i].Name == "ledger":
-			ledgerBootstrap = &embedded[i]
-		case embedded[i].Version == 3 && embedded[i].Name == "dataset_generation_manifest":
-			generationManifest = &embedded[i]
-		}
+	if len(history) != 3 ||
+		history[0].Version != 1 || history[0].Name != "ledger" ||
+		history[1].Version != 3 || history[1].Name != "dataset_generation_manifest" ||
+		history[2].Version != 8 || history[2].Name != "project_release" {
+		t.Fatalf("owner history = %+v, want exactly {1 ledger, 3 dataset_generation_manifest, 8 project_release}", history)
 	}
-	if ledgerBootstrap == nil || generationManifest == nil {
-		t.Fatalf("embedded history lacks the ledger bootstrap or migration 3: %+v", embedded)
-	}
-	fixture, err := storepostgres.LoadMigrations(os.DirFS("../../../"), "internal/dataset/postgres/testdata/migrations-releases")
-	if err != nil {
-		s.fail("load package-local release fixture migrations", err)
-	}
-	if len(fixture) != 1 || fixture[0].Version != 8 || fixture[0].Name != "project_release" {
-		t.Fatalf("package-local fixture history = %+v, want exactly version 8 project_release", fixture)
-	}
-	history = append(history, *ledgerBootstrap, *generationManifest, fixture[0])
 	runner, err := storepostgres.NewMigrationRunner(s.witness, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
@@ -270,9 +252,9 @@ func (s *releaseService) migrate(t *testing.T) {
 		t.Fatalf("latest migration version = %d, want 8", result.LatestVersion)
 	}
 	wantLedger := []storepostgres.LedgerRecord{
-		{Version: 1, Name: "ledger", Checksum: ledgerBootstrap.Checksum},
-		{Version: 3, Name: "dataset_generation_manifest", Checksum: generationManifest.Checksum},
-		{Version: 8, Name: "project_release", Checksum: fixture[0].Checksum},
+		{Version: 1, Name: "ledger", Checksum: "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+		{Version: 3, Name: "dataset_generation_manifest", Checksum: "06c614680a9c1cd4ba2ef0ac0471053bcb3d8e471c36d3852e70682887a72f5d"},
+		{Version: 8, Name: "project_release", Checksum: "1d581ec39731958dd0f79cdab18e92861a380007d3e85d6de4940800378480b1"},
 	}
 	if len(result.Applied) != len(wantLedger) {
 		t.Fatalf("applied history = %+v, want %+v", result.Applied, wantLedger)

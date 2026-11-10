@@ -45,9 +45,11 @@
 //     NOT NULL, so nothing silently reads back as SQL NULL; unsupported
 //     values fail explicitly, at the boundary or on decode.
 //
-// The schema is created by tests/migrations-chartifact/000007_private_
-// clickhouse_artifacts.sql applied through the pg-store-02 MigrationRunner;
-// this package contains no DDL.
+// The schema is created by the publication control-plane history (migration
+// 000007_private_clickhouse_artifacts), owned and embedded by
+// internal/dataframe/publication/postgres and applied through its
+// MigrateSchema entry point on the pg-store-02 runner; this package contains
+// no DDL.
 package postgres
 
 import (
@@ -66,9 +68,10 @@ import (
 )
 
 // PrivateArtifactsTable stores one row per private ClickHouse artifact
-// manifest. It is created by
-// tests/migrations-chartifact/000007_private_clickhouse_artifacts.sql; this
-// file contains no DDL.
+// manifest. It is created by migration
+// 000007_private_clickhouse_artifacts of the publication control-plane
+// history owned by internal/dataframe/publication/postgres; this file
+// contains no DDL.
 const PrivateArtifactsTable = "chartifact_private_artifacts"
 
 const (
@@ -112,9 +115,10 @@ var _ chartifact.Catalog = (*Catalog)(nil)
 
 // NewCatalog binds a catalog to one schema of a PostgreSQL 18 database
 // served by pool. The schema must already contain chartifact_private_
-// artifacts (tests/migrations-chartifact/000007 via the pg-store-02
-// MigrationRunner); NewCatalog never runs DDL and never falls back when it
-// is missing -- the first statement surfaces the failure.
+// artifacts (migration 000007 of the publication control-plane history,
+// applied via internal/dataframe/publication/postgres.MigrateSchema);
+// NewCatalog never runs DDL and never falls back when it is missing -- the
+// first statement surfaces the failure.
 func NewCatalog(pool DB, schema string) (*Catalog, error) {
 	if pool == nil {
 		return nil, errors.New("chartifact postgres: nil pool")
