@@ -548,6 +548,16 @@ func ab05Admin(t *testing.T, ctx context.Context) *pgxpool.Pool {
 }
 
 // ab05Schema creates one verify_ab05_* schema and registers its removal.
+// ab05Expiry returns an absolute expiry measured from the REAL wall clock
+// at call time. Lease, read-pin, and artifact expiries must never derive
+// from the fixed fixture timestamps: the owning stores fence these against
+// time.Now() (Registry.SaveExecution, the chartifact catalog, read-pin
+// checks), so a fixed-date expiry turns every suite run once real time
+// passes that date into a spurious "bundle lease ownership was lost"
+// failure -- exactly the CI flake that bit the 10:04 UTC run on
+// 2026-11-10. Row DATA timestamps stay fixed for determinism.
+func ab05Expiry(d time.Duration) time.Time { return time.Now().UTC().Add(d) }
+
 func ab05Schema(t *testing.T, ctx context.Context, admin *pgxpool.Pool, name string) string {
 	t.Helper()
 	schema := ab05Prefix + name
@@ -786,7 +796,7 @@ func ab05RepresentativeDomainOperations(t *testing.T) {
 			t.Fatalf("publication registry: %v", err)
 		}
 		key, executionID := "ab05-key", "ab05-exec-1"
-		held, err := registry.AcquireBundleLease(ctx, key, owner, now.Add(time.Hour))
+		held, err := registry.AcquireBundleLease(ctx, key, owner, ab05Expiry(time.Hour))
 		if err != nil || !held {
 			t.Fatalf("acquire bundle lease = (%v, %v), want held", held, err)
 		}
@@ -814,7 +824,7 @@ func ab05RepresentativeDomainOperations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read pins: %v", err)
 		}
-		pinned, err := pins.AcquireExecutionReadPin(ctx, executionID, owner, now.Add(time.Hour))
+		pinned, err := pins.AcquireExecutionReadPin(ctx, executionID, owner, ab05Expiry(time.Hour))
 		if err != nil || !pinned {
 			t.Fatalf("acquire execution read pin = (%v, %v), want pinned", pinned, err)
 		}
@@ -841,14 +851,14 @@ func ab05RepresentativeDomainOperations(t *testing.T) {
 			PhysicalTable: "loom_private_stage_ab05",
 			State:         chartifact.StateCreating,
 			LeaseOwner:    owner,
-			LeaseUntil:    now.Add(time.Hour),
+			LeaseUntil:    ab05Expiry(time.Hour),
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}
 		if err := catalog.Create(ctx, manifest); err != nil {
 			t.Fatalf("create private artifact: %v", err)
 		}
-		renewed, err := catalog.Renew(ctx, artifactID, owner, now.Add(2*time.Hour))
+		renewed, err := catalog.Renew(ctx, artifactID, owner, ab05Expiry(2*time.Hour))
 		if err != nil || !renewed {
 			t.Fatalf("renew private artifact lease = (%v, %v), want renewed", renewed, err)
 		}
@@ -1274,7 +1284,7 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 			t.Fatalf("publication registry: %v", err)
 		}
 		key := "ab05-up-key"
-		held, err := registry.AcquireBundleLease(ctx, key, "ab05-owner", now.Add(time.Hour))
+		held, err := registry.AcquireBundleLease(ctx, key, "ab05-owner", ab05Expiry(time.Hour))
 		if err != nil || !held {
 			t.Fatalf("pre-upgrade lease = (%v, %v), want held", held, err)
 		}
@@ -1301,7 +1311,7 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 			PhysicalTable: "loom_private_stage_ab05_up",
 			State:         chartifact.StateCreating,
 			LeaseOwner:    "ab05-owner",
-			LeaseUntil:    now.Add(time.Hour),
+			LeaseUntil:    ab05Expiry(time.Hour),
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}
@@ -1316,11 +1326,11 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		// The pre-refactor composition already covers the full owner
 		// history: the upgrade must add nothing and rewrite nothing.
 		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied, nil)
-		renewed, err := catalog.Renew(ctx, artifactID, "ab05-owner", now.Add(2*time.Hour))
+		renewed, err := catalog.Renew(ctx, artifactID, "ab05-owner", ab05Expiry(2*time.Hour))
 		if err != nil || !renewed {
 			t.Fatalf("private artifact did not survive the upgrade: renew = (%v, %v)", renewed, err)
 		}
-		if held, err := registry.AcquireBundleLease(ctx, key, "ab05-owner", now.Add(time.Hour)); err != nil || !held {
+		if held, err := registry.AcquireBundleLease(ctx, key, "ab05-owner", ab05Expiry(time.Hour)); err != nil || !held {
 			t.Fatalf("lease did not survive the upgrade: reacquire = (%v, %v)", held, err)
 		}
 		twice, err := publicationpg.MigrateSchema(ctx, client, schema)
