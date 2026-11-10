@@ -5,12 +5,12 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"reflect"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -94,9 +94,10 @@ func TestCase008ExplicitGroupRowDefinitionPreviewCompilesCandidateReceipt(t *tes
 	var basePreviewColumns []string
 	var candidatePreviewColumns []string
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, bindVars, deriveErr := command.AQLParameters()
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}

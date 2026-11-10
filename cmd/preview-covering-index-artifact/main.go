@@ -381,7 +381,7 @@ func run(reportPath, queryPath, outPath, compiledQueryOutPath, sourceManifestPat
 	if !ok || limitValue < 0 || limitValue != float64(int(limitValue)) {
 		return errors.New("captured query limit bind is missing or invalid")
 	}
-	queries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, int(limitValue), ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, int(limitValue), ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return fmt.Errorf("compile production physical query: %w", err)
 	}
@@ -586,9 +586,9 @@ func fingerprintProductionSources(moduleRoot, packagePattern string) (production
 	if err != nil {
 		return productionSourceFingerprint{}, fmt.Errorf("make module root absolute: %w", err)
 	}
-	command := exec.Command("go", "list", "-deps", "-json", packagePattern)
-	command.Dir = root
-	listOutput, err := command.Output()
+	compiledCommand := exec.Command("go", "list", "-deps", "-json", packagePattern)
+	compiledCommand.Dir = root
+	listOutput, err := compiledCommand.Output()
 	if err != nil {
 		return productionSourceFingerprint{}, fmt.Errorf("go list production source closure: %w: %s", err, strings.TrimSpace(string(listOutput)))
 	}

@@ -202,7 +202,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	execute := func(output recipe.Output) []map[string]any {
 		t.Helper()
 		compiled := lowerConstructionOutput(t, output, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile cohort output %q: %v", output.Name, err)
 		}
@@ -433,7 +433,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	}
 	bindings := recipe.RuntimeBindings{Project: resourceProject, SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	compiled := lowerConstructionOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			Outputs: []recipe.StageColumn{{ID: "ids", Name: "ids", Type: "string"}, {ID: "gender", Name: "gender", Type: "string"}, {ID: "identifiers", Name: "identifiers", Type: "string"}},
 		}}}
 		compiled := lowerConstructionOutput(t, filtered, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -534,7 +534,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			},
 		}}}
 		compiled := lowerConstructionOutput(t, filtered, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -568,7 +568,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		groups.RowValues = []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: recipe.ConstructionRowValueOne}}
 		one.GroupRows = &groups
 		compiled := lowerConstructionOutput(t, one, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -599,7 +599,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 				recoded.GroupRows = &groups
 				recoded.ColumnTransformations = []recipe.ColumnTransformation{{Column: "ids", Transformation: transformation}}
 				compiled := lowerConstructionOutput(t, recoded, bindings)
-				query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+				query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatalf("compile transformed cohort member values: %v", err)
 				}
@@ -648,7 +648,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			},
 		}}}
 		compiled := lowerConstructionOutput(t, recoded, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -660,7 +660,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		denyAll := bindings
 		denyAll.AuthResourcePaths = nil
 		compiled := lowerConstructionOutput(t, output, denyAll)
-		query, err := CompileRecipeOutputWithPolicy(compiled, denyAll, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, denyAll, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}

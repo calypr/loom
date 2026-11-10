@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -82,14 +83,14 @@ type CategoryScanProof struct {
 // scan overflow claim. Command is a parent-tagged AQL command; the witness is
 // executed only through the AQL row-stream adapter.
 type CategoryOverflowWitness struct {
-	Command CompiledCommand
+	Command command.CompiledCommand
 }
 
 // CompiledCategoryScanQuery is a bounded distinct-value scan. Command is the
 // single parent-tagged executable; loose rendered text and named binds are
 // never carried as execution fields.
 type CompiledCategoryScanQuery struct {
-	Command              CompiledCommand
+	Command              command.CompiledCommand
 	PresentColumn        string
 	ValueColumn          string
 	Proof                CategoryScanProof
@@ -99,7 +100,13 @@ type CompiledCategoryScanQuery struct {
 	OverflowWitness      *CategoryOverflowWitness
 }
 
-func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func CompileCategoryScanOutput(target Target, output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("category scan compilation"); err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
 	columnName = strings.TrimSpace(columnName)
 	column, err := categoryScanColumn(output.OutputSchema, columnName)
 	if err != nil {
@@ -112,7 +119,13 @@ func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, colu
 // compiler-owned construction stage and binds the proof to the selected
 // category and value columns. The value column is not read by the scan, but is
 // included in the proof so a result cannot be reused for another pivot pair.
-func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func CompileCategoryScanStage(target Target, output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
+	if err := target.rejectPostgreSQL("category scan stage compilation"); err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
 	stage, found := compiledStageByID(output.Stages, stageID)
 	if !found {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
@@ -302,7 +315,7 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 				witnessBinds := cloneCategoryScanBinds(witness.BindVars)
 				witnessBinds[categoryColumnBind] = column.Name
 				witnessBinds[categoryLimitBind] = maxValues + 1
-				witnessCommand, witnessCommandErr := NewAQLCommand(witnessQuery, witnessBinds)
+				witnessCommand, witnessCommandErr := command.NewAQLCommand(witnessQuery, witnessBinds)
 				if witnessCommandErr != nil {
 					return CompiledCategoryScanQuery{}, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
 				}
@@ -351,12 +364,12 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan proof: %w", err)
 	}
-	command, commandErr := NewAQLCommand(query, bindVars)
+	compiledCommand, commandErr := command.NewAQLCommand(query, bindVars)
 	if commandErr != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("tag category scan command: %w", commandErr)
 	}
 	return CompiledCategoryScanQuery{
-		Command: command, PresentColumn: "present", ValueColumn: "value",
+		Command: compiledCommand, PresentColumn: "present", ValueColumn: "value",
 		Proof: proof, Diagnostics: diagnostics, CategoryIndex: categoryIndex,
 		PreviewCoveringIndex: previewCoveringIndex, OverflowWitness: overflowWitness,
 	}, nil
@@ -743,7 +756,7 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	delete(witnessBinds, categoryLimitBind)
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	witnessCommand, witnessCommandErr := NewAQLCommand(witnessQuery, witnessBinds)
+	witnessCommand, witnessCommandErr := command.NewAQLCommand(witnessQuery, witnessBinds)
 	if witnessCommandErr != nil {
 		return "", nil, nil, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
 	}
@@ -788,7 +801,7 @@ func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootS
 	delete(witnessBinds, categoryLimitBind)
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	witnessCommand, witnessCommandErr := NewAQLCommand(witnessQuery, witnessBinds)
+	witnessCommand, witnessCommandErr := command.NewAQLCommand(witnessQuery, witnessBinds)
 	if witnessCommandErr != nil {
 		return "", nil, nil, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
 	}

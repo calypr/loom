@@ -488,7 +488,7 @@ func (r *planRenderer) resolveValueInRows(rows map[string]rowScope, value ir.Phy
 		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
 	}
 	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
-		return scope.alias + "." + r.storage.Resource.MustColumn(value.Path[0]).SQLText(), nil
+		return scope.alias + "." + r.storage.Resource.MustColumn(canonicalKeyColumn(value.Path[0])).SQLText(), nil
 	}
 	return r.documentPathExpression(scope.alias, value.Path)
 }

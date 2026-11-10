@@ -7,7 +7,7 @@ package execution
 // through the typed CompiledCommand boundary established by arch-backend-01:
 // statement SQL and ordered arguments are read exclusively via
 // CompiledCommand.PostgreSQLParameters, the EXPLAIN wrapper is re-tagged
-// through compiler.NewPostgreSQLCommand, and the injected runner receives
+// through command.NewPostgreSQLCommand, and the injected runner receives
 // nothing but that tagged command. Raw EXPLAIN JSON stays inside this file:
 // the parser lifts only the agreed backend/node/estimate fields into
 // PostgreSQLPlanAssessment and drops every other key, so statement text,
@@ -27,10 +27,10 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 // postgreSQLExplainPrefix is the fixed EXPLAIN wrapper. Only this constant
@@ -74,7 +74,7 @@ var (
 // binding belong to the adapter (internal/dataframe/postgres.(*Executor)
 // satisfies the dispatch requirement). The raw JSON it returns is internal
 // to PostgreSQLExplainPlan and never escapes the sanitizer.
-type PostgreSQLPlanJSONExecutor func(ctx context.Context, command compiler.CompiledCommand) (json.RawMessage, error)
+type PostgreSQLPlanJSONExecutor func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error)
 
 // BuildPostgreSQLExplainCommand derives the EXPLAIN-tagged command for one
 // compiled query through closed dispatch. The statement SQL and ordered
@@ -84,14 +84,14 @@ type PostgreSQLPlanJSONExecutor func(ctx context.Context, command compiler.Compi
 // ErrCompiledCommandBackendMismatch and an untagged or unknown-tag command
 // with ErrCompiledCommandBackendNotRegistered, so no command can reach the
 // PostgreSQL EXPLAIN context without naming PostgreSQL.
-func BuildPostgreSQLExplainCommand(compiled CompiledQuery) (compiler.CompiledCommand, error) {
+func BuildPostgreSQLExplainCommand(compiled compiler.CompiledQuery) (command.CompiledCommand, error) {
 	sqlText, args, err := compiled.Command.PostgreSQLParameters()
 	if err != nil {
-		return compiler.CompiledCommand{}, err
+		return command.CompiledCommand{}, err
 	}
-	explainCommand, err := compiler.NewPostgreSQLCommand(postgreSQLExplainPrefix+sqlText, args)
+	explainCommand, err := command.NewPostgreSQLCommand(postgreSQLExplainPrefix+sqlText, args)
 	if err != nil {
-		return compiler.CompiledCommand{}, fmt.Errorf("tag EXPLAIN command: %w", err)
+		return command.CompiledCommand{}, fmt.Errorf("tag EXPLAIN command: %w", err)
 	}
 	return explainCommand, nil
 }
@@ -115,7 +115,7 @@ func BuildPostgreSQLExplainCommand(compiled CompiledQuery) (compiler.CompiledCom
 // (custom executors, unclassified causes) get the coarse
 // retryable-backend-unavailable fallback, with the cause chain preserved
 // through QueryError for server-side logs.
-func PostgreSQLExplainPlan(ctx context.Context, executor PostgreSQLPlanJSONExecutor, compiled CompiledQuery) (PostgreSQLPlanAssessment, error) {
+func PostgreSQLExplainPlan(ctx context.Context, executor PostgreSQLPlanJSONExecutor, compiled compiler.CompiledQuery) (PostgreSQLPlanAssessment, error) {
 	if executor == nil {
 		return PostgreSQLPlanAssessment{}, fmt.Errorf("live PostgreSQL Explain requires a plan JSON executor; PostgreSQL requests never fall back to Arango")
 	}
@@ -217,7 +217,7 @@ func sanitizePostgreSQLPlanJSON(raw json.RawMessage) (PostgreSQLPlanAssessment, 
 		return PostgreSQLPlanAssessment{}, err
 	}
 	assessment := PostgreSQLPlanAssessment{
-		Backend:      string(compiler.CompiledBackendPostgreSQL),
+		Backend:      string(command.CompiledBackendPostgreSQL),
 		Nodes:        builder.nodes,
 		FullScans:    builder.fullScans,
 		IndexScans:   builder.indexScans,
@@ -306,69 +306,16 @@ func requiredEstimate(value *float64, field string) (float64, error) {
 	return *value, nil
 }
 
-// explainCompiledForOutput compiles one resolved output for ExplainPhysical.
-// With no PostgreSQL selection seam installed — every existing deployment
-// and test — this is exactly the pre-existing AQL policy compile, unchanged.
-// With the seam installed it mirrors the stream path's backend-tagged
-// decision (buildCompiledOutputStream): ClickHouse Combine outputs keep the
-// AQL compile surface, unsupported physical engines fail before any compile,
-// and a seam selection yields the same PostgreSQL-tagged CompiledQuery the
-// stream would run, built field-for-field like postgreSQLStreamForOutput so
-// Explain assesses the exact command execution will use.
+// explainCompiledForOutput compiles one resolved output for ExplainPhysical
+// through the same selected target as the stream path. The compiler owns
+// backend selection: a PostgreSQL target yields the exact PostgreSQL-tagged
+// compiler.CompiledQuery the stream will run, so Explain always assesses the command
+// execution actually uses. Unsupported physical engines fail before any
+// compile, and there is no AQL fallback for a PostgreSQL plan.
 func (c Control) explainCompiledForOutput(ctx context.Context, resolved Resolved, output lower.CompiledRecipeOutput, limit int) (compiler.CompiledQuery, error) {
-	if c.Engine.resolvePostgreSQLCommands == nil || output.Plan.Engine == ir.PhysicalEngineClickHouse {
-		return compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
-	}
-	switch output.Plan.Engine {
-	case "", ir.PhysicalEngineAQL:
-	default:
+	if output.Plan.Engine != "" && output.Plan.Engine != ir.PhysicalEngineAQL && output.Plan.Engine != ir.PhysicalEngineClickHouse {
 		return compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
 	}
 	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
-	selection, err := c.Engine.resolvePostgreSQLCommands(ctx, output, output.Plan, bindings, limit)
-	if err != nil {
-		return compiler.CompiledQuery{}, fmt.Errorf("output %q: postgres command resolution: %w", output.Name, err)
-	}
-	if selection == nil {
-		return compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
-	}
-	return postgreSQLExplainCompiledQuery(resolved, output, bindings, limit, selection)
-}
-
-// postgreSQLExplainCompiledQuery builds the Explain-facing twin of
-// postgreSQLStreamForOutput's CompiledQuery construction. Field semantics
-// stay identical to that authority; if it changes, this mirror must change
-// with it or Explain would assess a different command than execution runs.
-func postgreSQLExplainCompiledQuery(resolved Resolved, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings, limit int, selection *ResolvedPostgreSQLCommand) (compiler.CompiledQuery, error) {
-	if output.Plan.ClickHouseCombine != nil {
-		return compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
-	}
-	sqlText, args, err := selection.Command.PostgreSQLParameters()
-	if err != nil {
-		return compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
-	}
-	if len(selection.Columns) == 0 {
-		return compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL command selection requires a non-empty declared result column contract", output.Name)
-	}
-	outputSchema := lower.CloneCompiledOutputSchema(output.OutputSchema)
-	publicColumns := publicPostgreSQLColumns(outputSchema, selection.Columns)
-	if len(outputSchema) > 0 && len(publicColumns) == 0 {
-		return compiler.CompiledQuery{}, fmt.Errorf("output %q: every declared PostgreSQL result column is an internal projection; refusing to publish internal columns in the public row", output.Name)
-	}
-	return compiler.CompiledQuery{
-		Command:            selection.Command,
-		Project:            bindings.Project,
-		DatasetGeneration:  bindings.DatasetGeneration,
-		RootResourceType:   output.RootResourceType,
-		TranslationVersion: output.TranslationVersion,
-		AuthResourcePaths:  append([]string(nil), bindings.AuthResourcePaths...),
-		PlanMode:           previewPlanMode,
-		PlanProfile:        previewPlanProfile,
-		RowIdentity:        output.RowIdentity.Clone(),
-		Columns:            append([]string(nil), selection.Columns...),
-		PublicColumns:      append([]string(nil), publicColumns...),
-		OutputSchema:       outputSchema,
-		Limit:              limit,
-		PlanDiagnostics:    ir.CompilerPlanDiagnostics{Fingerprint: postgreSQLCommandFingerprint(sqlText, args, selection.Columns)},
-	}, nil
+	return compiler.CompileRecipeOutput(c.Engine.compileTarget, output, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 }

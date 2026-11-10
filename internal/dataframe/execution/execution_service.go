@@ -3,12 +3,13 @@ package execution
 import (
 	"context"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"sort"
 	"time"
 )
 
-func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result, error) {
+func (s *Service) runQuery(ctx context.Context, compiled compiler.CompiledQuery) (*Result, error) {
 	var rows []map[string]any
 	streamed, err := s.streamQuery(ctx, compiled, func(row map[string]any) error {
 		rows = append(rows, row)
@@ -30,7 +31,7 @@ func (s *Service) runQuery(ctx context.Context, compiled CompiledQuery) (*Result
 // produced by GraphQL); compilation and scope resolution remain the caller's
 // responsibility. The query still uses the same cursor, row flattening, and
 // diagnostics path as the ordinary recipe-backed Run.
-func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Result, error) {
+func (s *Service) RunCompiled(ctx context.Context, compiled compiler.CompiledQuery) (*Result, error) {
 	started := time.Now()
 	result, err := s.runQuery(ctx, compiled)
 	if err != nil {
@@ -41,7 +42,7 @@ func (s *Service) RunCompiled(ctx context.Context, compiled CompiledQuery) (*Res
 	return result, nil
 }
 
-func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit func(map[string]any) error) (streamResult, error) {
+func (s *Service) streamQuery(ctx context.Context, compiled compiler.CompiledQuery, visit func(map[string]any) error) (streamResult, error) {
 	if visit == nil {
 		return streamResult{}, fmt.Errorf("row visitor is required")
 	}
@@ -59,10 +60,10 @@ func (s *Service) streamQuery(ctx context.Context, compiled CompiledQuery, visit
 	rowCount := 0
 	var rowMaterialization time.Duration
 	queryStarted := time.Now()
-	if s.queryRows == nil {
+	if s.sourceRows == nil {
 		return streamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
-	err := s.queryRows(ctx, compiled.Command, 1000, func(row map[string]any) error {
+	err := s.sourceRows(ctx, RowsRequest{Command: compiled.Command, DeclaredColumns: append([]string(nil), compiled.Columns...), BatchSize: 1000}, func(row map[string]any) error {
 		// A backend adapter can keep visiting rows after the caller cancels;
 		// stop before materializing or delivering any further public row.
 		if err := contextError(ctx); err != nil {

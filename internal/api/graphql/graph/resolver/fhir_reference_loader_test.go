@@ -340,8 +340,8 @@ type fhirReferenceTestProbe struct {
 
 // queryRows emulates the compiled id-IN reference query against one pinned
 // dataset generation, including the authorization filter and row limit.
-func (p *fhirReferenceTestProbe) queryRows(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-	_, bindVars, deriveErr := command.AQLParameters()
+func (p *fhirReferenceTestProbe) queryRows(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+	_, bindVars, deriveErr := request.Command.AQLParameters()
 	if deriveErr != nil {
 		return deriveErr
 	}
@@ -435,7 +435,7 @@ func newFHIRReferenceTestHarness(t *testing.T, rows []fhirReferenceTestRow) *fhi
 func newFHIRReferenceTestHarnessWithScope(t *testing.T, rows []fhirReferenceTestRow, scope *authscope.ReadScope) *fhirReferenceTestHarness {
 	t.Helper()
 	probe := &fhirReferenceTestProbe{rows: rows}
-	service := queryapi.NewService(queryapi.Config{
+	service := queryapi.NewService(queryapi.Config{CompileTarget: compiler.ArangoTarget(),
 		ScopeResolver: authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 			ResourceAccess: fhirReferenceTestResourceAccess{},
 			ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
@@ -448,7 +448,7 @@ func newFHIRReferenceTestHarnessWithScope(t *testing.T, rows []fhirReferenceTest
 			}}, nil
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-			QueryRows: probe.queryRows,
+			SourceRows: probe.queryRows,
 		}),
 	})
 	return &fhirReferenceTestHarness{

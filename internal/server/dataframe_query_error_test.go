@@ -6,7 +6,7 @@ package server
 // side of the boundary: adapter-classified errors must route exactly as the
 // classifier's output did, unknown errors pass through, and the neutral
 // execution budget is wired into the ArangoDB adapter mechanism by
-// configuredAQLQueryRows.
+// configuredAQLSourceRows.
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
@@ -165,21 +164,21 @@ func TestPreserveConfiguredQueryErrorMapsAuthorizationCodes(t *testing.T) {
 
 func TestConfiguredAQLQueryRowsWiresExecutionBudgetIntoArangoAdapter(t *testing.T) {
 	var captured context.Context
-	adapter := configuredAQLQueryRows(nil, "test_phase", func(ctx context.Context, _ compiler.CompiledCommand, _ int, _ dataframeexecution.RowVisitor) error {
+	adapter := configuredAQLSourceRows(nil, "test_phase", func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
 		captured = ctx
 		return nil
 	})
-	command := testAQLCommand(t, "RETURN 1", nil)
+	compiledCommand := testAQLCommand(t, "RETURN 1", nil)
 
 	ctx := dataframeexecution.WithQueryMemoryBudget(context.Background(), 900000)
-	if err := adapter(ctx, command, 10, func(map[string]any) error { return nil }); err != nil {
+	if err := adapter(ctx, dataframeexecution.RowsRequest{Command: compiledCommand, BatchSize: 10}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if limit, ok := arangostore.QueryMemoryLimitFromContext(captured); !ok || limit != 900000 {
 		t.Fatalf("adapter memory limit = %d/%t, want the execution budget 900000", limit, ok)
 	}
 
-	if err := adapter(context.Background(), command, 10, func(map[string]any) error { return nil }); err != nil {
+	if err := adapter(context.Background(), dataframeexecution.RowsRequest{Command: compiledCommand, BatchSize: 10}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if limit, ok := arangostore.QueryMemoryLimitFromContext(captured); ok {

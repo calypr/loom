@@ -236,7 +236,7 @@ func compileRootValueQuantityCodeCategoryScan(t *testing.T, project, generation 
 	if err != nil {
 		t.Fatal(err)
 	}
-	scan, err := CompileCategoryScanStageWithPolicy(
+	scan, err := CompileCategoryScanStage(ArangoTarget(),
 		compiled.Outputs[0], recipe.ConstructionSourceProjectionID, "category_id", "value_id",
 		MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy(),
 	)

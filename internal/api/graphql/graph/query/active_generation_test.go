@@ -83,8 +83,8 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 		return []catalog.PopulatedReference{{FromType: "Patient", Label: "subject_Patient", ToType: "Specimen", EdgeCount: 1}}, nil
 	}
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		QueryRows: func(_ context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
-			_, bindVars, deriveErr := command.AQLParameters()
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, bindVars, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr
 			}
@@ -95,7 +95,7 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 			return nil
 		},
 	})
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ActiveManifestResolver: active,
 		DiscoverFields:         discoverFields,
 		DiscoverReferences:     discoverReferences,
@@ -136,7 +136,7 @@ func TestActiveGenerationPropagatesThroughBuilderCatalogEntrypoints(t *testing.T
 }
 
 func TestResolveActiveGenerationFallsBackToUnversionedCatalog(t *testing.T) {
-	service := NewService(Config{ActiveManifestResolver: noActiveManifestResolver{}})
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(), ActiveManifestResolver: noActiveManifestResolver{}})
 
 	generation, err := service.resolveActiveGeneration(context.Background(), "project-a")
 	if err != nil {

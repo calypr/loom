@@ -26,7 +26,7 @@ func TestRelatedGroupPreviewReportsValidationWindow(t *testing.T) {
 				output.Construction.Steps = output.Construction.Steps[:3]
 			}
 			compiled := lowerConstructionOutput(t, output, bindings)
-			preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+			preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -78,7 +78,7 @@ func TestRelatedGroupPreviewPreservesProjectionAndScopeContracts(t *testing.T) {
 			bindings := recipe.RuntimeBindings{Project: "owned-project", DatasetGeneration: "owned-generation", IncludeRowIdentity: true}
 			compiled := lowerConstructionOutput(t, relatedGroupPreviewOutput(t, bindings), bindings)
 			test.change(&compiled.Plan)
-			preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+			preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 			if test.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), test.wantError) ||
 					!strings.Contains(err.Error(), "project scope filter at operation") || !strings.Contains(err.Error(), ".project == @project") {
@@ -208,7 +208,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	output := relatedGroupPreviewOutput(t, bindings)
 	compiled := lowerConstructionOutput(t, output, bindings)
-	full, err := CompileRecipeOutputWithPolicy(compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 	}
 	comparePreview := func(t *testing.T, limit int) {
 		t.Helper()
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +246,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		terminalOutput := relatedGroupPreviewOutput(t, bindings)
 		terminalOutput.Construction.Steps = terminalOutput.Construction.Steps[:3]
 		terminal := lowerConstructionOutput(t, terminalOutput, bindings)
-		fullQuery, err := CompileRecipeOutputWithPolicy(terminal, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+		fullQuery, err := CompileRecipeOutput(ArangoTarget(), terminal, bindings, 0, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,7 +254,7 @@ func TestRelatedGroupPreviewKeepsCompleteContributorsAgainstArango(t *testing.T)
 		sort.Slice(fullRows, func(i, j int) bool {
 			return fullRows[i]["__loom_row_id"].(string) < fullRows[j]["__loom_row_id"].(string)
 		})
-		previewQuery, err := CompileRecipeOutputWithPolicy(terminal, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
+		previewQuery, err := CompileRecipeOutput(ArangoTarget(), terminal, bindings, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}

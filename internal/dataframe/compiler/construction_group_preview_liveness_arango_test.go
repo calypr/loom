@@ -160,7 +160,7 @@ func TestSourceGroupPruningKeepsCorrelatedPivotALLValuesAgainstArango(t *testing
 		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"},
 	}
 	compiled := lowerConstructionOutput(t, output, bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

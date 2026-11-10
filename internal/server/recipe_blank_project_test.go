@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"errors"
-	"github.com/calypr/loom/internal/dataframe/compiler"
 	"testing"
 
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -35,8 +35,10 @@ func blankProjectEngine(t *testing.T) (*dataframeexecution.Engine, *blankProject
 	t.Helper()
 	registry := &blankProjectRegistryFailures{}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: registry,
-		QueryRows: func(ctx context.Context, command compiler.CompiledCommand, _ int, visit dataframeexecution.RowVisitor) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      registry,
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
 			_, _, deriveErr := command.AQLParameters()
 			if deriveErr != nil {
 				return deriveErr

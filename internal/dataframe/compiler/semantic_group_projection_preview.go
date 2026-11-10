@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
@@ -9,24 +10,24 @@ import (
 // alternative after the runtime has selected its root scan. An empty indexName
 // leaves the planner choice unchanged; disableIndex requests a full scan. The
 // alternative reaches runtime only as a parent-tagged AQL command.
-func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (CompiledCommand, error) {
+func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan, indexName, disableIndex)
 	if err != nil {
-		return CompiledCommand{}, err
+		return command.CompiledCommand{}, err
 	}
-	return CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
 // RenderPreviewGroupProjectionAssessment returns bounded metadata about the
 // exact complete Coding-array projections seen under the plan's source scope.
 // Its result contains no source values and reaches runtime only as a
 // parent-tagged AQL command.
-func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (CompiledCommand, error) {
+func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan, indexName, disableIndex)
 	if err != nil {
-		return CompiledCommand{}, err
+		return command.CompiledCommand{}, err
 	}
-	return CompiledCommandForBackend(CompiledBackendAQL, rendered)
+	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
 func previewGroupProjectionSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionSpec {
@@ -42,7 +43,7 @@ func previewGroupProjectionSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionSpe
 	if err != nil || scopeCount.Query == "" {
 		return nil
 	}
-	scopeCountCommand, err := CompiledCommandForBackend(CompiledBackendAQL, scopeCount)
+	scopeCountCommand, err := command.NewAQLCommand(scopeCount.Query, scopeCount.BindVars)
 	if err != nil {
 		return nil
 	}

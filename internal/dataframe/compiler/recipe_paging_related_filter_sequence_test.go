@@ -172,7 +172,7 @@ func compileRelatedConstructionPage(t *testing.T, name string, output recipe.Out
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,7 +135,7 @@ func (s *Service) listFHIRPrepared(ctx context.Context, request FHIRListRequest,
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}
-	compiled, err := compileSingleQuery(resolved, request.Limit)
+	compiled, err := compileSingleQuery(s.compileTarget, resolved, request.Limit)
 	if err != nil {
 		return nil, queryInvalid(dataframeerrors.CodeInvalidRequest, err)
 	}

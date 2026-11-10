@@ -27,7 +27,7 @@ package postgres
 // refusal that yields no SQL. There is no fallback to the AQL renderer and
 // no AQL-to-SQL conversion here.
 //
-// Planner-facing command registration (compiler.CompiledCommandForBackend)
+// Planner-facing command registration (the compiler's target-aware PostgreSQL compile path)
 // stays fail-closed for PostgreSQL exactly as in pg-sql-01/02: this entry
 // point — not command dispatch — is where the selector-extraction operation
 // is implemented and registered.
@@ -46,7 +46,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -72,9 +72,9 @@ import (
 // contradictory scope binds, and ir.ErrUnregisteredPostgresIdentifier for a
 // binding that did not come from ir.NewPostgresStorageBinding. A rejected
 // plan never produces SQL and never routes to AQL.
-func RenderSelectorExtraction(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (compiler.RenderedPostgresPhysicalPlan, error) {
+func RenderSelectorExtraction(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := validateSelectorExtractionPlan(plan); err != nil {
-		return compiler.RenderedPostgresPhysicalPlan{}, err
+		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	// The closed shape passed, so RenderPhysicalPlan's own gates (binding
 	// trust, plan validation including schema validation of selector
@@ -208,6 +208,17 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 			ErrUnsupportedPostgresPlan)
 	}
 	if projection.Hidden {
+		// The canonical preview source identity column (compiler/output and
+		// recipe_execution attach it when IncludeSourceIdentity is set) is
+		// the one hidden projection with a registered PostgreSQL rendering:
+		// exactly the root row's logical id, published through the internal
+		// column contract and never as public output.
+		if projection.Name == ir.PreviewSourceResourceIDColumn &&
+			projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
+			projection.Value.Variable != "" && projection.Value.BindKey == "" &&
+			len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key") {
+			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
+		}
 		return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q is hidden executor-side metadata with no registered PostgreSQL rendering",
 			ErrUnsupportedPostgresPlan, projection.Name)
 	}
@@ -451,7 +462,7 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 		switch c.kind {
 		case extractionDirectValue:
 			value := c.projection.Value
-			if len(value.Path) != 1 || !resourceFilterColumns[value.Path[0]] {
+			if len(value.Path) != 1 || !resourceFilterColumns[canonicalKeyColumn(value.Path[0])] {
 				return fmt.Errorf("%w: projection %q must read exactly one typed scope column of the root row; payload values reach PostgreSQL through EXTRACT selectors, not direct values",
 					ErrUnsupportedPostgresPlan, c.projection.Name)
 			}

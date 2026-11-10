@@ -63,7 +63,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 			compiled.Stages[0].GroupFieldSourceContext.SourceShapeID != sourceContext.SourceShapeID {
 			t.Fatalf("lowered source descriptor lost its exact pre-Group shape: %#v", compiled.Stages)
 		}
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile expanded Coding Group with %s policy: %v", policy, err)
 		}
@@ -372,7 +372,7 @@ func TestConstructionGroupAncestorRowValuesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lower ancestor Coding Group with post-Group component RowValue: %v", err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile ancestor Coding Group with component RowValue: %v", err)
 	}
@@ -1058,7 +1058,7 @@ func assertExpandedCodingGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage for %q: %v", row["coding"], err)
 	}

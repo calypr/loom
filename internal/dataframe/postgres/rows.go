@@ -3,7 +3,7 @@
 // PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
 // control persistence; Arango remains supported and ClickHouse remains the
 // publication data plane. This package streams result rows for one
-// parent-tagged compiler.CompiledCommand through the backend-tagged dispatch
+// parent-tagged command.CompiledCommand through the backend-tagged dispatch
 // surface: an AQL-tagged or unregistered command is rejected before any
 // statement executes, SQL arrives only through the tagged command, and the
 // adapter never translates AQL into SQL or falls back to another backend on
@@ -20,7 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -30,16 +31,7 @@ import (
 // RowVisitor consumes one decoded result row. The adapter hands each row its
 // own freshly allocated map with copied byte slices, so a visitor may retain
 // the map after returning without aliasing driver buffers.
-type RowVisitor func(map[string]any) error
-
-// QueryRows is the execution-visitor boundary signature for PostgreSQL result
-// streaming: one parent-tagged compiled command, the fixed declared result
-// column contract, and a row visitor. It mirrors the ClickHouseQueryRows
-// boundary while keeping the statement and its ordered typed arguments inside
-// the tagged command envelope: execution never hands loose SQL text or a
-// named bind map to a PostgreSQL adapter. (*Executor).QueryRows satisfies
-// this signature.
-type QueryRows func(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error
+type RowVisitor = execution.RowVisitor
 
 // Querier is the narrow, pool-shaped surface the Executor needs.
 // *pgxpool.Pool, *pgxpool.Conn, and *pgx.Conn all satisfy it; production
@@ -125,9 +117,9 @@ func NewExecutor(querier Querier) (*Executor, error) {
 	return &Executor{querier: querier}, nil
 }
 
-var _ QueryRows = (*Executor)(nil).QueryRows
+var _ execution.SourceRows = (*Executor)(nil).SourceRows
 
-// QueryRows dispatches exactly one parent-tagged PostgreSQL command, streams
+// SourceRows dispatches exactly one parent-tagged PostgreSQL command, streams
 // its result rows, and visits decoded rows as they arrive.
 //
 // Dispatch is backend-tagged: a command tagged for AQL is rejected with the
@@ -155,7 +147,14 @@ var _ QueryRows = (*Executor)(nil).QueryRows
 // errors.As(err, &*storepostgres.TranslatedError{})). The raw driver cause
 // is reachable only through TranslatedError.Cause behind the redaction
 // guards, never through errors.As.
-func (e *Executor) QueryRows(ctx context.Context, command compiler.CompiledCommand, columns []string, visit RowVisitor) error {
+// SourceRows is the PostgreSQL adapter's implementation of the single
+// execution row port (execution.SourceRows): it consumes the parent-tagged
+// command and the declared column contract from one execution.RowsRequest,
+// keeping the statement and its ordered typed arguments inside the tagged
+// command envelope. Execution never hands loose SQL text or a named bind map
+// to this adapter. request.BatchSize tunes Arango fetch batching and is
+// ignored here; the driver streams result rows as they arrive.
+func (e *Executor) SourceRows(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
 	if ctx == nil {
 		return fmt.Errorf("%w: context is required", ErrInvalidExecution)
 	}
@@ -165,15 +164,20 @@ func (e *Executor) QueryRows(ctx context.Context, command compiler.CompiledComma
 	if visit == nil {
 		return fmt.Errorf("%w: row visitor is required", ErrInvalidExecution)
 	}
-	if err := validateColumns(columns); err != nil {
+	// Backend-tagged dispatch is the routing law and runs FIRST: an
+	// AQL-tagged command, an unregistered tag, and the zero value are
+	// refused with their typed routing sentinels before any PostgreSQL
+	// dialect field is inspected. Validating the dialect (declared
+	// columns, statement shape, arguments) ahead of routing would mask a
+	// misrouted command behind generic dialect errors, hiding the tag
+	// that is the only routing key the leaf law recognizes. The returned
+	// argument slice is already a copy.
+	sqlText, args, err := request.Command.PostgreSQLParameters()
+	if err != nil {
 		return err
 	}
-
-	// Backend-tagged dispatch fails closed on an AQL-tagged command, an
-	// unregistered tag, and the zero value before anything touches the
-	// Querier. The returned argument slice is already a copy.
-	sqlText, args, err := command.PostgreSQLParameters()
-	if err != nil {
+	columns := request.DeclaredColumns
+	if err := validateColumns(columns); err != nil {
 		return err
 	}
 	if err := validateStatementShape(sqlText, args); err != nil {
@@ -278,8 +282,20 @@ func checkColumnContract(columns []string, descriptions []pgconn.FieldDescriptio
 		return fmt.Errorf("%w: statement returns %d column(s), contract declares %d",
 			ErrColumnContractMismatch, len(descriptions), len(columns))
 	}
+	// The declared contract is authoritative for result naming: rows are
+	// keyed by the contract, so a statement that returns a column name the
+	// contract did not declare is refused. The one accepted exception is the
+	// compiler renderer's positional output alias for THIS position:
+	// renderReturn emits every projection as "AS c" plus its zero-based
+	// index, deliberately keeping recipe-provided projection names out of
+	// the SQL text; those results take their public names from the contract.
+	// The exception is exact-position string equality, not a shape match —
+	// a swapped or off-by-one alias set (contract [a, b] against c1, c0) is
+	// drift, not aliasing, and is refused so rows can never be keyed under
+	// contract names with swapped values.
 	for i, column := range columns {
-		if got := descriptions[i].Name; got != column {
+		got := descriptions[i].Name
+		if got != column && got != "c"+strconv.Itoa(i) {
 			return fmt.Errorf("%w: result column %d is %q, contract declares %q",
 				ErrColumnContractMismatch, i+1, got, column)
 		}
@@ -294,7 +310,7 @@ var statementPlaceholderRE = regexp.MustCompile(`\$\d+`)
 // argument must appear as a placeholder. Placeholders may repeat; a hole in
 // the numbering means the renderer and the argument list disagree and the
 // command is refused before execution.
-func validateStatementShape(sqlText string, args []compiler.PostgreSQLParameter) error {
+func validateStatementShape(sqlText string, args []command.PostgreSQLParameter) error {
 	matches := statementPlaceholderRE.FindAllString(sqlText, -1)
 	if len(args) == 0 {
 		if len(matches) > 0 {
@@ -324,7 +340,7 @@ func validateStatementShape(sqlText string, args []compiler.PostgreSQLParameter)
 // declared compiler parameter type. This is the adapter's single canonical
 // source for the three-state value contract; nothing is approximated on the
 // SQL side and the driver receives canonical Go values only.
-func bindParameters(args []compiler.PostgreSQLParameter) ([]any, error) {
+func bindParameters(args []command.PostgreSQLParameter) ([]any, error) {
 	bound := make([]any, 0, len(args))
 	for i, arg := range args {
 		value, err := bindParameter(arg)
@@ -337,38 +353,38 @@ func bindParameters(args []compiler.PostgreSQLParameter) ([]any, error) {
 	return bound, nil
 }
 
-func bindParameter(arg compiler.PostgreSQLParameter) (any, error) {
+func bindParameter(arg command.PostgreSQLParameter) (any, error) {
 	switch arg.Type {
-	case compiler.PostgreSQLParameterNull:
+	case command.PostgreSQLParameterNull:
 		if arg.Value != nil {
 			return nil, errors.New("an sql-null parameter must carry a nil value; a JSON null belongs on a json or jsonb parameter")
 		}
 		return nil, nil
-	case compiler.PostgreSQLParameterText:
+	case command.PostgreSQLParameterText:
 		value, ok := arg.Value.(string)
 		if !ok {
 			return nil, errors.New("a text parameter must carry a string")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterBigint:
+	case command.PostgreSQLParameterBigint:
 		value, ok := arg.Value.(int64)
 		if !ok {
 			return nil, errors.New("a bigint parameter must carry an int64")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterDoublePrecision:
+	case command.PostgreSQLParameterDoublePrecision:
 		value, ok := arg.Value.(float64)
 		if !ok {
 			return nil, errors.New("a double precision parameter must carry a float64")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterBoolean:
+	case command.PostgreSQLParameterBoolean:
 		value, ok := arg.Value.(bool)
 		if !ok {
 			return nil, errors.New("a boolean parameter must carry a bool")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterDate:
+	case command.PostgreSQLParameterDate:
 		value, ok := arg.Value.(time.Time)
 		if !ok {
 			return nil, errors.New("a date parameter must carry a time.Time")
@@ -377,13 +393,13 @@ func bindParameter(arg compiler.PostgreSQLParameter) (any, error) {
 			return nil, errors.New("a date parameter must carry a midnight calendar time; absolute instants belong on the timestamp with time zone type")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterTimestamptz:
+	case command.PostgreSQLParameterTimestamptz:
 		value, ok := arg.Value.(time.Time)
 		if !ok {
 			return nil, errors.New("a timestamp with time zone parameter must carry a time.Time")
 		}
 		return value, nil
-	case compiler.PostgreSQLParameterJSON, compiler.PostgreSQLParameterJSONB:
+	case command.PostgreSQLParameterJSON, command.PostgreSQLParameterJSONB:
 		raw, ok := jsonBytes(arg.Value)
 		if !ok {
 			return nil, errors.New("a json or jsonb parameter must carry a string or json.RawMessage")

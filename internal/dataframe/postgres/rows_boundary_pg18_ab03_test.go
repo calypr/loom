@@ -39,6 +39,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/execution"
 	"net/url"
 	"os"
 	"regexp"
@@ -262,8 +263,7 @@ func TestAB03BoundaryThroughQueryCanceled(t *testing.T) {
 	// Control first: the happy stream through the same adapter shape must
 	// succeed and carry no classification.
 	rows := 0
-	if err := controlExecutor.QueryRows(svc.ctx, pgSQL(t, `SELECT 1::bigint AS one UNION ALL SELECT 2::bigint`), []string{"one"},
-		func(map[string]any) error { rows++; return nil }); err != nil {
+	if err := controlExecutor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint AS one UNION ALL SELECT 2::bigint`), DeclaredColumns: []string{"one"}}, func(map[string]any) error { rows++; return nil }); err != nil {
 		svc.fail("happy-stream control", err)
 	}
 	if rows != 2 {
@@ -273,8 +273,7 @@ func TestAB03BoundaryThroughQueryCanceled(t *testing.T) {
 	if _, err := conn.Exec(svc.ctx, `SET statement_timeout = '80ms'`); err != nil {
 		svc.fail("set statement_timeout", err)
 	}
-	err := executor.QueryRows(svc.ctx, pgSQL(t, `SELECT pg_sleep(5) AS ab03_sleep_witness`), []string{"ab03_sleep_witness"},
-		func(map[string]any) error { return nil })
+	err := executor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT pg_sleep(5) AS ab03_sleep_witness`), DeclaredColumns: []string{"ab03_sleep_witness"}}, func(map[string]any) error { return nil })
 	translated := ab03RequireTranslated(t, err, "rows", storepg.ConditionQueryCanceled, "57014")
 	ab03RequireCode(t, err, dataframeerrors.CodeQueryResourceLimitExceeded)
 	ab03RequireCause(t, err, translated, "57014", "canceling statement due to statement timeout")
@@ -306,8 +305,7 @@ func TestAB03BoundaryThroughServerRejected(t *testing.T) {
 	_, executor := svc.ab03Conn(t)
 
 	const missingRelation = "verify_ab03_missing_relation"
-	err := executor.QueryRows(svc.ctx, pgSQL(t, `SELECT id FROM `+missingRelation), []string{"id"},
-		func(map[string]any) error { return nil })
+	err := executor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT id FROM `+missingRelation), DeclaredColumns: []string{"id"}}, func(map[string]any) error { return nil })
 	translated := ab03RequireTranslated(t, err, "query", storepg.ConditionServerRejected, "42P01")
 	ab03RequireCode(t, err, dataframeerrors.CodeInternalError)
 	ab03RequireCause(t, err, translated, "42P01", `relation "`+missingRelation+`" does not exist`)
@@ -341,8 +339,7 @@ func TestAB03BoundaryThroughAbortedTransaction(t *testing.T) {
 	if _, err := conn.Exec(svc.ctx, `SELECT 1/0 AS ab03_abort`); err == nil {
 		t.Fatal("abort control statement unexpectedly succeeded")
 	}
-	err := executor.QueryRows(svc.ctx, pgSQL(t, `SELECT 1::bigint AS one`), []string{"one"},
-		func(map[string]any) error { return nil })
+	err := executor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint AS one`), DeclaredColumns: []string{"one"}}, func(map[string]any) error { return nil })
 	translated := ab03RequireTranslated(t, err, "query", storepg.ConditionAbortedTransaction, "25P02")
 	ab03RequireCode(t, err, dataframeerrors.CodeInternalError)
 	ab03RequireCause(t, err, translated, "25P02", "current transaction is aborted")
@@ -356,8 +353,7 @@ func TestAB03BoundaryThroughAbortedTransaction(t *testing.T) {
 		svc.fail("rollback", err)
 	}
 	streamed := 0
-	if err := executor.QueryRows(svc.ctx, pgSQL(t, `SELECT 1::bigint AS one`), []string{"one"},
-		func(map[string]any) error { streamed++; return nil }); err != nil {
+	if err := executor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint AS one`), DeclaredColumns: []string{"one"}}, func(map[string]any) error { streamed++; return nil }); err != nil {
 		svc.fail("post-rollback control", err)
 	}
 	if streamed != 1 {
@@ -382,8 +378,7 @@ func TestAB03BoundaryThroughAdminShutdown(t *testing.T) {
 	marker := fmt.Sprintf("/*ab03-terminate-%s*/", ab03RandomHex(t))
 	errc := make(chan error, 1)
 	go func() {
-		errc <- executor.QueryRows(svc.ctx, pgSQL(t, `SELECT `+marker+` pg_sleep(10) AS ab03_tick`), []string{"ab03_tick"},
-			func(map[string]any) error { return nil })
+		errc <- executor.SourceRows(svc.ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT `+marker+` pg_sleep(10) AS ab03_tick`), DeclaredColumns: []string{"ab03_tick"}}, func(map[string]any) error { return nil })
 	}()
 
 	var pid int
@@ -435,8 +430,7 @@ func TestAB03BoundaryThroughConnectionFailure(t *testing.T) {
 	}
 	queryCtx, cancel := context.WithTimeout(svc.ctx, 30*time.Second)
 	defer cancel()
-	err = executor.QueryRows(queryCtx, pgSQL(t, `SELECT 1::bigint AS one`), []string{"one"},
-		func(map[string]any) error { return nil })
+	err = executor.SourceRows(queryCtx, execution.RowsRequest{Command: pgSQL(t, `SELECT 1::bigint AS one`), DeclaredColumns: []string{"one"}}, func(map[string]any) error { return nil })
 	translated := ab03RequireTranslated(t, err, "query", storepg.ConditionConnectionFailure, "")
 	ab03RequireCode(t, err, dataframeerrors.CodeBackendUnavailable)
 	if !errors.Is(err, storepg.ErrConnect) {
@@ -465,8 +459,7 @@ func TestAB03BoundaryThroughContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(svc.ctx)
 	errc := make(chan error, 1)
 	go func() {
-		errc <- executor.QueryRows(ctx, pgSQL(t, `SELECT pg_sleep(10) AS one`), []string{"one"},
-			func(map[string]any) error { return nil })
+		errc <- executor.SourceRows(ctx, execution.RowsRequest{Command: pgSQL(t, `SELECT pg_sleep(10) AS one`), DeclaredColumns: []string{"one"}}, func(map[string]any) error { return nil })
 	}()
 	time.Sleep(150 * time.Millisecond)
 	cancel()

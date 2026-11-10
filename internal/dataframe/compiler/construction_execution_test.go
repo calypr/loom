@@ -42,7 +42,7 @@ func TestConstructionPreviewLimitAppliesAfterFinalStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, 3, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, 3, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestStreamingMissingCategoryPivotUsesStoredParentProjectionIndex(t *testing
 	if !outputHasCompositeSource(compiled.Outputs[0]) {
 		t.Fatal("production-shaped Pivot lost its composite-source classification under IncludeSourceIdentity")
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -544,7 +544,7 @@ func TestConstructionGroupPreviewUsesProjectionFieldsAndOneRootHint(t *testing.T
 	fullOutput := lowerConstructionOutput(t, constructionGroupRowValuesOutput(), recipe.RuntimeBindings{
 		Project: "group-covering-project", DatasetGeneration: "group-covering-generation",
 	})
-	full, err := CompileRecipeOutputWithPolicy(fullOutput, recipe.RuntimeBindings{
+	full, err := CompileRecipeOutput(ArangoTarget(), fullOutput, recipe.RuntimeBindings{
 		Project: "group-covering-project", DatasetGeneration: "group-covering-generation",
 	}, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
@@ -564,7 +564,7 @@ func TestConstructionGroupScanAlternativeRejectsExtraSourceFilters(t *testing.T)
 	operations := append([]ir.PhysicalOperation(nil), output.Plan.Operations[:len(output.Plan.Operations)-1]...)
 	operations = append(operations, output.Plan.Operations[1], output.Plan.Operations[len(output.Plan.Operations)-1])
 	output.Plan.Operations = operations
-	query, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ func compileConstructionPivotPreview(t *testing.T, output recipe.Output, limit i
 	if err != nil {
 		t.Fatal(err)
 	}
-	queries, err := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+	queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}

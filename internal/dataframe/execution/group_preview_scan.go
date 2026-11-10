@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
 const (
@@ -26,14 +27,14 @@ const (
 )
 
 func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream) error {
-	if stream != nil && stream.command.Backend() == compiler.CompiledBackendPostgreSQL {
+	if stream != nil && stream.command.Backend() == command.CompiledBackendPostgreSQL {
 		// The Group preview optimizer is an Arango control surface: it uses
 		// the Arango index listing, EXPLAIN result types, and AQL-shaped
 		// assessment queries. It never evaluates a PostgreSQL-served stream,
 		// even if a preview scan spec were somehow attached to it.
 		return contextError(ctx)
 	}
-	if query == nil || stream == nil || stream.stream == nil ||
+	if query == nil || stream == nil || stream.sourceRows == nil ||
 		(query.PreviewGroupScan == nil && query.PreviewGroupProjection == nil) {
 		return contextError(ctx)
 	}
@@ -145,13 +146,13 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 	return contextError(ctx)
 }
 
-func readGroupPreviewCount(ctx context.Context, stream *OutputStream, command compiler.CompiledCommand) (int64, bool) {
-	if stream == nil || stream.stream == nil || command.Backend() != compiler.CompiledBackendAQL {
+func readGroupPreviewCount(ctx context.Context, stream *OutputStream, scopeCount command.CompiledCommand) (int64, bool) {
+	if stream == nil || stream.sourceRows == nil || scopeCount.Backend() != command.CompiledBackendAQL {
 		return 0, false
 	}
 	var count int64
 	seen := false
-	err := stream.stream(ctx, command, 1, func(row map[string]any) error {
+	err := stream.sourceRows(ctx, RowsRequest{Command: scopeCount, BatchSize: 1}, func(row map[string]any) error {
 		if seen {
 			return errors.New("root scope count returned more than one row")
 		}
@@ -176,7 +177,7 @@ func scopeCountMatchesProjection(query *compiler.CompiledQuery) bool {
 func (e *Engine) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *PreviewCollectionIndex) (PreviewCollectionIndex, bool) {
 	if query == nil || query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil ||
 		query.PreviewGroupProjection.Collection == "" ||
-		query.PreviewGroupProjection.ScopeCount.Backend() != compiler.CompiledBackendAQL ||
+		query.PreviewGroupProjection.ScopeCount.Backend() != command.CompiledBackendAQL ||
 		e.previewCollectionScans == nil || ctx.Err() != nil {
 		return PreviewCollectionIndex{}, false
 	}
@@ -309,10 +310,10 @@ func hasCoveringRootIndexNamed(evidence PreviewCollectionScanEvidence, collectio
 }
 
 func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream,
-	ordinaryCommand compiler.CompiledCommand, selectedIndex PreviewCollectionIndex,
+	ordinaryCommand command.CompiledCommand, selectedIndex PreviewCollectionIndex,
 	assessedScopeCount int64, assessedScopeCountKnown, assessedScopeCountAttempted bool) error {
 	spec := query.PreviewGroupProjection
-	if spec == nil || spec.Collection == "" || spec.ScopeCount.Backend() != compiler.CompiledBackendAQL || e.previewCollectionRevision == nil {
+	if spec == nil || spec.Collection == "" || spec.ScopeCount.Backend() != command.CompiledBackendAQL || e.previewCollectionRevision == nil {
 		return nil
 	}
 	if ctx.Err() != nil {
@@ -347,13 +348,13 @@ func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *
 		return nil
 	}
 	assessmentCommand, renderErr := compiler.RenderPreviewGroupProjectionAssessment(query.PhysicalPlan, indexName, false)
-	if renderErr != nil || assessmentCommand.Backend() != compiler.CompiledBackendAQL {
+	if renderErr != nil || assessmentCommand.Backend() != command.CompiledBackendAQL {
 		return nil
 	}
 	assessmentCtx := WithQueryMemoryBudget(ctx, groupPreviewQueryMemoryLimitBytes)
 	var sample groupProjectionSample
 	seen := false
-	err := stream.stream(assessmentCtx, assessmentCommand, 1, func(row map[string]any) error {
+	err := stream.sourceRows(assessmentCtx, RowsRequest{Command: assessmentCommand, BatchSize: 1}, func(row map[string]any) error {
 		if seen {
 			return errors.New("Group projection sample returned more than one row")
 		}
@@ -468,7 +469,7 @@ func groupProjectionIndexIdentity(selected PreviewCollectionIndex) string {
 
 func applyGroupProjectionFactorization(query *compiler.CompiledQuery, stream *OutputStream, indexName string) bool {
 	factoredCommand, err := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, indexName, false)
-	if err != nil || factoredCommand.Backend() != compiler.CompiledBackendAQL {
+	if err != nil || factoredCommand.Backend() != command.CompiledBackendAQL {
 		return false
 	}
 	query.Command = factoredCommand

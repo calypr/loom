@@ -105,7 +105,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -176,11 +176,16 @@ func (r *planRenderer) renderWindowSort(plan ir.PhysicalPlan, sort ir.PhysicalSo
 				return fmt.Errorf("%w: sort key on %q, a row materialized by an OPTIONAL traversal LEFT JOIN LATERAL, is not registered; sorting expanded child rows is a later capability",
 					ErrUnsupportedPostgresPlan, key.Variable)
 			}
-			if key.BindKey != "" || len(key.Path) != 1 || !resourceFilterColumns[key.Path[0]] {
+			if key.BindKey != "" || len(key.Path) != 1 {
 				return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
 					ErrUnsupportedPostgresPlan)
 			}
-			r.window.keys = append(r.window.keys, scope.alias+"."+r.storage.Resource.MustColumn(key.Path[0]).SQLText()+" ASC")
+			column := canonicalKeyColumn(key.Path[0])
+			if !resourceFilterColumns[column] {
+				return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
+					ErrUnsupportedPostgresPlan)
+			}
+			r.window.keys = append(r.window.keys, scope.alias+"."+r.storage.Resource.MustColumn(column).SQLText()+" ASC")
 		}
 	}
 	r.window.sortSeen = true
@@ -340,7 +345,7 @@ func (r *planRenderer) renderWindowLimit(plan ir.PhysicalPlan, limit ir.Physical
 	if !ok || value <= 0 {
 		return fmt.Errorf("%w: limit bind %q must be a positive int", ErrUnsupportedPostgresPlan, limit.BindKey)
 	}
-	index := r.addParameter(compiler.PostgreSQLParameter{Type: compiler.PostgreSQLParameterBigint, Value: int64(value)}, "")
+	index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(value)}, "")
 	r.window.limitClause = " LIMIT $" + strconv.Itoa(index)
 	r.window.limitSeen = true
 	return nil
