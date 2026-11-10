@@ -4894,7 +4894,11 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 	for _, rec := range result.Applied {
 		versions = append(versions, rec.Version)
 	}
-	wantVersions := []int64{1, 2, 3, 5, 6, 8, 9, 10, 11}
+	// arch-backend-05: migrateWithSelections now applies this package's
+	// complete embedded owner history -- the membership migration and the
+	// selections migration are both owned entries, so the ledger carries
+	// every version 1..11.
+	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
 	}

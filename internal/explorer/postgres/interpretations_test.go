@@ -1964,7 +1964,11 @@ func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 	}
 
 	// Fresh schema inside the same isolated database, migrated by the owner
-	// history ONLY: the interpretation tables never arrive there.
+	// history MINUS the version-7 interpretation-library migration (a
+	// test-only negative composition -- production never assembles
+	// histories this way; it exists solely to keep the fail-closed-on-
+	// missing-tables guarantee assertable now that the owner embeds 7):
+	// the interpretation tables never arrive there.
 	unmigSchema := s.schema + "_unmig"
 	if err := interpExecOn(s.ctx, s.witness, `CREATE SCHEMA "`+unmigSchema+`"`); err != nil {
 		s.fail("create unmigrated schema", err)
@@ -1974,9 +1978,18 @@ func TestInterpretationStoresFailClosedWithoutTheirTables(t *testing.T) {
 		defer cancelCleanup()
 		_ = interpExecOn(cleanupCtx, s.witness, `DROP SCHEMA IF EXISTS "`+unmigSchema+`" CASCADE`)
 	})
-	ownerRunner, err := pgstore.NewMigrationRunner(s.witness, unmigSchema, owner)
+	interpretationFree := owner[:0:0]
+	for _, m := range owner {
+		if m.Version != 7 {
+			interpretationFree = append(interpretationFree, m)
+		}
+	}
+	if len(interpretationFree) != len(owner)-1 {
+		t.Fatalf("owner history lacks the version-7 interpretation-library migration to exclude: %+v", owner)
+	}
+	ownerRunner, err := pgstore.NewMigrationRunner(s.witness, unmigSchema, interpretationFree)
 	if err != nil {
-		s.fail("build owner-only runner", err)
+		s.fail("build owner-minus-interpretation runner", err)
 	}
 	if _, err := ownerRunner.Migrate(s.ctx); err != nil {
 		s.fail("migrate owner-only schema", err)
