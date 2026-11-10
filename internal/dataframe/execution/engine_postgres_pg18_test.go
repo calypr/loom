@@ -570,7 +570,25 @@ func exec02WitnessSelector() spec.Selector {
 
 func exec02WitnessPID(value any) (int64, bool) {
 	text, ok := value.(string)
-	if !ok || !strings.HasPrefix(text, "pg_") {
+	if !ok {
+		// The backend witness is a genuine jsonb payload extraction, and the
+		// row adapter's contract decodes json/jsonb columns to raw JSON
+		// bytes, so the legitimate wire shape is the quoted JSON string
+		// "pg_<pid>" as a json.RawMessage, not a Go string.
+		var raw []byte
+		switch typed := value.(type) {
+		case json.RawMessage:
+			raw = typed
+		case []byte:
+			raw = typed
+		default:
+			return 0, false
+		}
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return 0, false
+		}
+	}
+	if !strings.HasPrefix(text, "pg_") {
 		return 0, false
 	}
 	pid, err := strconv.ParseInt(strings.TrimPrefix(text, "pg_"), 10, 64)
@@ -617,27 +635,32 @@ func exec02GoldenRows(withIdentity bool) []map[string]any {
 			"payload": json.RawMessage(`{"name": "Ada", "middle": null}`), "note": "note-ada",
 		},
 		{
-			"id": int64(2), "logical_id": "patient-grace", "score": 2.25, "active": false,
-			"payload": json.RawMessage(`{"name": "Grace"}`), "note": nil,
-		},
-		{
 			"id": int64(3), "logical_id": "patient-alan", "score": 1.125, "active": true,
 			"payload": json.RawMessage(`null`), "note": "note-alan",
+		},
+		{
+			"id": int64(2), "logical_id": "patient-grace", "score": 2.25, "active": false,
+			"payload": json.RawMessage(`{"name": "Grace"}`), "note": nil,
 		},
 	}
 	if withIdentity {
 		for _, row := range rows {
-			row["__loom_row_id"] = exec02StableRowIdentity(row["id"])
+			// The compiled RowIdentity field is logical_id, so the engine
+			// digests the JSON array of the logical_id value, not the id.
+			row["__loom_row_id"] = exec02StableRowIdentity(row["logical_id"])
 		}
 	}
 	return rows
 }
 
-// exec02ScopedRows is the committed witness for the compiler-rendered
+// exec02ScopedRowsPublic is the committed witness for the compiler-rendered
 // root-scan stream of the fixture through the selected PostgreSQL target:
-// exactly the three P1/gen-a Patient resources, ordered by resource_seq,
-// with the full typed scope projection the plan declares.
-func exec02ScopedRows() []map[string]any {
+// exactly the three P1/gen-a Patient resources with the full typed scope
+// projection the plan declares. The generic execution window sorts the root
+// by its key, which the PostgreSQL renderer canonically maps from _key to
+// logical_id (with resource_seq as the tiebreaker), so the physical order
+// is logical_id ascending: ada, alan, grace.
+func exec02ScopedRowsPublic() []map[string]any {
 	return []map[string]any{
 		{
 			"project": "P1", "dataset_generation": "gen-a", "resource_type": "Patient",
@@ -645,13 +668,27 @@ func exec02ScopedRows() []map[string]any {
 		},
 		{
 			"project": "P1", "dataset_generation": "gen-a", "resource_type": "Patient",
-			"logical_id": "patient-grace", "auth_resource_path": "FHIR/Patient",
+			"logical_id": "patient-alan", "auth_resource_path": "FHIR/Patient",
 		},
 		{
 			"project": "P1", "dataset_generation": "gen-a", "resource_type": "Patient",
-			"logical_id": "patient-alan", "auth_resource_path": "FHIR/Patient",
+			"logical_id": "patient-grace", "auth_resource_path": "FHIR/Patient",
 		},
 	}
+}
+
+// exec02ScopedRows is the engine-STREAM form of the committed witness: the
+// stream contract always carries the stable row identity digest, computed
+// by ensureStableRowIdentity over the compiled RowIdentity fields — here
+// the single logical_id field — as sha256 of the JSON array of those values.
+// Preview witnesses use exec02ScopedRowsPublic instead, because the public
+// preview row filter drops __loom_row_id.
+func exec02ScopedRows() []map[string]any {
+	rows := exec02ScopedRowsPublic()
+	for _, row := range rows {
+		row["__loom_row_id"] = exec02StableRowIdentity(row["logical_id"])
+	}
+	return rows
 }
 
 // TestPostgresEngineExecutesCompiledCommandThroughRealAdapter is the
@@ -723,7 +760,7 @@ func TestPostgresEnginePreviewBoundsCompletionOnRealServer(t *testing.T) {
 	if summary.RowCount != 2 || summary.Complete || !summary.Truncated {
 		t.Fatalf("limit-2 preview on 3 rows: rowcount=%d complete=%v truncated=%v", summary.RowCount, summary.Complete, summary.Truncated)
 	}
-	if bounded[0]["logical_id"] != "patient-ada" || bounded[1]["logical_id"] != "patient-grace" {
+	if bounded[0]["logical_id"] != "patient-ada" || bounded[1]["logical_id"] != "patient-alan" {
 		t.Fatalf("preview order drifted: %v", bounded)
 	}
 
@@ -791,7 +828,7 @@ func TestPostgresEnginePreviewCancellationRealServer(t *testing.T) {
 	if !rerun.Complete || rerun.Truncated {
 		t.Fatalf("post-abort rerun must converge complete: %+v", rerun)
 	}
-	if want := exec02DigestRows(exec02ScopedRows()); exec02DigestRows(witness) != want {
+	if want := exec02DigestRows(exec02ScopedRowsPublic()); exec02DigestRows(witness) != want {
 		t.Fatalf("post-abort witness differs from committed golden:\n got %s\nwant %s", exec02DigestRows(witness), want)
 	}
 }

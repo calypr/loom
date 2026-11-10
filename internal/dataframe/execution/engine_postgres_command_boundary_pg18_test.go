@@ -67,20 +67,26 @@ func TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer(t *testing.T) {
 		t.Fatalf("warm-up stream cost %d statement round-trips, want exactly 1", warmQueries)
 	}
 
-	// Server-side churn witness: seq_tup_read on the owned resource
-	// placement, which excludes catalog and connection-startup noise
-	// entirely. The per-dispatch scan cost is calibrated by one measured
-	// stream; every remaining dispatch must cost exactly the same. A
-	// duplicated dispatch, hidden identity round-trip, or re-render
-	// inflates the per-stream cost and fails the witness. Cumulative stats
-	// flush on a timer, so the read polls until the witness settles.
-	scanWitnessSQL := `SELECT seq_tup_read FROM pg_stat_user_tables WHERE schemaname = $1 AND relname = 'fhir_resource'`
+	// Server-side churn witness: the per-dispatch scan cost reads the owned
+	// resource placement's combined tuple-read counter (seq_tup_read +
+	// idx_tup_read), which excludes catalog and connection-startup noise
+	// entirely. The shipped placement carries
+	// fhir_resource_scope_seq_ix (project, dataset_generation,
+	// auth_resource_path, resource_seq) from migration 000002, so the
+	// compiled scan legitimately uses an index scan and seq_tup_read alone
+	// stays at zero — the counter must therefore cover both scan shapes.
+	// The per-dispatch scan cost is calibrated by one measured stream;
+	// every remaining dispatch must cost exactly the same. A duplicated
+	// dispatch, hidden identity round-trip, or re-render inflates the
+	// per-stream cost and fails the witness. Cumulative stats flush on a
+	// timer, so the read polls until the witness settles.
+	scanWitnessSQL := `SELECT COALESCE(seq_tup_read, 0) + COALESCE(idx_tup_read, 0) FROM pg_stat_user_tables WHERE schemaname = $1 AND relname = 'fhir_resource'`
 	readServed := func() int64 {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)
 		var served int64
 		if err := s.iso.QueryRow(s.ctx, scanWitnessSQL, s.schema).Scan(&served); err != nil {
-			t.Fatalf("read seq_tup_read witness: %s", s.scrub(err))
+			t.Fatalf("read scan-churn witness: %s", s.scrub(err))
 		}
 		last := served
 		for {
@@ -90,7 +96,7 @@ func TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 			var current int64
 			if err := s.iso.QueryRow(s.ctx, scanWitnessSQL, s.schema).Scan(&current); err != nil {
-				t.Fatalf("read seq_tup_read witness: %s", s.scrub(err))
+				t.Fatalf("read scan-churn witness: %s", s.scrub(err))
 			}
 			if current != last {
 				return current

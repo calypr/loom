@@ -1117,7 +1117,12 @@ func newExec10Service(t *testing.T) *exec10Service {
 		}
 	})
 
-	return &exec10Service{ctx: ctx, admin: admin, iso: iso, racePool: racePool, database: dbName, schema: schema, dsn: raw, scrub: scrub, fail: fail}
+	// The stored dsn must be the ISOLATED database URL: the owned schema
+	// lives in dbName, so any dsn-driven migrate/store path has to target
+	// that database. Storing the raw shared-database URL here sends
+	// MigrateSchema to the shared database, whose "caller owns schema
+	// lifecycle" guard then correctly refuses it.
+	return &exec10Service{ctx: ctx, admin: admin, iso: iso, racePool: racePool, database: dbName, schema: schema, dsn: dsn, scrub: scrub, fail: fail}
 }
 
 func exec10RandomHex(t *testing.T) string {
