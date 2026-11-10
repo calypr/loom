@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -88,7 +89,10 @@ var (
 type QueryError struct {
 	// Op is the failing seam: "query", "scan", or "rows".
 	Op string
-	// Err is the underlying driver, server, or context error.
+	// Err is the cause: a store/postgres boundary-classified error for
+	// driver and server failures, a context error when the caller's
+	// context ended first, or an unchanged error the boundary does not
+	// own.
 	Err error
 }
 
@@ -428,6 +432,16 @@ func decodeColumn(target any) any {
 // context.DeadlineExceeded even when the driver surfaces an unrelated
 // transport error after the abort; otherwise the driver/server error is
 // retained as the cause.
+//
+// Vendor interpretation lives at this adapter boundary (arch-backend-03):
+// driver and server failures first pass through the store/postgres error
+// boundary, so execution above the adapter consumes Loom error identities
+// (stable condition, SQLSTATE, retryability) instead of interpreting
+// *pgconn.PgError fields or message text. The raw driver cause stays
+// reachable server-side only through (*TranslatedError).Cause and is never
+// Is/As-visible or rendered. Errors the boundary does not own pass through
+// unchanged; an already-classified error keeps its identity (double
+// application is stable).
 func classifyExecution(ctx context.Context, op string, err error) error {
 	if err == nil {
 		return nil
@@ -436,6 +450,9 @@ func classifyExecution(ctx context.Context, op string, err error) error {
 		if cause := ctx.Err(); cause != nil && !errors.Is(err, cause) {
 			return &QueryError{Op: op, Err: cause}
 		}
+	}
+	if translated, ok := storepostgres.TranslateError(err); ok {
+		return &QueryError{Op: op, Err: translated}
 	}
 	return &QueryError{Op: op, Err: err}
 }

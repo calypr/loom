@@ -326,8 +326,12 @@ func sqlNullParam() compiler.PostgreSQLParameter {
 }
 
 // expectQueryError asserts an execution-seam failure keeps its class, its
-// operation seam, and the identifiable *pgconn.PgError cause with the exact
-// pinned SQLSTATE and message fragment.
+// operation seam, and the boundary classification carrying the exact pinned
+// SQLSTATE, while the server message fragment stays reachable only through
+// the cause-identity accessor (*storepg.TranslatedError).Cause. After the
+// arch-backend-03 boundary-through, the public rendering carries the stable
+// condition and SQLSTATE only: the server message (relation names,
+// constraint names, statement fragments) must not appear in it.
 func expectQueryError(t *testing.T, err error, wantOp, wantState, wantMessage string) {
 	t.Helper()
 	if !errors.Is(err, ErrQuery) {
@@ -340,12 +344,19 @@ func expectQueryError(t *testing.T, err error, wantOp, wantState, wantMessage st
 	if !strings.HasPrefix(err.Error(), "postgres rows: "+wantOp+":") {
 		t.Fatalf("error %q did not surface at seam %q", err, wantOp)
 	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) {
-		t.Fatalf("error %v lost the *pgconn.PgError cause", err)
+	var translated *storepg.TranslatedError
+	if !errors.As(err, &translated) {
+		t.Fatalf("error %v lost the boundary classification", err)
 	}
-	if pgErr.SQLState() != wantState {
-		t.Fatalf("SQLSTATE = %q, want %q (error %v)", pgErr.SQLState(), wantState, err)
+	if translated.SQLState != wantState {
+		t.Fatalf("SQLSTATE = %q, want %q (error %v)", translated.SQLState, wantState, err)
+	}
+	if strings.Contains(err.Error(), wantMessage) {
+		t.Fatalf("public error %q discloses the server message %q", err, wantMessage)
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(translated.Cause(), &pgErr) {
+		t.Fatalf("translated error lost the *pgconn.PgError cause through Cause(): %v", err)
 	}
 	if !strings.Contains(pgErr.Message, wantMessage) {
 		t.Fatalf("server message %q does not contain %q", pgErr.Message, wantMessage)
@@ -1371,8 +1382,12 @@ func TestExec01CrashWindowAtEverySeam(t *testing.T) {
 		if !errors.Is(err, ErrQuery) {
 			t.Fatalf("in-flight termination lost the class: %v", err)
 		}
+		var translated *storepg.TranslatedError
+		if !errors.As(err, &translated) || translated.Condition != storepg.ConditionAdminShutdown || translated.SQLState != "57P01" {
+			t.Fatalf("in-flight termination lost its boundary classification: %v", err)
+		}
 		var pgErr *pgconn.PgError
-		if !errors.As(err, &pgErr) || pgErr.SQLState() != "57P01" {
+		if !errors.As(translated.Cause(), &pgErr) || pgErr.SQLState() != "57P01" {
 			t.Fatalf("in-flight termination lost its cause: %v", err)
 		}
 		convergenceWitness(t, "in-flight")

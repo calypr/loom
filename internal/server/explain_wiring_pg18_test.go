@@ -34,7 +34,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -433,8 +432,10 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	renderedIndexed, _ := json.Marshal(indexed)
 	s.assertSentinelFree(t, "wired live indexed assessment", string(renderedIndexed))
 
-	// Permission-denied EXPLAIN context through the same wiring: the typed
-	// failure renders no identifiers.
+	// Permission-denied EXPLAIN through the production wiring itself: the
+	// rows adapter classifies the 42501 at the store/postgres boundary and
+	// execution passes the classification through; the typed failure
+	// renders no identifiers.
 	role := fmt.Sprintf(exec10wPrefix+"r_%d_%s", time.Now().UnixNano(), exec10wRandomHex(t))
 	if !regexp.MustCompile(`^verify_exec10w_r_[0-9]+_[0-9a-f]+$`).MatchString(role) {
 		t.Fatalf("role name %q outside the owned pattern", role)
@@ -460,25 +461,18 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if _, err := plain.Exec(s.ctx, `SET ROLE "`+role+`"`); err != nil {
 		s.fail("set role", err)
 	}
-	_, err = explainPostgreSQLCompiledQuery(s.ctx, func(ctx context.Context, command compiler.CompiledCommand) (json.RawMessage, error) {
-		var plan string
-		if err := command.Dispatch(nil, func(pg compiler.PostgreSQLCommand) error {
-			return plain.QueryRow(ctx, pg.SQL, pgValues(pg.Args)...).Scan(&plan)
-		}); err != nil {
-			return nil, err
-		}
-		if plan == "" {
-			return nil, errors.New("empty plan")
-		}
-		return json.RawMessage(plan), nil
-	}, dataframeexecution.CompiledQuery{Command: indexedCommand})
-	userErr, ok := dataframeerrors.AsUserError(err)
-	if !ok || userErr.Code() != string(dataframeerrors.CodeBackendUnavailable) {
-		t.Fatalf("permission-denied EXPLAIN must be typed backend unavailable: %v", err)
+	planExecutor, err := newPostgreSQLPlanJSONExecutor(plain)
+	if err != nil {
+		s.fail("build production plan executor", err)
 	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
-		t.Fatalf("permission-denied EXPLAIN SQLSTATE: %v", err)
+	_, err = explainPostgreSQLCompiledQuery(s.ctx, planExecutor, dataframeexecution.CompiledQuery{Command: indexedCommand})
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok || userErr.Code() != string(dataframeerrors.CodeInternalError) {
+		t.Fatalf("permission-denied EXPLAIN must carry the boundary internal classification: %v", err)
+	}
+	var translated *storepg.TranslatedError
+	if !errors.As(err, &translated) || translated.Condition != storepg.ConditionServerRejected || translated.SQLState != "42501" {
+		t.Fatalf("permission-denied EXPLAIN boundary classification: %v", err)
 	}
 	s.assertSentinelFree(t, "permission error surface", err.Error())
 }
