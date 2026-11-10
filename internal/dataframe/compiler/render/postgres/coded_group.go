@@ -161,9 +161,9 @@ package postgres
 //     yet implemented for PostgreSQL") and the two-stage AQL render
 //     (logs/pg19-reachability.log).
 //   - L-19.2 REGISTERED NAMED DIVERGENCE — accepted-at-recipe-level/
-//     PG-typed-refused (coordinator ruling 2026-11-10; operator-config
-//     entry counted as non-user surface per coordinator ruling
-//     2026-11-10). Non-empty CodedGroup.RowValues / RowValueProjections
+//     PG-typed-refused (coordinator ruling 2026-11-10).
+//     Attribution, quoted verbatim from the ruling: "operator-config entry counted as non-user surface per coordinator ruling 2026-11-10".
+//     Non-empty CodedGroup.RowValues / RowValueProjections
 //     are accepted by recipe validation (recipe/construction.go:
 //     1002-1007) and EMITTED by lowering
 //     (lower/recipe_construction_coded_group.go:119-127), so the shape

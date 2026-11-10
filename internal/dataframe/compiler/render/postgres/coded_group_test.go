@@ -1281,6 +1281,193 @@ func TestCodedGroupLiveWhitespaceUnicodeAndByteOrder(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Production-compiled acceptance (batch law, verifier duty 5 / the 143
+// Option-A saga): the golden, dedup, and tie-break acceptance legs must
+// run on plans produced by the real production entries — the recipe
+// document is parsed by recipe.Parse (the server registration entry,
+// server/server.go:442) and lowered by the real semantic/lower chain —
+// never on hand-assembled IR.
+// ---------------------------------------------------------------------------
+
+// coded19ProductionDocument is a literal recipe document (not a struct
+// literal re-encoded): the exact bytes a caller would register.
+const coded19ProductionDocument = `{
+ "recipeSchemaVersion": 1,
+ "name": "coded_group_rows",
+ "translationVersion": "test",
+ "outputs": [
+  {
+   "name": "coded_group_rows",
+   "rootResourceType": "Observation",
+   "rowGrain": "resource",
+   "fields": [
+    {"name": "resource_id", "columnId": "resource_id", "expr": {"select": "root.id"}}
+   ],
+   "construction": {
+    "version": 1,
+    "sourceColumns": [{"id": "resource_id", "name": "resource_id"}],
+    "steps": [
+     {
+      "id": "group_codes",
+      "inputs": [{"kind": "SOURCE_PROJECTION"}],
+      "operation": {
+       "kind": "CODED_GROUP",
+       "codedGroup": {
+        "constructionId": "group_codes",
+        "source": {
+         "occurrenceId": "base",
+         "resourceType": "Observation",
+         "codingPath": "component[].code.coding[]",
+         "fhirType": "Coding",
+         "cardinality": "MANY",
+         "shape": "ARRAY",
+         "route": []
+        },
+        "missingKeyPolicy": "%s",
+        "systemOutputColumnId": "system_id",
+        "versionOutputColumnId": "version_id",
+        "codeOutputColumnId": "code_id",
+        "distinctSourceCountOutputColumnId": "count_id"
+       }
+      },
+      "outputs": [
+       {"id": "system_id", "name": "code_system", "type": "string", "nullable": true},
+       {"id": "version_id", "name": "code_version", "type": "string", "nullable": true},
+       {"id": "code_id", "name": "code", "type": "string", "nullable": true},
+       {"id": "count_id", "name": "source_records", "type": "integer"}
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}`
+
+func coded19ProductionCompiledPlan(t *testing.T, policy recipe.ConstructionGroupMissingKeyPolicy, project, generation string) ir.PhysicalPlan {
+	t.Helper()
+	document := fmt.Sprintf(coded19ProductionDocument, string(policy))
+	parsed, err := recipe.Parse([]byte(document))
+	if err != nil {
+		t.Fatalf("recipe.Parse (production document entry): %v", err)
+	}
+	bindings := recipe.RuntimeBindings{Project: project, DatasetGeneration: generation, AuthResourcePaths: []string{"FHIR/Observation"}}
+	plan, err := semantic.BuildRecipePlan(parsed, bindings)
+	if err != nil {
+		t.Fatalf("semantic.BuildRecipePlan: %v", err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, project, generation)
+	if err != nil {
+		t.Fatalf("semantic.ResolveRecipePlan: %v", err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("lower.CompileResolvedRecipePlan: %v", err)
+	}
+	sequence := compiled.Outputs[0].Plan.StageSequence
+	if sequence == nil || len(sequence.Stages) != 1 || sequence.Stages[0].Kind != ir.PhysicalStageCodedGroupOp {
+		t.Fatalf("production lowering did not emit the inline single-stage CODED_GROUP: %#v", sequence)
+	}
+	return ir.ClonePhysicalPlan(compiled.Outputs[0].Plan)
+}
+
+// TestCodedGroupProductionCompiledEqualsStructFixture pins that every
+// leg driven by the struct-built lowered plan is byte-identical to the
+// plan the production document entry produces: the register-wide legs
+// are production-compiled, not a hand-assembled approximation.
+func TestCodedGroupProductionCompiledEqualsStructFixture(t *testing.T) {
+	for _, policy := range []recipe.ConstructionGroupMissingKeyPolicy{
+		recipe.ConstructionGroupMissingKeyGroup,
+		recipe.ConstructionGroupMissingKeyExclude,
+		recipe.ConstructionGroupMissingKeyError,
+	} {
+		fromDocument := coded19ProductionCompiledPlan(t, policy, "proj-a", "gen-1")
+		fromStruct := coded19LoweredPlan(t, policy, "proj-a", "gen-1")
+		if !reflect.DeepEqual(fromDocument, fromStruct) {
+			t.Fatalf("policy %s: production-document plan differs from the struct fixture", policy)
+		}
+	}
+}
+
+// TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak runs the three
+// named legs live on the production-compiled plan only: the golden exact
+// tuple multiset, the per-root dedup (duplicate identical coding counts
+// once per contributing root), and the tie-break (identity-text COLLATE
+// "C" final order) — the ticket's own acceptance fixture.
+func TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak(t *testing.T) {
+	svc := newCoded19Service(t)
+	coded19TrackFixtures(t, svc)
+	const project = "p19-prod"
+
+	// The ticket acceptance fixture: two systems sharing a code, one
+	// versioned and one versionless coding, a duplicate identical coding
+	// inside one record, a missing tuple, and two source records.
+	coded19Insert(t, svc, "prod-a", project, coded19Generation, "FHIR/Observation", codingPayload(
+		coding("sys-one", "", "shared"),
+		coding("sys-one", "", "shared"), // duplicate identical coding
+		coding("sys-two", "", "shared"), // second system, same code
+	))
+	coded19Insert(t, svc, "prod-b", project, coded19Generation, "FHIR/Observation", codingPayload(
+		coding("sys-one", "v1", "shared"), // versioned sibling
+	))
+	coded19Insert(t, svc, "prod-missing", project, coded19Generation, "FHIR/Observation", nil)
+
+	plan := coded19ProductionCompiledPlan(t, recipe.ConstructionGroupMissingKeyGroup, project, coded19Generation)
+	rendered := coded19RenderSvc(t, svc, plan)
+	rows := coded19Rows(t, svc.runRendered(t, rendered))
+
+	// Golden leg: the literal expected multiset.
+	type want struct {
+		system, version, code string
+		count                 string
+	}
+	expected := []want{
+		{"sys-one", "<nil>", "shared", "1"},
+		{"sys-two", "<nil>", "shared", "1"},
+		{"sys-one", "v1", "shared", "1"},
+		{"<nil>", "<nil>", "<nil>", "1"},
+	}
+	if len(rows) != len(expected) {
+		t.Fatalf("production-compiled golden multiset = %v, want %d rows", rows, len(expected))
+	}
+	seen := map[string]string{}
+	for _, row := range rows {
+		seen[fmt.Sprintf("%v|%v|%v", deref(row.system), deref(row.version), deref(row.code))] = row.count
+	}
+	for _, want := range expected {
+		key := want.system + "|" + want.version + "|" + want.code
+		if got, ok := seen[key]; !ok {
+			t.Fatalf("production-compiled golden row %q missing: %v", key, rows)
+		} else if got != want.count {
+			t.Fatalf("production-compiled golden row %q count = %q, want %q", key, got, want.count)
+		}
+	}
+	// Dedup leg: the duplicate identical coding on prod-a contributed
+	// exactly one contributing root to (sys-one,null,shared): count 1,
+	// not 2 — and the two-system share kept sys-two as its own tuple.
+	if seen["sys-one|<nil>|shared"] != "1" {
+		t.Fatalf("dedup leg: duplicate identical coding counted %q roots, want 1", seen["sys-one|<nil>|shared"])
+	}
+	// Tie-break leg: final rows are the identity string in COLLATE "C"
+	// byte order, built independently of the renderer.
+	identities := make([]string, len(rows))
+	for index, row := range rows {
+		identities[index] = row.identity
+		if want := coded19Identity(t, row.system, row.version, row.code); row.identity != want {
+			t.Fatalf("production-compiled row identity = %q, want %q", row.identity, want)
+		}
+	}
+	sorted := append([]string(nil), identities...)
+	sort.Strings(sorted)
+	if !reflect.DeepEqual(identities, sorted) {
+		t.Fatalf("production-compiled tie-break order violated:\n got %v\nwant %v", identities, sorted)
+	}
+	// Determinism across executions on the production-compiled plan.
+	if repeat := coded19Rows(t, svc.runRendered(t, rendered)); !reflect.DeepEqual(rows, repeat) {
+		t.Fatalf("production-compiled grouping changed between executions:\n%v\n%v", rows, repeat)
+	}
+}
+
 func TestCodedGroupLiveWindowedSource(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
