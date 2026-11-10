@@ -1509,6 +1509,10 @@ type exec05Recorder struct {
 	cancelAfterKey int              // cancel the context after the Nth key step (0 = never)
 	visitCount     int
 	cancel         context.CancelFunc
+	// keyPageOverride rewrites the served key page for the Nth key step
+	// (1-based), modelling a parent key statement with a non-strict or
+	// ignored cursor filter without touching the canonical construction.
+	keyPageOverride func(keyCallIndex int, served []string) []string
 }
 
 type exec05PageCall struct {
@@ -1542,6 +1546,9 @@ func (rec *exec05Recorder) port(ctx context.Context, request RowsRequest, visit 
 					served = append(served, root)
 				}
 			}
+		}
+		if rec.keyPageOverride != nil {
+			served = rec.keyPageOverride(countCalls(rec.calls, "keys"), served)
 		}
 		for _, key := range served {
 			if err := visit(map[string]any{"root_key": key}); err != nil {
@@ -1740,6 +1747,50 @@ func TestPostgreSQLRootPageResultContractSabotageOffline(t *testing.T) {
 			}
 		})
 	}
+	// Cursor advance is a decoded-row invariant: the key statement is
+	// parent-supplied, so a non-strict cursor filter or an ignored cursor
+	// argument must be refused from the served keys, not trusted from the
+	// cursor bound handed to the statement.
+	t.Run("key page does not advance past the previous page tail", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(keyCallIndex int, served []string) []string {
+			if keyCallIndex == 2 {
+				return []string{"r2", "r3"}
+			}
+			return served
+		}}
+		err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil })
+		if !errors.Is(err, ErrPostgreSQLResultContract) {
+			t.Fatalf("error = %v, want ErrPostgreSQLResultContract for a page re-touching the previous tail", err)
+		}
+		if got := countCalls(rec.calls, "keys"); got != 2 {
+			t.Fatalf("key calls = %d, want 2 (refusal lands during collection of the second page)", got)
+		}
+		if got := countCalls(rec.calls, "rows"); got != 1 {
+			t.Fatalf("row calls = %d, want 1: the refusing page must never reach the row step", got)
+		}
+	})
+	t.Run("parent cursor ignored keeps re-serving the first page", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(int, []string) []string { return []string{"r1", "r2"} }}
+		err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil })
+		if !errors.Is(err, ErrPostgreSQLResultContract) {
+			t.Fatalf("error = %v, want ErrPostgreSQLResultContract for a cursor-ignoring parent key statement", err)
+		}
+		if got := countCalls(rec.calls, "keys"); got != 2 {
+			t.Fatalf("key calls = %d, want 2: overlapping full pages must not continue past the refusal", got)
+		}
+		if got := countCalls(rec.calls, "rows"); got != 1 {
+			t.Fatalf("row calls = %d, want 1: already-emitted rows must not be visited again", got)
+		}
+	})
+	t.Run("control: identity key-page override proceeds", func(t *testing.T) {
+		rec := &exec05Recorder{keyPageOverride: func(_ int, served []string) []string { return served }}
+		if err := newStream(t, rec).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control: %v", err)
+		}
+		if rec.visitCount != 6 {
+			t.Fatalf("control visited %d rows, want 6", rec.visitCount)
+		}
+	})
 }
 
 func TestPostgreSQLRootPageCompositionRefusalOffline(t *testing.T) {
@@ -1801,6 +1852,7 @@ func TestPostgreSQLRootPageCompositionRefusalOffline(t *testing.T) {
 			})
 		}},
 		{"non-positive page size", func(s *PostgreSQLRootPageSteps) { s.PageSize = 0 }},
+		{"page size beyond the sanity bound", func(s *PostgreSQLRootPageSteps) { s.PageSize = maxPostgreSQLRootPageSize + 1 }},
 		{"blank root key column", func(s *PostgreSQLRootPageSteps) { s.RootKeyColumn = "  " }},
 		{"blank row root key column", func(s *PostgreSQLRootPageSteps) { s.RowRootKeyColumn = "" }},
 		{"row root key outside the declared contract", func(s *PostgreSQLRootPageSteps) { s.RowRootKeyColumn = "not_declared" }},
@@ -1816,6 +1868,17 @@ func TestPostgreSQLRootPageCompositionRefusalOffline(t *testing.T) {
 			}
 		})
 	}
+	t.Run("control: page size at the sanity bound is accepted", func(t *testing.T) {
+		steps := newExec05RootPageSteps(t, 2)
+		steps.PageSize = maxPostgreSQLRootPageSize
+		rec := &exec05Recorder{}
+		if err := exec05Stream(t, steps, rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {
+			t.Fatalf("paired control at the bound: %v", err)
+		}
+		if rec.visitCount != 6 {
+			t.Fatalf("control at the bound visited %d rows, want 6", rec.visitCount)
+		}
+	})
 	t.Run("control: valid steps attach and run", func(t *testing.T) {
 		rec := &exec05Recorder{}
 		if err := exec05Stream(t, newExec05RootPageSteps(t, 2), rec.port).streamRaw(context.Background(), func(map[string]any) error { return nil }); err != nil {

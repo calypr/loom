@@ -220,9 +220,12 @@ var ErrPostgreSQLRootPageSteps = errors.New("postgresql root page steps are inva
 
 // ErrPostgreSQLResultContract reports that a root-page result violates the
 // execution result contract: a key page that is not strictly increasing
-// (duplicates included), a key page larger than requested, or a result row
-// whose root continuation identity is missing, malformed, or outside the
-// requested key page. The PostgreSQL row adapter's own ErrColumnContractMismatch
+// (duplicates included), a key page that does not advance past the previous
+// page tail (a parent key statement with a non-strict cursor filter, or one
+// that ignores the cursor argument, would otherwise re-emit overlapping
+// pages forever), a key page larger than requested, or a result row whose
+// root continuation identity is missing, malformed, or outside the requested
+// key page. The PostgreSQL row adapter's own ErrColumnContractMismatch
 // guards statement/contract column shape; this sentinel covers the root-page
 // invariants that are only judgeable from the decoded rows. Both are
 // errors.Is-classified typed result contracts.
@@ -265,10 +268,18 @@ type PostgreSQLRootPageSteps struct {
 	// PageKeysArgIndex is the 0-based index into Rows' ordered arguments of
 	// the discovered key page, declared as a jsonb parameter.
 	PageKeysArgIndex int
-	// PageSize is the fixed positive number of roots requested per key page.
-	// The AQL-only adaptive first-page sizing does not extend to this route.
+	// PageSize is the fixed positive number of roots requested per key page,
+	// sanity-bounded below maxPostgreSQLRootPageSize. The AQL-only adaptive
+	// first-page sizing does not extend to this route.
 	PageSize int
 }
+
+// maxPostgreSQLRootPageSize sanity-bounds the parent-supplied page size
+// before the engine allocates per-page capacity from it or encodes a key
+// page into the row step's jsonb argument. Legitimate keyset pages are
+// orders of magnitude smaller; a larger value is a composition defect, not
+// a tuning choice.
+const maxPostgreSQLRootPageSize = 1 << 20
 
 type OutputStream struct {
 	Name                     string
@@ -1769,7 +1780,12 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 // sequence through the single source row port, mirroring the Arango key/row
 // loop with PostgreSQL's positional binding. Each page runs the key step,
 // validates the discovered continuation identities (strictly increasing,
-// non-blank, no more than the requested page size), and then runs the row
+// non-blank, strictly past the previous page tail — the cursor advance is
+// re-verified from the decoded rows because this route's key statement is
+// parent-supplied rather than compiler-owned, and a non-strict cursor filter
+// or an ignored cursor argument would otherwise re-emit overlapping pages
+// without ever reaching a loop exit — and no more than the requested page
+// size), and then runs the row
 // step for exactly that key page, validating every result row's root
 // continuation identity against the requested page before visiting it. An
 // empty key page ends the stream without any row call, and a short key page
@@ -1805,6 +1821,14 @@ func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVi
 			key, ok := row[steps.RootKeyColumn].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("%w: root-key page returned an invalid continuation identity in column %q", ErrPostgreSQLResultContract, steps.RootKeyColumn)
+			}
+			// Cursor advance is re-verified from the decoded rows: the key
+			// statement is parent-supplied, so a non-strict cursor filter
+			// (>= where > was intended) or an ignored cursor argument must
+			// not be able to keep serving overlapping full pages that
+			// re-emit already-delivered rows without ending the loop.
+			if after != "" && key <= after {
+				return fmt.Errorf("%w: root-key page does not advance past the previous page tail %q", ErrPostgreSQLResultContract, after)
 			}
 			if len(keys) != 0 && key <= keys[len(keys)-1] {
 				return fmt.Errorf("%w: root-key page is not strictly ordered", ErrPostgreSQLResultContract)
@@ -1873,6 +1897,9 @@ func (s OutputStream) validatePostgreSQLRootPageSteps() error {
 	}
 	if steps.PageSize < 1 {
 		return fmt.Errorf("%w: page size must be positive, got %d", ErrPostgreSQLRootPageSteps, steps.PageSize)
+	}
+	if steps.PageSize > maxPostgreSQLRootPageSize {
+		return fmt.Errorf("%w: page size %d exceeds the sanity bound %d", ErrPostgreSQLRootPageSteps, steps.PageSize, maxPostgreSQLRootPageSize)
 	}
 	if strings.TrimSpace(steps.RootKeyColumn) == "" {
 		return fmt.Errorf("%w: the root-key result column must be named", ErrPostgreSQLRootPageSteps)

@@ -846,10 +846,39 @@ func TestPostgresRootPagingResultContractSabotage(t *testing.T) {
 			t.Fatalf("error = %v, want ErrPostgreSQLResultContract for a row outside the requested page", err)
 		}
 	})
+	t.Run("key page not advancing past the previous tail is refused", func(t *testing.T) {
+		s := newExec05LiveService(t)
+		s.seedAcceptanceFixture(t)
+		port := &exec05LivePort{s: s}
+		// The second key step is overall call 3 (key, row, key). Rewriting
+		// its first served key back to the previous page tail models a
+		// parent key statement compiled with a non-strict cursor filter
+		// (>= where > was intended): the page stays strictly ordered
+		// internally, so only re-verifying cursor advance from the decoded
+		// rows can catch the overlap.
+		port.visitHook = func(kind string, row map[string]any, callIndex int) (map[string]any, error) {
+			if kind == "keys" && callIndex == 3 && row[exec05RootKeyCol] == "p0003" {
+				return map[string]any{exec05RootKeyCol: "p0002"}, nil
+			}
+			return row, nil
+		}
+		stream := exec05LiveStream(t, s, s.newExec05LiveSteps(t, 2), port.port)
+		err := stream.streamRaw(s.ctx, func(map[string]any) error { return nil })
+		if !errors.Is(err, ErrPostgreSQLResultContract) {
+			t.Fatalf("error = %v, want ErrPostgreSQLResultContract for a page that does not advance past the previous tail", err)
+		}
+		keys, rows := port.counts()
+		if keys != 2 || rows != 1 {
+			t.Fatalf("port calls keys=%d rows=%d, want 2/1: the refusing page must never reach the row step", keys, rows)
+		}
+	})
 	t.Run("control: unsabotaged run proceeds on the same fixture", func(t *testing.T) {
 		s := newExec05LiveService(t)
 		s.seedAcceptanceFixture(t)
 		port := &exec05LivePort{s: s}
+		port.visitHook = func(kind string, row map[string]any, callIndex int) (map[string]any, error) {
+			return row, nil
+		}
 		stream := exec05LiveStream(t, s, s.newExec05LiveSteps(t, 2), port.port)
 		var visited []string
 		if err := stream.streamRaw(s.ctx, func(row map[string]any) error {
