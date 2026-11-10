@@ -253,7 +253,7 @@ func TestRenderSelectorComparisonAllRequiresTheItem(t *testing.T) {
 	negated := pgsq05Plan("Patient")
 	negated.BindVars["active_value"] = true
 	negated = pgsq05AddFilter(negated, pgsq05FilterByExpression(ir.PhysicalPredicateExpression{
-		Kind:     ir.PhysicalNotPredicate,
+		Kind: ir.PhysicalNotPredicate,
 		Children: []ir.PhysicalPredicateExpression{pgsq05ComparisonLeaf(pgsq05SelectorPredicate(
 			"Patient", "active", "EQUALS", spec.QuantifierAll, spec.FilterBoolean, "active_value", true))},
 	}))
@@ -548,10 +548,10 @@ func TestRenderDirectTypedColumnTemporalLiterals(t *testing.T) {
 	plan := pgsq05Plan("Patient")
 	plan.BindVars["at_value"] = "2024-03-15"
 	plan = pgsq05AddFilter(plan, pgsq05FilterByPredicate(ir.PhysicalPredicate{
-		Operator:   "GTE",
-		ValueKind:  spec.FilterDate,
-		Left:       ir.PhysicalValue{Variable: "root", Path: []string{"recorded_at"}},
-		Right:      &ir.PhysicalValue{BindKey: "at_value"},
+		Operator:  "GTE",
+		ValueKind: spec.FilterDate,
+		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"recorded_at"}},
+		Right:     &ir.PhysicalValue{BindKey: "at_value"},
 	}))
 	rendered := renderOK(t, plan)
 	if got := pgsq05WhereClause(t, rendered); got != `r0."recorded_at" >= $5` {
