@@ -46,7 +46,7 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 	postgresstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -672,7 +672,7 @@ func TestPostgresResourceWriterBatchContentMatchesLiteralCommittedBatch(t *testi
 		ID:                "ing01-ing/capture/0",
 		Project:           ing01IngestProject,
 		DatasetGeneration: ing01IngestGen,
-		Rows: []catalog.PGResourceRow{
+		Rows: []source.Resource{
 			{Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, ResourceType: "Observation",
 				LogicalID: "cap-1", AuthResourcePath: ing01IngestAuth,
 				Payload: json.RawMessage(`{"id":"cap-1","resourceType":"Observation","status":"final"}`)},

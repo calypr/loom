@@ -115,8 +115,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/calypr/loom/internal/catalog"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
+	"github.com/calypr/loom/internal/source"
 	postgresstore "github.com/calypr/loom/internal/store/postgres"
 )
 
@@ -267,7 +267,7 @@ func (w *PostgresResourceWriter) WriteResourceBatch(
 		}
 	}
 
-	decoded := make([]catalog.PGResourceRow, 0, len(rows))
+	decoded := make([]source.Resource, 0, len(rows))
 	for index, built := range rows {
 		record, err := decodeBuiltResourceVertex(built.vertex, scope, index)
 		if err != nil {
@@ -307,14 +307,14 @@ func decodeBuiltResourceVertex(
 	vertex json.RawMessage,
 	scope PGResourceBatchScope,
 	index int,
-) (catalog.PGResourceRow, error) {
-	refuse := func(column string, format string, args ...any) (catalog.PGResourceRow, error) {
-		return catalog.PGResourceRow{}, &PGResourceRowIdentityError{
+) (source.Resource, error) {
+	refuse := func(column string, format string, args ...any) (source.Resource, error) {
+		return source.Resource{}, &PGResourceRowIdentityError{
 			BatchID: scope.BatchID, Row: index, Column: column,
 			Reason: fmt.Sprintf(format, args...),
 		}
 	}
-	invalid := func(column string, err error) (catalog.PGResourceRow, error) {
+	invalid := func(column string, err error) (source.Resource, error) {
 		return refuse(column, "%v", err)
 	}
 
@@ -323,7 +323,7 @@ func decodeBuiltResourceVertex(
 		return refuse("vertex", "the built document is undecodable: %v", err)
 	}
 
-	record := catalog.PGResourceRow{
+	record := source.Resource{
 		Project:           scope.Project,
 		DatasetGeneration: scope.DatasetGeneration,
 		AuthResourcePath:  scope.AuthResourcePath,

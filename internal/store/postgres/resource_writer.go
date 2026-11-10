@@ -3,7 +3,7 @@
 //
 // ResourceWriter is the resource-only surface of the ledgered COPY batch
 // writer (BatchWriter, pg-store-06): it accepts one bounded slice of
-// validated catalog.PGResourceRow values under an explicit
+// validated source.Resource values under an explicit
 // project/dataset-generation scope and commits the whole batch — COPY into
 // transaction-local staging, the natural-identity guards, the publish into
 // fhir_resource, and the batch_write_ledger marker (migration 000008) — in
@@ -50,7 +50,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/calypr/loom/internal/catalog"
+	"github.com/calypr/loom/internal/source"
 )
 
 // ResourceBatch is one bounded, replayable, resource-only write unit. The
@@ -63,7 +63,7 @@ type ResourceBatch struct {
 	ID                string
 	Project           string
 	DatasetGeneration string
-	Rows              []catalog.PGResourceRow
+	Rows              []source.Resource
 }
 
 // ResourceBatchResult is the outcome of a WriteResourceBatch call, with the
