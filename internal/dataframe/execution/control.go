@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	recipeexec "github.com/calypr/loom/internal/dataframe/recipe/exec"
@@ -18,8 +17,18 @@ import (
 // It resolves a recipe exactly once per operation and exposes only sanitized
 // physical diagnostics through ExplainPhysical; raw IR and AQL stay private.
 type Control struct {
-	Engine            *Engine
+	Engine *Engine
+	// ExplainConnection is the live Arango assessment callback used for
+	// AQL-tagged (and, preserving the historical policy surface, untagged)
+	// commands.
 	ExplainConnection func(context.Context, CompiledQuery) (ExplainAssessment, error)
+	// ExplainPostgreSQLConnection is the live PostgreSQL assessment
+	// callback used for PostgreSQL-tagged commands. It receives only the
+	// parent-tagged command and must derive the EXPLAIN view through closed
+	// dispatch (see PostgreSQLExplainPlan). A PostgreSQL-tagged command is
+	// never handed to ExplainConnection and an AQL command is never handed
+	// to this callback.
+	ExplainPostgreSQLConnection func(context.Context, CompiledQuery) (PostgreSQLPlanAssessment, error)
 }
 
 func (c Control) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (Validation, error) {
@@ -57,8 +66,12 @@ func (c Control) Explain(ctx context.Context, name string, bindings recipe.Runti
 
 // ExplainPhysical compiles the same resolved canonical outputs consumed by
 // Preview and Materialize. The compiler-only path is always available; live
-// Arango assessment is opt-in and requires ExplainConnection. No AQL or bind
-// values cross the recipe control boundary.
+// assessment is opt-in and backend-tagged: an AQL-tagged command is assessed
+// through ExplainConnection (the historical Arango policy surface) and a
+// PostgreSQL-tagged command through ExplainPostgreSQLConnection, each
+// requiring its own callback. No AQL, SQL, or bind values cross the recipe
+// control boundary; the PostgreSQL half carries only the sanitized
+// backend/node/estimate assessment produced by PostgreSQLExplainPlan.
 func (c Control) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (PhysicalExplanation, error) {
 	if c.Engine == nil {
 		return PhysicalExplanation{}, fmt.Errorf("recipe engine is required")
@@ -73,27 +86,55 @@ func (c Control) ExplainPhysical(ctx context.Context, name string, bindings reci
 	}
 	result := PhysicalExplanation{Outputs: make([]PhysicalOutputExplanation, 0, len(resolved.Compiled.Outputs))}
 	for _, output := range resolved.Compiled.Outputs {
-		compiled, err := compiler.CompileRecipeOutputWithPolicy(output, resolved.Semantic.SemanticPlan.Bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, err := c.explainCompiledForOutput(ctx, resolved, output, limit)
 		if err != nil {
 			return PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
 		item := PhysicalOutputExplanation{
-			Name: output.Name, PlanFingerprint: CompiledQueryFingerprint(compiled),
+			Name: output.Name, PlanFingerprint: explainPlanFingerprint(compiled),
 			Columns: append([]string(nil), compiled.PublicColumns...), Diagnostics: compiled.PlanDiagnostics,
 		}
 		if live {
-			if c.ExplainConnection == nil {
-				return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
+			switch compiled.Command.Backend() {
+			case compiler.CompiledBackendPostgreSQL:
+				if c.ExplainPostgreSQLConnection == nil {
+					return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires a PostgreSQL connection")
+				}
+				assessment, err := c.ExplainPostgreSQLConnection(ctx, compiled)
+				if err != nil {
+					return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
+				}
+				item.LivePostgreSQL = &assessment
+			default:
+				// AQL-tagged, untagged, and unknown-tag commands keep the
+				// exact historical policy surface: only ExplainConnection
+				// sees them, and its AQL closed-dispatch check refuses
+				// anything that is not AQL.
+				if c.ExplainConnection == nil {
+					return PhysicalExplanation{}, fmt.Errorf("live physical recipe Explain requires an Arango connection")
+				}
+				assessment, err := c.ExplainConnection(ctx, compiled)
+				if err != nil {
+					return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
+				}
+				item.Live = &assessment
 			}
-			assessment, err := c.ExplainConnection(ctx, compiled)
-			if err != nil {
-				return PhysicalExplanation{}, recipeControlBackend(fmt.Errorf("output %q live Explain: %w", output.Name, err))
-			}
-			item.Live = &assessment
 		}
 		result.Outputs = append(result.Outputs, item)
 	}
 	return result, nil
+}
+
+// explainPlanFingerprint reports the fingerprint of the exact compiled
+// command this output was assessed from: the AQL-shape digest for AQL-tagged
+// (and untagged) commands, and the PostgreSQL command fingerprint — the same
+// fingerprint the PostgreSQL stream reports as planFingerprint — for
+// PostgreSQL-tagged commands.
+func explainPlanFingerprint(compiled compiler.CompiledQuery) string {
+	if compiled.Command.Backend() == compiler.CompiledBackendPostgreSQL {
+		return compiled.PlanDiagnostics.Fingerprint
+	}
+	return CompiledQueryFingerprint(compiled)
 }
 
 func (c Control) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
