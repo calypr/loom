@@ -507,6 +507,12 @@ func ab05AssignmentValidation(t *testing.T) {
 					conflict.SeriesA, conflict.SeriesB, conflict.Version,
 					tc.conflict.a, tc.conflict.b, tc.conflict.version)
 			}
+			// The conflict must name the schema both series were pinned
+			// onto -- the identity a server-surface caller reports.
+			if conflict.Schema != tc.assign[tc.conflict.a] {
+				t.Fatalf("conflict schema = %q, want the shared assignment %q",
+					conflict.Schema, tc.assign[tc.conflict.a])
+			}
 			if conflict.ChecksumA == conflict.ChecksumB && conflict.NameA == conflict.NameB {
 				t.Fatalf("conflict names no distinguishing identity: %+v", conflict)
 			}

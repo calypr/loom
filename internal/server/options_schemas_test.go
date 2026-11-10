@@ -1,17 +1,21 @@
 package server
 
-// Schema-ownership validation on the server surface (arch-backend-05): the
-// optional server.postgresql.schemas map must be rejected or accepted
-// purely from the authoritative ownership record, before any pool opens or
-// DDL runs. PostgreSQLConfig.validate is the boundary the factory calls
-// pre-connection, so exercising it here proves the pre-pool guarantee.
+// Schema-ownership config surface (arch-backend-05, review on PR #110
+// thread PRRT_kwDOS-yV5s61pLW-): no production factory consumes
+// server.postgresql.schemas today -- the source series migrates via the
+// ingest CLI flag and the other five series have no production migrate
+// call sites -- so any explicit entry must FAIL configuration (fail
+// closed) instead of being validated and silently ignored. Absent/empty
+// keeps working configurations compatible. The authoritative assignment
+// semantics (unknown series, unsafe identifiers, ledger-disagreeing
+// sharing, structured *AssignmentConflict identity including its Schema
+// field) are asserted at the owning layer in
+// internal/store/postgres/ownership_contract_test.go
+// (ValidateAssignmentMatrix).
 
 import (
-	"errors"
 	"strings"
 	"testing"
-
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 )
 
 func validPostgreSQLConfig() PostgreSQLConfig {
@@ -27,22 +31,28 @@ func validPostgreSQLConfig() PostgreSQLConfig {
 	}
 }
 
-func TestPostgreSQLConfigSchemaOwnershipValidation(t *testing.T) {
+func TestPostgreSQLConfigSchemasFailClosedUntilConsumed(t *testing.T) {
 	tests := []struct {
 		name    string
 		schemas map[string]string
-		wantErr error // nil means acceptance; otherwise errors.Is target
+		accept  bool
 	}{
 		{
 			name:    "absent schemas stay optional",
 			schemas: nil,
+			accept:  true,
 		},
 		{
 			name:    "empty schemas map accepted",
 			schemas: map[string]string{},
+			accept:  true,
 		},
 		{
-			name: "full distinct assignment accepted",
+			name:    "single series assignment rejected until a factory honors it",
+			schemas: map[string]string{"source": "loom_source"},
+		},
+		{
+			name: "full distinct assignment rejected even though every pair is ownership-legal",
 			schemas: map[string]string{
 				"source": "loom_source", "explorer_control": "loom_explorer",
 				"publication_control": "loom_publication", "dataset_release": "loom_release",
@@ -50,38 +60,28 @@ func TestPostgreSQLConfigSchemaOwnershipValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "recipe pair may share one schema (byte-identical ledger v1)",
+			name: "recipe pair sharing one schema also rejected (nothing consumes it)",
 			schemas: map[string]string{
 				"recipe_chains": "loom_recipe", "recipe_exec_registries": "loom_recipe",
 			},
 		},
 		{
-			name: "source and explorer on one schema conflict at ledger v1",
+			name: "ledger-disagreeing sharing rejected at the fail-closed gate",
 			schemas: map[string]string{
 				"source": "shared", "explorer_control": "shared",
 			},
-			wantErr: storepostgres.ErrInvalidAssignment,
-		},
-		{
-			name: "source and dataset release on one schema conflict at v8",
-			schemas: map[string]string{
-				"source": "shared", "dataset_release": "shared",
-			},
-			wantErr: storepostgres.ErrInvalidAssignment,
 		},
 		{
 			name: "unknown series rejected",
 			schemas: map[string]string{
 				"warehouse_ledger": "loom_anything",
 			},
-			wantErr: storepostgres.ErrInvalidAssignment,
 		},
 		{
 			name: "unsafe schema identifier rejected",
 			schemas: map[string]string{
 				"source": "Loom Source",
 			},
-			wantErr: storepostgres.ErrInvalidAssignment,
 		},
 	}
 	for _, tc := range tests {
@@ -89,42 +89,31 @@ func TestPostgreSQLConfigSchemaOwnershipValidation(t *testing.T) {
 			cfg := validPostgreSQLConfig()
 			cfg.Schemas = tc.schemas
 			err := cfg.validate()
-			if tc.wantErr == nil {
+			if tc.accept {
 				if err != nil {
 					t.Fatalf("validate with schemas %v = %v, want acceptance", tc.schemas, err)
 				}
 				return
 			}
 			if err == nil {
-				t.Fatalf("validate accepted schemas %v, want rejection", tc.schemas)
+				t.Fatalf("validate accepted schemas %v; an unconsumed assignment must fail closed, not pass silently", tc.schemas)
 			}
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("error %v does not wrap %v", err, tc.wantErr)
+			msg := err.Error()
+			if !strings.Contains(msg, "server.postgresql.schemas") {
+				t.Fatalf("error %q must name the server.postgresql.schemas field", msg)
 			}
-			if !strings.Contains(err.Error(), "server.postgresql.schemas") {
-				t.Fatalf("error %q must name the server.postgresql.schemas field", err)
+			// The actionable truth an operator needs: the assignment is
+			// not consumed yet.
+			if !strings.Contains(msg, "not yet consumed by any production factory") {
+				t.Fatalf("error %q must state the assignment is not yet consumed", msg)
+			}
+			// The rejection stays non-secret: it must not echo connection
+			// values from the config it came from.
+			for _, secret := range []string{cfg.Host, cfg.User, cfg.Database} {
+				if strings.Contains(msg, secret) {
+					t.Fatalf("error %q must not echo config value %q", msg, secret)
+				}
 			}
 		})
-	}
-}
-
-func TestPostgreSQLConfigSchemaConflictCarriesStructuredIdentity(t *testing.T) {
-	cfg := validPostgreSQLConfig()
-	cfg.Schemas = map[string]string{"source": "shared", "publication_control": "shared"}
-	err := cfg.validate()
-	if err == nil {
-		t.Fatal("validate accepted conflicting schema ownership")
-	}
-	var conflict *storepostgres.AssignmentConflict
-	if !errors.As(err, &conflict) {
-		t.Fatalf("error %v is not an *AssignmentConflict", err)
-	}
-	if conflict.Schema != "shared" || conflict.Version != 4 {
-		t.Fatalf("conflict = schema %q version %d, want shared at version 4 (first shared disagreement)",
-			conflict.Schema, conflict.Version)
-	}
-	// The message must stay non-secret: field name plus identifiers only.
-	if strings.Contains(err.Error(), validPostgreSQLConfig().Password) && cfg.Password != "" {
-		t.Fatal("password must never appear in an ownership error")
 	}
 }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataset"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -81,17 +80,20 @@ type PostgreSQLConfig struct {
 	MaxOpenConns    int           `yaml:"max_open_conns"`
 	MaxIdleConns    int           `yaml:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
-	// Schemas assigns each production migration series (see
-	// internal/store/postgres/migration_ownership.go) to the schema this
-	// deployment hosts it in. Keys are series IDs (source,
-	// explorer_control, publication_control, dataset_release,
-	// recipe_chains, recipe_exec_registries). Every entry is optional and
-	// there is no implicit default here: absent entries leave the factory
-	// to apply its documented defaults, preserving current configuration
-	// compatibility. Explicit entries are validated before any connection
-	// opens: names must be safe identifiers and no two series whose pinned
-	// ledgers disagree may share one schema, so an incompatible assignment
-	// fails at configuration time rather than mid-DDL.
+	// Schemas is the reserved declaration of schema ownership for each
+	// production migration series (see
+	// internal/store/postgres/migration_ownership.go). It is VALIDATED
+	// ONLY and not yet consumed: no production factory passes an assigned
+	// schema to MigrateSchema or to a store constructor -- the source
+	// series is migrated by the ingest CLI (ingest.PGSourceOptions.Schema)
+	// and the other five series have no production migrate call sites at
+	// all. To keep a deployment from believing a series is isolated in the
+	// named schema when it is not, ANY explicit entry is rejected at
+	// configuration time (fail closed) instead of being silently ignored.
+	// Entries become acceptable once a factory honors the map, at which
+	// point storepostgres.ValidateAssignment is the authoritative pre-pool
+	// gate (unknown series, unsafe identifiers, and series whose pinned
+	// ledgers disagree may never share one schema).
 	Schemas map[string]string `yaml:"schemas"`
 }
 
@@ -498,18 +500,19 @@ func (p PostgreSQLConfig) validate() error {
 	if p.ConnMaxLifetime < 0 {
 		return errors.New("server.postgresql.conn_max_lifetime cannot be negative")
 	}
-	// Explicit schema ownership must be consistent before any request path
-	// opens: reject unknown series, unsafe identifiers, and two series whose
-	// authoritative ledgers disagree pinned onto one schema (see
-	// internal/store/postgres/migration_ownership.go).
+	// Fail closed until a factory consumes this map: silently ignoring an
+	// explicit entry would let a deployment believe a series is hosted in
+	// the named schema while the assignment has no effect -- the source
+	// schema comes from the ingest CLI flag and the other five series have
+	// no production migrate call sites (review on PR #110, thread
+	// PRRT_kwDOS-yV5s61pLW-). Reject any explicit entry rather than
+	// comparing against schemas the factory uses, because this process
+	// cannot observe the ingest CLI's per-invocation schema. When a
+	// factory honors the map, restore the storepostgres.ValidateAssignment
+	// pre-pool gate (it stays authoritative and fully tested at the store
+	// layer in the meantime).
 	if len(p.Schemas) > 0 {
-		assignment := make(storepostgres.Assignment, len(p.Schemas))
-		for series, schema := range p.Schemas {
-			assignment[storepostgres.SeriesID(series)] = schema
-		}
-		if err := storepostgres.ValidateAssignment(assignment); err != nil {
-			return fmt.Errorf("server.postgresql.schemas: %w", err)
-		}
+		return fmt.Errorf("server.postgresql.schemas: schema ownership is not yet consumed by any production factory; remove the entries or wait until a factory honors them (the source series migrates via the ingest CLI; the other five series have no production migrate call sites)")
 	}
 	return nil
 }
