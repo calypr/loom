@@ -883,9 +883,10 @@ func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, c
 		// biased zero plus NULLIF fold the zero divisor to NULL, whose
 		// comparisons select the ELSE NULL arm — the registered reading
 		// of division by zero, operators.md 260-262. The divisor double
-		// arm maps the zero and subnormal-floor regions to NULL rather
-		// than 0.0 so the executed division can never see a zero divisor
-		// (callDoubleDivisor).
+		// arm maps the zero and the whole subnormal band to NULL rather
+		// than 0.0 or a drifted subnormal, so the executed division can
+		// never see a zero divisor or one parsed more than half an ulp
+		// off its text (callDoubleDivisor).
 		quotient := "((" + clampedLeft + " + " + callDividendScaleBias + ") / NULLIF(" + clampedRight + ", 0))"
 		magnitude := "abs(" + quotient + ")"
 		return "to_jsonb(CASE WHEN " + magnitude + " < '" + callDoubleMulDivPassUpper + "'::numeric" +
@@ -917,12 +918,31 @@ func (r *planRenderer) renderCallArithmetic(plan ir.PhysicalPlan, name string, c
 //     minimum subnormal (2^-1074 ≈ 4.9406564584124654e-324): a product or
 //     quotient magnitude at or above it rounds to at least one subnormal
 //     and cannot raise; below it the registered reading is 0.
+//   - callDoubleNormalFloor is DBL_MIN (2^-1022) in its exact binary
+//     decimal expansion: the divisor gate (F-10) — a divisor at or above
+//     it parses to a normal double within half an ulp of its text, which
+//     is what the mul/div pass-boundary margin assumes; subnormal-band
+//     divisors read the registered NULL (callDoubleDivisor). The
+//     rounding-sensitive spelling must be exact: the 17-digit
+//     2.2250738585072011e-308 parses BELOW DBL_MIN (to the maximum
+//     subnormal) on correct IEEE parsers.
 const (
 	callDoubleOverflowBound   = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
 	callDoubleAddPassUpper    = "179769313486231560835325876058105298516207002341652166261661174625869553267292326574530099287946549246750631490335877017522087105926987962906277604735569213290190919152394180476217125334960946356387261286640198029037799514183602981511756283727771403830521483963923935633133642802139091669457927874464075218944"
 	callDoubleMulDivPassUpper = "179769313486231500960116590016510948825025611236495184238123361562143308190875053458173343219024575698011666711264844337248681780152130643733137952927759391115036970607451570876046936802390650830255617955750582549437097177865883181587442630101659737164863430522599210419506436529457842398703070964143777382400"
 	callDoubleUnderflowFloor  = "2.5E-324"
 	callDoubleSubnormalFloor  = "4.9406564584124655E-324"
+	// callDoubleNormalFloor is DBL_MIN (2^-1022) in its EXACT binary
+	// decimal expansion (715 significant digits), not a rounded spelling:
+	// the famous 17-digit 2.2250738585072011e-308 sits BELOW the halfway
+	// point to the maximum subnormal and parses to that subnormal on
+	// every correct IEEE parser (the 2012 glibc/Java bug value) — a gate
+	// spelled with it would let the maximum subnormal through. Exact
+	// digits make abs(x) >= callDoubleNormalFloor monotone with the
+	// parse: only normal doubles pass. The expansion is derived from
+	// 2^-1022 by exact arithmetic; TestCallsDivisorNormalBand pins it
+	// against the DBL_MIN bit pattern.
+	callDoubleNormalFloor = "2.225073858507201383090232717332404064219215980462331830553327416887204434813918195854283159012511020564067339731035811005152434161553460108856012385377718821130777993532002330479610147442583636071921565046942503734208375250806650616658158948720491179968591639648500635908770118304874799780887753749949451580451605050915399856582470818645113537935804992115981085766051992433352114352390148795699609591288891602992641511063466313393663477586513029371762047325631781485664350872122828637642044846811407613911477062801689853244110024161447421618567166150540154285084716752901903161322778896729707373123334086988983175067838846926092773977972858659654941091369095406136467568702398678315290680984617210924625396728515625E-308"
 	// callDividendScaleBias forces the band-test quotient's numeric scale
 	// to at least 400 fractional digits (PG18 measured: the dividend's
 	// numeric scale drives the quotient scale; plain integer operands
@@ -989,40 +1009,46 @@ func callDoubleOperand(numericOperand string) string {
 }
 
 // callDoubleDivisor is callDoubleOperand for the executed division's right
-// side: the zero divisor and the subnormal-floor gray band both read NULL
-// (division by zero is the registered null; a subnormal-floor divisor is
-// either IEEE's own zero — division by zero, null — or above the tie,
-// where its double quotient overflows to Infinity — invalid, null again).
-// This keeps a zero-valued double out of the divisor position, which would
-// raise SQLSTATE 22037.
+// side: the zero divisor and the WHOLE subnormal band — magnitudes below
+// callDoubleNormalFloor (DBL_MIN), F-10 — read NULL, so the executed
+// division never sees a zero-valued double (SQLSTATE 22037) and never
+// divides by a double whose parse drifted more than half an ulp.
 //
-// The cast additionally refuses a NON-EXACT round trip —
-// ((operand)::double precision)::numeric = operand (F-9): a divisor in
-// [callDoubleSubnormalFloor, ~7.41e-324) rounds to the minimum subnormal
-// on cast (drift up to ~1.5x), so the numeric-domain band test can pass
-// while the executed double division overflows to Infinity and PG18
-// raises 22003 inside the pass arm (measured: 1.25e-15 ÷ 7.4e-324 — band
-// quotient 1.689e308 passes, double quotient 2.53e308 raises). Dividing
-// amplifies divisor drift, so the 2^973 (relative 2^-52) band margin,
-// which covers operand parsing error for products and sums, cannot cover
-// it. A divisor that round-trips exactly carries zero cast drift and the
-// margin holds; a divisor that does not takes the registered NULL band —
-// where IEEE speaks it agrees (its parse is the drifted cast and a
-// quotient that overflowed is Infinity, read back as invalid → null per
-// operators.md 259-262), and where IEEE's quotient is finite (a tiny
-// dividend against a drift-band divisor, e.g. 1e-16 ÷ 4.9406564584124654e-324)
-// the registered NULL is a documented fail-closed divergence from a
-// value only a subnormal-band divisor can produce (PG18 probed: every
-// subnormal-band spelling, including the shortest round-trip text of the
-// minimum subnormal, refuses the round trip). Normal-range registered
-// divisors all pass the guard (probed: 2, 3, 0.2, 0.3, 0.5, 100000,
-// 1e308) — the executed IEEE-parity cells are byte-identical. The cast
-// sits inside the abs < callDoubleOverflowBound band, so neither cast can
-// raise.
+// A round-trip conjunct is NOT a sufficient gate (the F-9 disposition,
+// corrected by PG18 probes): float8→numeric ROUNDS TO 15 SIGNIFICANT
+// DIGITS — ((4.9406564584124654e-324)::double precision)::numeric prints
+// 0.00…0494065645841247 — it does NOT emit float8out's shortest-
+// round-trip text 5e-324. So the 15-digit canonical spelling of the
+// minimum subnormal, 4.94065645841247e-324, satisfies the conjunct
+// tautologically while its NUMERIC value sits a relative 9.23e-16 off
+// the binary double it executes as (the minimum subnormal 4.940656458412
+// 4654e-324) — above the 3.3e-16 the 2^973 pass margin leaves after the
+// dividend's own half ulp. PG18 measured the escape in the registered
+// shape: dividend 8.88178419700125430e-16 ÷ divisor 4.94065645841247e-324
+// puts the numeric band quotient at 0.99999999999999980× the pass upper
+// (pass arm runs) and the executed double quotient at 1.00000000000000028
+// × the round-half-even tie, raising 22003 inside the pass arm. (The
+// shortest text 5e-324 itself refuses the round trip and read NULL; the
+// class needed the 15-digit spelling to reach it.)
+//
+// Refusing the subnormal band closes the class structurally instead: a
+// divisor at or above DBL_MIN parses to a NORMAL double, whose parsing
+// error is at most half an ulp of its text — the same guarantee the
+// mul/div pass-boundary margin (2^973 relative 2^-52) already covers, so
+// the tested quotient and the executed quotient stay inside the documented
+// margin and the pass arm cannot raise. Registered divergences are the
+// pairs a subnormal-band divisor could answer: where IEEE's quotient
+// overflows (a drifted parse, Infinity → invalid → null per operators.md
+// 259-262) the registered NULL agrees; where IEEE's quotient is finite
+// (tiny dividend ÷ subnormal-band divisor, e.g. 1e-16 ÷
+// 4.9406564584124654e-324 ≈ 2.02e307, or ÷ 5e-324 at 8.9e-16) the
+// registered reading is a documented fail-closed NULL. Normal-range
+// registered divisors all cast byte-identically (probed: 2, 3, 0.2, 0.3,
+// 0.5, 100000, 1e308). The cast sits inside the abs <
+// callDoubleOverflowBound band, so it cannot raise.
 func callDoubleDivisor(numericOperand string) string {
 	return "(CASE WHEN abs(" + numericOperand + ") < '" + callDoubleOverflowBound + "'::numeric" +
-		" THEN CASE WHEN abs(" + numericOperand + ") >= '" + callDoubleSubnormalFloor + "'::numeric" +
-		" AND ((" + numericOperand + ")::double precision)::numeric = " + numericOperand +
+		" THEN CASE WHEN abs(" + numericOperand + ") >= '" + callDoubleNormalFloor + "'::numeric" +
 		" THEN (" + numericOperand + ")::double precision ELSE NULL END" +
 		" ELSE NULL END)"
 }

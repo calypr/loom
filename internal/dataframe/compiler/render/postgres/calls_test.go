@@ -246,13 +246,25 @@ func sql10NumericText(parameter string) string {
 // below the minimum subnormal — magnitudes below read the registered 0);
 // and the operation subnormal floor is 4.9406564584124655e-324 (above the
 // exact minimum subnormal — products/quotients below it read the
-// registered 0 instead of reaching the raising round-to-zero).
+// registered 0 instead of reaching the raising round-to-zero); the divisor
+// normal floor is DBL_MIN 2^-1022 in its exact binary decimal expansion
+// (divisors below it read the registered NULL — F-10,
+// sql10WantNormalFloor).
 const (
 	sql10WantOverflowBound   = "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
 	sql10WantAddPassUpper    = "179769313486231560835325876058105298516207002341652166261661174625869553267292326574530099287946549246750631490335877017522087105926987962906277604735569213290190919152394180476217125334960946356387261286640198029037799514183602981511756283727771403830521483963923935633133642802139091669457927874464075218944"
 	sql10WantMulDivPassUpper = "179769313486231500960116590016510948825025611236495184238123361562143308190875053458173343219024575698011666711264844337248681780152130643733137952927759391115036970607451570876046936802390650830255617955750582549437097177865883181587442630101659737164863430522599210419506436529457842398703070964143777382400"
 	sql10WantUnderflowFloor  = "2.5E-324"
 	sql10WantSubnormalFloor  = "4.9406564584124655E-324"
+	// sql10WantNormalFloor is DBL_MIN, the divisor gate (F-10): a
+	// subnormal-band divisor's numeric text can sit a relative ~9e-16 off
+	// the double it executes as — the 15-digit canonical spelling of the
+	// minimum subnormal passes any round-trip conjunct tautologically
+	// (float8->numeric rounds to 15 significant digits, probed) — so the
+	// whole band below DBL_MIN reads the registered NULL and every cast
+	// executes only on a normal double (half-ulp parse, inside the
+	// mul/div pass margin). TestCallsDivisorNormalBand pins this.
+	sql10WantNormalFloor = "2.225073858507201383090232717332404064219215980462331830553327416887204434813918195854283159012511020564067339731035811005152434161553460108856012385377718821130777993532002330479610147442583636071921565046942503734208375250806650616658158948720491179968591639648500635908770118304874799780887753749949451580451605050915399856582470818645113537935804992115981085766051992433352114352390148795699609591288891602992641511063466313393663477586513029371762047325631781485664350872122828637642044846811407613911477062801689853244110024161447421618567166150540154285084716752901903161322778896729707373123334086988983175067838846926092773977972858659654941091369095406136467568702398678315290680984617210924625396728515625E-308"
 	// Band-test operand cap (F-8): comparison-only CASE that caps
 	// band-test operands' magnitudes at 1e400 so the band tests' own
 	// numeric +,-,*,/ can never leave the storable numeric domain
@@ -284,15 +296,16 @@ func sql10WantDoubleOperand(expression string) string {
 		` ELSE NULL END)`
 }
 
-// sql10WantDoubleDivisor mirrors the divisor parse: zero and subnormal-
-// floor regions NULL (never a zero-valued double reaches the division),
-// non-exact double round-trips NULL (F-9: a drifting subnormal-band
-// divisor could overflow the executed division to an Infinity raise),
-// overflow NULL, exact cast otherwise.
+// sql10WantDoubleDivisor mirrors the divisor parse (F-10): zero and the
+// whole subnormal band below sql10WantNormalFloor read NULL — never a
+// zero-valued double reaches the division, and never a divisor whose
+// parse drifted more than half an ulp (the round-trip conjunct of F-9
+// was tautological for the 15-digit canonical spelling that float8->
+// numeric itself prints, so the band is refused outright) — overflow
+// reads NULL, and magnitudes at or above the normal floor cast exactly.
 func sql10WantDoubleDivisor(expression string) string {
 	return `(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
-		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantSubnormalFloor + `'::numeric` +
-		` AND ((` + expression + `)::double precision)::numeric = ` + expression +
+		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantNormalFloor + `'::numeric` +
 		` THEN (` + expression + `)::double precision ELSE NULL END` +
 		` ELSE NULL END)`
 }
@@ -600,6 +613,71 @@ func TestCallsBandTestClamps(t *testing.T) {
 	}
 	if got := strings.Count(clamped, "'-"+callBandClampCap+"'::numeric"); got != 2 {
 		t.Fatalf("clamp embeds the negated cap literal %d times, want 2: %s", got, clamped)
+	}
+}
+
+// TestCallsDivisorNormalBand pins the F-10 divisor gate. A round-trip
+// conjunct ((x)::double precision)::numeric = x cannot guard the
+// division: float8->numeric rounds to 15 significant digits (PG18
+// probe: ((4.9406564584124654e-324)::double precision)::numeric prints
+// 0.000…0494065645841247), so the 15-digit canonical spelling of the
+// minimum subnormal satisfies the conjunct TAUTOLOGICALLY while sitting
+// a relative 9.23e-16 off the double it executes as — above what the
+// 2^973 pass margin leaves after the dividend's own half ulp, and PG18
+// raised 22003 inside the pass arm on the measured witness
+// 8.88178419700125430e-16 ÷ 4.94065645841247e-324. The gate is instead
+// the DBL_MIN band refusal: the cast executes only at or above the
+// normal floor, where every parse is within half an ulp of its text.
+func TestCallsDivisorNormalBand(t *testing.T) {
+	if callDoubleNormalFloor != sql10WantNormalFloor {
+		t.Fatalf("emitter normal floor %s diverged from the mirror %s", callDoubleNormalFloor, sql10WantNormalFloor)
+	}
+	// The registered literal must be the exact double DBL_MIN = 2^1022,
+	// not a nearby spelling.
+	bits := math.Float64bits(func() float64 {
+		v, err := strconv.ParseFloat(callDoubleNormalFloor, 64)
+		if err != nil {
+			t.Fatalf("parse normal floor %q: %v", callDoubleNormalFloor, err)
+		}
+		return v
+	}())
+	if bits != 0x0010000000000000 {
+		t.Fatalf("normal floor %s is not DBL_MIN (bits %#x)", callDoubleNormalFloor, bits)
+	}
+	parse := func(s string) *big.Float {
+		v, _, err := big.ParseFloat(s, 10, 256, big.ToNearestEven)
+		if err != nil {
+			t.Fatalf("parse %q: %v", s, err)
+		}
+		return v
+	}
+	// Above the subnormal-floor region it replaces for the divisor, far
+	// below the pass upper: the gate refuses exactly the band whose
+	// double parse can drift more than half an ulp.
+	if parse(callDoubleSubnormalFloor).Cmp(parse(callDoubleNormalFloor)) >= 0 {
+		t.Fatal("divisor normal floor must sit above the operation subnormal floor")
+	}
+	if parse(callDoubleNormalFloor).Cmp(parse(callDoubleMulDivPassUpper)) >= 0 {
+		t.Fatal("divisor normal floor must sit below the pass upper")
+	}
+	// The divisor arm is two comparison gates plus one cast: the refused
+	// tautological conjunct must not return, the cast appears exactly
+	// once, and each registered bound embeds exactly once.
+	divisor := callDoubleDivisor("o")
+	if strings.Contains(divisor, ")::double precision)::numeric = ") {
+		t.Fatalf("divisor arm resurrected the tautological round-trip conjunct: %s", divisor)
+	}
+	if got := strings.Count(divisor, "(o)::double precision"); got != 1 {
+		t.Fatalf("divisor arm casts %d times, want exactly 1: %s", got, divisor)
+	}
+	if got := strings.Count(divisor, "'"+callDoubleNormalFloor+"'::numeric"); got != 1 {
+		t.Fatalf("divisor arm embeds the normal floor %d times, want 1: %s", got, divisor)
+	}
+	if got := strings.Count(divisor, "'"+callDoubleOverflowBound+"'::numeric"); got != 1 {
+		t.Fatalf("divisor arm embeds the overflow bound %d times, want 1: %s", got, divisor)
+	}
+	if !strings.Contains(divisor, "abs(o) >= '"+callDoubleNormalFloor+"'::numeric") {
+		t.Fatalf("divisor gate does not refuse the whole subnormal band by magnitude: %s", divisor)
 	}
 }
 

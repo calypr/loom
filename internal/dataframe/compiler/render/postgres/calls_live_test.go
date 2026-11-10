@@ -544,21 +544,36 @@ func TestSQL10LiveDecimalTierLeadingZeroExponent(t *testing.T) {
 	svc.runOne(t, svc.renderLive(t, plan), "0.1")
 }
 
-// TestSQL10LiveDivisorRoundTripReadBack pins the F-9 disposition: a
-// pass-band division whose divisor drifts on the double cast (the
-// subnormal band [callDoubleSubnormalFloor, ~7.41e-324) rounds to the
-// minimum subnormal, shrinking the divisor and inflating the executed
-// quotient past the tie) takes the registered NULL instead of PG18's
-// 22003 "value out of range: overflow" inside the pass arm (the exact
-// reviewer reproduction: 1.25e-15 ÷ 7.4e-324 — band quotient 1.689e308
-// passes, the drifted double quotient would be 2.53e308). The
-// minimum-subnormal spelling pair is the registered fail-closed
-// divergence (IEEE's quotient 1e-16 ÷ 4.9406564584124654e-324 is a
-// finite ~2.02e307; only drift-band divisors can reach this arm, and
-// every subnormal-band spelling refuses the round-trip guard, probed).
-// The sanity pair proves normal-range registered divisors are byte-
-// identical with the guard in place.
-func TestSQL10LiveDivisorRoundTripReadBack(t *testing.T) {
+// TestSQL10LiveDivisorBandReadBack pins the F-9/F-10 divisor disposition:
+// every division whose divisor lies in the subnormal band (below DBL_MIN)
+// reads the registered NULL instead of PG18's 22003 "value out of range:
+// overflow" inside the pass arm. Three escape shapes are pinned, all
+// probed to raise (or would raise) with a magnitude-only or round-trip
+// gate:
+//
+//   - driftDiv 1.25e-15 ÷ 7.4e-324 (F-9 reviewer repro): the non-
+//     canonical spelling drifts to the minimum subnormal on cast; band
+//     quotient 1.689e308 passes, the drifted double quotient 2.53e308
+//     raises.
+//   - canonDiv 8.9e-16 ÷ 5e-324 (F-10 reviewer required cell): the
+//     shortest float8out text of the minimum subnormal — float8->numeric
+//     rounds to 15 significant digits, probed to print 0.000…4940656458
+//     41247, so this spelling REFUSES any round-trip conjunct (reading
+//     NULL early) while its double still parses to the min subnormal;
+//     band quotient 1.78e308 passes the numeric test.
+//   - witnessDiv 8.88178419700125430e-16 ÷ 4.94065645841247e-324
+//     (F-10 true escape): the 15-digit canonical spelling that
+//     float8->numeric itself prints, so a round-trip conjunct passes it
+//     TAUTOLOGICALLY; band quotient lands at 0.99999999999999980× the
+//     pass upper while the executed double quotient lands at
+//     1.00000000000000028× the round-half-even tie — the full registered
+//     fragment raised 22003 on this pair pre-fix (probe).
+//
+// The minSub pair 1e-16 ÷ 4.9406564584124654e-324 is the registered
+// fail-closed divergence (IEEE's quotient is a finite ~2.02e307). The
+// sanity pair proves normal-range registered divisors cast byte-
+// identically with the gate in place.
+func TestSQL10LiveDivisorBandReadBack(t *testing.T) {
 	svc := newSQL10Service(t)
 	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-drift", sql10Path,
 		map[string]any{
@@ -568,6 +583,10 @@ func TestSQL10LiveDivisorRoundTripReadBack(t *testing.T) {
 			"gender":               json.RawMessage(`4.9406564584124654e-324`),
 			"maritalStatus":        json.RawMessage(`10`),
 			"managingOrganization": json.RawMessage(`4`),
+			"active":               json.RawMessage(`8.9e-16`),
+			"birthDate":            json.RawMessage(`5e-324`),
+			"meta.source":          json.RawMessage(`8.88178419700125430e-16`),
+			"meta.versionId":       json.RawMessage(`4.94065645841247e-324`),
 		})
 	num := func(path string) ir.PhysicalExpression {
 		return sql10Extract(t, "Patient", path, ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
@@ -579,8 +598,12 @@ func TestSQL10LiveDivisorRoundTripReadBack(t *testing.T) {
 			num("deceasedDateTime"), num("gender"))),
 		sql10CallProjection("sanityDiv", sql10Call("divide", "",
 			num("maritalStatus"), num("managingOrganization"))),
+		sql10CallProjection("canonDiv", sql10Call("divide", "",
+			num("active"), num("birthDate"))),
+		sql10CallProjection("witnessDiv", sql10Call("divide", "",
+			num("meta.source"), num("meta.versionId"))),
 	)
-	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "2.5")
+	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "2.5", "<null>", "<null>")
 }
 
 // TestSQL10LiveDecimalTierStoredNumbers pins the number side of F-7:
