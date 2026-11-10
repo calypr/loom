@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -13,7 +15,9 @@ import (
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
+	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/gofiber/fiber/v3"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestHTTPCodePolicyCoversEveryPublicError(t *testing.T) {
@@ -226,4 +230,103 @@ func TestMapDataframeErrorDescribesUnknownAdapterUserCode(t *testing.T) {
 			t.Fatalf("%s leaked adapter cause", test.code)
 		}
 	}
+}
+
+// TestMapDataframeErrorRedactsPostgresDriverCause proves the HTTP payload
+// for PostgreSQL failures — translated or not — never carries SQL text,
+// bound argument values, DSN material, or schema/constraint names, and that
+// retryability follows the boundary contract (connectivity yes;
+// serialization/deadlock/unique/aborted/ambiguous-commit never blanket).
+func TestMapDataframeErrorRedactsPostgresDriverCause(t *testing.T) {
+	canaries := []string{
+		"reb_http_canary_select", "reb_http_schema", "reb_http_table",
+		"reb_http_ux", "reb_http_bind_value", "reb_http_user", "reb_http_pass", "reb_http_host",
+	}
+	secretPgErr := &pgconn.PgError{
+		Severity: "ERROR", Code: "23505",
+		Message:        `duplicate key value violates unique constraint "reb_http_ux" with reb_http_canary_select`,
+		Detail:         `Key (col)=(reb_http_bind_value) already exists on reb_http_table.`,
+		Hint:           "check reb_http_schema",
+		SchemaName:     "reb_http_schema",
+		TableName:      "reb_http_table",
+		ConstraintName: "reb_http_ux",
+	}
+
+	assertJSONClean := func(what string, mapped MappedError) string {
+		t.Helper()
+		body, err := json.Marshal(mapped.Body)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", what, err)
+		}
+		for _, forbidden := range canaries {
+			if strings.Contains(string(body), forbidden) {
+				t.Fatalf("%s payload leaks %q: %s", what, forbidden, body)
+			}
+		}
+		return string(body)
+	}
+
+	t.Run("untranslated driver error stays redacted", func(t *testing.T) {
+		mapped := MapDataframeError(fmt.Errorf("seam: %w", secretPgErr), "req-pg-raw")
+		if mapped.Status != http.StatusInternalServerError || mapped.Body.Error.Code != "INTERNAL_ERROR" {
+			t.Fatalf("mapped = %#v, want redacted 500 INTERNAL_ERROR", mapped)
+		}
+		assertJSONClean("raw 23505", mapped)
+	})
+
+	t.Run("translated connectivity failure is retryable 503", func(t *testing.T) {
+		failure := &storepostgres.ConnectError{Op: "open", Err: fmt.Errorf(
+			"failed to connect to `user=reb_http_user password=reb_http_pass host=reb_http_host`: refused")}
+		translated, ok := storepostgres.TranslateError(failure)
+		if !ok {
+			t.Fatal("connect failure not translated")
+		}
+		mapped := MapDataframeError(translated, "req-pg-connect")
+		body := assertJSONClean("connect", mapped)
+		if mapped.Status != http.StatusServiceUnavailable || mapped.Body.Error.Code != "BACKEND_UNAVAILABLE" || !mapped.Body.Error.Retryable {
+			t.Fatalf("mapped = %s, want retryable 503 BACKEND_UNAVAILABLE", body)
+		}
+		if mapped.Body.Error.Details["backend"] != "postgres" {
+			t.Fatalf("details lack postgres tag: %#v", mapped.Body.Error.Details)
+		}
+	})
+
+	t.Run("translated serialization failure is never blanket retryable", func(t *testing.T) {
+		translated, ok := storepostgres.TranslateError(fmt.Errorf("seam: %w",
+			&pgconn.PgError{Severity: "ERROR", Code: "40001", Message: "reb_http_canary_select serialize conflict on reb_http_table"}))
+		if !ok {
+			t.Fatal("40001 not translated")
+		}
+		mapped := MapDataframeError(translated, "req-pg-ssi")
+		body := assertJSONClean("40001", mapped)
+		if mapped.Body.Error.Retryable || mapped.Status != http.StatusInternalServerError {
+			t.Fatalf("mapped = %s, want non-retryable 500 (retry is an operation-policy decision)", body)
+		}
+	})
+
+	t.Run("translated ambiguous commit is never retryable", func(t *testing.T) {
+		translated, ok := storepostgres.TranslateCommitError(fmt.Errorf("commit: %w",
+			&pgconn.PgError{Severity: "FATAL", Code: "57P01", Message: "reb_http_canary_select terminating reb_http_table"}))
+		if !ok {
+			t.Fatal("ambiguous commit not translated")
+		}
+		mapped := MapDataframeError(translated, "req-pg-commit")
+		body := assertJSONClean("commit", mapped)
+		if mapped.Body.Error.Retryable {
+			t.Fatalf("mapped = %s, ambiguous commit must never advertise retry", body)
+		}
+	})
+
+	t.Run("translated query cancel is non-retryable limit", func(t *testing.T) {
+		translated, ok := storepostgres.TranslateError(fmt.Errorf("seam: %w",
+			&pgconn.PgError{Severity: "ERROR", Code: "57014", Message: "reb_http_canary_select canceling statement"}))
+		if !ok {
+			t.Fatal("57014 not translated")
+		}
+		mapped := MapDataframeError(translated, "req-pg-cancel")
+		body := assertJSONClean("57014", mapped)
+		if mapped.Body.Error.Code != "QUERY_RESOURCE_LIMIT_EXCEEDED" || mapped.Body.Error.Retryable {
+			t.Fatalf("mapped = %s, want non-retryable QUERY_RESOURCE_LIMIT_EXCEEDED", body)
+		}
+	})
 }
