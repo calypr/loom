@@ -58,6 +58,10 @@ jobs:
           test "${#packages[@]}" -gt 0
           go test -timeout=10m -count=1 "${packages[@]}"
 
+      - name: Test standalone HTTP client
+        working-directory: client
+        run: go test -race -timeout=2m ./...
+
   go-arango:
     name: Actual Arango integration
     runs-on: ubuntu-latest
