@@ -4249,6 +4249,320 @@ func TestPostgresExplicitGroupMembershipsFencedCompleteRacesAppend(t *testing.T)
 	}
 }
 
+// TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal is the
+// SQL-level author test for the one-way machine's central promise: a
+// COMPLETE header can never be revived. The CAS verifier's S1-class
+// sabotage (removing the header guard's COMPLETE-history branch) survived
+// every store-level semantic test, so the promise is pinned directly at
+// the database here: both reversal shapes -- the full one (state flip
+// with the completion columns zeroed, which is exactly the shape a
+// revived row needs to satisfy lifecycle_values) and the bare state flip
+// -- must be refused BY NAME through the guard's COMPLETE-history branch.
+// Asserting the branch's own wording is deliberate: if a sabotage deletes
+// the branch and the reversal dies on some neighbouring guard (frozen
+// content, lifecycle_values), this test still fails.
+func TestPostgresExplicitGroupMembershipsOneWayMachineRefusesReversal(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	revision, token, _ := f.stagedGroupFixture(t, "oneway", "r-a", "r-b")
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+		f.fail("one-way seed append", err)
+	}
+	defDigest, memDigest, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+	if err != nil {
+		f.fail("one-way digest", err)
+	}
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+		defDigest, memDigest, groups, members, time.Now().UTC()); err != nil {
+		f.fail("one-way completion", err)
+	}
+
+	fullReversal := `UPDATE ` + f.revisionTable() +
+		` SET state = 'STAGING', definition_digest = '', membership_digest = '',` +
+		` group_count = 0, member_count = 0, completed_at = NULL WHERE id = $1`
+	stateOnlyReversal := `UPDATE ` + f.revisionTable() + ` SET state = 'STAGING' WHERE id = $1`
+
+	for _, probe := range []struct {
+		step string
+		sql  string
+	}{
+		{"full COMPLETE->STAGING reversal", fullReversal},
+		{"bare COMPLETE->STAGING state flip", stateOnlyReversal},
+	} {
+		_, err := f.witness.Exec(f.ctx, probe.sql, string(revision.ID))
+		requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "COMPLETE history and may never be modified",
+			probe.step)
+		if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fCOMPLETE\x1f") {
+			t.Fatalf("%s: refused yet the header reads %q", probe.step, state)
+		}
+	}
+
+	// Non-vacuity: with the header guard dropped -- the S1 world -- the
+	// full reversal really does land, proving the refusals above were this
+	// guard's doing and that the reversal statement is otherwise valid
+	// SQL against a legal schema.
+	f.dropTriggerGRPM(t, f.revisionTable(), "explorer_explicit_group_revisions_guard")
+	f.execOnGRPM(t, f.witness, "guard-dropped reversal", fullReversal, string(revision.ID))
+	if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fSTAGING\x1f") {
+		t.Fatalf("guard-dropped reversal did not land (header %q) -- the probe is vacuous", state)
+	}
+
+	// The revived row is a fully usable STAGING revision (the verifier's
+	// revive -> post-complete-append path): append and completion still
+	// work, so the machine is not merely unlocked -- it is reversible
+	// end to end whenever the guard is gone.
+	if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+		[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupB, "r-b")}); err != nil {
+		f.fail("revived append", err)
+	}
+	revivedDef, revivedMem, revivedGroups, revivedMembers, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+	if err != nil {
+		f.fail("revived digest", err)
+	}
+	if _, err := f.store.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+		revivedDef, revivedMem, revivedGroups, revivedMembers, time.Now().UTC()); err != nil {
+		f.fail("revived completion", err)
+	}
+	if state := f.grpmHeaderSnapshot(t, string(revision.ID)); !strings.Contains(state, "\x1fCOMPLETE\x1f") {
+		t.Fatalf("revived row did not re-complete: %q", state)
+	}
+
+	// The migration's own text restores the guard, and both reversal
+	// shapes are again refused by name on the re-completed header.
+	f.rerunMigrationGRPM(t, grpmMigrationVersion)
+	for _, probe := range []struct {
+		step string
+		sql  string
+	}{
+		{"reversed-after-rerun", fullReversal},
+		{"state-flip-after-rerun", stateOnlyReversal},
+	} {
+		_, err := f.witness.Exec(f.ctx, probe.sql, string(revision.ID))
+		requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "COMPLETE history and may never be modified",
+			probe.step)
+	}
+}
+
+// TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace
+// forces the direct-SQL interleaving the CAS verifier reproduced: a raw
+// INSERT (and an abort-channel DELETE) whose guard must not authorize the
+// operation against a parent image read before a concurrent completion
+// commits. With the guard's parent lookup locked FOR KEY SHARE the
+// intruder queues behind the completing transaction and re-reads the
+// committed state -- refusal; with a plain SELECT it reads STAGING, is
+// admitted, and lands a member under a COMPLETE header (diverging from
+// the frozen digest). Both directions run ten real two-backend rounds
+// with a positive lock-queue witness (the race must genuinely race) plus
+// a no-race control per surface (the same statement lands when nothing
+// completes concurrently, so the refusal cannot be a broken fixture).
+func TestPostgresExplicitGroupMembershipsGuardLocksParentUnderCompletionRace(t *testing.T) {
+	f := newGRPMFixture(t)
+	f.migrateWithSelections(t)
+
+	// Database fact first: the installed guard locks the parent, so a
+	// silently regressed migration fails even before the timing witnesses.
+	var guardSource string
+	if err := f.witness.QueryRow(f.ctx,
+		`SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace`+
+			` WHERE n.nspname = $1 AND p.proname = 'loom_explorer_explicit_group_membership_guard'`,
+		f.schema).Scan(&guardSource); err != nil {
+		f.fail("read membership guard source", err)
+	}
+	if !strings.Contains(guardSource, "FOR KEY SHARE") {
+		t.Fatal("membership guard reads the parent without FOR KEY SHARE -- the TOCTOU window is open")
+	}
+
+	storeB, pidB := f.newDedicatedStore(t)
+	rawPool, rawPID := f.newDedicatedPool(t)
+	requireDistinctBackendsGRPM(t, map[string]int32{"completer": pidB, "raw": rawPID, "witness": f.witnessID})
+
+	rawInsertMember := func(table string) string {
+		return `INSERT INTO ` + table + ` (revision_id, group_id, project, generation, resource_type, resource_id) VALUES ($1, $2, $3, $4, $5, $6)`
+	}
+
+	var insertBlocked, deleteBlocked, insertRefused, deleteRefused atomic.Int64
+	for round := 0; round < grpmRaceRounds; round++ {
+		roundStr := fmt.Sprintf("toctou-%d", round)
+
+		holdCompleter := func(revision explorer.ExplicitGroupRevision, token string,
+			defDigest, memDigest string, groups, members int64) (release chan<- struct{}, complete <-chan error, entered <-chan struct{}) {
+			releaseComplete := make(chan struct{})
+			completeEntered := make(chan struct{})
+			var once sync.Once
+			storeB.beforeCompleteCommit = func(ctx context.Context, tx pgx.Tx) error {
+				once.Do(func() { close(completeEntered) })
+				select {
+				case <-releaseComplete:
+					return nil
+				case <-time.After(grpmSeamTimeout):
+					return errors.New("toctou seam deadline exceeded: race schedule broken")
+				}
+			}
+			done := make(chan error, 1)
+			go func() {
+				_, err := storeB.CompleteExplicitGroupRevision(f.ctx, revision.ID, token,
+					defDigest, memDigest, groups, members, time.Now().UTC())
+				done <- err
+			}()
+			return releaseComplete, done, completeEntered
+		}
+
+		// --- F1: direct-SQL INSERT versus an in-flight completion ---
+		revision, token, _ := f.stagedGroupFixture(t, roundStr+"-i", "r-a", "r-b")
+		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision.ID, token,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+			f.fail("toctou insert seed", err)
+		}
+		honestDef, honestMem, groups, members, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+		if err != nil {
+			f.fail("toctou insert digest", err)
+		}
+		release, completeDone, entered := holdCompleter(revision, token, honestDef, honestMem, groups, members)
+		<-entered
+
+		watchA, stopA := f.grpmWatchLockWait(rawPID)
+		insertErr := make(chan error, 1)
+		go func() {
+			_, err := rawPool.Exec(f.ctx, rawInsertMember(f.membershipsTable()),
+				string(revision.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType, "r-b")
+			insertErr <- err
+		}()
+		blocked := false
+		deadline := time.Now().Add(grpmSeamTimeout)
+		for !blocked && time.Now().Before(deadline) {
+			if watchA() {
+				blocked = true
+				insertBlocked.Add(1)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		close(release)
+		if err := <-completeDone; err != nil {
+			f.fail("toctou insert completion", err)
+		}
+		err = <-insertErr
+		stopA()
+		if !blocked || !watchA() {
+			t.Fatalf("round %d: direct-SQL INSERT was never observed queued behind the completing header lock -- the race never actually raced", round)
+		}
+		requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "only STAGING revisions accept members",
+			"direct insert authorized against a stale STAGING parent")
+		if got := f.membershipSnapshot(t, string(revision.ID)); got != grpmRows(grpmRow(string(grpmGroupA), "r-a")) {
+			t.Fatalf("round %d: refused intruder still changed the set: %q", round, got)
+		}
+		frozenDef, frozenMem, _, frozenMembers, derr := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision.ID)
+		if derr != nil || frozenDef != honestDef || frozenMem != honestMem || frozenMembers != members {
+			t.Fatalf("round %d: COMPLETE frozen facts drifted after the refused insert: %v %v %d (wanted %v %v %d)",
+				round, frozenDef, frozenMem, frozenMembers, honestDef, honestMem, members)
+		}
+		insertRefused.Add(1)
+
+		// Control: the identical raw statement lands when nothing
+		// completes concurrently -- the refusal above is the race, not a
+		// broken fixture.
+		control, controlToken, _ := f.stagedGroupFixture(t, roundStr+"-ic", "r-a", "r-b")
+		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, control.ID, controlToken,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+			f.fail("toctou insert control seed", err)
+		}
+		f.execOnGRPM(t, rawPool, "toctou control insert", rawInsertMember(f.membershipsTable()),
+			string(control.ID), string(grpmGroupB), grpmProject, grpmGeneration, grpmResourceType, "r-b")
+		if got := f.membershipSnapshot(t, string(control.ID)); got != grpmRows(
+			grpmRow(string(grpmGroupA), "r-a"), grpmRow(string(grpmGroupB), "r-b")) {
+			t.Fatalf("round %d: no-race control insert did not land: %q", round, got)
+		}
+
+		// --- F2: abort-channel DELETE versus an in-flight completion ---
+		revision2, token2, _ := f.stagedGroupFixture(t, roundStr+"-d", "r-a", "r-b")
+		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, revision2.ID, token2,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+			f.fail("toctou delete seed", err)
+		}
+		dDef, dMem, dGroups, dMembers, err := f.store.DigestExplicitGroupRevision(f.ctx, grpmProject, revision2.ID)
+		if err != nil {
+			f.fail("toctou delete digest", err)
+		}
+		release2, completeDone2, entered2 := holdCompleter(revision2, token2, dDef, dMem, dGroups, dMembers)
+		<-entered2
+
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', $1, false)`, token2); err != nil {
+			f.fail("toctou set abort GUC", err)
+		}
+		watchD, stopD := f.grpmWatchLockWait(rawPID)
+		deleteErr := make(chan error, 1)
+		go func() {
+			_, err := rawPool.Exec(f.ctx, `DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`,
+				string(revision2.ID))
+			deleteErr <- err
+		}()
+		blocked = false
+		deadline = time.Now().Add(grpmSeamTimeout)
+		for !blocked && time.Now().Before(deadline) {
+			if watchD() {
+				blocked = true
+				deleteBlocked.Add(1)
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+		close(release2)
+		if err := <-completeDone2; err != nil {
+			f.fail("toctou delete completion", err)
+		}
+		err = <-deleteErr
+		stopD()
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', '', false)`); err != nil {
+			f.fail("toctou reset abort GUC", err)
+		}
+		if !blocked || !watchD() {
+			t.Fatalf("round %d: abort-channel DELETE was never observed queued behind the completing header lock -- the race never actually raced", round)
+		}
+		requirePgErrTriggerGRPM(t, err, grpmCheckViolation, "DELETE refused: parent revision",
+			"abort-channel DELETE authorized against a stale STAGING parent")
+		if got := f.membershipSnapshot(t, string(revision2.ID)); got != grpmRows(grpmRow(string(grpmGroupA), "r-a")) {
+			t.Fatalf("round %d: refused abort DELETE still removed rows: %q", round, got)
+		}
+		if state := f.grpmHeaderSnapshot(t, string(revision2.ID)); !strings.Contains(state, "\x1fCOMPLETE\x1f") {
+			t.Fatalf("round %d: raced completion left header %q", round, state)
+		}
+		deleteRefused.Add(1)
+
+		// Control: the same abort DELETE lands with no completion in
+		// flight.
+		control2, controlToken2, _ := f.stagedGroupFixture(t, roundStr+"-dc", "r-a")
+		if _, err := f.store.AppendExplicitGroupMemberships(f.ctx, control2.ID, controlToken2,
+			[]explorer.ExplicitGroupMembership{grpmMembership(grpmGroupA, "r-a")}); err != nil {
+			f.fail("toctou delete control seed", err)
+		}
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', $1, false)`, controlToken2); err != nil {
+			f.fail("toctou control set abort GUC", err)
+		}
+		f.execOnGRPM(t, rawPool, "toctou control delete",
+			`DELETE FROM `+f.membershipsTable()+` WHERE revision_id = $1`, string(control2.ID))
+		if _, err := rawPool.Exec(f.ctx,
+			`SELECT set_config('loom.explorer_explicit_group_abort_token', '', false)`); err != nil {
+			f.fail("toctou control reset abort GUC", err)
+		}
+		if got := f.membershipSnapshot(t, string(control2.ID)); got != "" {
+			t.Fatalf("round %d: no-race control abort DELETE did not land: %q", round, got)
+		}
+
+		storeB.beforeCompleteCommit = nil
+	}
+	if insertBlocked.Load() == 0 || deleteBlocked.Load() == 0 {
+		t.Fatalf("no round queued the intruding direct-SQL operation behind the completing header lock (insert %d, delete %d) -- the guard is not locking the parent",
+			insertBlocked.Load(), deleteBlocked.Load())
+	}
+	if insertRefused.Load() == 0 || deleteRefused.Load() == 0 {
+		t.Fatalf("no round refused the stale-parent intruder (insert %d, delete %d)",
+			insertRefused.Load(), deleteRefused.Load())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // the membership migration composes onto the shared ledger and converges
 // ---------------------------------------------------------------------------
