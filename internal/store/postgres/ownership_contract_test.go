@@ -32,9 +32,11 @@ package postgres_test
 import (
 	"context"
 	"crypto/sha256"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -70,8 +72,19 @@ const (
 	// preRefactorRoot pins the permanent snapshot of the migration files
 	// as they existed at their old fixture-directory paths before this
 	// ticket moved them into their owner packages (git mv, bytes frozen).
+	// Coordinator-ratified as IMMUTABLE EVIDENCE, like the migrations
+	// themselves: any byte change under this directory must intentionally
+	// redden PreRefactorBytesFrozenInOwners -- never loosen the check.
 	preRefactorRoot = "testdata/ab05_pre_refactor"
 )
+
+// ab05SourceFS reads the source-series migrations directly from this
+// package's own embed surface, with no migration loader between the bytes
+// and the assertion (condition C1: non-circularity needs at least one
+// path from embed FS to manifest literal that trusts no shared code).
+//
+//go:embed migrations/*.sql
+var ab05SourceFS embed.FS
 
 // ---------------------------------------------------------------------------
 // offline: manifest <-> embedded owner bytes
@@ -315,6 +328,58 @@ func ab05SharedBootstrapBytesIdentical(t *testing.T) {
 	}
 }
 
+// ab05ManifestChecksumsNonCircular discharges condition C1: the manifest
+// literals are hand-authored, so a manifest that only agreed with itself
+// would prove nothing. This recomputes the SHA-256 in the test itself over
+// the exact SQL bytes each owner package served from its embed FS (via the
+// shared loader) and ties three independent identities together: the
+// test-recomputed hash, the loader-computed ledger identity, and the
+// manifest literal. For the source series it additionally reads the files
+// through this package's own embed surface with no loader at all, so at
+// least one comparison runs embed FS -> manifest literal directly. A future
+// edit that changes a migration's bytes without re-deriving the manifest
+// literal reddens here, and a manifest literal retyped to match tampered
+// SQL reddens the ledger checks against deployed databases.
+func ab05ManifestChecksumsNonCircular(t *testing.T) {
+	t.Helper()
+	for _, m := range pgstore.Manifest() {
+		entries, err := ab05OwnerHistories[m.Series]()
+		if err != nil {
+			t.Fatalf("series %s: owner history: %v", m.Series, err)
+		}
+		if len(entries) != len(m.Entries) {
+			t.Fatalf("series %s: %d embedded migrations, manifest records %d", m.Series, len(entries), len(m.Entries))
+		}
+		for i := range entries {
+			sum := sha256.Sum256([]byte(entries[i].SQL))
+			recomputed := hex.EncodeToString(sum[:])
+			if recomputed != entries[i].Checksum {
+				t.Fatalf("series %s %d/%s: test-recomputed sha256 %s != loader checksum %s: loader is not hashing the served bytes",
+					m.Series, entries[i].Version, entries[i].Name, recomputed[:12], entries[i].Checksum[:12])
+			}
+			if recomputed != m.Entries[i].Checksum {
+				t.Fatalf("series %s %d/%s: test-recomputed sha256 %s != manifest literal %s: the manifest is pinning itself, not these bytes",
+					m.Series, entries[i].Version, entries[i].Name, recomputed[:12], m.Entries[i].Checksum[:12])
+			}
+		}
+		if m.Series != pgstore.SeriesSource {
+			continue
+		}
+		// Loader-free path straight from this package's embed FS.
+		for _, e := range m.Entries {
+			file := fmt.Sprintf("migrations/%06d_%s.sql", e.Version, e.Name)
+			raw, err := ab05SourceFS.ReadFile(file)
+			if err != nil {
+				t.Fatalf("source embed FS read %s: %v", file, err)
+			}
+			sum := sha256.Sum256(raw)
+			if got := hex.EncodeToString(sum[:]); got != e.Checksum {
+				t.Fatalf("source embed FS %s: sha256 %s != manifest literal %s", file, got[:12], e.Checksum[:12])
+			}
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // offline: ValidateAssignment matrix
 // ---------------------------------------------------------------------------
@@ -347,6 +412,24 @@ func ab05AssignmentValidation(t *testing.T) {
 			name: "recipe pair may share (identical ledger v1)",
 			assign: pgstore.Assignment{
 				pgstore.SeriesRecipeChains: "s_recipe", pgstore.SeriesRecipeExecRegistries: "s_recipe",
+			},
+		},
+		{
+			// Condition C5, accept side: the only shared version is pinned
+			// byte-identical, so one ledger can validate both histories.
+			name: "publication and dataset release may share (ledger v1 byte-identical)",
+			assign: pgstore.Assignment{
+				pgstore.SeriesPublicationControl: "s_shared", pgstore.SeriesDatasetRelease: "s_shared",
+			},
+		},
+		{
+			// Condition C5, distinct-schema side: identical pinned shared
+			// versions across separate schemas are pure byte-copy legality
+			// and must pass.
+			name: "identical shared versions on distinct schemas",
+			assign: pgstore.Assignment{
+				pgstore.SeriesRecipeChains: "s_chains_a", pgstore.SeriesRecipeExecRegistries: "s_chains_b",
+				pgstore.SeriesPublicationControl: "s_pub_a", pgstore.SeriesDatasetRelease: "s_rel_a",
 			},
 		},
 		{
@@ -922,9 +1005,70 @@ func ab05IncompatibleHistoriesRefused(t *testing.T) {
 	})
 }
 
+// ab05AssertUpgradeLedger discharges the ledger-preservation half of
+// conditions C2/C3: every seeded ledger row must survive an owner upgrade
+// byte-identical (the upgrade never re-runs or rewrites applied rows), and
+// the rows the upgrade adds must be exactly wantAdded, ascending.
+func ab05AssertUpgradeLedger(t *testing.T, schema string, seeded, after []pgstore.LedgerRecord, wantAdded []pgstore.HistoryEntry) {
+	t.Helper()
+	seededVersions := make(map[int64]bool, len(seeded))
+	for _, r := range seeded {
+		seededVersions[r.Version] = true
+	}
+	shared := make([]pgstore.LedgerRecord, 0, len(seeded))
+	added := make([]pgstore.LedgerRecord, 0, len(after))
+	for _, r := range after {
+		if seededVersions[r.Version] {
+			shared = append(shared, r)
+		} else {
+			added = append(added, r)
+		}
+	}
+	if !reflect.DeepEqual(shared, seeded) {
+		t.Fatalf("ledger of %s: rows present before the upgrade were rewritten or reordered by it (no-rerun rule): got %v, seeded %v", schema, shared, seeded)
+	}
+	if len(added) != len(wantAdded) {
+		t.Fatalf("ledger of %s: upgrade added %d rows, want exactly %d (%v)", schema, len(added), len(wantAdded), wantAdded)
+	}
+	for i := range added {
+		if added[i].Version != wantAdded[i].Version || added[i].Name != wantAdded[i].Name || added[i].Checksum != wantAdded[i].Checksum {
+			t.Fatalf("ledger of %s: added row %d = %d/%s/%s, want %d/%s/%s",
+				schema, i, added[i].Version, added[i].Name, added[i].Checksum[:12],
+				wantAdded[i].Version, wantAdded[i].Name, wantAdded[i].Checksum[:12])
+		}
+	}
+}
+
+// ab05ManifestAdded returns the manifest entries for one series restricted
+// to the given versions, ascending.
+func ab05ManifestAdded(t *testing.T, series pgstore.SeriesID, versions ...int64) []pgstore.HistoryEntry {
+	t.Helper()
+	m, ok := pgstore.LookupManifest(series)
+	if !ok {
+		t.Fatalf("series %s missing from the manifest", series)
+	}
+	want := make(map[int64]bool, len(versions))
+	for _, v := range versions {
+		want[v] = true
+	}
+	var out []pgstore.HistoryEntry
+	for _, e := range m.Entries {
+		if want[e.Version] {
+			out = append(out, e)
+		}
+	}
+	if len(out) != len(versions) {
+		t.Fatalf("series %s: manifest covers %d of requested added versions %v", series, len(out), versions)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // PostgreSQL: a schema seeded from the frozen pre-refactor bytes upgrades
-// to the owner history with the ledger unchanged
+// to the owner history with the ledger unchanged (condition C2 for all
+// three test-composed series S2/S3/S4, with the S2 ledger-preservation
+// witness of condition C3)
 // ---------------------------------------------------------------------------
 
 func ab05PreRefactorUpgradeConverges(t *testing.T) {
@@ -957,8 +1101,9 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		}
 		return schema, result.Applied
 	}
+	now := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 
-	t.Run("explorer control plane", func(t *testing.T) {
+	t.Run("ExplorerControlPlaneAddsExactly478", func(t *testing.T) {
 		owner, err := explorerpg.OwnerMigrations()
 		if err != nil {
 			t.Fatalf("owner history: %v", err)
@@ -976,18 +1121,60 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		legacy = append(legacy, loadPreRefactor(t, "tests/migrations-interpretations")...)
 		legacy = append(legacy, loadPreRefactor(t, "tests/migrations-selections")...)
 		schema, seeded := seed(t, "up_explorer", legacy)
-		expManifest, _ := pgstore.LookupManifest(pgstore.SeriesExplorerControl)
-		ab05ledgerEqual(t, schema, seeded, expManifest.Entries)
+		if len(seeded) != len(owner)-3 {
+			t.Fatalf("seeded explorer ledger holds %d rows, want %d (pre-refactor composition)", len(seeded), len(owner)-3)
+		}
+		// A durable row is inserted through the real Explorer store before
+		// the upgrade; the same table and column contract must still hold
+		// after it.
+		store, err := explorerpg.New(client, schema)
+		if err != nil {
+			t.Fatalf("explorer store: %v", err)
+		}
+		e := explorer.Explorer{
+			Project: "verify-ab05", ExplorerID: "ab05-upgrade", Title: "Upgrade Survivor",
+			ManagementMode:                explorer.ManagementRepository,
+			DraftConfig:                   json.RawMessage(`{"panels":[]}`),
+			DraftVersion:                  1,
+			DraftDigest:                   "sha256:ab05-up",
+			DraftSnapshotToken:            "snap-up",
+			DraftSourceGeneration:         "gen-1",
+			DraftAuthorizationScopeDigest: "authz-up",
+			LastAuthoringCommandID:        "cmd-up",
+			LastAuthoringCommandDigest:    "sha256:cmd-up",
+			LastAuthoringCommandResults:   json.RawMessage(`{"ok":true}`),
+			UpdatedBy:                     "ab05@calypr",
+			UpdatedAt:                     now,
+		}
+		if _, err := store.Create(ctx, e); err != nil {
+			t.Fatalf("create explorer before upgrade: %v", err)
+		}
 		after, err := explorerpg.MigrateSchema(ctx, client, schema)
 		if err != nil {
 			t.Fatalf("owner upgrade of a fixture-seeded explorer schema: %v", err)
 		}
-		if !reflect.DeepEqual(after.Applied, seeded) {
-			t.Fatal("owner upgrade changed the explorer ledger built from the pre-refactor bytes")
+		expManifest, _ := pgstore.LookupManifest(pgstore.SeriesExplorerControl)
+		ab05ledgerEqual(t, schema, after.Applied, expManifest.Entries)
+		// Condition C3: the old deployed composition upgrades to add
+		// exactly {4,7,8}; every shared-version ledger entry is
+		// byte-identical pre/post -- no applied row is re-run.
+		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied,
+			ab05ManifestAdded(t, pgstore.SeriesExplorerControl, 4, 7, 8))
+		if got, err := store.Get(ctx, e.Project, e.ExplorerID); err != nil || got.Title != "Upgrade Survivor" {
+			t.Fatalf("explorer row did not survive the upgrade: %+v, %v", got, err)
+		}
+		// Double-apply through the owner entry point is a ledger-identical
+		// no-op.
+		twice, err := explorerpg.MigrateSchema(ctx, client, schema)
+		if err != nil {
+			t.Fatalf("owner double-apply of explorer schema: %v", err)
+		}
+		if !reflect.DeepEqual(twice.Applied, after.Applied) {
+			t.Fatal("explorer double-apply through the owner drifted the ledger")
 		}
 	})
 
-	t.Run("publication control plane", func(t *testing.T) {
+	t.Run("PublicationControlPlaneUpgrade", func(t *testing.T) {
 		source, err := pgstore.EmbeddedMigrations()
 		if err != nil {
 			t.Fatalf("source history: %v", err)
@@ -1002,16 +1189,72 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		schema, seeded := seed(t, "up_pub", legacy)
 		pubManifest, _ := pgstore.LookupManifest(pgstore.SeriesPublicationControl)
 		ab05ledgerEqual(t, schema, seeded, pubManifest.Entries)
+		// Durable rows exist before the upgrade: a lease and a private
+		// artifact row, each written through its production store.
+		registry, err := publicationpg.New(admin, schema)
+		if err != nil {
+			t.Fatalf("publication registry: %v", err)
+		}
+		key := "ab05-up-key"
+		held, err := registry.AcquireBundleLease(ctx, key, "ab05-owner", now.Add(time.Hour))
+		if err != nil || !held {
+			t.Fatalf("pre-upgrade lease = (%v, %v), want held", held, err)
+		}
+		catalog, err := chartifactpg.NewCatalog(admin, schema)
+		if err != nil {
+			t.Fatalf("artifact catalog: %v", err)
+		}
+		artifactID := "ab05-up-artifact"
+		manifest := chartifact.Manifest{
+			ArtifactID: artifactID,
+			Identity: chartifact.Identity{
+				ExecutionID: "ab05-up-exec", OutputID: "output-1", StageID: "stage-1",
+				Project: "verify-ab05", DatasetGeneration: "gen-1",
+				RecipeDigest: "recipe-digest", PlanDigest: "plan-digest",
+				SchemaDigest: "schema-digest", ScopeDigest: "scope-digest",
+				AuthScopeMode:     authscope.ReadScopeRestricted,
+				AuthResourcePaths: []string{"/Programs/ab05"},
+				ScopeMode:         chartifact.ScopeModeRows,
+			},
+			Columns: []chartifact.Column{
+				{ID: "loom:row_id", Name: "__loom_row_id", SemanticPath: "loom:row_id",
+					LogicalType: "string", ClickHouseType: "String", Internal: true},
+			},
+			PhysicalTable: "loom_private_stage_ab05_up",
+			State:         chartifact.StateCreating,
+			LeaseOwner:    "ab05-owner",
+			LeaseUntil:    now.Add(time.Hour),
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		if err := catalog.Create(ctx, manifest); err != nil {
+			t.Fatalf("pre-upgrade artifact create: %v", err)
+		}
 		after, err := publicationpg.MigrateSchema(ctx, client, schema)
 		if err != nil {
 			t.Fatalf("owner upgrade of a fixture-seeded publication schema: %v", err)
 		}
-		if !reflect.DeepEqual(after.Applied, seeded) {
-			t.Fatal("owner upgrade changed the publication ledger built from the pre-refactor bytes")
+		ab05ledgerEqual(t, schema, after.Applied, pubManifest.Entries)
+		// The pre-refactor composition already covers the full owner
+		// history: the upgrade must add nothing and rewrite nothing.
+		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied, nil)
+		renewed, err := catalog.Renew(ctx, artifactID, "ab05-owner", now.Add(2*time.Hour))
+		if err != nil || !renewed {
+			t.Fatalf("private artifact did not survive the upgrade: renew = (%v, %v)", renewed, err)
+		}
+		if held, err := registry.AcquireBundleLease(ctx, key, "ab05-owner", now.Add(time.Hour)); err != nil || !held {
+			t.Fatalf("lease did not survive the upgrade: reacquire = (%v, %v)", held, err)
+		}
+		twice, err := publicationpg.MigrateSchema(ctx, client, schema)
+		if err != nil {
+			t.Fatalf("owner double-apply of publication schema: %v", err)
+		}
+		if !reflect.DeepEqual(twice.Applied, after.Applied) {
+			t.Fatal("publication double-apply through the owner drifted the ledger")
 		}
 	})
 
-	t.Run("dataset release lane", func(t *testing.T) {
+	t.Run("DatasetReleaseLaneUpgrade", func(t *testing.T) {
 		source, err := pgstore.EmbeddedMigrations()
 		if err != nil {
 			t.Fatalf("source history: %v", err)
@@ -1022,12 +1265,46 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		schema, seeded := seed(t, "up_rel", legacy)
 		relManifest, _ := pgstore.LookupManifest(pgstore.SeriesDatasetRelease)
 		ab05ledgerEqual(t, schema, seeded, relManifest.Entries)
+		// A staged generation manifest is persisted through the production
+		// dataset store before the upgrade.
+		gen, err := datasetpg.New(client, schema)
+		if err != nil {
+			t.Fatalf("dataset store: %v", err)
+		}
+		ref, err := dataset.NewRef("verify-ab05", "gen-ab05-up")
+		if err != nil {
+			t.Fatalf("NewRef: %v", err)
+		}
+		snapshot, err := dataset.NewSchemaSnapshot("urn:ab05-gen-ab05-up", "R5", "sha256:ab05-up", []string{"Observation", "Patient"})
+		if err != nil {
+			t.Fatalf("NewSchemaSnapshot: %v", err)
+		}
+		loading, err := dataset.NewManifest(ref, snapshot)
+		if err != nil {
+			t.Fatalf("NewManifest: %v", err)
+		}
+		if _, err := gen.CreateManifest(ctx, loading); err != nil {
+			t.Fatalf("CreateManifest before upgrade: %v", err)
+		}
+		if _, err := gen.TransitionManifest(ctx, loading, dataset.StateStaged); err != nil {
+			t.Fatalf("TransitionManifest before upgrade: %v", err)
+		}
 		after, err := datasetpg.MigrateSchema(ctx, client, schema)
 		if err != nil {
 			t.Fatalf("owner upgrade of a fixture-seeded release schema: %v", err)
 		}
-		if !reflect.DeepEqual(after.Applied, seeded) {
-			t.Fatal("owner upgrade changed the release ledger built from the pre-refactor bytes")
+		ab05ledgerEqual(t, schema, after.Applied, relManifest.Entries)
+		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied, nil)
+		staged, err := gen.ReadManifest(ctx, ref)
+		if err != nil || staged.State != dataset.StateStaged {
+			t.Fatalf("staged generation manifest did not survive the upgrade: %+v, %v", staged, err)
+		}
+		twice, err := datasetpg.MigrateSchema(ctx, client, schema)
+		if err != nil {
+			t.Fatalf("owner double-apply of release schema: %v", err)
+		}
+		if !reflect.DeepEqual(twice.Applied, after.Applied) {
+			t.Fatal("release double-apply through the owner drifted the ledger")
 		}
 	})
 }
@@ -1074,6 +1351,7 @@ func ab05ZeroSurvivorSweep(t *testing.T) {
 func TestPostgresMigrationOwnershipContract(t *testing.T) {
 	// Offline record integrity runs always, with no database present.
 	t.Run("ManifestMatchesEmbeddedOwners", ab05ManifestMatchesOwners)
+	t.Run("ManifestChecksumsNonCircular", ab05ManifestChecksumsNonCircular)
 	t.Run("ManifestRecordInvariants", ab05ManifestRecordInvariants)
 	t.Run("PreRefactorBytesFrozenInOwners", ab05PreRefactorBytesFrozen)
 	t.Run("SharedBootstrapBytesIdentical", ab05SharedBootstrapBytesIdentical)
