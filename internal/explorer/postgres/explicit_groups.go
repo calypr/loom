@@ -947,6 +947,19 @@ func (s *ExplicitGroupStore) GetExplicitGroupRevision(ctx context.Context, proje
 	if domain.State != explorer.ExplicitGroupRevisionComplete {
 		return nil, explorer.ErrExplicitGroupRevisionIncomplete
 	}
+	// Verify-on-read (E2 defense-in-depth): a COMPLETE header is served
+	// only if its stored definition children still re-derive the frozen
+	// group_count and definition_digest -- the exact refusal machinery
+	// ListExplicitGroupDefinitions runs, so one verified path governs
+	// every served header and any disagreement is the same typed
+	// ErrCorruptExplicitGroupRevision. The children are
+	// verified-then-discarded: no child data aliases into the served
+	// header. Migration 000011 makes NEW drift unreachable by direct
+	// SQL; this refuses any pre-existing or hypothetical corruption
+	// instead of serving it.
+	if _, err := s.listExplicitGroupDefinitions(ctx, conn, string(revisionID), header); err != nil {
+		return nil, err
+	}
 	return domain, nil
 }
 
@@ -957,7 +970,10 @@ func (s *ExplicitGroupStore) GetExplicitGroupRevision(ctx context.Context, proje
 // default 100). STAGING revisions are hidden from listing: they are not
 // choices yet. The result is never nil. Only the fenced
 // CompleteExplicitGroupRevision CAS can produce a COMPLETE header, so
-// what listing shows is exactly what a verified completion froze.
+// what listing shows is exactly what a verified completion froze --
+// and every served row is additionally verified against its stored
+// definition children (verify-on-read, whole-page fail-fast, typed
+// ErrCorruptExplicitGroupRevision on any disagreement).
 func (s *ExplicitGroupStore) ListExplicitGroupRevisions(ctx context.Context, project, generation, scopeDigest, resourceType string, limit int) ([]explorer.ExplicitGroupRevision, error) {
 	if limit <= 0 {
 		limit = explicitGroupListLimit
@@ -974,20 +990,37 @@ func (s *ExplicitGroupStore) ListExplicitGroupRevisions(ctx context.Context, pro
 			project, generation, scopeDigest, resourceType, err)
 	}
 	defer rows.Close()
-	revisions := make([]explorer.ExplicitGroupRevision, 0)
+	// The page is collected first (pgx forbids a second query on the
+	// connection while the cursor is live), then EVERY served header is
+	// verified against its stored definition children on this same
+	// connection before anything is returned -- whole-page fail-fast.
+	// There is deliberately no per-row skip: the signature carries no
+	// per-row error channel, so skipping would silently re-enact the
+	// served-divergence this check exists to refuse. One corrupted
+	// header refuses the entire call with the typed
+	// ErrCorruptExplicitGroupRevision and zero rows.
+	stored := make([]storedExplicitGroupHeader, 0)
 	for rows.Next() {
 		var header storedExplicitGroupHeader
 		if err := scanExplicitGroupHeader(rows, &header); err != nil {
 			return nil, fmt.Errorf("postgres explorer store: scan explicit-group revision %q: %w", project, err)
 		}
-		domain, err := header.toDomain("")
-		if err != nil {
-			return nil, err
-		}
-		revisions = append(revisions, *domain)
+		stored = append(stored, header)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("postgres explorer store: list explicit-group revisions %q: %w", project, err)
+	}
+	rows.Close()
+	revisions := make([]explorer.ExplicitGroupRevision, 0, len(stored))
+	for i := range stored {
+		domain, err := stored[i].toDomain("")
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.listExplicitGroupDefinitions(ctx, conn, stored[i].ID, &stored[i]); err != nil {
+			return nil, err
+		}
+		revisions = append(revisions, *domain)
 	}
 	return revisions, nil
 }
