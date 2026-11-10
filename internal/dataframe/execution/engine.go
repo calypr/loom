@@ -130,16 +130,23 @@ type PreviewSummary struct {
 }
 
 type Config struct {
-	Registry                  exec.Reader
-	Revisions                 recipe.RevisionStore
-	ResolveBundle             func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	QueryRows                 QueryRows
-	PreviewQueryRows          QueryRows
-	PreparePreviewIndex       func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	PreviewCoveringIndexes    func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
+	Registry            exec.Reader
+	Revisions           recipe.RevisionStore
+	ResolveBundle       func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	QueryRows           QueryRows
+	PreviewQueryRows    QueryRows
+	PreparePreviewIndex func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	// PreviewCoveringIndexes lists the compiler-owned persistent indexes the
+	// owning backend adapter observes on a collection. The adapter enumerates
+	// and filters its own vendor index metadata; execution sees only the
+	// neutral PreviewCollectionIndex definition.
+	PreviewCoveringIndexes    func(context.Context, string) ([]PreviewCollectionIndex, error)
 	PreviewCollectionRevision func(context.Context, string) (string, error)
-	PreviewExplainQuery       func(context.Context, string, map[string]any) (arango.ExplainResult, error)
-	PreviewCollectionCount    func(context.Context, string) (int64, error)
+	// PreviewCollectionScans is the optional plan-inspection capability
+	// described in preview_capabilities.go. It is advisory: unset, erroring,
+	// or empty evidence leaves execution on the canonical bounded fallback.
+	PreviewCollectionScans PreviewCollectionScans
+	PreviewCollectionCount func(context.Context, string) (int64, error)
 	// PostgreSQLQueryRows streams result rows of parent-tagged PostgreSQL
 	// compiled commands. It is the PostgreSQL source executor; PostgreSQL
 	// plans never reach the AQL QueryRows/PreviewQueryRows adapters, and
@@ -176,9 +183,9 @@ type Engine struct {
 	queryRows                  QueryRows
 	previewQueryRows           QueryRows
 	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
+	previewCoveringIndexes     func(context.Context, string) ([]PreviewCollectionIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
-	previewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	previewCollectionScans     PreviewCollectionScans
 	previewCollectionCount     func(context.Context, string) (int64, error)
 	groupPreviewRowsCache      groupPreviewRowsCache
 	postgreSQLQueryRows        PostgreSQLQueryRows
@@ -329,7 +336,7 @@ func New(cfg Config) (*Engine, error) {
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
 		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
 		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
-		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
+		previewCollectionRevision: cfg.PreviewCollectionRevision, previewCollectionScans: cfg.PreviewCollectionScans,
 		previewCollectionCount: cfg.PreviewCollectionCount,
 		postgreSQLQueryRows:    cfg.PostgreSQLQueryRows, previewPostgreSQLQueryRows: cfg.PreviewPostgreSQLQueryRows,
 		resolvePostgreSQLCommands: cfg.ResolvePostgreSQLCommands,

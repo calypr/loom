@@ -27,7 +27,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 // dispatchSpies records every backend callback the engine could invoke.
@@ -92,7 +91,7 @@ func (s *dispatchSpies) arangoEngine() Config {
 			record("preparePreviewIndex")
 			return nil
 		},
-		PreviewCoveringIndexes: func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+		PreviewCoveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
 			record("previewCoveringIndexes")
 			return nil, nil
 		},
@@ -100,9 +99,9 @@ func (s *dispatchSpies) arangoEngine() Config {
 			record("previewCollectionRevision")
 			return "rev-1", nil
 		},
-		PreviewExplainQuery: func(context.Context, string, map[string]any) (arango.ExplainResult, error) {
-			record("previewExplainQuery")
-			return arango.ExplainResult{}, nil
+		PreviewCollectionScans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+			record("previewCollectionScans")
+			return PreviewCollectionScanEvidence{}, nil
 		},
 		PreviewCollectionCount: func(context.Context, string) (int64, error) {
 			record("previewCollectionCount")
@@ -758,14 +757,14 @@ func TestGroupPreviewOptimizerNeverEvaluatesPostgreSQLStream(t *testing.T) {
 				return nil
 			},
 		}
-		engine.previewCoveringIndexes = func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+		engine.previewCoveringIndexes = func(context.Context, string) ([]PreviewCollectionIndex, error) {
 			record := "previewCoveringIndexes"
 			spies.recordControl(record)
 			return nil, nil
 		}
-		engine.previewExplainQuery = func(context.Context, string, map[string]any) (arango.ExplainResult, error) {
-			spies.recordControl("previewExplainQuery")
-			return arango.ExplainResult{}, nil
+		engine.previewCollectionScans = func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+			spies.recordControl("previewCollectionScans")
+			return PreviewCollectionScanEvidence{}, nil
 		}
 		engine.previewCollectionCount = func(context.Context, string) (int64, error) {
 			spies.recordControl("previewCollectionCount")

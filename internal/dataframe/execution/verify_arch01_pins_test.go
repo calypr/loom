@@ -20,7 +20,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 type verifyArch01Trace struct {
@@ -80,7 +79,7 @@ func verifyArch01Config(v *verifyArch01Trace) Config {
 			v.add(&v.controls, "preparePreviewIndex")
 			return nil
 		},
-		PreviewCoveringIndexes: func(context.Context, string) ([]arango.PreviewCoveringIndex, error) {
+		PreviewCoveringIndexes: func(context.Context, string) ([]PreviewCollectionIndex, error) {
 			v.add(&v.controls, "previewCoveringIndexes")
 			return nil, nil
 		},
@@ -88,9 +87,9 @@ func verifyArch01Config(v *verifyArch01Trace) Config {
 			v.add(&v.controls, "previewCollectionRevision")
 			return "rev-arch01", nil
 		},
-		PreviewExplainQuery: func(context.Context, string, map[string]any) (arango.ExplainResult, error) {
-			v.add(&v.controls, "previewExplainQuery")
-			return arango.ExplainResult{}, nil
+		PreviewCollectionScans: func(context.Context, compiler.CompiledCommand, string) (PreviewCollectionScanEvidence, error) {
+			v.add(&v.controls, "previewCollectionScans")
+			return PreviewCollectionScanEvidence{}, nil
 		},
 		PreviewCollectionCount: func(context.Context, string) (int64, error) {
 			v.add(&v.controls, "previewCollectionCount")

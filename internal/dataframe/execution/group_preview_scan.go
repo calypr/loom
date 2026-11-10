@@ -48,12 +48,12 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 	// decision belongs to the canonical query, not to a factorized variant.
 	ordinaryCommand := query.Command
 	disableIndex := false
-	var selectedProjectionIndex *arango.PreviewCoveringIndex
+	var selectedProjectionIndex *PreviewCollectionIndex
 	var assessedScopeCount int64
 	assessedScopeCountKnown := false
 	assessedScopeCountAttempted := false
 	coveringIndexSelected := false
-	if query.PreviewGroupScan != nil && e.previewExplainQuery != nil && query.PreviewCoveringIndex != nil && e.previewCoveringIndexes != nil {
+	if query.PreviewGroupScan != nil && e.previewCollectionScans != nil && query.PreviewCoveringIndex != nil && e.previewCoveringIndexes != nil {
 		indexes, indexErr := e.previewCoveringIndexes(assessmentCtx, query.PreviewGroupScan.Collection)
 		if err := contextError(ctx); err != nil {
 			return err
@@ -67,18 +67,15 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				if renderErr != nil {
 					continue
 				}
-				indexedQuery, indexedBinds, dispatchErr := indexedCommand.AQLParameters()
-				if dispatchErr != nil {
-					// A hint render that is not AQL-tagged is a routing
-					// defect; assess conservatively as if the index were
-					// unavailable rather than dispatching it anywhere.
-					continue
-				}
-				plan, explainErr := e.previewExplainQuery(assessmentCtx, indexedQuery, indexedBinds)
+				// A hint render that is not AQL-tagged is a routing defect;
+				// the AQL adapter refuses it through closed dispatch, and
+				// the candidate is assessed conservatively as if the index
+				// were unavailable rather than dispatched anywhere.
+				scans, scansErr := e.previewCollectionScans(assessmentCtx, indexedCommand, query.PreviewGroupScan.Collection)
 				if assessmentCtx.Err() != nil {
 					return contextError(ctx)
 				}
-				if explainErr != nil || !hasCoveringRootIndexNamed(plan, query.PreviewGroupScan.Collection, index.Name) {
+				if scansErr != nil || !hasCoveringRootIndexNamed(scans, query.PreviewGroupScan.Collection, index.Name) {
 					continue
 				}
 				selected := *query.PreviewCoveringIndex
@@ -100,13 +97,15 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 			}
 		}
 	}
-	if !coveringIndexSelected && query.PreviewGroupScan != nil && e.previewExplainQuery != nil && assessmentCtx.Err() == nil {
-		ordinaryText, ordinaryBinds, dispatchErr := query.Command.AQLParameters()
-		if dispatchErr != nil {
+	if !coveringIndexSelected && query.PreviewGroupScan != nil && e.previewCollectionScans != nil && assessmentCtx.Err() == nil {
+		// The ordinary command must name AQL before the inspection seam is
+		// consulted: this gate is an execution error path, not an advisory
+		// evidence failure, exactly as before the capability boundary.
+		if _, _, dispatchErr := query.Command.AQLParameters(); dispatchErr != nil {
 			return dispatchErr
 		}
-		plan, err := e.previewExplainQuery(assessmentCtx, ordinaryText, ordinaryBinds)
-		if err == nil && assessmentCtx.Err() == nil && hasNonCoveringRootIndex(plan, query.PreviewGroupScan.Collection) {
+		scans, err := e.previewCollectionScans(assessmentCtx, query.Command, query.PreviewGroupScan.Collection)
+		if err == nil && assessmentCtx.Err() == nil && hasNonCoveringRootIndex(scans, query.PreviewGroupScan.Collection) {
 			if e.previewCollectionCount == nil && query.PreviewGroupProjection == nil {
 				// Keep the canonical indexed query when the broad-scan decision lacks exact evidence.
 			} else {
@@ -175,51 +174,47 @@ func scopeCountMatchesProjection(query *compiler.CompiledQuery) bool {
 	return reflect.DeepEqual(query.PreviewGroupScan.ScopeCount, query.PreviewGroupProjection.ScopeCount)
 }
 
-func (e *Engine) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *arango.PreviewCoveringIndex) (arango.PreviewCoveringIndex, bool) {
+func (e *Engine) selectGroupProjectionIndex(ctx context.Context, query *compiler.CompiledQuery, preferred *PreviewCollectionIndex) (PreviewCollectionIndex, bool) {
 	if query == nil || query.PreviewGroupProjection == nil || query.PreviewGroupProjection.ReadOnlyIndex == nil ||
 		query.PreviewGroupProjection.Collection == "" ||
 		query.PreviewGroupProjection.ScopeCount.Backend() != compiler.CompiledBackendAQL ||
-		e.previewExplainQuery == nil || ctx.Err() != nil {
-		return arango.PreviewCoveringIndex{}, false
+		e.previewCollectionScans == nil || ctx.Err() != nil {
+		return PreviewCollectionIndex{}, false
 	}
 	spec := query.PreviewGroupProjection
-	var indexes []arango.PreviewCoveringIndex
+	var indexes []PreviewCollectionIndex
 	if preferred != nil {
-		indexes = []arango.PreviewCoveringIndex{*preferred}
+		indexes = []PreviewCollectionIndex{*preferred}
 	} else {
 		if e.previewCoveringIndexes == nil {
-			return arango.PreviewCoveringIndex{}, false
+			return PreviewCollectionIndex{}, false
 		}
 		var err error
 		indexes, err = e.previewCoveringIndexes(ctx, spec.Collection)
 		if err != nil || ctx.Err() != nil {
-			return arango.PreviewCoveringIndex{}, false
+			return PreviewCollectionIndex{}, false
 		}
 	}
 	for _, index := range compatibleGroupProjectionIndexes(spec.Collection, spec.ReadOnlyIndex, indexes) {
 		if ctx.Err() != nil {
-			return arango.PreviewCoveringIndex{}, false
+			return PreviewCollectionIndex{}, false
 		}
 		factoredCommand, renderErr := compiler.RenderPreviewGroupProjectionFactorization(query.PhysicalPlan, index.Name, false)
 		if renderErr != nil {
 			continue
 		}
-		factoredQuery, factoredBinds, dispatchErr := factoredCommand.AQLParameters()
-		if dispatchErr != nil {
-			continue
-		}
-		plan, explainErr := e.previewExplainQuery(ctx, factoredQuery, factoredBinds)
-		if explainErr != nil || ctx.Err() != nil || !hasCoveringRootIndexNamed(plan, spec.Collection, index.Name) {
+		scans, scansErr := e.previewCollectionScans(ctx, factoredCommand, spec.Collection)
+		if scansErr != nil || ctx.Err() != nil || !hasCoveringRootIndexNamed(scans, spec.Collection, index.Name) {
 			continue
 		}
 		index.Fields = append([]string(nil), index.Fields...)
 		index.StoredValues = append([]string(nil), index.StoredValues...)
 		return index, true
 	}
-	return arango.PreviewCoveringIndex{}, false
+	return PreviewCollectionIndex{}, false
 }
 
-func compatibleGroupProjectionIndexes(collection string, required *compiler.PreviewGroupProjectionIndexSpec, indexes []arango.PreviewCoveringIndex) []arango.PreviewCoveringIndex {
+func compatibleGroupProjectionIndexes(collection string, required *compiler.PreviewGroupProjectionIndexSpec, indexes []PreviewCollectionIndex) []PreviewCollectionIndex {
 	if required == nil || len(required.RequiredFields) == 0 || required.ProjectionPath == "" {
 		return nil
 	}
@@ -230,7 +225,7 @@ func compatibleGroupProjectionIndexes(collection string, required *compiler.Prev
 		}
 		requiredFields[field] = struct{}{}
 	}
-	compatible := make([]arango.PreviewCoveringIndex, 0, len(indexes))
+	compatible := make([]PreviewCollectionIndex, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Collection != collection || !strings.HasPrefix(index.Name, "loom_pivot_preview_") || len(index.Fields) == 0 {
 			continue
@@ -290,42 +285,32 @@ func compatibleGroupProjectionIndexes(collection string, required *compiler.Prev
 	return compatible
 }
 
-func hasCoveringRootIndexNamed(result arango.ExplainResult, collection, indexName string) bool {
-	plan := singleExplainPlan(result)
-	if plan == nil || collection == "" || indexName == "" {
+// hasCoveringRootIndexNamed reports whether neutral scan evidence shows the
+// command reading the collection through exactly one index node that covers
+// both the filtered and projected fields and names indexName. It is policy,
+// not decoding: the adapter already filtered nodes to the collection and
+// classified coverage; the empty collection or index name is never covered.
+func hasCoveringRootIndexNamed(evidence PreviewCollectionScanEvidence, collection, indexName string) bool {
+	if collection == "" || indexName == "" {
 		return false
 	}
-	rootIndexes := 0
-	for _, node := range plan.Nodes {
-		if node.Collection != collection {
-			continue
-		}
-		switch node.Type {
-		case "EnumerateCollectionNode":
-			return false
-		case "IndexNode":
-			rootIndexes++
-			if node.IndexCoversProjections == nil || !*node.IndexCoversProjections ||
-				node.IndexCoversOutProjections == nil || !*node.IndexCoversOutProjections {
-				return false
-			}
-			found := false
-			for _, index := range node.Indexes {
-				if index.Name == indexName && (index.Collection == "" || index.Collection == collection) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return false
-			}
+	if evidence.FullCollectionEnumeration || len(evidence.IndexNodes) != 1 {
+		return false
+	}
+	node := evidence.IndexNodes[0]
+	if node.Coverage != PreviewIndexCoverageCovering {
+		return false
+	}
+	for _, name := range node.IndexNames {
+		if name == indexName {
+			return true
 		}
 	}
-	return rootIndexes == 1
+	return false
 }
 
 func (e *Engine) chooseGroupProjectionFactorization(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream,
-	ordinaryCommand compiler.CompiledCommand, selectedIndex arango.PreviewCoveringIndex,
+	ordinaryCommand compiler.CompiledCommand, selectedIndex PreviewCollectionIndex,
 	assessedScopeCount int64, assessedScopeCountKnown, assessedScopeCountAttempted bool) error {
 	spec := query.PreviewGroupProjection
 	if spec == nil || spec.Collection == "" || spec.ScopeCount.Backend() != compiler.CompiledBackendAQL || e.previewCollectionRevision == nil {
@@ -474,7 +459,7 @@ func estimateGroupProjectionDictionaryBytes(sample groupProjectionSample, scoped
 	return base * entryBytes, true
 }
 
-func groupProjectionIndexIdentity(selected arango.PreviewCoveringIndex) string {
+func groupProjectionIndexIdentity(selected PreviewCollectionIndex) string {
 	encoded, err := json.Marshal(selected)
 	if err == nil {
 		return "index:" + string(encoded)
@@ -493,7 +478,7 @@ func applyGroupProjectionFactorization(query *compiler.CompiledQuery, stream *Ou
 	return true
 }
 
-func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, indexes []arango.PreviewCoveringIndex) []arango.PreviewCoveringIndex {
+func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, indexes []PreviewCollectionIndex) []PreviewCollectionIndex {
 	if required == nil || len(required.Fields) == 0 {
 		return nil
 	}
@@ -504,7 +489,7 @@ func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, 
 		}
 		requiredFields[field] = struct{}{}
 	}
-	compatible := make([]arango.PreviewCoveringIndex, 0, len(indexes))
+	compatible := make([]PreviewCollectionIndex, 0, len(indexes))
 	for _, index := range indexes {
 		if index.Collection != required.Collection || !strings.HasPrefix(index.Name, "loom_pivot_preview_") ||
 			len(index.Fields) < len(requiredFields) {
@@ -540,39 +525,16 @@ func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, 
 	return compatible
 }
 
-func hasNonCoveringRootIndex(result arango.ExplainResult, collection string) bool {
-	plan := singleExplainPlan(result)
-	if plan == nil {
+// hasNonCoveringRootIndex reports whether neutral scan evidence shows the
+// command reading the collection through exactly one index node that covers
+// neither the filtered nor the projected fields — the broad-scan signal that
+// may justify the canonical sequential fallback. Unknown coverage certifies
+// nothing.
+func hasNonCoveringRootIndex(evidence PreviewCollectionScanEvidence, collection string) bool {
+	if evidence.FullCollectionEnumeration || len(evidence.IndexNodes) != 1 {
 		return false
 	}
-	rootIndexes := 0
-	for _, node := range plan.Nodes {
-		if node.Collection != collection {
-			continue
-		}
-		switch node.Type {
-		case "EnumerateCollectionNode":
-			return false
-		case "IndexNode":
-			rootIndexes++
-			if node.IndexCoversProjections == nil || *node.IndexCoversProjections ||
-				node.IndexCoversOutProjections == nil || *node.IndexCoversOutProjections {
-				return false
-			}
-		}
-	}
-	return rootIndexes == 1
-}
-
-func singleExplainPlan(result arango.ExplainResult) *arango.ExplainPlan {
-	switch {
-	case result.Plan != nil && len(result.Plans) == 0:
-		return result.Plan
-	case result.Plan == nil && len(result.Plans) == 1:
-		return &result.Plans[0]
-	default:
-		return nil
-	}
+	return evidence.IndexNodes[0].Coverage == PreviewIndexCoverageNotCovering
 }
 
 func previewCountValue(value any) (int64, bool) {
