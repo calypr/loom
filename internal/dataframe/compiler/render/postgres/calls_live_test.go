@@ -1,0 +1,402 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	pgstore "github.com/calypr/loom/internal/store/postgres"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// ---------------------------------------------------------------------------
+// pg-sql-10 live proofs (plan section 6: P1-P3; P4 determinism is offline).
+//
+// Gated on LOOM_TEST_POSTGRES_URL and real PostgreSQL 18 (pgstore.Open
+// refuses any other major, and every fixture acquires its pool through
+// it). Each test owns one verify_sql10_* database and one owned schema,
+// migrates through the real pg-store-02 runner, and stores literal rows
+// through the real pg-store-04 repository. TestMain's zero-leftover audit
+// proves nothing under the prefix survives the run.
+//
+// P1 no-plan-time-raise: the raising arms (D9 assert, both distinct
+// guards) are barrier-protected CASTs; a bare dead-arm CAST raises at
+// plan time here (population.go:1059-1065, measured live), so plain
+// EXPLAIN completing on violating rows is the barrier proof, followed by
+// successful execution on healthy rows.
+//
+// P2 execution-time raise: the same statement shapes over violating rows
+// fail at execution with SQLSTATE 22P02 naming the tag, inside the
+// constant-folding-barrier message text.
+//
+// P3 no-pruning/no-short-circuit: EXPLAIN still shows the correlated
+// guard SubPlan (never folded away), and value-returning AND leaves a
+// falsy first operand's second — raising — operand unevaluated.
+// ---------------------------------------------------------------------------
+
+var sql10LiveNamePattern = regexp.MustCompile(`^verify_sql10_[0-9]+_[0-9a-f]+$`)
+
+// sql10Service owns one isolated database/schema pair. The row-insertion
+// and execution helpers are the pg-sql-01 ones (same package, same
+// pgstore repository path), embedded so the fixture cannot drift from the
+// already-audited storage behavior.
+type sql10Service struct {
+	*pgsq01Service
+}
+
+func newSQL10Service(t *testing.T) *sql10Service {
+	t.Helper()
+	raw := testPostgresURL(t)
+
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
+	}
+	var secrets []string
+	secrets = append(secrets, raw)
+	if u.User != nil {
+		secrets = append(secrets, u.User.String())
+		if pw, ok := u.User.Password(); ok && pw != "" {
+			secrets = append(secrets, pw)
+		}
+	}
+	scrub := func(v string) string {
+		s := v
+		for _, secret := range secrets {
+			if secret != "" {
+				s = strings.ReplaceAll(s, secret, "<redacted>")
+			}
+		}
+		return s
+	}
+	fail := func(step string, err error) {
+		text := err.Error()
+		for _, secret := range secrets {
+			if secret != "" {
+				text = strings.ReplaceAll(text, secret, "<redacted>")
+			}
+		}
+		t.Fatalf("%s: %s", step, text)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
+	t.Cleanup(cancel)
+
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		fail("connect to test service", err)
+	}
+	t.Cleanup(admin.Close)
+
+	dbName := sql10ResourceName(t)
+	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
+		fail("create isolated database", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.WithoutCancel(ctx),
+			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
+			t.Errorf("drop isolated database: %s", scrub(err.Error()))
+		}
+	})
+
+	// pgconn lets a dbname query parameter outrank the URL path; drop any
+	// dbname the service URL carries so isolation is provable.
+	if q := u.Query(); q.Get("dbname") != "" {
+		q.Del("dbname")
+		u.RawQuery = q.Encode()
+	}
+	u.Path = "/" + dbName
+	dsn := u.String()
+
+	iso, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		fail("connect to isolated database", err)
+	}
+	t.Cleanup(iso.Close)
+
+	schema := sql10ResourceName(t)
+	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
+		fail("create owned schema", err)
+	}
+	t.Cleanup(func() {
+		if _, err := iso.Exec(context.WithoutCancel(ctx),
+			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
+			t.Errorf("drop owned schema: %s", scrub(err.Error()))
+		}
+	})
+
+	client, err := pgstore.Open(ctx, pgstore.Config{
+		DSN:            dsn,
+		MaxConns:       4,
+		MinConns:       1,
+		AcquireTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
+	}
+	t.Cleanup(client.Close)
+	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+		fail("migrate owned schema", err)
+	}
+	return &sql10Service{pgsq01Service: &pgsq01Service{
+		ctx: ctx, iso: iso, client: client, schema: schema, scrub: scrub, fail: fail,
+	}}
+}
+
+func sql10ResourceName(t *testing.T) string {
+	t.Helper()
+	name := "verify_sql10_" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + randomHex(t)
+	if !sql10LiveNamePattern.MatchString(name) {
+		t.Fatalf("owned resource name %q does not match the required pattern", name)
+	}
+	return name
+}
+
+func sql10DriverArgs(rendered command.RenderedPostgresPhysicalPlan) []any {
+	args := make([]any, len(rendered.Args))
+	for index, parameter := range rendered.Args {
+		args[index] = parameter.Value
+	}
+	return args
+}
+
+// renderLive renders through the public entry against the owned schema.
+func (s *sql10Service) renderLive(t *testing.T, plan ir.PhysicalPlan) command.RenderedPostgresPhysicalPlan {
+	t.Helper()
+	rendered, err := RenderPhysicalPlan(plan, bindingFor(t, s.schema))
+	if err != nil {
+		s.fail("render plan", err)
+	}
+	return rendered
+}
+
+// explain returns the executor's plan text. Completion is itself an
+// assertion: the violating-row statements must PLAIN without raising,
+// which is what distinguishes the barrier-protected guard cast from the
+// bare dead-arm CAST that PostgreSQL folds and raises at plan time.
+func (s *sql10Service) explain(t *testing.T, rendered command.RenderedPostgresPhysicalPlan) string {
+	t.Helper()
+	var text strings.Builder
+	for _, row := range s.run(t, "EXPLAIN (FORMAT TEXT) "+rendered.SQL, sql10DriverArgs(rendered)...) {
+		text.WriteString(strings.Join(row, "\n"))
+		text.WriteString("\n")
+	}
+	if text.Len() == 0 {
+		s.fail("explain produced no plan", errors.New(rendered.SQL))
+	}
+	return text.String()
+}
+
+// expectRaise executes the rendered statement to completion and demands
+// the named SQLSTATE with every tag substring inside the message text.
+func (s *sql10Service) expectRaise(t *testing.T, rendered command.RenderedPostgresPhysicalPlan, wantCode string, wantSubstrings ...string) {
+	t.Helper()
+	_, err := s.iso.Exec(s.ctx, rendered.SQL, sql10DriverArgs(rendered)...)
+	if err == nil {
+		t.Fatalf("statement executed clean, want %s raising %v: %s", wantCode, wantSubstrings, rendered.SQL)
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		s.fail("expect pg error", err)
+	}
+	if pgErr.Code != wantCode {
+		s.fail("statement raised ("+pgErr.Code+") want ("+wantCode+")", err)
+	}
+	for _, want := range wantSubstrings {
+		if !strings.Contains(pgErr.Message, want) {
+			t.Fatalf("error message %q does not name %q\nSQL: %s", pgErr.Message, want, rendered.SQL)
+		}
+	}
+}
+
+// runOne executes the rendered statement and demands exactly one row of
+// the expected stringified cells. jsonb cells arrive through the pgx
+// codec as decoded Go values (bool/string/float64), so expectations read
+// as decoded text: a jsonb string "female" is cell "female", not
+// `"female"`.
+func (s *sql10Service) runOne(t *testing.T, rendered command.RenderedPostgresPhysicalPlan, want ...string) {
+	t.Helper()
+	rows := s.runRendered(t, rendered)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %v, want exactly one row %v", rows, want)
+	}
+	if strings.Join(rows[0], "|") != strings.Join(want, "|") {
+		t.Fatalf("row = %v, want %v\nSQL: %s", rows[0], want, rendered.SQL)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Read-back: registered arithmetic, cast-table, and coalesce semantics on
+// stored payloads — the live half of the parity table, against the ArangoDB
+// 3.9 documentation citations in the plan.
+// ---------------------------------------------------------------------------
+
+func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-calc", sql10Path,
+		map[string]any{"multipleBirthInteger": 5, "active": true})
+	// Type decoy with the same logical id: excluded by the scope chain,
+	// proven stored below.
+	svc.insertResource(t, sql10Project, sql10Gen, "Observation", "p-calc", sql10Path, nil)
+
+	binds := map[string]any{
+		"ten":       int64(10),
+		"thirtytwo": int64(32),
+		"two":       int64(2),
+		"one":       int64(1),
+		"zero":      int64(0),
+		"huge":      float64(1e308),
+		"tiny":      float64(1e-308),
+		"numstr":    "42",
+		"flagstr":   "true",
+		"fb":        "fallback",
+	}
+	plan := sql10Plan("Patient", binds,
+		// 10 + 32 = 42 in double precision (all arithmetic is double).
+		sql10CallProjection("sum", sql10Call("add", "", sql10Literal("ten"), sql10Literal("thirtytwo"))),
+		// 5 / 2 = 2.5 over a stored payload number.
+		sql10CallProjection("quot", sql10Call("divide", "",
+			sql10Extract(t, "Patient", "multipleBirthInteger", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
+			sql10Literal("two"))),
+		// 1 / 0 reads NULL (operators.md 259-277: 1/0 -> null), never a
+		// division-by-zero error.
+		sql10CallProjection("zero", sql10Call("divide", "", sql10Literal("one"), sql10Literal("zero"))),
+		// 1e308 * 10 overflows: the numeric range guard reads NULL
+		// (PG18 double-domain arithmetic would raise 22003 here).
+		sql10CallProjection("huge", sql10Call("multiply", "", sql10Literal("huge"), sql10Literal("ten"))),
+		// 1e-308 / 1e308 = 1e-616 underflows: IEEE round-to-even's own
+		// answer is 0, and the numeric guard reads 0 rather than letting
+		// PG18's double cast raise 22003 on the way.
+		sql10CallProjection("small", sql10Call("divide", "", sql10Literal("tiny"), sql10Literal("huge"))),
+		// TO_NUMBER table: "42" -> 42; TO_BOOL table: "true" -> true.
+		sql10CallProjection("num", sql10Call("cast", "INTEGER", sql10Literal("numstr"))),
+		sql10CallProjection("flag", sql10Call("cast", "BOOLEAN", sql10Literal("flagstr"))),
+		// COALESCE over a present-but-JSON-null read: "active" is stored
+		// true here, so a missing field proves the null-normalized arm.
+		sql10CallProjection("pick", sql10Call("coalesce", "",
+			sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull),
+			sql10Literal("fb"))),
+	)
+	svc.runOne(t, svc.renderLive(t, plan),
+		"42", "2.5", "<null>", "<null>", "0", "42", "true", "fallback")
+
+	// Non-vacuity: the decoy really exists, so its exclusion is the
+	// scope chain, not an empty table.
+	witness := svc.run(t,
+		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource"`+
+			` WHERE project=$1 AND dataset_generation=$2 AND resource_type='Observation' AND logical_id='p-calc'`,
+		sql10Project, sql10Gen)
+	if len(witness) != 1 || witness[0][0] != "1" {
+		t.Fatalf("decoy must exist: %v", witness)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// D9 ASSERT: barrier against plan-time constant folding (P1), execution-
+// time 22P02 naming the message (P2), and value-returning AND never
+// evaluating the raising arm of a falsy-first operand (P3).
+// ---------------------------------------------------------------------------
+
+func TestSQL10LiveAssertBarrier(t *testing.T) {
+	svc := newSQL10Service(t)
+	const message = "gender must be a non-empty string"
+	svc.insertResource(t, "sql10-ok", sql10Gen, "Patient", "p-ok", sql10Path,
+		map[string]any{"gender": "female"})
+	svc.insertResource(t, "sql10-bad", sql10Gen, "Patient", "p-bad", sql10Path,
+		map[string]any{"gender": false})
+	svc.insertResource(t, "sql10-lazy", sql10Gen, "Patient", "p-lazy", sql10Path,
+		map[string]any{"gender": false})
+
+	falsyCond := func() ir.PhysicalExpression {
+		return sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	}
+
+	// Truthy arm: EXPLAIN completes and execution reads jsonb 'true'
+	// (functions-miscellaneous.md: ASSERT returns true).
+	okPlan := sql10Plan("Patient", map[string]any{
+		"project": "sql10-ok", "amsg": message,
+	}, sql10CallProjection("checked", sql10Call("assert", "", falsyCond(), sql10Literal("amsg"))))
+	okRendered := svc.renderLive(t, okPlan)
+	svc.explain(t, okRendered)
+	svc.runOne(t, okRendered, "true")
+
+	// Falsy arm: EXPLAIN still completes — the current_setting barrier
+	// keeps the raising CAST out of plan-time folding (population.go
+	// measures a bare dead-arm CAST raising here) — and execution raises
+	// 22P02 carrying the message through its $n text parameter.
+	badPlan := sql10Plan("Patient", map[string]any{
+		"project": "sql10-bad", "amsg": message,
+	}, sql10CallProjection("checked", sql10Call("assert", "", falsyCond(), sql10Literal("amsg"))))
+	badRendered := svc.renderLive(t, badPlan)
+	svc.explain(t, badRendered)
+	svc.expectRaise(t, badRendered, "22P02", "ASSERT:", message)
+
+	// Value-returning AND short-circuit (operators.md 146-148): a falsy
+	// first operand returns its own value and the second, raising,
+	// operand is never evaluated. If the CASE were eager this row would
+	// abort with 22P02 instead of reading false.
+	lazyPlan := sql10Plan("Patient", map[string]any{
+		"project": "sql10-lazy", "amsg": message, "fl": false,
+	}, sql10CallProjection("guarded", sql10Call("and", "",
+		sql10Literal("fl"),
+		sql10Nested(sql10Call("assert", "", falsyCond(), sql10Literal("amsg"))))))
+	svc.runOne(t, svc.renderLive(t, lazyPlan), "false")
+}
+
+// ---------------------------------------------------------------------------
+// D10 distinct_present_one: FLATTEN one level, drop JSON nulls, MIN over
+// the unique present value; guards raise their canonical tags at execution
+// only (P1/P2), and the correlated guard subplan survives EXPLAIN (P3).
+// ---------------------------------------------------------------------------
+
+func TestSQL10LiveDistinctPresentOneGuards(t *testing.T) {
+	svc := newSQL10Service(t)
+	scenarios := []struct {
+		project   string
+		logicalID string
+		gender    any
+		want      string // expected single cell; ignored when wantTag is set
+		wantTag   string // 22P02 message substring; empty => expect want
+	}{
+		{"sql10-dp-single", "d-1", []string{"female"}, "female", ""},
+		{"sql10-dp-nested", "d-1", [][]string{{"male"}}, "male", ""}, // FLATTEN one level
+		{"sql10-dp-empty", "d-1", []string{}, "<null>", ""},          // FLATTEN([]) = [] -> NULL
+		{"sql10-dp-nulls", "d-1", []any{nil, "x"}, "x", ""},          // nulls drop first
+		{"sql10-dp-scalar", "d-1", "scalar", "<null>", ""},           // L14: non-array reads NULL
+		{"sql10-dp-multi", "d-1", []string{"female", "male"}, "", distinctPresentGuardMultipleValues},
+		// Two distinct values of the wrong type too: the type guard is
+		// checked first, pinning the CASE arm order.
+		{"sql10-dp-typemis", "d-1", []any{"a", 1}, "", distinctPresentGuardTypeMismatch},
+	}
+	for _, scenario := range scenarios {
+		svc.insertResource(t, scenario.project, sql10Gen, "Patient", scenario.logicalID, sql10Path,
+			map[string]any{"gender": scenario.gender})
+		plan := sql10Plan("Patient", map[string]any{"project": scenario.project},
+			sql10CallProjection("one", sql10Call("distinct_present_one", "STRING",
+				sql10Extract(t, "Patient", "gender", ir.PhysicalArrayCardinality, ir.PhysicalEmptyOnNull))))
+		rendered := svc.renderLive(t, plan)
+		if scenario.wantTag == "" {
+			svc.runOne(t, rendered, scenario.want)
+			continue
+		}
+		// P1: the guard CASTs must not fold at plan time even though the
+		// violating row is in scope; then P2: execution raises the tag.
+		planText := svc.explain(t, rendered)
+		// P3: the guard is a per-row correlated subplan, never pruned.
+		// The array-collection scenarios must show the SubPlan spelling;
+		// the scalar-collection L14 read keeps its guard behind a
+		// typeof gate the planner may fold to a per-row NULL test.
+		if !strings.Contains(planText, "SubPlan") && !strings.Contains(planText, "Function Scan") {
+			t.Fatalf("%s: guard subplan missing from plan:\n%s", scenario.project, planText)
+		}
+		svc.expectRaise(t, rendered, "22P02", scenario.wantTag)
+	}
+}

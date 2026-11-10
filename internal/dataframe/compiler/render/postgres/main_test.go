@@ -29,10 +29,18 @@ import (
 // exactly its own prefix (sets_live_test.go). pg-sql-15's delta-scoped
 // audit (unpivot_test.go unpRunDeltaAudit) wraps that pair around the run
 // over its own disjoint verify_sql15_* namespace, composing three
-// independent delta audits.
+// independent delta audits. The verify_* prefixes are audited through one
+// parameterized helper: verify_sql05_ (pg-sql-05) and verify_sql10_
+// (calls_live_test.go, pg-sql-10).
 func TestMain(m *testing.M) {
 	code := unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) })
-	if err := auditNoLeftoverVerifySQL05(); err != nil {
+	if err := auditNoLeftoverVerifyNamespace("verify_sql05_"); err != nil {
+		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
+		if code == 0 {
+			code = 1
+		}
+	}
+	if err := auditNoLeftoverVerifyNamespace("verify_sql10_"); err != nil {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 		if code == 0 {
 			code = 1
@@ -41,9 +49,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// auditNoLeftoverVerifySQL05 asserts that no verify_sql05_* database or
-// schema survives the whole-package run.
-func auditNoLeftoverVerifySQL05() error {
+// auditNoLeftoverVerifyNamespace asserts that no database or schema under
+// the given ticket prefix survives the whole-package run.
+func auditNoLeftoverVerifyNamespace(prefix string) error {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
 		// No service was used; nothing can have been created.
@@ -58,19 +66,19 @@ func auditNoLeftoverVerifySQL05() error {
 	defer admin.Close()
 	var databases int
 	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify_sql05_%'").Scan(&databases); err != nil {
+		"SELECT count(*) FROM pg_database WHERE datname LIKE $1", prefix+"%").Scan(&databases); err != nil {
 		return fmt.Errorf("count databases: %w", err)
 	}
 	if databases != 0 {
-		return fmt.Errorf("%d verify_sql05_* databases still exist", databases)
+		return fmt.Errorf("%d %s* databases still exist", databases, prefix)
 	}
 	var schemas int
 	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'verify_sql05_%'").Scan(&schemas); err != nil {
+		"SELECT count(*) FROM pg_namespace WHERE nspname LIKE $1", prefix+"%").Scan(&schemas); err != nil {
 		return fmt.Errorf("count schemas: %w", err)
 	}
 	if schemas != 0 {
-		return fmt.Errorf("%d verify_sql05_* schemas still exist in the service database", schemas)
+		return fmt.Errorf("%d %s* schemas still exist in the service database", schemas, prefix)
 	}
 	return nil
 }

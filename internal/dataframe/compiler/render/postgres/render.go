@@ -431,7 +431,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if !last || phase > 1 {
 				return fmt.Errorf("%w: RETURN must be the final operation", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderReturn(*operation.Return); err != nil {
+			if err := r.renderReturn(plan, *operation.Return); err != nil {
 				return err
 			}
 			phase = 2
@@ -566,7 +566,7 @@ var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // bindings — and is then emitted from its classification: direct values and
 // VALUE expressions through resolveValue, selector extractions and presence
 // sidecars through the canonical mappings in null_semantics.go.
-func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
+func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn) error {
 	// A melted plan's terminal projection list reads only registered melt
 	// outputs (unpivot.go owns that contract, validateUnpivotReturn pins it
 	// at the surface); the spine classification below stays byte-identical
@@ -614,6 +614,15 @@ func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
 				return fmt.Errorf("presence projection %q: %w", projection.projection.Name, err)
 			}
 			expression = presence
+		case extractionCallExpression:
+			// The deep walk (bind values, row bindings, and the closed
+			// jsonb fragment grammar) is owned end to end by calls.go
+			// (pg-sql-10); this dispatch only places the fragment.
+			value, err := r.renderCallProjection(plan, projection.projection)
+			if err != nil {
+				return err
+			}
+			expression = value
 		}
 		r.selects = append(r.selects, expression+` AS "c`+strconv.Itoa(len(r.selects))+`"`)
 		r.outputColumns = append(r.outputColumns, projection.projection.Name)
