@@ -91,9 +91,21 @@ package postgres
 //     {terminalAlias, nodes[], relationships[]}; nodes entries are
 //     {alias, resourceType, id, key, payload} and relationship entries
 //     {alias, label, fromResourceType, toResourceType} — the exact field
-//     sets of graph_render.go:85, :143, and :145. id is
-//     resource_type || '/' || logical_id (the Arango <collection>/<key>
-//     spelling carried by storage identity), key is logical_id, payload is
+//     sets of graph_render.go:85, :143, and :145. id is logical_id: the
+//     AQL <node>.id is the stored top-level document id attribute, which
+//     ingestion writes unchanged (lower/root_projection.go:515-516) and
+//     which the PostgreSQL store carries verbatim in logical_id
+//     (internal/ingest/postgres_writer.go:298-303: "the logical id is the
+//     raw vertex 'id', never the sanitized _key"), so logical_id is the
+//     exact AQL counterpart. key is logical_id as the registered _key
+//     counterpart: the PostgreSQL store never materializes the sanitized
+//     Arango _key (identity is the raw id by that same ingest contract),
+//     and the spine already maps document-key references ("_key" and "id")
+//     onto logical_id with identical rationale (canonicalKeyColumn,
+//     render.go:120-131). AQL _key sanitization therefore remains a
+//     registered residual for ids that required sanitization in Arango —
+//     a public-value divergence no typed refusal can cover, registered
+//     here rather than refused. payload is
 //     the stored document. Every public value crosses as a $n parameter or
 //     a registry column; nothing plan-authored is interpolated into SQL
 //     text, and the terminal/identity/order columns stay renderer-internal.
@@ -284,6 +296,10 @@ func validateGraphPlanSurface(plan ir.PhysicalPlan) error {
 			if seed == nil {
 				return fmt.Errorf("%w: graph plan operation %d: path seed payload is missing", ErrUnsupportedPostgresPlan, index)
 			}
+			if seed.RouteOrder != 0 {
+				return fmt.Errorf("%w: graph plan operation %d: seed route order %d is not 0 (lower/graph_plan.go:70 always emits 0; the PathSets ascending check treats the seed set as its zero anchor, so a divergence must fail closed rather than let the check and the bound value drift)",
+					ErrUnsupportedPostgresPlan, index, seed.RouteOrder)
+			}
 			if seed.Variable == "" {
 				return fmt.Errorf("%w: graph plan operation %d: path seed must name its set variable", ErrUnsupportedPostgresPlan, index)
 			}
@@ -312,6 +328,10 @@ func validateGraphPlanSurface(plan ir.PhysicalPlan) error {
 				extend.Traversal.Direction != ir.PhysicalOutbound {
 				return fmt.Errorf("%w: graph plan operation %d: %s-direction traversal has no proven PostgreSQL contract (the spine registers INBOUND/OUTBOUND only, lower/traversal.go; ANY is a registered capability gap)",
 					ErrUnsupportedPostgresPlan, index, string(extend.Traversal.Direction))
+			}
+			if extend.Relationship.LabelBindKey != extend.Traversal.EdgeLabelBindKey {
+				return fmt.Errorf("%w: graph plan operation %d: relationship label bind %q does not equal the traversal edge label bind %q (lower/graph_plan.go:126 always sets one key for both; the AQL twin filters edges on EdgeLabelBindKey, render/aql/graph_render.go:119/:128, while rendering the public label and dedupe identity from Relationship.LabelBindKey, :144-145 — the renderer reads one bind, so a divergence must fail closed, mirroring the node-type/target-type pin)",
+					ErrUnsupportedPostgresPlan, index, extend.Relationship.LabelBindKey, extend.Traversal.EdgeLabelBindKey)
 			}
 			if len(extend.SourcePath) != 0 {
 				return fmt.Errorf("%w: graph plan operation %d: a non-empty SourcePath has no registered PostgreSQL spelling (the planner always emits nil, lower/graph_plan.go:124; the AQL nested-terminal read render/aql/graph_render.go:101-107 stays a typed gap)",
@@ -513,7 +533,7 @@ func (r *planRenderer) renderGraphStatement(plan ir.PhysicalPlan) (string, []str
 	// correlation face for child extends.
 	seedNode := "jsonb_build_object('alias', $" + strconv.Itoa(r.textParameter(seed.Node.Alias, "text:"+seed.Node.Alias)) + "::text" +
 		", 'resourceType', $" + strconv.Itoa(r.textParameter(seed.Node.ResourceType, "text:"+seed.Node.ResourceType)) + "::text" +
-		", 'id', " + rootRow.alias + "." + resourceTypeColumn + " || '/' || " + rootRow.alias + "." + logicalIDColumn +
+		", 'id', " + rootRow.alias + "." + logicalIDColumn +
 		", 'key', " + rootRow.alias + "." + logicalIDColumn +
 		", 'payload', " + rootRow.alias + "." + payloadColumn + ")"
 	seedSelect := "SELECT jsonb_build_array(" + rootRow.alias + "." + resourceTypeColumn + ", " + rootRow.alias + "." + logicalIDColumn + ") AS \"path_identity\"" +
@@ -586,7 +606,7 @@ func (r *planRenderer) renderGraphStatement(plan ir.PhysicalPlan) (string, []str
 		labelRef := "$" + strconv.Itoa(verified.labelIndex)
 		nodeObject := "jsonb_build_object('alias', $" + strconv.Itoa(r.textParameter(extend.Node.Alias, "text:"+extend.Node.Alias)) + "::text" +
 			", 'resourceType', $" + strconv.Itoa(r.textParameter(extend.Node.ResourceType, "text:"+extend.Node.ResourceType)) + "::text" +
-			", 'id', " + targetAlias + "." + resourceTypeColumn + " || '/' || " + targetAlias + "." + logicalIDColumn +
+			", 'id', " + targetAlias + "." + logicalIDColumn +
 			", 'key', " + targetAlias + "." + logicalIDColumn +
 			", 'payload', " + targetAlias + "." + payloadColumn + ")"
 		relationshipObject := "jsonb_build_object('alias', $" + strconv.Itoa(r.textParameter(extend.Relationship.Alias, "text:"+extend.Relationship.Alias)) + "::text" +

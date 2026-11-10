@@ -186,7 +186,7 @@ func TestGraph20RenderRootOnlyOptionalGolden(t *testing.T) {
 	// its $n position. The dedupe WindowAgg precedes ORDER BY and the
 	// bound LIMIT, and the public projection is exactly the UNSET-ed
 	// public fields (render/aql/graph_render.go:170 parity).
-	const wantSQL = `WITH path_0 AS (SELECT jsonb_build_array(r0."resource_type", r0."logical_id") AS "path_identity", $6::bigint AS "route_order", $5::text AS "terminal_alias", jsonb_build_array(jsonb_build_object('alias', $5::text, 'resourceType', $4::text, 'id', r0."resource_type" || '/' || r0."logical_id", 'key', r0."logical_id", 'payload', r0."payload")) AS "nodes", '[]'::jsonb AS "relationships", '[]'::jsonb AS "occurrence_trail", r0."resource_type" AS "resource_type", r0."logical_id" AS "logical_id" FROM "loom"."fhir_resource" AS r0 WHERE r0."project" = $1 AND r0."dataset_generation" = $2 AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND r0."resource_type" = $4), path_1 AS (SELECT p."path_identity" || jsonb_build_array(x1."resource_type", x1."logical_id", $7::text) AS "path_identity", $10::bigint AS "route_order", $9::text AS "terminal_alias", p."nodes" || jsonb_build_array(jsonb_build_object('alias', $9::text, 'resourceType', $8::text, 'id', x1."resource_type" || '/' || x1."logical_id", 'key', x1."logical_id", 'payload', x1."payload")) AS "nodes", p."relationships" || jsonb_build_array(jsonb_build_object('alias', $9::text, 'label', $7::text, 'fromResourceType', $4::text, 'toResourceType', $8::text)) AS "relationships", p."occurrence_trail" || jsonb_build_array(e1."edge_seq") AS "occurrence_trail", x1."resource_type" AS "resource_type", x1."logical_id" AS "logical_id" FROM path_0 AS p INNER JOIN "loom"."fhir_edge_occurrence" AS e1 ON e1."project" = $1 AND e1."dataset_generation" = $2 AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND e1."label" = $7 AND e1."target_resource_type" = $4 AND e1."target_logical_id" = p."logical_id" AND e1."source_resource_type" = $8 INNER JOIN "loom"."fhir_resource" AS x1 ON x1."project" = $1 AND x1."dataset_generation" = $2 AND x1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND x1."resource_type" = $8 AND x1."logical_id" = e1."source_logical_id"), graph_paths AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY path_identity ORDER BY route_order ASC, occurrence_trail ASC) AS rn FROM (SELECT "path_identity", "route_order", "terminal_alias", "nodes", "relationships", "occurrence_trail" FROM path_0 UNION ALL SELECT "path_identity", "route_order", "terminal_alias", "nodes", "relationships", "occurrence_trail" FROM path_1) AS g_union) SELECT jsonb_build_object('terminalAlias', terminal_alias, 'nodes', nodes, 'relationships', relationships) AS "c0" FROM graph_paths AS g_row WHERE g_row.rn = 1 ORDER BY g_row.route_order ASC, g_row.path_identity::text COLLATE "C" ASC LIMIT $11`
+	const wantSQL = `WITH path_0 AS (SELECT jsonb_build_array(r0."resource_type", r0."logical_id") AS "path_identity", $6::bigint AS "route_order", $5::text AS "terminal_alias", jsonb_build_array(jsonb_build_object('alias', $5::text, 'resourceType', $4::text, 'id', r0."logical_id", 'key', r0."logical_id", 'payload', r0."payload")) AS "nodes", '[]'::jsonb AS "relationships", '[]'::jsonb AS "occurrence_trail", r0."resource_type" AS "resource_type", r0."logical_id" AS "logical_id" FROM "loom"."fhir_resource" AS r0 WHERE r0."project" = $1 AND r0."dataset_generation" = $2 AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND r0."resource_type" = $4), path_1 AS (SELECT p."path_identity" || jsonb_build_array(x1."resource_type", x1."logical_id", $7::text) AS "path_identity", $10::bigint AS "route_order", $9::text AS "terminal_alias", p."nodes" || jsonb_build_array(jsonb_build_object('alias', $9::text, 'resourceType', $8::text, 'id', x1."logical_id", 'key', x1."logical_id", 'payload', x1."payload")) AS "nodes", p."relationships" || jsonb_build_array(jsonb_build_object('alias', $9::text, 'label', $7::text, 'fromResourceType', $4::text, 'toResourceType', $8::text)) AS "relationships", p."occurrence_trail" || jsonb_build_array(e1."edge_seq") AS "occurrence_trail", x1."resource_type" AS "resource_type", x1."logical_id" AS "logical_id" FROM path_0 AS p INNER JOIN "loom"."fhir_edge_occurrence" AS e1 ON e1."project" = $1 AND e1."dataset_generation" = $2 AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND e1."label" = $7 AND e1."target_resource_type" = $4 AND e1."target_logical_id" = p."logical_id" AND e1."source_resource_type" = $8 INNER JOIN "loom"."fhir_resource" AS x1 ON x1."project" = $1 AND x1."dataset_generation" = $2 AND x1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb)) AND x1."resource_type" = $8 AND x1."logical_id" = e1."source_logical_id"), graph_paths AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY path_identity ORDER BY route_order ASC, occurrence_trail ASC) AS rn FROM (SELECT "path_identity", "route_order", "terminal_alias", "nodes", "relationships", "occurrence_trail" FROM path_0 UNION ALL SELECT "path_identity", "route_order", "terminal_alias", "nodes", "relationships", "occurrence_trail" FROM path_1) AS g_union) SELECT jsonb_build_object('terminalAlias', terminal_alias, 'nodes', nodes, 'relationships', relationships) AS "c0" FROM graph_paths AS g_row WHERE g_row.rn = 1 ORDER BY g_row.route_order ASC, g_row.path_identity::text COLLATE "C" ASC LIMIT $11`
 	if rendered.SQL != wantSQL {
 		t.Fatalf("golden SQL drift:\n got %s\nwant %s", rendered.SQL, wantSQL)
 	}
@@ -637,6 +637,31 @@ func TestGraph20RefusalMatrix(t *testing.T) {
 		plan.Operations[extendIdx].PathExtend = &extend
 		graph20Refusal(t, plan, "does not match the traversal target type bind")
 	})
+	t.Run("RelationshipLabelBindMismatchFailsClosed", func(t *testing.T) {
+		// The AQL twin filters edges on EdgeLabelBindKey but renders the
+		// public label and dedupe identity from Relationship.LabelBindKey
+		// (render/aql/graph_render.go:119/:128 vs :144-145); the planner
+		// always sets one key for both (lower/graph_plan.go:126), so a
+		// hand-diverged plan must fail closed rather than read one bind
+		// where the twin reads the other.
+		plan := graph20ClonePlan(base)
+		extendIdx := graph20FindOp(t, plan, ir.PhysicalPathExtendOp)
+		extend := *plan.Operations[extendIdx].PathExtend
+		relationship := extend.Relationship
+		relationship.LabelBindKey = "sneaky_label_bind"
+		plan.BindVars["sneaky_label_bind"] = "totally_different"
+		extend.Relationship = relationship
+		plan.Operations[extendIdx].PathExtend = &extend
+		graph20Refusal(t, plan, "does not equal the traversal edge label bind")
+	})
+	t.Run("SeedRouteOrderNotZero", func(t *testing.T) {
+		plan := graph20ClonePlan(base)
+		seedIdx := graph20FindOp(t, plan, ir.PhysicalPathSeedOp)
+		seed := *plan.Operations[seedIdx].PathSeed
+		seed.RouteOrder = 7
+		plan.Operations[seedIdx].PathSeed = &seed
+		graph20Refusal(t, plan, "seed route order 7 is not 0")
+	})
 	t.Run("BrokenChainType", func(t *testing.T) {
 		plan := graph20ClonePlan(base)
 		extendIdx := graph20FindOp(t, plan, ir.PhysicalPathExtendOp)
@@ -1019,13 +1044,13 @@ func TestGraph20LivePathUnionOracle(t *testing.T) {
 	got := graph20ExecPaths(t, svc, rendered)
 	want := []map[string]any{
 		graph20Path("cond", []map[string]any{
-			graph20Node("root", "Patient", "Patient/p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`),
-			graph20Node("cond", "Condition", "Condition/c1", "c1", `{"resourceType":"Condition","id":"c1","clinicalStatus":"active"}`),
+			graph20Node("root", "Patient", "p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`),
+			graph20Node("cond", "Condition", "c1", "c1", `{"resourceType":"Condition","id":"c1","clinicalStatus":"active"}`),
 		}, []map[string]any{graph20Relationship("cond", "subject_Patient", "Patient", "Condition")}),
 		graph20Path("obs2", []map[string]any{
-			graph20Node("root", "Patient", "Patient/p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`),
-			graph20Node("cond", "Condition", "Condition/c1", "c1", `{"resourceType":"Condition","id":"c1","clinicalStatus":"active"}`),
-			graph20Node("obs2", "Observation", "Observation/o2", "o2", `{"resourceType":"Observation","id":"o2","status":"final"}`),
+			graph20Node("root", "Patient", "p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`),
+			graph20Node("cond", "Condition", "c1", "c1", `{"resourceType":"Condition","id":"c1","clinicalStatus":"active"}`),
+			graph20Node("obs2", "Observation", "o2", "o2", `{"resourceType":"Observation","id":"o2","status":"final"}`),
 		}, []map[string]any{
 			graph20Relationship("cond", "subject_Patient", "Patient", "Condition"),
 			graph20Relationship("obs2", "focus_Condition", "Condition", "Observation"),
@@ -1062,9 +1087,9 @@ func TestGraph20LivePathUnionOracle(t *testing.T) {
 	plan.BindVars["auth_resource_paths"] = []string{"FHIR/Patient"}
 	roots := graph20ExecPaths(t, svc, graph20RenderIn(t, svc, plan))
 	wantRoots := []map[string]any{
-		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "Patient/p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`)}, nil),
-		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "Patient/p2", "p2", `{"resourceType":"Patient","id":"p2"}`)}, nil),
-		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "Patient/p3", "p3", `{"resourceType":"Patient","id":"p3"}`)}, nil),
+		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`)}, nil),
+		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "p2", "p2", `{"resourceType":"Patient","id":"p2"}`)}, nil),
+		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "p3", "p3", `{"resourceType":"Patient","id":"p3"}`)}, nil),
 	}
 	graph20AssertPaths(t, roots, wantRoots)
 
@@ -1081,16 +1106,16 @@ func TestGraph20LivePathUnionOracle(t *testing.T) {
 		// Root paths for every root (route 0), then route 1 (cond from
 		// p1 only), then route 2 (proc from p3 only) — exact route
 		// order, with p1's route-1 duplicate deduplicated.
-		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "Patient/p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`)}, nil),
-		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "Patient/p2", "p2", `{"resourceType":"Patient","id":"p2"}`)}, nil),
-		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "Patient/p3", "p3", `{"resourceType":"Patient","id":"p3"}`)}, nil),
+		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`)}, nil),
+		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "p2", "p2", `{"resourceType":"Patient","id":"p2"}`)}, nil),
+		graph20Path("root", []map[string]any{graph20Node("root", "Patient", "p3", "p3", `{"resourceType":"Patient","id":"p3"}`)}, nil),
 		graph20Path("cond", []map[string]any{
-			graph20Node("root", "Patient", "Patient/p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`),
-			graph20Node("cond", "Condition", "Condition/c1", "c1", `{"resourceType":"Condition","id":"c1","clinicalStatus":"active"}`),
+			graph20Node("root", "Patient", "p1", "p1", `{"resourceType":"Patient","id":"p1","gender":"female"}`),
+			graph20Node("cond", "Condition", "c1", "c1", `{"resourceType":"Condition","id":"c1","clinicalStatus":"active"}`),
 		}, []map[string]any{graph20Relationship("cond", "subject_Patient", "Patient", "Condition")}),
 		graph20Path("proc", []map[string]any{
-			graph20Node("root", "Patient", "Patient/p3", "p3", `{"resourceType":"Patient","id":"p3"}`),
-			graph20Node("proc", "Procedure", "Procedure/pr3", "pr3", `{"resourceType":"Procedure","id":"pr3","status":"completed"}`),
+			graph20Node("root", "Patient", "p3", "p3", `{"resourceType":"Patient","id":"p3"}`),
+			graph20Node("proc", "Procedure", "pr3", "pr3", `{"resourceType":"Procedure","id":"pr3","status":"completed"}`),
 		}, []map[string]any{graph20Relationship("proc", "subject_Patient", "Patient", "Procedure")}),
 	}
 	graph20AssertPaths(t, siblings, wantSiblings)
