@@ -11,6 +11,13 @@
 // column names — is runtime data and is passed to the driver as ordered,
 // typed $n parameters. No plan string is ever interpolated into SQL text.
 //
+// The deterministic SORT/LIMIT execution window is registered in window.go
+// (pg-sql-12) as the closed final slice: over the spine it keeps the merged
+// typed-column contract; after UNNEST it orders and bounds the final
+// expanded rows using the complete typed row identity — root and owner
+// logical identities, storage occurrence witnesses, and the has-item and
+// ordinality witnesses — never the root ID alone.
+//
 // Unsupported plans fail closed with ErrUnsupportedPostgresPlan; there is no
 // fallback to the AQL renderer and no AQL-to-SQL conversion anywhere in this
 // package. The rendered result is a command.RenderedPostgresPhysicalPlan,
@@ -26,17 +33,23 @@
 // null/missing reading preserve the physical-predicate contract (all
 // predicate rendering and its capability registration live in
 // predicates.go) — boolean ALL/ANY/NOT predicate trees, depth-one typed
-// edge-occurrence joins, one column sort with deterministic identity
-// tie-breaks, one bound limit, and one positional return projection. The
-// JSON-array cardinality boundary (UNNEST, pg-sql-09) is registered in
-// unnest.go as its own closed operation slice: one direct root scan, one
-// or more JSON-array expansions with typed-identity owner routes, and a
-// positional return over the stored rows plus the renderer-derived item,
-// ancestor, ordinality, and has-item values. Population/cohort roots,
-// endpoint-lookup traversals, repeated/indexed selector predicates,
-// correlated predicates, CONTAINS_TEXT, sets,
-// subplans, graph returns, group rows, pivots, unpivots, stage sequences,
-// and ClickHouse payloads are capability gaps that return typed errors.
+// edge-occurrence traversals rendered by traversal.go — the OPTIONAL
+// parent-preserving LEFT JOIN LATERAL child join, the REQUIRED match EXISTS
+// semi-join (whose subplan payload filter re-reads the predicates.go
+// comparison contract over the reached child rows), and the unnest
+// owner-route step as an inner edge scan (renderTraversalScan parity: zero
+// route occurrences eliminate the parent under either empty policy) — one
+// column sort with deterministic identity tie-breaks, one bound limit, and
+// one positional return projection. The JSON-array cardinality boundary
+// (UNNEST, pg-sql-09) is registered in unnest.go as its own closed
+// operation slice: one direct root scan, one or more JSON-array expansions
+// with typed-identity owner routes, and a positional return over the
+// stored rows plus the renderer-derived item, ancestor, ordinality, and
+// has-item values. Population/cohort roots, endpoint-lookup traversals,
+// repeated/indexed selector predicates, correlated predicates,
+// CONTAINS_TEXT, sets, subplans outside the registered REQUIRED shape,
+// graph returns, group rows, pivots, unpivots, stage sequences, and
+// ClickHouse payloads are capability gaps that return typed errors.
 package postgres
 
 import (
@@ -159,7 +172,10 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 
 // rowScope records the renderer-owned SQL placement of one plan variable.
 // The plan-authored variable name is used only as an internal map key; it
-// never reaches SQL text.
+// never reaches SQL text. optional marks a row materialized by an OPTIONAL
+// traversal join (traversal.go): it is NULL-extensible, so main-sequence
+// FILTER and SORT may not reference it, while RETURN projections read its
+// columns with SQL NULL for parent-preserving rows.
 //
 // A derived scope (unnest.go) carries a renderer-computed SQL expression
 // instead of a storage alias: derivedValue is the only reading, there is no
@@ -172,6 +188,7 @@ type rowScope struct {
 	resourceType string
 	derivedValue string
 	derivedJSON  bool
+	optional     bool
 }
 
 type planRenderer struct {
@@ -190,23 +207,35 @@ type planRenderer struct {
 
 	// scope is the re-read canonical scope established by loadScope (its
 	// definition and predicate mapping live in scope.go).
-	scope         planScope
-	rootAlias     string
-	edgeAliases   []string
+	scope     planScope
+	rootAlias string
+	// edgeAliases records the lateral aliases of OPTIONAL traversal joins in
+	// plan order; the assembler orders every one by its exposed edge_seq so
+	// repeated occurrences are deterministic on every execution.
+	edgeAliases []string
+	// traversalSeq is the single alias counter shared by traversal.go: every
+	// registered traversal join (lateral child subquery or EXISTS step)
+	// consumes one sequence number, so edge/target/lateral aliases are
+	// unique and deterministic for a plan.
+	traversalSeq  int
 	where         []string
 	joins         []string
 	selects       []string
 	outputColumns []string
-	orderBy       []string
-	limitClause   string
 
-	// Unnest state (unnest.go): lateral clauses in plan order, the rn
-	// tie-break keys they contribute to the total order, and the expansion
-	// counter that mints renderer-owned lateral aliases. All are
-	// renderer-owned; no plan string reaches SQL text through them.
-	laterals    []string
-	unnestOrder []string
-	unnestSeq   int
+	// window is the SORT/LIMIT state and total-order contract; its fields,
+	// entry points, and ORDER BY assembly live in window.go (pg-sql-12).
+	// Nothing outside window.go writes it.
+	window executionWindow
+
+	// Unnest state (unnest.go): lateral clauses in plan order, the
+	// renderer-minted lateral aliases whose rn columns the window's total
+	// order uses (window.go consumes them), and the expansion counter that
+	// mints the aliases. All are renderer-owned; no plan string reaches SQL
+	// text through them.
+	laterals       []string
+	lateralAliases []string
+	unnestSeq      int
 }
 
 // addParameter appends one ordered argument and returns its $n index. A
@@ -284,7 +313,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if phase != 0 {
 				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderTraversal(plan, *operation.Traversal); err != nil {
+			if err := r.renderTraversal(plan, *operation.Traversal, false); err != nil {
 				return err
 			}
 		case ir.PhysicalUnnestOp:
@@ -301,7 +330,10 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if sawSort || phase > 1 || (phase == 1 && sawLimit) {
 				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderSort(*operation.Sort); err != nil {
+			// The key contract (W1 typed columns vs. the W2 stable row
+			// identity tuple) is enforced in window.go, the single window
+			// contract owner; these arms keep the positional dispatch rules.
+			if err := r.renderWindowSort(plan, *operation.Sort); err != nil {
 				return err
 			}
 			sawSort, phase = true, 1
@@ -309,7 +341,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if sawLimit || phase > 1 {
 				return fmt.Errorf("%w: at most one LIMIT", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderLimit(plan, *operation.Limit); err != nil {
+			if err := r.renderWindowLimit(plan, *operation.Limit); err != nil {
 				return err
 			}
 			sawLimit, phase = true, 1
@@ -349,148 +381,91 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 	return nil
 }
 
-func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
-	source, ok := r.rows[traversal.SourceVariable]
-	if !ok || source.derivedValue != "" {
-		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables, set variables, and computed unnest values are not readable)",
-			ErrUnsupportedPostgresPlan, traversal.SourceVariable)
-	}
-	switch traversal.Direction {
-	case ir.PhysicalOutbound, ir.PhysicalInbound:
-	case ir.PhysicalAny:
-		return fmt.Errorf("%w: ANY-direction traversal has no proven PostgreSQL contract", ErrUnsupportedPostgresPlan)
-	default:
-		return fmt.Errorf("%w: unknown traversal direction %q", ErrUnsupportedPostgresPlan, string(traversal.Direction))
-	}
-	if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
-		return fmt.Errorf("%w: endpoint-lookup strategy has no proven PostgreSQL contract yet; native typed-identity joins are the only registered shape",
-			ErrUnsupportedPostgresPlan)
-	}
-	if traversal.Strategy != "" && traversal.Strategy != ir.PhysicalTraversalNative {
-		return fmt.Errorf("%w: unknown traversal strategy %q", ErrUnsupportedPostgresPlan, string(traversal.Strategy))
-	}
-	// The same direction-aware discriminator proof lower/storage_route.go
-	// requires of Arango routes: without it the typed-identity join cannot be
-	// attributed to a proven storage direction.
-	expectedField := "to_type"
-	if traversal.Direction == ir.PhysicalInbound {
-		expectedField = "from_type"
-	}
-	if traversal.EdgeTargetTypeField != expectedField {
-		return fmt.Errorf("%w: %s traversal must carry EdgeTargetTypeField %q, got %q",
-			ErrUnsupportedPostgresPlan, string(traversal.Direction), expectedField, traversal.EdgeTargetTypeField)
-	}
-	label, ok := plan.BindVars[traversal.EdgeLabelBindKey].(string)
-	if !ok || strings.TrimSpace(label) == "" {
-		return fmt.Errorf("%w: edge label bind %q must be a non-empty string", ErrUnsupportedPostgresPlan, traversal.EdgeLabelBindKey)
-	}
-	targetType, ok := plan.BindVars[traversal.TargetTypeBindKey].(string)
-	if !ok || strings.TrimSpace(targetType) == "" {
-		return fmt.Errorf("%w: traversal target type bind %q must be a non-empty string",
-			ErrUnsupportedPostgresPlan, traversal.TargetTypeBindKey)
-	}
-	if traversal.SourceTypeBindKey != "" {
-		if bound, ok := plan.BindVars[traversal.SourceTypeBindKey].(string); !ok || bound != source.resourceType {
-			return fmt.Errorf("%w: traversal source type bind does not match the current row resource type %q",
-				ErrUnsupportedPostgresPlan, source.resourceType)
-		}
-	}
-
-	edgeAlias := "e" + strconv.Itoa(len(r.edgeAliases)+1)
-	targetAlias := "r" + strconv.Itoa(len(r.edgeAliases)+1)
-	edgeTable := r.storage.Edge.Identifier().SQLText()
-	resourceTable := r.storage.Resource.Identifier().SQLText()
-
-	edgeColumns := r.storage.Edge
-	// The edge row's canonical project/generation/auth scope comes from the
-	// single mapping in scope.go; the label and endpoint identity clauses
-	// appended below are traversal payload, not canonical scope.
-	edgeScope := r.scopedEdgePredicate(edgeAlias)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn("label").SQLText() +
-		" = $" + strconv.Itoa(r.textParameter(label, "text:"+label))
-
-	// The reached endpoint is the one whose typed identity the join carries
-	// toward the resource table; the anchored endpoint equality preserves the
-	// exact source row identity on the other side.
-	var anchoredTypeColumn, anchoredIDColumn, reachedTypeColumn, reachedIDColumn string
-	if traversal.Direction == ir.PhysicalOutbound {
-		anchoredTypeColumn, anchoredIDColumn = "source_resource_type", "source_logical_id"
-		reachedTypeColumn, reachedIDColumn = "target_resource_type", "target_logical_id"
-	} else {
-		anchoredTypeColumn, anchoredIDColumn = "target_resource_type", "target_logical_id"
-		reachedTypeColumn, reachedIDColumn = "source_resource_type", "source_logical_id"
-	}
-	sourceTypeIndex := r.textParameter(source.resourceType, "text:"+source.resourceType)
-	targetTypeIndex := r.textParameter(targetType, "text:"+targetType)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredTypeColumn).SQLText() + " = $" + strconv.Itoa(sourceTypeIndex)
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(anchoredIDColumn).SQLText() +
-		" = " + source.alias + "." + r.storage.Resource.MustColumn("logical_id").SQLText()
-	edgeScope += " AND " + edgeAlias + "." + edgeColumns.MustColumn(reachedTypeColumn).SQLText() + " = $" + strconv.Itoa(targetTypeIndex)
-
-	join := "INNER JOIN " + edgeTable + " AS " + edgeAlias + " ON " + edgeScope
-	join += " INNER JOIN " + resourceTable + " AS " + targetAlias + " ON " +
-		r.scopedResourcePredicate(targetAlias, targetTypeIndex) +
-		" AND " + targetAlias + "." + r.storage.Resource.MustColumn("logical_id").SQLText() +
-		" = " + edgeAlias + "." + edgeColumns.MustColumn(reachedIDColumn).SQLText()
-	r.joins = append(r.joins, join)
-	r.edgeAliases = append(r.edgeAliases, edgeAlias)
-	r.rows[traversal.TargetVariable] = rowScope{alias: targetAlias, resourceType: targetType}
-	return nil
-}
-
 // resolveValue maps one plan value onto either a trusted column expression
 // or a parameterized JSONB payload path over its row alias. Payload paths
 // are bound through documentPathExpression (null_semantics.go), the
 // package's single path-binding authority, so extraction and comparison
 // paths can never drift apart. Derived scopes (unnest.go) resolve through
-// resolveDerivedValue against their renderer-computed expression instead.
+// resolveDerivedValue against their renderer-computed expression instead;
+// everything else resolves through the shared rows-parameterized resolver
+// in traversal.go, which main sequence and EXISTS subplans share.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
-	scope, ok := r.rows[value.Variable]
-	if !ok {
-		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
-	}
-	if scope.derivedValue != "" {
+	if scope, ok := r.rows[value.Variable]; ok && scope.derivedValue != "" {
 		return r.resolveDerivedValue(value, scope)
 	}
-	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
-		return scope.alias + "." + r.storage.Resource.MustColumn(canonicalKeyColumn(value.Path[0])).SQLText(), nil
+	return r.resolveValueInRows(r.rows, value)
+}
+
+// rejectOptionalRowReferences enforces the OPTIONAL-traversal boundary for
+// main-sequence FILTER operations: no comparison leaf, at any depth of an
+// ALL/NOT composition, may read a row materialized by an OPTIONAL
+// traversal join. A WHERE conjunct over null-extended child rows re-adds
+// the inner-join exclusion the AQL LET-set never applies (render/aql
+// navigation_render.go:11-37), and NOT/IS-DISTINCT-FROM forms would keep
+// parents an AQL required match excludes (lower/required_match.go).
+// Required matching must use the typed EXISTS subplan form, which renders
+// over INNER joins where WHERE placement is exact. EXISTS predicate
+// subplans are self-scoped and walk-free: their own contract is enforced by
+// renderRequiredMatchExists.
+func (r *planRenderer) rejectOptionalRowReferences(filter ir.PhysicalFilter) error {
+	if filter.Expression != nil {
+		return rejectOptionalInPredicate(*filter.Expression, r.rows)
 	}
-	return r.documentPathExpression(scope.alias, value.Path)
+	return rejectOptionalInPredicate(ir.PhysicalPredicateExpression{
+		Kind:       ir.PhysicalComparisonPredicate,
+		Comparison: &filter.Predicate,
+	}, r.rows)
+}
+
+func rejectOptionalInPredicate(predicate ir.PhysicalPredicateExpression, rows map[string]rowScope) error {
+	switch predicate.Kind {
+	case ir.PhysicalComparisonPredicate:
+		if predicate.Comparison == nil {
+			return nil // the comparison renderer reports the missing payload.
+		}
+		if predicate.Comparison.LeftExpression != nil &&
+			predicate.Comparison.LeftExpression.Extract != nil {
+			if scope, ok := rows[predicate.Comparison.LeftExpression.Extract.Source.Variable]; ok && scope.optional {
+				return optionalRowRefError(predicate.Comparison.LeftExpression.Extract.Source.Variable)
+			}
+		}
+		if predicate.Comparison.Left.BindKey == "" && predicate.Comparison.Left.Variable != "" {
+			if scope, ok := rows[predicate.Comparison.Left.Variable]; ok && scope.optional {
+				return optionalRowRefError(predicate.Comparison.Left.Variable)
+			}
+		}
+		return nil
+	case ir.PhysicalAllPredicate, ir.PhysicalAnyPredicate:
+		for _, child := range predicate.Children {
+			if err := rejectOptionalInPredicate(child, rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	case ir.PhysicalNotPredicate:
+		for _, child := range predicate.Children {
+			if err := rejectOptionalInPredicate(child, rows); err != nil {
+				return err
+			}
+		}
+		return nil
+	default: // EXISTS and unknown kinds: no main-sequence row references.
+		return nil
+	}
+}
+
+func optionalRowRefError(variable string) error {
+	return fmt.Errorf("%w: FILTER references %q, a row materialized by an OPTIONAL traversal LEFT JOIN LATERAL; a WHERE conjunct over null-extended child rows would re-add the inner-join exclusion the AQL LET-set never applies (render/aql/navigation_render.go renderTraversalSet). Express required matching as the typed EXISTS subplan FILTER form",
+		ErrUnsupportedPostgresPlan, variable)
 }
 
 // payloadPathSegmentPattern re-checks the frozen ir path contract at the
 // renderer boundary.
 var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func (r *planRenderer) renderSort(sort ir.PhysicalSort) error {
-	for _, key := range sort.Keys {
-		scope, ok := r.rows[key.Variable]
-		if !ok {
-			return fmt.Errorf("%w: sort variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, key.Variable)
-		}
-		if len(key.Path) != 1 {
-			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
-				ErrUnsupportedPostgresPlan)
-		}
-		column := canonicalKeyColumn(key.Path[0])
-		if key.BindKey != "" || !resourceFilterColumns[column] {
-			return fmt.Errorf("%w: sort keys must be single typed columns; payload-path sorting is not yet implemented",
-				ErrUnsupportedPostgresPlan)
-		}
-		r.orderBy = append(r.orderBy, scope.alias+"."+r.storage.Resource.MustColumn(column).SQLText()+" ASC")
-	}
-	return nil
-}
-
-func (r *planRenderer) renderLimit(plan ir.PhysicalPlan, limit ir.PhysicalLimit) error {
-	value, ok := plan.BindVars[limit.BindKey].(int)
-	if !ok || value <= 0 {
-		return fmt.Errorf("%w: limit bind %q must be a positive int", ErrUnsupportedPostgresPlan, limit.BindKey)
-	}
-	index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(value)}, "")
-	r.limitClause = " LIMIT $" + strconv.Itoa(index)
-	return nil
-}
+// SORT and LIMIT are rendered through window.go's renderWindowSort and
+// renderWindowLimit (pg-sql-12): the single execution-window contract owner
+// for both the spine (W1) and the final window after UNNEST (W2).
 
 // renderReturn assembles the positional projection list. Every projection
 // first passes classifyExtractionProjections (selectors.go) — the single
@@ -562,18 +537,13 @@ func (r *planRenderer) assemble() string {
 	if len(r.where) > 0 {
 		builder.WriteString(" WHERE " + strings.Join(r.where, " AND "))
 	}
-	// Deterministic total order: plan sort keys first, then the storage
-	// identities so repeated rows from parallel edge occurrences order the
-	// same way on every execution, then each unnest expansion's rn so
-	// duplicate items keep their source-array position (the ordering
-	// counterpart of ir.PhysicalUnnestSortKeys' has-item/ordinality
-	// tie-break).
-	order := append(append([]string{}, r.orderBy...), r.rootAlias+"."+r.storage.Resource.MustColumn("resource_seq").SQLText()+" ASC")
-	for _, edgeAlias := range r.edgeAliases {
-		order = append(order, edgeAlias+"."+r.storage.Edge.MustColumn("edge_seq").SQLText()+" ASC")
-	}
-	order = append(order, r.unnestOrder...)
-	builder.WriteString(" ORDER BY " + strings.Join(order, ", "))
-	builder.WriteString(r.limitClause)
+	// Deterministic total order: the window contract in window.go maps the
+	// plan sort keys, then appends the storage identities so repeated rows
+	// from parallel edge occurrences order the same way on every execution,
+	// then each unnest expansion's witnesses so duplicate items keep their
+	// source-array position (the ordering counterpart of
+	// ir.PhysicalUnnestSortKeys' has-item/ordinality tie-break).
+	builder.WriteString(" ORDER BY " + strings.Join(r.windowOrder(), ", "))
+	builder.WriteString(r.window.limitClause)
 	return builder.String()
 }

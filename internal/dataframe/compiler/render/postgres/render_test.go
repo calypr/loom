@@ -183,86 +183,10 @@ func TestRenderScopedRootScanIsExactAndParameterized(t *testing.T) {
 	}
 }
 
-func TestRenderOutboundTraversalSQLIsExact(t *testing.T) {
-	plan := basePlan()
-	plan.BindVars["edge_collection"] = "fhir_edge"
-	plan.BindVars["edge_label"] = "has-specimen"
-	plan.BindVars["target_type"] = "Specimen"
-	plan.Operations = []ir.PhysicalOperation{
-		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
-		{Kind: ir.PhysicalTraversalOp, Traversal: &ir.PhysicalTraversal{
-			SourceVariable: "root", TargetVariable: "target", EdgeVariable: "edge",
-			Direction: ir.PhysicalOutbound, EdgeCollectionBindKey: "edge_collection",
-			EdgeLabelBindKey: "edge_label", TargetTypeBindKey: "target_type",
-			EdgeTargetTypeField: "to_type", Strategy: ir.PhysicalTraversalNative,
-		}},
-		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
-			{Name: "patient_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
-			{Name: "specimen_id", Value: ir.PhysicalValue{Variable: "target", Path: []string{"logical_id"}}},
-		}}},
-	}
-	rendered := renderOK(t, plan)
-	wantSQL := `SELECT r0."logical_id" AS "c0", r1."logical_id" AS "c1"` +
-		` FROM "pgir02_it_unit"."fhir_resource" AS r0` +
-		` INNER JOIN "pgir02_it_unit"."fhir_edge_occurrence" AS e1` +
-		` ON e1."project" = $1 AND e1."dataset_generation" = $2` +
-		` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
-		` AND e1."label" = $5 AND e1."source_resource_type" = $4` +
-		` AND e1."source_logical_id" = r0."logical_id" AND e1."target_resource_type" = $6` +
-		` INNER JOIN "pgir02_it_unit"."fhir_resource" AS r1` +
-		` ON r1."project" = $1 AND r1."dataset_generation" = $2` +
-		` AND r1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
-		` AND r1."resource_type" = $6 AND r1."logical_id" = e1."target_logical_id"` +
-		` WHERE r0."project" = $1 AND r0."dataset_generation" = $2` +
-		` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
-		` AND r0."resource_type" = $4` +
-		` ORDER BY r0."resource_seq" ASC, e1."edge_seq" ASC`
-	if rendered.SQL != wantSQL {
-		t.Fatalf("SQL mismatch:\n got %s\nwant %s", rendered.SQL, wantSQL)
-	}
-	if len(rendered.Args) != 6 {
-		t.Fatalf("args = %d, want 6 (project, generation, auth paths, root type, label, target type)", len(rendered.Args))
-	}
-	// The plan's own Arango metadata never reaches SQL: the edge "collection"
-	// bind value and plan variable names are not SQL text.
-	for _, leaked := range []string{"fhir_edge\"", "\"edge\"", "\"target\"", "\"root\""} {
-		if strings.Contains(rendered.SQL, leaked) {
-			t.Fatalf("plan data %q leaked into SQL: %s", leaked, rendered.SQL)
-		}
-	}
-}
-
-func TestRenderInboundTraversalBindsReverseEndpointColumns(t *testing.T) {
-	plan := basePlan()
-	plan.BindVars["edge_collection"] = "fhir_edge"
-	plan.BindVars["edge_label"] = "has-specimen"
-	plan.BindVars["target_type"] = "Observation"
-	plan.Operations = []ir.PhysicalOperation{
-		{Kind: ir.PhysicalRootScanOp, RootScan: &ir.PhysicalRootScan{Variable: "root", CollectionBindKey: "root_collection"}},
-		{Kind: ir.PhysicalTraversalOp, Traversal: &ir.PhysicalTraversal{
-			SourceVariable: "root", TargetVariable: "target",
-			Direction: ir.PhysicalInbound, EdgeCollectionBindKey: "edge_collection",
-			EdgeLabelBindKey: "edge_label", TargetTypeBindKey: "target_type",
-			EdgeTargetTypeField: "from_type", Strategy: ir.PhysicalTraversalNative,
-		}},
-		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
-			{Name: "observation_id", Value: ir.PhysicalValue{Variable: "target", Path: []string{"logical_id"}}},
-		}}},
-	}
-	rendered := renderOK(t, plan)
-	// INBOUND anchors the stored source side's opposite: the anchored
-	// endpoint is target_* and the reached endpoint is source_*.
-	for _, want := range []string{
-		`e1."target_resource_type" = $4`,
-		`e1."target_logical_id" = r0."logical_id"`,
-		`e1."source_resource_type" = $6`,
-		`r1."logical_id" = e1."source_logical_id"`,
-	} {
-		if !strings.Contains(rendered.SQL, want) {
-			t.Fatalf("inbound SQL missing %q: %s", want, rendered.SQL)
-		}
-	}
-}
+// The depth-one traversal renderings moved to traversal_test.go with
+// pg-sql-06, where traversal.go is the single authority for the edge-join
+// SQL shape (LEFT JOIN LATERAL child join plus the REQUIRED match EXISTS
+// semi-join) and pins its literals beside the code contract.
 
 // ---------------------------------------------------------------------------
 // Filter rendering: values and paths never become SQL text

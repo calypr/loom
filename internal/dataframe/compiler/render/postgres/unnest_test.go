@@ -346,10 +346,12 @@ func TestUnnestTwoExpansionsAssembleInPlanOrder(t *testing.T) {
 
 func TestUnnestOwnerRouteRendersTypedIdentityJoinBeforeLaterals(t *testing.T) {
 	plan := basePlan()
-	// The PostgreSQL edge table comes from the storage registry, so the
-	// collection bind is unread plan data: a sentinel proves no bind
-	// value can reach SQL text.
-	plan.BindVars["edge_collection"] = "SENTINEL-unused-edge-collection-bind"
+	// The shared traversal contract (traversal.go, mirroring
+	// render/aql/navigation_layout.go:407-409) re-reads the collection bind
+	// and requires the canonical "fhir_edge"; the edge table itself still
+	// comes from the storage registry, so the bind value never reaches SQL
+	// text. The label below is the leak witness for that guarantee.
+	plan.BindVars["edge_collection"] = "fhir_edge"
 	plan.BindVars["edge_label"] = "has-observation"
 	plan.BindVars["target_type"] = "Observation"
 	unnest := codingExpansion(ir.PhysicalUnnestPreserveParent)
@@ -379,19 +381,29 @@ func TestUnnestOwnerRouteRendersTypedIdentityJoinBeforeLaterals(t *testing.T) {
 	rendered := renderOK(t, plan)
 	sql := rendered.SQL
 
-	joinAt := strings.Index(sql, "INNER JOIN")
+	// The route is the inner edge scan (traversal.go routeInner mode, the
+	// renderTraversalScan FOR-loop parity in render/aql
+	// navigation_render.go renderUnnest): a top-level INNER JOIN edge ×
+	// target that eliminates a parent with zero surviving route
+	// occurrences under BOTH empty policies (pinned live by
+	// TestPG18UnnestOwnerRouteExcludesZeroRouteParents). The route join
+	// must precede the expansion lateral and both precede the total order.
+	routeAt := strings.Index(sql, "INNER JOIN")
 	lateralAt := strings.Index(sql, "JOIN LATERAL")
-	orderAt := strings.Index(sql, "ORDER BY")
-	if joinAt < 0 || lateralAt < 0 || !(joinAt < lateralAt && lateralAt < orderAt) {
+	orderAt := strings.LastIndex(sql, "ORDER BY")
+	if routeAt < 0 || lateralAt < 0 || !(routeAt < lateralAt && lateralAt < orderAt) {
 		t.Fatalf("storage join and lateral must sit between FROM and ORDER BY in that order:\n%s", sql)
+	}
+	if strings.Contains(sql, ") AS r1 ON TRUE") {
+		t.Fatalf("owner route must not render the OPTIONAL parent-preserving lateral:\n%s", sql)
 	}
 	if !strings.Contains(sql, `ORDER BY r0."resource_seq" ASC, e1."edge_seq" ASC, u1.rn ASC`) {
 		t.Fatalf("route edge_seq and expansion rn must both extend the total order:\n%s", sql)
 	}
-	if !strings.Contains(sql, `(r1."payload" #>`) {
+	if !strings.Contains(sql, `(x1."payload" #>`) {
 		t.Fatalf("owner-route expansion must extract from the joined owner row:\n%s", sql)
 	}
-	for _, leaked := range []string{"has-observation", "SENTINEL-unused-edge-collection-bind"} {
+	for _, leaked := range []string{"has-observation"} {
 		if strings.Contains(sql, leaked) {
 			t.Fatalf("route bind value %q leaked into SQL text: %s", leaked, sql)
 		}
@@ -1492,10 +1504,11 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 	}
 
 	plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
-	// The PostgreSQL edge table comes from the storage registry, so the
-	// collection bind is unread plan data: a sentinel proves no bind
-	// value can reach SQL text.
-	plan.BindVars["edge_collection"] = "SENTINEL-unused-edge-collection-bind"
+	// The shared traversal contract (traversal.go, mirroring
+	// render/aql/navigation_layout.go:407-409) re-reads the collection bind
+	// and requires the canonical "fhir_edge"; the edge table itself comes
+	// from the storage registry, so the bind value never reaches SQL text.
+	plan.BindVars["edge_collection"] = "fhir_edge"
 	plan.BindVars["edge_label"] = "has-observation"
 	plan.BindVars["target_type"] = "Observation"
 	unnest := codingExpansion(ir.PhysicalUnnestPreserveParent)
@@ -1562,6 +1575,76 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 		if row[0] != want[index][0] || row[1] != want[index][1] {
 			t.Fatalf("witness row %d identity = %v, want %v", index, row, want[index])
 		}
+	}
+}
+
+// TestPG18UnnestOwnerRouteExcludesZeroRouteParents pins the AQL route
+// semantics the review round restored: renderUnnest renders owner-route
+// steps as the INNER renderTraversalScan FOR loops inside the current loop
+// (render/aql/navigation_render.go), so a stored parent with zero
+// surviving route occurrences emits ZERO rows under BOTH
+// PhysicalUnnestExclude and PhysicalUnnestPreserveParent — the
+// PreserveParent pad row belongs to the expansion (which the route gates),
+// and must not masquerade as an owner-present-empty-source pad row.
+func TestPG18UnnestOwnerRouteExcludesZeroRouteParents(t *testing.T) {
+	svc := newSQL09Service(t)
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-route", "FHIR/Patient", sql09JSON(t, `{"gender": "female"}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-zero", "FHIR/Patient", sql09JSON(t, `{"gender": "male"}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-obs1", "FHIR/Observation",
+		sql09JSON(t, `{"component": [{"code": {"coding": [{"system": "urn:z", "code": "z1"}]}}]}`))
+	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+		Project: sql09Project, DatasetGeneration: sql09Generation, AuthResourcePath: "FHIR/Patient",
+		Label: "has-observation", SourceResourceType: "Patient", SourceLogicalID: "p-route",
+		TargetResourceType: "Observation", TargetLogicalID: "o-obs1",
+		SourcePath: "observation[0]", SourceOrdinal: 0,
+	})
+
+	for _, policy := range []ir.PhysicalUnnestEmptyPolicy{ir.PhysicalUnnestExclude, ir.PhysicalUnnestPreserveParent} {
+		plan := scopedPlan(sql09Project, sql09Generation, []string{"FHIR/Patient", "FHIR/Observation"}, false)
+		plan.BindVars["edge_collection"] = "fhir_edge"
+		plan.BindVars["edge_label"] = "has-observation"
+		plan.BindVars["target_type"] = "Observation"
+		unnest := codingExpansion(policy)
+		unnest.Owner = ir.PhysicalUnnestOwner{
+			OccurrenceID: "obs-owner", ResourceType: "Observation", RootVariable: "root", OwnerVariable: "obs",
+			Route: []ir.PhysicalUnnestRouteStep{{OccurrenceID: "obs-owner", Traversal: ir.PhysicalTraversal{
+				SourceVariable: "root", TargetVariable: "obs", EdgeVariable: "obs_edge",
+				Direction: ir.PhysicalOutbound, EdgeCollectionBindKey: "edge_collection",
+				EdgeLabelBindKey: "edge_label", TargetTypeBindKey: "target_type",
+				EdgeTargetTypeField: "to_type", Strategy: ir.PhysicalTraversalNative,
+			}}},
+		}
+		unnest.Expression = arrayExtract("obs", "Observation",
+			spec.SelectorStep{Field: "component", Iterate: true},
+			spec.SelectorStep{Field: "code"},
+			spec.SelectorStep{Field: "coding", Iterate: true})
+		plan.Operations = append(plan.Operations, unnestOp(unnest))
+		plan = withReturn(plan,
+			valueProjection("patient_id", "root", "logical_id"),
+			valueProjection("observation_id", "obs", "logical_id"),
+			valueProjection("item", "item"),
+			valueProjection("position", "position"),
+			valueProjection("has_item", "has_item"),
+		)
+		rendered, err := RenderUnnest(plan, sql09Binding(t, svc))
+		if err != nil {
+			t.Fatalf("RenderUnnest (%s): %v", policy, err)
+		}
+		got := sql09CanonicalRows(svc.runRendered(t, rendered))
+		want := [][]string{
+			{"p-route", "o-obs1", sql09CanonicalObject(t, `{"system": "urn:z", "code": "z1"}`), "0", "true"},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("owner-route rows under %s = %v, want only the routed parent's row (p-zero has zero route occurrences and must emit no rows; its pad row would be indistinguishable from an owner-present-empty-source pad)", policy, got)
+		}
+	}
+
+	// p-zero IS stored: exclusion comes from route semantics, not absence.
+	stored := svc.witness(t,
+		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project=$1 AND dataset_generation=$2 AND logical_id='p-zero'`,
+		sql09Project, sql09Generation)
+	if len(stored) != 1 || stored[0][0] != "1" {
+		t.Fatalf("p-zero must be stored for the exclusion to be meaningful: %v", stored)
 	}
 }
 

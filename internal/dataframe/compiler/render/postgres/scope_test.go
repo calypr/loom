@@ -272,9 +272,15 @@ func TestScopeAllowedFalseMapsToLiteralZeroRowPredicate(t *testing.T) {
 }
 
 // TestScopeAllowedFalseIsWiredIntoEveryRowSource proves the assembled
-// statements carry the deny in all three row sources — root WHERE, edge ON,
-// and reached-target ON — with byte-identical ordered arguments to the
-// allowed render, and that the registered root-scan slice denies too.
+// statements carry the deny in all three row sources — root WHERE, edge
+// lateral WHERE, and reached-target ON — with byte-identical ordered
+// arguments to the allowed render, and that the registered root-scan slice
+// denies too. (With pg-sql-06 the edge and reached-target chains live
+// inside the child subquery of the OPTIONAL traversal LEFT JOIN LATERAL:
+// the edge chain closes the lateral's WHERE, the reached-target chain
+// stays in its INNER JOIN ON. The chain contents pinned here are
+// byte-identical to the pre-lateral fragments; only the connectors and
+// aliases follow the registered join rework in traversal.go.)
 func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
 	plan := pgsq02TraversalPlanForScope("pgsq02-proj-a", "gen-1", []string{"FHIR/Patient", "FHIR/Specimen"}, false,
 		"Patient", "has-specimen", "Specimen")
@@ -297,15 +303,15 @@ func TestScopeAllowedFalseIsWiredIntoEveryRowSource(t *testing.T) {
 		` WHERE r0."project" = $1 AND r0."dataset_generation" = $2` +
 			` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND r0."resource_type" = $4 AND FALSE`,
-		// Edge row ON carries the deny before the traversal payload.
-		` ON e1."project" = $1 AND e1."dataset_generation" = $2` +
+		// Edge lateral WHERE carries the deny before the traversal payload.
+		` WHERE e1."project" = $1 AND e1."dataset_generation" = $2` +
 			` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND FALSE AND e1."label" = $5`,
 		// Reached-target row ON carries it, after the type predicate and
 		// before the occurrence-correlation join.
-		` ON r1."project" = $1 AND r1."dataset_generation" = $2` +
-			` AND r1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
-			` AND r1."resource_type" = $6 AND FALSE AND r1."logical_id" = e1."target_logical_id"`,
+		` ON x1."project" = $1 AND x1."dataset_generation" = $2` +
+			` AND x1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
+			` AND x1."resource_type" = $6 AND FALSE AND x1."logical_id" = e1."target_logical_id"`,
 	} {
 		if !strings.Contains(denied.SQL, wantFragment) {
 			t.Fatalf("denied statement missing %q:\n%s", wantFragment, denied.SQL)
@@ -456,15 +462,17 @@ func TestScopeFragmentsAreWiredIntoAssembledStatements(t *testing.T) {
 		t.Fatalf("RenderPhysicalPlan: %v", err)
 	}
 	for _, wantFragment := range []string{
-		// Edge row: canonical scope over the edge table's own columns.
-		` ON e1."project" = $1 AND e1."dataset_generation" = $2` +
+		// Edge row: canonical scope over the edge table's own columns,
+		// closing the child subquery's WHERE (traversal.go lateral body).
+		` WHERE e1."project" = $1 AND e1."dataset_generation" = $2` +
 			` AND e1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
 			` AND e1."label" = $5`,
 		// Reached-target row: the same canonical chain over the resource
-		// table, followed by the occurrence-correlation join.
-		` ON r1."project" = $1 AND r1."dataset_generation" = $2` +
-			` AND r1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
-			` AND r1."resource_type" = $6 AND r1."logical_id" = e1."target_logical_id"`,
+		// table (aliased x1 inside the child subquery), followed by the
+		// occurrence-correlation join.
+		` ON x1."project" = $1 AND x1."dataset_generation" = $2` +
+			` AND x1."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
+			` AND x1."resource_type" = $6 AND x1."logical_id" = e1."target_logical_id"`,
 		// Root row: canonical chain in WHERE, before projection.
 		` WHERE r0."project" = $1 AND r0."dataset_generation" = $2` +
 			` AND r0."auth_resource_path" = ANY (SELECT jsonb_array_elements_text($3::jsonb))` +
