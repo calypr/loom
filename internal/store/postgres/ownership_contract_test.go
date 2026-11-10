@@ -561,7 +561,7 @@ func pgxIdentifier(name string) string {
 // ab05ReadLedger returns the literal rows of one schema's ledger.
 func ab05ReadLedger(t *testing.T, ctx context.Context, admin *pgxpool.Pool, schema string) []pgstore.LedgerRecord {
 	t.Helper()
-	rows, err := admin.Query(ctx, "SELECT version, name, checksum FROM "+
+	rows, err := admin.Query(ctx, "SELECT version, name, checksum, applied_at FROM "+
 		pgxIdentifier(schema)+`.schema_migrations ORDER BY version`)
 	if err != nil {
 		t.Fatalf("read ledger of %s: %v", schema, err)
@@ -570,7 +570,7 @@ func ab05ReadLedger(t *testing.T, ctx context.Context, admin *pgxpool.Pool, sche
 	var out []pgstore.LedgerRecord
 	for rows.Next() {
 		var r pgstore.LedgerRecord
-		if err := rows.Scan(&r.Version, &r.Name, &r.Checksum); err != nil {
+		if err := rows.Scan(&r.Version, &r.Name, &r.Checksum, &r.AppliedAt); err != nil {
 			t.Fatalf("scan ledger row of %s: %v", schema, err)
 		}
 		out = append(out, r)
@@ -1039,31 +1039,6 @@ func ab05AssertUpgradeLedger(t *testing.T, schema string, seeded, after []pgstor
 	}
 }
 
-// ab05ManifestAdded returns the manifest entries for one series restricted
-// to the given versions, ascending.
-func ab05ManifestAdded(t *testing.T, series pgstore.SeriesID, versions ...int64) []pgstore.HistoryEntry {
-	t.Helper()
-	m, ok := pgstore.LookupManifest(series)
-	if !ok {
-		t.Fatalf("series %s missing from the manifest", series)
-	}
-	want := make(map[int64]bool, len(versions))
-	for _, v := range versions {
-		want[v] = true
-	}
-	var out []pgstore.HistoryEntry
-	for _, e := range m.Entries {
-		if want[e.Version] {
-			out = append(out, e)
-		}
-	}
-	if len(out) != len(versions) {
-		t.Fatalf("series %s: manifest covers %d of requested added versions %v", series, len(out), versions)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
-	return out
-}
-
 // ---------------------------------------------------------------------------
 // PostgreSQL: a schema seeded from the frozen pre-refactor bytes upgrades
 // to the owner history with the ledger unchanged (condition C2 for all
@@ -1103,13 +1078,84 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 
-	t.Run("ExplorerControlPlaneAddsExactly478", func(t *testing.T) {
+	t.Run("ExplorerDeployedSchemaRefusesRetroactive478", func(t *testing.T) {
+		// Condition C3, runtime law half. The pre-refactor DEPLOYED
+		// explorer history was the old owner embed: 1,2,3,5,6,9,10,11 --
+		// versions 4,7,8 existed only as test fixtures, exactly the
+		// ownership gap this ticket closes. The shared runner refuses to
+		// apply any pending version below the highest recorded one
+		// ("add a new version instead of editing history"), so an
+		// already-deployed 11-maximum schema can NEVER retroactively gain
+		// 4/7/8: history editing is impossible, which is the manifest's
+		// immutability clause enforced by the runner. The supported
+		// upgrade witness for the pre-refactor state is the adjacent
+		// fixture-composition subtest; a truly retro-fitted schema would
+		// be surfaced by this refusal as non-owner-assembled.
 		owner, err := explorerpg.OwnerMigrations()
 		if err != nil {
 			t.Fatalf("owner history: %v", err)
 		}
-		// The pre-refactor explorer suites ran owner history minus 4/7/8
-		// plus the three fixture directories loaded from disk.
+		legacy := make([]pgstore.Migration, 0, len(owner))
+		moved := map[int64]bool{4: true, 7: true, 8: true}
+		for _, m := range owner {
+			if !moved[m.Version] {
+				legacy = append(legacy, m)
+			}
+		}
+		schema, seeded := seed(t, "up_explorer_refuse", legacy)
+		if len(seeded) != len(owner)-3 {
+			t.Fatalf("seeded explorer ledger holds %d rows, want %d (pre-refactor deployed composition)", len(seeded), len(owner)-3)
+		}
+		store, err := explorerpg.New(client, schema)
+		if err != nil {
+			t.Fatalf("explorer store: %v", err)
+		}
+		e := explorer.Explorer{
+			Project: "verify-ab05", ExplorerID: "ab05-refuse", Title: "Refusal Survivor",
+			ManagementMode:                explorer.ManagementRepository,
+			DraftConfig:                   json.RawMessage(`{"panels":[]}`),
+			DraftVersion:                  1,
+			DraftDigest:                   "sha256:ab05-refuse",
+			DraftSnapshotToken:            "snap-r",
+			DraftSourceGeneration:         "gen-1",
+			DraftAuthorizationScopeDigest: "authz-r",
+			LastAuthoringCommandID:        "cmd-r",
+			LastAuthoringCommandDigest:    "sha256:cmd-r",
+			LastAuthoringCommandResults:   json.RawMessage(`{"ok":true}`),
+			UpdatedBy:                     "ab05@calypr",
+			UpdatedAt:                     now,
+		}
+		if _, err := store.Create(ctx, e); err != nil {
+			t.Fatalf("create explorer before refusal attempt: %v", err)
+		}
+		_, err = explorerpg.MigrateSchema(ctx, client, schema)
+		if !errors.Is(err, pgstore.ErrMigrationOutOfOrder) {
+			t.Fatalf("retroactive gap-fill was not refused with ErrMigrationOutOfOrder: %v", err)
+		}
+		var outOfOrder *pgstore.OutOfOrderMigrationError
+		if !errors.As(err, &outOfOrder) || outOfOrder.Version != 4 || outOfOrder.LatestRecord != 11 {
+			t.Fatalf("refusal = %+v, want pending version 4 against recorded max 11", outOfOrder)
+		}
+		if after := ab05ReadLedger(t, ctx, admin, schema); !reflect.DeepEqual(after, seeded) {
+			t.Fatalf("the refused retroactive migration mutated the deployed ledger: seeded %v, after %v", seeded, after)
+		}
+		if got, err := store.Get(ctx, e.Project, e.ExplorerID); err != nil || got.Title != "Refusal Survivor" {
+			t.Fatalf("explorer row did not survive the refusal: %+v, %v", got, err)
+		}
+	})
+
+	t.Run("ExplorerControlPlanePreRefactorFixtureCompositionUpgrade", func(t *testing.T) {
+		// Condition C3, no-rerun half: the schema as the pre-refactor
+		// suites actually deployed it -- the old owner embed plus the
+		// three fixture migrations loaded from the frozen snapshots --
+		// upgrades through the new owner entry point to a ledger-identical
+		// no-op: every applied row (including 4/7/8) keeps its exact
+		// (version, name, checksum) identity, the added set is empty, and
+		// a durable row survives.
+		owner, err := explorerpg.OwnerMigrations()
+		if err != nil {
+			t.Fatalf("owner history: %v", err)
+		}
 		legacy := make([]pgstore.Migration, 0, len(owner))
 		moved := map[int64]bool{4: true, 7: true, 8: true}
 		for _, m := range owner {
@@ -1121,12 +1167,30 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		legacy = append(legacy, loadPreRefactor(t, "tests/migrations-interpretations")...)
 		legacy = append(legacy, loadPreRefactor(t, "tests/migrations-selections")...)
 		schema, seeded := seed(t, "up_explorer", legacy)
-		if len(seeded) != len(owner)-3 {
-			t.Fatalf("seeded explorer ledger holds %d rows, want %d (pre-refactor composition)", len(seeded), len(owner)-3)
+		expManifest, _ := pgstore.LookupManifest(pgstore.SeriesExplorerControl)
+		ab05ledgerEqual(t, schema, seeded, expManifest.Entries)
+		// The fixture-supplied 4/7/8 ledger rows equal the sha256 of the
+		// frozen pre-refactor snapshot bytes: what the fixtures applied
+		// then is what the owner embeds now, byte for byte.
+		for _, movedFile := range ab05MovedFiles {
+			if movedFile.series != pgstore.SeriesExplorerControl {
+				continue
+			}
+			disk, err := os.ReadFile(filepath.Join(preRefactorRoot, filepath.FromSlash(movedFile.preRefactor)))
+			if err != nil {
+				t.Fatalf("pre-refactor snapshot %s: %v", movedFile.preRefactor, err)
+			}
+			sum := sha256.Sum256(disk)
+			var row *pgstore.LedgerRecord
+			for i := range seeded {
+				if seeded[i].Version == movedFile.version {
+					row = &seeded[i]
+				}
+			}
+			if row == nil || row.Name != movedFile.name || row.Checksum != hex.EncodeToString(sum[:]) {
+				t.Fatalf("seeded ledger row for %s does not equal the frozen snapshot identity", movedFile.preRefactor)
+			}
 		}
-		// A durable row is inserted through the real Explorer store before
-		// the upgrade; the same table and column contract must still hold
-		// after it.
 		store, err := explorerpg.New(client, schema)
 		if err != nil {
 			t.Fatalf("explorer store: %v", err)
@@ -1153,13 +1217,11 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		if err != nil {
 			t.Fatalf("owner upgrade of a fixture-seeded explorer schema: %v", err)
 		}
-		expManifest, _ := pgstore.LookupManifest(pgstore.SeriesExplorerControl)
 		ab05ledgerEqual(t, schema, after.Applied, expManifest.Entries)
-		// Condition C3: the old deployed composition upgrades to add
-		// exactly {4,7,8}; every shared-version ledger entry is
-		// byte-identical pre/post -- no applied row is re-run.
-		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied,
-			ab05ManifestAdded(t, pgstore.SeriesExplorerControl, 4, 7, 8))
+		// The composition already carries the full owner history: the
+		// upgrade must add nothing and rewrite nothing -- no applied row
+		// is ever re-run.
+		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied, nil)
 		if got, err := store.Get(ctx, e.Project, e.ExplorerID); err != nil || got.Title != "Upgrade Survivor" {
 			t.Fatalf("explorer row did not survive the upgrade: %+v, %v", got, err)
 		}
@@ -1275,7 +1337,7 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewRef: %v", err)
 		}
-		snapshot, err := dataset.NewSchemaSnapshot("urn:ab05-gen-ab05-up", "R5", "sha256:ab05-up", []string{"Observation", "Patient"})
+		snapshot, err := dataset.NewSchemaSnapshot("urn:ab05-gen-ab05-up", "R5", strings.Repeat("0123456789abcdef", 4), []string{"Observation", "Patient"})
 		if err != nil {
 			t.Fatalf("NewSchemaSnapshot: %v", err)
 		}
