@@ -109,8 +109,12 @@ package postgres
 // guard's regexes are calendar-aware precisely so its THEN branches never
 // hand PostgreSQL a string it would reject: the renderer never includes a
 // row it cannot order and never raises on stored data; exclusion is the
-// fail-closed outcome, and the live fixture pins it. A second ordering
-// divergence is closed the same way: INTEGER/DECIMAL ordering comparisons
+// fail-closed outcome, and the live fixture pins it. On the literal side a
+// comma decimal such as 10:20:30,5 is a typed refusal at render time (the
+// spec-bound Go parse rejects it), where AQL would execute the comparison
+// with DATE_TIMESTAMP(literal) folding to NaN and simply match nothing:
+// same visible outcome, zero rows, but refused loudly rather than silently.
+// A second ordering divergence is closed the same way: INTEGER/DECIMAL ordering comparisons
 // over a document path require jsonb_typeof of the stored item to be
 // 'number' before any ordering operator reaches it. PostgreSQL orders jsonb
 // across types as Null, String, Number, Boolean, Array, Object while
@@ -368,6 +372,10 @@ func temporalComparisonValue(kind spec.FilterValueKind, value any) (time.Time, e
 	switch typed := value.(type) {
 	case time.Time:
 		if kind == "" || kind == spec.FilterDate || kind == spec.FilterDateTime {
+			// Normalize to UTC: the same instant, but the bind text
+			// PostgreSQL encodes always carries +00:00, so no time.Time
+			// carrying a local zone can smuggle a displacement past the
+			// ±15:59 range PostgreSQL accepts in a timestamptz cast.
 			return typed.UTC(), nil
 		}
 		return time.Time{}, fmt.Errorf("%w: value kind %q cannot bind a timestamp", ErrUnsupportedPostgresPlan, string(kind))

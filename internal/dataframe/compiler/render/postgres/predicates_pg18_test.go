@@ -536,60 +536,103 @@ func TestZZNoLeftoverVerifySQL05Resources(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// F7/F8 boundary sweep: expected sets come from calendar truth and
-// PostgreSQL's empirically admitted instant space (±15:59 offsets, '.'
-// fractional seconds), not from captured goldens. The property under test
-// is that the rendered statement NEVER raises: every out-of-range stored
-// shape must read never-comparable and be excluded.
+// F7/F8 boundary sweep. Expected kept/excluded sets are derived in-test
+// from calendar rules by sql05ArmOrderableAtOrAfter2020 — an independent
+// implementation (Go stdlib calendar parsing plus one explicit
+// displacement bound) that shares no code with the renderer's regexes —
+// not from captured strings. The property under test is that the rendered
+// statement NEVER raises: every out-of-range stored shape must read
+// never-comparable and be excluded.
+//
+// Empirical anchors (read-only VALUES casts against the live service
+// before the fix): '2024-03-15T10:20:30+16:00', '-16:00', '+23:59' and
+// '-23:59' each raised ERROR: time zone displacement out of range,
+// SQLSTATE 22009; '2024-03-15T10:20:30,5' and '2024-03-15T10:20:30,5Z'
+// raised ERROR: invalid input syntax for type timestamp with time zone,
+// SQLSTATE 22007; control casts of '+15:59', '-15:59', '+14:00' and
+// '30.5Z' succeeded. Those probe results are why the oracle bounds
+// displacement at ±15:59, where Go's own parser would accept ±23:59.
 // ---------------------------------------------------------------------------
+
+// sql05ArmOrderableAtOrAfter2020 decides, independently of the renderer,
+// whether a stored string is inside the space the guard may cast AND
+// orders at or after the filter instant 2020-01-01T00:00:00Z. The Go
+// stdlib owns the calendar (proleptic leap rules, month lengths, 0-23
+// hours, 0-59 minutes/seconds, '.'-only fractional seconds); PostgreSQL's
+// empirically admitted displacement range is applied explicitly.
+func sql05ArmOrderableAtOrAfter2020(value string) bool {
+	bound := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	if strings.Contains(value, ",") {
+		// PostgreSQL raises SQLSTATE 22007 on comma decimals; the guard
+		// must never cast them.
+		return false
+	}
+	if day, err := time.Parse("2006-01-02", value); err == nil {
+		return !day.UTC().Before(bound)
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,                // seconds + offset
+		"2006-01-02T15:04Z07:00",        // minute precision + offset
+		"2006-01-02T15:04:05.999999999", // seconds, no offset (guard appends +00:00)
+		"2006-01-02T15:04",              // minute precision, no offset
+	} {
+		instant, err := time.Parse(layout, value)
+		if err != nil {
+			continue
+		}
+		_, offsetSeconds := instant.Zone()
+		if offsetSeconds > 15*3600+59*60 || offsetSeconds < -(15*3600+59*60) {
+			// SQLSTATE 22009 beyond ±15:59: never cast, never-comparable.
+			return false
+		}
+		return !instant.UTC().Before(bound)
+	}
+	return false
+}
 
 func TestPG18TemporalGuardBoundarySweep(t *testing.T) {
 	svc := newSQL05Service(t)
 
-	// (row, stored recorded value, comparable?) — comparable means the
-	// guard may cast it AND it orders >= 2020-01-01T00:00:00Z.
+	// (row, stored recorded value, rule under test). Kept/excluded is NOT
+	// stored here: sql05ArmOrderableAtOrAfter2020 derives it per arm.
 	arms := []struct {
-		id         string
-		value      string
-		comparable bool
+		id    string
+		value string
+		rule  string
 	}{
-		{"b-1400", "2024-03-15T10:20:30+14:00", true},
-		{"b-1559", "2024-03-15T10:20:30+15:59", true},
-		{"b-1600", "2024-03-15T10:20:30+16:00", false},
-		{"b-1900feb29", "1900-02-29", false},
-		{"b-2000feb29", "2000-02-29", false}, // valid but before the bound
-		{"b-2359", "2024-03-15T10:20:30+23:59", false},
-		{"b-2400feb29", "2400-02-29", true},
-		{"b-apr31", "2024-04-31", false},
-		{"b-badtime", "2024-01-01T25:70:99Z", false},
-		{"b-comma-sec", "2024-03-15T10:20:30,5", false},
-		{"b-comma-z", "2024-03-15T10:20:30,5Z", false},
-		{"b-dec31", "2024-12-31", true},
-		{"b-dot-off", "2024-03-15T10:20:30.5+02:00", true},
-		{"b-dot-z", "2024-03-15T10:20:30.5Z", true},
-		{"b-feb29leap", "2024-02-29", true},
-		{"b-h24", "2024-03-15T24:00:00Z", false},
-		{"b-jun30", "2024-06-30", true},
-		{"b-m1600", "2024-03-15T10:20:30-16:00", false},
-		{"b-m2359", "2024-03-15T10:20:30-23:59", false},
-		{"b-may31", "2024-05-31", true},
-		{"b-min", "2024-03-15T10:20Z", true},
-		{"b-nooff", "2024-03-15T10:20", true},
-		{"b-nov30", "2024-11-30", true},
-		{"b-sec60", "2024-03-15T10:20:60Z", false},
-		{"b-sep31", "2024-09-31", false},
-		{"b-yr0", "0000-01-01", false},
+		{"b-1400", "2024-03-15T10:20:30+14:00", "offset inside admitted range"},
+		{"b-1559", "2024-03-15T10:20:30+15:59", "offset admitted upper bound"},
+		{"b-1600", "2024-03-15T10:20:30+16:00", "offset beyond 15:59 (22009)"},
+		{"b-1900feb29", "1900-02-29", "century non-leap"},
+		{"b-2000feb29", "2000-02-29", "century leap, before the filter bound"},
+		{"b-2359", "2024-03-15T10:20:30+23:59", "offset beyond 15:59 (22009)"},
+		{"b-2400feb29", "2400-02-29", "century leap orders"},
+		{"b-apr31", "2024-04-31", "30-day month"},
+		{"b-badtime", "2024-01-01T25:70:99Z", "time fields out of range"},
+		{"b-comma-sec", "2024-03-15T10:20:30,5", "comma decimal (22007)"},
+		{"b-comma-z", "2024-03-15T10:20:30,5Z", "comma decimal (22007)"},
+		{"b-dec31", "2024-12-31", "31-day month"},
+		{"b-dot-off", "2024-03-15T10:20:30.5+02:00", "dot fraction with offset"},
+		{"b-dot-z", "2024-03-15T10:20:30.5Z", "dot fraction"},
+		{"b-feb29leap", "2024-02-29", "leap day orders"},
+		{"b-h24", "2024-03-15T24:00:00Z", "hour out of range"},
+		{"b-jun30", "2024-06-30", "30-day month ok"},
+		{"b-m1600", "2024-03-15T10:20:30-16:00", "negative offset beyond (22009)"},
+		{"b-m2359", "2024-03-15T10:20:30-23:59", "negative offset beyond (22009)"},
+		{"b-may31", "2024-05-31", "31-day month"},
+		{"b-min", "2024-03-15T10:20Z", "minute precision"},
+		{"b-nooff", "2024-03-15T10:20", "minute precision, no offset"},
+		{"b-nov30", "2024-11-30", "30-day month ok"},
+		{"b-sec60", "2024-03-15T10:20:60Z", "leap second excluded"},
+		{"b-sep31", "2024-09-31", "30-day month"},
+		{"b-yr0", "0000-01-01", "year 0000 never cast (also before bound)"},
 	}
-	var want []string
+	var want [][]string
 	for _, a := range arms {
 		sql05Insert(t, svc, "Encounter", a.id, map[string]any{"recorded": a.value})
-		if a.comparable {
-			want = append(want, sql05RowPrefix+a.id)
+		if sql05ArmOrderableAtOrAfter2020(a.value) {
+			want = append(want, []string{sql05RowPrefix + a.id})
 		}
-	}
-	rows := make([][]string, 0, len(want))
-	for _, id := range want {
-		rows = append(rows, []string{id})
 	}
 
 	plan := sql05Plan("Encounter")
@@ -601,5 +644,45 @@ func TestPG18TemporalGuardBoundarySweep(t *testing.T) {
 		Right:     &ir.PhysicalValue{BindKey: "when_value"},
 	}))
 	// A raise on any arm surfaces here as a fatal statement error.
-	sql05Compare(t, "temporal guard boundary sweep", sql05RenderedSelect(t, svc, plan), rows)
+	sql05Compare(t, "temporal guard boundary sweep", sql05RenderedSelect(t, svc, plan), want)
+}
+
+// TestSQL05TemporalGuardOracleSelfCheck pins the independent oracle's own
+// decisions offline, so a broken oracle cannot silently weaken the live
+// sweep (which is service-gated and would merely skip).
+func TestSQL05TemporalGuardOracleSelfCheck(t *testing.T) {
+	keep := map[string]bool{
+		"2024-03-15T10:20:30+14:00":   true,
+		"2024-03-15T10:20:30+15:59":   true,
+		"2024-03-15T10:20:30.5+02:00": true,
+		"2024-03-15T10:20:30.5Z":      true,
+		"2024-03-15T10:20Z":           true,
+		"2024-03-15T10:20":            true,
+		"2400-02-29":                  true,
+		"2024-02-29":                  true,
+		"2024-12-31":                  true,
+		"2024-05-31":                  true,
+		"2024-06-30":                  true,
+		"2024-11-30":                  true,
+		"2024-03-15T10:20:30+16:00":   false,
+		"2024-03-15T10:20:30-16:00":   false,
+		"2024-03-15T10:20:30+23:59":   false,
+		"2024-03-15T10:20:30-23:59":   false,
+		"2024-03-15T10:20:30,5":       false,
+		"2024-03-15T10:20:30,5Z":      false,
+		"2024-01-01T25:70:99Z":        false,
+		"2024-03-15T24:00:00Z":        false,
+		"2024-03-15T10:20:60Z":        false,
+		"1900-02-29":                  false,
+		"2000-02-29":                  false, // valid but before the bound
+		"2024-04-31":                  false,
+		"2024-09-31":                  false,
+		"0000-01-01":                  false,
+		"2024":                        false,
+	}
+	for value, want := range keep {
+		if got := sql05ArmOrderableAtOrAfter2020(value); got != want {
+			t.Errorf("oracle(%q) = %v, want %v", value, got, want)
+		}
+	}
 }
