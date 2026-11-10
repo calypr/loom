@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"regexp"
@@ -293,6 +294,94 @@ func TestSQL10LiveArithmeticCastCoalesceReadBack(t *testing.T) {
 	witness := svc.run(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource"`+
 			` WHERE project=$1 AND dataset_generation=$2 AND resource_type='Observation' AND logical_id='p-calc'`,
+		sql10Project, sql10Gen)
+	if len(witness) != 1 || witness[0][0] != "1" {
+		t.Fatalf("decoy must exist: %v", witness)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Cross-type comparison pins (review thread r4529630465): the stored-value
+// readings that prove the registered strict-type basis — AQL comparisons
+// "do not perform implicit type casts if the compared operands have
+// different types" (operators.md 39-43) and rank data types before values
+// (fundamentals-type-value-order.md 15-18) — plus the two registered
+// null-padding divergences L19 (fundamentals-type-value-order.md 97-136)
+// and the L15 array-rank NULL. Every expectation names the documented AQL
+// reading of the same pair; pg-sql-05's predicates.go live-pins its
+// ordering divergences the same way.
+// ---------------------------------------------------------------------------
+
+func TestSQL10LiveComparisonCrossTypeReadBack(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-cmp", sql10Path,
+		map[string]any{
+			// Schema-valid Patient slots carrying deliberately cross-type
+			// stored values — the exact posture pg-sql-05's live matrix
+			// uses ("stores a string under a numeric kind to pin it"):
+			// the selector must name a schema field, the payload pins
+			// the stored JSON type.
+			"multipleBirthInteger": 65, "gender": "65", "active": false,
+			"deceasedBoolean":      1,
+			"text":                 map[string]any{"status": "", "div": []any{float64(1)}},
+			"managingOrganization": map[string]any{},
+			"maritalStatus":        map[string]any{"a": nil},
+		})
+	// Type decoy with the same logical id: the row this plan must NOT read.
+	svc.insertResource(t, sql10Project, sql10Gen, "Observation", "p-cmp", sql10Path, nil)
+
+	binds := map[string]any{
+		"str65": "65", "sixtyfive": int64(65), "zero": int64(0),
+		"onepointzero": float64(1), "nul": nil,
+		"arrpad": json.RawMessage(`[1,null]`), "arrplain": json.RawMessage(`[1]`),
+	}
+	num := sql10Extract(t, "Patient", "multipleBirthInteger", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	numstr := sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	flag := sql10Extract(t, "Patient", "active", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	empty := sql10Extract(t, "Patient", "text.status", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	one := sql10Extract(t, "Patient", "deceasedBoolean", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	arr := sql10Extract(t, "Patient", "text.div", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	obj1 := sql10Extract(t, "Patient", "managingOrganization", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	obj2 := sql10Extract(t, "Patient", "maritalStatus", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	// "deceasedDateTime" is never stored: the SQL NULL arm, which AQL
+	// reads as its null scalar (0 == null is false, null == null is true).
+	absent := sql10Extract(t, "Patient", "deceasedDateTime", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+
+	plan := sql10Plan("Patient", binds,
+		// operators.md 47-58: 65 != "65", 0 == null false — no coercion.
+		sql10CallProjection("eq65str", sql10Call("eq", "", num, sql10Literal("str65"))),
+		sql10CallProjection("eq65num", sql10Call("eq", "", num, sql10Literal("sixtyfive"))),
+		sql10CallProjection("neq65str", sql10Call("neq", "", num, sql10Literal("str65"))),
+		sql10CallProjection("eqFalse0", sql10Call("eq", "", flag, sql10Literal("zero"))),
+		sql10CallProjection("eqEmpty0", sql10Call("eq", "", empty, sql10Literal("zero"))),
+		sql10CallProjection("eqAbsent0", sql10Call("eq", "", absent, sql10Literal("zero"))),
+		sql10CallProjection("eqAbsentNull", sql10Call("eq", "", absent, sql10Literal("nul"))),
+		// Cardinal-value numeric equality: 1 == 1.0 true on both engines.
+		sql10CallProjection("eq1eq10", sql10Call("eq", "", one, sql10Literal("onepointzero"))),
+		// Type-rank ordering (fundamentals-type-value-order.md 31-63):
+		// false < 0, null < 0, 0 < '' — and a numeric-form string ranks as
+		// a string, never converted to rank with numbers.
+		sql10CallProjection("gtStrNum", sql10Call("gt", "", numstr, num)),
+		sql10CallProjection("ltNumStr", sql10Call("lt", "", num, numstr)),
+		sql10CallProjection("ltFalseNum", sql10Call("lt", "", flag, num)),
+		sql10CallProjection("ltNullNum", sql10Call("lt", "", absent, num)),
+		// L19 registered divergence: AQL's null-padded traversal reads
+		// [1] == [1, null] and { } == { "a": null } TRUE; jsonb = reads
+		// them false — pinned here as the registered PG reading.
+		sql10CallProjection("eqArrPad", sql10Call("eq", "", arr, sql10Literal("arrpad"))),
+		sql10CallProjection("eqArrSame", sql10Call("eq", "", arr, sql10Literal("arrplain"))),
+		sql10CallProjection("eqObjNullAttr", sql10Call("eq", "", obj1, obj2)),
+		// L15: array/object operands in an ordering comparison read NULL.
+		sql10CallProjection("gtArrNum", sql10Call("gt", "", arr, num)),
+	)
+	svc.runOne(t, svc.renderLive(t, plan),
+		"false", "true", "true", "false", "false", "false", "true", "true",
+		"true", "true", "true", "true",
+		"false", "true", "false", "<null>")
+
+	witness := svc.run(t,
+		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource"`+
+			` WHERE project=$1 AND dataset_generation=$2 AND resource_type='Observation' AND logical_id='p-cmp'`,
 		sql10Project, sql10Gen)
 	if len(witness) != 1 || witness[0][0] != "1" {
 		t.Fatalf("decoy must exist: %v", witness)

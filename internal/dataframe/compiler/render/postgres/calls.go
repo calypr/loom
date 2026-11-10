@@ -22,9 +22,21 @@ package postgres
 // (arithmetic plus the case{eq,or,assert} MissingInput/DivisionByZero
 // wrappers), lower/recipe_column_transformations.go:60-94 (exact-category
 // recode), lower/recipe_construction.go:1787-1814 (the distinct_present_one
-// / length / gt forms — whose SUBPLAN arguments are pg-sql-08's registered
-// surface, not this file's), lower/recipe_construction_related_eligibility.
-// go:226, and lower/recipe_dynamic_columns.go:260. Every registered
+// / length / gt forms — whose SUBPLAN arguments stay unregistered and
+// fail-closed in this wave (pg-sql-08's ratified plan refuses nested
+// subplan scans/SetOps too, so no sibling owns them; registration is a
+// coordinator decision), lower/recipe_construction_related_eligibility.
+// go:226, and lower/recipe_dynamic_columns.go:260. Every producer of the
+// comparison-operator shape is cited, not just the dispatching one:
+// ==/!=/>/>=/</<= reach ArangoDB from renderCall's eq case group
+// (render/aql/calls.go:209-213), the direct physical filters
+// EQUALS/NOT_EQUALS/GT/GTE/LT/LTE (render/aql/predicates.go:38-52), the
+// correlated value-filter arm (predicates.go:238-250), the group-row value
+// match (render/aql/group_rows.go:195), and the row-identity/key matching
+// FILTERs (row_lineage.go:92,128,163,310,338,479,579,597,
+// row_lineage_coded_group.go:39, row_lineage_related_coding.go:156,185 —
+// compiler-minted identifiers only, same operators, same doc governance).
+// Every registered
 // conversion is decided against the official ArangoDB documentation source
 // (github.com/arangodb/docs, 3.9/aql manual set): operators.md:259-277
 // (invalid arithmetic such as 1/0 yields null), operators.md:160-183
@@ -110,18 +122,47 @@ package postgres
 //	                                      'null' scalar first (AQL null is
 //	                                      comparable to null without
 //	                                      null-propagation), then jsonb =
-//	                                      decides (jsonb numeric equality
-//	                                      treats 1 = 1.0 exactly like AQL).
+//	                                      decides. Both engines compare
+//	                                      strictly by type: AQL comparisons
+//	                                      "do not perform implicit type
+//	                                      casts if the compared operands
+//	                                      have different types, i.e. they
+//	                                      test for strict equality"
+//	                                      (operators.md 39-43; documented
+//	                                      examples 0 == null false, 65 !=
+//	                                      "65" true), so number vs numeric
+//	                                      string, false vs 0 and "" vs 0
+//	                                      read false under == and under
+//	                                      jsonb = alike — no coercion is
+//	                                      registered because none exists
+//	                                      to reproduce — and jsonb numeric
+//	                                      equality treats 1 = 1.0 exactly
+//	                                      like AQL. Array/object pairs
+//	                                      carry one registered divergence:
+//	                                      AQL's null-padded traversal reads
+//	                                      [1] == [1, null] and { } ==
+//	                                      { "a": null } true (fundamentals-
+//	                                      type-value-order.md 97-136)
+//	                                      while jsonb = reads them false
+//	                                      (L19, pinned live).
 //	gt, gte, lt, lte                      the documented type order
 //	                                      null < bool < number < string
-//	                                      ranks first, values compare only
-//	                                      within a rank — PostgreSQL's
-//	                                      jsonb cross-type order (predicates
-//	                                      .go:122-124) would misorder
-//	                                      strings against numbers; array/
-//	                                      object operands read NULL (the
+//	                                      ranks first — AQL compares data
+//	                                      types before values and converts
+//	                                      nothing across them (fundamentals-
+//	                                      type-value-order.md 15-18; e.g.
+//	                                      45 <= "yikes!" is true because
+//	                                      number ranks below string,
+//	                                      operators.md 47) — values then
+//	                                      compare only within a rank, so
+//	                                      numeric-form strings never rank
+//	                                      with numbers; PostgreSQL's jsonb
+//	                                      cross-type order (predicates.go:
+//	                                      122-124) would misorder strings
+//	                                      against numbers; array/object
+//	                                      operands read NULL (the
 //	                                      element-wise comparator is a
-//	                                      follow-up), and comparisons
+//	                                      follow-up, L15), and comparisons
 //	                                      never raise.
 //	assert                                ASSERT(cond, message): true
 //	                                      returns the jsonb 'true' scalar;
@@ -458,6 +499,12 @@ func (r *planRenderer) renderCallExpression(plan ir.PhysicalPlan, expression ir.
 		}
 		return "to_jsonb(NOT " + callTruthyTest(operand.sql) + ")", callResultFacts{staticKind: callLiteralBoolean}, nil
 	case "eq", "neq":
+		// Strict-type equality on both sides of the parity line: AQL's
+		// non-strict operator name conceals a type-first comparison that
+		// "do[es] not perform implicit type casts" across types
+		// (operators.md 39-43), so jsonb = reproduces it without coercion
+		// arms; the null-padding array/object divergence is L19 (header
+		// table cell + live pin).
 		left, right, err := r.renderCallPair(plan, call, depth)
 		if err != nil {
 			return "", callResultFacts{}, err
@@ -468,6 +515,11 @@ func (r *planRenderer) renderCallExpression(plan ir.PhysicalPlan, expression ir.
 		}
 		return "to_jsonb(" + equal + ")", callResultFacts{staticKind: callLiteralBoolean}, nil
 	case "gt", "gte", "lt", "lte":
+		// The comparator below is the registered type-first ranking; AQL
+		// converts nothing across type ranks in ordering either
+		// (fundamentals-type-value-order.md 15-18, operators.md 47), so
+		// numeric-form strings rank as strings, exactly as ArangoDB reads
+		// them.
 		left, right, err := r.renderCallPair(plan, call, depth)
 		if err != nil {
 			return "", callResultFacts{}, err
@@ -996,7 +1048,11 @@ func sqlCallComparison(name string) string {
 // so a rank-4 operand never leaks a rank ordering), cross-rank scalar pairs
 // compare by rank, and same-rank values compare with the jsonb operator
 // inside a single type — where the cross-type jsonb order predicates.go
-// measured never enters. The result is total over scalar kinds, matching
+// measured never enters. Nothing coerces across ranks on either engine:
+// AQL compares data types before values ("45 <= \"yikes!\"" is true because
+// number ranks below string; fundamentals-type-value-order.md 15-18,
+// operators.md 39-47), so a numeric-form string ranks as a string here too.
+// The result is total over scalar kinds, matching
 // AQL, where null compares to every value without becoming null itself.
 func callOrderTest(left, operator, right string) string {
 	leftRank := callValueRank(left)
@@ -1190,7 +1246,7 @@ func (r *planRenderer) renderCallArrayOperand(plan ir.PhysicalPlan, expression i
 		}
 		return r.scalarExtractValueExpression(scope.alias, path, expression.NullBehavior)
 	default:
-		return "", fmt.Errorf("%w: distinct_present_one argument kind %q is not registered (subplan arguments belong to the pg-sql-08 sets surface)",
+		return "", fmt.Errorf("%w: distinct_present_one argument kind %q is not registered (subplan arguments stay unregistered in this wave; their registration is a coordinator decision)",
 			ErrUnsupportedPostgresPlan, string(expression.Kind))
 	}
 }
