@@ -13,6 +13,13 @@ package postgres
 //     TRUE: the parent survives with SQL NULL child columns when no
 //     occurrence survives, and every surviving edge occurrence contributes
 //     exactly one row (no multiplicity collapse).
+//   - Unnest owner-route step (the traversal carried by
+//     ir.PhysicalUnnestOwner.Route): the AQL counterpart is the INNER
+//     renderTraversalScan FOR loop that renderUnnest renders inside the
+//     current loop (render/aql/navigation_render.go) — NOT a LET set, so a
+//     parent with zero surviving route occurrences emits zero rows under
+//     both empty policies. The PostgreSQL rendering is a top-level INNER
+//     JOIN edge × target (renderTraversal routeInner=true).
 //   - REQUIRED match filtering (the FILTER operation whose expression is an
 //     EXISTS predicate over a bounded correlated subplan starting with
 //     traversal step(s) — the shape lower/required_match.go lowers for
@@ -231,17 +238,30 @@ func (r *planRenderer) edgeOccurrencePredicates(
 	return edgeWhere, targetOn
 }
 
-// renderTraversal renders one registered depth-one typed traversal as the
-// OPTIONAL parent-preserving edge-occurrence join. The reached target row
-// (and the renderer-owned edge witness) live inside a LEFT JOIN LATERAL
-// subquery whose edge-to-target join is INNER, so each surviving occurrence
-// yields one row and zero surviving occurrences yield exactly one
-// NULL-extended parent row — the LET-set reading of render/aql
-// navigation_render.go renderTraversalSet, never an inner-join exclusion.
-// The target variable becomes a readable optional row (RETURN may project
-// it with SQL NULL columns); the edge variable binds nothing, because
-// edge-scoped predicates are canonical-structural and never plan-addressable.
-func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal) error {
+// renderTraversal renders one registered depth-one typed traversal in one
+// of two AQL-parity shapes selected by routeInner:
+//
+//   - Spine traversal (routeInner=false): the OPTIONAL parent-preserving
+//     edge-occurrence join. The reached target row (and the renderer-owned
+//     edge witness) live inside a LEFT JOIN LATERAL subquery whose
+//     edge-to-target join is INNER, so each surviving occurrence yields one
+//     row and zero surviving occurrences yield exactly one NULL-extended
+//     parent row — the LET-set reading of render/aql navigation_render.go
+//     renderTraversalSet, never an inner-join exclusion. The target variable
+//     becomes a readable optional row (RETURN may project it with SQL NULL
+//     columns); the edge variable binds nothing, because edge-scoped
+//     predicates are canonical-structural and never plan-addressable.
+//
+//   - Unnest owner-route step (routeInner=true): the inner edge scan of
+//     render/aql navigation_render.go renderTraversalScan, which
+//     renderUnnest renders as plain FOR loops inside the current loop —
+//     NOT a LET set. A parent with zero surviving route occurrences emits
+//     zero rows under BOTH PhysicalUnnestExclude and
+//     PhysicalUnnestPreserveParent (the PreserveParent pad row lives in
+//     the expansion, which the route gates). Rendered as a top-level
+//     INNER JOIN edge × target with the target row readable (non-optional)
+//     and the edge witness extended into the total order.
+func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.PhysicalTraversal, routeInner bool) error {
 	source, ok := r.rows[traversal.SourceVariable]
 	if !ok || source.derivedValue != "" {
 		return fmt.Errorf("%w: traversal source variable %q does not bind a readable row (edge variables, set variables, and computed unnest values are not readable)",
@@ -257,6 +277,20 @@ func (r *planRenderer) renderTraversal(plan ir.PhysicalPlan, traversal ir.Physic
 	innerAlias := "x" + strconv.Itoa(seq)
 	lateralAlias := "r" + strconv.Itoa(seq)
 	edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, innerAlias, source.alias)
+
+	if routeInner {
+		// renderTraversalScan parity: the route is an inner edge scan at the
+		// current loop level. Zero surviving occurrences eliminate the parent
+		// row entirely, under either unnest empty policy.
+		join := "INNER JOIN " + r.storage.Edge.Identifier().SQLText() + " AS " + edgeAlias +
+			" ON " + edgeWhere +
+			" INNER JOIN " + r.storage.Resource.Identifier().SQLText() + " AS " + innerAlias +
+			" ON " + targetOn
+		r.joins = append(r.joins, join)
+		r.edgeAliases = append(r.edgeAliases, edgeAlias)
+		r.rows[traversal.TargetVariable] = rowScope{alias: innerAlias, resourceType: verified.targetType}
+		return nil
+	}
 
 	projection := make([]string, 0, len(traversalResourceColumns)+1)
 	for _, column := range traversalResourceColumns {
@@ -307,8 +341,8 @@ func (r *planRenderer) renderRequiredMatchExists(
 	}
 	anchorVariable := subplan.Captures[0]
 	anchor, ok := r.rows[anchorVariable]
-	if !ok || anchor.derivedValue != "" {
-		return predicateFragment{}, fmt.Errorf("%w: required-match subplan capture %q does not bind a readable row (edge variables and computed unnest values cannot anchor a correlation)",
+	if !ok || anchor.derivedValue != "" || anchor.optional {
+		return predicateFragment{}, fmt.Errorf("%w: required-match subplan capture %q does not bind a readable row (edge variables, computed unnest values, and OPTIONAL LEFT JOIN LATERAL rows cannot anchor a correlation; lower/required_match.go always captures the root row, and NULL-extended anchor columns would let subplan FILTERs compare absent rows)",
 			ErrUnsupportedPostgresPlan, anchorVariable)
 	}
 	if err := validateRequiredMatchReturn(plan, subplan); err != nil {
@@ -589,9 +623,14 @@ func (r *planRenderer) renderComparisonFragmentScoped(
 // renderSelectorPredicate (lines 212-266) term for term:
 //
 //   - The selector's value list is normalized exactly as AQL's selector FOR
-//     loop returns it: a missing or JSON-null document path yields zero
-//     values; a stored array yields its non-null elements; any other stored
-//     value yields the single-element list. (ArangoDB propagates undefined
+//     loop returns it for the registered direct-step form: a missing or
+//     JSON-null document path yields zero values; a present, non-null value
+//     yields the single-element list — the value whole, a stored array
+//     included. The non-iterated terminal is LET __value = cur.field
+//     FILTER __value != null RETURN __value (render/aql/selectors.go:343,
+//     extractFinalExpr default at render/aql/selector.go:48-50): arrays are
+//     never unpacked here, matching the main sequence's 0..1-item reading
+//     of the same shape (predicates.go). (ArangoDB propagates undefined
 //     through missing intermediate properties and drops undefined from
 //     RETURN, so every absent/null shape observes zero values; SQL NULL and
 //     the jsonb 'null' scalar are the PostgreSQL counterparts.)
@@ -693,11 +732,17 @@ func (r *planRenderer) renderSelectorMatchFragment(
 }
 
 // selectorValuesExpression validates the canonical REQUIRED-match selector
-// extraction and returns its null-free jsonb value list:
+// extraction and returns its null-free jsonb value list. The registered
+// direct-step form's terminal does NOT unpack stored arrays:
+// render/aql/selectors.go:343 closes the non-iterated chain with
+// LET __value = cur.field FILTER __value != null RETURN __value (the
+// extractFinalExpr default branch, render/aql/selector.go:48-50), so a
+// present, non-null document value yields exactly one value — the value
+// whole, arrays included — exactly as the main sequence registers the same
+// ARRAY/EMPTY_ON_NULL shape (predicates.go 0..1-item reading):
 //
-//	CASE missing|jsonb-null -> '[]'
-//	    array               -> non-null elements
-//	    other               -> [value]
+//	missing | jsonb-null -> '[]'
+//	otherwise            -> [value]
 func (r *planRenderer) selectorValuesExpression(
 	expression ir.PhysicalExpression,
 	rows map[string]rowScope,
@@ -788,6 +833,5 @@ func (r *planRenderer) selectorValuesExpression(
 	}
 	document := "(" + extract_ + ")"
 	return "(CASE WHEN " + document + " IS NULL OR jsonb_typeof(" + document + ") = 'null' THEN '[]'::jsonb" +
-		" WHEN jsonb_typeof(" + document + ") = 'array' THEN COALESCE((SELECT jsonb_agg(__elem.e) FROM jsonb_array_elements(" + document + ") AS __elem(e) WHERE __elem.e <> 'null'::jsonb), '[]'::jsonb)" +
 		" ELSE jsonb_build_array(" + document + ") END)", nil
 }

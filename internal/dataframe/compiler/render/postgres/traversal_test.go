@@ -400,12 +400,12 @@ func TestRenderRequiredMatchTypedSubplanFilters(t *testing.T) {
 		// The value list mirrors the AQL selector FOR loop exactly
 		// (render/aql/predicates.go renderSelectorPredicate + the value-list
 		// normalization of renderSelectorArrayFromSource): missing/JSON-null
-		// yields [], a stored array yields its non-null elements, and any
-		// other stored value yields the single-element list. ANY is the
-		// default quantifier (predicates.go:256-258).
+		// yields [], and a present non-null value yields the single-element
+		// list — the value whole, arrays included (the non-iterated
+		// terminal never unpacks: selectors.go:343, selector.go:48-50). ANY
+		// is the default quantifier (predicates.go:256-258).
 		document := `(x1."payload" #> $7::text[])`
 		values := "(CASE WHEN " + document + " IS NULL OR jsonb_typeof(" + document + ") = 'null' THEN '[]'::jsonb" +
-			" WHEN jsonb_typeof(" + document + ") = 'array' THEN COALESCE((SELECT jsonb_agg(__elem.e) FROM jsonb_array_elements(" + document + ") AS __elem(e) WHERE __elem.e <> 'null'::jsonb), '[]'::jsonb)" +
 			" ELSE jsonb_build_array(" + document + ") END)"
 		want := `AND (EXISTS (SELECT 1 FROM jsonb_array_elements(` + values + `) AS __sv(v) WHERE (__sv.v) = ($8::jsonb)))`
 		if !strings.Contains(rendered.SQL, want) {
@@ -771,6 +771,20 @@ func TestTraversalRefusalMatrix(t *testing.T) {
 			plan.Operations[1].Filter.Expression.Exists.Operations[1].Traversal.SourceVariable = "root"
 			return plan
 		}(), "must anchor on"},
+		{"exists anchored on optional row", func() ir.PhysicalPlan {
+			plan := trvTraversalPlan(ir.PhysicalOutbound, "to_type", "has-specimen", "Specimen")
+			sub := trvRequiredSubplan(trvSubplanTraversal("target", "deep", "edge_label", "target_type"))
+			// lower/required_match.go always captures the root row; a
+			// NULL-extensible OPTIONAL row as the correlation anchor would
+			// let subplan FILTERs compare absent rows.
+			sub.Captures = []string{"target"}
+			plan.BindVars["required_match_result"] = 1
+			filterOp := ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{
+				Expression: &ir.PhysicalPredicateExpression{Kind: ir.PhysicalExistsPredicate, Exists: &sub},
+			}}
+			plan.Operations = append(plan.Operations[:2], append([]ir.PhysicalOperation{filterOp}, plan.Operations[2:]...)...)
+			return plan
+		}(), "cannot anchor a correlation"},
 	}
 
 	// Rows the ir-plan gate closes ahead of the renderer
@@ -1070,7 +1084,10 @@ func TestRequiredMatchSelectorFilterRefusals(t *testing.T) {
 
 func TestRequiredMatchSelectorFilterRegisteredForms(t *testing.T) {
 	// The probe's parameter counter starts empty: path binds $1, value $2.
-	const valuesPin = `(CASE WHEN (x1."payload" #> $1::text[]) IS NULL OR jsonb_typeof((x1."payload" #> $1::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((x1."payload" #> $1::text[])) = 'array' THEN COALESCE((SELECT jsonb_agg(__elem.e) FROM jsonb_array_elements((x1."payload" #> $1::text[])) AS __elem(e) WHERE __elem.e <> 'null'::jsonb), '[]'::jsonb) ELSE jsonb_build_array((x1."payload" #> $1::text[])) END)`
+	// The registered direct-step terminal never unpacks a stored array
+	// (render/aql/selectors.go:343, extractFinalExpr default at
+	// render/aql/selector.go:48-50): the value list is 0..1 items.
+	const valuesPin = `(CASE WHEN (x1."payload" #> $1::text[]) IS NULL OR jsonb_typeof((x1."payload" #> $1::text[])) = 'null' THEN '[]'::jsonb ELSE jsonb_build_array((x1."payload" #> $1::text[])) END)`
 	cases := []struct {
 		name string
 		edit func(*ir.PhysicalExtract, *ir.PhysicalExpression, *ir.PhysicalPredicate)
@@ -1449,17 +1466,24 @@ func TestPG18RequiredMatchExcludesUnmatchedParents(t *testing.T) {
 func TestPG18RequiredMatchWithTypedPayloadFilter(t *testing.T) {
 	svc := newPGIR02Service(t, 0)
 	trvTrackFixtures(t, svc)
-	for _, id := range []string{"p-a", "p-b", "p-c", "p-d"} {
+	for _, id := range []string{"p-a", "p-b", "p-c", "p-d", "p-e"} {
 		svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", id, "FHIR/Patient", nil)
 	}
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-f", "FHIR/Specimen", map[string]any{"status": "final"})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-p", "FHIR/Specimen", map[string]any{"status": "prelim"})
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-m", "FHIR/Specimen", nil)
+	// A stored ARRAY at the selector terminal is ONE value (the whole
+	// array), never unpacked by the non-iterated terminal
+	// (render/aql/selectors.go:343, selector.go:48-50): ["final"] EQUALS
+	// "final" must not match, so p-e is excluded. An implementation that
+	// unpacked stored arrays would wrongly include p-e here.
+	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-a", "FHIR/Specimen", map[string]any{"status": []any{"final"}})
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-a", "st-f", "specimen[0]"))
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-b", "st-p", "specimen[0]"))
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-c", "st-m", "specimen[0]"))
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-d", "st-f", "specimen[0]"))
 	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-d", "st-p", "specimen[1]"))
+	svc.insertEdge(t, pgstoreEdgeRow(itProject, itGeneration, "has-specimen", "p-e", "st-a", "specimen[0]"))
 
 	payloadFilter := trvPayloadMatchPredicate("child", "Specimen", "EQUALS", spec.FilterString, "status")
 	plan := trvLiveRequiredPlan("Patient", "has-specimen", "Specimen",

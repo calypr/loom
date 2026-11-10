@@ -27,9 +27,11 @@
 // predicate rendering and its capability registration live in
 // predicates.go) — boolean ALL/ANY/NOT predicate trees, depth-one typed
 // edge-occurrence traversals rendered by traversal.go — the OPTIONAL
-// parent-preserving LEFT JOIN LATERAL child join and the REQUIRED match
-// EXISTS semi-join, whose subplan payload filter re-reads the
-// predicates.go comparison contract over the reached child rows — one
+// parent-preserving LEFT JOIN LATERAL child join, the REQUIRED match EXISTS
+// semi-join (whose subplan payload filter re-reads the predicates.go
+// comparison contract over the reached child rows), and the unnest
+// owner-route step as an inner edge scan (renderTraversalScan parity: zero
+// route occurrences eliminate the parent under either empty policy) — one
 // column sort with deterministic identity tie-breaks, one bound limit, and
 // one positional return projection. The JSON-array cardinality boundary
 // (UNNEST, pg-sql-09) is registered in unnest.go as its own closed
@@ -257,7 +259,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if phase != 0 {
 				return fmt.Errorf("%w: traversals must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
-			if err := r.renderTraversal(plan, *operation.Traversal); err != nil {
+			if err := r.renderTraversal(plan, *operation.Traversal, false); err != nil {
 				return err
 			}
 		case ir.PhysicalUnnestOp:
