@@ -11,6 +11,7 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/store/arango"
 )
@@ -1137,7 +1138,10 @@ func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *test
 			return visit(map[string]any{"sampleRows": int64(512), "distinctProjections": int64(2), "serializedCharacters": int64(40)})
 		case commandText(t, factoredCommand):
 			factoredCalls++
-			return fmt.Errorf("arango query: %w", wantErr)
+			// The production AQL adapter classifies its own driver failures
+			// at the seam; this fake simulates a correctly wired adapter.
+			translated, _ := arango.TranslateQueryError(fmt.Errorf("arango query: %w", wantErr))
+			return translated
 		case commandText(t, query.Command):
 			ordinaryCalls++
 			return visit(map[string]any{"category": "ordinary", "rows": int64(1)})
@@ -1146,8 +1150,14 @@ func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *test
 		}
 	}
 	_, err := engine.PreviewOutput(context.Background(), resolved, PreviewRequest{Output: "semantic_group_projection", Limit: 600}, func(map[string]any) error { return nil })
-	if !arango.IsQueryResourceLimitExceeded(err) {
-		t.Fatalf("preview error=%v, want original factored-query error", err)
+	// Execution consumes the classified Loom error; the vendor cause stays
+	// reachable through the chain exactly as when the server classified it.
+	userErr, isUser := dataframeerrors.AsUserError(err)
+	if !isUser || userErr.Code() != string(dataframeerrors.CodeQueryMemoryLimitExceeded) {
+		t.Fatalf("preview error=%#v, want classified QUERY_MEMORY_LIMIT_EXCEEDED factored-query error", err)
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("driver cause lost through the classified preview failure: %v", err)
 	}
 	if countCalls != 1 || sampleCalls != 1 || factoredCalls != 1 || ordinaryCalls != 0 {
 		t.Fatalf("first preview count/sample/factored/ordinary=%d/%d/%d/%d, want 1/1/1/0", countCalls, sampleCalls, factoredCalls, ordinaryCalls)

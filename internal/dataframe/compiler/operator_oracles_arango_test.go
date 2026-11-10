@@ -402,10 +402,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	windowMalformedTimeCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-window-malformed-time", TranslationVersion: "1", Outputs: []recipe.Output{windowedSummary},
 	}, projects["window-malformed-time"], generation)
-	windowMalformedTimeRows, windowMalformedTimeErr := queryOracleOutput(ctx, client, windowMalformedTimeCompiled.Outputs[0])
-	if windowMalformedTimeErr == nil || !strings.Contains(windowMalformedTimeErr.Error(), "TEMPORAL_PRECISION_UNSUPPORTED") {
-		t.Fatalf("windowed malformed-time query returned rows=%#v error=%v; want TEMPORAL_PRECISION_UNSUPPORTED", windowMalformedTimeRows, windowMalformedTimeErr)
-	}
+	_, windowMalformedTimeErr := queryOracleOutput(ctx, client, windowMalformedTimeCompiled.Outputs[0])
+	requireStableRuntimeCode(t, windowMalformedTimeErr, "TEMPORAL_PRECISION_UNSUPPORTED")
 	rows := executeOracleQuery(t, ctx, client, mainCompiled.Outputs[0])
 	if len(rows) != len(wants) {
 		t.Fatalf("summary rows = %#v, want %d patient rows", rows, len(wants))
@@ -599,10 +597,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	uniqueCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unique-tie", TranslationVersion: "1", Outputs: []recipe.Output{uniqueTemporal},
 	}, projects["main"], generation)
-	uniqueRows, uniqueErr := queryOracleOutput(ctx, client, uniqueCompiled.Outputs[0])
-	if uniqueErr == nil || !strings.Contains(uniqueErr.Error(), "TEMPORAL_TIE_AMBIGUOUS") {
-		t.Fatalf("REQUIRE_UNIQUE temporal query returned rows=%#v error=%v; want TEMPORAL_TIE_AMBIGUOUS", uniqueRows, uniqueErr)
-	}
+	_, uniqueErr := queryOracleOutput(ctx, client, uniqueCompiled.Outputs[0])
+	requireStableRuntimeCode(t, uniqueErr, "TEMPORAL_TIE_AMBIGUOUS")
 	uniqueWindowed := windowedSummary
 	uniqueWindowed.Name = "unique_windowed_temporal"
 	uniqueAggregate := windowedSummary.Traversals[0].Aggregates[6]
@@ -616,10 +612,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	uniqueWindowedCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unique-windowed-tie", TranslationVersion: "1", Outputs: []recipe.Output{uniqueWindowed},
 	}, projects["main"], generation)
-	uniqueWindowedRows, uniqueWindowedErr := queryOracleOutput(ctx, client, uniqueWindowedCompiled.Outputs[0])
-	if uniqueWindowedErr == nil || !strings.Contains(uniqueWindowedErr.Error(), "TEMPORAL_TIE_AMBIGUOUS") {
-		t.Fatalf("windowed REQUIRE_UNIQUE query returned rows=%#v error=%v; want TEMPORAL_TIE_AMBIGUOUS for the two eligible Jan 2 items", uniqueWindowedRows, uniqueWindowedErr)
-	}
+	_, uniqueWindowedErr := queryOracleOutput(ctx, client, uniqueWindowedCompiled.Outputs[0])
+	requireStableRuntimeCode(t, uniqueWindowedErr, "TEMPORAL_TIE_AMBIGUOUS")
 
 	unsupportedOutput := recipe.Output{
 		Name: "unsupported_unit", RootResourceType: "Patient", RowGrain: "patient",
@@ -630,10 +624,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	unsupportedCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unsupported-unit", TranslationVersion: "1", Outputs: []recipe.Output{unsupportedOutput},
 	}, projects["unsupported"], generation)
-	unsupportedRows, unsupportedErr := queryOracleOutput(ctx, client, unsupportedCompiled.Outputs[0])
-	if unsupportedErr == nil || !strings.Contains(unsupportedErr.Error(), "UNIT_IDENTITY_UNKNOWN") {
-		t.Fatalf("unsupported-unit query returned rows=%#v error=%v; want UNIT_IDENTITY_UNKNOWN for UCUM furlong", unsupportedRows, unsupportedErr)
-	}
+	_, unsupportedErr := queryOracleOutput(ctx, client, unsupportedCompiled.Outputs[0])
+	requireStableRuntimeCode(t, unsupportedErr, "UNIT_IDENTITY_UNKNOWN")
 
 	missingTimeOutput := recipe.Output{
 		Name: "missing_time", RootResourceType: "Patient", RowGrain: "patient",
