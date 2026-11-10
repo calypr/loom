@@ -995,9 +995,34 @@ func callDoubleOperand(numericOperand string) string {
 // where its double quotient overflows to Infinity — invalid, null again).
 // This keeps a zero-valued double out of the divisor position, which would
 // raise SQLSTATE 22037.
+//
+// The cast additionally refuses a NON-EXACT round trip —
+// ((operand)::double precision)::numeric = operand (F-9): a divisor in
+// [callDoubleSubnormalFloor, ~7.41e-324) rounds to the minimum subnormal
+// on cast (drift up to ~1.5x), so the numeric-domain band test can pass
+// while the executed double division overflows to Infinity and PG18
+// raises 22003 inside the pass arm (measured: 1.25e-15 ÷ 7.4e-324 — band
+// quotient 1.689e308 passes, double quotient 2.53e308 raises). Dividing
+// amplifies divisor drift, so the 2^973 (relative 2^-52) band margin,
+// which covers operand parsing error for products and sums, cannot cover
+// it. A divisor that round-trips exactly carries zero cast drift and the
+// margin holds; a divisor that does not takes the registered NULL band —
+// where IEEE speaks it agrees (its parse is the drifted cast and a
+// quotient that overflowed is Infinity, read back as invalid → null per
+// operators.md 259-262), and where IEEE's quotient is finite (a tiny
+// dividend against a drift-band divisor, e.g. 1e-16 ÷ 4.9406564584124654e-324)
+// the registered NULL is a documented fail-closed divergence from a
+// value only a subnormal-band divisor can produce (PG18 probed: every
+// subnormal-band spelling, including the shortest round-trip text of the
+// minimum subnormal, refuses the round trip). Normal-range registered
+// divisors all pass the guard (probed: 2, 3, 0.2, 0.3, 0.5, 100000,
+// 1e308) — the executed IEEE-parity cells are byte-identical. The cast
+// sits inside the abs < callDoubleOverflowBound band, so neither cast can
+// raise.
 func callDoubleDivisor(numericOperand string) string {
 	return "(CASE WHEN abs(" + numericOperand + ") < '" + callDoubleOverflowBound + "'::numeric" +
 		" THEN CASE WHEN abs(" + numericOperand + ") >= '" + callDoubleSubnormalFloor + "'::numeric" +
+		" AND ((" + numericOperand + ")::double precision)::numeric = " + numericOperand +
 		" THEN (" + numericOperand + ")::double precision ELSE NULL END" +
 		" ELSE NULL END)"
 }
@@ -1120,14 +1145,28 @@ const callDecimalWhitespace = " \t\n\v\f\r"
 // conservative NULL (fail-closed, never a wrong number).
 //
 // callDecimalUnderflowIntegerDigits × callDecimalUnderflowMinExponentDigits
-// make provability arithmetic, not measurement: the mantissa is
-// < 10^(callDecimalUnderflowIntegerDigits) (the fraction only shrinks
-// it), the negative exponent is ≤ -10^(callDecimalUnderflowMinExponentDigits-1)
-// = -10000, so the value is < 10^-9901 — below the gradual-subnormal
-// floor 4.95e-324, provably rounding to IEEE 0. Loosening the exponent
-// bound below 5 admits 2-4-digit exponents (min magnitude 10, 100, 1000)
-// under which a 99-digit mantissa is not provably zero, and the
-// structural test dies naming that arithmetic.
+// make provability arithmetic, not measurement — and the claim is made
+// on NUMERIC magnitudes, never glyph counts (F-8 review, verifier 136's
+// provability spoof: [0-9]{5,} admitted "00001", whose value is -1, so
+// "0.999…(18000 9s)e-00001" read the registered 0 while its value is
+// ~0.1 — the "underflow" came from scale overflow, not a provably tiny
+// value). The mantissa is < 10^(callDecimalUnderflowIntegerDigits): at
+// most 99 INTEGER digits (the fraction and any mantissa leading zeros
+// only shrink the value). The exponent requires a NONZERO first digit,
+// so its magnitude is arithmetically ≥ 10^(callDecimalUnderflowMinExponentDigits-1)
+// = 10000 — a leading-zero exponent like "e-00001" never claims
+// provability — and the value is < 10^99 × 10^-10000 = 10^-9901, below
+// the gradual-subnormal floor 4.9406564584124654e-324, provably
+// rounding to IEEE 0. Leading-zero exponents are NOT refused as
+// non-matching spellings: the registered grammar's authorities accept
+// them as valid number representations (JSON's exponent grammar and
+// PostgreSQL's numeric/float8 input), so oracle-accepted texts like
+// "1e-00001" keep their exact cast reading (0.1); only the
+// provable-underflow CLAIM requires the arithmetic, and oracle-rejected
+// texts the claim can no longer cover take the fail-closed NULL arm.
+// Loosening the exponent bound below 5 admits 2-4-digit exponents (min
+// magnitude 10, 100, 1000) under which a 99-digit mantissa is not
+// provably zero, and the structural test dies naming that arithmetic.
 const (
 	callDecimalUnderflowIntegerDigits     = 99
 	callDecimalUnderflowMinExponentDigits = 5
@@ -1146,16 +1185,20 @@ var callDecimalZeroPattern = `^` + callWhitespaceRegexClass() + `*[+-]?` +
 
 // callDecimalUnderflowPattern matches a tiny mantissa (at most
 // callDecimalUnderflowIntegerDigits integer digits; the fraction cannot
-// push the value past one) against a negative exponent of at least
-// callDecimalUnderflowMinExponentDigits digits — provably IEEE-zero per
-// the constant-pair arithmetic above — so the registered 0 matches the
-// band-arm reading the spellings just inside the oracle's boundary
-// already take ("1e-10000" parses in numeric and band-reads 0;
-// "1e-999999999999" overflows the oracle and reads the same 0).
+// push the value past one) against a NEGATIVE exponent whose first digit
+// is nonzero, giving at least callDecimalUnderflowMinExponentDigits
+// digits — provably IEEE-zero per the constant-pair arithmetic above —
+// so the registered 0 matches the band-arm reading the spellings just
+// inside the oracle's boundary already take ("1e-10000" parses in
+// numeric and band-reads 0; "1e-999999999999" overflows the oracle and
+// reads the same 0). Leading-zero exponents ("e-00001") are excluded:
+// their value is not arithmetically bounded, so they never claim the
+// provable-underflow reading (the cast arm or the fail-closed NULL arm
+// answer them instead).
 var callDecimalUnderflowPattern = `^` + callWhitespaceRegexClass() + `*[+-]?` +
 	"[0-9]{1," + strconv.Itoa(callDecimalUnderflowIntegerDigits) + `}` +
 	`(\.[0-9]*)?[eE]-` +
-	"[0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits) + ",}" +
+	"[1-9][0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits-1) + ",}" +
 	callWhitespaceRegexClass() + `*$`
 
 // callDecimalStringPattern is the conservative registered numeric shape:

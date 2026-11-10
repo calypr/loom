@@ -488,17 +488,91 @@ func TestSQL10LiveDecimalTierRejectedReads(t *testing.T) {
 	svc := newSQL10Service(t)
 	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-oracle", sql10Path,
 		map[string]any{
-			"meta": map[string]any{"versionId": "0." + strings.Repeat("9", 18000)},
-			"text": map[string]any{"div": "0." + strings.Repeat("0", 18000) + "e99999"},
+			"meta": map[string]any{
+				"versionId": "0." + strings.Repeat("9", 18000),
+				// F-8 provability spoof (verifier 136's spec cells):
+				// scale-overflow texts with leading-zero exponents —
+				// values ~0.1 and ~1e98 that the digit-count arm used
+				// to spoof into the registered 0.
+				"source":      "0." + strings.Repeat("9", 18000) + "e-00001",
+				"lastUpdated": strings.Repeat("9", 99) + "." + strings.Repeat("9", 20000) + "e-00001",
+			},
+			"text": map[string]any{
+				"div": "0." + strings.Repeat("0", 18000) + "e99999",
+				// The oracle-accepted leading-zero exponent: the cast
+				// arm answers it exactly (never the underflow arm).
+				"status": "1e-00001",
+			},
 		})
 	frac := sql10Extract(t, "Patient", "meta.versionId", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
 	zeroScaled := sql10Extract(t, "Patient", "text.div", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	spoofTiny := sql10Extract(t, "Patient", "meta.source", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	spoofHuge := sql10Extract(t, "Patient", "meta.lastUpdated", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
 	plan := sql10Plan("Patient", map[string]any{"zero": int64(0)},
 		sql10CallProjection("fracCast", sql10Call("cast", "INTEGER", frac)),
 		sql10CallProjection("fracAdd", sql10Call("add", "", frac, sql10Literal("zero"))),
 		sql10CallProjection("zeroCast", sql10Call("cast", "INTEGER", zeroScaled)),
+		// Fail-closed NULL, never the spoofed 0.
+		sql10CallProjection("spoofTiny", sql10Call("cast", "INTEGER", spoofTiny)),
+		sql10CallProjection("spoofHuge", sql10Call("cast", "INTEGER", spoofHuge)),
 	)
-	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "0")
+	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "0", "<null>", "<null>")
+}
+
+// TestSQL10LiveDecimalTierLeadingZeroExponent pins the cast-arm side of
+// the F-8 disposition: a leading-zero exponent is a valid representation
+// the grammar keeps (JSON's exponent grammar and PostgreSQL's numeric
+// input accept it), so the oracle-gated cast answers it exactly —
+// "1e-00001" reads 0.1 through TO_NUMBER, never the provable-underflow
+// 0 and never the fail-closed NULL.
+func TestSQL10LiveDecimalTierLeadingZeroExponent(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-lzero", sql10Path,
+		map[string]any{"text": map[string]any{"status": "1e-00001"}})
+	status := sql10Extract(t, "Patient", "text.status", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	plan := sql10Plan("Patient", nil,
+		sql10CallProjection("toNum", sql10Call("cast", "DECIMAL", status)),
+	)
+	svc.runOne(t, svc.renderLive(t, plan), "0.1")
+}
+
+// TestSQL10LiveDivisorRoundTripReadBack pins the F-9 disposition: a
+// pass-band division whose divisor drifts on the double cast (the
+// subnormal band [callDoubleSubnormalFloor, ~7.41e-324) rounds to the
+// minimum subnormal, shrinking the divisor and inflating the executed
+// quotient past the tie) takes the registered NULL instead of PG18's
+// 22003 "value out of range: overflow" inside the pass arm (the exact
+// reviewer reproduction: 1.25e-15 ÷ 7.4e-324 — band quotient 1.689e308
+// passes, the drifted double quotient would be 2.53e308). The
+// minimum-subnormal spelling pair is the registered fail-closed
+// divergence (IEEE's quotient 1e-16 ÷ 4.9406564584124654e-324 is a
+// finite ~2.02e307; only drift-band divisors can reach this arm, and
+// every subnormal-band spelling refuses the round-trip guard, probed).
+// The sanity pair proves normal-range registered divisors are byte-
+// identical with the guard in place.
+func TestSQL10LiveDivisorRoundTripReadBack(t *testing.T) {
+	svc := newSQL10Service(t)
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-drift", sql10Path,
+		map[string]any{
+			"multipleBirthInteger": json.RawMessage(`1.25e-15`),
+			"deceasedBoolean":      json.RawMessage(`7.4e-324`),
+			"deceasedDateTime":     json.RawMessage(`1e-16`),
+			"gender":               json.RawMessage(`4.9406564584124654e-324`),
+			"maritalStatus":        json.RawMessage(`10`),
+			"managingOrganization": json.RawMessage(`4`),
+		})
+	num := func(path string) ir.PhysicalExpression {
+		return sql10Extract(t, "Patient", path, ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	}
+	plan := sql10Plan("Patient", nil,
+		sql10CallProjection("driftDiv", sql10Call("divide", "",
+			num("multipleBirthInteger"), num("deceasedBoolean"))),
+		sql10CallProjection("minSubDiv", sql10Call("divide", "",
+			num("deceasedDateTime"), num("gender"))),
+		sql10CallProjection("sanityDiv", sql10Call("divide", "",
+			num("maritalStatus"), num("managingOrganization"))),
+	)
+	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "2.5")
 }
 
 // TestSQL10LiveDecimalTierStoredNumbers pins the number side of F-7:

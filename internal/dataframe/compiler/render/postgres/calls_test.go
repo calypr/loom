@@ -286,10 +286,13 @@ func sql10WantDoubleOperand(expression string) string {
 
 // sql10WantDoubleDivisor mirrors the divisor parse: zero and subnormal-
 // floor regions NULL (never a zero-valued double reaches the division),
+// non-exact double round-trips NULL (F-9: a drifting subnormal-band
+// divisor could overflow the executed division to an Infinity raise),
 // overflow NULL, exact cast otherwise.
 func sql10WantDoubleDivisor(expression string) string {
 	return `(CASE WHEN abs(` + expression + `) < '` + sql10WantOverflowBound + `'::numeric` +
 		` THEN CASE WHEN abs(` + expression + `) >= '` + sql10WantSubnormalFloor + `'::numeric` +
+		` AND ((` + expression + `)::double precision)::numeric = ` + expression +
 		` THEN (` + expression + `)::double precision ELSE NULL END` +
 		` ELSE NULL END)`
 }
@@ -395,7 +398,10 @@ func TestCallsWhitespaceSingleSource(t *testing.T) {
 // and the live battery cells die with a 22003 raise.
 func TestCallsDecimalTierSingleSource(t *testing.T) {
 	// Provable-IEEE-zero arithmetic: mantissa < 10^UD, exponent
-	// ≤ -10^(MD-1), so the value magnitude is 10^(UD - 10^(MD-1)).
+	// ≤ -10^(MD-1) — the bound holds because the exponent's FIRST digit
+	// is nonzero (a leading-zero exponent spells a small value and must
+	// never claim provability: "e-00001" is -1, verifier 136's
+	// provability spoof) — so the value magnitude is 10^(UD - 10^(MD-1)).
 	// Below the gradual-subnormal floor (≈10^-323.4) means the exponent
 	// difference must beat 324.
 	tenTo := func(n int) int {
@@ -414,12 +420,16 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 			callDecimalUnderflowMinExponentDigits-1, callDecimalUnderflowIntegerDigits, margin)
 	}
 	// The only bounded digit quantifiers the grammar may contain,
-	// derived from the two underflow constants — and every repetition
-	// count anywhere stays within PG18's measured regex limit (a larger
-	// count is a compile error server-side, SQLSTATE 2201B).
+	// derived from the two underflow constants — the exponent arm's
+	// count is MD-1 because its first digit is [1-9] — and every
+	// repetition count anywhere stays within PG18's measured regex limit
+	// (a larger count is a compile error server-side, SQLSTATE 2201B).
 	derived := map[string]bool{
-		"[0-9]{1," + strconv.Itoa(callDecimalUnderflowIntegerDigits) + "}":    true,
-		"[0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits) + ",}": true,
+		"[0-9]{1," + strconv.Itoa(callDecimalUnderflowIntegerDigits) + "}":      true,
+		"[0-9]{" + strconv.Itoa(callDecimalUnderflowMinExponentDigits-1) + ",}": true,
+	}
+	if !strings.Contains(callDecimalUnderflowPattern, `[eE]-[1-9]`) {
+		t.Fatalf("underflow exponent lost its nonzero leading digit: %q", callDecimalUnderflowPattern)
 	}
 	quantifier := regexp.MustCompile(`\[(?:0-9|0)\]\{(\d+)(?:,(\d*))?\}`)
 	tiers := map[string]string{
@@ -465,6 +475,25 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	}
 	if tiny.MatchString("1e-9999") {
 		t.Fatal("tiny tier admits an exponent below the registered digit bound")
+	}
+	// The provability spoof (verifier 136): leading-zero exponents spell
+	// SMALL values and must never claim the provable-underflow reading —
+	// a wrong 0 is worse than a raise. Both red probes (scale-overflow
+	// texts whose values are ~0.1 and ~1e98) and a normal-magnitude
+	// mantissa must fall through to the oracle-gated cast (which answers
+	// "1e-00001" with 0.1) or the fail-closed NULL arm.
+	for _, spoof := range []string{
+		"1e-00001",
+		"0." + strings.Repeat("9", 18000) + "e-00001",
+		strings.Repeat("9", 99) + "." + strings.Repeat("9", 20000) + "e-00001",
+		"9.9e-09999",
+	} {
+		if tiny.MatchString(spoof) {
+			t.Fatalf("provable-underflow arm admits leading-zero exponent %q", spoof)
+		}
+	}
+	if !wide.MatchString("1e-00001") {
+		t.Fatal(`"1e-00001" must stay inside the registered shape (the cast arm answers it)`)
 	}
 	// Both guard sites embed the registered arm shape: the shape test,
 	// then the oracle-gated cast (the textual cast strictly after its
