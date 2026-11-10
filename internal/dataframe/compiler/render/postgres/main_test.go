@@ -24,11 +24,14 @@ import (
 // pg-sql-06's delta-scoped fixture audit (traversal_test.go
 // trvRunDeltaAudit) wraps m.Run here; it snapshots the disjoint
 // pgir02_it_* namespace around the run, so both audits see the full
-// package run state. pg-sql-15's delta-scoped audit (unpivot_test.go
-// unpRunDeltaAudit) wraps that pair around the run over its own disjoint
-// verify_sql15_* namespace, composing three independent delta audits.
+// package run state. pg-sql-08's disjoint sets08_it_* namespace audit
+// (sets_live_test.go sets08RunDeltaAudit) wraps that, so each ticket owns
+// exactly its own prefix (sets_live_test.go). pg-sql-15's delta-scoped
+// audit (unpivot_test.go unpRunDeltaAudit) wraps that pair around the run
+// over its own disjoint verify_sql15_* namespace, composing three
+// independent delta audits.
 func TestMain(m *testing.M) {
-	code := unpRunDeltaAudit(func() int { return trvRunDeltaAudit(m) })
+	code := unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) })
 	if err := auditNoLeftoverVerifySQL05(); err != nil {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 		if code == 0 {

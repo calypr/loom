@@ -53,19 +53,29 @@
 // with the cohort guards rendered as an uncorrelated guard InitPlan that
 // also carries the canonical deny; without a binding — every plain
 // RenderPhysicalPlan path — membership roots remain capability gaps that
-// return typed errors, never an AQL fallback. The terminal melt (UNPIVOT,
-// pg-sql-15) is registered in unpivot.go as its own closed operation slice:
-// one direct root scan, one CROSS JOIN LATERAL VALUES melt carrying one slot
-// per authored input with the declared key literal, the value-type witness
+// return typed errors, never an AQL fallback. The correlated related-record
+// sets (pg-sql-08) are registered in sets.go as their own closed operation
+// slice: the child_sets.go child set with its FIRST/ALL/DISTINCT selector
+// reductions renders as parent-preserving per-field scalar sublinks over
+// the deduplicated child items, and the hop-only canonical RELATED
+// existence shape (with its registered top-level NOT form) shares the
+// validated correlated-hop renderer; production related-eligibility plans
+// keep failing closed until the anchor prefix's subplan-argument call is
+// registered (sets.go header). The REQUIRED match EXISTS stays owned by
+// traversal.go unchanged. The terminal melt (UNPIVOT, pg-sql-15) is
+// registered in unpivot.go as its own closed operation slice: one direct
+// root scan, one CROSS JOIN LATERAL VALUES melt carrying one slot per
+// authored input with the declared key literal, the value-type witness
 // raising the canonical TABLE_UNPIVOT_VALUE_TYPE_MISMATCH tag through the
 // guard barrier, the DROP-drops-null-rows / PRESERVE-keeps-them policy over
 // the missing-versus-JSON-null tri-state, and the compiler-owned melt
 // identity as the W3 stable order. Endpoint-lookup traversals,
 // repeated/indexed selector predicates, correlated predicates,
-// CONTAINS_TEXT, sets, subplans outside the registered REQUIRED shape,
-// graph returns, group rows, pivots, unpivots coexisting with filters,
-// traversals, or unnests, stage sequences, and
-// ClickHouse payloads are capability gaps that return typed errors.
+// CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
+// outside the two registered correlated shapes, graph returns, group rows,
+// pivots, unpivots coexisting with filters, traversals, or unnests, stage
+// sequences, and ClickHouse payloads are capability gaps that return typed
+// errors.
 package postgres
 
 import (
@@ -372,6 +382,16 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 				return fmt.Errorf("%w: operation %d: unnest payload is missing", ErrUnsupportedPostgresPlan, index)
 			}
 			if err := r.renderUnnest(plan, *operation.Unnest); err != nil {
+				return err
+			}
+		case ir.PhysicalSetOp:
+			if phase != 0 {
+				return fmt.Errorf("%w: sets must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			if operation.Set == nil {
+				return fmt.Errorf("%w: operation %d: set payload is missing", ErrUnsupportedPostgresPlan, index)
+			}
+			if err := r.renderSet(plan, *operation.Set); err != nil {
 				return err
 			}
 		case ir.PhysicalUnpivotOp:
