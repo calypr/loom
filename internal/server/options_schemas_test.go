@@ -20,10 +20,15 @@ import (
 
 func validPostgreSQLConfig() PostgreSQLConfig {
 	return PostgreSQLConfig{
-		Host:            "db.internal",
-		Port:            5432,
-		Database:        "loom",
-		User:            "loom",
+		Host:     "db.internal",
+		Port:     5432,
+		Database: "loom",
+		User:     "loom",
+		// Non-empty, distinctive credential so the no-secret assertion
+		// below actually exercises password leakage (review thread
+		// PRRT_kwDOS-yV5s61pLXK; same canary discipline as
+		// config_test.go's credentialCanary).
+		Password:        "ab05-Sup3r-Pg-Pa55w0rd-canary",
 		SSLMode:         "require",
 		MaxOpenConns:    4,
 		MaxIdleConns:    1,
@@ -108,8 +113,14 @@ func TestPostgreSQLConfigSchemasFailClosedUntilConsumed(t *testing.T) {
 				t.Fatalf("error %q must state the assignment is not yet consumed", msg)
 			}
 			// The rejection stays non-secret: it must not echo connection
-			// values from the config it came from.
-			for _, secret := range []string{cfg.Host, cfg.User, cfg.Database} {
+			// values -- above all the password -- from the config it came
+			// from. The fixture guard keeps this assertion reachable: an
+			// empty fixture Password would make every Contains below
+			// trivially true and the leak check a lie.
+			if cfg.Password == "" {
+				t.Fatal("fixture must carry a non-empty Password so the no-secret check is exercised")
+			}
+			for _, secret := range []string{cfg.Password, cfg.Host, cfg.User, cfg.Database} {
 				if strings.Contains(msg, secret) {
 					t.Fatalf("error %q must not echo config value %q", msg, secret)
 				}
