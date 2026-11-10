@@ -490,14 +490,20 @@ func TestSQL10LiveDecimalTierRejectedReads(t *testing.T) {
 		map[string]any{
 			"meta": map[string]any{
 				"versionId": "0." + strings.Repeat("9", 18000),
-				// F-8 provability spoof (verifier 136's spec cells):
-				// scale-overflow texts with leading-zero exponents —
-				// values ~0.1 and ~1e98 that the digit-count arm used
-				// to spoof into the registered 0.
+				// F-8 provability spoof (verifier 136's intended-red
+				// cells s1-s3): scale-overflow texts with leading-zero
+				// exponents — values ~0.1, ~0.2, and ~1e98 that the
+				// digit-count arm used to spoof into the registered 0.
 				"source":      "0." + strings.Repeat("9", 18000) + "e-00001",
 				"lastUpdated": strings.Repeat("9", 99) + "." + strings.Repeat("9", 20000) + "e-00001",
 			},
+			"gender": "1." + strings.Repeat("9", 20000) + "e-00001",
 			"text": map[string]any{
+				// Zero-valued text whose POSITIVE exponent rescues the
+				// scale: 136's grid overturned the earlier assumption
+				// and pinned this oracle-TRUE, so the cast arm answers
+				// it — the registered 0 here is the exact cast reading,
+				// the same value the zero tier would answer.
 				"div": "0." + strings.Repeat("0", 18000) + "e99999",
 				// The oracle-accepted leading-zero exponent: the cast
 				// arm answers it exactly (never the underflow arm).
@@ -508,15 +514,17 @@ func TestSQL10LiveDecimalTierRejectedReads(t *testing.T) {
 	zeroScaled := sql10Extract(t, "Patient", "text.div", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
 	spoofTiny := sql10Extract(t, "Patient", "meta.source", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
 	spoofHuge := sql10Extract(t, "Patient", "meta.lastUpdated", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	spoofMid := sql10Extract(t, "Patient", "gender", ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
 	plan := sql10Plan("Patient", map[string]any{"zero": int64(0)},
 		sql10CallProjection("fracCast", sql10Call("cast", "INTEGER", frac)),
 		sql10CallProjection("fracAdd", sql10Call("add", "", frac, sql10Literal("zero"))),
 		sql10CallProjection("zeroCast", sql10Call("cast", "INTEGER", zeroScaled)),
 		// Fail-closed NULL, never the spoofed 0.
 		sql10CallProjection("spoofTiny", sql10Call("cast", "INTEGER", spoofTiny)),
+		sql10CallProjection("spoofMid", sql10Call("cast", "INTEGER", spoofMid)),
 		sql10CallProjection("spoofHuge", sql10Call("cast", "INTEGER", spoofHuge)),
 	)
-	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "0", "<null>", "<null>")
+	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "0", "<null>", "<null>", "<null>")
 }
 
 // TestSQL10LiveDecimalTierLeadingZeroExponent pins the cast-arm side of

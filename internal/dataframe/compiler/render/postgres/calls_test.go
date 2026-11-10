@@ -485,6 +485,7 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	for _, spoof := range []string{
 		"1e-00001",
 		"0." + strings.Repeat("9", 18000) + "e-00001",
+		"1." + strings.Repeat("9", 20000) + "e-00001",
 		strings.Repeat("9", 99) + "." + strings.Repeat("9", 20000) + "e-00001",
 		"9.9e-09999",
 	} {
