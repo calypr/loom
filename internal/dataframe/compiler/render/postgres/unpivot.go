@@ -391,8 +391,22 @@ func validateUnpivotOperationShape(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpi
 		if preservedInputs[output.InputColumn] || preservedOutputs[output.OutputColumn] {
 			return fmt.Errorf("%w: unpivot preserved output mapping duplicates %q", ErrUnsupportedPostgresPlan, output.InputColumn)
 		}
-		if output.OutputColumn == unpivot.KeyOutput || output.OutputColumn == unpivot.ValueOutput {
-			return fmt.Errorf("%w: unpivot preserved output %q collides with the key or value output", ErrUnsupportedPostgresPlan, output.OutputColumn)
+		// The hidden melt identity name joins the key/value collision set
+		// (reviewer finding, PR #121 r4529533013): ir validates preserved
+		// OutputColumn only against the key/value outputs and each other
+		// (ir/physical_table_shape.go:397), so a rename onto
+		// unpivotRowIDColumn is IR-legal; rendering it would silently
+		// overwrite the preserved expression with the melt identity below
+		// (the taken check cannot fire because the identity is assigned
+		// after the preserved loop). Fail closed at the gate: a registered
+		// slice never silently mis-serves a name RETURN reads. The AQL
+		// emitter's appended-identity-wins behavior
+		// (render/aql/table_reshape.go:571-587) is an emitter consequence,
+		// not a contract to mirror when the renderer can refuse.
+		if output.OutputColumn == unpivot.KeyOutput || output.OutputColumn == unpivot.ValueOutput ||
+			output.OutputColumn == unpivotRowIDColumn {
+			return fmt.Errorf("%w: unpivot preserved output %q collides with the key, value, or stable row identity output",
+				ErrUnsupportedPostgresPlan, output.OutputColumn)
 		}
 		preservedInputs[output.InputColumn], preservedOutputs[output.OutputColumn] = true, true
 	}
@@ -655,6 +669,11 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 		}
 		columns[outputName] = expression
 	}
+	// Unconditional by construction: validateUnpivotOperationShape refuses
+	// any preserved output renamed onto the identity name (reviewer
+	// finding, PR #121 r4529533013), and an input projection named
+	// __loom_row_id never passes through (skip above), so nothing can
+	// occupy this slot before the melt identity owns it.
 	columns[unpivotRowIDColumn] = r.unpivotIdentityExpression(plan, unpivot, inputExprs, alias)
 	if columns[unpivotRowIDColumn] == "" {
 		return fmt.Errorf("%w: unpivot identity expression failed", ErrUnsupportedPostgresPlan)

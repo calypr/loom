@@ -485,6 +485,24 @@ func TestUnpivot15SurfaceRefusalsAreFullBackstop(t *testing.T) {
 		{"population-root", unp15Fixture{Mutate: func(plan *ir.PhysicalPlan) {
 			plan.Operations[0].RootScan.Population = &ir.PhysicalPopulationRootSource{}
 		}}, "population, cohort, and candidate-seed roots", false, false},
+		// Reviewer finding (PR #121 r4529533013): ir validates preserved
+		// OutputColumn only against the key/value outputs and each other
+		// (ir/physical_table_shape.go:397), so a rename onto the hidden
+		// melt identity name is IR-legal; the melt must refuse it rather
+		// than silently overwrite the preserved expression with the
+		// identity (the taken check cannot fire — the identity is assigned
+		// after the preserved loop).
+		{"preserved-rowid-collision", unp15Fixture{Mutate: func(plan *ir.PhysicalPlan) {
+			melt := plan.Operations[1].Unpivot
+			melt.PreservedOutputs[0].OutputColumn = unpivotRowIDColumn
+			ret := plan.Operations[len(plan.Operations)-1].Return
+			ret.Projections = append(ret.Projections[:2], ir.PhysicalProjection{
+				Name: unpivotRowIDColumn, Value: ir.PhysicalValue{Variable: melt.OutputRowVariable, Path: []string{unpivotRowIDColumn}},
+			})
+			if err := plan.Validate(); err != nil {
+				t.Fatalf("the reviewer repro must stay IR-legal (physical_table_shape.go checks preserved names only against key/value/preserved): %v", err)
+			}
+		}}, "collides with the key, value, or stable row identity output", false, false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
