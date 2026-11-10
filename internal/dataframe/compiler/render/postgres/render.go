@@ -62,12 +62,20 @@
 // validated correlated-hop renderer; production related-eligibility plans
 // keep failing closed until the anchor prefix's subplan-argument call is
 // registered (sets.go header). The REQUIRED match EXISTS stays owned by
-// traversal.go unchanged. Endpoint-lookup traversals, repeated/indexed
-// selector predicates, correlated predicates, CONTAINS_TEXT, shared
-// subsets, prepared sets, node-path sets, subplans outside the two
-// registered correlated shapes, graph returns, group rows, pivots,
-// unpivots, stage sequences, and ClickHouse payloads are capability gaps
-// that return typed errors.
+// traversal.go unchanged. The terminal melt (UNPIVOT, pg-sql-15) is
+// registered in unpivot.go as its own closed operation slice: one direct
+// root scan, one CROSS JOIN LATERAL VALUES melt carrying one slot per
+// authored input with the declared key literal, the value-type witness
+// raising the canonical TABLE_UNPIVOT_VALUE_TYPE_MISMATCH tag through the
+// guard barrier, the DROP-drops-null-rows / PRESERVE-keeps-them policy over
+// the missing-versus-JSON-null tri-state, and the compiler-owned melt
+// identity as the W3 stable order. Endpoint-lookup traversals,
+// repeated/indexed selector predicates, correlated predicates,
+// CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
+// outside the two registered correlated shapes, graph returns, group rows,
+// pivots, unpivots coexisting with filters, traversals, or unnests, stage
+// sequences, and ClickHouse payloads are capability gaps that return typed
+// errors.
 package postgres
 
 import (
@@ -142,6 +150,22 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {
 			if err := validateUnnestPlanSurface(plan); err != nil {
+				return command.RenderedPostgresPhysicalPlan{}, err
+			}
+			break
+		}
+	}
+	// Full-backstop defense in depth (unpivot.go contract): a plan that
+	// mentions UNPIVOT is pinned to the registered melt slice as the first
+	// plan-facing act here, before plan validation, scope loading, or any
+	// rendering can reject with an off-type error, so the dispatch entry
+	// enforces one contract with RenderUnpivot, not a partial backstop. The
+	// re-check at the melt in renderUnpivot stays the local invariant; the
+	// check is total over any plan, so a malformed non-melt plan reaches
+	// plan.Validate untouched.
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalUnpivotOp {
+			if err := validateUnpivotPlanSurface(plan); err != nil {
 				return command.RenderedPostgresPhysicalPlan{}, err
 			}
 			break
@@ -255,6 +279,17 @@ type planRenderer struct {
 	lateralAliases []string
 	unnestSeq      int
 
+	// Melt state (unpivot.go, pg-sql-15): the expansion counter that mints
+	// the VALUES-alias names, and the registered melt output contract —
+	// melt output variable → output column name → the SQL expression that
+	// emits it. resolveValue routes melt reads to resolveUnpivotOutputValue
+	// and renderReturn routes a melted plan's projection list to
+	// renderUnpivotReturn; with no melt rendered both fields stay nil and
+	// the spine paths are untouched. All renderer-owned; no plan string
+	// reaches SQL text through them.
+	unpivotSeq     int
+	unpivotOutputs map[string]map[string]string
+
 	// membership is the trusted membership binding, set only by
 	// RenderPopulationRootScan (population.go); nil keeps membership roots a
 	// capability gap on the plain spine.
@@ -359,6 +394,20 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if err := r.renderSet(plan, *operation.Set); err != nil {
 				return err
 			}
+		case ir.PhysicalUnpivotOp:
+			// The melt slice (unpivot.go, pg-sql-15): the closed sequence
+			// [ROOT_SCAN, UNPIVOT, SORT?, LIMIT?, RETURN] is enforced by
+			// validateUnpivotPlanSurface, applied at the entry above and
+			// re-applied at the melt; this arm keeps positional dispatch.
+			if phase != 0 {
+				return fmt.Errorf("%w: unpivot must precede the execution window", ErrUnsupportedPostgresPlan)
+			}
+			if operation.Unpivot == nil {
+				return fmt.Errorf("%w: operation %d: unpivot payload is missing", ErrUnsupportedPostgresPlan, index)
+			}
+			if err := r.renderUnpivot(plan, *operation.Unpivot); err != nil {
+				return err
+			}
 		case ir.PhysicalSortOp:
 			if sawSort || phase > 1 || (phase == 1 && sawLimit) {
 				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
@@ -428,6 +477,12 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 // everything else resolves through the shared rows-parameterized resolver
 // in traversal.go, which main sequence and EXISTS subplans share.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
+	// Melt output reads (unpivot.go) resolve through the registered output
+	// contract, never the stored-row path; with no melt rendered the map is
+	// nil and this branch is inert.
+	if columns, ok := r.unpivotOutputs[value.Variable]; ok {
+		return r.resolveUnpivotOutputValue(columns, value)
+	}
 	if scope, ok := r.rows[value.Variable]; ok && scope.derivedValue != "" {
 		return r.resolveDerivedValue(value, scope)
 	}
@@ -512,6 +567,13 @@ var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // VALUE expressions through resolveValue, selector extractions and presence
 // sidecars through the canonical mappings in null_semantics.go.
 func (r *planRenderer) renderReturn(ret ir.PhysicalReturn) error {
+	// A melted plan's terminal projection list reads only registered melt
+	// outputs (unpivot.go owns that contract, validateUnpivotReturn pins it
+	// at the surface); the spine classification below stays byte-identical
+	// when no melt rendered.
+	if r.unpivotOutputs != nil {
+		return r.renderUnpivotReturn(ret)
+	}
 	if len(ret.Projections) == 0 {
 		return fmt.Errorf("%w: RETURN requires at least one projection", ErrUnsupportedPostgresPlan)
 	}
