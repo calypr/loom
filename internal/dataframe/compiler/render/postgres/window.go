@@ -17,7 +17,7 @@ package postgres
 // validateGenericNavigationRootSort (navigation_layout.go:440-466: "SORT keys
 // do not match the stable row identity tuple").
 //
-// Two window shapes are registered, and this file is their single contract
+// Three window shapes are registered, and this file is their single contract
 // owner — every SORT/LIMIT decision in the package flows through the entry
 // points here (window discipline):
 //
@@ -56,6 +56,22 @@ package postgres
 //     * {ordinality} (bare) -> u_k.rn ASC, the renderer-derived stable
 //       zero-based item position (unnest.go), ordered by the WITH-ORDINALITY
 //       positions of the expansion chain.
+//
+//   - W3, the reshaped window over melted rows (with UNPIVOT): the plan
+//     may carry at most one SORT and one LIMIT only after the melt (the
+//     closed sequence [ROOT_SCAN, UNPIVOT, SORT?, LIMIT?, RETURN] is
+//     enforced by validateUnpivotPlanSurface in unpivot.go). The SORT
+//     key must be exactly one entry — the melt output row variable's
+//     stable row identity {meltOutput, ["__loom_row_id"]}, ASC — checked
+//     and supplied by renderFinalWindowSortUnpivot in unpivot.go, the
+//     melt's contribution to this file's window ownership, and a LIMIT
+//     requires that SORT to be present first (the ir reshaped-window
+//     guard's contract, re-read at the renderer). The identity term is
+//     renderer-composed; windowOrder then appends the storage witnesses
+//     and, after them, the renderer-minted slot-ordinality witnesses
+//     alias.slot_ord (unpivotOrdinals) — one per registered melt
+//     expansion, the ORDER BY counterpart of the AQL slot-array order,
+//     keeping duplicate slots of one source row deterministic.
 //
 //     Nothing on this path reads plan strings into SQL: the plan names
 //     variables, the renderer supplies every column from the trusted storage

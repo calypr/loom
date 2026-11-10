@@ -571,6 +571,37 @@ func TestUnpivot15GoldenWindowAndPolicyClauses(t *testing.T) {
 	}
 }
 
+// TestUnpivot15ValueKindCompatibilityMirrorsIR pins the renderer-side
+// re-read of the closed INTEGER/DECIMAL widening to the ir rule
+// (ir/physical_table_shape.go:563-565: same-kind plus DECIMAL from
+// INTEGER only). Reviewer finding (PR #121 r4529533025): the extra
+// INTEGER-from-DECIMAL arm made the re-read looser than the gate it
+// claims to mirror — dead only because plan.Validate rejects first — and
+// the typeof witness (jsonb_typeof only) cannot separate 1 from 1.5 if
+// ir ever widens.
+func TestUnpivot15ValueKindCompatibilityMirrorsIR(t *testing.T) {
+	for _, testCase := range []struct {
+		output, input string
+		want          bool
+	}{
+		{"STRING", "STRING", true},
+		{"INTEGER", "INTEGER", true},
+		{"DECIMAL", "DECIMAL", true},
+		{"BOOLEAN", "BOOLEAN", true},
+		{"DECIMAL", "INTEGER", true}, // the one closed widening ir allows
+		{"INTEGER", "DECIMAL", false},
+		{"STRING", "INTEGER", false},
+		{"INTEGER", "STRING", false},
+		{"BOOLEAN", "STRING", false},
+		{"DECIMAL", "STRING", false},
+	} {
+		if got := unpivotValueKindCompatible(testCase.output, testCase.input); got != testCase.want {
+			t.Errorf("unpivotValueKindCompatible(%q, %q) = %v, want %v (ir rule: same-kind or DECIMAL from INTEGER only)",
+				testCase.output, testCase.input, got, testCase.want)
+		}
+	}
+}
+
 func TestUnpivot15KeyKindEncodingsAndBounds(t *testing.T) {
 	binding := unp15OfflineBinding(t)
 	kindFixture := func(kind string, keys ...any) unp15Fixture {

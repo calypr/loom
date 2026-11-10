@@ -432,12 +432,15 @@ func validateUnpivotOperationShape(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpi
 }
 
 // unpivotValueKindCompatible mirrors the closed INTEGER/DECIMAL widening of
-// ir tableScalarKindsCompatible: the renderer re-reads, never trusts.
+// ir tableScalarKindsCompatible (ir/physical_table_shape.go:563-565:
+// same-kind plus DECIMAL from INTEGER only): the renderer re-reads, never
+// trusts, and the re-read is never looser than the gate it mirrors
+// (reviewer finding, PR #121 r4529533025 — an INTEGER-from-DECIMAL arm
+// would be dead only while plan.Validate rejects first, and the typeof
+// witness compares jsonb_typeof only, so an INTEGER melt cannot separate
+// 1 from 1.5 if ir ever widens).
 func unpivotValueKindCompatible(output, input string) bool {
-	if output == input {
-		return true
-	}
-	return (output == "DECIMAL" && input == "INTEGER") || (output == "INTEGER" && input == "DECIMAL")
+	return output == input || output == "DECIMAL" && input == "INTEGER"
 }
 
 // validateUnpivotSortKeys re-reads the reshaped-window SORT contract at the
