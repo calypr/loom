@@ -107,24 +107,27 @@ func TestUnnestInnerRendersCrossJoinLateralWithZeroBasedStableOrdinality(t *test
 	sql := rendered.SQL
 
 	for _, want := range []string{
-		`CROSS JOIN LATERAL (SELECT u1_e0.item AS item, u1_e0.ord AS rn FROM jsonb_array_elements(`,
-		`) WITH ORDINALITY AS u1_e0(item, ord)) AS u1`,
+		`CROSS JOIN LATERAL (SELECT u1_e0.item AS item, ROW_NUMBER() OVER (ORDER BY u1_e0.ord) AS rn FROM jsonb_array_elements(`,
+		`) WITH ORDINALITY AS u1_e0(item, ord) WHERE jsonb_typeof(u1_e0.item) <> 'null') AS u1`,
 		`ORDER BY r0."resource_seq" ASC, u1.rn ASC`,
 		`(u1.item) AS "c1"`,
 		`(u1.rn - 1) AS "c2"`,
 		`(u1.rn IS NOT NULL) AS "c3"`,
-		// The terminal source normalization is the AQL null->[] /
-		// FLATTEN-one-layer contract, spelled with renderer-owned constants.
+		// The terminal source form reproduces the AQL iterate ternary plus
+		// the RETURN/FLATTEN wrap: the falsy set (null, false, 0, "") reads
+		// as the empty array, an array passes through, and a truthy scalar
+		// becomes its single item — all with renderer-owned constants.
 		`IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb`,
 		`= 'array' THEN (r0."payload" #> $5::text[])`,
+		`WHEN (r0."payload" #> $5::text[]) = 'false'::jsonb OR (r0."payload" #> $5::text[]) = '0'::jsonb OR (r0."payload" #> $5::text[]) = '""'::jsonb THEN '[]'::jsonb`,
 		`ELSE jsonb_build_array((r0."payload" #> $5::text[])) END`,
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("SQL missing %q:\n%s", want, sql)
 		}
 	}
-	if strings.Contains(sql, "LEFT JOIN") || strings.Contains(sql, "ROW_NUMBER") {
-		t.Fatalf("INNER rendered OUTER padding or an unnecessary window:\n%s", sql)
+	if strings.Contains(sql, "LEFT JOIN") {
+		t.Fatalf("INNER rendered OUTER padding:\n%s", sql)
 	}
 	// No value or selector field is interpolated: "identifier" exists only
 	// as a bound text[] parameter, never as SQL text.
@@ -163,9 +166,9 @@ func TestUnnestOuterPadsWithLeftJoinLateralOnTrue(t *testing.T) {
 		{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: expansionProjections()}}}
 	rendered := renderOK(t, plan)
 	sql := rendered.SQL
-	if !strings.Contains(sql, `LEFT JOIN LATERAL (SELECT u1_e0.item AS item, u1_e0.ord AS rn FROM jsonb_array_elements(`) ||
-		!strings.Contains(sql, `) AS u1 ON true`) {
-		t.Fatalf("OUTER did not render LEFT JOIN LATERAL ... ON true:\n%s", sql)
+	if !strings.Contains(sql, `LEFT JOIN LATERAL (SELECT u1_e0.item AS item, ROW_NUMBER() OVER (ORDER BY u1_e0.ord) AS rn FROM jsonb_array_elements(`) ||
+		!strings.Contains(sql, `WHERE jsonb_typeof(u1_e0.item) <> 'null') AS u1 ON true`) {
+		t.Fatalf("OUTER did not render LEFT JOIN LATERAL ... ON true with the terminal null-item filter:\n%s", sql)
 	}
 	if strings.Contains(sql, "CROSS JOIN LATERAL") {
 		t.Fatalf("OUTER must not use CROSS JOIN LATERAL for its outer boundary:\n%s", sql)
@@ -183,12 +186,15 @@ func TestUnnestNestedRepeatedArraysChainExpansionsAndCaptureAncestors(t *testing
 	sql := rendered.SQL
 
 	for _, want := range []string{
-		// Prefix expansion: null-or-missing collapses only; a schema-invalid
-		// scalar reaches jsonb_array_elements and raises, matching AQL.
-		`FROM jsonb_array_elements(CASE WHEN (r0."payload" #> $5::text[]) IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb ELSE (r0."payload" #> $5::text[]) END) WITH ORDINALITY AS u1_e0(value, ord)`,
-		`CROSS JOIN LATERAL jsonb_array_elements(CASE`,
-		`= 'array' THEN (u1_e0.value #> $6::text[])`,
-		`ELSE jsonb_build_array((u1_e0.value #> $6::text[])) END) WITH ORDINALITY AS u1_e1(item, ord)`,
+		// With ancestors the AQL reference is the lineage FOR-loop ternary
+		// for every step (terminal included): the falsy set reads as the
+		// empty array, a truthy scalar reaches jsonb_array_elements and
+		// raises, matching AQL's FOR-over-non-array error.
+		`FROM jsonb_array_elements(CASE WHEN (r0."payload" #> $5::text[]) IS NULL OR jsonb_typeof((r0."payload" #> $5::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((r0."payload" #> $5::text[])) = 'array' THEN (r0."payload" #> $5::text[]) WHEN (r0."payload" #> $5::text[]) = 'false'::jsonb OR (r0."payload" #> $5::text[]) = '0'::jsonb OR (r0."payload" #> $5::text[]) = '""'::jsonb THEN '[]'::jsonb ELSE (r0."payload" #> $5::text[]) END) WITH ORDINALITY AS u1_e0(value, ord)`,
+		`CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN (u1_e0.value #> $6::text[]) IS NULL OR jsonb_typeof((u1_e0.value #> $6::text[])) = 'null' THEN '[]'::jsonb WHEN jsonb_typeof((u1_e0.value #> $6::text[])) = 'array' THEN (u1_e0.value #> $6::text[]) WHEN (u1_e0.value #> $6::text[]) = 'false'::jsonb OR (u1_e0.value #> $6::text[]) = '0'::jsonb OR (u1_e0.value #> $6::text[]) = '""'::jsonb THEN '[]'::jsonb ELSE (u1_e0.value #> $6::text[]) END) WITH ORDINALITY AS u1_e1(item, ord)`,
+		// The terminal null-item filter reproduces the AQL terminal
+		// FILTER ... != null; ROW_NUMBER then numbers survivors densely.
+		`WHERE jsonb_typeof(u1_e1.item) <> 'null'`,
 		// Row-major carrier position = ROW_NUMBER over the step positions.
 		`SELECT u1_e1.item AS item, u1_e0.value AS ancestor_0, ROW_NUMBER() OVER (ORDER BY u1_e0.ord, u1_e1.ord) AS rn`,
 		`ORDER BY r0."resource_seq" ASC, u1.rn ASC`,
@@ -740,11 +746,10 @@ func (s *sql09Service) runRendered(t *testing.T, rendered compiler.RenderedPostg
 
 // sql09StringifyCell stringifies a driver value for literal comparison.
 // pgx decodes jsonb into Go structures, which print lossily; JSON values
-// therefore round-trip through encoding/json to canonical text. JSON
-// values are deliberately NOT flattened to SQL semantics here: the
-// jsonb 'null' scalar decodes to Go nil like SQL NULL, which is exactly
-// why the pad-vs-stored-null distinction is witnessed with SQL-level
-// `IS NULL` probes over the rendered statement instead (see
+// therefore round-trip through encoding/json to canonical text. The
+// jsonb 'null' scalar decodes to Go nil like SQL NULL, so any
+// null-versus-null-free claim is witnessed with SQL-level `IS NULL`
+// probes over the rendered statement rather than with driver values (see
 // sql09IsNullProbe).
 func sql09StringifyCell(value any) string {
 	switch typed := value.(type) {
@@ -793,10 +798,10 @@ func (s *sql09Service) witness(t *testing.T, sql string, args ...any) [][]string
 }
 
 // sql09IsNullProbe wraps a rendered statement as a subquery and asks the
-// server, not the driver, which output cells are SQL NULL. This is the
-// authority for distinguishing the OUTER pad row (SQL NULL) from a stored
-// JSON null item (jsonb 'null' scalar, IS NULL false), because the driver
-// decodes both to Go nil.
+// server, not the driver, which output cells are SQL NULL. Because the
+// driver decodes the jsonb 'null' scalar to Go nil like SQL NULL, only
+// this server-side probe can prove that OUTER pad rows carry SQL NULL
+// item/ordinality while every surviving item row carries present values.
 func (s *sql09Service) sql09IsNullProbe(t *testing.T, rendered compiler.RenderedPostgresPhysicalPlan, columns ...string) [][]string {
 	t.Helper()
 	selects := make([]string, 0, len(columns))
@@ -906,6 +911,17 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	dupA := `{"system": "urn:x", "value": "a"}`
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-dups", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": [`+dupA+`, `+dupA+`, {"system": "urn:x", "value": "b"}, `+dupA+`]}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-dup-scalars", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": ["a", "a", "b", "a"]}`))
+	// The AQL reference (terminal FILTER ... != null) drops null items and
+	// then numbers survivors, so ["a", null, "b"] must yield ordinality
+	// 0 and 1 — the post-filter dense index, not stored positions 0 and 2.
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-mixed", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": ["a", null, "b"]}`))
+	// AQL ternary parity at the terminal: a stored falsy scalar (0) is the
+	// empty source; a truthy scalar (5) becomes its single item row.
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-falsy-zero", "FHIR/Patient", sql09JSON(t, `{"identifier": 0}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-truthy-scalar", "FHIR/Patient", sql09JSON(t, `{"identifier": 5}`))
 	svc.insertResource(t, "sql09-other-project", sql09Generation, "Patient", "p-scope", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": [{"value": "out-of-scope"}]}`))
 
@@ -915,41 +931,43 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	}
 	got := sql09CanonicalRows(svc.runRendered(t, rendered))
 
-	// The [null] element's item cell stringifies as "<null>" because the
-	// driver decodes the jsonb 'null' scalar and SQL NULL alike; the
-	// sql09IsNullProbe witness below is the authority that the rendered
-	// item is the jsonb scalar, not SQL NULL.
 	want := [][]string{
-		{"p-nullitem", "<null>", "0", "true"},
 		{"p-dups", sql09CanonicalObject(t, dupA), "0", "true"},
 		{"p-dups", sql09CanonicalObject(t, dupA), "1", "true"},
 		{"p-dups", sql09CanonicalObject(t, `{"system": "urn:x", "value": "b"}`), "2", "true"},
 		{"p-dups", sql09CanonicalObject(t, dupA), "3", "true"},
+		{"p-dup-scalars", "a", "0", "true"},
+		{"p-dup-scalars", "a", "1", "true"},
+		{"p-dup-scalars", "b", "2", "true"},
+		{"p-dup-scalars", "a", "3", "true"},
+		{"p-mixed", "a", "0", "true"},
+		{"p-mixed", "b", "1", "true"},
+		{"p-truthy-scalar", "5", "0", "true"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("INNER rows = %v, want %v", got, want)
 	}
-	// Server-side authority: the p-nullitem item cell is the jsonb
-	// 'null' scalar (IS NULL false), not a SQL NULL leak.
+	// Server-side authority: no emitted item is SQL NULL; the terminal
+	// filter removed stored null items, so an emitted item is always a
+	// present jsonb value.
 	itemNull := svc.sql09IsNullProbe(t, rendered, "c1")
-	if len(itemNull) != 5 {
+	if len(itemNull) != len(want) {
 		t.Fatalf("item IS NULL probe = %v, want one boolean per emitted row", itemNull)
 	}
 	for index, row := range itemNull {
 		if row[0] != "false" {
-			t.Fatalf("INNER row %d item cell IS NULL = %s, want false (jsonb 'null' scalar)", index, row[0])
+			t.Fatalf("INNER row %d item cell IS NULL = %s, want false", index, row[0])
 		}
 	}
 
-	// Witness 1: the five expanded items are the entire stored item
-	// population; INNER emits no rows for the four empty-source forms
-	// (missing, JSON null, [], SQL-NULL payload) and none for the
-	// out-of-scope row.
-	for _, absent := range []string{"p-missing", "p-null", "p-empty", "p-nopayload", "p-scope"} {
+	// Witness 1: INNER emits no rows for the empty-source forms — the
+	// missing key, JSON null, [], SQL-NULL payload, and, per the AQL
+	// reference, [null] (its only item is a dropped terminal null) and the
+	// falsy scalar 0 — and none for the out-of-scope row.
+	for _, absent := range []string{"p-missing", "p-null", "p-empty", "p-nopayload", "p-nullitem", "p-falsy-zero", "p-scope"} {
 		for _, row := range got {
 			// Exact logical-id comparison: "p-null" is a proper prefix
-			// of the emitted "p-nullitem", so substring matching would
-			// false-positive on legitimate rows.
+			// of "p-nullitem", so substring matching would false-positive.
 			if row[0] == absent {
 				t.Fatalf("INNER emitted empty/out-of-scope source %q: %v", absent, row)
 			}
@@ -971,30 +989,40 @@ func TestPG18UnnestInnerEmitsLiteralRowsAndPreservesDuplicates(t *testing.T) {
 	if len(dupCount) != 1 || dupCount[0][0] != "4" || dupCount[0][1] != "2" {
 		t.Fatalf("duplicate witness = %v, want 4 elements / 2 distinct values", dupCount)
 	}
-	// Witness 3: the [null] element is a stored JSON null item, distinct
-	// from every empty form: jsonb_typeof of the rendered item must be
-	// 'null', while each empty source has array length zero.
-	nullItem := svc.witness(t,
-		`SELECT jsonb_typeof(e) FROM "`+svc.schema+`"."fhir_resource" r, jsonb_array_elements(r.payload -> 'identifier') e`+
-			` WHERE r.project=$1 AND r.dataset_generation=$2 AND r.logical_id='p-nullitem'`,
+	// Witness 3: [null] really stores a JSON null element that the
+	// expansion drops (the AQL terminal FILTER behavior) — the stored
+	// element's jsonb_typeof is 'null', and the surviving population is
+	// zero; p-mixed likewise survives two items, not three.
+	nullSurvivors := svc.witness(t,
+		`SELECT logical_id, count(e) FILTER (WHERE jsonb_typeof(e) <> 'null') FROM "`+svc.schema+`"."fhir_resource" r,`+
+			` jsonb_array_elements(r.payload -> 'identifier') e`+
+			` WHERE r.project=$1 AND r.dataset_generation=$2 AND r.logical_id IN ('p-nullitem','p-mixed')`+
+			` GROUP BY logical_id ORDER BY min(resource_seq)`,
 		sql09Project, sql09Generation)
-	if len(nullItem) != 1 || nullItem[0][0] != "null" {
-		t.Fatalf("null-item witness = %v, want one jsonb 'null' scalar", nullItem)
+	if len(nullSurvivors) != 2 || nullSurvivors[0][0] != "p-nullitem" || nullSurvivors[0][1] != "0" ||
+		nullSurvivors[1][0] != "p-mixed" || nullSurvivors[1][1] != "2" {
+		t.Fatalf("null-survivor witness = %v, want p-nullitem=0 survivors and p-mixed=2", nullSurvivors)
 	}
-	// jsonb_array_length errors on scalars, so the witness guards on
-	// typeof: every empty form (missing key, JSON null, [], SQL NULL
-	// payload) measures zero, and only 'array' is ever measured.
+	// Witness 4: every source form the AQL reference treats as empty —
+	// missing key, JSON null, [], SQL-NULL payload, [null] (empty after
+	// the terminal null-item filter), and the stored falsy scalar 0 (the
+	// ternary's falsy set) — contributes zero expansion rows.
 	emptyForms := svc.witness(t,
-		`SELECT logical_id, CASE WHEN jsonb_typeof(payload -> 'identifier') = 'array'`+
-			` THEN jsonb_array_length(payload -> 'identifier') ELSE 0 END FROM "`+svc.schema+`"."fhir_resource"`+
-			` WHERE project=$1 AND dataset_generation=$2 AND logical_id IN ('p-missing','p-null','p-empty','p-nopayload') ORDER BY resource_seq`,
+		`SELECT logical_id, CASE`+
+			` WHEN payload -> 'identifier' IS NULL OR jsonb_typeof(payload -> 'identifier') IN ('null','false') THEN 0`+
+			` WHEN jsonb_typeof(payload -> 'identifier') = 'array'`+
+			` THEN (SELECT count(*) FROM jsonb_array_elements(payload -> 'identifier') e WHERE jsonb_typeof(e) <> 'null')`+
+			` WHEN payload -> 'identifier' = '0'::jsonb OR payload -> 'identifier' = '""'::jsonb THEN 0`+
+			` ELSE -1 END FROM "`+svc.schema+`"."fhir_resource"`+
+			` WHERE project=$1 AND dataset_generation=$2`+
+			` AND logical_id IN ('p-missing','p-null','p-empty','p-nopayload','p-nullitem','p-falsy-zero') ORDER BY resource_seq`,
 		sql09Project, sql09Generation)
-	if len(emptyForms) != 4 {
-		t.Fatalf("empty-source witness rows = %v, want four zero-length sources", emptyForms)
+	if len(emptyForms) != 6 {
+		t.Fatalf("empty-source witness rows = %v, want six zero-row sources", emptyForms)
 	}
 	for _, row := range emptyForms {
 		if row[1] != "0" {
-			t.Fatalf("empty-source %s has length %s, want 0", row[0], row[1])
+			t.Fatalf("empty-source %s has %s surviving items, want 0", row[0], row[1])
 		}
 	}
 }
@@ -1013,6 +1041,15 @@ func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 	dupA := `{"system": "urn:x", "value": "a"}`
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-dups", "FHIR/Patient",
 		sql09JSON(t, `{"identifier": [`+dupA+`, `+dupA+`, {"system": "urn:x", "value": "b"}, `+dupA+`]}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-dup-scalars", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": ["a", "a", "b", "a"]}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-mixed", "FHIR/Patient",
+		sql09JSON(t, `{"identifier": ["a", null, "b"]}`))
+	// Per the AQL reference both are empty sources: [null] holds only a
+	// dropped terminal null item, and 0 is a ternary falsy — OUTER pads
+	// each exactly once, like every other empty form.
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-falsy-zero", "FHIR/Patient", sql09JSON(t, `{"identifier": 0}`))
+	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-truthy-scalar", "FHIR/Patient", sql09JSON(t, `{"identifier": 5}`))
 
 	rendered, err := RenderUnnest(sql09PatientUnnestPlan(ir.PhysicalUnnestPreserveParent), sql09Binding(t, svc))
 	if err != nil {
@@ -1020,69 +1057,72 @@ func TestPG18UnnestOuterEmitsOneNullItemRowPerEmptySource(t *testing.T) {
 	}
 	got := sql09CanonicalRows(svc.runRendered(t, rendered))
 
+	pad := func(id string) []string { return []string{id, "<null>", "<null>", "false"} }
 	want := [][]string{
-		{"p-missing", "<null>", "<null>", "false"},
-		{"p-null", "<null>", "<null>", "false"},
-		{"p-empty", "<null>", "<null>", "false"},
-		{"p-nopayload", "<null>", "<null>", "false"},
-		{"p-nullitem", "<null>", "0", "true"},
+		pad("p-missing"), pad("p-null"), pad("p-empty"), pad("p-nopayload"), pad("p-nullitem"),
 		{"p-dups", sql09CanonicalObject(t, dupA), "0", "true"},
 		{"p-dups", sql09CanonicalObject(t, dupA), "1", "true"},
 		{"p-dups", sql09CanonicalObject(t, `{"system": "urn:x", "value": "b"}`), "2", "true"},
 		{"p-dups", sql09CanonicalObject(t, dupA), "3", "true"},
+		{"p-dup-scalars", "a", "0", "true"},
+		{"p-dup-scalars", "a", "1", "true"},
+		{"p-dup-scalars", "b", "2", "true"},
+		{"p-dup-scalars", "a", "3", "true"},
+		{"p-mixed", "a", "0", "true"},
+		{"p-mixed", "b", "1", "true"},
+		pad("p-falsy-zero"),
+		{"p-truthy-scalar", "5", "0", "true"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("OUTER rows = %v, want %v", got, want)
 	}
 
 	// Witness: the pad rows come from the LEFT JOIN, never from data —
-	// the direct item expansion over the same rows yields exactly the
-	// five non-pad rows, so the four extra rows are renderer pad.
+	// a hand-written AQL-reference pipeline (falsy set to [], truthy
+	// scalar wrapped once, null items dropped) over the same rows yields
+	// exactly the eleven non-pad rows, so the six extra rows are pad.
 	dataRows := svc.witness(t,
-		`SELECT r.logical_id, e FROM "`+svc.schema+`"."fhir_resource" r,`+
-			` jsonb_array_elements(CASE WHEN r.payload #> '{identifier}' IS NULL OR jsonb_typeof(r.payload #> '{identifier}') = 'null' THEN '[]'::jsonb ELSE r.payload #> '{identifier}' END) e`+
-			` WHERE r.project=$1 AND r.dataset_generation=$2 AND r.auth_resource_path = ANY ('{FHIR/Patient,FHIR/Observation}'::text[])`+
+		`SELECT r.logical_id FROM "`+svc.schema+`"."fhir_resource" r,`+
+			` jsonb_array_elements(CASE`+
+			` WHEN r.payload -> 'identifier' IS NULL THEN '[]'::jsonb`+
+			` WHEN jsonb_typeof(r.payload -> 'identifier') = 'array' THEN r.payload -> 'identifier'`+
+			` WHEN r.payload -> 'identifier' IN ('null'::jsonb, 'false'::jsonb, '0'::jsonb, '""'::jsonb) THEN '[]'::jsonb`+
+			` ELSE jsonb_build_array(r.payload -> 'identifier') END) e`+
+			` WHERE jsonb_typeof(e) <> 'null'`+
+			` AND r.project=$1 AND r.dataset_generation=$2 AND r.auth_resource_path = ANY ('{FHIR/Patient,FHIR/Observation}'::text[])`+
 			` ORDER BY r.resource_seq`,
 		sql09Project, sql09Generation)
-	if len(dataRows) != 5 {
-		t.Fatalf("witness item rows = %v, want the five non-pad rows", dataRows)
+	if len(dataRows) != 11 {
+		t.Fatalf("witness item rows = %d rows %v, want the eleven non-pad rows", len(dataRows), dataRows)
 	}
-	// Pad rows: exactly the four empty sources, each exactly once.
-	pads := 0
-	for _, row := range got {
-		if row[1] == "<null>" && row[2] == "<null>" && row[3] == "false" {
-			pads++
-		}
-	}
-	if pads != 4 {
-		t.Fatalf("pad rows = %d, want exactly one per empty source (4)", pads)
-	}
-	// The [null] item row is NOT a pad row: item is the jsonb 'null'
-	// scalar with has_item true — the missing/null/duplicate distinctions
-	// stay observable apart in one result set.
-	if got[4][0] != "p-nullitem" || got[4][2] != "0" || got[4][3] != "true" {
-		t.Fatalf("jsonb-null item row = %v, want has_item true with ordinality 0", got[4])
-	}
-	// Server-side authority for the distinction the driver cannot make:
-	// pad rows carry SQL NULL item and ordinality, while the [null]
-	// element carries the jsonb 'null' scalar (IS NULL false) at
-	// ordinality 0. has_item is a total boolean and never SQL NULL.
+	// Pad rows: exactly the six empty sources ([null] and falsy 0 among
+	// them), each exactly once. has_item is a total boolean and never
+	// SQL NULL; pad item and ordinality are server-side SQL NULL.
 	nullProbe := svc.sql09IsNullProbe(t, rendered, "c1", "c2", "c3")
-	if len(nullProbe) != 9 {
+	if len(nullProbe) != len(want) {
 		t.Fatalf("pad probe = %v, want one row per OUTER row", nullProbe)
 	}
+	pads := 0
 	for index, row := range nullProbe {
-		wantItemNull, wantOrdinalityNull := "true", "true"
-		if index >= 4 {
-			wantItemNull, wantOrdinalityNull = "false", "false"
-		}
-		if row[0] != wantItemNull || row[1] != wantOrdinalityNull {
-			t.Fatalf("OUTER row %d (logical_id %s): item/ordinality IS NULL = %s/%s, want %s/%s",
-				index, got[index][0], row[0], row[1], wantItemNull, wantOrdinalityNull)
+		isPad := want[index][3] == "false"
+		wantItemNull, wantOrdinalityNull := "false", "false"
+		if isPad {
+			wantItemNull, wantOrdinalityNull = "true", "true"
+			pads++
+			if row[0] != "true" || row[1] != "true" {
+				t.Fatalf("OUTER pad row %d (logical_id %s): item/ordinality IS NULL = %s/%s, want true/true",
+					index, got[index][0], row[0], row[1])
+			}
+		} else if row[0] != wantItemNull || row[1] != wantOrdinalityNull {
+			t.Fatalf("OUTER item row %d (logical_id %s): item/ordinality IS NULL = %s/%s, want false/false",
+				index, got[index][0], row[0], row[1])
 		}
 		if row[2] != "false" {
 			t.Fatalf("OUTER row %d: has_item is SQL NULL; it is a total boolean, never SQL NULL", index)
 		}
+	}
+	if pads != 6 {
+		t.Fatalf("pad rows = %d, want exactly one per empty source (6)", pads)
 	}
 }
 
@@ -1099,6 +1139,9 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-empty-components", "FHIR/Observation", sql09JSON(t, `{"component": []}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-null-components", "FHIR/Observation", sql09JSON(t, `{"component": null}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-missing", "FHIR/Observation", sql09JSON(t, `{}`))
+	// A stored falsy scalar at a prefix iterate field is AQL-ternary-empty:
+	// zero INNER rows, exactly one OUTER pad, no execution error.
+	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-falsy-zero", "FHIR/Observation", sql09JSON(t, `{"component": 0}`))
 
 	inner, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestExclude), sql09Binding(t, svc))
 	if err != nil {
@@ -1141,26 +1184,70 @@ func TestPG18UnnestNestedRepeatedArraysPreserveOrderAndAncestry(t *testing.T) {
 		t.Fatalf("RenderUnnest OUTER: %v", err)
 	}
 	gotOuter := sql09CanonicalRows(svc.runRendered(t, outer))
-	if len(gotOuter) != 6 {
-		t.Fatalf("nested OUTER rows = %v, want three items plus three pads", gotOuter)
+	if len(gotOuter) != 7 {
+		t.Fatalf("nested OUTER rows = %v, want three items plus four pads", gotOuter)
 	}
 	for index, row := range gotOuter[3:] {
-		wantID := []string{"o-empty-components", "o-null-components", "o-missing"}[index]
+		wantID := []string{"o-empty-components", "o-null-components", "o-missing", "o-falsy-zero"}[index]
 		if !reflect.DeepEqual(row, []string{wantID, "<null>", "<null>", "<null>", "false"}) {
 			t.Fatalf("nested OUTER pad %d = %v, want one null-item row for %s", index, row, wantID)
 		}
 	}
 
-	// Witness: the flattened carrier count is three, so the three pads
-	// are renderer-generated, not data.
+	// Witness: the AQL-reference pipeline (falsy set empty, arrays
+	// expanded, no terminal-null filtering needed at the prefix) counts
+	// three carriers, so the four pads are renderer-generated, not data.
 	carriers := svc.witness(t,
 		`SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" r,`+
-			` jsonb_array_elements(COALESCE(NULLIF(r.payload -> 'component', 'null'::jsonb), '[]'::jsonb)) c,`+
-			` jsonb_array_elements(COALESCE(NULLIF(c -> 'code' -> 'coding', 'null'::jsonb), '[]'::jsonb)) e`+
+			` jsonb_array_elements(CASE WHEN r.payload -> 'component' IS NULL`+
+			`  OR jsonb_typeof(r.payload -> 'component') <> 'array' THEN '[]'::jsonb ELSE r.payload -> 'component' END) c,`+
+			` jsonb_array_elements(CASE WHEN c -> 'code' -> 'coding' IS NULL`+
+			`  OR jsonb_typeof(c -> 'code' -> 'coding') <> 'array' THEN '[]'::jsonb ELSE c -> 'code' -> 'coding' END) e`+
 			` WHERE r.project=$1 AND r.dataset_generation=$2`,
 		sql09Project, sql09Generation)
 	if len(carriers) != 1 || carriers[0][0] != "3" {
 		t.Fatalf("carrier witness = %v, want 3", carriers)
+	}
+}
+
+// TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL pins the other side of the
+// AQL ternary: a truthy non-array at a prefix iterate field is not silently
+// empty — AQL's FOR-over-non-array raises, and the PostgreSQL expansion must
+// raise through jsonb_array_elements instead of inventing rows.
+func TestPG18UnnestPrefixTruthyScalarRaisesLikeAQL(t *testing.T) {
+	svc := newSQL09Service(t)
+	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-truthy-prefix", "FHIR/Observation",
+		sql09JSON(t, `{"component": 5}`))
+	outer, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestPreserveParent), sql09Binding(t, svc))
+	if err != nil {
+		t.Fatalf("RenderUnnest OUTER: %v", err)
+	}
+	// pgx surfaces a server-side query error through rows.Err(), not the
+	// Query return; drain and Close so the borrowed connection returns
+	// to the pool either way.
+	rows, err := svc.iso.Query(svc.ctx, outer.SQL, parameterValues(outer.Args)...)
+	if err == nil {
+		for rows.Next() {
+		}
+		err = rows.Err()
+		rows.Close()
+	}
+	if err == nil {
+		t.Fatalf("truthy scalar prefix expanded without error; AQL parity requires an execution error")
+	}
+	// The falsy sibling must not error: prove the guard by rendering the
+	// same shape with the falsy value and reading zero INNER rows.
+	svc2 := newSQL09Service(t)
+	svc2.insertResource(t, sql09Project, sql09Generation, "Observation", "o-falsy-false", "FHIR/Observation",
+		sql09JSON(t, `{"component": false}`))
+	svc2.insertResource(t, sql09Project, sql09Generation, "Observation", "o-falsy-string", "FHIR/Observation",
+		sql09JSON(t, `{"component": ""}`))
+	inner, err := RenderUnnest(sql09ObservationUnnestPlan(ir.PhysicalUnnestExclude), sql09Binding(t, svc2))
+	if err != nil {
+		t.Fatalf("RenderUnnest INNER: %v", err)
+	}
+	if rows := svc2.runRendered(t, inner); len(rows) != 0 {
+		t.Fatalf("falsy prefix rows = %v, want none (AQL ternary falsy set)", rows)
 	}
 }
 

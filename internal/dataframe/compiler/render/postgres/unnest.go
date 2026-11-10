@@ -23,38 +23,40 @@ package postgres
 //     one row with every derived column SQL NULL when the expansion is
 //     empty — the counterpart of AQL's [null] index sentinel.
 //   - The ordinality column is ROW_NUMBER() OVER (ORDER BY every step's
-//     WITH-ORDINALITY position) - 1, which reproduces AQL's position in the
-//     row-major flattened carrier array: dense, zero-based, stable across
-//     executions, and duplicate-distinguishing (WITH ORDINALITY assigns a
-//     position per array element, so equal jsonb items remain distinct
-//     rows). A single expansion uses its own WITH-ORDINALITY position
-//     directly, which is the same number.
-//   - has-item is (rn IS NOT NULL): true for every real item — including a
-//     stored JSON null item from [null], whose value column is the jsonb
-//     'null' scalar and never SQL NULL — and false exactly on the OUTER pad
-//     row, so pad, JSON-null item, and missing source stay observable apart.
+//     WITH-ORDINALITY position) - 1 over the rows that survive the
+//     terminal null-item filter. AQL numbers items after every loop and
+//     filter (its index variable is assigned post-FILTER), so the index is
+//     the position among surviving items, not the stored array position:
+//     [1, null, 2] yields ordinality 0 and 1 in both backends. The row
+//     number is dense, zero-based, stable across executions, and
+//     duplicate-distinguishing (WITH ORDINALITY assigns a position per
+//     array element, so equal jsonb items remain distinct rows).
+//   - has-item is (rn IS NOT NULL): true for every real item and false
+//     exactly on the OUTER pad row. The AQL reference drops stored JSON
+//     null items at the terminal position (terminal FILTER ... != null),
+//     so [null] is an empty source — INNER emits no rows and OUTER pads
+//     one — and no emitted item is ever the jsonb 'null' scalar.
 //   - Each repeated prefix selector step expands through its own chained
 //     CROSS JOIN LATERAL jsonb_array_elements ... WITH ORDINALITY, the exact
 //     counterpart of AQL's nested FOR loops; an ancestor column is the
 //     enclosing expansion's captured value, the counterpart of the carrier
 //     object, so a correlated projection reads the exact enclosing item.
-//   - Source normalization mirrors the AQL null-to-[] rule (raw == null ? []
-//     : FLATTEN([raw])): the terminal expansion maps SQL NULL (absent
-//     document or missing key), the JSON null scalar, and the empty array to
-//     zero rows, passes an array through, and wraps a present non-null,
-//     non-array value as its single element; prefix expansions map SQL NULL
-//     and the JSON null scalar to zero rows and pass arrays through, while a
-//     scalar reaches jsonb_array_elements and raises at execution — matching
-//     AQL's "query requires collection" error rather than silently guessing.
-//     Missing, JSON-null, and SQL-NULL payload all read as the empty source,
-//     the same null-or-missing source collapse the AQL renderer applies and
-//     null_semantics.go documents; at item level the distinctions are
-//     preserved, never collapsed. Parity is bounded by ir.Validate's
-//     schema-validated selector: a schema-invalid stored non-array at an
-//     iterate path is outside the contract, and there the terminal
-//     expansion preserves the present value as one item rather than
-//     re-enacting AQL's falsy-scalar ternary quirk (0/""/false dropped,
-//     truthy scalars kept).
+//   - Source normalization reproduces the AQL iterate ternary
+//     (cur.field ? cur.field : []) exactly, for every step including the
+//     terminal one: AQL's falsy set is null, false, 0, and "", so SQL NULL
+//     (absent document or missing key), the JSON null scalar, and stored
+//     false/0/"" all read as the empty array with no error, at prefix and
+//     terminal alike. A truthy non-array at a prefix expansion reaches
+//     jsonb_array_elements and raises at execution, matching AQL's
+//     FOR-over-non-array collection error; a truthy non-array at the
+//     terminal expansion becomes one item, matching AQL's RETURN [value]
+//     that FLATTEN unwraps back to that single item. Missing, JSON-null,
+//     and SQL-NULL payload all read as the empty source, the same
+//     null-or-missing source collapse the AQL renderer applies and
+//     null_semantics.go documents. Parity is bounded by ir.Validate's
+//     schema-validated selector: FHIR element arrays are never arrays of
+//     arrays, so the AQL reference's one-level FLATTEN over such stored
+//     data is outside the contract and arrays pass through unflattened.
 //
 // The ORDER BY contract extends the spine's identity total order:
 // resource_seq, then every edge_seq, then every expansion rn in plan order,
@@ -500,11 +502,12 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 
 	// Build the chained expansion. The first expansion extracts from the
 	// owner row document; each later expansion extracts from the previous
-	// expansion's element. The terminal expansion normalizes like the AQL
-	// terminal selector (null-or-missing -> no rows, array -> elements,
-	// present scalar -> single element); prefix expansions only collapse
-	// null-or-missing so a schema-invalid scalar raises in PostgreSQL the
-	// way AQL's FOR-over-scalar raises.
+	// expansion's element. Every expansion applies the AQL iterate ternary:
+	// the falsy set (null, false, 0, "") reads as the empty array; the
+	// terminal additionally wraps a truthy scalar as its single item and
+	// drops stored JSON null items (the AQL terminal FILTER), while a
+	// truthy scalar at a prefix expansion raises in PostgreSQL the way
+	// AQL's FOR-over-scalar raises.
 	var from strings.Builder
 	orderByOrds := make([]string, 0, len(expansions))
 	ancestorColumns := make([]string, len(unnest.Ancestors))
@@ -518,10 +521,21 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 		expansionAlias := lateralAlias + "_e" + strconv.Itoa(index)
 		valueColumn := "value"
 		var sourceForm string
-		if index == terminal {
+		if index == terminal && len(unnest.Ancestors) == 0 {
+			// The AQL reference dispatches on ancestor presence
+			// (render/aql/navigation_render.go renderUnnestSource): with no
+			// ancestors the terminal goes through the selector extraction
+			// pipeline, whose RETURN + one-level FLATTEN turn a truthy
+			// scalar into that single item; with ancestors every step,
+			// terminal included, is a plain ternary FOR, so a truthy
+			// scalar must reach jsonb_array_elements and raise, matching
+			// AQL's FOR-over-non-array error.
 			valueColumn = "item"
 			sourceForm = unnestSingleLayerForm(extraction)
 		} else {
+			if index == terminal {
+				valueColumn = "item"
+			}
 			sourceForm = unnestNullToEmptyForm(extraction)
 		}
 		fragment := "jsonb_array_elements(" + sourceForm + ") WITH ORDINALITY AS " +
@@ -551,16 +565,15 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 		ancestorColumns[ancestorIndex] = captured + " AS ancestor_" + strconv.Itoa(ancestorIndex)
 	}
 
-	// The ordinality row number: WITH-ORDINALITY positions are already a
-	// unique tuple per produced row, so ROW_NUMBER over them in step order
-	// is exactly AQL's row-major carrier position (1-based here; the
-	// derived ordinality column subtracts one).
-	var rowNumber string
-	if len(orderByOrds) == 1 {
-		rowNumber = orderByOrds[0] + " AS rn"
-	} else {
-		rowNumber = "ROW_NUMBER() OVER (ORDER BY " + strings.Join(orderByOrds, ", ") + ") AS rn"
-	}
+	// The ordinality row number: the terminal item filter removes stored
+	// JSON null items, exactly as the AQL reference does with its terminal
+	// FILTER ... != null, so the surviving rows are numbered densely with
+	// ROW_NUMBER over the WITH-ORDINALITY position tuples in step order —
+	// AQL assigns its index variable after every loop and filter, so its
+	// item index is the position among surviving items, not the stored
+	// array position (1-based here; the derived ordinality column
+	// subtracts one). WITH ORDINALITY still distinguishes equal items.
+	rowNumber := "ROW_NUMBER() OVER (ORDER BY " + strings.Join(orderByOrds, ", ") + ") AS rn"
 	selectList := expansions[terminal].expansionAlias + "." + expansions[terminal].valueColumn + " AS item"
 	for _, column := range ancestorColumns {
 		if column != "" {
@@ -568,7 +581,17 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 		}
 	}
 	selectList += ", " + rowNumber
-	subquery := "SELECT " + selectList + " " + from.String()
+	// Terminal null-item removal: the AQL reference drops stored JSON null
+	// items at the terminal position (render/aql/selectors.go
+	// flattenTerminalRepeatedValues FILTER v != null and
+	// render/aql/navigation_render.go's terminal FILTER current != null),
+	// so [null] contributes no items, [1, null, 2] yields ordinality
+	// 0,1,... and an OUTER source that empties under the filter pads like
+	// any other empty source. jsonb_array_elements never yields a SQL NULL
+	// element, so the equality test cannot misfire on real items.
+	terminalItem := expansions[terminal].expansionAlias + "." + expansions[terminal].valueColumn
+	subquery := "SELECT " + selectList + " " + from.String() +
+		" WHERE jsonb_typeof(" + terminalItem + ") <> 'null'"
 
 	join := "CROSS JOIN LATERAL (" + subquery + ") AS " + lateralAlias
 	if unnest.EmptyPolicy == ir.PhysicalUnnestPreserveParent {
@@ -580,11 +603,13 @@ func (r *planRenderer) renderUnnest(plan ir.PhysicalPlan, unnest ir.PhysicalUnne
 	// total order deterministic and keeps duplicate items in array order.
 	r.unnestOrder = append(r.unnestOrder, lateralAlias+".rn ASC")
 
-	// Derived value scopes: the item rides the jsonb column (a stored JSON
-	// null item stays the 'null' scalar, distinguishable from the OUTER pad
-	// row's SQL NULL); ordinality is zero-based with NULL only on the pad
-	// row, matching AQL's null index sentinel; has-item is two-valued and
-	// total, false exactly on the pad row.
+	// Derived value scopes: the item rides the jsonb column and is never
+	// the jsonb 'null' scalar, because the terminal filter removed stored
+	// null items exactly as the AQL reference's terminal FILTER does — the
+	// only SQL NULL item is the OUTER pad row's, the counterpart of AQL's
+	// [null] index sentinel; ordinality is zero-based with NULL only on
+	// the pad row; has-item is two-valued and total, false exactly on the
+	// pad row.
 	if err := r.registerDerivedValue(unnest.OutputVariable, lateralAlias+".item", true); err != nil {
 		return err
 	}
@@ -637,26 +662,50 @@ func (r *planRenderer) resolveDerivedValue(value ir.PhysicalValue, scope rowScop
 	return "(" + expression + ")", nil
 }
 
-// unnestNullToEmptyForm is the prefix-expansion source form: SQL NULL
-// (absent document, missing key, or a non-object parent along the path) and
-// the JSON null scalar read as the empty array, every other value passes
-// through unchanged so jsonb_array_elements raises on a schema-invalid
-// scalar, matching AQL's collection error rather than inventing rows.
+// unnestFalsyArms is the AQL ternary's falsy set. AQL renders every iterate
+// step as FOR v IN (cur.field ? cur.field : []), and AQL treats exactly
+// null, false, 0, and "" as falsy (ArangoDB AQL typing), so a stored
+// false/0/"" at an iterate field contributes zero rows with no error. JSON
+// null and SQL NULL are folded by the first CASE arm; these arms carry the
+// remaining two falsy values so the PostgreSQL expansion matches the AQL
+// row count instead of raising or emitting rows. Numeric equality on jsonb
+// covers every stored spelling of zero (0, 0.0, -0.0, 0e0).
+const unnestFalsyArms = " WHEN (%s) = 'false'::jsonb OR (%s) = '0'::jsonb OR (%s) = '\"\"'::jsonb THEN '[]'::jsonb"
+
+// unnestNullToEmptyForm is the prefix-expansion source form, the exact
+// counterpart of AQL's iterate ternary (render/aql/navigation_render.go and
+// render/aql/selectors.go renderSelectorArrayFromSource): SQL NULL (absent
+// document, missing key, or a null/non-object parent along the path), the
+// JSON null scalar, and the remaining falsy scalars read as the empty array;
+// an array passes through; a truthy non-array passes through so
+// jsonb_array_elements raises at execution, matching AQL's
+// FOR-over-non-array collection error rather than inventing rows.
 func unnestNullToEmptyForm(extraction string) string {
-	return "CASE WHEN (" + extraction + ") IS NULL OR jsonb_typeof((" + extraction + ")) = 'null'" +
-		" THEN '[]'::jsonb ELSE (" + extraction + ") END"
+	return "CASE" +
+		" WHEN (" + extraction + ") IS NULL OR jsonb_typeof((" + extraction + ")) = 'null' THEN '[]'::jsonb" +
+		" WHEN jsonb_typeof((" + extraction + ")) = 'array' THEN (" + extraction + ")" +
+		unnestFalsyArmsWith(extraction) +
+		" ELSE (" + extraction + ") END"
 }
 
-// unnestSingleLayerForm is the terminal-expansion source form and the exact
-// SQL counterpart of the AQL contract LET source = (raw == null ? [] :
-// FLATTEN(raw)) over the selector's one-wrapped-array value: null-or-missing
-// (including the JSON null scalar, which AQL's == null test also matches)
-// reads as the empty array, an array contributes its elements in stored
-// order including null and duplicate elements, and any other present value
-// is one single-element array, exactly as FLATTEN([value]) behaves.
+// unnestSingleLayerForm is the terminal-expansion source form. The AQL
+// reference for the registered shape evaluates the terminal iterate step's
+// ternary and then FLATTENs the returned values one level, dropping null
+// items (render/aql/selectors.go flattenTerminalRepeatedValues and
+// render/aql/navigation_render.go's terminal FILTER ... != null): the
+// falsy set and null/missing read as the empty array, an array contributes
+// its elements in stored order (null items removed by the expansion's
+// WHERE, duplicates preserved by WITH ORDINALITY), and a truthy non-array
+// becomes one single-element array — the RETURN [value] that FLATTEN
+// unwraps back to that single item.
 func unnestSingleLayerForm(extraction string) string {
 	return "CASE" +
 		" WHEN (" + extraction + ") IS NULL OR jsonb_typeof((" + extraction + ")) = 'null' THEN '[]'::jsonb" +
 		" WHEN jsonb_typeof((" + extraction + ")) = 'array' THEN (" + extraction + ")" +
+		unnestFalsyArmsWith(extraction) +
 		" ELSE jsonb_build_array((" + extraction + ")) END"
+}
+
+func unnestFalsyArmsWith(extraction string) string {
+	return fmt.Sprintf(unnestFalsyArms, extraction, extraction, extraction)
 }
