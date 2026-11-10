@@ -149,27 +149,27 @@ func TestIsQueryMemoryLimitExceededRecognizesWrappedArangoResourceLimit(t *testi
 	}
 	err := fmt.Errorf("arango query: %w", driverErr)
 
-	if !IsQueryMemoryLimitExceeded(err) {
-		t.Fatalf("IsQueryMemoryLimitExceeded(%v) = false, want true", err)
+	if !isQueryMemoryLimitExceeded(err) {
+		t.Fatalf("isQueryMemoryLimitExceeded(%v) = false, want true", err)
 	}
-	if !IsQueryResourceLimitExceeded(err) {
-		t.Fatalf("IsQueryResourceLimitExceeded(%v) = false, want true", err)
+	if !isQueryResourceLimitExceeded(err) {
+		t.Fatalf("isQueryResourceLimitExceeded(%v) = false, want true", err)
 	}
-	if IsQueryMemoryLimitExceeded(errors.New("unrelated query failure")) {
+	if isQueryMemoryLimitExceeded(errors.New("unrelated query failure")) {
 		t.Fatal("unrelated query failure was classified as a memory-limit error")
 	}
 	outOfMemory := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrOutOfMemory, ErrorMessage: "out of memory"}
-	if IsQueryMemoryLimitExceeded(outOfMemory) {
+	if isQueryMemoryLimitExceeded(outOfMemory) {
 		t.Fatal("database out-of-memory was classified as a configured query-memory limit")
 	}
-	if !IsQueryOutOfMemory(outOfMemory) {
+	if !isQueryOutOfMemory(outOfMemory) {
 		t.Fatal("database out-of-memory was not recognized")
 	}
 	otherResource := shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "resource limit exceeded"}
-	if IsQueryMemoryLimitExceeded(otherResource) {
+	if isQueryMemoryLimitExceeded(otherResource) {
 		t.Fatal("non-memory resource limit was classified as a memory limit")
 	}
-	if !IsQueryResourceLimitExceeded(otherResource) {
+	if !isQueryResourceLimitExceeded(otherResource) {
 		t.Fatal("non-memory resource limit was not recognized")
 	}
 }
@@ -179,10 +179,10 @@ func TestIsQueryUserAssertionRecognizesOnlyTheRequestedStableCode(t *testing.T) 
 		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
 		ErrorMessage: "AQL: RELATIONSHIP_CARDINALITY_VIOLATION (while executing)",
 	})
-	if !IsQueryUserAssertion(err, "RELATIONSHIP_CARDINALITY_VIOLATION") {
+	if !isQueryUserAssertion(err, "RELATIONSHIP_CARDINALITY_VIOLATION") {
 		t.Fatal("stable user assertion was not recognized")
 	}
-	if IsQueryUserAssertion(err, "SOME_OTHER_ASSERTION") || IsQueryUserAssertion(errors.New("RELATIONSHIP_CARDINALITY_VIOLATION"), "RELATIONSHIP_CARDINALITY_VIOLATION") {
+	if isQueryUserAssertion(err, "SOME_OTHER_ASSERTION") || isQueryUserAssertion(errors.New("RELATIONSHIP_CARDINALITY_VIOLATION"), "RELATIONSHIP_CARDINALITY_VIOLATION") {
 		t.Fatal("unrelated error was classified as the requested user assertion")
 	}
 }
