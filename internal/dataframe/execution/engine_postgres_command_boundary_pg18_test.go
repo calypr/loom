@@ -80,7 +80,7 @@ func TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer(t *testing.T) {
 	// dispatch, hidden identity round-trip, or re-render inflates the
 	// per-stream cost and fails the witness. Cumulative stats flush on a
 	// timer, so the read polls until the witness settles.
-	scanWitnessSQL := `SELECT COALESCE(seq_tup_read, 0) + COALESCE(idx_tup_read, 0) FROM pg_stat_user_tables WHERE schemaname = $1 AND relname = 'fhir_resource'`
+	scanWitnessSQL := `SELECT COALESCE(seq_tup_read, 0) + COALESCE(idx_tup_fetch, 0) FROM pg_stat_user_tables WHERE schemaname = $1 AND relname = 'fhir_resource'`
 	readServed := func() int64 {
 		t.Helper()
 		deadline := time.Now().Add(10 * time.Second)
