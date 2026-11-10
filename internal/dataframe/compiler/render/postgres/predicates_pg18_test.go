@@ -135,6 +135,13 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	sql05Insert(t, svc, "Observation", "score-decimal", map[string]any{"score": 2.5})
 	sql05Insert(t, svc, "Observation", "score-missing", map[string]any{"unrelated": 2})
 	sql05Insert(t, svc, "Observation", "score-seven", map[string]any{"score": 7})
+	// Invalid-calendar and leap-day controls: the guards must exclude
+	// these without ever casting them (a cast would abort the statement),
+	// while a true leap day orders normally.
+	sql05Insert(t, svc, "Condition", "date-feb29-leap", map[string]any{"observed": "2024-02-29"})
+	sql05Insert(t, svc, "Condition", "date-feb29-nonleap", map[string]any{"observed": "2023-02-29"})
+	sql05Insert(t, svc, "Condition", "date-invalid-day", map[string]any{"observed": "2024-02-30"})
+	sql05Insert(t, svc, "Condition", "date-invalid-month", map[string]any{"observed": "2024-13-01"})
 	sql05Insert(t, svc, "Condition", "date-january", map[string]any{"observed": "2024-01-01"})
 	sql05Insert(t, svc, "Condition", "date-march", map[string]any{"observed": "2024-03-15"})
 	sql05Insert(t, svc, "Condition", "date-missing", map[string]any{"unrelated": 3})
@@ -142,6 +149,9 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	// DATE_TIMESTAMP would coerce but the renderer's guards read as
 	// never-comparable (contract header, predicates.go).
 	sql05Insert(t, svc, "Condition", "date-partial", map[string]any{"observed": "2024"})
+	// Out-of-range time and offset shapes: digit-valid, cast-fatal.
+	sql05Insert(t, svc, "Encounter", "instant-bad-offset", map[string]any{"recorded": "2024-03-15T10:20:30+99:99"})
+	sql05Insert(t, svc, "Encounter", "instant-bad-time", map[string]any{"recorded": "2024-01-01T25:70:99Z"})
 	sql05Insert(t, svc, "Encounter", "instant-early", map[string]any{"recorded": "2024-03-15T09:00:00+02:00"})
 	sql05Insert(t, svc, "Encounter", "instant-late", map[string]any{"recorded": "2024-03-15T10:20:30Z"})
 	sql05Insert(t, svc, "Encounter", "instant-offset-twin", map[string]any{"recorded": "2024-03-15T12:20:30+02:00"})
@@ -150,11 +160,11 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 		extraction := `(payload #> '{` + field + `}'::text[])`
 		text := `((` + extraction + `) #>> '{}')`
 		return "CASE" +
-			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'` +
+			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)$'` +
 			` THEN ((` + text + ` || 'T00:00:00+00:00')::timestamptz)` +
-			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}([.,][0-9]+)?)?(Z|[+-][0-9]{2}:[0-9]{2})$'` +
+			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?(Z|[+-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])$'` +
 			` THEN (` + text + `)::timestamptz` +
-			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}([.,][0-9]+)?)?$'` +
+			` WHEN jsonb_typeof(` + extraction + `) = 'string' AND ` + text + ` ~ '^([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|[1-9][0-9]{3}-(0[469]|11)-(0[1-9]|[12][0-9]|30)|[1-9][0-9]{3}-02-(0[1-9]|1[0-9]|2[0-8])|(0[48]|[2468][048]|[13579][26])00-02-29|[0-9]{2}(0[48]|[2468][048]|[13579][26])-02-29)T(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?$'` +
 			` THEN ((` + text + ` || '+00:00')::timestamptz)` +
 			` END`
 	}
@@ -223,9 +233,9 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 			witness: `(payload #> '{score}'::text[]) <= '7'::jsonb`,
 		},
 		{
-			label: "date range orders full dates and excludes the never-comparable partial", resourceType: "Condition", operator: "GTE", field: "observed",
+			label: "date range orders full and leap dates and excludes never-comparable partials and invalid calendars", resourceType: "Condition", operator: "GTE", field: "observed",
 			kind: spec.FilterDate, bindKey: "date_value", bind: "2024-02-01",
-			want:    sql05Rows("date-march"),
+			want:    sql05Rows("date-feb29-leap", "date-march"),
 			witness: storedDateWitness("observed") + ` >= '2024-02-01T00:00:00+00:00'::timestamptz`,
 		},
 		{

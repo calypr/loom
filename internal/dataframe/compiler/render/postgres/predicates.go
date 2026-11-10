@@ -101,10 +101,13 @@ package postgres
 //
 // One documented divergence: a stored string under a DATE/DATE_TIME ordering
 // comparison that is not a full-precision instant (for example the partial
-// FHIR date "2024") is never-comparable here — the guard yields SQL NULL and
-// the row is excluded — where AQL's DATE_TIMESTAMP would fold the partial
-// value to an instant and possibly match. The renderer never includes a row
-// it cannot order and never raises on stored data; exclusion is the
+// FHIR date "2024", or an invalid-calendar shape such as 2024-02-30,
+// 2024-13-01, 2024-01-01T25:70:99Z, or offset +99:99) is never-comparable
+// here — the guard yields SQL NULL and the row is excluded — where AQL's
+// DATE_TIMESTAMP would fold such values and possibly match or raise. The
+// guard's regexes are calendar-aware precisely so its THEN branches never
+// hand PostgreSQL a string it would reject: the renderer never includes a
+// row it cannot order and never raises on stored data; exclusion is the
 // fail-closed outcome, and the live fixture pins it.
 
 import (
@@ -485,10 +488,36 @@ func validatePayloadBindType(kind spec.FilterValueKind, value any) error {
 // timestamptz; anything the guards reject reads never-comparable (SQL NULL
 // → excluded) rather than raising or misordering. Full-precision stored
 // dates and RFC3339 instants order identically to AQL's DATE_TIMESTAMP.
+//
+// Cast-safety is the load-bearing property: the THEN branches apply
+// ::timestamptz, which raises "invalid input syntax" and aborts the whole
+// statement on any string it cannot parse. Digit-shaped regexes are not
+// enough — day validity depends on month and year — so the date core is an
+// explicit alternation of cast-safe month/day branches: 31-day months,
+// 30-day months, February through the 28th, and February 29 only under a
+// proleptic-Gregorian leap-year test ((div-by-4 and not div-by-100) or
+// div-by-400, century form written out because POSIX ERE has no
+// lookahead). Time hours/minutes/seconds are range-bounded (leap seconds
+// excluded, as before) and UTC offsets are bounded to the range PostgreSQL
+// itself admits. Year 0000 and any shape outside these branches are
+// never-comparable, never cast. The live matrix stores invalid-calendar
+// rows (2024-02-30, 2024-13-01, 2024-01-01T25:70:99Z, offset +99:99) to
+// pin that the statement never raises and the rows are excluded.
 const (
-	temporalStoredDatePattern      = `^[0-9]{4}-[0-9]{2}-[0-9]{2}$`
-	temporalStoredInstantPattern   = `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}([.,][0-9]+)?)?(Z|[+-][0-9]{2}:[0-9]{2})$`
-	temporalStoredNoOffsetPattern  = `^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}([.,][0-9]+)?)?$`
+	// Two-digit pairs whose value is divisible by 4 and nonzero: 04/08
+	// (even tens 0), [2468]x0/4/8 (even tens), x2/x6 with odd tens.
+	temporalLeapTensOnesPattern = `(0[48]|[2468][048]|[13579][26])`
+	// The date core is the cast-safe month/day alternation described
+	// above; the leap-day branches are the century form (this pattern
+	// followed by 00) and the non-century form (any two leading digits
+	// followed by this pattern), so year 0000 is never cast.
+	temporalStoredYearPattern      = `[1-9][0-9]{3}`
+	temporalStoredDateCorePattern  = `([1-9][0-9]{3}-(0[13578]|1[02])-(0[1-9]|[12][0-9]|3[01])|` + temporalStoredYearPattern + `-(0[469]|11)-(0[1-9]|[12][0-9]|30)|` + temporalStoredYearPattern + `-02-(0[1-9]|1[0-9]|2[0-8])|` + temporalLeapTensOnesPattern + `00-02-29|[0-9]{2}` + temporalLeapTensOnesPattern + `-02-29)`
+	temporalStoredTimePattern      = `(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9]([.,][0-9]+)?)?`
+	temporalStoredOffsetPattern    = `(Z|[+-](0[0-9]|1[0-9]|2[0-3]):[0-5][0-9])`
+	temporalStoredDatePattern      = `^` + temporalStoredDateCorePattern + `$`
+	temporalStoredInstantPattern   = `^` + temporalStoredDateCorePattern + `T` + temporalStoredTimePattern + temporalStoredOffsetPattern + `$`
+	temporalStoredNoOffsetPattern  = `^` + temporalStoredDateCorePattern + `T` + temporalStoredTimePattern + `$`
 	temporalStoredComparisonSuffix = `T00:00:00+00:00`
 )
 
