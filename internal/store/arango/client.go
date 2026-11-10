@@ -69,38 +69,12 @@ type TransactionalRowClient interface {
 	WithTransaction(context.Context, TransactionCollections, TransactionFunc) error
 }
 
-// IsQueryMemoryLimitExceeded reports whether ArangoDB rejected a query because
-// it exceeded the configured query memory limit.
-func IsQueryMemoryLimitExceeded(err error) bool {
-	if !IsQueryResourceLimitExceeded(err) {
-		return false
-	}
-	ok, arangoErr := shared.IsArangoError(err)
-	return ok && strings.Contains(strings.ToLower(arangoErr.ErrorMessage), "memory")
-}
-
-// IsQueryResourceLimitExceeded reports whether ArangoDB rejected a query at a
-// configured resource limit. Callers can use IsQueryMemoryLimitExceeded first
-// when they need the narrower diagnosis.
-func IsQueryResourceLimitExceeded(err error) bool {
-	return shared.IsArangoErrorWithErrorNum(err, shared.ErrResourceLimit)
-}
-
-// IsQueryOutOfMemory reports whether ArangoDB ran out of memory while
-// executing a query. This is distinct from rejecting a query at a configured
-// memory limit.
-func IsQueryOutOfMemory(err error) bool {
-	return shared.IsArangoErrorWithErrorNum(err, shared.ErrOutOfMemory)
-}
-
-// IsQueryUserAssertion reports whether AQL aborted through ASSERT with the
-// exact stable code emitted by Loom's typed physical plan.
-func IsQueryUserAssertion(err error, code string) bool {
-	if strings.TrimSpace(code) == "" {
-		return false
-	}
-	ok, arangoErr := shared.IsArangoError(err)
-	return ok && arangoErr.ErrorNum == shared.ErrQueryUserAssert && strings.Contains(arangoErr.ErrorMessage, "AQL: "+code)
+// QueryMemoryLimitFromContext reports the per-query ArangoDB memory cap
+// attached to ctx by WithQueryMemoryLimit. It lets composition witnesses
+// confirm the vendor mechanism was attached without reading the private key.
+func QueryMemoryLimitFromContext(ctx context.Context) (int64, bool) {
+	bytes, ok := ctx.Value(queryMemoryLimitContextKey{}).(int64)
+	return bytes, ok
 }
 
 type TransactionCollections struct {
@@ -337,6 +311,12 @@ func queryRows(ctx context.Context, queryer driver.DatabaseQuery, query string, 
 }
 
 func queryRowsWithOptions(ctx context.Context, queryer driver.DatabaseQuery, query string, options *driver.QueryOptions, visit RowVisitor, closeTimeout time.Duration) (resultErr error) {
+	// The error boundary is the one classification point for every row-query
+	// entry path (ordinary, max-runtime, and transaction callbacks). It is
+	// registered first so it runs last: by then the cursor-close join has
+	// produced the final chain, and unrecognized errors (visitor errors,
+	// context sentinels, foreign failures) pass through byte-identical.
+	defer func() { resultErr = translateQueryErrorAtSeam(resultErr) }()
 	if err := ctx.Err(); err != nil {
 		return err
 	}

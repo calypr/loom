@@ -14,8 +14,8 @@ package postgres
 // and the keyset Visit -- lives in selection_members.go.
 //
 // Database-enforced invariants (DDL in
-// tests/migrations-selections/000008_selection_revisions.sql; this file
-// contains no DDL):
+// 000008_selection_revisions.sql, now part of this package's embedded
+// Explorer control-plane history; this file contains no DDL):
 //   - selection_revisions PRIMARY KEY (id) mirrors Arango's global document
 //     key, so one selection ID is exactly one revision.
 //   - UNIQUE (project, idempotency_key) is the project-scoped idempotency

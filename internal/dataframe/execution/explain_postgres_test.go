@@ -1494,12 +1494,12 @@ func (s *exec10Service) assertTypedPgError(t *testing.T, err error, wantSQLState
 	if !ok {
 		t.Fatalf("%s: error not typed: %v", what, err)
 	}
-	if userErr.Code() != string(dataframeerrors.CodeBackendUnavailable) {
-		t.Fatalf("%s: code %s, want BACKEND_UNAVAILABLE", what, userErr.Code())
+	if userErr.Code() != string(dataframeerrors.CodeInternalError) {
+		t.Fatalf("%s: code %s, want INTERNAL_ERROR from the store/postgres boundary classification", what, userErr.Code())
 	}
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != wantSQLState {
-		t.Fatalf("%s: underlying SQLSTATE not %s: %v", what, wantSQLState, err)
+	var translated *storepg.TranslatedError
+	if !errors.As(err, &translated) || translated.Condition != storepg.ConditionServerRejected || translated.SQLState != wantSQLState {
+		t.Fatalf("%s: boundary classification missing for SQLSTATE %s: %v", what, wantSQLState, err)
 	}
 }
 

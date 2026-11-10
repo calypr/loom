@@ -28,7 +28,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/projectid"
-	"github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -1444,8 +1443,27 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	return summary, nil
 }
 
+// isQueryResourceLimitError recognizes a query stopped at a configured
+// database resource limit through its Loom code alone. The adapter owns
+// vendor interpretation; execution consumes the classified error. The
+// recognized set mirrors the pre-move vendor predicate, which accepted every
+// configured-limit rejection (ErrResourceLimit), including the configured
+// memory-limit special case, but not a database out-of-memory abort.
+func isQueryResourceLimitError(err error) bool {
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		return false
+	}
+	switch dataframeerrors.ErrorCode(userErr.Code()) {
+	case dataframeerrors.CodeQueryResourceLimitExceeded, dataframeerrors.CodeQueryMemoryLimitExceeded:
+		return true
+	default:
+		return false
+	}
+}
+
 func (e *Engine) rejectGroupProjectionDecisionAfterResourceLimit(stream OutputStream, queryErr error) {
-	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
+	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !isQueryResourceLimitError(queryErr) {
 		return
 	}
 	decision := *stream.projectionDecision
@@ -1664,8 +1682,8 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	switch s.command.Backend() {
 	case compiler.CompiledBackendPostgreSQL:
 		// The PostgreSQL stream consumes only the parent-tagged command
-		// through the PostgreSQL row executor. The Arango query memory-limit
-		// context value is Arango-specific and is never attached here, and
+		// through the PostgreSQL row executor. The neutral query-memory
+		// budget is an Arango-honored policy and is never attached here, and
 		// the AQL root-key page loop never runs for a PostgreSQL plan.
 		if s.postgreSQLQueryRows == nil {
 			return fmt.Errorf("%w: PostgreSQL stream %q has no PostgreSQL row executor; PostgreSQL requests never fall back to AQL",
@@ -1682,7 +1700,7 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 			compiler.ErrCompiledCommandBackendNotRegistered, s.Name, string(s.command.Backend()))
 	}
 	if s.queryMemoryLimit > 0 {
-		ctx = arango.WithQueryMemoryLimit(ctx, s.queryMemoryLimit)
+		ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
 	}
 	if s.page == nil || s.rootPageRows == 0 {
 		return s.stream(ctx, s.command, s.batchSize, visit)

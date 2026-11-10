@@ -18,11 +18,10 @@ import (
 // Interpretation persistence for the PostgreSQL 18 Explorer control plane:
 // project-scoped library heads and immutable project revisions with
 // transactional digest and parent CAS (the relational counterpart of
-// explorer/arango/interpretations.go). The two tables are created by this
-// ticket's state-scoped own-dir fixture
-// tests/migrations-interpretations/000007_interpretation_library.sql through
-// the shared pg-store-02 runner, composed with OwnerMigrations(); this file
-// contains no DDL.
+// explorer/arango/interpretations.go). The two tables are created by
+// 000007_interpretation_library.sql, now part of this package's embedded
+// Explorer control-plane history (see explorers.go) applied through the
+// shared pg-store-02 runner; this file contains no DDL.
 //
 // The revision rows are the immutable, content-addressed facts: the ID is
 // the domain's interpretation_<64 hex> hash over the identity envelope and

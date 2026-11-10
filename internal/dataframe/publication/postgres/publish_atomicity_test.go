@@ -340,35 +340,16 @@ func (s *pubvisService) registry(t *testing.T, pool *pgxpool.Pool) *Registry {
 	return registry
 }
 
-// migrate applies exactly the ledger bootstrap plus the sibling
-// tests/migrations/000004 publication bundle catalog through the real
-// pg-store-02 runner. No new store-directory migration is created by this
-// ticket: the publish path adds no DDL -- NewMigrationRunner sorts merged
-// sources and tolerates the 1..4 version gap (internal/store/postgres/
-// migrate.go:385), the proven composition the sibling suites already apply.
+// migrate applies exactly the ledger bootstrap plus the 000004 publication
+// bundle catalog from this package's authoritative owner embed (migrate.go)
+// through the real pg-store-02 runner. The publish path adds no DDL --
+// NewMigrationRunner sorts the owner history and tolerates the 1..4 version
+// gap (internal/store/postgres/migrate.go), the proven composition the
+// sibling suites already apply.
 func (s *pubvisService) migrate(t *testing.T) {
 	t.Helper()
-	embedded, err := storepostgres.EmbeddedMigrations()
-	if err != nil {
-		s.fail("embedded migrations", err)
-	}
-	var ledger []storepostgres.Migration
-	for _, m := range embedded {
-		if m.Version == 1 && m.Name == "ledger" {
-			ledger = append(ledger, m)
-		}
-	}
-	if len(ledger) != 1 {
-		t.Fatalf("embedded history has %d migrations, want exactly one version 1 ledger bootstrap", len(embedded))
-	}
-	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
-	if err != nil {
-		s.fail("load tests/migrations", err)
-	}
-	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
-		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
-	}
-	runner, err := storepostgres.NewMigrationRunner(s.reader, s.schema, append(append([]storepostgres.Migration(nil), ledger...), catalog...))
+	history := mustOwnerHistorySubset(t, 1, 4)
+	runner, err := storepostgres.NewMigrationRunner(s.reader, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
 	}

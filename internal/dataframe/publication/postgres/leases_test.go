@@ -174,43 +174,17 @@ func newOwnedPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(ctx, config)
 }
 
-// migrate applies this ticket's owned history -- the ledger bootstrap from
-// the embedded pg-store-02 set, the sibling tests/migrations/000004
-// publication bundle catalog that owns the lease table this keeper fences,
-// and this ticket's tests/migrations-leases/000006_publication_lease_
-// checkpoints.sql -- through the real pg-store-02 runner, and asserts the
-// ledger literally records all three rows. The sibling's own catalog tests
-// keep loading tests/migrations alone, so this ticket's SQL lives beside it.
+// migrate applies this suite's slice of the authoritative publication
+// control-plane history -- the ledger bootstrap, the bundle catalog that owns
+// the lease table this keeper fences, and
+// 000006_publication_lease_checkpoints.sql, all owned by this package's
+// embed (migrate.go) -- through the real pg-store-02 runner, and asserts the
+// ledger literally records all three rows. The suite filters the owner
+// history to the versions its lease audit owns, exactly like the sibling
+// catalog suite filters to {1, 4}.
 func (s *leaseService) migrate(t *testing.T) {
 	t.Helper()
-	embedded, err := storepostgres.EmbeddedMigrations()
-	if err != nil {
-		s.fail("embedded migrations", err)
-	}
-	var ledger []storepostgres.Migration
-	for _, m := range embedded {
-		if m.Version == 1 && m.Name == "ledger" {
-			ledger = append(ledger, m)
-		}
-	}
-	if len(ledger) != 1 {
-		t.Fatalf("embedded history has %d migrations, want exactly one version 1 ledger bootstrap to compose against", len(embedded))
-	}
-	catalog, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations")
-	if err != nil {
-		s.fail("load tests/migrations", err)
-	}
-	if len(catalog) != 1 || catalog[0].Version != 4 || catalog[0].Name != "publication_bundle_catalog" {
-		t.Fatalf("tests/migrations history = %+v, want exactly version 4 publication_bundle_catalog", catalog)
-	}
-	checkpoints, err := storepostgres.LoadMigrations(os.DirFS("../../../../"), "tests/migrations-leases")
-	if err != nil {
-		s.fail("load tests/migrations-leases", err)
-	}
-	if len(checkpoints) != 1 || checkpoints[0].Version != 6 || checkpoints[0].Name != "publication_lease_checkpoints" {
-		t.Fatalf("tests/migrations-leases history = %+v, want exactly version 6 publication_lease_checkpoints", checkpoints)
-	}
-	history := append(append(append([]storepostgres.Migration(nil), ledger...), catalog...), checkpoints...)
+	history := mustOwnerHistorySubset(t, 1, 4, 6)
 	runner, err := storepostgres.NewMigrationRunner(s.iso, s.schema, history)
 	if err != nil {
 		s.fail("new migration runner", err)
@@ -223,9 +197,9 @@ func (s *leaseService) migrate(t *testing.T) {
 		t.Fatalf("latest migration version = %d, want 6", result.LatestVersion)
 	}
 	wantLedger := []storepostgres.LedgerRecord{
-		{Version: 1, Name: "ledger", Checksum: ledger[0].Checksum},
-		{Version: 4, Name: "publication_bundle_catalog", Checksum: catalog[0].Checksum},
-		{Version: 6, Name: "publication_lease_checkpoints", Checksum: checkpoints[0].Checksum},
+		{Version: 1, Name: "ledger", Checksum: "db70f7758495f7557b3a694149b80ed6e5d4cb74ea5aa7d59a1a2eaa46fc9cde"},
+		{Version: 4, Name: "publication_bundle_catalog", Checksum: "adcb4683ffd1611b9c68e7a49aaa4b8670d106d65df927cbb8e11866be224943"},
+		{Version: 6, Name: "publication_lease_checkpoints", Checksum: "5a2fc578d1b24ee048275b060856d23b7e1a35ff251519bfb46bbc4c1e8a917c"},
 	}
 	if len(result.Applied) != len(wantLedger) {
 		t.Fatalf("applied history = %+v, want %+v", result.Applied, wantLedger)

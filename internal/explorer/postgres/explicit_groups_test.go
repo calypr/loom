@@ -2264,12 +2264,10 @@ const (
 	grpmDefinitionsGuardVersion  = int64(11)
 	grpmDefinitionsGuardName     = "explorer_explicit_group_definition_guard_hardening"
 	grpmDefinitionsGuardChecksum = "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"
-	// grpmSelectionsFixture* pins the composed selections migration --
-	// version 8 of the shared ledger, owned by the merged
-	// selection-revision-owner ticket and byte-frozen here the way the
-	// pgstate02 capability fixture is.
-	grpmSelectionsFixtureDir      = "tests/migrations-selections"
-	grpmSelectionsFixtureFile     = "000008_selection_revisions"
+	// grpmSelectionsFixture* pins the selections migration -- version 8 of
+	// the shared ledger, owned by the merged selection-revision-owner
+	// ticket, now embedded in the owner history and byte-frozen here the
+	// way the capability migration is.
 	grpmSelectionsFixtureName     = "selection_revisions"
 	grpmSelectionsFixtureVersion  = int64(8)
 	grpmSelectionsFixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
@@ -2515,30 +2513,20 @@ func (f *grpmFixture) migrateWithSelections(t *testing.T) pgstore.MigrateResult 
 		f.fail("open migration pool", err)
 	}
 	defer client.Close()
-	owner, err := OwnerMigrations()
+	history, err := OwnerMigrations()
 	if err != nil {
 		f.fail("owner migrations", err)
 	}
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), grpmSelectionsFixtureDir)
+	fixture, err := requireOwnerMigration(t, history, grpmSelectionsFixtureVersion, grpmSelectionsFixtureName)
 	if err != nil {
-		f.fail("load selections fixture migrations", err)
+		f.fail("selections fixture migration", err)
 	}
-	if len(fixture) != 1 || fixture[0].Version != grpmSelectionsFixtureVersion ||
-		fixture[0].Name != grpmSelectionsFixtureName {
-		t.Fatalf("selections fixture history = %+v, want exactly version %d %s",
-			fixture, grpmSelectionsFixtureVersion, grpmSelectionsFixtureName)
+	embeddedSum := sha256.Sum256([]byte(fixture.SQL))
+	if hex.EncodeToString(embeddedSum[:]) != fixture.Checksum ||
+		fixture.Checksum != grpmSelectionsFixtureChecksum {
+		t.Fatalf("selections migration checksum %s != embedded recompute %s or the frozen pin %s: the #85-owned migration drifted",
+			fixture.Checksum, hex.EncodeToString(embeddedSum[:]), grpmSelectionsFixtureChecksum)
 	}
-	diskBytes, err := os.ReadFile("../../../" + grpmSelectionsFixtureDir + "/" + grpmSelectionsFixtureFile + ".sql")
-	if err != nil {
-		f.fail("read selections fixture file", err)
-	}
-	diskSum := sha256.Sum256(diskBytes)
-	if hex.EncodeToString(diskSum[:]) != fixture[0].Checksum ||
-		fixture[0].Checksum != grpmSelectionsFixtureChecksum {
-		t.Fatalf("selections fixture checksum %s != disk recompute %s or the frozen pin %s: the #85-owned fixture drifted",
-			fixture[0].Checksum, hex.EncodeToString(diskSum[:]), grpmSelectionsFixtureChecksum)
-	}
-	history := append(append([]pgstore.Migration{}, owner...), fixture[0])
 	runner, err := pgstore.NewMigrationRunner(client, f.schema, history)
 	if err != nil {
 		f.fail("new migration runner", err)
@@ -4906,7 +4894,11 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 	for _, rec := range result.Applied {
 		versions = append(versions, rec.Version)
 	}
-	wantVersions := []int64{1, 2, 3, 5, 6, 8, 9, 10, 11}
+	// arch-backend-05: migrateWithSelections now applies this package's
+	// complete embedded owner history -- the membership migration and the
+	// selections migration are both owned entries, so the ledger carries
+	// every version 1..11.
+	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
 	}
@@ -4960,15 +4952,11 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 		f.fail("open rerun pool", err)
 	}
 	defer client.Close()
-	fixture, err := pgstore.LoadMigrations(os.DirFS("../../../"), grpmSelectionsFixtureDir)
-	if err != nil {
-		f.fail("load fixture for rerun", err)
-	}
-	owner, err := OwnerMigrations()
+	rerunHistory, err := OwnerMigrations()
 	if err != nil {
 		f.fail("owner migrations for rerun", err)
 	}
-	runner, err := pgstore.NewMigrationRunner(client, f.schema, append(append([]pgstore.Migration{}, owner...), fixture[0]))
+	runner, err := pgstore.NewMigrationRunner(client, f.schema, rerunHistory)
 	if err != nil {
 		f.fail("new rerun runner", err)
 	}

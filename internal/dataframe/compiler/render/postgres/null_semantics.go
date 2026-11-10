@@ -101,7 +101,21 @@ func (r *planRenderer) documentColumn(alias string) string {
 // future loosening upstream cannot make an array literal ambiguous — and
 // the whole-path array literal is composed so no pattern-legal segment can
 // change meaning when PostgreSQL parses it (see arrayLiteralElement).
+//
+// It delegates to documentPathFromExpression so this file stays the
+// package's single path-binding authority: renderer-computed jsonb bases
+// (such as the unnest expansion item in unnest.go) take the identical path
+// discipline through the same emitter.
 func (r *planRenderer) documentPathExpression(alias string, path []string) (string, error) {
+	return r.documentPathFromExpression(r.documentColumn(alias), path)
+}
+
+// documentPathFromExpression renders the jsonb extraction of one whole
+// document path from an already-rendered jsonb base expression. The base
+// must itself come from a trusted emitter (documentColumn for stored rows,
+// or a renderer-owned derived value); only the path crosses the parameter
+// boundary, and it crosses it exactly as documentPathExpression binds it.
+func (r *planRenderer) documentPathFromExpression(base string, path []string) (string, error) {
 	if len(path) == 0 {
 		return "", fmt.Errorf("%w: a document path must have at least one segment", ErrUnsupportedPostgresPlan)
 	}
@@ -115,7 +129,7 @@ func (r *planRenderer) documentPathExpression(alias string, path []string) (stri
 		elements[index] = arrayLiteralElement(segment)
 	}
 	pathLiteral := "{" + strings.Join(elements, ",") + "}"
-	return r.documentColumn(alias) + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
+	return base + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
 }
 
 // arrayLiteralElement renders one validated path segment as a PostgreSQL

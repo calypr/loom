@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
@@ -82,59 +81,6 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
 }
 
-func classifyDataframeQueryError(err error) error {
-	if err == nil {
-		return err
-	}
-	switch {
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotCellCardinality)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotCellCardinality, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotUnlistedCategory)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotUnlistedCategory, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionRowValueMultipleValues)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionRowValueMultipleValues, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionExpansionEmpty)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionExpansionEmpty, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeExplicitGroupUnassignedMember)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeExplicitGroupUnassignedMember, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeRelationshipCardinalityViolation)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeRelationshipCardinalityViolation, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalAnchorInvalid)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalAnchorInvalid, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalPrecisionUnsupported)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalPrecisionUnsupported, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalTieAmbiguous)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalTieAmbiguous, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitIdentityUnknown)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitIdentityUnknown, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitDimensionIncompatible)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitDimensionIncompatible, "")
-	case arangostore.IsQueryMemoryLimitExceeded(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryMemoryLimitExceeded,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query_memory"}),
-		)
-	case arangostore.IsQueryResourceLimitExceeded(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryResourceLimitExceeded,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query"}),
-		)
-	case arangostore.IsQueryOutOfMemory(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryBackendOutOfMemory,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "memory"}),
-		)
-	default:
-		return err
-	}
-}
-
 func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframeexecution.QueryRows) dataframeexecution.QueryRows {
 	return func(ctx context.Context, command compiler.CompiledCommand, batchSize int, visit dataframeexecution.RowVisitor) error {
 		// The logging and hash policy derives the AQL view through closed
@@ -144,6 +90,12 @@ func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframe
 		query, bindVars, dispatchErr := command.AQLParameters()
 		if dispatchErr != nil {
 			return dispatchErr
+		}
+		// Composition wires execution's neutral query-memory budget into the
+		// Arango adapter's own mechanism. Vendor interpretation of failures
+		// stays inside the adapter; this only requests a capability.
+		if budget, ok := dataframeexecution.QueryMemoryBudgetFromContext(ctx); ok && budget > 0 {
+			ctx = arangostore.WithQueryMemoryLimit(ctx, budget)
 		}
 		started := time.Now()
 		digest := sha256.Sum256([]byte(query))
@@ -163,8 +115,10 @@ func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframe
 	}
 }
 
+// preserveConfiguredQueryError maps already-classified adapter failures onto
+// the preview route contract. Vendor classification happened at the adapter
+// seam; composition only routes.
 func preserveConfiguredQueryError(err error) error {
-	err = classifyDataframeQueryError(err)
 	if err == nil || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
@@ -242,13 +196,11 @@ func diagnosticErrorCauseValue(err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "operation deadline exceeded"
 	}
-	var arangoErr shared.ArangoError
-	if errors.As(err, &arangoErr) {
-		return arangoDiagnosticCause(arangoErr)
-	}
-	var arangoErrPointer *shared.ArangoError
-	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
-		return arangoDiagnosticCause(*arangoErrPointer)
+	// The original ArangoDB cause reaches server-side logs through the
+	// adapter's own safe vendor rendering, behind the redaction and length
+	// guards below; composition never imports the driver to interpret it.
+	if cause, ok := arangostore.DiagnosticCause(err); ok {
+		return cause
 	}
 	return err.Error()
 }
@@ -260,14 +212,6 @@ func capDiagnosticCause(cause string) string {
 		return cause
 	}
 	return strings.ToValidUTF8(cause[:maxDiagnosticCauseBytes-3], "") + "..."
-}
-
-func arangoDiagnosticCause(err shared.ArangoError) string {
-	cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", err.ErrorNum, err.Code)
-	if err.ErrorMessage != "" {
-		cause += ": " + err.ErrorMessage
-	}
-	return cause
 }
 
 var (
@@ -524,7 +468,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if dispatchErr != nil {
 			return dispatchErr
 		}
-		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, arangostore.RowVisitor(visit)))
+		return lifecycleClient.QueryRows(ctx, query, batch, binds, arangostore.RowVisitor(visit))
 	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.

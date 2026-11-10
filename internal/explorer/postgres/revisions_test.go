@@ -1250,14 +1250,19 @@ func TestPostgresRevisionJSONTriStateFreshRead(t *testing.T) {
 // name. Editing any migration SQL reddens the suite until its pin is
 // deliberately regenerated -- and an embedded file with no entry here fails
 // the suite too, so a new 000007+ migration must be pinned on purpose and
-// can never be silently trusted. The #81-owned capability fixture at
-// version 4 keeps its own byte-frozen pin in pgstate02_fixture_test.go.
+// can never be silently trusted. The capability (4), interpretation (7),
+// and selection-revisions (8) migrations -- formerly state-scoped own-dir
+// fixtures under tests/ -- are now embedded with the rest of this history
+// and carry their byte-frozen pins here too.
 var pgstate02EmbeddedMigrationPins = map[string]string{
 	"000001_ledger.sql":                                             "46a99180c6c6c7d41ca13520e020b71827725ec8059cce0142e278fb7577f086",
 	"000002_explorer_owner.sql":                                     "fc85316901b79234695695f972d8abc17d29a726293b0ff6584c96aed1cc7056",
 	"000003_explorer_draft_revision.sql":                            "4bf4fe35485cb7adc6ea46812b0ae004e89ff935a14f14dd80a300bb3cc86c3f",
+	"000004_capability_artifacts.sql":                               "bec3e49f897b28ef71d7d69a5f7c71bb11d13b7c631ee26724de36a89d639222",
 	"000005_explorer_compilation_receipt.sql":                       "f32b3f9c821b5451e64b3d2972fb49e61f4e0c5bfcf88c69bc5b6aa7298fc33a",
 	"000006_explorer_revision.sql":                                  "3f6c44bff72d7837634e8c170f0b97e256e38d35f7c844fad27f4fbda38ecc09",
+	"000007_interpretation_library.sql":                             "5e308b21a3f567b3066c46458606dd361a9c90646db54ee71618902a544a9ba2",
+	"000008_selection_revisions.sql":                                "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d",
 	"000009_explorer_explicit_groups.sql":                           "c635cb5ef7c3c04655b4f45b01ba0fe834a7f181f70638f300878caf16c9a14f",
 	"000010_explorer_explicit_group_memberships.sql":                "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd",
 	"000011_explorer_explicit_group_definition_guard_hardening.sql": "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec",
@@ -1353,16 +1358,15 @@ func pgstate02VerifyEmbeddedChecksumPins(t *testing.T, files []string, history [
 	}
 }
 
-// TestPostgresExplorerStateMigrationsRerunConverges proves the composed
+// TestPostgresExplorerStateMigrationsRerunConverges proves the full owner
 // history reruns as a no-op that preserves all state and keeps the ledger
-// pinned to the composed checksums. Expectations are self-derived (the
+// pinned to the owner checksums. Expectations are self-derived (the
 // session-54 capabilities-harness pattern): the expected ledger size and
-// latest version enumerate from the embedded directory through fs.WalkDir
-// plus the #81-owned capability fixture at version 4, so in-flight tickets
-// adding 000007+ never need an edit here -- while per-file explicit sha256
-// pins keep demanding every file's checksum literally, failing any
-// unpinned addition, and the rerun must leave every ledger row, applied_at
-// included, byte-identical.
+// latest version enumerate from the embedded directory through fs.WalkDir,
+// so in-flight tickets adding 000012+ never need an edit here -- while
+// per-file explicit sha256 pins keep demanding every file's checksum
+// literally, failing any unpinned addition, and the rerun must leave every
+// ledger row, applied_at included, byte-identical.
 func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	// Self-derived expectations from the embed FS, never a fixed count.
 	embeddedFiles, embeddedMaxVersion := pgstate02EnumerateEmbeddedMigrations(t)
@@ -1375,20 +1379,16 @@ func TestPostgresExplorerStateMigrationsRerunConverges(t *testing.T) {
 	}
 	pgstate02VerifyEmbeddedChecksumPins(t, embeddedFiles, ownerHistory)
 
-	fixture := pgstate02CapabilityFixtureMigration(t)
-	wantHistory := append(append([]pgstore.Migration{}, ownerHistory...), fixture)
+	wantHistory := append([]pgstore.Migration(nil), ownerHistory...)
 	sort.Slice(wantHistory, func(i, j int) bool { return wantHistory[i].Version < wantHistory[j].Version })
 	wantLatest := embeddedMaxVersion
-	if fixture.Version > wantLatest {
-		wantLatest = fixture.Version
-	}
 	wantCount := len(wantHistory)
 
 	f := newPGState02Fixture(t)
 	first := f.migrate(t)
 	if len(first.Applied) != wantCount || first.LatestVersion != wantLatest {
-		t.Fatalf("first migration result = %+v, want %d ledger rows ending at version %d (self-derived: %d embedded files %v + the #81 capability fixture at version %d)",
-			first, wantCount, wantLatest, len(embeddedFiles), embeddedFiles, fixture.Version)
+		t.Fatalf("first migration result = %+v, want %d ledger rows ending at version %d (self-derived: %d embedded files %v)",
+			first, wantCount, wantLatest, len(embeddedFiles), embeddedFiles)
 	}
 
 	writer := f.newStore(t)

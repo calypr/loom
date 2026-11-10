@@ -399,11 +399,9 @@ func TestGroupedRelatedExpandUsesDistinctContributorUnionAndOnwardIdentityAgains
 		query := compileConstructionOutputQueryWithBindings(t, output, project, generation,
 			recipe.RuntimeBindings{AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}})
 		err := client.QueryRows(ctx, testAQLText(t, query.Command), 100, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })
-		if err == nil {
-			t.Fatal("ERROR policy returned rows for the empty female contributor group")
-		}
-		if !strings.Contains(strings.ToLower(err.Error()), "related expansion") || !strings.Contains(strings.ToLower(err.Error()), "no related records") {
-			t.Fatalf("ERROR policy failed for an unrelated reason: %v", err)
+		cause := requireStableRuntimeCode(t, err, "CONSTRUCTION_EXPANSION_EMPTY")
+		if !strings.Contains(strings.ToLower(cause), "related expansion") || !strings.Contains(strings.ToLower(cause), "no related records") {
+			t.Fatalf("ERROR policy failed for an unrelated reason: diagnostic cause = %q", cause)
 		}
 	})
 	thresholdTwo, thresholdThree := 2, 3
