@@ -1253,11 +1253,24 @@ var callDecimalStringPattern = `^` + callWhitespaceRegexClass() + `*[+-]?([0-9]+
 // raise, never a wrong number (F-7). CASE WHEN clauses evaluate in
 // written order, so the cast's textual position after the oracle is the
 // ordering guarantee, and every arm is raise-free on every input.
+//
+// F-11: pg_input_is_valid is STABLE, and a custom plan substitutes the
+// $n bind constant and constant-folds the CASE, EVALUATING the oracle-
+// gated cast arm at plan time even when the oracle rejects the text
+// (PG18 measured: string bind "1e999999999999" raised 22003 at plan
+// time under plan_cache_mode auto/force_custom_plan; force_generic_plan
+// read the registered NULL). The cast therefore rides the register's
+// existing plan-time-fold barrier — concatenation with COALESCE
+// (current_setting(guardBarrierGUC, true), ”), absent GUC so the
+// concat is the identity on the cast's input — which keeps the arm a
+// stable expression PG refuses to pre-evaluate, the same defense
+// population.go:1059-1065 measures for the dead-arm guard CASTs.
 func callDecimalTierArms(operand string) string {
 	text := "(" + operand + ` #>> '{}')`
 	btrim := "btrim(" + text + ", " + callDecimalTrimCharacters + ")"
+	castArm := "(" + btrim + " || COALESCE(current_setting(" + quoteSQLLiteral(guardBarrierGUC) + ", true), ''))::numeric"
 	return " WHEN jsonb_typeof(" + operand + ") = 'string' AND " + text + " ~ " + quoteSQLLiteral(callDecimalStringPattern) +
-		" THEN CASE WHEN pg_input_is_valid(" + btrim + ", 'numeric') THEN " + btrim + "::numeric" +
+		" THEN CASE WHEN pg_input_is_valid(" + btrim + ", 'numeric') THEN " + castArm +
 		" WHEN (" + text + " ~ " + quoteSQLLiteral(callDecimalZeroPattern) +
 		" OR " + text + " ~ " + quoteSQLLiteral(callDecimalUnderflowPattern) + ") THEN 0" +
 		" ELSE NULL END"

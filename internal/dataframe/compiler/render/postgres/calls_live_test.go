@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -606,6 +607,98 @@ func TestSQL10LiveDivisorBandReadBack(t *testing.T) {
 			num("meta.source"), num("meta.versionId"))),
 	)
 	svc.runOne(t, svc.renderLive(t, plan), "<null>", "<null>", "2.5", "<null>", "<null>")
+}
+
+// TestSQL10LiveDecimalTierLiteralBind pins the F-11 disposition: the
+// never-raise invariant held for STORED strings but broke on the
+// STRING-BIND path — PG18's custom plan substitutes the $n constant and
+// constant-folds the CASE, evaluating the oracle-gated cast arm at PLAN
+// time (verifier 150 + re-measured here pre-fix: oracle-rejected
+// "1e999999999999" raised 22003 at plan time under plan_cache_mode
+// auto/force_custom_plan; force_generic_plan read the registered NULL).
+// The fix puts the cast behind the register's existing current_setting
+// fold barrier (population.go:1059-1065, the dead-arm CAST defense —
+// absent GUC, so the concatenation is the identity on the cast input).
+// Acceptance legs are production-compiled — the RENDERED statement over
+// bind operands, not stored columns — and pin BOTH plan paths:
+// force_custom_plan (the failing path) and force_generic_plan.
+// Completion of EXPLAIN (planning is where the fold raised) is the
+// plan-time proof; execution then returns the registered readings:
+// oracle-rejected texts fail closed to NULL (or the registered 0 for
+// zero-shaped texts), never a raise, and accepted texts keep their
+// byte-exact cast readings.
+func TestSQL10LiveDecimalTierLiteralBind(t *testing.T) {
+	svc := newSQL10Service(t)
+	// One stored row so the resource scan yields exactly one tuple; the
+	// CAST never reads it — every operand of the cast is the $n bind,
+	// which is the shape under test.
+	svc.insertResource(t, sql10Project, sql10Gen, "Patient", "p-bind", sql10Path,
+		map[string]any{"multipleBirthInteger": 1})
+	cells := []struct {
+		name string
+		bind string
+		kind string
+		want string
+	}{
+		{"intPlain", "42", "INTEGER", "42"},
+		{"intRejected", "1e999999999999", "INTEGER", "<null>"},
+		{"intZeroScale", "0." + strings.Repeat("0", 20000), "INTEGER", "0"},
+		{"decLeadingZero", "1e-00001", "DECIMAL", "0.1"},
+		{"decNaN", "NaN", "DECIMAL", "0"},
+	}
+	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
+		conn, err := svc.iso.Acquire(svc.ctx)
+		if err != nil {
+			svc.fail("acquire pinned connection", err)
+		}
+		if _, err := conn.Exec(svc.ctx, "SET plan_cache_mode = "+mode); err != nil {
+			conn.Release()
+			svc.fail("pin plan_cache_mode "+mode, err)
+		}
+		for _, cell := range cells {
+			plan := sql10Plan("Patient", map[string]any{"operand": cell.bind},
+				sql10CallProjection(cell.name, sql10Call("cast", cell.kind, sql10Literal("operand"))),
+			)
+			rendered := svc.renderLive(t, plan)
+			args := sql10DriverArgs(rendered)
+			// Plan-time leg: EXPLAIN performs exactly the planning that
+			// folded and raised before the barrier.
+			if _, err := conn.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, args...); err != nil {
+				conn.Release()
+				svc.fail("plan-time EXPLAIN raised under "+mode+" on "+cell.name, err)
+			}
+			// Execution leg: registered reading, never a raise.
+			rows, err := conn.Query(svc.ctx, rendered.SQL, args...)
+			if err != nil {
+				conn.Release()
+				svc.fail("execute under "+mode+" on "+cell.name, err)
+			}
+			var got []string
+			for rows.Next() {
+				values, err := rows.Values()
+				if err != nil {
+					rows.Close()
+					conn.Release()
+					svc.fail("read row under "+mode+" on "+cell.name, err)
+				}
+				for _, value := range values {
+					got = append(got, stringifyCell(value))
+				}
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				conn.Release()
+				svc.fail("finish statement under "+mode+" on "+cell.name, err)
+			}
+			if strings.Join(got, "|") != cell.want {
+				conn.Release()
+				svc.fail("cell "+cell.name+" under "+mode,
+					fmt.Errorf("row = %v, want %s\nSQL: %s", got, cell.want, rendered.SQL))
+			}
+		}
+		conn.Release()
+	}
 }
 
 // TestSQL10LiveDecimalTierStoredNumbers pins the number side of F-7:

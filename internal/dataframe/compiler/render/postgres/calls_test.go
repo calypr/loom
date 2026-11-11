@@ -526,9 +526,16 @@ func TestCallsDecimalTierSingleSource(t *testing.T) {
 	} {
 		fragment := cell.fragment
 		btrim := "btrim((o #>> '{}'), " + callDecimalTrimCharacters + ")"
+		// F-11: the cast rides the register's current_setting fold
+		// barrier — with a STRING bind operand a custom plan folds the
+		// CASE and evaluates the oracle-gated cast arm at plan time
+		// (measured: "1e999999999999" raised 22003 under auto/custom,
+		// read NULL under generic), so the arm must embed the barrier
+		// that keeps it non-foldable.
 		ordered := []string{
 			quoteSQLLiteral(callDecimalStringPattern) + " THEN CASE WHEN ",
-			"pg_input_is_valid(" + btrim + ", 'numeric') THEN " + btrim + "::numeric",
+			"pg_input_is_valid(" + btrim + ", 'numeric') THEN (" + btrim +
+				" || COALESCE(current_setting(" + quoteSQLLiteral(guardBarrierGUC) + ", true), ''))::numeric",
 			quoteSQLLiteral(callDecimalZeroPattern),
 			quoteSQLLiteral(callDecimalUnderflowPattern) + ") THEN 0",
 			" ELSE NULL END",
@@ -756,12 +763,18 @@ func TestCallsGoldenArithmeticDynamicOperandCoercion(t *testing.T) {
 // (pg_input_is_valid is false exactly where numeric_in would raise
 // 22003), the provable-underflow pair reads the registered 0, and every
 // other oracle-rejected representation reads the registered conservative
-// NULL.
+// NULL. F-11: the cast carries the register's current_setting plan-time-
+// fold barrier (absent GUC ⇒ the concatenation is the identity), because
+// a custom plan with a STRING bind constant-folds the CASE and evaluates
+// the oracle-gated cast arm at plan time (measured 22003 on
+// "1e999999999999" under plan_cache_mode auto/custom; generic read the
+// registered NULL).
 func sql10WantDecimalTierArms(operand string) string {
 	text := "(" + operand + ` #>> '{}')`
 	btrim := "btrim(" + text + ", " + callDecimalTrimCharacters + ")"
+	castArm := "(" + btrim + " || COALESCE(current_setting(" + quoteSQLLiteral(guardBarrierGUC) + ", true), ''))::numeric"
 	return " WHEN jsonb_typeof(" + operand + ") = 'string' AND " + text + " ~ '" + callDecimalStringPattern +
-		"' THEN CASE WHEN pg_input_is_valid(" + btrim + ", 'numeric') THEN " + btrim + "::numeric" +
+		"' THEN CASE WHEN pg_input_is_valid(" + btrim + ", 'numeric') THEN " + castArm +
 		" WHEN (" + text + " ~ '" + callDecimalZeroPattern + "' OR " + text + " ~ '" + callDecimalUnderflowPattern + "') THEN 0" +
 		" ELSE NULL END"
 }
