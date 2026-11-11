@@ -46,12 +46,27 @@ fail_if_matches() {
   # are searched regardless. Drop test files by path so the documented
   # production-only intent holds for every rule shape, not just the
   # directory-shaped ones.
-  matches="$(printf '%s\n' "$matches" | grep -v -E '^[^:]+_test\.go:' || true)"
+  # Post-filter greps fail loud like rg: rc>1 means grep could not run
+  # (missing binary, bad pattern), which must never read as convergence.
+  # Only rc==1 (everything filtered out) with empty output converges.
+  local filtered="" grc=0
+  filtered="$(printf '%s\n' "$matches" | grep -v -E '^[^:]+_test\.go:')" || grc=$?
+  if (( grc > 1 )); then
+    echo "dataframe package boundary check failed to run: $label (grep exit $grc)" >&2
+    exit 1
+  fi
+  matches="$filtered"
   if [[ -z "$matches" ]]; then
     return 0
   fi
   for entry in ${BOUNDARY_ALLOWLIST[$label]:-}; do
-    matches="$(printf '%s\n' "$matches" | grep -v -F -- "$root/$entry" || true)"
+    filtered="" grc=0
+    filtered="$(printf '%s\n' "$matches" | grep -v -F -- "$root/$entry")" || grc=$?
+    if (( grc > 1 )); then
+      echo "dataframe package boundary check failed to run: $label (grep exit $grc)" >&2
+      exit 1
+    fi
+    matches="$filtered"
   done
   if [[ -n "$matches" ]]; then
     printf '%s\n' "$matches" >&2

@@ -3,7 +3,7 @@ package postgres
 // Staged selection revisions on PostgreSQL (pg-state-selection-revision-owner-v1).
 //
 // This file is the header/owner half of the relational counterpart of
-// internal/explorer/arango/selections.go: BeginSelection canonicalizes and
+// internal/backends/arango/internal/explorer/selections.go: BeginSelection canonicalizes and
 // validates the revision identity, reclaims only expired staging leases,
 // then binds the project-scoped idempotency key. A matching retry is
 // idempotent; another identity or an active writer conflicts. GetSelection,

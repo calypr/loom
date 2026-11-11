@@ -13,7 +13,7 @@
 // Arango path is wired in here. There is no cross-database atomicity and no
 // existing-deployment migration.
 //
-// Guarantees, mirroring internal/dataframe/recipe/exec/arango/revisions.go:
+// Guarantees, mirroring internal/backends/arango/internal/recipeexec/revisions.go:
 //   - Register canonicalizes the Bundle and takes its digest, then compares
 //     the requested parent with the current head under a row lock on the
 //     chain's head row. A parent that is not the current head -- including

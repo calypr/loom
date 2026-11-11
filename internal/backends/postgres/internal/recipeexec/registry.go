@@ -12,7 +12,7 @@
 // for the caller to surface, and no Arango path is wired in here. There is
 // no cross-database atomicity and no existing-deployment migration.
 //
-// Guarantees, mirroring internal/dataframe/recipe/exec/arango/registry.go:
+// Guarantees, mirroring internal/backends/arango/internal/recipeexec/registry.go:
 //   - One row per (recipeName, translationVersion); the canonical Bundle and
 //     digest round-trip through the authoritative jsonb payload while the
 //     identity columns are scope equality, and LoadRecipe's name-only "current"

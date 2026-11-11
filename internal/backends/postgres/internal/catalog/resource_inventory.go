@@ -12,7 +12,7 @@
 // unavailable error instead of a partial truth. A failed rebuild therefore
 // leaves the prior marker and its read result intact.
 //
-// The Arango adapter (internal/catalog/arango) remains the behavioral
+// The Arango adapter (internal/backends/arango/internal/catalog) remains the behavioral
 // reference: identical option semantics, evidence statuses, digests, and
 // scope rules. CursorBatch is an Arango cursor control and has no PostgreSQL
 // counterpart because grouping happens inside a single grouped SQL statement;

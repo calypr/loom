@@ -33,7 +33,15 @@ func TestPivotPresenceArangoAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := arangoBackend.Client
-	defer client.Close(context.Background())
+	// Close is terminal, and t.Cleanup bodies run after deferred calls, so
+	// the close must also be a cleanup — registered first so LIFO ordering
+	// runs it last, after the fixture removal below still has an open
+	// client.
+	t.Cleanup(func() {
+		if err := client.Close(context.Background()); err != nil {
+			t.Errorf("close presence audit client: %v", err)
+		}
+	})
 	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}

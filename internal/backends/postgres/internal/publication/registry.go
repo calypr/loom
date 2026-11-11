@@ -10,7 +10,7 @@
 // and it never falls back to another backend on its own: every failure is
 // returned for the caller to surface.
 //
-// Guarantees, mirroring internal/dataframe/publication/arango:
+// Guarantees, mirroring internal/backends/arango/internal/publication:
 //   - The domain key and pointer-name semantics are the untouched
 //     publication.BundleIdentity functions; the registry stores what the
 //     domain computes and adds no name-only fallback of its own.

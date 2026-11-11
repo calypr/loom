@@ -48,7 +48,7 @@ func pgstate02ReceiptBundle() recipe.Bundle {
 
 // pgstate02Receipt builds a fully validated current-contract receipt with a
 // content-addressed ID, mirroring the Arango baseline fixture
-// (internal/explorer/arango/receipt_store_test.go testCompilationReceipt).
+// (internal/backends/arango/internal/explorer/receipt_store_test.go testCompilationReceipt).
 func pgstate02Receipt(t *testing.T, intent, project, explorerID string) explorer.CompilationReceipt {
 	t.Helper()
 	bundle := pgstate02ReceiptBundle()

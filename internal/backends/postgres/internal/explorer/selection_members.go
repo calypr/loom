@@ -3,7 +3,7 @@ package postgres
 // Staged selection membership on PostgreSQL (pg-state-selection-members-v1).
 //
 // This file is the membership half of the relational counterpart of
-// internal/explorer/arango/selections.go: the header/owner half (Begin,
+// internal/backends/arango/internal/explorer/selections.go: the header/owner half (Begin,
 // Get, owner-conditional Abort, bounded staging Cleanup) lives in
 // selections.go, while Append, Digest, Complete, and Visit -- the methods
 // the Arango adapter's member lifecycle exposes -- live here method for

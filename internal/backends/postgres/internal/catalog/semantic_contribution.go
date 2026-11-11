@@ -14,7 +14,7 @@
 //     digest matches is a no-op replay, and a duplicate key whose payload
 //     digest differs is a typed conflict that never overwrites the stored
 //     row. This is deliberately stricter than the Arango adapter's overwrite
-//     insert (internal/catalog/arango/semantic_inventory.go
+//     insert (internal/backends/arango/internal/catalog/semantic_inventory.go
 //     WriteSemanticInventoryContributions): an ambiguous replay can never
 //     replace a different payload under one identity, mirroring the
 //     pg-store-06 ledger digest rule.

@@ -26,7 +26,7 @@
 //
 // DiscoverRelationshipObservations keeps physical storage direction and
 // registry-derived Builder direction separately observable, mirroring the
-// Arango adapter (internal/catalog/arango/relationships.go): every
+// Arango adapter (internal/backends/arango/internal/catalog/relationships.go): every
 // observation reports StorageFromType/StorageToType with
 // StorageDirection OUTBOUND (fhir_edge_occurrence is always
 // source -> target) and, separately, BuilderFromType/BuilderToType with

@@ -2,7 +2,7 @@
 // deterministic Documents() into PostgreSQL and read them back without
 // losing completeness or truncation metadata (pg-catalog-01).
 //
-// The Arango adapter (internal/catalog/arango/fields.go, collection
+// The Arango adapter (internal/backends/arango/internal/catalog/fields.go, collection
 // fhir_field_catalog) is the behavioral reference: identical option
 // semantics, evidence statuses, digests, and scope rules. Query identity
 // (project/generation/auth path/resource type/path) is normalized into

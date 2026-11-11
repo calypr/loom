@@ -68,20 +68,18 @@ var retiredAdapterPaths = []string{
 const contractTestRelPath = "internal/backends/arango/ownership_contract_test.go"
 
 // retiredPathPendingAllowlist lists repository zones whose retired-path
-// citations are known and pending a repoint by the named owner. Each entry
-// is proven to hide a live offender by the allowlist_load_bearing control,
-// so an entry must be pruned the moment its citations are fixed.
+// citations are known and pending a repoint by the named owner. It is
+// currently EMPTY: the PR #135 comment sweep repointed every postgres
+// parity pointer to its live internal/backends/arango/internal/... path,
+// comment-only (go/scanner token-stream proof). The mechanism stays: an
+// entry is admitted only with a named owner and reason, and the
+// allowlist_load_bearing control fails if an entry stops naming a live
+// offender, so no entry can decay into permanent blindness.
 var retiredPathPendingAllowlist = []struct {
 	name   string
 	prefix string
 	reason string
-}{
-	{
-		name:   "postgres_parity_pointers",
-		prefix: "internal/backends/postgres/",
-		reason: "comment-only sweep of the coordinator-serialized postgres tree (PR #135 review thread); repoint awaits the coordinator's ruling",
-	},
-}
+}{}
 
 // retiredPathTextOffenders names every Go file under dir whose full text —
 // comments included — cites a retired adapter path, minus files under any
@@ -540,7 +538,9 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 
 	t.Run("missing_database_auto_provision_is_not_a_leak", func(t *testing.T) {
 		url := requireLiveArango(t)
-		name := mintDatabaseName(t, "autoprovision")
+		// Drop-registering mint like every sibling leg: this leg creates a
+		// real database via auto-provision, so it owns a registered cleanup.
+		name := mintDatabase(t, url, "autoprovision")
 		backend, err := arango.Open(context.Background(), arango.Config{URL: url, Database: name})
 		if err != nil {
 			t.Fatalf("Open on absent own-mint database: %v", err)
