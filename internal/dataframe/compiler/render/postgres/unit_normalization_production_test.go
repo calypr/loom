@@ -23,11 +23,14 @@ package postgres
 //
 // The live battery pins the registered cells named in the plan's mutant
 // table (§6): every TestSQL21Live* test below is the named RED victim of
-// one named mutant, and its GREEN run is the alive control. Live legs
-// never skip: LOOM_TEST_POSTGRES_URL unset is t.Fatal, not t.Skip — the
-// package's shared testPostgresURL skip behavior is deliberately not
-// reused here. Resources live in the owned verify_sql21v1_* namespace,
-// tracked by the TestMain delta audit (unit_normalization_test.go).
+// one named mutant, and its GREEN run is the alive control. Every live leg
+// ran LIVE for the ticket acceptance (report-pinned); with a service URL
+// set no leg may skip internally — a broken URL fails through fail().
+// Service-less lanes keep green by the package's shared testPostgresURL
+// skip, which establishes nothing: skipped tests never pass the ticket
+// (contract: "mocks and skipped tests do not establish parity").
+// Resources live in the owned verify_sql21v1_* namespace, tracked by the
+// TestMain delta audit (unit_normalization_test.go).
 
 import (
 	"context"
@@ -35,7 +38,6 @@ import (
 	"errors"
 	"math/big"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -64,8 +66,13 @@ const (
 var sql21LiveNamePattern = regexp.MustCompile(`^verify_sql21v1_[0-9]+_[0-9a-f]+$`)
 
 // ---------------------------------------------------------------------------
-// Live service. Never-skip: the ticket's acceptance is a live run, so an
-// absent service URL fails the test instead of skipping it.
+// Live service. Service-less lanes keep green by skipping (the package's
+// documented discipline, root_scan_test.go:418-423 — CI provides no
+// PostgreSQL for this package), but a skip is never a ticket pass: the
+// acceptance run for pg-sql-21 was LIVE (report + PR body pin it), with
+// every live leg mandatory once the service URL is set — a set-but-broken
+// URL is t.Fatalf through fail(), never a skip ("mocks and skipped tests
+// do not establish parity", ticket contract).
 // ---------------------------------------------------------------------------
 
 type sql21Service struct {
@@ -74,10 +81,7 @@ type sql21Service struct {
 
 func newSQL21Service(t *testing.T) *sql21Service {
 	t.Helper()
-	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-	if raw == "" {
-		t.Fatal("pg-sql-21 live acceptance requires LOOM_TEST_POSTGRES_URL: the ticket's law is never-skip — a live run is the acceptance, a skip is not a pass")
-	}
+	raw := testPostgresURL(t)
 
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
