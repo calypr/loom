@@ -345,6 +345,22 @@ const codedGroupMissingKeyTag = "CONSTRUCTION_CODED_GROUP_MISSING_KEY"
 // the package is a structural test failure (coded_group_test.go).
 const codedGroupTrimCharacters = " "
 
+// codedGroupTrimmedNonBlank renders the package's single blank-string test
+// — btrim(expr, $trim::text) <> ” with $trim bound to the ONE trim-set
+// constant — for holders outside this gate file. The coded-pivot value
+// fallback chain (pivot.go, pg-sql-14) calls it for its
+// FallbackOnBlankString eligibility gate, which AQL grounds on the same
+// space-only TRIM as this gate (render/aql/predicates.go:159-175). It
+// lives here so the single-trim-set law keeps every btrim render and every
+// reference to the constant inside this file
+// (TestCodedGroupTrimSetStructuralLaw); a second trim render outside is a
+// structural test failure.
+func (r *planRenderer) codedGroupTrimmedNonBlank(expr string) string {
+	trimChars := r.textParameter(codedGroupTrimCharacters, "text:"+codedGroupTrimCharacters)
+	dollar := func(index int) string { return "$" + strconv.Itoa(index) }
+	return "btrim(" + expr + ", " + dollar(trimChars) + "::text) <> ''"
+}
+
 // codedGroupPlanMentionsStage reports whether a plan's stage sequence
 // mentions the CODED_GROUP surface at all. RenderPhysicalPlan consults it
 // once, before plan validation, so a coded-group plan never enters a spine
