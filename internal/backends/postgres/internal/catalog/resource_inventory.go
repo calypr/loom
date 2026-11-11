@@ -220,7 +220,7 @@ func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.Reso
 		// Restricted with no authorized path is a legitimate authorization
 		// state that reads nothing — and it must not query counts at all.
 		result.Digest, _ = catalog.ResourceInventoryDigest(result.Values)
-		result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+		result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 		return result, nil
 	}
 	// Unrestricted mode wins over stray paths, matching the Arango adapter,
@@ -249,7 +249,7 @@ func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.Reso
 		return inventoryObservationLess(result.Values[i], result.Values[j])
 	})
 	result.Digest, _ = catalog.ResourceInventoryDigest(result.Values)
-	result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+	result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
 }
 
@@ -292,20 +292,4 @@ func inventoryObservationLess(a, b catalog.ResourceInventoryObservation) bool {
 		}
 	}
 	return a.DocumentCount < b.DocumentCount
-}
-
-func evidenceStatus(available, complete, truncated bool, count int) catalog.EvidenceStatus {
-	if !available {
-		return catalog.EvidenceUnavailable
-	}
-	if truncated {
-		return catalog.EvidenceTruncated
-	}
-	if !complete {
-		return catalog.EvidenceIncomplete
-	}
-	if count == 0 {
-		return catalog.EvidenceEmpty
-	}
-	return catalog.EvidenceAvailable
 }

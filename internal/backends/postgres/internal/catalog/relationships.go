@@ -284,16 +284,6 @@ func (r *RelationshipEvidenceRepository) ScanRelationshipOccurrences(
 	return out, nil
 }
 
-// relationshipObservationKey identifies one Builder projection of one
-// physical storage aggregate. It separates storage provenance from the
-// Builder view exactly as the Arango adapter does: identical storage facts
-// that map to different Builder directions stay separate.
-type relationshipObservationKey struct {
-	project, generation, auth                string
-	storageFrom, label, storageTo            string
-	builderFrom, builderTo, builderDirection string
-}
-
 // DiscoverRelationshipObservations derives authorization-scoped relationship
 // counts from the raw edge-occurrence table and returns both the physical
 // storage view and the Builder-facing projection of each aggregate. The
@@ -317,7 +307,7 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 		// Restricted with no authorized path is a legitimate authorization
 		// state that reads nothing — and it must not query at all.
 		result.Digest, _ = catalog.RelationshipObservationDigest(result.Values)
-		result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+		result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 		return result, nil
 	}
 
@@ -355,7 +345,7 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 			fmt.Errorf("read relationship occurrence evidence: %w", err)
 	}
 
-	counts := make(map[relationshipObservationKey]int64)
+	counts := make(map[catalog.RelationshipEvidenceKey]int64)
 	for _, group := range groups {
 		storageFrom := group.StorageSourceResourceType
 		label := group.Label
@@ -395,29 +385,19 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 				continue
 			}
 		}
-		observation, ok, diagnostic := relationshipObservation(opts.Project, datasetGeneration, group.AuthResourcePath, from, label, to, group.OccurrenceCount)
+		observation, ok, diagnostic := catalog.ProjectRelationshipObservation(opts.Project, datasetGeneration, group.AuthResourcePath, from, label, to, group.OccurrenceCount)
 		if !ok {
 			result.Diagnostics = append(result.Diagnostics, diagnostic)
 			continue
 		}
-		key := relationshipObservationKey{
-			project: observation.Project, generation: observation.DatasetGeneration, auth: observation.AuthResourcePath,
-			storageFrom: observation.StorageFromType, label: observation.Label, storageTo: observation.StorageToType,
-			builderFrom: observation.BuilderFromType, builderTo: observation.BuilderToType, builderDirection: observation.BuilderDirection,
-		}
-		counts[key] += observation.EdgeCount
+		counts[catalog.RelationshipEvidenceKeyFor(observation)] += observation.EdgeCount
 	}
 	for key, count := range counts {
-		result.Values = append(result.Values, catalog.RelationshipObservation{
-			Project: key.project, DatasetGeneration: key.generation, AuthResourcePath: key.auth,
-			FromType: key.builderFrom, Label: key.label, ToType: key.builderTo, EdgeCount: count,
-			StorageFromType: key.storageFrom, StorageToType: key.storageTo, StorageDirection: "OUTBOUND",
-			BuilderFromType: key.builderFrom, BuilderToType: key.builderTo, BuilderDirection: key.builderDirection,
-		})
+		result.Values = append(result.Values, catalog.RelationshipObservationFromKey(key, count))
 	}
-	sort.Slice(result.Values, func(i, j int) bool { return relationshipEvidenceLess(result.Values[i], result.Values[j]) })
+	sort.Slice(result.Values, func(i, j int) bool { return catalog.RelationshipEvidenceLess(result.Values[i], result.Values[j]) })
 	result.Digest, _ = catalog.RelationshipObservationDigest(result.Values)
-	result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+	result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
 }
 
@@ -433,46 +413,4 @@ func unavailableRelationshipEvidence(result catalog.RelationshipObservationResul
 	result.Available, result.Complete, result.Status = false, false, catalog.EvidenceUnavailable
 	result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{Code: "RELATIONSHIP_EVIDENCE_UNAVAILABLE", Message: message})
 	return result
-}
-
-// relationshipObservation maps one physical storage aggregate to its
-// Builder projection through the generated traversal registry. It mirrors
-// the Arango adapter (internal/catalog/arango/evidence.go) so both backends
-// accept and reject the same evidence. from/to arrive already canonicalized
-// (see the file header); the count comes from COUNT(*) over occurrence rows
-// and is therefore always positive — the non-positive branch is defensive
-// parity with the Arango path, where a catalog document could carry a
-// malformed count.
-func relationshipObservation(project, datasetGeneration, auth, storageFrom, label, storageTo string, count int64) (catalog.RelationshipObservation, bool, catalog.EvidenceDiagnostic) {
-	diagnostic := catalog.EvidenceDiagnostic{StorageFromType: storageFrom, Label: label, StorageToType: storageTo, Count: count}
-	if count <= 0 {
-		diagnostic.Code = "INVALID_RELATIONSHIP_COUNT"
-		diagnostic.Message = "relationship evidence count must be positive"
-		return catalog.RelationshipObservation{}, false, diagnostic
-	}
-	// Stored occurrences are always source -> target. Builder's normal
-	// projection is the inverse generated traversal, which is physically
-	// INBOUND from the stored target. Keep a direct generated traversal as a
-	// valid fallback for labels whose generated schema only exposes the
-	// storage orientation.
-	if _, found, err := fhirschema.ResolveCompilerTraversal(storageTo, label, storageFrom); found && err == nil {
-		return catalog.RelationshipObservation{Project: project, DatasetGeneration: datasetGeneration, AuthResourcePath: auth, FromType: storageTo, Label: label, ToType: storageFrom, EdgeCount: count, StorageFromType: storageFrom, StorageToType: storageTo, StorageDirection: "OUTBOUND", BuilderFromType: storageTo, BuilderToType: storageFrom, BuilderDirection: "INBOUND"}, true, diagnostic
-	}
-	if _, found, err := fhirschema.ResolveCompilerTraversal(storageFrom, label, storageTo); found && err == nil {
-		return catalog.RelationshipObservation{Project: project, DatasetGeneration: datasetGeneration, AuthResourcePath: auth, FromType: storageFrom, Label: label, ToType: storageTo, EdgeCount: count, StorageFromType: storageFrom, StorageToType: storageTo, StorageDirection: "OUTBOUND", BuilderFromType: storageFrom, BuilderToType: storageTo, BuilderDirection: "OUTBOUND"}, true, diagnostic
-	}
-	diagnostic.Code = "UNSUPPORTED_GENERATED_TRAVERSAL"
-	diagnostic.Message = "relationship endpoints and label are not a supported generated traversal"
-	return catalog.RelationshipObservation{}, false, diagnostic
-}
-
-// relationshipEvidenceLess orders observations for the digest exactly as
-// the Arango adapter's relationshipLess does.
-func relationshipEvidenceLess(a, b catalog.RelationshipObservation) bool {
-	for _, pair := range [][2]string{{a.Project, b.Project}, {a.DatasetGeneration, b.DatasetGeneration}, {a.AuthResourcePath, b.AuthResourcePath}, {a.FromType, b.FromType}, {a.Label, b.Label}, {a.ToType, b.ToType}, {a.StorageFromType, b.StorageFromType}, {a.StorageToType, b.StorageToType}} {
-		if pair[0] != pair[1] {
-			return pair[0] < pair[1]
-		}
-	}
-	return a.EdgeCount < b.EdgeCount
 }

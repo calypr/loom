@@ -412,7 +412,7 @@ func TestRelationshipEvidenceDiagnosesInvalidEndpointsAndTraversals(t *testing.T
 // non-positive (the repository refuses such groups); the stub reaches the
 // branch a corrupted catalog document would take on the Arango path.
 func TestRelationshipEvidenceNonPositiveCountIsDiagnosed(t *testing.T) {
-	observation, ok, diagnostic := relationshipObservation("proj", "g1", "clinic/a", "Condition", "subject_Patient", "Patient", 0)
+	observation, ok, diagnostic := catalog.ProjectRelationshipObservation("proj", "g1", "clinic/a", "Condition", "subject_Patient", "Patient", 0)
 	if ok || observation.Label != "" {
 		t.Fatalf("zero count accepted: %+v", observation)
 	}
@@ -454,7 +454,7 @@ func TestRelationshipEvidenceRepeatedOccurrencesAndDirectionsStaySeparate(t *tes
 	}
 	// Values arrive ordered by the shared comparator.
 	for i := 1; i < len(result.Values); i++ {
-		if relationshipEvidenceLess(result.Values[i], result.Values[i-1]) {
+		if catalog.RelationshipEvidenceLess(result.Values[i], result.Values[i-1]) {
 			t.Fatalf("values not sorted at %d: %+v", i, result.Values)
 		}
 	}

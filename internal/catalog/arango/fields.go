@@ -106,7 +106,7 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 	}
 	sort.Slice(result.Values, func(i, j int) bool { return fieldLess(result.Values[i], result.Values[j]) })
 	result.Digest, _ = catalog.FieldEnrichmentDigest(result.Values, result.FieldCoverageKnown, result.Complete, result.Truncated)
-	result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+	result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
 }
 

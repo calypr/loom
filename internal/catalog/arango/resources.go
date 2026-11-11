@@ -110,7 +110,7 @@ func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.Reso
 	authPathsUnrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
 	if !authPathsUnrestricted && len(opts.AuthResourcePaths) == 0 {
 		result.Digest, _ = catalog.ResourceInventoryDigest(result.Values)
-		result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+		result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 		return result, nil
 	}
 	counts := make(map[string]int64, len(resourceTypes))
@@ -151,7 +151,7 @@ func (s *Store) DiscoverResourceInventory(ctx context.Context, opts catalog.Reso
 		return inventoryObservationLess(result.Values[i], result.Values[j])
 	})
 	result.Digest, _ = catalog.ResourceInventoryDigest(result.Values)
-	result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+	result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
 }
 

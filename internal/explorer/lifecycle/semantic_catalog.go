@@ -15,7 +15,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -638,10 +637,10 @@ func (s *Service) semanticInventoryPresentationForOutput(
 	if build.BuildID == "" || build.SourceKind == "" {
 		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
 	}
-	coveragePaths := make([]catalogarango.SemanticCoverageCandidatePath, 0, len(current.candidates))
+	coveragePaths := make([]catalog.SemanticCoverageCandidatePath, 0, len(current.candidates))
 	coveragePathKeys := make(map[string]struct{}, len(current.candidates))
 	for _, candidate := range current.candidates {
-		path := catalogarango.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}
+		path := catalog.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}
 		key := semanticCoverageCandidatePathKey(path)
 		if _, exists := coveragePathKeys[key]; exists {
 			continue
@@ -650,7 +649,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		coveragePaths = append(coveragePaths, path)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	lookup, err := s.config.SemanticCoverage(ctx, catalogarango.SemanticCoverageLookupOptions{
+	lookup, err := s.config.SemanticCoverage(ctx, catalog.SemanticCoverageLookupOptions{
 		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
 		BuildID: build.BuildID, SchemaIdentity: snapshot.Identity.SchemaDigest, SourceKind: build.SourceKind,
 		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
@@ -662,16 +661,16 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		}
 		return nil, nil, internal("catalog", "FIELD_PRESENTATION_LOOKUP_FAILED", "semantic field coverage could not be read", err)
 	}
-	if lookup.State != catalogarango.SemanticCoverageBuildComplete && lookup.State != catalogarango.SemanticCoverageBuildPartial {
+	if lookup.State != catalog.SemanticCoverageBuildComplete && lookup.State != catalog.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
-		if lookup.State == catalogarango.SemanticCoverageBuildBuilding || lookup.State == catalogarango.SemanticCoverageBuildFailed {
+		if lookup.State == catalog.SemanticCoverageBuildBuilding || lookup.State == catalog.SemanticCoverageBuildFailed {
 			reason = FieldPresentationIncompleteCoverage
 		}
 		return choices, fieldPresentationUnavailable(reason), nil
 	}
-	coverageByPath := make(map[string]catalogarango.SemanticCoverageCandidateResult, len(lookup.Candidates))
+	coverageByPath := make(map[string]catalog.SemanticCoverageCandidateResult, len(lookup.Candidates))
 	for _, candidate := range lookup.Candidates {
-		key := semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+		key := semanticCoverageCandidatePathKey(catalog.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath,
 		})
 		if _, duplicate := coverageByPath[key]; duplicate {
@@ -716,25 +715,25 @@ func (s *Service) semanticInventoryPresentationForOutput(
 			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationCandidateNotAddable})
 			continue
 		}
-		coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+		coverage := coverageByPath[semanticCoverageCandidatePathKey(catalog.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 		})]
-		if coverage.ResourceState != catalogarango.SemanticCoverageBuildComplete {
+		if coverage.ResourceState != catalog.SemanticCoverageBuildComplete {
 			decisions = append(decisions, FieldPresentationKeepRaw{
 				Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage,
 			})
 			continue
 		}
 		switch coverage.Status {
-		case catalogarango.SemanticCoverageCandidateKeepRaw:
+		case catalog.SemanticCoverageCandidateKeepRaw:
 			reason, ok := fieldPresentationCoverageReason(string(coverage.Reason))
 			if !ok {
 				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
 			}
 			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: reason})
-		case catalogarango.SemanticCoverageCandidateUnavailable:
+		case catalog.SemanticCoverageCandidateUnavailable:
 			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage})
-		case catalogarango.SemanticCoverageCandidateGroupable:
+		case catalog.SemanticCoverageCandidateGroupable:
 			if strings.TrimSpace(coverage.CoverageID) == "" || len(coverage.References) == 0 {
 				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
 			}
@@ -801,7 +800,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 				identities = append(identities, reference.identity)
 			}
 			if available {
-				coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+				coverage := coverageByPath[semanticCoverageCandidatePathKey(catalog.SemanticCoverageCandidatePath{
 					ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 				})]
 				decisions[decisionIndex] = FieldPresentationGroupUnderSemantic{
@@ -915,7 +914,7 @@ func fieldPresentationUnavailable(reason FieldPresentationReason) fieldPresentat
 	return FieldPresentationUnavailable{Kind: FieldPresentationResultUnavailable, Reason: reason}
 }
 
-func semanticCoverageCandidatePathKey(path catalogarango.SemanticCoverageCandidatePath) string {
+func semanticCoverageCandidatePathKey(path catalog.SemanticCoverageCandidatePath) string {
 	return path.ResourceType + "\x00" + path.CanonicalPath
 }
 
