@@ -19,6 +19,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -316,6 +317,18 @@ func stringifyCell(value any) string {
 		return typed
 	case []byte:
 		return string(typed)
+	case pgtype.Numeric:
+		// The struct's %v form ({5 0 false finite true}) is unreadable
+		// and uncomparable; MarshalText gives the canonical numeric text
+		// (pg-sql-13 group_test.go numeric key/reducer cells).
+		if !typed.Valid {
+			return "<null>"
+		}
+		text, err := typed.MarshalJSON()
+		if err != nil {
+			return fmt.Sprintf("%v", typed)
+		}
+		return string(text)
 	default:
 		return fmt.Sprintf("%v", typed)
 	}

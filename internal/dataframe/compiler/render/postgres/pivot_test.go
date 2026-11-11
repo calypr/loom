@@ -677,8 +677,19 @@ func TestPivot14ScalarRefusalRegister(t *testing.T) {
 		mutate       func(*ir.PhysicalPlan)
 		wantFragment string
 	}{
-		{"stage sequence coexistence", func(p *ir.PhysicalPlan) {
+		{"stage sequence coexistence refused by the group door", func(p *ir.PhysicalPlan) {
 			p.StageSequence = &ir.PhysicalStageSequence{Stages: []ir.PhysicalConstructionStage{{Kind: ir.PhysicalStageGroupOp}}}
+		}, "registered group slice"},
+		{"stage sequence coexistence refused by the pivot slice", func(p *ir.PhysicalPlan) {
+			// A non-GROUP stage mentioner leaves the group door (which
+			// keys on GROUP-kind stages only, group.go:223-235) silent,
+			// so the plan reaches the pivot slice, which refuses any
+			// stage sequence by its own voice naming pg-sql-16
+			// (pivot.go:442). Hopped-head seam: pg-sql-13's door landed
+			// above the pivot doors, so GROUP mentioners are the group
+			// contract's to refuse — both voices stay typed refusals,
+			// nothing renders either way.
+			p.StageSequence = &ir.PhysicalStageSequence{Stages: []ir.PhysicalConstructionStage{{Kind: ir.PhysicalStageFilterOp}}}
 		}, "stage sequence"},
 		{"plan-level preview window refused at the door", func(p *ir.PhysicalPlan) {
 			p.PreviewSourceWindowByRootID = true

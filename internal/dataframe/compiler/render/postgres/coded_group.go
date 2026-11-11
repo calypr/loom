@@ -176,34 +176,36 @@ package postgres
 //     (logs/pg19-red-probe.log: "staged row-operator sequences are not
 //     yet implemented for PostgreSQL") and the two-stage AQL render
 //     (logs/pg19-reachability.log).
-//   - L-19.2 REGISTERED NAMED DIVERGENCE — accepted-at-recipe-level/
-//     PG-typed-refused (coordinator ruling 2026-11-10).
-//     Attribution, quoted verbatim from the ruling: "operator-config entry counted as non-user surface per coordinator ruling 2026-11-10".
-//     Non-empty CodedGroup.RowValues / RowValueProjections
-//     are accepted by recipe validation (recipe/construction.go:
-//     1002-1007) and EMITTED by lowering
-//     (lower/recipe_construction_coded_group.go:119-127), so the shape
-//     exists in the contract, but this renderer refuses it fail-closed,
-//     naming pg-sql-13 ("Render Group keys and aggregate reducers") as
-//     the enabling ticket — never partially rendered. Reachability is
-//     the narrow raw recipe-document channel only: recipe.Parse via the
-//     server operator-config entry (internal/server/server.go:442);
+//   - L-19.2 REGISTERED (pg-sql-13 Q4) — was the accepted-at-recipe-level/
+//     PG-typed-refused divergence of coordinator ruling 2026-11-10
+//     (attribution, quoted verbatim from the ruling: "operator-config
+//     entry counted as non-user surface per coordinator ruling
+//     2026-11-10"). History kept for the verifier: the shape is accepted
+//     by recipe validation (recipe/construction.go:1002-1007) and EMITTED
+//     by lowering (lower/recipe_construction_coded_group.go:119-127)
+//     through the narrow raw recipe-document channel only (recipe.Parse
+//     via the server operator-config entry, internal/server/server.go:442;
 //     both authoring paths are law-blocked — the codedGroup four-output
-//     law (authoringv2/construction_validation.go:1694 +
-//     validateDeclaredOutputIDs:1755-1769) and recipe-step output
-//     membership (recipe/construction.go:1023-1028). Distinction from
-//     the pg-sql-11 Option-A ruling (recorded for the verifier): there a
-//     DEFAULT-ON policy contaminated a core shape every real recipe
-//     hits; here no shipped operator config, JSON, or YAML uses
-//     rowValues in a CODED_GROUP step (coordinator tip probe f1389b45055:
-//     hits are openapi/docs schema surface and the scripts/verify-ui
-//     helper fixture), so this is privileged-operator input, not user
-//     production. Load-bearing proof: TestCodedGroupIRRowValuesAlive
-//     Control assembles the ir-accepted shape directly and pins the
-//     refusal message cell-verbatim; with the arm removed it renders a
-//     partial statement (RED banked at logs/pg19-arm-removal-red.log).
-//     Fail-closed is zero SQL, zero side effects:
-//     TestCodedGroupIRRowValuesLiveZeroSideEffects.
+//     law, authoringv2/construction_validation.go:1694 +
+//     validateDeclaredOutputIDs:1755-1769, and recipe-step output
+//     membership, recipe/construction.go:1023-1028). pg-sql-13 closed the
+//     gap: the inline ALL/ONE row values now render through the SHARED
+//     group emitter (groupRowValueExpressionFor — mechanical dispatch per
+//     the Q4 ruling; the contributing-root pool is cg_tuples, which is
+//     exactly the AQL per-tuple record set, construction_coded_group.go:
+//     46-125). The whole arm is additive: zero-row-value statements stay
+//     byte-identical to the attested pg-sql-19 base. Load-bearing proofs:
+//     TestCodedGroupIRRowValuesAliveControl pins the carry chain and the
+//     shared ONE fragment byte-identical (parameter-index-normalized);
+//     TestCodedGroupRowValuesSharedEmitterLaw forbids any inlined emitter
+//     copy (RED banked at logs/pg13-shared-emitter-red-inlined-literal
+//     .log); TestCodedGroupRowValuesLiveRender runs the pool live.
+//     The ONE remaining refusal in this family is the many-cardinality
+//     (local-array-expansion) input — REGISTERED NAMED GAP: the shared
+//     pool emitter groupManyRowValuePoolFor renders from g_rows, so the
+//     cg_tuples pool variant is wave 2 of this ticket; TestCodedGroupIR
+//     RowValuesLiveZeroSideEffects keeps the fail-closed zero-SQL proof
+//     on that shape.
 //   - L-19.3 Non-first-stage (DOCUMENT re-query) shape: probe-attested
 //     production-unreachable — recipe validation forces CODED_GROUP to be
 //     the first step on the direct source projection
@@ -505,9 +507,8 @@ func validateCodedGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[
 		return fmt.Errorf("%w: CODED_GROUP requires the compiler proof of one source row per root _key (ir/physical_stage_validation.go:2270-2274)",
 			ErrUnsupportedPostgresPlan)
 	}
-	if len(coded.RowValues) != 0 || len(coded.RowValueProjections) != 0 {
-		return fmt.Errorf("%w: coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered",
-			ErrUnsupportedPostgresPlan)
+	if err := validateCodedGroupRowValues(coded); err != nil {
+		return err
 	}
 	switch coded.MissingKeyPolicy {
 	case ir.PhysicalStageGroupMissingKeyGroup, ir.PhysicalStageGroupMissingKeyExclude, ir.PhysicalStageGroupMissingKeyError:
@@ -536,6 +537,104 @@ func validateCodedGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[
 	for _, variable := range []string{coded.SystemVariable, coded.VersionVariable, coded.CodeVariable, coded.CountVariable, coded.IdentityVariable, coded.GroupRowsVariable} {
 		if variable == "" {
 			return fmt.Errorf("%w: coded-group plan variables must be compiled and non-empty", ErrUnsupportedPostgresPlan)
+		}
+	}
+	return nil
+}
+
+// codedGroupSanitizeRowValueProjections clears Hidden on the row-value
+// projection clones for CLASSIFICATION only: the lowering stamps them
+// hidden (physical_stage_validation.go:2346-2396) because they must never
+// surface as RETURN projections — the arm honors that by rendering them
+// exclusively as private pool columns. The clone's expression fields are
+// untouched; the copy never flows back into the plan.
+func codedGroupSanitizeRowValueProjections(projections []ir.PhysicalProjection) []ir.PhysicalProjection {
+	out := make([]ir.PhysicalProjection, len(projections))
+	for i, projection := range projections {
+		projection.Hidden = false
+		out[i] = projection
+	}
+	return out
+}
+
+// validateCodedGroupRowValues is the pg-sql-13 (Q4) door for the
+// coded-group row-values arm. The inline ALL/ONE shape renders through
+// the shared group emitter (groupRowValueExpressionFor); the door keeps
+// both doors refusing the same defects before plan.Validate can speak:
+// unique inputs (AQL construction_coded_group.go:92-94 duplicate
+// refusal), one source projection per input and none extra, extraction
+// scalar shapes only, the registered policy/kind sets (row_values.go:53
+// parity), and the many-cardinality (local-array-expansion) input —
+// whose pool CTE renders from g_rows — stays a named wave-2 gap.
+func validateCodedGroupRowValues(coded *ir.PhysicalStageCodedGroup) error {
+	if len(coded.RowValues) == 0 && len(coded.RowValueProjections) == 0 {
+		return nil
+	}
+	inputs := make(map[string]bool, len(coded.RowValues))
+	for _, rowValue := range coded.RowValues {
+		if rowValue.InputColumn == "" || rowValue.Output == "" || rowValue.Variable == "" {
+			return fmt.Errorf("%w: coded-group row value columns and variables must be compiled and non-empty",
+				ErrUnsupportedPostgresPlan)
+		}
+		if inputs[rowValue.InputColumn] {
+			return fmt.Errorf("%w: coded-group row value input column %q is declared twice (construction_coded_group.go:92-94 parity)",
+				ErrUnsupportedPostgresPlan, rowValue.InputColumn)
+		}
+		inputs[rowValue.InputColumn] = true
+		switch rowValue.Policy {
+		case "ALL", "ONE":
+		default:
+			return fmt.Errorf("%w: row value %q has unsupported policy %q (row_values.go:53 parity)",
+				ErrUnsupportedPostgresPlan, rowValue.Output, rowValue.Policy)
+		}
+		switch rowValue.InputKind {
+		case "STRING", "INTEGER", "DECIMAL", "BOOLEAN":
+		default:
+			return fmt.Errorf("%w: row value %q has unsupported input kind %q",
+				ErrUnsupportedPostgresPlan, rowValue.Output, rowValue.InputKind)
+		}
+		if rowValue.InputMany {
+			return fmt.Errorf("%w: coded-group many-cardinality (local-array-expansion) row values are a wave-2 pg-sql-13 gap (the shared pool emitter groupManyRowValuePoolFor renders from g_rows; a CODED_GROUP pool over cg_tuples is wave-2) and are refused, never partially rendered",
+				ErrUnsupportedPostgresPlan)
+		}
+	}
+	provided := make(map[string]int, len(coded.RowValueProjections))
+	classified, err := classifyExtractionProjections(codedGroupSanitizeRowValueProjections(coded.RowValueProjections), func(string) (string, bool) {
+		// The door has no renderer scope; the row IS the exact root
+		// resource type (validated above against the root_collection
+		// bind), so a selector provenance naming anything else fails.
+		return coded.ResourceType, true
+	})
+	if err != nil {
+		return err
+	}
+	for _, projection := range classified {
+		provided[projection.projection.Name]++
+		switch projection.kind {
+		case extractionDirectValue, extractionValueExpression, extractionSelector:
+			value := projection.projection.Value
+			if projection.kind == extractionValueExpression {
+				value = *projection.projection.Expression.Value
+			}
+			if projection.kind != extractionSelector && len(value.Path) == 0 {
+				return fmt.Errorf("%w: coded-group row value projection %q is not a registered scalar projection (whole-document read)",
+					ErrUnsupportedPostgresPlan, projection.projection.Name)
+			}
+		default:
+			return fmt.Errorf("%w: coded-group row value projection %q is not a direct payload extraction (only the source-clone scalar shapes — direct value, value expression, selector — are registered, group-arm parity)",
+				ErrUnsupportedPostgresPlan, projection.projection.Name)
+		}
+	}
+	for name := range inputs {
+		if provided[name] != 1 {
+			return fmt.Errorf("%w: coded-group row value input %q needs exactly one source projection (found %d)",
+				ErrUnsupportedPostgresPlan, name, provided[name])
+		}
+	}
+	for name := range provided {
+		if !inputs[name] {
+			return fmt.Errorf("%w: coded-group row value projection %q addresses no row value input column",
+				ErrUnsupportedPostgresPlan, name)
 		}
 	}
 	return nil
@@ -685,9 +784,94 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 		}
 	}
 
+	// --- pg-sql-13 (Q4) row-value source columns. ---
+	// The row-value inputs ride the record scope as payload extractions
+	// rendered through the SAME arms materializeGroupSource uses
+	// (classification + resolveValue), then travel the candidate/tuple
+	// chain so the shared group emitter aggregates them per tuple. The
+	// whole arm is additive: with zero row values every string below is
+	// empty and the statement is byte-identical to the attested base.
+	type codedGroupRowValue struct {
+		rowValue ir.PhysicalStageRowValue
+		column   *groupColumn
+	}
+	var codedRowValues []codedGroupRowValue
+	var rvSuffix, rvCarryS, rvCarryC string
+	if len(coded.RowValues) > 0 {
+		classified, err := classifyExtractionProjections(codedGroupSanitizeRowValueProjections(coded.RowValueProjections), func(variable string) (string, bool) {
+			scope, ok := r.rows[variable]
+			if !ok {
+				return "", false
+			}
+			if scope.resourceType != "" {
+				return scope.resourceType, true
+			}
+			// The coded gate scans the row as the exact root resource
+			// type (door-validated against the root_collection bind); a
+			// selector provenance naming anything else is a mismatch.
+			return coded.ResourceType, true
+		})
+		if err != nil {
+			return "", err
+		}
+		byName := map[string]classifiedExtractionProjection{}
+		for _, projection := range classified {
+			byName[projection.projection.Name] = projection
+		}
+		for i := range coded.RowValues {
+			rowValue := coded.RowValues[i]
+			projection, ok := byName[rowValue.InputColumn]
+			if !ok {
+				return "", fmt.Errorf("%w: coded-group row value input %q has no source projection",
+					ErrUnsupportedPostgresPlan, rowValue.InputColumn)
+			}
+			var resolved string
+			switch projection.kind {
+			case extractionSelector:
+				// The lowered source clone of a SELECT field arrives as
+				// the selector arm (group source parity): the private
+				// pool column renders through the same jsonb-preserving
+				// scalar extract over the record payload.
+				extracted, err := r.scalarExtractValueExpression(r.rootAlias, projection.path, projection.expression.NullBehavior)
+				if err != nil {
+					return "", fmt.Errorf("coded-group row value %q: %w", rowValue.Output, err)
+				}
+				resolved = extracted
+			case extractionDirectValue, extractionValueExpression:
+				value := projection.projection.Value
+				if projection.kind == extractionValueExpression {
+					value = *projection.projection.Expression.Value
+				}
+				if len(value.Path) == 0 {
+					return "", fmt.Errorf("%w: coded-group row value projection %q is not a registered scalar projection (whole-document read)",
+						ErrUnsupportedPostgresPlan, rowValue.InputColumn)
+				}
+				renderedValue, err := r.resolveValue(value)
+				if err != nil {
+					return "", fmt.Errorf("coded-group row value %q: %w", rowValue.Output, err)
+				}
+				resolved = renderedValue
+			default:
+				return "", fmt.Errorf("%w: coded-group row value projection %q is not a registered scalar arm",
+					ErrUnsupportedPostgresPlan, rowValue.InputColumn)
+			}
+			if isPayloadExpression(resolved) {
+				resolved = "(" + resolved + ")"
+			}
+			alias := "cg_rv" + strconv.Itoa(i)
+			codedRowValues = append(codedRowValues, codedGroupRowValue{
+				rowValue: rowValue,
+				column:   &groupColumn{name: rowValue.InputColumn, alias: alias, expr: resolved, ref: `"` + alias + `"`, jsonb: true},
+			})
+			rvSuffix += ", " + resolved + ` AS ` + alias
+			rvCarryS += ", s." + alias
+			rvCarryC += ", c." + alias
+		}
+	}
+
 	resource := r.storage.Resource
 	source := "SELECT " + r.rootAlias + "." + resource.MustColumn("logical_id").SQLText() +
-		` AS cg_root_key, ` + r.rootAlias + "." + resource.MustColumn("payload").SQLText() + ` AS cg_payload` +
+		` AS cg_root_key, ` + r.rootAlias + "." + resource.MustColumn("payload").SQLText() + ` AS cg_payload` + rvSuffix +
 		" FROM " + resource.Identifier().SQLText() + " AS " + r.rootAlias
 	for _, join := range r.joins {
 		source += " " + join
@@ -729,7 +913,7 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 		" AND jsonb_typeof(" + itemExpression + " -> " + dollar(codeKey) + "::text) = 'string'" +
 		" AND btrim(" + itemCodeText + ", " + dollar(trimChars) + "::text) <> '', false)"
 
-	candidates := "SELECT s.cg_root_key, " + itemExpression + " AS cg_item, " + valid + " AS cg_valid" +
+	candidates := "SELECT s.cg_root_key" + rvCarryS + ", " + itemExpression + " AS cg_item, " + valid + " AS cg_valid" +
 		" FROM cg_src AS s" + lateralSQL
 
 	// --- per-root tuple dedup + policy conjunct. ---
@@ -737,21 +921,58 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 	tupleCodeText := "c.cg_item ->> " + dollar(codeKey) + "::text"
 	tupleVersionText := "c.cg_item ->> " + dollar(versionKey) + "::text"
 
-	tuplesWhere := ""
+	var tuplesConjuncts []string
+	// Row-value member type witnesses at the tuple position — the pool
+	// forms here (one DISTINCT root per tuple), matching the AQL
+	// renderConstructionRowValueLets ASSERT position; null-exempt,
+	// raising the canonical VALUE tag through the barrier cast. The
+	// witness/dedup law matches the group stage: equal texts bind equal
+	// parameters, so a column addressed twice conjuncts once.
+	seenTuplesConjunct := map[string]bool{}
+	for i := range codedRowValues {
+		_, witness, err := r.groupColumnRead(codedRowValues[i].column, codedRowValues[i].rowValue.InputKind,
+			groupValueTypeTag, dollar)
+		if err != nil {
+			return "", fmt.Errorf("coded-group row value %q: %w", codedRowValues[i].rowValue.Output, err)
+		}
+		if witness != "" && !seenTuplesConjunct[witness] {
+			seenTuplesConjunct[witness] = true
+			tuplesConjuncts = append(tuplesConjuncts, witness)
+		}
+	}
 	switch coded.MissingKeyPolicy {
 	case ir.PhysicalStageGroupMissingKeyExclude:
-		tuplesWhere = " WHERE c.cg_valid"
+		tuplesConjuncts = append(tuplesConjuncts, "c.cg_valid")
 	case ir.PhysicalStageGroupMissingKeyError:
-		tuplesWhere = " WHERE (CASE WHEN c.cg_valid THEN 1 ELSE " + guardCast(codedGroupMissingKeyTag) + " END) > 0"
+		tuplesConjuncts = append(tuplesConjuncts,
+			"(CASE WHEN c.cg_valid THEN 1 ELSE "+guardCast(codedGroupMissingKeyTag)+" END) > 0")
 	}
-	tuples := "SELECT DISTINCT c.cg_root_key," +
+	tuplesWhere := ""
+	if len(tuplesConjuncts) > 0 {
+		tuplesWhere = " WHERE " + strings.Join(tuplesConjuncts, " AND ")
+	}
+	tuples := "SELECT DISTINCT c.cg_root_key" + rvCarryC + "," +
 		" CASE WHEN c.cg_valid THEN " + tupleSystemText + " END AS cg_system," +
 		" CASE WHEN c.cg_valid AND jsonb_typeof(c.cg_item -> " + dollar(versionKey) + "::text) = 'string'" +
 		" AND btrim(" + tupleVersionText + ", " + dollar(trimChars) + "::text) <> '' THEN " + tupleVersionText + " END AS cg_version," +
 		" CASE WHEN c.cg_valid THEN " + tupleCodeText + " END AS cg_code" +
 		" FROM cg_candidates AS c" + tuplesWhere
 
-	grouped := "SELECT cg_system, cg_version, cg_code, COUNT(*) AS cg_count FROM cg_tuples GROUP BY 1, 2, 3"
+	// The tuple pool is one DISTINCT root per tuple (cg_tuples), which is
+	// exactly the AQL contributing-record set; the shared group emitter
+	// (groupRowValueExpressionFor, coordinator ruling 2026-11-11 Q4)
+	// aggregates ALL/ONE over it in the same statement position as
+	// COUNT(*).
+	groupedSelects := "SELECT cg_system, cg_version, cg_code, COUNT(*) AS cg_count"
+	for i := range codedRowValues {
+		expression, err := groupRowValueExpressionFor(codedRowValues[i].rowValue.Policy,
+			codedRowValues[i].rowValue.InputKind, false, codedRowValues[i].column, dollar)
+		if err != nil {
+			return "", fmt.Errorf("coded-group row value %q: %w", codedRowValues[i].rowValue.Output, err)
+		}
+		groupedSelects += ", " + expression + " AS cg_g" + strconv.Itoa(i)
+	}
+	grouped := groupedSelects + " FROM cg_tuples GROUP BY 1, 2, 3"
 
 	// --- stable identity + final positional projection. ---
 	constructionID := r.textParameter(bindStringVar(plan.BindVars, coded.ConstructionIDBindKey), "")
@@ -781,6 +1002,9 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 		coded.CountOutputColumn:   "g.cg_count",
 		codedGroupRowIDColumn:     identity,
 	}
+	for i := range codedRowValues {
+		expressions[codedRowValues[i].rowValue.Output] = "g.cg_g" + strconv.Itoa(i)
+	}
 	selects := make([]string, 0, len(plan.StageSequence.FinalColumns))
 	names := make([]string, 0, len(plan.StageSequence.FinalColumns))
 	for _, column := range plan.StageSequence.FinalColumns {
@@ -802,8 +1026,8 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 		selects = append(selects, expression+` AS "c`+strconv.Itoa(len(selects))+`"`)
 		names = append(names, column.Name)
 	}
-	if len(names) != 5 {
-		return "", fmt.Errorf("%w: the registered slice emits the three tuple keys, the root count, and the hidden stable identity",
+	if len(names) != 5+len(codedRowValues) {
+		return "", fmt.Errorf("%w: the registered slice emits the three tuple keys, the root count, the hidden stable identity, and one column per registered row value",
 			ErrUnsupportedPostgresPlan)
 	}
 	r.outputColumns = names
