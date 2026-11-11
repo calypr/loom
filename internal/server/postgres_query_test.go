@@ -785,3 +785,52 @@ func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 		t.Fatalf("own-prefix census: live=%d baseline=%d registered=%d names=%v", count, qRouteBaseline, registered, names)
 	}
 }
+
+// TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded pins today's truth
+// for the registered factory-layer risk (plan 5c): with the consumable pair
+// against a dead endpoint, the startup path eventually surfaces a typed,
+// credential-free failure -- no hang-forever, no panic. This is a BOUND
+// assertion, not a speed assertion: the measured behavior (run receipt in
+// the plan) is ~60s to first failure regardless of the caller ctx -- the
+// factory's eager MinConns dial plus its AcquireTimeout policy own that
+// latency, not the server ctx -- so the generous bound below must never be
+// tightened into a performance promise. It is live-gated on purpose: the
+// route battery itself stays on reachable mints.
+func TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded(t *testing.T) {
+	qRouteTestPostgresURL(t) // live-gate; the witness dials no reachable host
+	cfg := Config{}
+	cfg.Server.Backend = sourceBackendPostgres
+	cfg.Server.PostgreSQL = qRoutePostgreSQLConfig()
+	cfg.Server.PostgreSQL.Schemas = map[string]string{
+		"source": "verify_qroute_dead_src", "dataset_release": "verify_qroute_dead_rel",
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	started := time.Now()
+	err := runPostgreSQLFirstQueryRoute(ctx, cfg, logger)
+	elapsed := time.Since(started)
+
+	if err == nil {
+		t.Fatal("dead-endpoint composition unexpectedly started the server")
+	}
+	if errors.Is(err, ErrPostgreSQLRuntimeNotWired) {
+		t.Fatalf("dead endpoint was refused by the consumability sentinel instead of the factory's dial law: %v", err)
+	}
+	if elapsed > 5*time.Minute {
+		t.Fatalf("dead-endpoint failure took %v: the route must converge on a typed failure, not hang-forever", elapsed)
+	}
+	pg := cfg.Server.PostgreSQL
+	for _, secret := range []string{pg.Password, pg.User + ":" + pg.Password, pg.Host} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("dead-endpoint failure leaked credential material %q: %v", secret, err)
+		}
+	}
+	// Cause chain stays intact through the scrubber (no half-typed error).
+	var wrapped *redactedRouteError
+	if errors.As(err, &wrapped) && wrapped.Unwrap() == nil {
+		t.Fatalf("scrubbed failure lost its cause: %v", err)
+	}
+	t.Logf("dead-endpoint bound witness: elapsed=%v errKind=%T", elapsed, err)
+}
