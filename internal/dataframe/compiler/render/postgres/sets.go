@@ -325,12 +325,22 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 	// D2 handoff stash (pg-sql-11): a registered SLICE over this set
 	// renders over exactly this validated occurrence-join body — the same
 	// text the reductions below read — so one child scan contract serves
-	// both surfaces. Stashed only after every structural pin above and
+	// both surfaces. The registered projection slots are stashed alongside
+	// so a slice extract's Extract.Prepared reference resolves against
+	// the same compact-projection contract the reductions read (the
+	// Option A ruling: resolution, not refusal, for Prepared refs naming
+	// these slots). Stashed only after every structural pin above and
 	// the canonical-return pin have passed.
 	if r.setBodies == nil {
 		r.setBodies = make(map[string]correlatedSetBody)
 	}
 	r.setBodies[set.Variable] = corr
+	if set.Projection != nil && len(set.Projection.Fields) > 0 {
+		if r.setProjections == nil {
+			r.setProjections = make(map[string][]ir.PhysicalSetProjectionField)
+		}
+		r.setProjections[set.Variable] = append([]ir.PhysicalSetProjectionField(nil), set.Projection.Fields...)
+	}
 	if set.Reduction == nil {
 		// Registered consumer is a SLICE (the nil guard above proved one
 		// exists): the set contributes its item relation only, no reduced

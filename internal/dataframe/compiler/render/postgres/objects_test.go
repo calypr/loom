@@ -367,17 +367,18 @@ func TestNilReductionWithoutSliceConsumerKeepsTheSetsRefusal(t *testing.T) {
 }
 
 func TestPreparedBearingSliceStaysRefusedVerbatim(t *testing.T) {
-	// D3 ruling (Option B): the production compact-projection policy
-	// annotates child-set slice extracts with Extract.Prepared
-	// (lower/child_sets.go:573-579, probe-attested in
-	// artifacts/.../logs/d3-probe.log). A production plan hits the
-	// pg-sql-08 set-level refusal first ("prepared sets are not
-	// implemented", pinned in sets_test.go); the composite cell refusal
-	// below is the second line of the closed surface and the D3 cell:
-	// no Prepared-bearing composite extraction is ever rendered. The
+	// Prepared register, defense-in-depth arm (coordinator adjudication
+	// (a)): the singleton-root slice and the OBJECT envelope have no
+	// production Prepared producer — the annotator (lower/child_sets.go:
+	// 552-555) only stamps extracts whose source variable is a child set,
+	// and the probe's root-arm control run (logs/d3-probe.log) observed
+	// none — so a Prepared-bearing operand on this arm keeps the verbatim
+	// refusal. The child-set arm resolves registered slots instead
+	// (Option B is superseded there by the Option A tests below). The
 	// renderer gate is exercised directly — plan.Validate scopes a
-	// Prepared reference against a materialized prepared set, whose SET
-	// the pg-sql-08 refusal already owns.
+	// Prepared reference against the set variable (defined by the SET
+	// operation), so the full-plan resolution path is tested with the
+	// reference present.
 	plan := objPlan()
 	r := &planRenderer{
 		storage:      mustBinding(t),
@@ -396,6 +397,227 @@ func TestPreparedBearingSliceStaysRefusedVerbatim(t *testing.T) {
 	want := `postgres renderer: unsupported physical plan: composite EXTRACT operand: prepared-set selector references are not implemented for PostgreSQL`
 	if !strings.HasSuffix(err.Error(), want) {
 		t.Fatalf("Prepared refusal drifted from the D3 cell:\n got: %s\nwant suffix: %s", err.Error(), want)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Prepared register (Option A ruling, coordinator): production compact
+// projection (default-on) stamps Extract.Prepared onto child-set slice
+// extracts — projections, predicate left side, and sort
+// (lower/child_sets.go:552-555 and 573-579, the VERIFIED PRODUCER from
+// logs/d3-probe.log). Over the child-set arm those references resolve
+// against the set's registered projection slots; everything outside the
+// register keeps the verbatim refusal.
+// ---------------------------------------------------------------------------
+
+// objPreparedReference names the single slot setsChildSet registers:
+// __loom_projection_0, selector status, DirectScalar, Observation — the
+// exact selector the objChildSetSlicePlan item extract, the obj11StatusSort
+// sort, and the predicate left side carry (the annotator derives the slot
+// from the operand's own selector identity, lower/child_sets.go:553).
+func objPreparedReference() *ir.PhysicalPreparedReference {
+	return &ir.PhysicalPreparedReference{SetVariable: setsPrefix, Field: "__loom_projection_0"}
+}
+
+func objChildSliceOf(plan ir.PhysicalPlan) *ir.PhysicalSlice {
+	return plan.Operations[len(plan.Operations)-1].Return.Projections[1].Expression.Slice
+}
+
+func obj11SlicePredicate(plan ir.PhysicalPlan) {
+	plan.BindVars[objPredicate] = "same"
+	objChildSliceOf(plan).Predicate = &ir.PhysicalPredicateExpression{
+		Kind: ir.PhysicalComparisonPredicate, Comparison: &ir.PhysicalPredicate{
+			Operator: "EQUALS", ValueKind: spec.FilterString,
+			LeftExpression: &ir.PhysicalExpression{
+				Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalArrayCardinality,
+				NullBehavior: ir.PhysicalEmptyOnNull,
+				Extract: &ir.PhysicalExtract{
+					Source:        ir.PhysicalValue{Variable: setsPrefix, Path: []string{"payload"}},
+					ResourceType:  "Observation",
+					Selector:      spec.Selector{Steps: []spec.SelectorStep{{Field: "status"}}},
+					ExecutionMode: ir.PhysicalSelectorDirectScalar,
+				},
+			},
+			Right: &ir.PhysicalValue{BindKey: objPredicate},
+		}}
+}
+
+// TestPreparedResolutionRendersByteIdenticallyToUnannotated is the Option A
+// equivalence golden: a resolved reference hands the operand to the closed
+// extraction surface as its slot's canonical text, so the annotated plan
+// renders byte-identical SQL and identical Args to the same plan without
+// the annotation, on every annotated arm.
+func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
+	arms := []struct {
+		name     string
+		build    func(ir.PhysicalPlan)
+		annotate func(ir.PhysicalPlan)
+	}{
+		{"projection", nil, func(plan ir.PhysicalPlan) {
+			objChildSliceOf(plan).Projections[0].Expression.Extract.Prepared = objPreparedReference()
+		}},
+		{"sort", obj11StatusSort, func(plan ir.PhysicalPlan) {
+			objChildSliceOf(plan).Sort.Extract.Prepared = objPreparedReference()
+		}},
+		{"predicate", obj11SlicePredicate, func(plan ir.PhysicalPlan) {
+			objChildSliceOf(plan).Predicate.Comparison.LeftExpression.Extract.Prepared = objPreparedReference()
+		}},
+		{"bare-row-source", func(plan ir.PhysicalPlan) {
+			// The production slice lowerer's leftSource spelling (empty
+			// path, lower/root_projection.go:402): the bare row IS the
+			// row document and renders byte-identically to the
+			// ["payload"] spelling.
+			objChildSliceOf(plan).Projections[0].Expression.Extract.Source.Path = nil
+		}, func(plan ir.PhysicalPlan) {
+			objChildSliceOf(plan).Projections[0].Expression.Extract.Prepared = objPreparedReference()
+		}},
+	}
+	for _, arm := range arms {
+		t.Run(arm.name, func(t *testing.T) {
+			plain, annotated := objChildSetSlicePlan(), objChildSetSlicePlan()
+			if arm.build != nil {
+				arm.build(plain)
+				arm.build(annotated)
+			}
+			arm.annotate(annotated)
+			plainRendered, annotatedRendered := renderOK(t, plain), renderOK(t, annotated)
+			if annotatedRendered.SQL != plainRendered.SQL {
+				t.Fatalf("annotated SQL drifted from the unannotated slot text:\nplain:     %s\nannotated: %s", plainRendered.SQL, annotatedRendered.SQL)
+			}
+			if !reflect.DeepEqual(annotatedRendered.Args, plainRendered.Args) {
+				t.Fatalf("annotated Args drifted from the unannotated slot text:\nplain:     %v\nannotated: %v", plainRendered.Args, annotatedRendered.Args)
+			}
+			// The reference itself never reaches SQL text or Args.
+			for _, leak := range []string{"__loom_projection", "prepared", "child_set"} {
+				if strings.Contains(annotatedRendered.SQL, leak) {
+					t.Fatalf("%q leaked into resolved statement text: %s", leak, annotatedRendered.SQL)
+				}
+			}
+		})
+	}
+}
+
+// TestPreparedRegisterSlotTableRefusals exercises the re-read law over
+// slots the annotation must not resolve: the reference must name this
+// slice's own set and slot, carry the operand's own selector, resource
+// type, a registered mode and demand, and a direct property path. The
+// renderer is driven directly (the cell discipline of
+// TestPreparedBearingSliceStaysRefusedVerbatim) so adversarial slot-table
+// shapes — which plan.Validate scopes against the schema — reach the
+// register anyway as defense in depth.
+func TestPreparedRegisterSlotTableRefusals(t *testing.T) {
+	const verbatim = `postgres renderer: unsupported physical plan: composite EXTRACT operand: prepared-set selector references are not implemented for PostgreSQL`
+	directStatus := spec.Selector{Steps: []spec.SelectorStep{{Field: "status"}}}
+	iteratingCategory := spec.Selector{Steps: []spec.SelectorStep{{Field: "category", Iterate: true}}}
+	operand := func(selector spec.Selector) ir.PhysicalExpression {
+		return objExtractExpr(setsPrefix, "Observation", selector.Steps,
+			ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+	}
+	for _, testCase := range []struct {
+		name    string
+		slot    *ir.PhysicalSetProjectionField
+		extract ir.PhysicalExpression
+		want    string
+	}{
+		{
+			name:    "referenceNamesAnotherSet",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorDirectScalar},
+			extract: operand(directStatus),
+			want:    verbatim,
+		},
+		{
+			name:    "referenceNamesAnUnregisteredSlot",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorDirectScalar},
+			extract: operand(directStatus),
+			want:    verbatim,
+		},
+		{
+			name:    "slotNamesADifferentSelector",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorDirectScalar},
+			extract: operand(spec.Selector{Steps: []spec.SelectorStep{{Field: "note"}}}),
+			want:    "names a different selector than the operand carries",
+		},
+		{
+			name:    "slotResourceTypeDisagrees",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Patient", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorDirectScalar},
+			extract: operand(directStatus),
+			want:    "projects resource type \"Patient\" but the operand validates against \"Observation\"",
+		},
+		{
+			name:    "slotSelectorIsNotADirectPath",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: iteratingCategory, ExecutionMode: ir.PhysicalSelectorDirectScalar},
+			extract: operand(iteratingCategory),
+			want:    "not a direct property step",
+		},
+		{
+			name:    "slotIsConditionalArray",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorConditionalArray},
+			extract: operand(directStatus),
+			want:    "is CONDITIONAL_ARRAY, whose repeated-step rendering is not registered",
+		},
+		{
+			name:    "slotDemandIsUnregistered",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorDirectScalar, Demand: ir.PhysicalSelectorValueDemand("BOGUS")},
+			extract: operand(directStatus),
+			want:    "carries unsupported value demand \"BOGUS\"",
+		},
+		{
+			name:    "slotModeIsUnknown",
+			slot:    &ir.PhysicalSetProjectionField{Name: "__loom_projection_0", ResourceType: "Observation", Selector: directStatus, ExecutionMode: ir.PhysicalSelectorExecutionMode("MYSTERY")},
+			extract: operand(directStatus),
+			want:    "unknown selector execution mode \"MYSTERY\"",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			// Annotate per case: the two verbatim cases need the
+			// reference itself bent, the rest reference the single
+			// registered slot.
+			extract := testCase.extract
+			reference := objPreparedReference()
+			switch testCase.name {
+			case "referenceNamesAnotherSet":
+				reference.SetVariable = "child_set_9"
+			case "referenceNamesAnUnregisteredSlot":
+				reference.Field = "__loom_projection_7"
+			}
+			extract.Extract.Prepared = reference
+			r := &planRenderer{
+				storage:        mustBinding(t),
+				parameters:     map[string]int{},
+				rows:           map[string]rowScope{"root": {alias: "r0", resourceType: "Patient"}},
+				rootVariable:   "root",
+				setBodies:      map[string]correlatedSetBody{setsPrefix: {from: "FROM fhir_resource x1", where: `x1.project = $1`, targetAlias: "x1", targetType: "Observation", targetVar: "x1"}},
+				setProjections: map[string][]ir.PhysicalSetProjectionField{setsPrefix: {*testCase.slot}},
+			}
+			plan := setsPlan()
+			plan.BindVars[objLimitBind] = 2
+			sliceExpression := objSliceExpr(setsPrefix, objLimitBind, objField("value", extract))
+			_, err := r.renderSliceValue(plan, r.rows, sliceExpression, 1)
+			wantUnsupported(t, err, "Prepared register: "+testCase.name)
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("refusal %q drifted:\n got: %s\nwant substring: %s", testCase.name, err.Error(), testCase.want)
+			}
+		})
+	}
+}
+
+// TestPreparedInsideSliceItemObjectKeepsVerbatimRefusal pins the probe-
+// attested non-producer arm: the lowering's SLICE projections are
+// EXTRACT-only (lower/root_projection.go:459-463), so a Prepared-bearing
+// extraction inside a slice item's OBJECT operand never comes from
+// production lowering and keeps the verbatim closed-surface refusal
+// through the full plan.Validate path.
+func TestPreparedInsideSliceItemObjectKeepsVerbatimRefusal(t *testing.T) {
+	plan := objChildSetSlicePlan()
+	field := objField("v", objExtractExpr(setsPrefix, "Observation", []spec.SelectorStep{{Field: "status"}},
+		ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull))
+	field.Expression.Extract.Prepared = objPreparedReference()
+	objChildSliceOf(plan).Projections[0].Expression = objObjectExpr(field)
+	_, err := RenderPhysicalPlan(plan, mustBinding(t))
+	wantUnsupported(t, err, "Prepared inside a slice item OBJECT")
+	const verbatim = `postgres renderer: unsupported physical plan: composite EXTRACT operand: prepared-set selector references are not implemented for PostgreSQL`
+	if !strings.HasSuffix(err.Error(), verbatim) {
+		t.Fatalf("OBJECT-arm Prepared refusal drifted:\n got: %s\nwant suffix: %s", err.Error(), verbatim)
 	}
 }
 
@@ -609,7 +831,7 @@ func TestCompositeSurfaceRefusals(t *testing.T) {
 		},
 		{
 			name:          "composite extraction over a foreign source path",
-			want:          `row document at ["payload"]`,
+			want:          `spelled ["payload"] or as the bare row`,
 			rendererLevel: true,
 			mutate: func(plan *ir.PhysicalPlan) {
 				objBatteryReturn(plan)[1].Expression.Object.Fields[2].Expression.Extract.Source.Path = []string{"gender"}
@@ -1120,6 +1342,99 @@ func TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate(t *testing.T) {
 	predicatedRows := svc.runRendered(t, obj11RenderOK(t, svc, predicated))
 	if predicatedRows[0][1] != "[map[value:same] map[value:same]]" {
 		t.Fatalf("predicate must keep exactly the two \"same\" children, got %q", predicatedRows[0][1])
+	}
+}
+
+// TestObject11LiveSortHomogeneousTypeClasses pins the D4(a) ruling half:
+// for homogeneous sort values the rendered order matches AQL's total
+// order (missing/JSON-null first, then natural within the class) on real
+// PostgreSQL 18 — numbers ascending (not text order), booleans
+// false < true, and the string class pinned by
+// TestObject11LiveChildSetSliceDedupTieBreakLimitAndPredicate. The
+// cross-type mix stays the registered L2 divergence (objects.go header),
+// and the registered default sort is the _key identity leg (D4(c)),
+// pinned live by TestObject11LiveProductionPlanSliceLeg.
+func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
+	svc := newOwnedService(t, 0, "obj11_it")
+	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-1", "FHIR/Patient", map[string]any{})
+	for _, fixture := range []struct {
+		logicalID string
+		payload   map[string]any
+	}{
+		{"obs-1", map[string]any{"valueInteger": 10}},
+		{"obs-2", map[string]any{"valueInteger": 2}},
+		{"obs-3", map[string]any{"valueInteger": 1}},
+		{"obs-4", map[string]any{}}, // missing rank: the null position
+	} {
+		svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Observation", fixture.logicalID, "FHIR/Observation", fixture.payload)
+	}
+	for ordinal, target := range []string{"obs-1", "obs-2", "obs-3", "obs-4"} {
+		svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+			Project: "proj-a", DatasetGeneration: "gen-1", AuthResourcePath: "FHIR/Patient",
+			Label: "has-observation", SourceResourceType: "Patient", SourceLogicalID: "p-1",
+			TargetResourceType: "Observation", TargetLogicalID: target, SourcePath: "observation[0]", SourceOrdinal: int64(ordinal),
+		})
+	}
+
+	sortOn := func(plan ir.PhysicalPlan, property string, steps []spec.SelectorStep) {
+		slice := objChildSliceOf(plan)
+		slice.Projections[0].Expression = objExtractExpr(setsPrefix, "Observation", steps,
+			ir.PhysicalScalarCardinality, ir.PhysicalPreserveNull)
+		slice.Sort = &ir.PhysicalExpression{
+			Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality,
+			NullBehavior: ir.PhysicalPreserveNull,
+			Extract: &ir.PhysicalExtract{
+				Source:        ir.PhysicalValue{Variable: setsPrefix},
+				ResourceType:  "Observation",
+				Selector:      spec.Selector{Steps: steps},
+				ExecutionMode: ir.PhysicalSelectorDirectScalar,
+			},
+		}
+	}
+
+	// Numeric class: AQL orders numbers numerically; a text order would
+	// place 10 before 2.
+	numeric := objChildSetSlicePlan()
+	numeric.BindVars[objLimitBind] = 10
+	sortOn(numeric, "valueInteger", []spec.SelectorStep{{Field: "valueInteger"}})
+	byParent := map[string]string{}
+	for _, row := range svc.runRendered(t, obj11RenderOK(t, svc, numeric)) {
+		byParent[row[0]] = row[1]
+	}
+	const wantNumeric = "[map[value:<nil>] map[value:1] map[value:2] map[value:10]]"
+	if got := byParent["p-1"]; got != wantNumeric {
+		t.Fatalf("numeric sort = %q, want %q (numeric order, null first — AQL total order within the class)", got, wantNumeric)
+	}
+
+	// Boolean class: false < true, missing first. A dedicated parent so
+	// the numeric-class children (no boolean property) cannot join this
+	// item array.
+	svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Patient", "p-2", "FHIR/Patient", map[string]any{})
+	for _, fixture := range []struct {
+		logicalID string
+		payload   map[string]any
+	}{
+		{"bool-1", map[string]any{"valueBoolean": true}},
+		{"bool-2", map[string]any{"valueBoolean": false}},
+		{"bool-3", map[string]any{}}, // missing flag: the null position
+	} {
+		svc.insertResource(t, svc.schema, "proj-a", "gen-1", "Observation", fixture.logicalID, "FHIR/Observation", fixture.payload)
+		svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+			Project: "proj-a", DatasetGeneration: "gen-1", AuthResourcePath: "FHIR/Patient",
+			Label: "has-observation", SourceResourceType: "Patient", SourceLogicalID: "p-2",
+			TargetResourceType: "Observation", TargetLogicalID: fixture.logicalID, SourcePath: "observation[9]", SourceOrdinal: 9,
+		})
+	}
+	boolean := objChildSetSlicePlan()
+	boolean.BindVars[objLimitBind] = 10
+	sortOn(boolean, "valueBoolean", []spec.SelectorStep{{Field: "valueBoolean"}})
+	byParent = map[string]string{}
+	for _, row := range svc.runRendered(t, obj11RenderOK(t, svc, boolean)) {
+		byParent[row[0]] = row[1]
+	}
+	const wantBoolean = "[map[value:<nil>] map[value:false] map[value:true]]"
+	if got := byParent["p-2"]; got != wantBoolean {
+		t.Fatalf("boolean sort = %q, want %q (missing < false < true — AQL total order within the class)", got, wantBoolean)
 	}
 }
 

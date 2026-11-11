@@ -82,10 +82,12 @@
 // (render/aql/render.go:473-476). The nested object and bounded slice
 // projections (pg-sql-11) are registered in objects.go as the closed
 // composite RETURN surface: jsonb_build_object with bound name
-// parameters, the per-field omission CASE at the AQL null reading, and
-// the bounded slice sublink with the logical_id tie-break over the
-// singleton root row or a sets.go-validated child set, recursion capped
-// at depth 4. Endpoint-lookup traversals,
+// parameters, the per-field omission CASE at the AQL null reading, the
+// bounded slice sublink with the logical_id tie-break over the singleton
+// root row or a sets.go-validated child set (production compact-
+// projection Extract.Prepared annotations resolve against that set's
+// registered projection slots; everything else keeps the cited verbatim
+// refusal), and recursion capped at depth 4. Endpoint-lookup traversals,
 // repeated/indexed selector predicates, correlated predicates,
 // CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
 // outside the two registered correlated shapes, group rows,
@@ -330,11 +332,16 @@ type planRenderer struct {
 	// sliceSeq mints the renderer-owned aggregate aliases; setBodies
 	// records each successfully validated child set's correlated body
 	// (sets.go D2 hunk) so a registered SLICE over the set renders over
-	// the same deduplicated item relation the reductions read. All are
-	// renderer-owned; no plan string reaches SQL text through them.
-	rootVariable string
-	sliceSeq     int
-	setBodies    map[string]correlatedSetBody
+	// the same deduplicated item relation the reductions read;
+	// setProjections records the same sets' registered traversal-time
+	// projection slots (the compact-projection contract
+	// lower/child_sets.go projectPhysicalChildSet stamps), which is what
+	// a slice extract's Extract.Prepared reference resolves against.
+	// All are renderer-owned; no plan string reaches SQL text through them.
+	rootVariable   string
+	sliceSeq       int
+	setBodies      map[string]correlatedSetBody
+	setProjections map[string][]ir.PhysicalSetProjectionField
 }
 
 // addParameter appends one ordered argument and returns its $n index. A

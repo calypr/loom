@@ -48,22 +48,44 @@ package postgres
 //	    jsonb values and is registered for same-type-class operands.
 //	    SQL NULL sorts first (NULLS FIRST) to match the AQL missing/null
 //	    first position.
-//	L3  SLICE is registered over exactly two item sources: the single root
+// L3  SLICE is registered over exactly two item sources: the single root
 //	    row (the singleton form lower/root_projection.go:161 emits) and a
 //	    child set whose reduction contract was validated by sets.go — the
 //	    D2 handoff (coordinator-ratified): the item relation is the
 //	    byte-identical SELECT-DISTINCT (logical_id, resource_type, payload)
 //	    dedup the reductions read. Production compact-projection plans
 //	    annotate slice extracts with Extract.Prepared via
-//	    lower/child_sets.go:573-579 (probe-attested, the D3 evidence), so
-//	    those plans keep a cited typed refusal naming the Prepared gap —
-//	    no Prepared-bearing plan is ever rendered, exactly the
-//	    sets.go:81-95 RELATED handoff pattern.
+//	    lower/child_sets.go:552-555 and 573-579 (VERIFIED PRODUCER,
+//	    probe-attested, the D3 evidence), so over the child-set arm those
+//	    references RESOLVE against the set's registered projection slots
+//	    (the Option A ruling) instead of refusing; see the Prepared
+//	    register below.
 //
-// Prepared-bearing extractions are refused verbatim (D3 handoff, mirroring
-// the selectors.go:343-345 registration refusal wording): production
-// compact-projection plans carry Extract.Prepared references inside slice
-// projections (probe-attested) and stay a cited capability gap.
+// Prepared register (Option A ruling, coordinator): production compact
+// projection (default-on) stamps Extract.Prepared onto child-set slice
+// extracts — projections, predicate left side, and sort (the rewriter's
+// slice arm, lower/child_sets.go:573-579). The registered resolution,
+// resolveSlicePreparedExtract, accepts a reference exactly when it names
+// the slice's own validated child set, the referenced slot exists in the
+// set's registered projection (the same set.Projection.Fields the
+// FIRST/ALL/DISTINCT reductions read through setProjectionSlotExpression,
+// sets.go:387-409), and the slot carries the operand's own selector under
+// the re-read law of validateSelectorExtraction (selectors.go:340-407):
+// registered modes and demands, no selector filter, direct property steps
+// only. A resolved operand renders as the slot's canonical extraction —
+// byte-identical to the same plan with the annotation stripped (the
+// equivalence golden). Every other Prepared-bearing extraction keeps the
+// verbatim refusal (mirroring the selectors.go:343-345 registration
+// refusal wording): the OBJECT envelope and the singleton-root slice
+// (probe-attested non-producers — the rewriter only annotates extracts
+// whose source variable is a child set, and the root-arm control run in
+// the probe log observed none), a reference naming another set variable
+// or a field outside the registered projection (production-unreachable
+// per the probe: the annotator derives both from the set's own slot
+// table), and a slot whose selector is not a direct property path
+// (array rendering is the separate registered gap cited in the refusal
+// battery). No Prepared-bearing extraction is ever rendered without
+// resolving against the registered slot contract first.
 //
 // Recursion discipline (D1, coordinator ruling): OBJECT/SLICE operands may
 // nest to depth 4; depth 5 is a typed ErrUnsupportedPostgresPlan refusal.
@@ -82,6 +104,7 @@ package postgres
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -177,6 +200,96 @@ func rebindSliceOperand(expression ir.PhysicalExpression, sourceVariable string)
 	return rewritten
 }
 
+// resolveSlicePreparedExtract implements the Prepared register (Option A
+// ruling). original is the plan's operand and rewritten its rebind copy
+// carrying the extraction (the copy discipline of rebindSliceOperand; the
+// plan's own payload is never mutated — the prepared pointer is cleared on
+// the copy only). setVariable names the validated child set the slice
+// renders over, empty for the singleton root arm where no child-set slot
+// namespace exists. A resolved reference clears the pointer so the
+// operand renders through the closed extraction surface as its slot's
+// canonical text (the same selectorValuesExpression normalization the
+// reductions read from the same registered slot); every other
+// Prepared-bearing operand keeps the verbatim refusal cited in the
+// header register.
+func (r *planRenderer) resolveSlicePreparedExtract(setVariable string, original, rewritten ir.PhysicalExpression, context string) error {
+	extract := rewritten.Extract
+	if extract == nil {
+		// Non-extraction operands carry no prepared pointer; the closed
+		// surfaces behind the caller (compositeExtractJSON, the fragment
+		// renderers) stay the last line for anything unexpected.
+		return nil
+	}
+	if extract.Prepared != nil {
+		reference := *extract.Prepared
+		originalSourceVariable := ""
+		if original.Extract != nil {
+			originalSourceVariable = original.Extract.Source.Variable
+		}
+		verbatim := fmt.Errorf("%w: composite EXTRACT operand: prepared-set selector references are not implemented for PostgreSQL",
+			ErrUnsupportedPostgresPlan)
+		if setVariable == "" || reference.SetVariable != setVariable || originalSourceVariable != setVariable {
+			// Singleton root arm, or a reference that does not name the
+			// slice's own source set from both sides: production-unreachable
+			// per the probe (the annotator derives both from the set).
+			return verbatim
+		}
+		var slot *ir.PhysicalSetProjectionField
+		for index := range r.setProjections[setVariable] {
+			if r.setProjections[setVariable][index].Name == reference.Field {
+				slot = &r.setProjections[setVariable][index]
+				break
+			}
+		}
+		if slot == nil {
+			// Outside the registered projection: production-unreachable
+			// per the probe (the annotator only names its own slot table).
+			return verbatim
+		}
+		// Re-read law (the validateSelectorExtraction discipline,
+		// selectors.go:340-407) over the registered slot: registered
+		// demands and modes, the operand's own resource type, and the
+		// operand's own selector — no fallbacks (compositeExtractJSON
+		// refuses those), no Prepared-of-Prepared (a slot names a
+		// concrete selector, never another reference), direct path only.
+		switch slot.Demand {
+		case ir.PhysicalSelectorAllValues, ir.PhysicalSelectorFirstValue:
+		default:
+			return fmt.Errorf("%w: slice %s: prepared slot %q carries unsupported value demand %q",
+				ErrUnsupportedPostgresPlan, context, reference.Field, string(slot.Demand))
+		}
+		switch slot.ExecutionMode {
+		case "", ir.PhysicalSelectorGeneric, ir.PhysicalSelectorDirectScalar:
+		case ir.PhysicalSelectorConditionalArray:
+			return fmt.Errorf("%w: slice %s: prepared slot %q is CONDITIONAL_ARRAY, whose repeated-step rendering is not registered for PostgreSQL",
+				ErrUnsupportedPostgresPlan, context, reference.Field)
+		default:
+			return fmt.Errorf("%w: slice %s: prepared slot %q has unknown selector execution mode %q",
+				ErrUnsupportedPostgresPlan, context, reference.Field, string(slot.ExecutionMode))
+		}
+		if slot.ResourceType != extract.ResourceType {
+			return fmt.Errorf("%w: slice %s: prepared slot %q projects resource type %q but the operand validates against %q",
+				ErrUnsupportedPostgresPlan, context, reference.Field, slot.ResourceType, extract.ResourceType)
+		}
+		if !reflect.DeepEqual(extract.Selector, slot.Selector) {
+			return fmt.Errorf("%w: slice %s: prepared slot %q names a different selector than the operand carries; the annotation must re-read the registered slot exactly",
+				ErrUnsupportedPostgresPlan, context, reference.Field)
+		}
+		if slot.Selector.Filter != nil || len(slot.Selector.Steps) == 0 {
+			return fmt.Errorf("%w: slice %s: prepared slot %q is not a direct property path; prepared resolution is registered for direct-path slots only",
+				ErrUnsupportedPostgresPlan, context, reference.Field)
+		}
+		for index, step := range slot.Selector.Steps {
+			if step.Field == "" || step.Iterate || step.Index != nil {
+				return fmt.Errorf("%w: slice %s: prepared slot %q step %d is not a direct property step; prepared resolution is registered for direct-path slots only",
+					ErrUnsupportedPostgresPlan, context, reference.Field, index)
+			}
+		}
+		extract.Prepared = nil
+	}
+	return nil
+}
+
 // objectFieldJSON renders one OBJECT/SLICE operand as a jsonb-typed SQL
 // expression: document-path extractions and composites are jsonb by
 // construction; typed storage columns are lifted with to_jsonb so a SQL
@@ -248,11 +361,14 @@ func (r *planRenderer) compositeValueJSON(rows map[string]rowScope, expression i
 
 // compositeExtractJSON renders one closed selector extraction operand. The
 // re-reads mirror validateSelectorExtraction (selectors.go:303-407) over
-// the caller's rows: registered behaviors and modes only, no fallbacks,
-// no DISTINCT, no unit normalization, no selector filter, direct property
-// steps only, the row document at ["payload"] as the exact source, and the
-// schema resource type agreeing with the row. Prepared references are the
-// D3 handoff refusal, tested verbatim (objects_test.go).
+// the caller's rows: registered behaviors and modes only, no fallbacks, no
+// DISTINCT, no unit normalization, no selector filter, direct property
+// steps only, the row document as the exact source (either lowering
+// spelling: ["payload"] or the bare row at empty path — the slice
+// lowerer's leftSource), and the schema resource type agreeing with the
+// row. Prepared references follow the Prepared register (Option A):
+// resolution against the validated child set's registered slot, else the
+// verbatim refusal, tested in objects_test.go.
 func (r *planRenderer) compositeExtractJSON(rows map[string]rowScope, expression ir.PhysicalExpression) (string, error) {
 	extract := expression.Extract
 	if extract == nil {
@@ -315,8 +431,16 @@ func (r *planRenderer) compositeExtractJSON(rows map[string]rowScope, expression
 	if extract.Source.BindKey != "" {
 		return "", fmt.Errorf("%w: composite EXTRACT operand: the selector source must be a row document, not a bind value", ErrUnsupportedPostgresPlan)
 	}
-	if len(extract.Source.Path) != 1 || extract.Source.Path[0] != "payload" {
-		return "", fmt.Errorf(`%w: composite EXTRACT operand: the selector source must be the row document at ["payload"], the exact source shape lowering emits; got %v`,
+	// The two spellings the lowering emits for the row document: the
+	// payload-anchored path (lower/recipe_expression.go, and the presence
+	// sidecar pairings), and the EMPTY path the slice lowerer passes —
+	// physicalSliceExpression's leftSource is the bare source variable
+	// (lower/root_projection.go:402, 417-418, 461-462) because AQL
+	// evaluates a set-sourced selector against each item's payload
+	// (render/aql/selectors.go:40-48). Both mean "the row document" here;
+	// any other path is a malformed shape that stays refused.
+	if len(extract.Source.Path) != 0 && (len(extract.Source.Path) != 1 || extract.Source.Path[0] != "payload") {
+		return "", fmt.Errorf(`%w: composite EXTRACT operand: the selector source must be the row document, spelled ["payload"] or as the bare row (empty path, the slice lowerer's leftSource at lower/root_projection.go:402); got %v`,
 			ErrUnsupportedPostgresPlan, extract.Source.Path)
 	}
 	scope, ok := rows[extract.Source.Variable]
@@ -435,7 +559,7 @@ func (r *planRenderer) renderSliceValue(plan ir.PhysicalPlan, rows map[string]ro
 			ErrUnsupportedPostgresPlan, source.Path)
 	}
 	if body, ok := r.setBodies[source.Variable]; ok {
-		return r.renderSliceOverChildSet(plan, slice, body, depth)
+		return r.renderSliceOverChildSet(plan, slice, body, source.Variable, depth)
 	}
 	scope, ok := rows[source.Variable]
 	if !ok || scope.derivedValue != "" || scope.alias == "" {
@@ -445,7 +569,7 @@ func (r *planRenderer) renderSliceValue(plan ir.PhysicalPlan, rows map[string]ro
 		return "", fmt.Errorf("%w: SLICE source variable %q is not a registered item source: the registered sources are the ROOT_SCAN row (singleton) and a child set whose reduction contract was validated by sets.go; traversal targets, derived values, prepared variables, and melt outputs have no registered slice contract",
 			ErrUnsupportedPostgresPlan, source.Variable)
 	}
-	return r.assembleSliceSublink(plan, slice, map[string]rowScope{sliceItemVariable: scope}, scope, "", depth)
+	return r.assembleSliceSublink(plan, slice, map[string]rowScope{sliceItemVariable: scope}, scope, "", "", depth)
 }
 
 // renderSliceOverChildSet renders a SLICE over a child set validated by
@@ -457,10 +581,11 @@ func (r *planRenderer) renderSliceValue(plan ir.PhysicalPlan, rows map[string]ro
 // (render/aql/collections.go:130) becomes ORDER BY <sort> ASC NULLS
 // FIRST, logical_id ASC — total because the registered single-hop join
 // fixes the child resource type and logical_id is unique across items of
-// one set (sets.go:407-411). Prepared-bearing plans never reach here:
-// their extracts carry Extract.Prepared and refuse verbatim in
-// compositeExtractJSON (the D3 ruling).
-func (r *planRenderer) renderSliceOverChildSet(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, body correlatedSetBody, depth int) (string, error) {
+// one set (sets.go:407-411). setVariable names the set for the Prepared
+// register (Option A): slice-operand references resolving against this
+// set's registered projection slots render as their slot's canonical
+// extraction; everything else keeps the verbatim refusal.
+func (r *planRenderer) renderSliceOverChildSet(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, body correlatedSetBody, setVariable string, depth int) (string, error) {
 	r.sliceSeq++
 	itemAlias := "slx" + strconv.Itoa(r.sliceSeq)
 	logicalIDColumn := r.storage.Resource.MustColumn("logical_id").SQLText()
@@ -473,7 +598,7 @@ func (r *planRenderer) renderSliceOverChildSet(plan ir.PhysicalPlan, slice *ir.P
 	itemScope := rowScope{alias: itemAlias, resourceType: body.targetType}
 	return r.assembleSliceSublink(plan, slice,
 		map[string]rowScope{sliceItemVariable: itemScope}, itemScope,
-		" FROM "+items+" AS "+itemAlias, depth)
+		" FROM "+items+" AS "+itemAlias, setVariable, depth)
 }
 
 // assembleSliceSublink assembles the shared bounded sublink for both
@@ -483,12 +608,12 @@ func (r *planRenderer) renderSliceOverChildSet(plan ir.PhysicalPlan, slice *ir.P
 // EMPTY_ON_NULL array reading. fromClause is empty for the FROM-less
 // singleton (the implicit one-row select) and the deduplicated items
 // relation for the child set.
-func (r *planRenderer) assembleSliceSublink(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, itemRows map[string]rowScope, itemScope rowScope, fromClause string, depth int) (string, error) {
-	itemObject, err := r.sliceItemObject(plan, slice, itemRows, depth)
+func (r *planRenderer) assembleSliceSublink(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, itemRows map[string]rowScope, itemScope rowScope, fromClause string, setVariable string, depth int) (string, error) {
+	itemObject, err := r.sliceItemObject(plan, slice, itemRows, setVariable, depth)
 	if err != nil {
 		return "", err
 	}
-	sortExpr, err := r.renderSliceSort(slice, itemRows, itemScope)
+	sortExpr, err := r.renderSliceSort(slice, itemRows, itemScope, setVariable)
 	if err != nil {
 		return "", err
 	}
@@ -500,7 +625,7 @@ func (r *planRenderer) assembleSliceSublink(plan ir.PhysicalPlan, slice *ir.Phys
 		sortExpr + " AS \"item_sort\", " +
 		itemScope.alias + "." + r.storage.Resource.MustColumn("logical_id").SQLText() + " AS \"item_key\"" + fromClause
 	if slice.Predicate != nil {
-		predicate, err := r.renderSlicePredicate(plan, slice, itemRows)
+		predicate, err := r.renderSlicePredicate(plan, slice, itemRows, setVariable)
 		if err != nil {
 			return "", err
 		}
@@ -525,7 +650,7 @@ func (r *planRenderer) assembleSliceSublink(plan ir.PhysicalPlan, slice *ir.Phys
 // parameters and whose values render through the recursive operand
 // surface over the item scope. Projection names must be non-empty and
 // distinct (the ir contract, re-read here as everywhere else).
-func (r *planRenderer) sliceItemObject(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, itemRows map[string]rowScope, depth int) (string, error) {
+func (r *planRenderer) sliceItemObject(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, itemRows map[string]rowScope, setVariable string, depth int) (string, error) {
 	seen := make(map[string]bool, len(slice.Projections))
 	args := make([]string, 0, 2*len(slice.Projections))
 	for index, projection := range slice.Projections {
@@ -534,8 +659,12 @@ func (r *planRenderer) sliceItemObject(plan ir.PhysicalPlan, slice *ir.PhysicalS
 				ErrUnsupportedPostgresPlan, index, projection.Name)
 		}
 		seen[projection.Name] = true
-		value, err := r.objectFieldJSON(plan, itemRows,
-			rebindSliceOperand(projection.Expression, slice.Source.Variable), depth)
+		operand := rebindSliceOperand(projection.Expression, slice.Source.Variable)
+		if err := r.resolveSlicePreparedExtract(setVariable, projection.Expression, operand,
+			"projection "+strconv.Itoa(index)+" ("+projection.Name+")"); err != nil {
+			return "", fmt.Errorf("slice projection %d (%s): %w", index, projection.Name, err)
+		}
+		value, err := r.objectFieldJSON(plan, itemRows, operand, depth)
 		if err != nil {
 			return "", fmt.Errorf("slice projection %d (%s): %w", index, projection.Name, err)
 		}
@@ -551,7 +680,7 @@ func (r *planRenderer) sliceItemObject(plan ir.PhysicalPlan, slice *ir.PhysicalS
 // (lower/typed_predicate.go:30-44 and lower/root_projection.go:417-430),
 // after the AQL-parity rebind of the extraction source onto the item
 // scope (collections.go:98-106).
-func (r *planRenderer) renderSlicePredicate(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, itemRows map[string]rowScope) (string, error) {
+func (r *planRenderer) renderSlicePredicate(plan ir.PhysicalPlan, slice *ir.PhysicalSlice, itemRows map[string]rowScope, setVariable string) (string, error) {
 	predicate := *slice.Predicate
 	if predicate.Kind != ir.PhysicalComparisonPredicate || predicate.Comparison == nil {
 		return "", fmt.Errorf("%w: slice predicate must be a comparison (the AQL contract, render/aql/collections.go:93-95)", ErrUnsupportedPostgresPlan)
@@ -572,6 +701,9 @@ func (r *planRenderer) renderSlicePredicate(plan ir.PhysicalPlan, slice *ir.Phys
 	}
 	extract.Source = ir.PhysicalValue{Variable: sliceItemVariable, Path: []string{"payload"}}
 	left.Extract = &extract
+	if err := r.resolveSlicePreparedExtract(setVariable, *comparison.LeftExpression, left, "predicate"); err != nil {
+		return "", fmt.Errorf("slice predicate: %w", err)
+	}
 	comparison.LeftExpression = &left
 	fragment, err := r.renderPredicateFragmentScoped(plan, ir.PhysicalPredicateExpression{
 		Kind:       ir.PhysicalComparisonPredicate,
@@ -592,7 +724,7 @@ func (r *planRenderer) renderSlicePredicate(plan ir.PhysicalPlan, slice *ir.Phys
 // variable at ["_key"], mapped onto logical_id per canonicalKeyColumn) or
 // one closed scalar EXTRACT operand (L2's homogeneous-value leg). Any
 // other sort kind is a typed refusal.
-func (r *planRenderer) renderSliceSort(slice *ir.PhysicalSlice, itemRows map[string]rowScope, scope rowScope) (string, error) {
+func (r *planRenderer) renderSliceSort(slice *ir.PhysicalSlice, itemRows map[string]rowScope, scope rowScope, setVariable string) (string, error) {
 	if slice.Sort == nil {
 		return "", fmt.Errorf("%w: slice requires sort expression (ir/physical_validation_shapes.go:19-24)", ErrUnsupportedPostgresPlan)
 	}
@@ -624,6 +756,9 @@ func (r *planRenderer) renderSliceSort(slice *ir.PhysicalSlice, itemRows map[str
 		extract.Source = ir.PhysicalValue{Variable: sliceItemVariable, Path: []string{"payload"}}
 		sortCopy := sortExpression
 		sortCopy.Extract = &extract
+		if err := r.resolveSlicePreparedExtract(setVariable, sortExpression, sortCopy, "sort"); err != nil {
+			return "", fmt.Errorf("slice sort: %w", err)
+		}
 		return r.compositeExtractJSON(itemRows, sortCopy)
 	}
 	return "", fmt.Errorf("%w: slice sort kind %q is outside the registered forms (VALUE identity key or scalar EXTRACT)",
