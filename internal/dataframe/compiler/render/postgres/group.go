@@ -72,10 +72,9 @@ package postgres
 //     bounded to double by the group band cast (groupDoubleBandCast, the
 //     calls.go band discipline on the same band constants): magnitudes at
 //     or beyond the overflow band read 0, magnitudes below the subnormal
-//     floor read the registered 0 — never a raising arm. Overflow-band
-//     reads 0 matching live ArangoDB 3.12.4-3 native SUM over storable
-//     members; oracle probe archived by verifier; coordinator ruling
-//     2026-11-11 (D-13h, ORACLE-ATTESTED PARITY). MEAN divides the
+//     floor read the registered 0 — never a raising arm..
+//     Overflow-band reads 0 matching live ArangoDB 3.12.4-3 native SUM over storable members; oracle probe archived by verifier; coordinator ruling 2026-11-11.
+//     D-13h, ORACLE-ATTESTED PARITY.
 //     bounded double sum by the pool count over all non-null members
 //     (overflow-band groups read 0/n = 0, matching the native SUM/LENGTH
 //     render path — not the AVG function's interpreted-mode reading; the
