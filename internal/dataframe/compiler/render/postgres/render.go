@@ -713,6 +713,16 @@ func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn)
 				return fmt.Errorf("projection %q: %w", projection.projection.Name, err)
 			}
 			expression = value
+		case extractionUnitNormalized:
+			// The closed contract and the whole jsonb fragment walk are
+			// owned end to end by unit_normalization.go (pg-sql-21); this
+			// dispatch only places the fragment, exactly like the CALL
+			// arm above.
+			value, err := r.renderUnitNormalizedProjection(projection)
+			if err != nil {
+				return err
+			}
+			expression = value
 		}
 		r.selects = append(r.selects, expression+` AS "c`+strconv.Itoa(len(r.selects))+`"`)
 		r.outputColumns = append(r.outputColumns, projection.projection.Name)
