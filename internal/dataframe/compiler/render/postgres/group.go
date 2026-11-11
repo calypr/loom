@@ -1171,8 +1171,9 @@ func groupDoubleBandCast(numericFragment string) string {
 // for every double-representable member (it sits 10^92 above the band
 // boundary), so representable verdicts are the correctly-rounded double
 // of the exact sum (2x1e307 -> 2e307 exact; the 17x1e307 live cell
-// carries a pending-adjudication note for the 1-ulp split between this
-// exact-then-round reading and AQL's stepped IEEE SUM); any member set
+// carries the D-13i registered refinement for the 1-ulp split between
+// this exact-then-round reading and AQL's stepped IEEE SUM — PG's is
+// the higher-precision result); any member set
 // whose exact sum leaves the double band reads 0 through the overflow
 // arm (2x1.7e308 -> 0, 20x1e307 -> 0, SUM and MEAN 0/n), and the beyond-cap
 // class (un-ingestable in Arango, VPack out of range — no divergence

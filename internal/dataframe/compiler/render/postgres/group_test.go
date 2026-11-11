@@ -1727,8 +1727,9 @@ func TestGroupLiveRowValueInputManyDecimal(t *testing.T) {
 // ArangoDB 3.12.4-3 oracle (verifier 156, coordinator ruling
 // 2026-11-11, D-13h): native SUM over storable members reads 0 when
 // the running sum leaves the double domain, and representable sums
-// read exact — the expected values below are that oracle, pinned by
-// this in-repo test.
+// read the correctly-rounded double (the seventeen class carries the
+// D-13i registered refinement) — the expected values below are that
+// oracle, pinned by this in-repo test.
 func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	svc := newGroup13Service(t)
 	group13TrackFixtures(t, svc)
@@ -1755,8 +1756,8 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// "seventeen" is the representable-class probe (17x1e307): PG reads
 	// the correctly-rounded double of the exact sum (1.7e+308); the
 	// archived AQL stepped-IEEE SUM probe read the 1-ulp lower
-	// 1.6999999999999995e308 — see the PENDING ADJUDICATION block in
-	// the assertions.
+	// 1.6999999999999995e308 — the D-13i registered refinement in the
+	// assertions covers the split (register, don't mimic).
 	fixture := group13Fixture{
 		policy: recipe.ConstructionGroupMissingKeyGroup,
 		keys: []recipe.ConstructionGroupKey{
@@ -1799,22 +1800,21 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// verifier 156's archived probe; coordinator ruling 2026-11-11):
 	// any member set whose EXACT sum leaves the double band reads 0/0
 	// (pair 2x1.7e308 → 0/0, crowd 20x1e307 → 0/0 — SUM and MEAN 0/n);
-	// anything representable reads exact (kept 2x1e307 → 2e307/1e307;
-	// seventeen → 1.6999999999999995e308 and that double divided by 17).
+	// anything representable reads the correctly-rounded double (kept
+	// 2x1e307 → 2e307/1e307; seventeen → 1.7e+308, whose 1-ulp split
+	// from the stepped AQL read is the D-13i registered refinement).
 	rows := svc.runRendered(t, rendered)
 	if len(rows) != 4 {
 		t.Fatalf("four groups expected: %v", rows)
 	}
-	// PENDING COORDINATOR ADJUDICATION (announced with receipts): the
-	// seventeen class is a representable-case 1-ulp split between
-	// accumulation strategies. PG's numeric-exact accumulation plus the
-	// single bounded cast reads the CORRECTLY ROUNDED double of the
-	// exact decimal sum 1.7e308 (printed 1.7e+308); AQL's native SUM
-	// adds IEEE member-by-member and its archived probe read the 1-ulp
-	// lower 1.6999999999999995e308. This cell asserts the provable PG
-	// reading (correct rounding) and does NOT claim byte-parity with
-	// the stepped-IEEE oracle value — no second unreachable claim this
-	// batch.
+	// D-13i REGISTERED REFINEMENT (verifier 156 reproduced both reads at
+	// this lane's head — PG 1.7e+308 hex b76 correctly rounded; live AQL
+	// 1.6999999999999995e308 hex b74 stepped, Go replica bit-exact —
+	// two bit increments apart; coordinator ruling 2026-11-11):
+	// PG correctly-rounded cast of exact numeric accumulation may read 1 ulp from AQL stepped-IEEE native SUM for non-binary-representable members; PG reading is the higher-precision result; registered refinement per coordinator ruling 2026-11-11.
+	// The cell asserts the higher-precision PG reading; the stepped AQL
+	// value is an accumulation artifact, not an exactness target —
+	// register, don't mimic.
 	sevSum, sevErr := strconv.ParseFloat("1.7e308", 64)
 	if sevErr != nil {
 		t.Fatalf("parse 1.7e308: %v", sevErr)
@@ -1844,8 +1844,9 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 			}
 			continue
 		}
-		// Representable sums read exact; the canonical numeric text is
-		// compared through the same double value the oracle confirms.
+		// Representable sums read the correctly-rounded double; the
+		// canonical numeric text is compared through the asserted double
+		// value (kept: binary-exact members; seventeen: D-13i).
 		sumVal, sumErr := strconv.ParseFloat(row[2], 64)
 		meanVal, meanErr := strconv.ParseFloat(row[3], 64)
 		if sumErr != nil || meanErr != nil || sumVal != w.sumVal || meanVal != w.meanVal {
