@@ -1473,6 +1473,64 @@ func TestPivot14LiveValueTypeRaise(t *testing.T) {
 	}
 }
 
+func TestPivot14LiveErrorBranchRawCountParity(t *testing.T) {
+	// 157 ADVISORY port (TestVerify132ErrorBranchRawCountParity): the
+	// ERROR-branch guards condition MISSING and CARDINALITY on the RAW
+	// matched count (table_reshape.go:230 — FIRST over the raw list, the
+	// guards ride the same count), so a row that matches the category
+	// but carries a JSON null VALUE counts: rawCount = 1, typedCount = 0.
+	// Under DuplicatePolicy=ERROR + MissingCellPolicy=ERROR that row must
+	// NOT raise TABLE_PIVOT_CELL_MISSING and its cell reads the
+	// null-preserving FIRST — JSON null. Every prior ERROR-policy leg had
+	// rawCount == typedCount (the F-2 wrong-tag row fails the VALUE_TYPE
+	// guard first, the reducer legs ride the other branch), so swapping
+	// rawCount for typedCount in the ERROR branch (:230 flip, 157's
+	// r-f3-230) survived the whole suite: the spurious raise shipped
+	// silently. This leg goes RED by name on that mutation.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "eb1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":null}`))
+	pivot14Seed(t, svc, "eb2", json.RawMessage(`{"gProp":"g1","cProp":"beta","vProp":7}`))
+	pivot14Seed(t, svc, "eb3", json.RawMessage(`{"gProp":"g1","cProp":null,"vProp":4}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "ERROR", missing: "ERROR"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render ERROR-branch raw-count parity plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 1 {
+		t.Fatalf("parity rows = %v, want the single g1 group", rows)
+	}
+	row := rows[0]
+	if got := row[pivot14ColIndex(t, rendered, "cell_alpha")]; !pivot14CellIsNull(got) {
+		t.Fatalf("alpha cell = %q, want JSON null (rawCount=1, null-preserving FIRST over the raw list — no CELL_MISSING raise, no cell collapse)", got)
+	}
+	if got := row[pivot14ColIndex(t, rendered, "cell_beta")]; got != "7" {
+		t.Fatalf("beta cell = %q, want 7 (typed row reads normally)", got)
+	}
+	if got := row[pivot14ColIndex(t, rendered, "cell_null")]; got != "4" {
+		t.Fatalf("null-kind cell = %q, want 4", got)
+	}
+}
+
+func TestPivot14LiveErrorBranchRawCountCardinalityAlive(t *testing.T) {
+	// Dual-polarity ALIVE control for the leg above (F-3 discipline):
+	// the CARDINALITY guard must fire on the RAW count, not the typed
+	// one — one typed row plus one raw-only null row give rawCount = 2,
+	// typedCount = 1, and AQL's ASSERT(LENGTH<=1) over the raw list
+	// raises TABLE_PIVOT_CELL_CARDINALITY. A :230-class swap to typedCount
+	// silences this raise, so the parity leg's silence above is real
+	// raw-count semantics, not a dead guard.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "ec1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":3}`))
+	pivot14Seed(t, svc, "ec2", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":null}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "ERROR", missing: "ERROR"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render ERROR-branch cardinality ALIVE plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, svc, rendered, pivotCardinalityTag)
+}
+
 func TestPivot14LiveDuplicateCardinalityRaise(t *testing.T) {
 	// Plan §7 sabotage victim "drop cardinality guard": two rows sharing
 	// group and category abort with TABLE_PIVOT_CELL_CARDINALITY.
