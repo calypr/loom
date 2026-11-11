@@ -488,6 +488,10 @@ func run(ctx context.Context, serverConfig Config) error {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
 	}
+	projectConfigs, err := loadProjectConfigs(serverConfig.Server, configuredRecipeName)
+	if err != nil {
+		return err
+	}
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create dataset lifecycle store: %w", err)
@@ -682,6 +686,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create Explorer artifact store: %w", err)
 	}
+	readRecipeExecution := graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver)
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			DiscoverReferences:     discoverReferences,
@@ -701,7 +706,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}},
 		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
 		RecipeRevisions:  recipeRevisions,
-		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
+		RecipeExecutions: readRecipeExecution,
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
 		ConnectionOptions: connOpts,
@@ -743,7 +748,7 @@ func run(ctx context.Context, serverConfig Config) error {
 					return "", 0, err
 				}
 				var identity publication.BundleIdentity
-				_, err = recipeEngine.Materialize(ctx, configuredRecipeName, bindings, func(publishCtx context.Context, full dataframeexecution.Resolved) error {
+				resolved, err := recipeEngine.Materialize(ctx, configuredRecipeName, bindings, func(publishCtx context.Context, full dataframeexecution.Resolved) error {
 					var publishErr error
 					identity, publishErr = publishResolvedRecipe(
 						publishCtx, recipeEngine, bundleTarget, configuredRecipeName, bindings, full,
@@ -766,14 +771,25 @@ func run(ctx context.Context, serverConfig Config) error {
 				for _, output := range execution.Outputs {
 					selectors = append(selectors, execution.Selector(output.Name))
 				}
+				configs, err := explorer.PrepareProjectConfigs(projectConfigs.Configs, resolved, execution, commit)
+				if err != nil {
+					return "", 0, fmt.Errorf("prepare project configs: %w", err)
+				}
 				candidateReleaseService := *releaseService
 				candidateReleaseService.Required = append(append([]publicationcontract.DataframeSelector(nil), releaseService.Required...), selectors...)
-				active, err := candidateReleaseService.Activate(ctx, publicationcontract.ActivationRequest{
+				release, err := candidateReleaseService.Create(ctx, publicationcontract.ActivationRequest{
 					Project: project, Generation: generation, GitCommit: commit,
 					ExpectedRevision: expectedRevision,
 				})
 				if err != nil {
 					return "", 0, err
+				}
+				active, err := explorerStore.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
+					RecipeName: configuredRecipeName, Configs: configs, Release: release,
+					ExpectedReleaseRevision: expectedRevision,
+				})
+				if err != nil {
+					return "", 0, fmt.Errorf("activate project publication: %w", err)
 				}
 				discoveryCache.InvalidateProject(project)
 				if scopeResolver != nil {
@@ -971,7 +987,10 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
-	explorerHandlers.defaultViewer = newRepositoryDefaultViewer(lifecycleStore, publishedRegistry, recipeRegistry, scopeResolver, configuredRecipeName)
+	explorerHandlers.authorizeExecution = func(ctx context.Context, id string) error {
+		_, err := readRecipeExecution(ctx, id)
+		return err
+	}
 	explorerHandlers.constructionInputs = constructionInputsCatalog{
 		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,

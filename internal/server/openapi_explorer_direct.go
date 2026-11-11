@@ -9,6 +9,7 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	"github.com/calypr/loom/internal/projectid"
@@ -186,14 +187,22 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 	}
 	value, err := r.application.Get(ctx, project, rawID)
 	if err != nil {
-		if strings.TrimSpace(rawID) != "default" || !missingDefaultExplorer(err) || r.defaultViewer == nil {
-			return result, lifecycleLegacyFailure(err)
-		}
-		value, err = r.defaultViewer(ctx, project, principal)
-		if err != nil {
-			return result, defaultViewerLegacyFailure(err)
+		return result, lifecycleLegacyFailure(err)
+	}
+	if id := value.Generated.Publication.ExecutionID; id != "" && r.authorizeExecution != nil {
+		if err := r.authorizeExecution(ctx, id); err != nil {
+			userErr, concealed := dataframeerrors.AsUserError(err)
+			if concealed && dataframeerrors.ErrorCode(userErr.Code()) == dataframeerrors.CodeRecipeExecutionNotFound && !userErr.Retryable() {
+				return result, legacyOperationFailure(http.StatusNotFound, "EXPLORER_NOT_FOUND", "Explorer not found", err)
+			}
+			status, body := mapServiceError(err, ctx)
+			if status == http.StatusNotFound {
+				return result, legacyOperationFailure(status, "EXPLORER_NOT_FOUND", "Explorer not found", err)
+			}
+			return result, legacyOperationFailure(http.StatusInternalServerError, "EXPLORER_UNAVAILABLE", body.Error.Message, err)
 		}
 	}
+
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return result, err

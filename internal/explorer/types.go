@@ -68,6 +68,7 @@ type Explorer struct {
 	ExplorerID     string         `json:"explorerId"`
 	Title          string         `json:"title"`
 	ManagementMode ManagementMode `json:"managementMode"`
+	ProjectConfig  *ProjectConfig `json:"projectConfig,omitempty"`
 	// DraftConfig is the lossless, canonical ExplorerConfigV2 packet used by
 	// the Builder.
 	DraftConfig                   json.RawMessage `json:"draftConfig,omitempty"`

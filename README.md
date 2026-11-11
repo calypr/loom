@@ -315,6 +315,40 @@ they are not supplied in the config file.
 reads and validates that recipe during startup; deployments can update it
 without rebuilding the server image.
 
+Set `server.project_configs` to a JSON catalog of named project views. Each
+view references a recipe by name and supplies presentation settings. Multiple
+views can share the same recipe execution and ClickHouse tables:
+
+```json
+{
+  "apiVersion": "loom.calypr.org/project-configs/v1",
+  "kind": "ProjectConfigs",
+  "configs": [
+    {
+      "id": "default",
+      "title": "Metadata",
+      "recipeRef": {"name": "metadata"},
+      "views": [{"id": "patients", "title": "Patients", "output": "Patient"}]
+    },
+    {
+      "id": "files",
+      "title": "Files",
+      "recipeRef": {"name": "metadata"},
+      "views": [{"id": "files", "title": "Files", "output": "DocumentReference"}]
+    }
+  ]
+}
+```
+
+The server reads this catalog at startup. Source publication validates each
+config against the compiled recipe, then activates the data and all matching
+configs in one transaction. Existing Explorer list and detail endpoints serve
+the saved configs. Reading a config does not create it or materialize data.
+Config changes apply on the next source publication that runs materialization;
+a previously completed operation remains idempotent. Removing a definition
+retires that recipe's matching config at publication without deleting history.
+Interactive configs and configs for other recipes are preserved.
+
 ## Repository guide
 
 | Path | Responsibility |
