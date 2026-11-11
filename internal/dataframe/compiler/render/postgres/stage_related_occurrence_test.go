@@ -317,7 +317,8 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 	if routeEnd < 0 || relStart < 0 || routeEnd > relStart {
 		t.Fatalf("the route/coding lateral structure drifted:\n%s", sql)
 	}
-	for _, inside := range []string{`a1."logical_id" = s."c0"`, `a1."project" = `, `a1."auth_resource_path" = ANY`} {
+	for _, inside := range []string{`a1."logical_id" = s."c0"`, `WHERE a1."project" = $`,
+		`a1."auth_resource_path" = ANY`} {
 		at := strings.Index(sql, inside)
 		if at < 0 || at > routeEnd {
 			t.Fatalf("conjunct %q is not composed inside the route subquery:\n%s", inside, sql)
@@ -369,6 +370,19 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 	// zero-based ordinal is the dense survivor position minus one.
 	if !strings.Contains(sql, `(__loom_r1_cod.rn - 1)::int`) {
 		t.Fatalf("Coding ordinal must be the dense position minus one:\n%s", sql)
+	}
+
+	// The two has-item witnesses, exactly: has-item conjoins the route
+	// arrival WITH the Coding survivor (the AQL routeHasItem && hasItem),
+	// and the route-item witness is the arrival alone. Dropping either half
+	// silently changes what the downstream aggregate can filter on.
+	for _, want := range []string{
+		`(CASE WHEN (__loom_route.term_id IS NOT NULL AND __loom_r1_cod.rn IS NOT NULL) THEN true ELSE false END) AS "__loom_r1_h"`,
+		`(CASE WHEN __loom_route.term_id IS NOT NULL THEN true ELSE false END) AS "__loom_r1_r"`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("has-item witness drifted:\n want: %s\n got: %s", want, sql)
+		}
 	}
 
 	// The occurrence key object carries the four AQL members through
@@ -494,7 +508,7 @@ func TestSQL16RelatedOccurrencePolicies(t *testing.T) {
 		{"exclude-route", ir.PhysicalUnnestExclude, ir.PhysicalUnnestPreserveParent, []string{
 			"INNER JOIN LATERAL (SELECT DISTINCT ON",
 			") AS __loom_route ON TRUE",
-			"INNER JOIN LATERAL (SELECT",
+			"INNER JOIN LATERAL (SELECT (__loom_route.doc",
 		}, []string{"CONSTRUCTION_EXPANSION_EMPTY"}},
 		{"error-route", ir.PhysicalUnnestError, ir.PhysicalUnnestPreserveParent, []string{
 			"FROM (SELECT 1) AS __loom_one",
