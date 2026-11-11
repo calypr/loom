@@ -29,8 +29,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -682,25 +684,34 @@ func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T
 	// refusals are the service's retryable catalogUnavailable, while the
 	// recipe refusals are this composition's wiring errors, which must
 	// never advertise retry (retrying cannot make an unwired route serve).
+	// wantCode is the named typed refusal each leg must carry.
+	// fhirGraph_traversal's code is the Ask-C supersession of the
+	// registered QR-D5 row: with field discovery wired, traversal now
+	// reaches compilation and the PostgreSQL renderer refuses the graph
+	// physical plan; the shared graph path flattens that refusal to
+	// INVALID_REQUEST (retryable=false). Honest, typed, Arango-free --
+	// the flattening classification itself is banked as a cross-lane
+	// finding for the compiler/renderer lane, not silently re-pinned to
+	// a stale expectation.
 	graphqlLegs := []struct {
 		name          string
 		query         string
+		wantCode      string
 		wantRetryable bool
 	}{
-		{"fhirDataframe_nil_discovery", `{"query":"mutation { runFhirDataframe(input: {project: \"` + qRouteProject + `\", rootResourceType: \"Patient\", rootFields: [{name: \"gender\", selector: {valuePath: \"gender\"}}]}) { rows rowCount } }"}`, true},
-		{"fhirGraph_traversal", `{"query":"query { fhirGraph(input: {project: \"` + qRouteProject + `\", rootResourceType: \"Patient\"}) { returnedCount } }"}`, true},
-		{"recipe_validate", `{"query":"mutation { validateDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, false},
-		{"recipe_run", `{"query":"mutation { runDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, false},
-		{"recipe_preview", `{"query":"mutation { previewDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, false},
-		{"recipe_explain", `{"query":"query { explainDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, false},
+		{"fhirGraph_traversal", `{"query":"query { fhirGraph(input: {project: \"` + qRouteProject + `\", rootResourceType: \"Patient\"}) { returnedCount } }"}`, "INVALID_REQUEST", false},
+		{"recipe_validate", `{"query":"mutation { validateDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, "BACKEND_UNAVAILABLE", false},
+		{"recipe_run", `{"query":"mutation { runDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, "BACKEND_UNAVAILABLE", false},
+		{"recipe_preview", `{"query":"mutation { previewDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, "BACKEND_UNAVAILABLE", false},
+		{"recipe_explain", `{"query":"query { explainDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + qRouteProject + `\"}}) { name } }"}`, "BACKEND_UNAVAILABLE", false},
 	}
 	for _, leg := range graphqlLegs {
 		leg := leg
 		t.Run(leg.name, func(t *testing.T) {
 			response := qRouteGraphQL(t, app, leg.query)
 			t.Logf("%s verbatim refusal: status=%d body=%s", leg.name, response.StatusCode, fixture.scrub(response.Body))
-			if !strings.Contains(response.Body, "BACKEND_UNAVAILABLE") {
-				t.Fatalf("%s refusal %q must carry BACKEND_UNAVAILABLE", leg.name, fixture.scrub(response.Body))
+			if !strings.Contains(response.Body, leg.wantCode) {
+				t.Fatalf("%s refusal %q must carry %s", leg.name, fixture.scrub(response.Body), leg.wantCode)
 			}
 			wantRetryable := `"retryable":true`
 			if !leg.wantRetryable {
@@ -714,6 +725,22 @@ func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T
 			}
 		})
 	}
+
+	// The census inventory is complete only when it also records what the
+	// route DOES serve: fhirDataframe answers from the read lane. (The
+	// dedicated exact-literals witness is
+	// TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler.)
+	t.Run("fhirDataframe_serves_via_read_lane", func(t *testing.T) {
+		response := qRouteGraphQL(t, app, `{"query":"mutation { runFhirDataframe(input: {project: \"`+qRouteProject+`\", rootResourceType: \"Patient\", rootFields: [{name: \"gender\", selector: {valuePath: \"gender\"}}]}) { rows rowCount } }"}`)
+		t.Logf("fhirDataframe serving witness: status=%d body=%s", response.StatusCode, fixture.scrub(response.Body))
+		if response.StatusCode != http.StatusOK || !strings.Contains(response.Body, "\"rowCount\":2") ||
+			strings.Contains(response.Body, "\"errors\"") {
+			t.Fatalf("fhirDataframe must serve through the read lane, got %d %s", response.StatusCode, fixture.scrub(response.Body))
+		}
+		if lower := strings.ToLower(response.Body); strings.Contains(lower, "arango") || strings.Contains(lower, "aql") {
+			t.Fatalf("served answer leaks an Arango surface: %s", fixture.scrub(response.Body))
+		}
+	})
 }
 
 func qRouteMultipart(t *testing.T, files map[string]string) ([]byte, string) {
@@ -733,6 +760,94 @@ func qRouteMultipart(t *testing.T, files map[string]string) ([]byte, string) {
 		t.Fatalf("close multipart: %v", err)
 	}
 	return buffer.Bytes(), writer.Boundary()
+}
+
+// TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler is
+// the ticket's headline witness: the first scoped PostgreSQL scalar read
+// through the public GraphQL route. It boots the production composition
+// (composePostgreSQLFirstQueryRoute -- the same function the server
+// serves), drives /graphql/graph's runFhirDataframe through the
+// production handler stack against a live PostgreSQL generation, and
+// requires literal rows. No Arango surface exists on this branch (the
+// composition never constructs one), so any answer here is PostgreSQL's.
+func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testing.T) {
+	fixture := newQRouteFixture(t)
+	fixture.load(t, qRouteProject, qRouteGenA, map[string][]string{
+		"Patient.ndjson": qRoutePatientLines(t, "patient-ada", "patient-alan"),
+	})
+	fixture.activate(t, qRouteProject, qRouteGenA)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, closeRuntime, err := composePostgreSQLFirstQueryRoute(ctx, qRouteBootConfig(t, fixture, "127.0.0.1:0"), logger)
+	if err != nil {
+		t.Fatalf("compose production route: %s", fixture.scrub(err))
+	}
+	defer func() {
+		if err := closeRuntime(); err != nil {
+			t.Errorf("close production route runtime: %s", fixture.scrub(err))
+		}
+	}()
+	app := server.App()
+
+	body := `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + qRouteProject + `","rootResourceType":"Patient","rootFields":[{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
+	response := qRouteGraphQL(t, app, body)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("runFhirDataframe HTTP %d: %s", response.StatusCode, fixture.scrub(response.Body))
+	}
+	var envelope struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		Data struct {
+			RunFhirDataframe struct {
+				Columns  []string         `json:"columns"`
+				RowCount int              `json:"rowCount"`
+				Rows     []map[string]any `json:"rows"`
+			} `json:"runFhirDataframe"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(response.Body), &envelope); err != nil {
+		t.Fatalf("decode handler envelope: %v (body %s)", err, fixture.scrub(response.Body))
+	}
+	if len(envelope.Errors) != 0 {
+		t.Fatalf("handler returned GraphQL errors: %s", fixture.scrub(response.Body))
+	}
+	result := envelope.Data.RunFhirDataframe
+	if result.RowCount != 2 || len(result.Rows) != 2 {
+		t.Fatalf("handler rows = %d/%d, want 2: %s", result.RowCount, len(result.Rows), fixture.scrub(response.Body))
+	}
+	gotColumns := append([]string(nil), result.Columns...)
+	sort.Strings(gotColumns)
+	if want := []string{"_key", "birthDate", "gender"}; !reflect.DeepEqual(gotColumns, want) {
+		t.Fatalf("handler columns = %v, want %v", result.Columns, want)
+	}
+	sort.Slice(result.Rows, func(i, j int) bool {
+		return fmt.Sprint(result.Rows[i]["_key"]) < fmt.Sprint(result.Rows[j]["_key"])
+	})
+	for i, want := range []map[string]string{
+		{"_key": "patient-ada", "birthDate": "1900-01-01", "gender": "female"},
+		{"_key": "patient-alan", "birthDate": "1900-01-01", "gender": "female"},
+	} {
+		for column, wantValue := range want {
+			got, present := result.Rows[i][column]
+			if !present {
+				t.Fatalf("row %d lost column %q: %#v", i, column, result.Rows[i])
+			}
+			if gotText, ok := got.(string); !ok || gotText != wantValue {
+				t.Fatalf("row %d column %q = %#v, want %q", i, column, got, wantValue)
+			}
+		}
+	}
+	// No Arango dialect may leak into the response: this branch
+	// constructs no Arango surface at all, and the answer must not read
+	// like an AQL echo either.
+	for _, aqlTell := range []string{"FOR d IN ", "@auth_resource_paths", "fhir_field_catalog"} {
+		if strings.Contains(response.Body, aqlTell) {
+			t.Fatalf("response body carries AQL tell %q: %s", aqlTell, fixture.scrub(response.Body))
+		}
+	}
 }
 
 // TestZZQRouteZeroLeftoverFixtures is the N-5 audit: it compares the

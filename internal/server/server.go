@@ -1289,14 +1289,19 @@ func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, 
 		SourceRows: configuredPostgreSQLSourceRows(logger, "query_rows", runtime.SourceRows),
 	})
 
-	// Auth wiring mirrors the Arango lane's shape. The existing-auth-path
-	// lister is a typed refusal until the backend's catalog read lane lands
-	// (it must never fall through to the Arango catalog); noAuth and basic
-	// modes never call it, and calypr mode fails closed on use.
-	listExistingAuthPaths := func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
-		return nil, postgreSQLFirstQueryRouteWiringError("Existing auth-path listing", "pg-catalog discovery reads (this ticket's catalog read lane)")
-	}
-	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, listExistingAuthPaths)
+	// Catalog discovery rides the backend's own field-profile read lane
+	// (Ask C) behind the same catalog.NewCache the Arango lane uses. The
+	// reference reads fhir_field_catalog; the PostgreSQL mirror of that
+	// reference table is the persisted field-profile rows, so the auth-
+	// path lister is derived there too -- never an Arango catalog surface.
+	discoveryCache := catalog.NewCache()
+	discoverFields := discoveryCache.DiscoverFields(runtime.DiscoverFields)
+
+	// Auth wiring mirrors the Arango lane's shape (server.go:490-498): the
+	// existing-auth-path lister is the backend read lane's own listing;
+	// noAuth and basic modes never call it, and calypr mode resolves
+	// against PostgreSQL-persisted paths only.
+	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, runtime.DiscoverExistingAuthResourcePaths)
 	if err != nil {
 		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("configure authentication: %w", err)
@@ -1306,12 +1311,16 @@ func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, 
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
 			CompileTarget: sourceCompileTarget,
-			// Catalog discovery ports arrive with the backend catalog read
-			// lane; until then every discovery-backed query fails closed as
-			// typed BACKEND_UNAVAILABLE (catalogUnavailable), never a partial
-			// or Arango-backed read.
+			// Field discovery is the backend read lane's own port behind the
+			// discovery cache. Reference discovery stays nil on purpose:
+			// reference-backed traversal fails closed as typed
+			// BACKEND_UNAVAILABLE (catalogUnavailable) until the reference
+			// read lane lands -- never a partial read, never Arango.
+			// Graph queries that resolve without references still reach
+			// compilation, where the PostgreSQL renderer honestly refuses
+			// the graph physical plan (see the fhirGraph census leg).
 			DiscoverReferences:     nil,
-			DiscoverFields:         nil,
+			DiscoverFields:         discoverFields,
 			Dataframes:             dataframes,
 			ScopeResolver:          scopeResolver,
 			ActiveManifestResolver: runtime.Manifests,

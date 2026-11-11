@@ -6,11 +6,11 @@ package queryapi
 // the named typed BACKEND_UNAVAILABLE before any row-port contact -- the
 // route is driven by its ports, and an unwired port can never leak into a
 // zero-value "success" or an ArangoDB fall-through. The live legs run the
-// real service over the real factory row port with a DiscoverFields stub
-// that replaces selector resolution only; auth and generation filtering
-// ride the real compiled-SQL binds. When the backend catalog read lane
-// lands (gated on arch-backend-07), these legs migrate to the production
-// discovery reader.
+// real service over the real factory row port and the backend catalog
+// read lane's DiscoverFields behind the same discovery cache the server
+// composition uses; auth and generation filtering ride the real
+// compiled-SQL binds. Counters observe port contact without
+// substitution.
 
 import (
 	"context"
@@ -104,12 +104,11 @@ func TestFhirDataframeNilDiscoveryRefusesTyped(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Pre-staged live legs (reachable mints in this file's verify_qroute_q
 // sub-namespace, registered and dropped by enumerated name only; see the
-// N-5 audit at the foot of this file). The DiscoverFields stub replaces
-// selector resolution ONLY: auth and generation filtering ride the real
-// compiled-SQL binds (render/postgres/scope.go deny-by-default mapping), so
-// the paired controls below are load-bearing witnesses, not fixture luck. When
-// the backend catalog read lane lands, these legs migrate to the
-// production discovery reader.
+// N-5 audit at the foot of this file). Every port is the production one:
+// the backend read lane supplies field discovery, auth and generation
+// filtering ride the compiled-SQL binds (render/postgres/scope.go
+// deny-by-default mapping), so the paired controls below are load-bearing
+// witnesses, not fixture luck.
 // ---------------------------------------------------------------------------
 
 const (
@@ -446,11 +445,18 @@ func qrDispatchGuardedRows(execute dataframeexecution.SourceRows) dataframeexecu
 	}
 }
 
-// qrService wires the query service with production port shapes: factory
-// row executor behind the dispatch guard, the manifest port as
-// ActiveManifestResolver, and the PostgreSQL compile target from the
-// fixture's source schema. discoverCalls counts the stub's invocations.
-func qrService(t *testing.T, f *qrLiveFixture, rt *backendspostgres.Runtime, discoverCalls *atomic.Int64) *Service {
+// qrCounters observe port contact without changing port behavior.
+type qrCounters struct {
+	rowCalls      atomic.Int64
+	discoverCalls atomic.Int64
+}
+
+// qrService wires the query service exactly as the server composition
+// does: the backend read lane's DiscoverFields behind the same
+// catalog.NewCache the Arango lane uses, the factory row executor behind
+// the dispatch guard, and the manifest port as ActiveManifestResolver.
+// The counters delegate: they observe, never substitute.
+func qrService(t *testing.T, f *qrLiveFixture, rt *backendspostgres.Runtime, counters *qrCounters) *Service {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding(f.srcSchema)
 	if err != nil {
@@ -460,26 +466,24 @@ func qrService(t *testing.T, f *qrLiveFixture, rt *backendspostgres.Runtime, dis
 	if err != nil {
 		t.Fatalf("select PostgreSQL compile target: %v", err)
 	}
+	countedRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		counters.rowCalls.Add(1)
+		return qrDispatchGuardedRows(rt.SourceRows)(ctx, request, visit)
+	}
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-		SourceRows: qrDispatchGuardedRows(rt.SourceRows),
+		SourceRows: countedRows,
 	})
+	cachedDiscovery := catalog.NewCache().DiscoverFields(rt.DiscoverFields)
+	countedDiscovery := func(ctx context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+		counters.discoverCalls.Add(1)
+		return cachedDiscovery(ctx, options)
+	}
 	return NewService(Config{
 		CompileTarget:          target,
 		Dataframes:             dataframes,
 		ScopeResolver:          nil,
 		ActiveManifestResolver: rt.Manifests,
-		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
-			discoverCalls.Add(1)
-			switch options.ResourceType {
-			case "", "Patient":
-				return []catalog.PopulatedField{
-					{ResourceType: "Patient", Path: "gender", Kind: "scalar", DocCount: 3},
-					{ResourceType: "Patient", Path: "birthDate", Kind: "scalar", DocCount: 3},
-				}, nil
-			default:
-				return []catalog.PopulatedField{}, nil
-			}
-		},
+		DiscoverFields:         countedDiscovery,
 	})
 }
 
@@ -490,15 +494,18 @@ func TestFhirDataframePostgreSQLLiveExactScalarRows(t *testing.T) {
 		qrPatientLine(t, "patient-alan", "male", "1912-06-23"),
 	}})
 	f.activate(t, qrLiveProject, qrLiveGenA)
-	var calls atomic.Int64
-	service := qrService(t, f, f.serviceRuntime(t), &calls)
+	var counters qrCounters
+	service := qrService(t, f, f.serviceRuntime(t), &counters)
 
 	result, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
 	if err != nil {
 		t.Fatalf("live scoped read failed: %s", f.scrub(err))
 	}
-	if calls.Load() == 0 {
-		t.Fatal("discovery-backed query never consulted the discovery port")
+	if counters.discoverCalls.Load() == 0 {
+		t.Fatal("discovery-backed query never consulted the backend read lane")
+	}
+	if counters.rowCalls.Load() == 0 {
+		t.Fatal("exact-rows leg never contacted the row port")
 	}
 	if result == nil || result.RowCount != 2 || len(result.Rows) != 2 {
 		t.Fatalf("result = %+v, want exactly 2 rows", result)
@@ -547,8 +554,8 @@ func TestFhirDataframePostgreSQLLiveRestrictedPrincipalSeesNoRows(t *testing.T) 
 		qrPatientLine(t, "patient-alan", "male", "1912-06-23"),
 	}})
 	f.activate(t, qrLiveProject, qrLiveGenA)
-	var calls atomic.Int64
-	service := qrService(t, f, f.serviceRuntime(t), &calls)
+	var counters qrCounters
+	service := qrService(t, f, f.serviceRuntime(t), &counters)
 
 	// Alive control first: the identical unrestricted query returns both.
 	control, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
@@ -579,8 +586,8 @@ func TestFhirDataframePostgreSQLLiveActiveGenerationExcludesStaged(t *testing.T)
 		qrPatientLine(t, "patient-zoe", "female", "1955-03-04"),
 	}})
 	f.activate(t, qrLiveProject, qrLiveGenA)
-	var calls atomic.Int64
-	service := qrService(t, f, f.serviceRuntime(t), &calls)
+	var counters qrCounters
+	service := qrService(t, f, f.serviceRuntime(t), &counters)
 
 	result, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
 	if err != nil {
@@ -602,9 +609,9 @@ func TestFhirDataframePostgreSQLLiveBackendOutageTyped(t *testing.T) {
 		qrPatientLine(t, "patient-ada", "female", "1815-12-10"),
 	}})
 	f.activate(t, qrLiveProject, qrLiveGenA)
-	var calls atomic.Int64
+	var counters qrCounters
 	rt := f.serviceRuntime(t)
-	service := qrService(t, f, rt, &calls)
+	service := qrService(t, f, rt, &counters)
 
 	// Alive control: rows first, then the outage.
 	control, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
@@ -636,8 +643,8 @@ func TestFhirDataframePostgreSQLLivePreCancellationTyped(t *testing.T) {
 		qrPatientLine(t, "patient-ada", "female", "1815-12-10"),
 	}})
 	f.activate(t, qrLiveProject, qrLiveGenA)
-	var calls atomic.Int64
-	service := qrService(t, f, f.serviceRuntime(t), &calls)
+	var counters qrCounters
+	service := qrService(t, f, f.serviceRuntime(t), &counters)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -705,5 +712,45 @@ func TestZZQRouteLiveZeroLeftoverFixtures(t *testing.T) {
 		}
 		t.Fatalf("own sub-namespace census: live=%d baseline=%d registered=%d names=%v",
 			count, qrBaseline, registered, names)
+	}
+}
+
+func TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed(t *testing.T) {
+	f := newQRLiveFixture(t)
+	f.load(t, qrLiveProject, qrLiveGenA, map[string][]string{"Patient.ndjson": {
+		qrPatientLine(t, "patient-ada", "female", "1815-12-10"),
+	}})
+	f.activate(t, qrLiveProject, qrLiveGenA)
+	var counters qrCounters
+	service := qrService(t, f, f.serviceRuntime(t), &counters)
+
+	// Alive control first so the refusal is proven load-bearing.
+	control, err := service.Run(context.Background(), *qrPatientInput(nil), nil)
+	if err != nil || control == nil || control.RowCount != 1 {
+		t.Fatalf("alive control = %+v err=%v, want 1 row before the refusal", control, f.scrub(err))
+	}
+	counters.rowCalls.Store(0)
+	counters.discoverCalls.Store(0)
+
+	// A principal whose only paths normalize to nothing (control bytes)
+	// is refused as typed FORBIDDEN at input resolution -- before field
+	// discovery and before the row port see anything (F-B22 law).
+	garbageCtx := authscope.ContextWithPrincipal(context.Background(), &authscope.Principal{
+		Subject: "verify_qroute_garbage", AuthResourcePaths: []string{"\x00\x01\x02"},
+	})
+	_, err = service.Run(garbageCtx, *qrPatientInput(nil), nil)
+	if err == nil {
+		t.Fatal("garbage principal unexpectedly served rows")
+	}
+	var typed *dataframeerrors.Error
+	if !errors.As(err, &typed) {
+		t.Fatalf("garbage-principal refusal %v is not a typed dataframe error", err)
+	}
+	if typed.Code() != string(dataframeerrors.CodeForbidden) {
+		t.Fatalf("garbage-principal code = %q, want %q", typed.Code(), dataframeerrors.CodeForbidden)
+	}
+	if counters.rowCalls.Load() != 0 || counters.discoverCalls.Load() != 0 {
+		t.Fatalf("garbage-principal refusal reached the backend: rows=%d discovery=%d, want 0/0",
+			counters.rowCalls.Load(), counters.discoverCalls.Load())
 	}
 }
