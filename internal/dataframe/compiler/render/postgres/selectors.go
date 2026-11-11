@@ -109,6 +109,15 @@ const (
 	// expression projection — the derived scalar surface calls.go registers
 	// (pg-sql-10) on the full read spine.
 	extractionCallExpression
+	// extractionObject is an OBJECT expression projection — the pg-sql-11
+	// nested-object surface registered in objects.go. Classification is
+	// structural; the closed payload contract (fields, cardinality, null
+	// behaviors, operand kinds, recursion depth) is owned by objects.go.
+	extractionObject
+	// extractionSlice is a SLICE expression projection — the pg-sql-11
+	// bounded-slice surface registered in objects.go. Same ownership:
+	// structural here, closed contract in objects.go.
+	extractionSlice
 )
 
 // classifiedExtractionProjection is one fully checked RETURN projection:
@@ -318,6 +327,28 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 				projection: projection,
 				expression: expression,
 			}, nil
+		case ir.PhysicalObjectExpression, ir.PhysicalSliceExpression:
+			// pg-sql-11 composites. Payload presence and presence-metadata
+			// pairing are checked here; the closed structural contract
+			// (cardinality, null behavior, fields/projections, operand
+			// kinds, recursion depth) is re-read once, authoritatively, in
+			// objects.go so classification and rendering cannot diverge.
+			if projection.Presence != nil {
+				return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q carries presence metadata on a %s expression; presence proofs pair with selector extractions only",
+					ErrUnsupportedPostgresPlan, projection.Name, string(expression.Kind))
+			}
+			if expression.Kind == ir.PhysicalObjectExpression {
+				if expression.Object == nil {
+					return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q uses an OBJECT expression with no payload",
+						ErrUnsupportedPostgresPlan, projection.Name)
+				}
+				return classifiedExtractionProjection{kind: extractionObject, projection: projection}, nil
+			}
+			if expression.Slice == nil {
+				return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q uses a SLICE expression with no payload",
+					ErrUnsupportedPostgresPlan, projection.Name)
+			}
+			return classifiedExtractionProjection{kind: extractionSlice, projection: projection}, nil
 		default:
 			return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q uses expression kind %q, which has no registered PostgreSQL rendering",
 				ErrUnsupportedPostgresPlan, projection.Name, string(expression.Kind))
@@ -510,6 +541,12 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 		case extractionCallExpression:
 			return fmt.Errorf("%w: projection %q uses a CALL expression; derived scalar calls register on the full read spine (RenderPhysicalPlan), not the closed selector-extraction slice",
 				ErrUnsupportedPostgresPlan, c.projection.Name)
+		case extractionObject, extractionSlice:
+			// pg-sql-11 contract receipt: the composite surface is
+			// registered on the full read spine (objects.go), not in this
+			// closed two-operation slice.
+			return fmt.Errorf("%w: projection %q uses a %s expression; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars — composites belong to the read spine registration (objects.go)",
+				ErrUnsupportedPostgresPlan, c.projection.Name, string(c.projection.Expression.Kind))
 		case extractionSelector, extractionPresenceSidecar:
 		}
 	}

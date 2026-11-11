@@ -487,8 +487,17 @@ func (r *planRenderer) resolveValueInRows(rows map[string]rowScope, value ir.Phy
 	if !ok || scope.derivedValue != "" {
 		return "", fmt.Errorf("%w: variable %q does not bind a readable row", ErrUnsupportedPostgresPlan, value.Variable)
 	}
-	if len(value.Path) == 1 && resourceFilterColumns[value.Path[0]] {
-		return scope.alias + "." + r.storage.Resource.MustColumn(canonicalKeyColumn(value.Path[0])).SQLText(), nil
+	// Typed storage columns read by name, with the Arango document-key
+	// references canonicalized first (canonicalKeyColumn, render.go:127-
+	// 140): the production root projection spells the identity reference
+	// ["_key"] (lower/root_projection.go:116), and a stored FHIR document
+	// never carries a "_key"/"id" property — reading them as payload paths
+	// silently renders SQL NULL. The sort leg already canonicalizes this
+	// way (window.go:221); the value leg must agree.
+	if len(value.Path) == 1 {
+		if column := canonicalKeyColumn(value.Path[0]); resourceFilterColumns[column] {
+			return scope.alias + "." + r.storage.Resource.MustColumn(column).SQLText(), nil
+		}
 	}
 	return r.documentPathExpression(scope.alias, value.Path)
 }

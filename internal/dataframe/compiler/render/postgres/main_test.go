@@ -31,11 +31,17 @@ import (
 // over its own disjoint verify_sql15_* namespace, and pg-sql-20's
 // delta-scoped audit (graph_test.go graph20RunDeltaAudit) wraps that trio
 // around the run over its own disjoint verify_sql20_* namespace, composing
-// four independent delta audits. The verify_* prefixes are audited through
-// one parameterized helper: verify_sql05_ (pg-sql-05) and verify_sql10_
-// (calls_live_test.go, pg-sql-10).
+// four independent delta audits. pg-sql-11's delta-scoped audit
+// (objects_test.go obj11RunDeltaAudit) wraps that quartet around the run
+// over its own disjoint obj11_it_* namespace — and asserts the namespace
+// starts empty, since this ticket owns the prefix alone (ruling D5).
+// The verify_* prefixes are audited through one parameterized helper:
+// verify_sql05_ (pg-sql-05) and verify_sql10_ (calls_live_test.go,
+// pg-sql-10).
 func TestMain(m *testing.M) {
-	code := graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	code := obj11RunDeltaAudit(func() int {
+		return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	})
 	for _, prefix := range []string{"verify_sql05_", "verify_sql10_"} {
 		if err := auditNoLeftoverVerifyNamespace(prefix); err != nil {
 			fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
