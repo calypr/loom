@@ -1,8 +1,8 @@
 package execution_test
 
 import (
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/dataframe/execution"
-	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -13,11 +13,10 @@ import (
 // once, and every key and row step of the battery then travels through the
 // real internal/dataframe/postgres executor against the live server.
 func init() {
+	// The public factory seam assembles the private rows executor (the same
+	// Querier contract the factory wires for SourceRows); the execution
+	// harness never imports the private package directly.
 	execution.Exec05InstallRowsAdapterFactory(func(iso *pgxpool.Pool) (execution.SourceRows, error) {
-		executor, err := dataframepostgres.NewExecutor(iso)
-		if err != nil {
-			return nil, err
-		}
-		return executor.SourceRows, nil
+		return postgres.NewSourceRows(iso)
 	})
 }

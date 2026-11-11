@@ -38,6 +38,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"net/url"
 	"os"
 	"os/exec"
@@ -50,8 +51,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	publication "github.com/calypr/loom/internal/dataset"
-	datasetpostgres "github.com/calypr/loom/internal/dataset/postgres"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 )
 
 // ---------------------------------------------------------------------------
@@ -296,14 +295,15 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 // never carried here: the child derives it from its own inherited
 // LOOM_TEST_POSTGRES_URL plus the shared database name.
 type ing03HelperConfig struct {
-	Database    string `json:"database"`
-	Schema      string `json:"schema"`
-	MetaDir     string `json:"meta_dir"`
-	SchemaFile  string `json:"schema_file"`
-	Project     string `json:"project"`
-	Generation  string `json:"generation"`
-	AuthPath    string `json:"auth_path"`
-	Application string `json:"application"`
+	Database       string `json:"database"`
+	Schema         string `json:"schema"`
+	MetaDir        string `json:"meta_dir"`
+	SchemaFile     string `json:"schema_file"`
+	Project        string `json:"project"`
+	Generation     string `json:"generation"`
+	AuthPath       string `json:"auth_path"`
+	Application    string `json:"application"`
+	ManifestSchema string `json:"manifest_schema"`
 }
 
 const ing03HelperRunFilter = "^TestPostgresGenerationLoadReplayHelper$"
@@ -365,8 +365,8 @@ func TestPostgresGenerationLoadReplayHelper(t *testing.T) {
 		os.Exit(4)
 	})
 	if _, err := LoadPostgresGeneration(ctx, opts, PGSourceOptions{
-		DSN: dsn, Schema: config.Schema, ApplicationName: config.Application, MaxConns: 4,
-		Catalog: catalog,
+		DSN: dsn, Schema: config.Schema, ManifestSchema: config.ManifestSchema,
+		ApplicationName: config.Application, MaxConns: 4, Catalog: catalog,
 	}); err != nil {
 		switch {
 		case errors.Is(err, ErrGenerationAlreadyStaged):
@@ -494,7 +494,8 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 	referenceFingerprint := reference.fingerprint()
 
 	baseConfig := ing03HelperConfig{
-		Database: dbName, Schema: shared.schema, MetaDir: metaDir, SchemaFile: schemaFile,
+		Database: dbName, Schema: shared.schema, ManifestSchema: shared.manifestSchema,
+		MetaDir: metaDir, SchemaFile: schemaFile,
 		Project: ing03Project, Generation: crashGeneration, AuthPath: ing03AuthPath,
 	}
 
@@ -847,7 +848,7 @@ func TestPostgresGenerationLoadActivationCASRace(t *testing.T) {
 			switch {
 			case err == nil:
 				nils++
-			case errors.Is(err, datasetpostgres.ErrActivationConflict):
+			case errors.Is(err, postgres.ErrActivationConflict):
 				conflicts++
 			default:
 				t.Fatalf("activation round %d racer %d error = %T %v, want success or ErrActivationConflict",
@@ -1140,16 +1141,16 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	}
 	crossed := false
 	for _, offered := range refEdgeOffers {
-		if offered > storepostgres.MaxBatchEdges {
-			t.Fatalf("edge batch offered %d, exceeding the store cap %d (batch events: %v)", offered, storepostgres.MaxBatchEdges, refEdgeOffers)
+		if offered > postgres.MaxBatchEdges {
+			t.Fatalf("edge batch offered %d, exceeding the store cap %d (batch events: %v)", offered, postgres.MaxBatchEdges, refEdgeOffers)
 		}
-		if offered >= storepostgres.MaxBatchEdges-6 && offered < storepostgres.MaxBatchEdges {
+		if offered >= postgres.MaxBatchEdges-6 && offered < postgres.MaxBatchEdges {
 			crossed = true
 		}
 	}
 	if !crossed {
 		t.Fatalf("no edge batch committed in the crossing band [%d,%d): the lookahead split never fired (offers: %v)",
-			storepostgres.MaxBatchEdges-6, storepostgres.MaxBatchEdges, refEdgeOffers)
+			postgres.MaxBatchEdges-6, postgres.MaxBatchEdges, refEdgeOffers)
 	}
 	refContribs := service.countTable("fhir_semantic_inventory_contribution", "dataset_generation = $1", refRef.Generation)
 	if refContribs < 2*flushThreshold {

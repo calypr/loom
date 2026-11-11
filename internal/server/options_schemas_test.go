@@ -10,7 +10,7 @@ package server
 // semantics (unknown series, unsafe identifiers, ledger-disagreeing
 // sharing, structured *AssignmentConflict identity including its Schema
 // field) are asserted at the owning layer in
-// internal/store/postgres/ownership_contract_test.go
+// internal/backends/postgres/internal/store/ownership_contract_test.go
 // (ValidateAssignmentMatrix).
 
 import (

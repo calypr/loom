@@ -11,12 +11,12 @@ package postgres
 // and target scope fragments. The statement-shape goldens themselves stay
 // owned by root_scan_test.go and render_test.go; nothing here re-pins them.
 //
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — pgstore.Open/Ping
+// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — control.Open/Ping
 // refuses any other major, and every fixture test acquires its pool through
 // it): each test owns one pgsq02_it_* database and one owned schema,
 // migrates through the real pg-store-02 runner (NewMigrationRunner merges
 // the registered sources and sorts them by version,
-// internal/store/postgres/migrate.go:385), stores literal rows through the
+// internal/backends/postgres/internal/store/migrate.go:385), stores literal rows through the
 // real pg-store-04/05 repositories, executes the rendered statement with its
 // ordered driver arguments, and compares literal rows against a hand-written
 // direct-SQL witness. The acceptance tuple rule is proven with the same
@@ -35,6 +35,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"reflect"
@@ -47,7 +48,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -512,7 +512,7 @@ func pgsq02TraversalPlanForScope(project, generation string, paths []string, unr
 // ---------------------------------------------------------------------------
 // Real PostgreSQL 18 fixtures. A skip here only keeps unrelated CI lanes
 // green; for this ticket's acceptance the runs below are live, and the
-// report pins it. pgstore.Open Ping-verifies PostgreSQL 18 before any
+// report pins it. control.Open Ping-verifies PostgreSQL 18 before any
 // fixture touches it.
 // ---------------------------------------------------------------------------
 
@@ -533,7 +533,7 @@ type pgsq02Service struct {
 	ctx    context.Context
 	admin  *pgxpool.Pool // service database
 	iso    *pgxpool.Pool // isolated database
-	client *pgstore.Client
+	client *control.Client
 	schema string
 	fail   func(step string, err error)
 	scrub  func(string) string
@@ -621,9 +621,9 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 		}
 	})
 
-	// pgstore.Open Ping-verifies PostgreSQL 18 and fails otherwise: every
+	// control.Open Ping-verifies PostgreSQL 18 and fails otherwise: every
 	// live assertion below is real-PG18 evidence by construction.
-	client, err := pgstore.Open(ctx, pgstore.Config{
+	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
 		MinConns:       1,
@@ -636,9 +636,9 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 	// The resource and edge relations arrive through the real pg-store-02
 	// runner over its own embedded sources: NewMigrationRunner merges the
 	// registered sources and sorts them by version
-	// (internal/store/postgres/migrate.go:385), so this fixture needs no
+	// (internal/backends/postgres/internal/store/migrate.go:385), so this fixture needs no
 	// new migration files of its own.
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
 	return &pgsq02Service{ctx: ctx, admin: admin, iso: iso, client: client, schema: schema, fail: fail, scrub: scrub}
@@ -646,7 +646,7 @@ func newPGSQ02Service(t *testing.T) *pgsq02Service {
 
 func (s *pgsq02Service) insertResource(t *testing.T, project, generation, resourceType, logicalID, authPath string) int64 {
 	t.Helper()
-	repo, err := pgstore.NewResourceRepository(s.client, s.schema)
+	repo, err := control.NewResourceRepository(s.client, s.schema)
 	if err != nil {
 		t.Fatalf("resource repository: %v", err)
 	}
@@ -665,11 +665,11 @@ func (s *pgsq02Service) insertResource(t *testing.T, project, generation, resour
 
 func (s *pgsq02Service) insertEdge(t *testing.T, project, generation, authPath, sourceType, sourceID, targetType, targetID, sourcePath string, ordinal int64) int64 {
 	t.Helper()
-	repo, err := pgstore.NewEdgeRepository(s.client, s.schema)
+	repo, err := control.NewEdgeRepository(s.client, s.schema)
 	if err != nil {
 		t.Fatalf("edge repository: %v", err)
 	}
-	seq, err := repo.InsertEdge(s.ctx, pgstore.EdgeOccurrenceRow{
+	seq, err := repo.InsertEdge(s.ctx, control.EdgeOccurrenceRow{
 		Project: project, DatasetGeneration: generation, AuthResourcePath: authPath,
 		Label: pgsq02Label, SourceResourceType: sourceType, SourceLogicalID: sourceID,
 		TargetResourceType: targetType, TargetLogicalID: targetID,

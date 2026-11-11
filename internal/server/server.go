@@ -391,6 +391,23 @@ func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseServ
 	}
 }
 
+// ErrPostgreSQLRuntimeNotWired is the named, proven-closed startup gate for
+// the explicitly selected PostgreSQL source backend (arch-backend-06 D1).
+// The PostgreSQL factory lives at internal/backends/postgres; this sentinel
+// is the gate its composition (pg-runtime-server-composition) must retarget,
+// and TestPostgresFactoryOwnershipContract asserts it stays closed until
+// then. It is returned before any store connection is opened, so selecting
+// postgres can never silently fall through to the ArangoDB stores below.
+var ErrPostgreSQLRuntimeNotWired = errors.New("server.backend postgres is configured, but the PostgreSQL source runtime is not wired yet; refusing to start on the ArangoDB backend")
+
+// RunWithConfig executes the server composition for an already-parsed
+// Config, the same path Run() takes after flag parsing. It is the
+// composition entry point exercised by contract tests that must witness the
+// backend-selection gate without driving process flags or signals.
+func RunWithConfig(ctx context.Context, serverConfig Config) error {
+	return run(ctx, serverConfig)
+}
+
 func run(ctx context.Context, serverConfig Config) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
 	// The PostgreSQL source backend is a configuration-only selector until its
@@ -401,7 +418,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		return err
 	}
 	if backend == sourceBackendPostgres {
-		return errors.New("server.backend postgres is configured, but the PostgreSQL source runtime is not wired yet; refusing to start on the ArangoDB backend")
+		return ErrPostgreSQLRuntimeNotWired
 	}
 	connOpts := arangostore.ConnectionOptions{
 		URL:      serverConfig.Server.URL,
@@ -699,7 +716,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			// no pool-shaped executor exists here yet. A PostgreSQL-tagged
 			// command therefore fails closed with a typed backend failure;
 			// it is never routed to the Arango EXPLAIN policy surface. When
-			// the runtime lands, pass newPostgreSQLPlanJSONExecutor over the
+			// the runtime lands, pass Runtime.PlanJSON (postgres.Open) over the
 			// readiness-checked pool instead of nil.
 			return explainPostgreSQLCompiledQuery(ctx, nil, compiled)
 		}},

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"reflect"
@@ -18,7 +19,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/source"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -818,9 +818,9 @@ type sql09Service struct {
 	ctx       context.Context
 	admin     *pgxpool.Pool
 	iso       *pgxpool.Pool
-	client    *pgstore.Client
+	client    *control.Client
 	schema    string
-	resources *pgstore.ResourceRepository
+	resources *control.ResourceRepository
 	fail      func(step string, err error)
 }
 
@@ -896,15 +896,15 @@ func newSQL09Service(t *testing.T) *sql09Service {
 		}
 	})
 
-	client, err := pgstore.Open(ctx, pgstore.Config{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
+	client, err := control.OpenPool(ctx, control.ClientConfig{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
 	if err != nil {
 		t.Fatalf("open pg-store client (requires a PostgreSQL 18 service): %v", err)
 	}
 	t.Cleanup(client.Close)
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		t.Fatalf("migrate owned schema: %v", err)
 	}
-	resources, err := pgstore.NewResourceRepository(client, schema)
+	resources, err := control.NewResourceRepository(client, schema)
 	if err != nil {
 		t.Fatalf("build resource repository: %v", err)
 	}
@@ -922,9 +922,9 @@ func (s *sql09Service) insertResource(t *testing.T, project, generation, resourc
 	}
 }
 
-func (s *sql09Service) insertEdge(t *testing.T, rec pgstore.EdgeOccurrenceRow) {
+func (s *sql09Service) insertEdge(t *testing.T, rec control.EdgeOccurrenceRow) {
 	t.Helper()
-	edges, err := pgstore.NewEdgeRepository(s.client, s.schema)
+	edges, err := control.NewEdgeRepository(s.client, s.schema)
 	if err != nil {
 		s.fail("build edge repository", err)
 	}
@@ -1495,7 +1495,7 @@ func TestPG18UnnestOwnerRouteKeepsParentIdentityAndEdgeMultiplicity(t *testing.T
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-obs1", "FHIR/Observation", sql09JSON(t, codingSet("urn:obs1", "o1")))
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-obs2", "FHIR/Observation", sql09JSON(t, codingSet("urn:obs2", "o2")))
 	for index, target := range []string{"o-obs1", "o-obs1", "o-obs2"} {
-		svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+		svc.insertEdge(t, control.EdgeOccurrenceRow{
 			Project: sql09Project, DatasetGeneration: sql09Generation, AuthResourcePath: "FHIR/Patient",
 			Label: "has-observation", SourceResourceType: "Patient", SourceLogicalID: "p-route",
 			TargetResourceType: "Observation", TargetLogicalID: target,
@@ -1592,7 +1592,7 @@ func TestPG18UnnestOwnerRouteExcludesZeroRouteParents(t *testing.T) {
 	svc.insertResource(t, sql09Project, sql09Generation, "Patient", "p-zero", "FHIR/Patient", sql09JSON(t, `{"gender": "male"}`))
 	svc.insertResource(t, sql09Project, sql09Generation, "Observation", "o-obs1", "FHIR/Observation",
 		sql09JSON(t, `{"component": [{"code": {"coding": [{"system": "urn:z", "code": "z1"}]}}]}`))
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: sql09Project, DatasetGeneration: sql09Generation, AuthResourcePath: "FHIR/Patient",
 		Label: "has-observation", SourceResourceType: "Patient", SourceLogicalID: "p-route",
 		TargetResourceType: "Observation", TargetLogicalID: "o-obs1",

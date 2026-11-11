@@ -121,7 +121,7 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 	root := repoRoot(t)
 	sourceDir := filepath.Join(root, "internal", "source")
 	catalogDir := filepath.Join(root, "internal", "catalog")
-	storeDir := filepath.Join(root, "internal", "store", "postgres")
+	storeDir := filepath.Join(root, "internal", "backends", "postgres", "internal", "store")
 	ingestDir := filepath.Join(root, "internal", "ingest")
 
 	t.Run("SourceLeafIsStdlibOnly", func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 			}
 		}
 		for _, imp := range []string{"github.com/calypr/loom/internal/catalog",
-			"github.com/calypr/loom/internal/store/postgres",
+			"github.com/calypr/loom/internal/backends/postgres/internal/store",
 			"github.com/jackc/pgx/v5", "github.com/arangodb/go-driver"} {
 			for _, got := range importedPaths(files) {
 				if got == imp {
@@ -291,7 +291,7 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 				"row type (ResourceRow) may hold the storage sequence", holders)
 		}
 		if rr, ok := structs["ResourceRow"]; !ok {
-			t.Fatal("store/postgres lost its physical ResourceRow owner")
+			t.Fatal("the backend store lost its physical ResourceRow owner")
 		} else {
 			hasSeq := false
 			hasLogical := false

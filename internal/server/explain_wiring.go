@@ -2,15 +2,11 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
@@ -150,39 +146,4 @@ func explainPostgreSQLCompiledQuery(ctx context.Context, executor dataframeexecu
 		)
 	}
 	return dataframeexecution.PostgreSQLExplainPlan(ctx, executor, compiled)
-}
-
-// newPostgreSQLPlanJSONExecutor adapts the pool-shaped Querier (a
-// *pgxpool.Pool or *pgxpool.Conn from the readiness-checked
-// internal/store/postgres pool) to the execution EXPLAIN runner. The
-// EXPLAIN statement and its ordered typed arguments arrive only inside the
-// tagged command via the shared DataFrame PostgreSQL row executor; the raw
-// single "QUERY PLAN" row is returned to the sanitizer and never surfaced.
-func newPostgreSQLPlanJSONExecutor(querier dataframepostgres.Querier) (dataframeexecution.PostgreSQLPlanJSONExecutor, error) {
-	executor, err := dataframepostgres.NewExecutor(querier)
-	if err != nil {
-		return nil, err
-	}
-	return func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error) {
-		var plans []string
-		if err := executor.SourceRows(ctx, dataframeexecution.RowsRequest{Command: command, DeclaredColumns: []string{"QUERY PLAN"}}, func(row map[string]any) error {
-			switch plan := row["QUERY PLAN"].(type) {
-			case string:
-				plans = append(plans, plan)
-			case []byte:
-				plans = append(plans, string(plan))
-			case json.RawMessage:
-				plans = append(plans, string(plan))
-			default:
-				return fmt.Errorf("PostgreSQL EXPLAIN returned plan text as %T", row["QUERY PLAN"])
-			}
-			return nil
-		}); err != nil {
-			return nil, err
-		}
-		if len(plans) != 1 {
-			return nil, fmt.Errorf("PostgreSQL EXPLAIN must return exactly one plan row, got %d", len(plans))
-		}
-		return json.RawMessage(plans[0]), nil
-	}, nil
 }

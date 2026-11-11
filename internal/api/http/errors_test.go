@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -15,7 +16,6 @@ import (
 	"testing"
 
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	storepostgres "github.com/calypr/loom/internal/store/postgres"
 	"github.com/gofiber/fiber/v3"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -275,9 +275,9 @@ func TestMapDataframeErrorRedactsPostgresDriverCause(t *testing.T) {
 	})
 
 	t.Run("translated connectivity failure is retryable 503", func(t *testing.T) {
-		failure := &storepostgres.ConnectError{Op: "open", Err: fmt.Errorf(
+		failure := &postgres.ConnectError{Op: "open", Err: fmt.Errorf(
 			"failed to connect to `user=reb_http_user password=reb_http_pass host=reb_http_host`: refused")}
-		translated, ok := storepostgres.TranslateError(failure)
+		translated, ok := postgres.TranslateError(failure)
 		if !ok {
 			t.Fatal("connect failure not translated")
 		}
@@ -292,7 +292,7 @@ func TestMapDataframeErrorRedactsPostgresDriverCause(t *testing.T) {
 	})
 
 	t.Run("translated serialization failure is never blanket retryable", func(t *testing.T) {
-		translated, ok := storepostgres.TranslateError(fmt.Errorf("seam: %w",
+		translated, ok := postgres.TranslateError(fmt.Errorf("seam: %w",
 			&pgconn.PgError{Severity: "ERROR", Code: "40001", Message: "reb_http_canary_select serialize conflict on reb_http_table"}))
 		if !ok {
 			t.Fatal("40001 not translated")
@@ -305,7 +305,7 @@ func TestMapDataframeErrorRedactsPostgresDriverCause(t *testing.T) {
 	})
 
 	t.Run("translated ambiguous commit is never retryable", func(t *testing.T) {
-		translated, ok := storepostgres.TranslateCommitError(fmt.Errorf("commit: %w",
+		translated, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w",
 			&pgconn.PgError{Severity: "FATAL", Code: "57P01", Message: "reb_http_canary_select terminating reb_http_table"}))
 		if !ok {
 			t.Fatal("ambiguous commit not translated")
@@ -318,7 +318,7 @@ func TestMapDataframeErrorRedactsPostgresDriverCause(t *testing.T) {
 	})
 
 	t.Run("translated query cancel is non-retryable limit", func(t *testing.T) {
-		translated, ok := storepostgres.TranslateError(fmt.Errorf("seam: %w",
+		translated, ok := postgres.TranslateError(fmt.Errorf("seam: %w",
 			&pgconn.PgError{Severity: "ERROR", Code: "57014", Message: "reb_http_canary_select canceling statement"}))
 		if !ok {
 			t.Fatal("57014 not translated")

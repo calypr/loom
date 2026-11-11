@@ -29,10 +29,10 @@ import (
 	"testing"
 	"time"
 
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -159,7 +159,7 @@ func exec10wRandomHex(t *testing.T) string {
 type exec10wService struct {
 	ctx      context.Context
 	iso      *pgxpool.Pool
-	client   *storepg.Client
+	client   *postgres.Client
 	database string
 	dsn      string
 	schema   string
@@ -247,7 +247,7 @@ func newExec10wService(t *testing.T) *exec10wService {
 
 	// Production pool path: the readiness-checked store pool refuses any
 	// server that is not PostgreSQL 18.
-	client, err := storepg.Open(ctx, storepg.Config{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 10 * time.Second})
+	client, err := postgres.OpenPool(ctx, postgres.ClientConfig{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 10 * time.Second})
 	if err != nil {
 		fail("open readiness-checked PostgreSQL 18 pool", err)
 	}
@@ -346,19 +346,19 @@ func TestPostgresExplainWiringCrossTagRefusals(t *testing.T) {
 	if _, err := explainCompiledQuery(context.Background(), nil, compiler.CompiledQuery{Command: pgCommand}); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 		t.Fatalf("PG-tagged command into the Arango surface: %v", err)
 	}
-	// The EXPLAIN runner builder refuses a nil querier rather than
-	// inventing a connection.
-	if _, err := newPostgreSQLPlanJSONExecutor(nil); err == nil {
-		t.Fatal("nil querier must fail closed")
-	}
 	// The execution boundary refuses an AQL-tagged command before the
-	// runner is created.
+	// runner ever touches the querier. The runner is built through the
+	// public factory seam over a counting querier so the refusal is proven
+	// pre-connection, not by an executor-nil shortcut. The builder's own
+	// fail-closed contract (nil querier, non-querier values) moved with the
+	// constructor to the backend factory:
+	// TestPostgreSQLPlanJSONExecutorConstructionFailsClosed.
 	aqlCommand, err := command.NewAQLCommand("FOR d IN c RETURN d", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	querierCalled := false
-	runner, err := newPostgreSQLPlanJSONExecutor(countingQuerier{called: &querierCalled})
+	runner, err := postgres.NewPlanJSONExecutor(exec10wCountingQuerier{called: &querierCalled})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,9 +370,9 @@ func TestPostgresExplainWiringCrossTagRefusals(t *testing.T) {
 	}
 }
 
-type countingQuerier struct{ called *bool }
+type exec10wCountingQuerier struct{ called *bool }
 
-func (q countingQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (q exec10wCountingQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	*q.called = true
 	return nil, errors.New("unexpected querier call")
 }
@@ -386,9 +386,9 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 		s.fail("acquire pool connection", err)
 	}
 	defer conn.Release()
-	runner, err := newPostgreSQLPlanJSONExecutor(conn)
+	runner, err := postgres.NewPlanJSONExecutor(conn)
 	if err != nil {
-		s.fail("newPostgreSQLPlanJSONExecutor", err)
+		s.fail("postgres.NewPlanJSONExecutor", err)
 	}
 	sqlText := fmt.Sprintf(`SELECT "%s" FROM %s WHERE "%s" = $1 AND "%s"::text <> '%s' ORDER BY resource_seq`,
 		exec10wColumn, table, exec10wColumn, exec10wColumn, exec10wLiteral)
@@ -461,7 +461,7 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if _, err := plain.Exec(s.ctx, `SET ROLE "`+role+`"`); err != nil {
 		s.fail("set role", err)
 	}
-	planExecutor, err := newPostgreSQLPlanJSONExecutor(plain)
+	planExecutor, err := postgres.NewPlanJSONExecutor(plain)
 	if err != nil {
 		s.fail("build production plan executor", err)
 	}
@@ -470,8 +470,8 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if !ok || userErr.Code() != string(dataframeerrors.CodeInternalError) {
 		t.Fatalf("permission-denied EXPLAIN must carry the boundary internal classification: %v", err)
 	}
-	var translated *storepg.TranslatedError
-	if !errors.As(err, &translated) || translated.Condition != storepg.ConditionServerRejected || translated.SQLState != "42501" {
+	var translated *postgres.TranslatedError
+	if !errors.As(err, &translated) || translated.Condition != postgres.ConditionServerRejected || translated.SQLState != "42501" {
 		t.Fatalf("permission-denied EXPLAIN boundary classification: %v", err)
 	}
 	s.assertSentinelFree(t, "permission error surface", err.Error())
