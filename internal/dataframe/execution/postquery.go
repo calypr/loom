@@ -233,6 +233,29 @@ func materializePostQueryValue(value any) (any, error) {
 			result[index] = resolved
 		}
 		return result, nil
+	case json.RawMessage:
+		// A PostgreSQL json/jsonb column arrives as raw JSON bytes: the
+		// adapter decoded SQL NULL to nil before this point, so a non-nil
+		// RawMessage here is a stored JSON value — including the JSON null
+		// scalar, which decodes to nil exactly as the Arango and ClickHouse
+		// driver paths deliver it (both decode with encoding/json, so they
+		// never produce this shape). Decode and re-enter so marker maps,
+		// ordered argument arrays, and nested markers run the same Go
+		// materialization and dynamic-column checks on PostgreSQL rows as
+		// on every other backend; UUID semantics stay owned by
+		// computeNamedUUID, never by SQL. Decoding is fail-closed: empty or
+		// malformed bytes are a typed materialization error carrying no
+		// value, never a silent nil. Nesting is bounded by encoding/json's
+		// hard 10,000-level decoder limit (deeper input errors), so the
+		// re-entrant walk below is bounded by the decoded value's depth.
+		if len(typed) == 0 || !json.Valid(typed) {
+			return nil, fmt.Errorf("post-query JSONB value is not valid JSON")
+		}
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return nil, fmt.Errorf("post-query JSONB value cannot be decoded: %w", err)
+		}
+		return materializePostQueryValue(decoded)
 	default:
 		return value, nil
 	}

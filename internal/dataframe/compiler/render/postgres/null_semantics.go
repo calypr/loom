@@ -76,6 +76,15 @@ package postgres
 // null array-literal keyword are quoted so no pattern-legal segment can
 // change meaning under array-literal parsing, and no plan string ever
 // becomes SQL text.
+//
+// documentPathStepsExpression (pg-sql-21) is this file's one extension of
+// that discipline for paths that must address JSON array positions: the
+// same segment re-check and the same #> text[] binding, with array
+// positions carried as canonical non-negative decimal path elements
+// (out-of-range and non-array reads SQL NULL = the ABSENT reading above).
+// It exists here and nowhere else so this file remains the package's
+// single path-binding authority; a second emitter outside it is the drift
+// this claim forbids.
 // The 'null'::jsonb and '""'::jsonb coercions are renderer-owned contract
 // constants fixed by this file, never plan data and never parameters.
 
@@ -127,6 +136,70 @@ func (r *planRenderer) documentPathFromExpression(base string, path []string) (s
 	elements := make([]string, len(path))
 	for index, segment := range path {
 		elements[index] = arrayLiteralElement(segment)
+	}
+	pathLiteral := "{" + strings.Join(elements, ",") + "}"
+	return base + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
+}
+
+// documentPathStep is one step of a document path that may address either
+// a JSON object key or a JSON array position (pg-sql-21: the registered
+// non-negative indexed selector steps of unit-normalization selectors).
+type documentPathStep struct {
+	field   string
+	index   int
+	indexed bool
+}
+
+// documentPathStepsExpression renders the jsonb extraction of one whole
+// document path that mixes property keys and non-negative array indexes
+// from a row alias's document column. It composes through
+// documentPathStepsFromExpression so stored rows and renderer-computed
+// bases share one emitter.
+func (r *planRenderer) documentPathStepsExpression(alias string, steps []documentPathStep) (string, error) {
+	return r.documentPathStepsFromExpression(r.documentColumn(alias), steps)
+}
+
+// documentPathStepsFromExpression renders one mixed key/index document
+// path from an already-rendered jsonb base through the SAME #> text[]
+// reading as documentPathFromExpression: the whole path crosses as one
+// bound text[] parameter (deduplicated by its literal), with array
+// positions carried as their canonical non-negative decimal text — the
+// only PostgreSQL form in which one path addresses both object keys and
+// array positions (jsonb_extract_path takes text elements only and never
+// indexes arrays). Each key is re-checked here against the frozen
+// payloadPathSegmentPattern — the same boundary
+// documentPathFromExpression enforces for property-only paths. #> reads a
+// missing parent, a non-object key step, and an out-of-range or
+// non-array index step all as SQL NULL, which is this file's ABSENT
+// reading; a stored JSON null terminal stays the jsonb 'null' scalar.
+// Indexes arrive validated non-negative by the calling capability
+// (unit_normalization.go refuses negative indexes as an unregistered
+// capability gap); this boundary re-reads that pin so no future caller
+// can smuggle PostgreSQL's distinct-from-AQL negative subscript reading
+// through this emitter.
+func (r *planRenderer) documentPathStepsFromExpression(base string, steps []documentPathStep) (string, error) {
+	if len(steps) == 0 {
+		return "", fmt.Errorf("%w: a document path must have at least one segment", ErrUnsupportedPostgresPlan)
+	}
+	elements := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if !payloadPathSegmentPattern.MatchString(step.field) {
+			return "", fmt.Errorf("%w: payload path segment %q is not renderer-safe", ErrUnsupportedPostgresPlan, step.field)
+		}
+		if step.indexed {
+			if step.index < 0 {
+				return "", fmt.Errorf("%w: negative document path index %d under segment %q has no registered PostgreSQL reading (ArangoDB tail-index semantics belong to the pg-sql-16 array-rendering capability)",
+					ErrUnsupportedPostgresPlan, step.index, step.field)
+			}
+			// One selector step {field, index} addresses field[index]:
+			// AQL renders the same pair (render/aql/selector.go:34,47),
+			// so the key AND the position are both path elements —
+			// dropping the key would index the PARENT instead.
+			elements = append(elements, arrayLiteralElement(step.field))
+			elements = append(elements, arrayLiteralElement(strconv.Itoa(step.index)))
+			continue
+		}
+		elements = append(elements, arrayLiteralElement(step.field))
 	}
 	pathLiteral := "{" + strings.Join(elements, ",") + "}"
 	return base + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil

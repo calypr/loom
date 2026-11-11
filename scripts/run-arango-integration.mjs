@@ -97,6 +97,30 @@ const pgExec04Preview = new Set([
     'TestPostgresPreviewServerWiringFailClosesPGPlan',
     'TestZZPostgresPreviewServerZeroLeftoverFixtures',
 ]);
+// pg-exec-03: the PostgreSQL post-query marker live battery (RawMessage
+// marker flow through the shared materializer, named-UUID computation,
+// three-state values, and the cross-target JSON-null convergence cell)
+// requires the separate PostgreSQL 18 fixture service
+// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
+// server under the ticket check-2 harness (go test ./internal/dataframe/
+// execution -run PostgresPostQuery); in this Arango-only lane their
+// explicit skips stay visible in the proof summary, following the
+// pg-exec-02/#99, pg-exec-04, and pg-exec-05/#123 registration
+// precedent. Membership is byte-exact against the offline
+// go test -json skip capture for this package (see
+// scripts/pg-exec-03-skipset-verify.mjs and its pinned capture).
+export const pgExec03PostQuery = new Set([
+    'TestPostgresPostQueryPreviewComputesNamedUUID5',
+    'TestPostgresPostQueryStreamComputesNamedUUID3',
+    'TestPostgresPostQueryNamedUUIDSemanticsParity',
+    'TestPostgresPostQueryNestedMarkersMaterialize',
+    'TestPostgresPostQueryMalformedMarkerFailsBeforeRow',
+    'TestPostgresPostQueryThreeStateValues',
+    'TestPostgresPostQueryCrossTargetJSONNullConvergence',
+    'TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface',
+    'TestPostgresPostQueryMutationControls',
+    'TestZZPostgresPostQueryZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -109,6 +133,7 @@ const external = new Set([
     ...pgExecDispatch,
     ...pgExecRootPaging,
     ...pgExec04Preview,
+    ...pgExec03PostQuery,
 ]);
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],

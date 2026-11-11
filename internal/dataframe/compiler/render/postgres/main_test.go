@@ -37,26 +37,35 @@ import (
 // starts empty, since this ticket owns the prefix alone (ruling D5).
 // pg-sql-19's delta-scoped audit (coded_group_test.go
 // coded19RunDeltaAudit) wraps the whole chain around the run over its own
-// disjoint coded19_it_* namespace. pg-sql-13's delta-scoped audit
-// (group_test.go group13RunDeltaAudit) wraps that chain around the run
-// over its own disjoint verify_sql13v1_* namespace — pg-sql-13's hook is
-// declared the 7th in the composed chain (outermost), so a conflict here
-// is a seam in the wrapping text only: every hook keeps its own namespace
+// disjoint coded19_it_* namespace. pg-sql-21's delta-scoped audit
+// (unit_normalization_test.go sql21RunDeltaAudit) wraps that chain around
+// the run over its own disjoint verify_sql21_ namespace, composing seven
+// independent delta audits; its runner is prefix-parameterized
+// (runVerifyNamespaceDeltaAudit) so a later ticket registers a namespace
+// without a new runner. pg-sql-13's delta-scoped audit (group_test.go
+// group13RunDeltaAudit) wraps the whole chain around the run over its own
+// disjoint verify_sql13v1_* namespace — pg-sql-13's hook is declared the
+// 8th in the composed chain (outermost; merge order
+// sets08→unp→graph20→obj11→coded19→sql21→group13), so a conflict here is
+// a seam in the wrapping text only: every hook keeps its own namespace
 // and none audits another's.
 // The verify_* prefixes are audited through one parameterized helper:
 // verify_sql05_ (pg-sql-05) and verify_sql10v7_ (calls_live_test.go,
 // pg-sql-10 round-7 namespace; the verify_sql10_ audit is kept because
-// the unescaped LIKE would flag any regression to the round-6 prefix).
-// verify_sql13v1_ (group_test.go, pg-sql-13) is registered there too.
+// the unescaped LIKE would flag any regression to the round-6 prefix),
+// verify_sql21v1_ (pg-sql-21, unit_normalization_production_test.go), and
+// verify_sql13v1_ (group_test.go, pg-sql-13).
 func TestMain(m *testing.M) {
 	code := group13RunDeltaAudit(func() int {
-		return coded19RunDeltaAudit(func() int {
-			return obj11RunDeltaAudit(func() int {
-				return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+		return sql21RunDeltaAudit(func() int {
+			return coded19RunDeltaAudit(func() int {
+				return obj11RunDeltaAudit(func() int {
+					return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+				})
 			})
 		})
 	})
-	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_", "verify_sql13v1_"} {
+	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_", "verify_sql21v1_", "verify_sql13v1_"} {
 		if err := auditNoLeftoverVerifyNamespace(prefix); err != nil {
 			fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 			if code == 0 {
