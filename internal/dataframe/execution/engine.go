@@ -56,7 +56,7 @@ type RowsRequest struct {
 // SourceRows is the single required row-execution port. The selected
 // compiler target produces the tagged command carried by the request, and
 // the composition that selected that target installs the adapter that serves
-// it (internal/dataframe/postgres.(*Executor).SourceRows satisfies the
+// it (internal/backends/postgres/internal/rows.(*Executor).SourceRows satisfies the
 // contract for PostgreSQL; the Arango adapter satisfies it for AQL).
 // Execution owns no backend switch: a request tagged for a backend the port
 // does not serve fails in the adapter with a typed error before any driver

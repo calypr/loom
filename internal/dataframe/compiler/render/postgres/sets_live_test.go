@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	pgstore "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 

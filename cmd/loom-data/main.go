@@ -7,7 +7,7 @@
 //
 // The backend tag is resolved and validated before any backend-specific
 // setting is parsed or opened (the tag-first dispatch law of the PostgreSQL
-// command leaf, internal/dataframe/postgres/rows.go:158-181, and the
+// command leaf, internal/backends/postgres/internal/rows/rows.go:158-181, and the
 // exhaustive physical-backend dispatch of
 // internal/dataframe/execution/engine.go:1679-1701). The backend is never
 // inferred from a DSN and never falls back to another backend on error
@@ -25,7 +25,7 @@
 // Diagnostics on the PostgreSQL route are rendered through one boundary
 // redactor so no credential value from a DSN ever reaches stdout or stderr
 // (internal/server/options.go:520-551 precedent; the pgx parse-echo path at
-// internal/store/postgres/client.go:141-143 makes this a CLI obligation).
+// internal/backends/postgres/internal/store/client.go:141-143 makes this a CLI obligation).
 package main
 
 import (
