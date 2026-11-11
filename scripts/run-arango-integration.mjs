@@ -73,6 +73,30 @@ const pgExecRootPaging = new Set([
     'TestPostgresRootPagingWholeInputBypass/control:_non-group_PostgreSQL_stream_never_carries_page_fields',
     'TestZZPostgresRootPagingOwnershipAudit',
 ]);
+// pg-exec-04: the bounded PostgreSQL preview live battery (PreviewOutput
+// acceptance, the streamRaw root-page loop leg, and the server-wiring
+// fail-close cell) requires the separate PostgreSQL 18 fixture service
+// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
+// server under the ticket check-2 harness (go test ./internal/dataframe/
+// execution -run PostgresPreview; go test ./internal/server -run
+// PostgresPreview); in this Arango-only lane their explicit skips stay
+// visible in the proof summary, following the pg-exec-02/#99 and
+// pg-exec-05/#123 registration precedent.
+const pgExec04Preview = new Set([
+    'TestPostgresPreviewTruncatedAtLimit',
+    'TestPostgresPreviewNaturalExhaustion',
+    'TestPostgresPreviewEmptyScopeNoLeak',
+    'TestPostgresPreviewCancellationNeverComplete',
+    'TestPostgresPreviewDeadlineNeverComplete',
+    'TestPostgresPreviewPublicColumnsCompiledOrder',
+    'TestPostgresPreviewRootPagePreviewPlanNeverCarries',
+    'TestPostgresPreviewMutationControls',
+    'TestPostgresPreviewRootPageLoopProductionRowContract',
+    'TestZZPostgresPreviewZeroLeftoverFixtures',
+    'TestZZPostgresPreviewRootPageZeroLeftoverFixtures',
+    'TestPostgresPreviewServerWiringFailClosesPGPlan',
+    'TestZZPostgresPreviewServerZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -84,6 +108,7 @@ const external = new Set([
     ...dualStore,
     ...pgExecDispatch,
     ...pgExecRootPaging,
+    ...pgExec04Preview,
 ]);
 export const profiles = [
     ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
