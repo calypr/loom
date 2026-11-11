@@ -375,26 +375,32 @@ func TestGroupReducerTableRender(t *testing.T) {
 		`COUNT(DISTINCT `,
 		`MIN(`,
 		`MAX(`,
-		// SUM/MEAN are IEEE-faithful through the calls.go band helper
-		// (coordinator ruling 2026-11-11, Q1): members materialize
-		// through callDoubleOperand and the aggregate is gated to the
-		// registered NULL on IEEE Infinity. The gate is the PG18-safe
-		// comparison form (PG 18 removed the isfinite() family, measured
-		// live 42883): equality against ±Infinity plus NaN's
-		// self-inequality, never a raising call.
-		`SUM((CASE WHEN abs(`,
-		`::double precision`,
-		`CASE WHEN (SUM((CASE WHEN abs(`,
-		`= 'Infinity'::double precision`,
-		`<> ` + `SUM((CASE WHEN abs(`,
-		// MEAN: one division by the shrinking non-null count (denominator
-		// >= 1 whenever a value exists; the zero-value group reads NULL
-		// pre-division).
-		`= 0 OR (SUM((CASE WHEN abs(`,
+		// SUM/MEAN are IEEE-faithful through EXACT numeric accumulation
+		// bounded back to double by the calls.go band helper (coordinator
+		// ruling 2026-11-11 Q1, corrected by verifier F-2: float8 SUM
+		// overflow raises 22003 — sum(1.7e308+1.7e308 — so accumulation
+		// moved to numeric with the F-8 clamp, and the old post-hoc
+		// non-finite gate is GONE; no 'Infinity' comparison may return).
+		`SUM((CASE WHEN `, // the F-8 member clamp inside SUM
+		` > '1e400'::numeric THEN '1e400'::numeric`,
+		`CASE WHEN abs(SUM((CASE WHEN `, // callDoubleOperand band over the exact SUM
+		`::double precision ELSE 0::double precision END ELSE NULL END)`,
+		// MEAN: the bounded DOUBLE sum divided by the pool count over the
+		// numeric read (beyond-bound members counted like AQL's LENGTH);
+		// the zero-value group reads NULL pre-division.
+		` = 0 THEN NULL ELSE (CASE WHEN abs(SUM((CASE WHEN `,
 		`) / (COUNT(`,
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("reducer table is missing %q:\n%s", want, sql)
+		}
+	}
+	// The unreachable post-hoc finiteness gate (verifier F-2) must stay
+	// deleted: a returned 'Infinity' equality would mean float8
+	// accumulation crept back.
+	for _, forbidden := range []string{`'Infinity'::double precision`, `groupDoubleNotFinite`} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("reducer table reintroduced the deleted gate fragment %q:\n%s", forbidden, sql)
 		}
 	}
 	// Text comparisons pin Arango's byte-order total compare.
@@ -455,6 +461,13 @@ func TestGroupIdentityOrderAndBound(t *testing.T) {
 	// The AQL stage sort (keys ASC, :135) plus the terminal identity
 	// order with the registered total refinement (D-13c): keys first,
 	// identity COLLATE "C" last.
+	//
+	// D-13c attribution (verifier F-4, 2026-11-11): PG total-order
+	// refinement on AQL-unspecified sort ties per coordinator ruling
+	// 2026-11-11 — AQL's stage sort (construction_group.go:135) leaves
+	// ties among equal keys unspecified, so PG pins keys ASC NULLS
+	// FIRST and the identity tie-break COLLATE "C" ASC; both live in the
+	// plan and header registers, this is the order-test register.
 	if !strings.HasPrefix(final, ` ORDER BY g.g_k0 COLLATE "C" ASC NULLS FIRST, `) {
 		t.Fatalf("final order must start with the key sort:\n%s", final)
 	}
@@ -549,13 +562,19 @@ func TestGroupInputManyRender(t *testing.T) {
 	// row-level IS_ARRAY witness at the g_rows position
 	// (row_values.go:79-83 parity, CONSTRUCTION_ROW_VALUE_TYPE_MISMATCH).
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
-	appendGroup13ManyRowValue(t, &plan, "ALL")
+	appendGroup13ManyRowValue(t, &plan, "ALL", "STRING")
 	sql := renderOK(t, plan).SQL
 	for _, want := range []string{
 		` AS (SELECT `,
 		` FROM g_rows, LATERAL jsonb_array_elements(`,
 		`) _rv(item) WHERE `,
-		` IS NOT NULL AND (CASE WHEN COALESCE(NULLIF((_rv.item), 'null'::jsonb) IS NULL OR jsonb_typeof(NULLIF((_rv.item), 'null'::jsonb)) =`,
+		// Verifier F-3 (2026-11-11): the null filter rides at the JSONB
+		// level — `WHERE NULLIF((_rv.item), 'null'::jsonb) IS NOT NULL`
+		// — never the typed member read. Conjuncts carry no cast, so the
+		// typeof guard is the only raise source in the WHERE regardless
+		// of conjunct evaluation order (a mistyped DECIMAL member must
+		// read the tagged 22P02, not a raw cast error).
+		` WHERE NULLIF((_rv.item), 'null'::jsonb) IS NOT NULL AND (CASE WHEN COALESCE(NULLIF((_rv.item), 'null'::jsonb) IS NULL OR jsonb_typeof(NULLIF((_rv.item), 'null'::jsonb)) =`,
 		` THEN 1 ELSE CAST('` + groupValueTypeTag + `'`,
 		` GROUP BY 1`,
 		`AS m_pool`,
@@ -571,7 +590,7 @@ func TestGroupInputManyRender(t *testing.T) {
 		}
 	}
 	onePlan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
-	appendGroup13ManyRowValue(t, &onePlan, "ONE")
+	appendGroup13ManyRowValue(t, &onePlan, "ONE", "STRING")
 	oneSQL := renderOK(t, onePlan).SQL
 	for _, want := range []string{
 		`COUNT(DISTINCT `,
@@ -590,7 +609,11 @@ func TestGroupInputManyRender(t *testing.T) {
 // row value (the group_row_value_preview_test.go template): the source
 // RETURN gains one jsonb array projection named "values" and the stage
 // gains its ALL/ONE row value over it.
-func appendGroup13ManyRowValue(t *testing.T, plan *ir.PhysicalPlan, policy string) {
+// inputKind is the row-value InputKind (STRING/INTEGER/DECIMAL/BOOLEAN);
+// the source/output column kinds follow it (verifier F-3 cells need the
+// DECIMAL pool, whose mistyped-member raise the guard-before-cast law
+// tags).
+func appendGroup13ManyRowValue(t *testing.T, plan *ir.PhysicalPlan, policy, inputKind string) {
 	t.Helper()
 	returnIndex := -1
 	for i, operation := range plan.Operations {
@@ -610,9 +633,15 @@ func appendGroup13ManyRowValue(t *testing.T, plan *ir.PhysicalPlan, policy strin
 			Kind: ir.PhysicalValueExpression, Cardinality: ir.PhysicalArrayCardinality,
 			NullBehavior: ir.PhysicalPreserveNull, Value: &arrayValue,
 		}})
+	columnKind := map[string]string{
+		"STRING": "string", "INTEGER": "integer", "DECIMAL": "decimal", "BOOLEAN": "boolean",
+	}[inputKind]
+	if columnKind == "" {
+		t.Fatalf("unknown row-value input kind %q", inputKind)
+	}
 	stage := &plan.StageSequence.Stages[0]
 	stage.Group.RowValues = []ir.PhysicalStageRowValue{{
-		InputColumn: "values", InputKind: "STRING", InputMany: true,
+		InputColumn: "values", InputKind: inputKind, InputMany: true,
 		Output: "values_set", Policy: policy, Variable: "values_set",
 	}}
 	// The ir cross-checks the row-value input against the stage's input
@@ -620,7 +649,7 @@ func appendGroup13ManyRowValue(t *testing.T, plan *ir.PhysicalPlan, policy strin
 	// template registers all sites): the source column enters the
 	// sequence schema, the stage input schema, and the stage's input
 	// projection list together.
-	sourceColumn := ir.PhysicalStageColumn{ID: "values-source", Name: "values", Kind: "string", Cardinality: "many"}
+	sourceColumn := ir.PhysicalStageColumn{ID: "values-source", Name: "values", Kind: columnKind, Cardinality: "many"}
 	plan.StageSequence.SourceColumns = append(plan.StageSequence.SourceColumns, sourceColumn)
 	stage.InputColumns = append(stage.InputColumns, sourceColumn)
 	stage.InputProjections = append(stage.InputProjections,
@@ -631,7 +660,7 @@ func appendGroup13ManyRowValue(t *testing.T, plan *ir.PhysicalPlan, policy strin
 	if policy == "ONE" {
 		cardinality = "optional_one"
 	}
-	column := ir.PhysicalStageColumn{ID: "values-set-output", Name: "values_set", Kind: "string", Cardinality: cardinality, Nullable: policy == "ONE"}
+	column := ir.PhysicalStageColumn{ID: "values-set-output", Name: "values_set", Kind: columnKind, Cardinality: cardinality, Nullable: policy == "ONE"}
 	stage.OutputColumns = append(stage.OutputColumns, column)
 	plan.StageSequence.FinalColumns = append(plan.StageSequence.FinalColumns, column)
 	stage.OutputProjections = append(stage.OutputProjections,
@@ -841,7 +870,7 @@ func TestGroupRefusalRegister(t *testing.T) {
 			plan.StageSequence.Stages[0].Group.Aggregates[0].Operation = "MEDIAN"
 		}, "unsupported aggregate operation"},
 		{"L-13.12-row-value-policy", func(t *testing.T, plan *ir.PhysicalPlan) {
-			appendGroup13ManyRowValue(t, plan, "MANY")
+			appendGroup13ManyRowValue(t, plan, "MANY", "STRING")
 		}, "has unsupported policy"},
 		{"L-13.3-semantic-key", func(t *testing.T, plan *ir.PhysicalPlan) {
 			plan.StageSequence.Stages[0].Group.SemanticKey = &ir.PhysicalStageGroupSemanticKey{
@@ -888,7 +917,7 @@ func TestGroupRefusalRegister(t *testing.T) {
 			}
 		}, "hidden or field-sourced input surface"},
 		{"L-13.11-row-value-field-source", func(t *testing.T, plan *ir.PhysicalPlan) {
-			appendGroup13ManyRowValue(t, plan, "ALL")
+			appendGroup13ManyRowValue(t, plan, "ALL", "STRING")
 			plan.StageSequence.Stages[0].Group.RowValues[0].FieldSource = &ir.PhysicalStageGroupFieldSource{
 				Kind: ir.PhysicalStageGroupFieldSourceCurrentStage,
 			}
@@ -1584,7 +1613,7 @@ func TestGroupLiveRowValueInputMany(t *testing.T) {
 	group13Insert(t, svc, "mn-b", group13Project, group13Generation, group13AuthPath, map[string]any{"status": "many", "values": []any{"c"}})
 
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
-	appendGroup13ManyRowValue(t, &plan, "ALL")
+	appendGroup13ManyRowValue(t, &plan, "ALL", "STRING")
 	rendered := group13RenderSvc(t, svc, plan)
 	rows := svc.runRendered(t, rendered)
 	// Columns follow FinalColumns order: status_group, rows, identity,
@@ -1598,6 +1627,167 @@ func TestGroupLiveRowValueInputMany(t *testing.T) {
 	// g_rows row position (row_values.go:79-83 IS_ARRAY parity).
 	group13Insert(t, svc, "mn-c", group13Project, group13Generation, group13AuthPath, map[string]any{"status": "many", "values": "oops"})
 	group13ExpectRaise(t, svc, rendered, groupValueTypeTag)
+}
+
+// TestGroupLiveRowValueInputManyDecimal pins the verifier F-3 repair
+// (2026-11-11 relay): the DECIMAL pool's mistyped-member raise must
+// carry CONSTRUCTION_GROUP_VALUE_TYPE_MISMATCH. The old pool WHERE put
+// the member's ::numeric cast in the null-filter conjunct; PG gives no
+// left-to-right guarantee between conjuncts, so a raw 22P02 could win
+// the race against the typeof guard. The WHERE now carries no cast at
+// all (the null filter rides at the jsonb level, matching the STRING
+// pool's already-safe shape), so the guard is the only raise source.
+func TestGroupLiveRowValueInputManyDecimal(t *testing.T) {
+	svc := newGroup13Service(t)
+	group13TrackFixtures(t, svc)
+	group13Insert(t, svc, "dm-a", group13Project, group13Generation, group13AuthPath,
+		map[string]any{"status": "pool", "values": []any{1, 2, 2}})
+	group13Insert(t, svc, "dm-b", group13Project, group13Generation, group13AuthPath,
+		map[string]any{"status": "pool", "values": []any{3}})
+
+	allPlan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
+	appendGroup13ManyRowValue(t, &allPlan, "ALL", "DECIMAL")
+	rows := svc.runRendered(t, group13RenderSvc(t, svc, allPlan))
+	if len(rows) != 1 || rows[0][3] != `[1 2 3]` {
+		t.Fatalf("DECIMAL ALL pool must dedupe and sort numerically: %v", rows)
+	}
+
+	// F-3 cell: a string member inside a DECIMAL pool raises the TAGGED
+	// value-type 22P02 (guard decides; the cast never runs for it),
+	// never a raw cast error — group13ExpectRaise asserts both the tag
+	// and the SQLSTATE.
+	group13Insert(t, svc, "dm-c", group13Project, group13Generation, group13AuthPath,
+		map[string]any{"status": "pool", "values": []any{1, "oops"}})
+	group13ExpectRaise(t, svc, group13RenderSvc(t, svc, allPlan), groupValueTypeTag)
+
+	// The ONE pool rides the same cast-free WHERE; a clean pool renders
+	// its single value.
+	oneSvc := newGroup13Service(t)
+	group13TrackFixtures(t, oneSvc)
+	group13Insert(t, oneSvc, "dn-a", group13Project, group13Generation, group13AuthPath,
+		map[string]any{"status": "pool", "values": []any{7}})
+	onePlan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
+	appendGroup13ManyRowValue(t, &onePlan, "ONE", "DECIMAL")
+	oneRows := oneSvc.runRendered(t, group13RenderSvc(t, oneSvc, onePlan))
+	if len(oneRows) != 1 || oneRows[0][3] != "7" {
+		t.Fatalf("DECIMAL ONE pool must read the single numeric value: %v", oneRows)
+	}
+}
+
+// TestGroupLiveDoubleSumOverflow pins the verifier F-2 repair (2026-11-11
+// relay). The old design accumulated float8 and gated non-finite sums
+// post-hoc — unreachable: PG18.6 raises 22003 the moment the RUNNING
+// float8 SUM overflows (the isolated repro SUM of two 1.7e308 members,
+// fault-controlled below), while every member is finite and passes the
+// member-level band; AQL's IEEE double sum reads Infinity, JSON-invalid
+// → null (operators.md 259-262), so PG aborted where AQL answered.
+// Accumulation is now EXACT in numeric (F-8-clamped members — the clamp
+// is inert for double-representable values), bounded back to double by
+// callDoubleOperand, so every arm is raise-free and the reading matches
+// the IEEE model (Arango stores JSON numbers as IEEE-754 doubles; JS
+// numbers == IEEE-754 doubles == the Go float64 arithmetic cited here).
+func TestGroupLiveDoubleSumOverflow(t *testing.T) {
+	svc := newGroup13Service(t)
+	group13TrackFixtures(t, svc)
+
+	// Fault control (156's class is real on this PG18.6): the raw float8
+	// overflow raises 22003 — this is what the old reducer form inherited.
+	conn, err := svc.iso.Acquire(svc.ctx)
+	if err != nil {
+		t.Fatalf("acquire pinned connection: %v", err)
+	}
+	_, err = conn.Exec(svc.ctx,
+		`SELECT SUM(x) FROM (VALUES ('1.7e308'::double precision), ('1.7e308'::double precision)) v(x)`)
+	if err == nil || !strings.Contains(err.Error(), "22003") {
+		conn.Release()
+		t.Fatalf("fault control: float8 SUM overflow must raise 22003 on PG18.6, got %v", err)
+	}
+	conn.Release()
+
+	// Fixtures: "pair" is the isolated repro (two 1.7e308); "crowd" is
+	// member-vs-cumulative (twenty 1e307 — every member finite, the
+	// sum overflows at the eighteenth add: 1.8e308 > DBL_MAX); "kept"
+	// stays finite (two 1e307 → 2e307, mean 1e307).
+	fixture := group13Fixture{
+		policy: recipe.ConstructionGroupMissingKeyGroup,
+		keys: []recipe.ConstructionGroupKey{
+			{InputColumnID: "status", OutputColumnID: "status_group"},
+		},
+		aggregates: []recipe.ConstructionGroupAggregate{
+			{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"},
+			{Operation: recipe.ConstructionGroupSum, InputColumnID: "value", OutputColumnID: "sum_id"},
+			{Operation: recipe.ConstructionGroupMean, InputColumnID: "value", OutputColumnID: "mean_id"},
+		},
+		outputs: []recipe.StageColumn{
+			{ID: "status_group", Name: "status_group", Type: "string", Nullable: true},
+			{ID: "rows_id", Name: "rows", Type: "integer"},
+			{ID: "sum_id", Name: "total", Type: "decimal", Nullable: true},
+			{ID: "mean_id", Name: "mean", Type: "decimal", Nullable: true},
+		},
+	}
+	plan := group13LoweredPlan(t, fixture)
+	for i := 0; i < 2; i++ {
+		group13Insert(t, svc, fmt.Sprintf("ovf-p%d", i), group13Project, group13Generation, group13AuthPath, group13ValueRow("pair", 1.7e308))
+	}
+	for i := 0; i < 20; i++ {
+		group13Insert(t, svc, fmt.Sprintf("ovf-c%d", i), group13Project, group13Generation, group13AuthPath, group13ValueRow("crowd", 1e307))
+	}
+	for i := 0; i < 2; i++ {
+		group13Insert(t, svc, fmt.Sprintf("ovf-k%d", i), group13Project, group13Generation, group13AuthPath, group13ValueRow("kept", 1e307))
+	}
+
+	rendered := group13RenderSvc(t, svc, plan)
+
+	// F-11 law (pg-sql-10 fold-barrier): EXPLAIN — the plan-time leg —
+	// completes under BOTH plan_cache_modes before any execution: no arm
+	// of the bounded accumulator folds into a raising constant.
+	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
+		conn, err := svc.iso.Acquire(svc.ctx)
+		if err != nil {
+			t.Fatalf("acquire pinned connection: %v", err)
+		}
+		if _, err := conn.Exec(svc.ctx, "SET plan_cache_mode = "+mode); err != nil {
+			conn.Release()
+			t.Fatalf("pin plan_cache_mode %s: %v", mode, err)
+		}
+		args := make([]any, len(rendered.Args))
+		for i, parameter := range rendered.Args {
+			args[i] = parameter.Value
+		}
+		if _, err := conn.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, args...); err != nil {
+			conn.Release()
+			t.Fatalf("plan-time EXPLAIN raised under %s: %v", mode, err)
+		}
+		conn.Release()
+	}
+
+	// AQL ALIVE parity (Go float64 IS the IEEE model): 1.7e308+1.7e308
+	// = +Inf → JSON-invalid → null; 20×1e307 overflows → null; the
+	// shrinking division after an Infinity sum stays Infinity → null;
+	// the finite group reads the exact IEEE values 2e307 and 1e307.
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 3 {
+		t.Fatalf("three groups expected: %v", rows)
+	}
+	want := map[string][]string{"crowd": {"20", "<null>", "<null>"}, "kept": {"2", "2e+307", "1e+307"}, "pair": {"2", "<null>", "<null>"}}
+	for _, row := range rows {
+		w, ok := want[row[0]]
+		if !ok {
+			t.Fatalf("unexpected group %q", row[0])
+		}
+		if row[1] != w[0] || row[2] != w[1] || row[3] != w[2] {
+			// The numeric SUM reads canonical decimal text; accept the
+			// IEEE value by parse (2e307 is the exact IEEE reading).
+			sumVal, sumErr := strconv.ParseFloat(row[2], 64)
+			meanVal, meanErr := strconv.ParseFloat(row[3], 64)
+			if w[0] == "2" && (sumErr != nil || meanErr != nil || sumVal != 2e307 || meanVal != 1e307) {
+				t.Fatalf("group %s = %v, want %v", row[0], row, w)
+			}
+			if w[0] != "2" {
+				t.Fatalf("group %s = %v, want %v", row[0], row, w)
+			}
+		}
+	}
 }
 
 func TestGroupLiveKeylessGrandTotal(t *testing.T) {

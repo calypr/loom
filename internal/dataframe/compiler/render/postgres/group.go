@@ -61,16 +61,24 @@ package postgres
 //     The empty-group split is live-pinned per reducer:
 //     COUNT_ROWS/COUNT_NON_NULL/COUNT_DISTINCT read 0,
 //     SUM/MIN/MAX/MEAN read NULL. SUM and MEAN are IEEE-FAITHFUL per the
-//     coordinator ruling 2026-11-11 (Q1): members materialize through the
-//     calls.go band helper callDoubleOperand (overflow->NULL,
-//     underflow->0 registered arms), SUM is the float8 aggregate gated
-//     non-finite to the registered NULL through non-raising comparisons
-//     (±Infinity equality, NaN self-inequality — PG 18 removed the
-//     isfinite() family, measured live 42883; IEEE Infinity reads
-//     JSON-invalid -> null, operators.md 259-262 agreement), and MEAN divides the double
-//     sum by the shrinking count division (denominator >= 1 in a
-//     value-bearing group; the zero-value group reads NULL pre-division) —
-//     never a raising numeric divide. MIN/MAX/COUNT_DISTINCT and the
+//     coordinator ruling 2026-11-11 (Q1) as corrected by verifier F-2
+//     (2026-11-11: float8 SUM overflow raises 22003 on PG18.6 — isolated
+//     repro sum(1.7e308 + 1.7e308); a post-hoc finiteness gate can never
+//     decide, because every MEMBER is finite while the running SUM
+//     overflows): members accumulate EXACTLY in numeric, each magnitude
+//     capped by the calls.go F-8 clamp so the numeric addition itself can
+//     never leave the storable domain (PG18 raises 22003 on a numeric
+//     RESULT overflow even between storable operands), and the exact sum
+//     is bounded back to double through the calls.go band helper
+//     callDoubleOperand — magnitudes at or beyond the IEEE-overflow bound
+//     read the registered NULL (IEEE Infinity reads JSON-invalid -> null,
+//     operators.md 259-262 agreement with AQL), magnitudes below the
+//     subnormal floor read the registered 0. MEAN divides the bounded
+//     DOUBLE sum by the pool count over all non-null members (AQL's
+//     Infinity/n -> null rides as NULL/n -> NULL; the denominator counts
+//     beyond-bound members like AQL's LENGTH) — never a raising numeric
+//     divide: the quotient cannot overflow (|sum| < DBL_MAX, count >= 1)
+//     and PG18 flushes an underflowing double quotient to 0. MIN/MAX/COUNT_DISTINCT and the
 //     row-value sets compute in the numeric/text/bool domain where jsonb
 //     preserves decimal text; oracle agreement with Arango's double-domain
 //     compare is claimed for double-exactly-representable fixture values
@@ -1096,33 +1104,54 @@ func (r *planRenderer) groupAggregateExpression(aggregate ir.PhysicalStageGroupA
 	case "MAX":
 		return "MAX(" + typedRead + collate + ")", nil
 	case "SUM":
-		// IEEE-faithful (coordinator ruling 2026-11-11 Q1): members
-		// through the calls.go band helper; overflow reads the registered
-		// NULL (IEEE Infinity is JSON-invalid, operators.md 259-262).
-		sum := "SUM(" + callDoubleOperand(groupNumericRead(column, aggregate.InputKind)) + ")"
-		return "CASE WHEN " + groupDoubleNotFinite(sum) + " THEN NULL ELSE " + sum + " END", nil
+		// IEEE-faithful (coordinator ruling 2026-11-11 Q1, corrected by
+		// verifier F-2 2026-11-11): accumulate EXACTLY in numeric, then
+		// bound the exact sum back to double through the calls.go band
+		// helper. The previous design summed float8 and gated non-finite
+		// sums post-hoc — unreachable, because PG18.6 raises 22003 the
+		// moment the running float8 SUM overflows (sum(1.7e308+1.7e308))
+		// while every member is finite and passes the member-level gate.
+		return groupBoundedDoubleSum(column, aggregate.InputKind), nil
 	case "MEAN":
-		// SUM(values)/LENGTH(values) over the non-null pool: the double
-		// sum divided by the shrinking count (denominator >= 1 whenever a
-		// value exists; the zero-value group reads NULL pre-division;
-		// IEEE Infinity reads the registered NULL).
-		sum := "SUM(" + callDoubleOperand(groupNumericRead(column, aggregate.InputKind)) + ")"
-		return "CASE WHEN COUNT(" + typedRead + ") = 0 OR " + groupDoubleNotFinite(sum) + " THEN NULL ELSE " +
-			sum + " / (COUNT(" + typedRead + "))::double precision END", nil
+		// SUM(pool)/LENGTH(pool): AQL divides the DOUBLE sum, so the
+		// division runs on the bounded double — an overflowing exact sum
+		// already read the registered NULL and NULL divided stays NULL
+		// (AQL's Infinity/n reads Infinity -> invalid -> null). The
+		// denominator counts the whole pool (every non-null member,
+		// beyond-bound members included, like AQL's LENGTH; the
+		// consumer-side type witness already refused mistyped members at
+		// the g_rows WHERE). Denominator >= 1 whenever a value exists;
+		// the zero-value group reads NULL pre-division. The quotient
+		// cannot overflow (|sum| < DBL_MAX, count >= 1) and PG18 flushes
+		// an underflowing double quotient to 0 without raising — IEEE's
+		// own reading.
+		sum := groupBoundedDoubleSum(column, aggregate.InputKind)
+		poolCount := "COUNT(" + groupNumericRead(column, aggregate.InputKind) + ")"
+		return "CASE WHEN " + poolCount + " = 0 THEN NULL ELSE " +
+			sum + " / (" + poolCount + ")::double precision END", nil
 	}
 	return "", fmt.Errorf("%w: aggregate %q is not a registered reducer", ErrUnsupportedPostgresPlan, string(aggregate.Operation))
 }
 
-// groupDoubleNotFinite is the PG18-safe finiteness test for the IEEE
-// SUM/MEAN gate: the isfinite() function family was REMOVED in PG 18
-// (measured live: function isfinite(double precision) does not exist,
-// 42883), so a non-finite float8 sum is recognized by comparisons that
-// never raise — ±Infinity by equality and NaN by self-inequality. This
-// mirrors how calls.go's band gates answer non-finiteness without
-// isfinite (comparison caps, F-8).
-func groupDoubleNotFinite(expression string) string {
-	return "(" + expression + " = 'Infinity'::double precision OR " + expression +
-		" = '-Infinity'::double precision OR " + expression + " <> " + expression + ")"
+// groupBoundedDoubleSum renders the IEEE-faithful SUM/MEAN accumulator
+// (verifier F-2 fix, coordinator relay 2026-11-11): the exact numeric
+// SUM of F-8-clamped members, bounded back to double by the calls.go
+// band helper. Exactness matters twice: float8 SUM raises 22003 on
+// cumulative overflow (the F-2 repro), and PG18 also raises when a
+// NUMERIC RESULT leaves the storable domain between storable operands
+// (the F-8 probes) — so each member's magnitude is capped at
+// callBandOperandClamp before the addition. The cap is inert for every
+// double-representable member (it sits 10^92 above the IEEE pass
+// boundary), so pass verdicts are exact; groups containing beyond-cap
+// members (JSON numbers AQL's own double storage cannot hold) read the
+// registered NULL where IEEE's Infinity speaks, and cancellation of
+// beyond-cap members back into the double band is the registered gray
+// arm (the calls.go F-8 precedent: every clamped pair takes a
+// registered arm; IEEE's Infinity reading agrees where it speaks).
+// callDoubleOperand's CAST sits inside the abs < overflow-bound band,
+// so no arm of the rendered expression can raise.
+func groupBoundedDoubleSum(column *groupColumn, kind string) string {
+	return callDoubleOperand("SUM(" + callBandOperandClamp(groupNumericRead(column, kind)) + ")")
 }
 
 // groupNumericRead renders the numeric-domain member read consumed by the
@@ -1232,9 +1261,19 @@ func (r *planRenderer) groupManyRowValuePoolFor(policy, kind string, column *gro
 	typeofTag := map[string]string{"STRING": "string", "INTEGER": "number", "DECIMAL": "number", "BOOLEAN": "boolean"}[kind]
 	itemNull := "NULLIF((_rv.item), 'null'::jsonb)"
 	typeBind := r.textParameter(typeofTag, "text:typeof:"+typeofTag)
+	// The WHERE carries NO typed read: PG gives no left-to-right
+	// guarantee between conjuncts, so the member's ::numeric/::boolean
+	// cast inside the old null filter could evaluate before the typeof
+	// guard and raise a raw 22P02 without the registered tag (verifier
+	// F-2026-11-11 F-3). The null filter rides at the jsonb level
+	// (NULLIF — identical pool for every kind: the #>>/cast of a
+	// non-null jsonb member is never NULL, and a mistyped member raises
+	// only through the guard), matching the STRING pool's already-safe
+	// cast-free shape; the aggregates over memberRead then see only
+	// guard-passed rows, where the cast cannot raise.
 	selectText = "SELECT " + strings.Join(selects, ", ") +
 		" FROM g_rows, LATERAL jsonb_array_elements(" + groupNullRead(column) + ") _rv(item)" +
-		" WHERE " + memberRead + " IS NOT NULL AND (CASE WHEN COALESCE(" + itemNull +
+		" WHERE " + itemNull + " IS NOT NULL AND (CASE WHEN COALESCE(" + itemNull +
 		" IS NULL OR jsonb_typeof(" + itemNull + ") = " + dollar(typeBind) + "::text, false) THEN 1 ELSE " +
 		guardCast(groupValueTypeTag) + " END) > 0"
 	if len(keyReads) > 0 {
