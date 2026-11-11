@@ -101,12 +101,23 @@
 // ASSERT position), per-root DISTINCT tuple dedup with COUNT(*) over
 // contributing roots, the renderer-composed JSON-compact stable identity
 // ordered COLLATE "C" under the bound preview limit (the AQL terminal
-// identity-sort semantics, stage_sequence.go:399-448). Endpoint-lookup
+// identity-sort semantics, stage_sequence.go:399-448). The grouped pivot
+// (GROUPED_PIVOT and its inline single-stage CODED_PIVOT construction shape,
+// pg-sql-14) is registered in pivot.go as its own closed plan slice with one
+// cell-and-identity core behind two whole-plan doors: the spine reshape —
+// one direct root scan carrying the canonical scope filters and the canonical
+// AUTH_RESOURCE_PATH_ALLOWED let through the untouched spine arms, the
+// registered pivot, and the reshaped execution window (stable-row SORT then
+// LIMIT, the ir reshaped-window guard re-read) — and the coded-category
+// stage, whose AQL value chain (owner expansion, the (system, code) match on
+// one Coding item, the INVALID_CHOICE_ARM assert on matched owners, and the
+// FIRST-over-candidates value fallback) renders as guarded jsonb LATERAL
+// relations. Endpoint-lookup
 // traversals,
 // repeated/indexed selector predicates, correlated predicates,
 // CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
 // outside the two registered correlated shapes, group rows,
-// pivots, unpivots coexisting with filters, traversals, or unnests, every
+// unpivots coexisting with filters, traversals, or unnests, every
 // other stage sequence (composed stage sequences are pg-sql-16; coded-group
 // row values are pg-sql-13), and ClickHouse payloads are capability gaps
 // that return typed errors.
@@ -195,6 +206,17 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if codedGroupPlanMentionsStage(plan) {
 		return renderCodedGroupPhysicalPlan(plan, storage)
 	}
+	// Whole-plan coded-pivot delegation (pivot.go contract, pg-sql-14):
+	// the inline single-stage CODED_PIVOT construction sequence is
+	// rendered WHOLE by the registered slice — the structural twin of the
+	// coded-group door above, with validateGroupedCodedPivotPlanSurface as
+	// the single contract behind the door. The door keys on stage payload
+	// presence (CodedCorrelation != nil), so a single-stage NON-coded
+	// construction PIVOT never enters it and the merged StageSequence
+	// refusal below stays byte-identical for that shape.
+	if groupedPivotStagePlanMentionsSurface(plan) {
+		return renderGroupedCodedPivotPhysicalPlan(plan, storage)
+	}
 	// Full-backstop defense in depth (unnest.go contract): a plan that
 	// mentions UNNEST is pinned to the registered slice as the first
 	// plan-facing act here, before plan validation, scope loading, or any
@@ -225,6 +247,22 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 				return command.RenderedPostgresPhysicalPlan{}, err
 			}
 			break
+		}
+	}
+	// Whole-plan scalar-pivot delegation (pivot.go contract, pg-sql-14):
+	// any plan mentioning a GROUPED_PIVOT operation is rendered WHOLE by
+	// the registered spine slice, which owns its WITH/SELECT assembly
+	// exactly as coded_group.go does — the flat assemble() cannot express
+	// GROUP BY. Unlike the unpivot-style validate-then-break spelling
+	// above, the door therefore RETURNS the whole-plan renderer on the
+	// first pivot operation: the pivot renders no spine arm at all, and
+	// validateGroupedPivotPlanSurface inside renderGroupedPivotPhysicalPlan
+	// stays the single contract, refusing every non-slice plan with a
+	// typed gap; the default-arm refusal remains byte-identical for every
+	// plan without a pivot operation.
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalGroupedPivotOp {
+			return renderGroupedPivotPhysicalPlan(plan, storage)
 		}
 	}
 	if err := plan.Validate(); err != nil {

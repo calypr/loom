@@ -436,7 +436,7 @@ func TestRenderRejectsUnsupportedSurfaceWithTypedErrors(t *testing.T) {
 			p.Operations = append(p.Operations[:1],
 				ir.PhysicalOperation{Kind: ir.PhysicalCollectionScanOp, CollectionScan: &ir.PhysicalCollectionScan{}}, p.Operations[1])
 		}},
-		{"grouped pivot", false, func(p *ir.PhysicalPlan) {
+		{"grouped pivot", true, func(p *ir.PhysicalPlan) {
 			p.Operations = append(p.Operations[:1],
 				ir.PhysicalOperation{Kind: ir.PhysicalGroupedPivotOp, GroupedPivot: &ir.PhysicalGroupedPivot{}}, p.Operations[1])
 		}},
