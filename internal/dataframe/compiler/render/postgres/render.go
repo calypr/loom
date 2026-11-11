@@ -87,13 +87,29 @@
 // root row or a sets.go-validated child set (production compact-
 // projection Extract.Prepared annotations resolve against that set's
 // registered projection slots; everything else keeps the cited verbatim
-// refusal), and recursion capped at depth 4. Endpoint-lookup traversals,
+// refusal), and recursion capped at depth 4. The coded Group tuple
+// (CODED_GROUP, pg-sql-19) is registered in coded_group.go as its own
+// closed plan slice: the inline single-stage shape lowers — one direct
+// root scan with the canonical scope block and the spine's renderable
+// source operations, and one authored CODED_GROUP stage — renders as one
+// WITH statement: the guarded jsonb_array_elements expansion (AQL
+// null/IS_ARRAY guard parity, the zero-item [null] candidate kept by LEFT
+// JOIN), the total validity predicate with the space-only trim set of the
+// ONE codedGroupTrimCharacters constant, the GROUP/EXCLUDE/ERROR
+// missing-key policies (ERROR raising CONSTRUCTION_CODED_GROUP_MISSING_KEY
+// per candidate through population.go's guardCast barrier at the AQL
+// ASSERT position), per-root DISTINCT tuple dedup with COUNT(*) over
+// contributing roots, the renderer-composed JSON-compact stable identity
+// ordered COLLATE "C" under the bound preview limit (the AQL terminal
+// identity-sort semantics, stage_sequence.go:399-448). Endpoint-lookup
+// traversals,
 // repeated/indexed selector predicates, correlated predicates,
 // CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
 // outside the two registered correlated shapes, group rows,
-// pivots, unpivots coexisting with filters, traversals, or unnests, stage
-// sequences, and ClickHouse payloads are capability gaps that return typed
-// errors.
+// pivots, unpivots coexisting with filters, traversals, or unnests, every
+// other stage sequence (composed stage sequences are pg-sql-16; coded-group
+// row values are pg-sql-13), and ClickHouse payloads are capability gaps
+// that return typed errors.
 package postgres
 
 import (
@@ -168,6 +184,16 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	// spine below exactly as merged.
 	if graphPlanMentionsPathOperations(plan) {
 		return renderGraphPhysicalPlan(plan, storage)
+	}
+	// Whole-plan coded-group delegation (coded_group.go contract,
+	// pg-sql-19): a plan whose stage sequence mentions a CODED_GROUP stage
+	// is rendered WHOLE by the registered slice — the structural twin of
+	// the graph door above, with validateCodedGroupPlanSurface as the
+	// single contract behind the door. No spine arm ever sees a
+	// construction stage, and every other stage sequence reaches the
+	// untouched StageSequence refusal below.
+	if codedGroupPlanMentionsStage(plan) {
+		return renderCodedGroupPhysicalPlan(plan, storage)
 	}
 	// Full-backstop defense in depth (unnest.go contract): a plan that
 	// mentions UNNEST is pinned to the registered slice as the first

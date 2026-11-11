@@ -35,13 +35,22 @@ import (
 // (objects_test.go obj11RunDeltaAudit) wraps that quartet around the run
 // over its own disjoint obj11_it_* namespace — and asserts the namespace
 // starts empty, since this ticket owns the prefix alone (ruling D5).
+// pg-sql-19's delta-scoped audit (coded_group_test.go
+// coded19RunDeltaAudit) wraps the whole chain around the run over its own
+// disjoint coded19_it_* namespace. pg-sql-19's hook is declared the 6th in
+// the composed chain (outermost; merge order
+// sets08→unp→graph20→obj11→coded19 — sql10 has not landed), so a conflict
+// here is a seam in the wrapping text only: every hook keeps its own
+// namespace and none audits another's.
 // The verify_* prefixes are audited through one parameterized helper:
 // verify_sql05_ (pg-sql-05) and verify_sql10v7_ (calls_live_test.go,
 // pg-sql-10 round-7 namespace; the verify_sql10_ audit is kept because
 // the unescaped LIKE would flag any regression to the round-6 prefix).
 func TestMain(m *testing.M) {
-	code := obj11RunDeltaAudit(func() int {
-		return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	code := coded19RunDeltaAudit(func() int {
+		return obj11RunDeltaAudit(func() int {
+			return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+		})
 	})
 	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_"} {
 		if err := auditNoLeftoverVerifyNamespace(prefix); err != nil {
