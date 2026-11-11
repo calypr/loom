@@ -668,7 +668,12 @@ func TestSQL16RelatedOccurrenceRefusals(t *testing.T) {
 		}, "ANY-direction"},
 		{"traversal-endpoint-lookup", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
 			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[6].Traversal.Strategy = ir.PhysicalTraversalEndpointLookup
-		}, "endpoint-lookup"},
+		}, "endpoint-lookup traversal payload is incomplete"},
+		{"endpoint-lookup-join-field-missing", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			traversal := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[6].Traversal
+			traversal.Strategy = ir.PhysicalTraversalEndpointLookup
+			traversal.EndpointField = "subject"
+		}, "payload is incomplete"},
 		{"edge-bind-drift", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
 			p.BindVars["ro_edge_collection"] = "fhir_edge_two"
 		}, "must be bound to \"fhir_edge\""},
@@ -804,5 +809,37 @@ func TestSQL16RelatedOccurrenceContributorFilter(t *testing.T) {
 	}
 	if raw, ok := renderer.args[7].Value.(json.RawMessage); !ok || string(raw) != `"final"` {
 		t.Fatalf("contributor value argument = %#v, want jsonb \"final\"", renderer.args[7].Value)
+	}
+}
+
+// The endpoint-lookup strategy is a planner label: a fully named payload
+// (the shape the default optimization policy emits, lower/traversal.go:143
+// -147) must render byte-identically to the native join — the registered
+// PostgreSQL posture normalizes it (graph.go:340-349 +
+// graph20NativeStrategyTraversal precedent) instead of refusing a plan the
+// production channel emits for every default-policy compile.
+func TestSQL16RelatedOccurrenceEndpointLookupEquivalence(t *testing.T) {
+	plan, stage, facts := sql16roFixture(t)
+	baseline, baselineRenderer := sql16roRender(t, plan, stage, "__loom_stage_0", facts)
+	traversal := stage.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[6].Traversal
+	if traversal.Strategy != ir.PhysicalTraversalNative {
+		t.Fatalf("fixture hop is not native: %q", traversal.Strategy)
+	}
+	traversal.Strategy = ir.PhysicalTraversalEndpointLookup
+	traversal.EndpointField = "subject"
+	traversal.EndpointJoinField = "logical_id"
+	traversal.EndpointIndexFields = []string{"project", "dataset_generation"}
+	endpoint, endpointRenderer := sql16roRender(t, plan, stage, "__loom_stage_0", facts)
+	if endpoint.sourceText != baseline.sourceText {
+		t.Fatalf("endpoint-lookup normalization changed the statement:\n%s\n---\n%s", endpoint.sourceText, baseline.sourceText)
+	}
+	if len(endpoint.columns) != len(baseline.columns) || len(endpointRenderer.args) != len(baselineRenderer.args) {
+		t.Fatalf("endpoint-lookup normalization changed the column/arg shape: %d/%d vs %d/%d",
+			len(endpoint.columns), len(endpointRenderer.args), len(baseline.columns), len(baselineRenderer.args))
+	}
+	for name, column := range baseline.columns {
+		if other, ok := endpoint.columns[name]; !ok || other.expr != column.expr {
+			t.Fatalf("adapter column %q drifted under normalization", name)
+		}
 	}
 }
