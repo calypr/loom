@@ -971,6 +971,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
 	}, explorerService, lifecycleConfig)
+	explorerHandlers.defaultViewer = newRepositoryDefaultViewer(lifecycleStore, publishedRegistry, recipeRegistry, scopeResolver, configuredRecipeName)
 	explorerHandlers.constructionInputs = constructionInputsCatalog{
 		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,

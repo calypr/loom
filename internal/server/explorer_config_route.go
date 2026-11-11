@@ -9,6 +9,7 @@ import (
 )
 
 type explorerConfigReadAuthorizer func(context.Context, *authscope.Principal, string) error
+type defaultViewerLookup func(context.Context, string, *authscope.Principal) (explorer.ExplorerStateV1, error)
 
 // explorerHTTPHandlers holds the dependencies used by the generated OpenAPI
 // Explorer adapter. Fiber routing is registered once, from the generated
@@ -18,6 +19,7 @@ type explorerHTTPHandlers struct {
 	authorizeRead      explorerConfigReadAuthorizer
 	application        *lifecycle.Service
 	constructionInputs constructionInputsCatalog
+	defaultViewer      defaultViewerLookup
 }
 
 func newExplorerHTTPHandlers(authorizer authscope.Authorizer, authorizeRead explorerConfigReadAuthorizer, explorers *explorer.Service, configs ...lifecycle.Config) *explorerHTTPHandlers {

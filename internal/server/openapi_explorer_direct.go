@@ -186,7 +186,13 @@ func (r *explorerHTTPHandlers) getExplorer(ctx context.Context, rawProject, rawI
 	}
 	value, err := r.application.Get(ctx, project, rawID)
 	if err != nil {
-		return result, lifecycleLegacyFailure(err)
+		if strings.TrimSpace(rawID) != "default" || !missingDefaultExplorer(err) || r.defaultViewer == nil {
+			return result, lifecycleLegacyFailure(err)
+		}
+		value, err = r.defaultViewer(ctx, project, principal)
+		if err != nil {
+			return result, defaultViewerLegacyFailure(err)
+		}
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
