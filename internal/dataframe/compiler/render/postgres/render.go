@@ -640,10 +640,10 @@ var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // projection-contract definition, applied with the renderer's own row
 // bindings — and is then emitted from its classification: direct values and
 // VALUE expressions through resolveValue, selector extractions and presence
-// sidecars through the canonical mappings in null_semantics.go, and the
-// pg-sql-11 OBJECT/SLICE composites through their recursive renderers in
-// objects.go (plan flows through for the slice predicate's bind-backed
-// right side).
+// sidecars through the canonical mappings in null_semantics.go, CALL
+// expressions through the fragment renderer in calls.go, and the pg-sql-11
+// OBJECT/SLICE composites through their recursive renderers in objects.go
+// (plan flows through for the slice predicate's bind-backed right side).
 func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn) error {
 	// A melted plan's terminal projection list reads only registered melt
 	// outputs (unpivot.go owns that contract, validateUnpivotReturn pins it
@@ -692,6 +692,15 @@ func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn)
 				return fmt.Errorf("presence projection %q: %w", projection.projection.Name, err)
 			}
 			expression = presence
+		case extractionCallExpression:
+			// The deep walk (bind values, row bindings, and the closed
+			// jsonb fragment grammar) is owned end to end by calls.go
+			// (pg-sql-10); this dispatch only places the fragment.
+			value, err := r.renderCallProjection(plan, projection.projection)
+			if err != nil {
+				return err
+			}
+			expression = value
 		case extractionObject:
 			value, err := r.renderObjectValue(plan, r.rows, *projection.projection.Expression, 1)
 			if err != nil {

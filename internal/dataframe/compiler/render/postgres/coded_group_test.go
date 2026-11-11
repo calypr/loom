@@ -999,7 +999,18 @@ func TestCodedGroupTrimSetStructuralLaw(t *testing.T) {
 					continue // documentation may name the constant
 				}
 				if strings.Contains(line, "btrim(") {
-					t.Fatalf("%s introduces a btrim call outside the registered coded-group gate file: %s", name, trimmed)
+					// calls.go is the registered pg-sql-10 decimal-tier
+					// holder: its btrim binds its OWN single-source trim
+					// set (callDecimalTrimCharacters, derived from
+					// callDecimalWhitespace) under the separate F-5 law,
+					// pinned by TestCallsWhitespaceSingleSource — a
+					// different contract from this gate's trim set, and
+					// graded before this law existed. The constant-use
+					// check below still forbids calls.go from touching
+					// the coded-group trim set.
+					if name != "calls.go" {
+						t.Fatalf("%s introduces a btrim call outside the registered coded-group gate file: %s", name, trimmed)
+					}
 				}
 				if strings.Contains(line, "codedGroupTrimCharacters") {
 					t.Fatalf("%s uses the trim-set constant outside the registered coded-group gate file: %s", name, trimmed)
@@ -1009,6 +1020,12 @@ func TestCodedGroupTrimSetStructuralLaw(t *testing.T) {
 		// Every btrim call in the gate file must close its trim argument
 		// through the single constant: the rendered argument is built as
 		// ", " + dollar(trimChars) + "::text)". Scan only real code lines.
+		// Gate-file-scoped per this comment: non-gate holders of btrim
+		// are governed by their own registered single-source laws (the
+		// first leg above already rejects any unregistered one).
+		if name != "coded_group.go" {
+			continue
+		}
 		lines := strings.Split(text, "\n")
 		for lineOffset, line := range lines {
 			trimmed := strings.TrimSpace(line)

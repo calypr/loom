@@ -105,6 +105,10 @@ const (
 	// extractionPresenceSidecar is a PresenceOutput projection emitting the
 	// boolean path-presence proof for a selector this RETURN renders.
 	extractionPresenceSidecar
+	// extractionCallExpression is a SCALAR-cardinality PRESERVE_NULL CALL
+	// expression projection — the derived scalar surface calls.go registers
+	// (pg-sql-10) on the full read spine.
+	extractionCallExpression
 	// extractionObject is an OBJECT expression projection — the pg-sql-11
 	// nested-object surface registered in objects.go. Classification is
 	// structural; the closed payload contract (fields, cardinality, null
@@ -187,6 +191,27 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 					ErrUnsupportedPostgresPlan, projection.Name, c.expression.Extract.ResourceType, resourceType)
 			}
 			extracted[extractionEvidence{variable: source.Variable, path: pathEvidenceKey(c.path)}] = true
+		case extractionCallExpression:
+			// Every row variable a CALL operand reads must bind a readable
+			// row, and every EXTRACT operand's schema provenance must name
+			// the type its row is scanned as — the same identities the
+			// selector and value arms prove; the walk is calls.go's so the
+			// operand classes stay defined in one place.
+			if err := forEachCallOperandRowVariable(*projection.Expression,
+				func(variable string, extract *ir.PhysicalExtract) error {
+					resourceType, ok := rowType(variable)
+					if !ok {
+						return fmt.Errorf("%w: projection %q reads variable %q, which does not bind a readable row",
+							ErrUnsupportedPostgresPlan, projection.Name, variable)
+					}
+					if extract != nil && extract.ResourceType != resourceType {
+						return fmt.Errorf("%w: projection %q validates selector against resource type %q, but the row is scanned as %q",
+							ErrUnsupportedPostgresPlan, projection.Name, extract.ResourceType, resourceType)
+					}
+					return nil
+				}); err != nil {
+				return nil, err
+			}
 		case extractionPresenceSidecar:
 			if _, ok := rowType(c.presence.Source.Variable); !ok {
 				return nil, fmt.Errorf("%w: presence projection %q proves variable %q, which does not bind a readable row",
@@ -288,6 +313,19 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 				projection: projection,
 				expression: expression,
 				path:       path,
+			}, nil
+		case ir.PhysicalCallExpression:
+			// The deep shape contract (posture, registered name, arity,
+			// TargetKind matrix) is owned by calls.go — this classifier only
+			// recognizes the kind and hands it through; rendering never
+			// re-derives the classification itself.
+			if err := validateCallProjection(projection); err != nil {
+				return classifiedExtractionProjection{}, err
+			}
+			return classifiedExtractionProjection{
+				kind:       extractionCallExpression,
+				projection: projection,
+				expression: expression,
 			}, nil
 		case ir.PhysicalObjectExpression, ir.PhysicalSliceExpression:
 			// pg-sql-11 composites. Payload presence and presence-metadata
@@ -499,6 +537,9 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 			}
 		case extractionValueExpression:
 			return fmt.Errorf("%w: projection %q uses a VALUE expression; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars",
+				ErrUnsupportedPostgresPlan, c.projection.Name)
+		case extractionCallExpression:
+			return fmt.Errorf("%w: projection %q uses a CALL expression; derived scalar calls register on the full read spine (RenderPhysicalPlan), not the closed selector-extraction slice",
 				ErrUnsupportedPostgresPlan, c.projection.Name)
 		case extractionObject, extractionSlice:
 			// pg-sql-11 contract receipt: the composite surface is
