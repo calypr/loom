@@ -445,9 +445,13 @@ func validateGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[strin
 // shapes (coded_group.go validateCodedGroupOperations twin): one leading
 // direct ROOT_SCAN, FILTER / canonical DERIVED_LET before the window (SET
 // refused outright, L-13.2), at most one SORT and one LIMIT (W1), and one
-// terminal RETURN with its projection list. The registered CodingKey slice
-// additionally admits UNNEST expansions (spine-registered, pg-sql-09) in
-// the source region.
+// terminal RETURN with its projection list. UNNEST is NOT admitted: the
+// spine-registered expansion (pg-sql-09) belongs to the CodingKey source,
+// wave 1 refuses every CodingKey at the payload gate, and the emitter has
+// no UNNEST arm (verifier 156 advisory N-2, 2026-11-11 — the dead
+// renderUnnest call this gate made unreachable was deleted; wave 2
+// registers its own arm when the CodingKey slice opens). The L-13.9
+// refusal below is the single UNNEST gate.
 func validateGroupOperations(plan ir.PhysicalPlan) (map[string]bool, error) {
 	if len(plan.Operations) == 0 {
 		return nil, fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
@@ -592,13 +596,6 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 			if !canonical {
 				return "", fmt.Errorf("%w: operation %q is not part of the registered group source surface",
 					ErrUnsupportedPostgresPlan, string(operation.Kind))
-			}
-		case ir.PhysicalUnnestOp:
-			if operation.Unnest == nil {
-				return "", fmt.Errorf("%w: unnest payload is missing", ErrUnsupportedPostgresPlan)
-			}
-			if err := r.renderUnnest(plan, *operation.Unnest); err != nil {
-				return "", err
 			}
 		}
 	}

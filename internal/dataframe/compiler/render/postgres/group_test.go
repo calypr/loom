@@ -1102,6 +1102,15 @@ func TestGroupStructuralLaws(t *testing.T) {
 		t.Fatalf("groupTrimCharacters declarations = %d, want 1", got)
 	}
 
+	// Wave 1 registers NO UNNEST render arm (verifier 156 advisory N-2,
+	// 2026-11-11): the validateGroupOperations L-13.9 refusal is the
+	// single UNNEST gate, and the emitter must not carry a renderUnnest
+	// call the gate made unreachable (the dead arm was deleted; wave 2
+	// registers its own arm when the CodingKey slice opens).
+	if got := strings.Count(source, "renderUnnest("); got != 0 {
+		t.Fatalf("group.go renderUnnest calls = %d, want 0 (L-13.9 refusal is the single UNNEST gate)", got)
+	}
+
 	// The materializeGroupSource projection switch is exhaustive: the
 	// pg-sql-21 unit-normalized kind carries an explicit refusal and a
 	// catch-all default returns a typed refusal, so a future classifier
@@ -1357,25 +1366,7 @@ func TestGroupLiveExactGroupsMultiset(t *testing.T) {
 	// arms of SUM/MEAN per coordinator ruling 2026-11-11 Q1): EXPLAIN —
 	// the plan-time leg — completes under BOTH plan_cache_modes before
 	// any execution.
-	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
-		conn, err := svc.iso.Acquire(svc.ctx)
-		if err != nil {
-			svc.fail("acquire pinned connection", err)
-		}
-		if _, err := conn.Exec(svc.ctx, "SET plan_cache_mode = "+mode); err != nil {
-			conn.Release()
-			svc.fail("pin plan_cache_mode "+mode, err)
-		}
-		args := make([]any, len(rendered.Args))
-		for i, parameter := range rendered.Args {
-			args[i] = parameter.Value
-		}
-		if _, err := conn.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, args...); err != nil {
-			conn.Release()
-			svc.fail("plan-time EXPLAIN raised under "+mode, err)
-		}
-		conn.Release()
-	}
+	group13ExplainBothModes(t, svc, rendered)
 
 	rows := svc.runRendered(t, rendered)
 	if !reflect.DeepEqual(rows, group13KeyedRows(t, plan)) {
@@ -1451,6 +1442,36 @@ func group13Args(rendered command.RenderedPostgresPhysicalPlan) []any {
 // iterator, never on Query — the rows are drained and closed here (an
 // undrained rows leaks the pinned connection and wedges DROP DATABASE
 // cleanup; measured).
+// group13ExplainBothModes is the uniform F-11 application (the pg-sql-10
+// fold-barrier law, verifier 156 advisory N-4, 2026-11-11: coverage must
+// span every numeric-reading class, not just the overflow case): EXPLAIN —
+// the plan-time leg — completes under BOTH plan_cache_modes before any
+// execution. An arm that folds into a raising constant fails HERE, never
+// at execution; guard casts stay unfolded because current_setting() keeps
+// them stable.
+func group13ExplainBothModes(t *testing.T, svc *pgir02Service, rendered command.RenderedPostgresPhysicalPlan) {
+	t.Helper()
+	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
+		conn, err := svc.iso.Acquire(svc.ctx)
+		if err != nil {
+			t.Fatalf("acquire pinned connection: %v", err)
+		}
+		if _, err := conn.Exec(svc.ctx, "SET plan_cache_mode = "+mode); err != nil {
+			conn.Release()
+			t.Fatalf("pin plan_cache_mode %s: %v", mode, err)
+		}
+		args := make([]any, len(rendered.Args))
+		for i, parameter := range rendered.Args {
+			args[i] = parameter.Value
+		}
+		if _, err := conn.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, args...); err != nil {
+			conn.Release()
+			t.Fatalf("plan-time EXPLAIN raised under %s: %v", mode, err)
+		}
+		conn.Release()
+	}
+}
+
 func group13ExpectRaise(t *testing.T, svc *pgir02Service, rendered command.RenderedPostgresPhysicalPlan, tag string) {
 	t.Helper()
 	rows, err := svc.iso.Query(svc.ctx, rendered.SQL, group13Args(rendered)...)
@@ -1499,6 +1520,7 @@ func TestGroupLiveValueTypeWitnesses(t *testing.T) {
 		},
 	})
 	rendered := group13RenderSvc(t, svc, keyPlan)
+	group13ExplainBothModes(t, svc, rendered)
 	if healthy := svc.runRendered(t, rendered); len(healthy) != 5 {
 		t.Fatalf("key-witness alive control: healthy rows = %v, want the five groups", healthy)
 	}
@@ -1521,6 +1543,11 @@ func TestGroupLiveValueTypeWitnesses(t *testing.T) {
 		},
 	})
 	valueRendered := group13RenderSvc(t, svc, valuePlan)
+	// F-11 uniformity (advisory N-4): the raise-bearing plans must ALSO
+	// survive plan time in both modes — the guard casts stay unfolded
+	// (current_setting keeps them stable), so EXPLAIN completes even
+	// where execution raises.
+	group13ExplainBothModes(t, svc, valueRendered)
 	group13ExpectRaise(t, svc, valueRendered, groupValueTypeTag)
 }
 
@@ -1539,7 +1566,9 @@ func TestGroupLiveRowValues(t *testing.T) {
 	group13Insert(t, svc, "rv-f", group13Project, group13Generation, group13AuthPath, group13StatusRow("rvnull"))
 
 	allPlan := group13RowValuePlan(t, recipe.ConstructionRowValueAll, "array")
-	rows := svc.runRendered(t, group13RenderSvc(t, svc, allPlan))
+	allRendered := group13RenderSvc(t, svc, allPlan)
+	group13ExplainBothModes(t, svc, allRendered)
+	rows := svc.runRendered(t, allRendered)
 	if len(rows) != 2 {
 		t.Fatalf("ALL rows = %v, want two groups", rows)
 	}
@@ -1561,6 +1590,7 @@ func TestGroupLiveRowValueOne(t *testing.T) {
 
 	plan := group13RowValuePlan(t, recipe.ConstructionRowValueOne, "decimal")
 	rendered := group13RenderSvc(t, svc, plan)
+	group13ExplainBothModes(t, svc, rendered)
 	rows := svc.runRendered(t, rendered)
 	// Columns: status_group, rows, value_one, identity.
 	if len(rows) != 2 || rows[0][0] != "onlynull" || rows[0][2] != "<null>" || rows[1][0] != "same" || rows[1][2] != "7" {
@@ -1598,6 +1628,7 @@ func TestGroupLiveRowValueOneString(t *testing.T) {
 		},
 	})
 	rendered := group13RenderSvc(t, svc, plan)
+	group13ExplainBothModes(t, svc, rendered)
 	if rows := svc.runRendered(t, rendered); len(rows) != 1 || rows[0][2] != "s-1" {
 		t.Fatalf("ONE over one STRING member: %v, want the single id", rows)
 	}
@@ -1615,6 +1646,7 @@ func TestGroupLiveRowValueInputMany(t *testing.T) {
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 	appendGroup13ManyRowValue(t, &plan, "ALL", "STRING")
 	rendered := group13RenderSvc(t, svc, plan)
+	group13ExplainBothModes(t, svc, rendered)
 	rows := svc.runRendered(t, rendered)
 	// Columns follow FinalColumns order: status_group, rows, identity,
 	// then the appended pool column (the lowering stamps identity before
@@ -1647,7 +1679,9 @@ func TestGroupLiveRowValueInputManyDecimal(t *testing.T) {
 
 	allPlan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 	appendGroup13ManyRowValue(t, &allPlan, "ALL", "DECIMAL")
-	rows := svc.runRendered(t, group13RenderSvc(t, svc, allPlan))
+	allRendered := group13RenderSvc(t, svc, allPlan)
+	group13ExplainBothModes(t, svc, allRendered)
+	rows := svc.runRendered(t, allRendered)
 	if len(rows) != 1 || rows[0][3] != `[1 2 3]` {
 		t.Fatalf("DECIMAL ALL pool must dedupe and sort numerically: %v", rows)
 	}
@@ -1668,7 +1702,9 @@ func TestGroupLiveRowValueInputManyDecimal(t *testing.T) {
 		map[string]any{"status": "pool", "values": []any{7}})
 	onePlan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 	appendGroup13ManyRowValue(t, &onePlan, "ONE", "DECIMAL")
-	oneRows := oneSvc.runRendered(t, group13RenderSvc(t, oneSvc, onePlan))
+	oneRendered := group13RenderSvc(t, oneSvc, onePlan)
+	group13ExplainBothModes(t, oneSvc, oneRendered)
+	oneRows := oneSvc.runRendered(t, oneRendered)
 	if len(oneRows) != 1 || oneRows[0][3] != "7" {
 		t.Fatalf("DECIMAL ONE pool must read the single numeric value: %v", oneRows)
 	}
@@ -1741,25 +1777,7 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// F-11 law (pg-sql-10 fold-barrier): EXPLAIN — the plan-time leg —
 	// completes under BOTH plan_cache_modes before any execution: no arm
 	// of the bounded accumulator folds into a raising constant.
-	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
-		conn, err := svc.iso.Acquire(svc.ctx)
-		if err != nil {
-			t.Fatalf("acquire pinned connection: %v", err)
-		}
-		if _, err := conn.Exec(svc.ctx, "SET plan_cache_mode = "+mode); err != nil {
-			conn.Release()
-			t.Fatalf("pin plan_cache_mode %s: %v", mode, err)
-		}
-		args := make([]any, len(rendered.Args))
-		for i, parameter := range rendered.Args {
-			args[i] = parameter.Value
-		}
-		if _, err := conn.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, args...); err != nil {
-			conn.Release()
-			t.Fatalf("plan-time EXPLAIN raised under %s: %v", mode, err)
-		}
-		conn.Release()
-	}
+	group13ExplainBothModes(t, svc, rendered)
 
 	// AQL ALIVE parity (Go float64 IS the IEEE model): 1.7e308+1.7e308
 	// = +Inf → JSON-invalid → null; 20×1e307 overflows → null; the
@@ -1803,7 +1821,9 @@ func TestGroupLiveKeylessGrandTotal(t *testing.T) {
 	} {
 		plan := group13KeylessPlan(t)
 		plan.StageSequence.Stages[0].Group.MissingKeyPolicy = policy
-		rows := svc.runRendered(t, group13RenderSvc(t, svc, plan))
+		keylessRendered := group13RenderSvc(t, svc, plan)
+		group13ExplainBothModes(t, svc, keylessRendered)
+		rows := svc.runRendered(t, keylessRendered)
 		if len(rows) != 1 || rows[0][0] != "0" || rows[0][1] != "[]" || rows[0][2] != "<null>" {
 			t.Fatalf("keyless grand total over zero rows under %s = %v, want one row [0,[],null]", policy, rows)
 		}
@@ -1836,8 +1856,12 @@ func TestGroupLiveSourceOrderSwap(t *testing.T) {
 	swapped := fixture
 	swapped.sourceOrder = []string{"resource_id", "value", "status"}
 	planB := group13LoweredPlan(t, swapped)
-	rowsA := svc.runRendered(t, group13RenderSvc(t, svc, planA))
-	rowsB := svc.runRendered(t, group13RenderSvc(t, svc, planB))
+	renderedA := group13RenderSvc(t, svc, planA)
+	renderedB := group13RenderSvc(t, svc, planB)
+	group13ExplainBothModes(t, svc, renderedA)
+	group13ExplainBothModes(t, svc, renderedB)
+	rowsA := svc.runRendered(t, renderedA)
+	rowsB := svc.runRendered(t, renderedB)
 	if !reflect.DeepEqual(rowsA, rowsB) {
 		t.Fatalf("swapping the source projection order must not change results (the name→column map must follow names):\nA %v\nB %v", rowsA, rowsB)
 	}
