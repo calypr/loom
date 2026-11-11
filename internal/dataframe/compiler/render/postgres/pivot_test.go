@@ -546,8 +546,13 @@ func TestPivot14GoldenPresenceForms(t *testing.T) {
 	if strings.Contains(sql, "THEN 'true'::jsonb ELSE 'false'::jsonb END") {
 		t.Fatalf("input-carried presence must not recompute the proof:\n%s", sql)
 	}
-	if !strings.Contains(sql, " = 'true'::jsonb") {
-		t.Fatalf("input-carried presence must compare the companion bit:\n%s", sql)
+	// The companion read is SQL NULL when the presence property is
+	// absent from the document; AQL's row[@presence] == true is
+	// two-valued, so the comparison is COALESCE-wrapped (reviewer
+	// correction, thread PRRT_kwDOS-yV5s62FNP0). A bare comparison
+	// would leave present NULL on absent-companion rows.
+	if !strings.Contains(sql, "COALESCE(") || !strings.Contains(sql, " = 'true'::jsonb, false)") {
+		t.Fatalf("input-carried presence must compare the companion bit two-valued:\n%s", sql)
 	}
 
 	// OMIT (null-omission) category behavior: present = raw slot IS NOT
@@ -1546,6 +1551,129 @@ func TestPivot14LiveUnlistedEvidenceRowsExact(t *testing.T) {
 	if got := g2[pivot14ColIndex(t, rendered, "cell_beta")]; !pivot14CellIsNull(got) {
 		t.Fatalf("g2 beta cell = %q, want the null cell", got)
 	}
+}
+
+func TestPivot14LiveAbsentCompanionMissingParity(t *testing.T) {
+	// Reviewer correction (thread PRRT_kwDOS-yV5s62FNP0): with
+	// CategoryPresenceFromInput and the presence companion ABSENT from
+	// the document, AQL renders presence as row[@presence] == true,
+	// which is two-valued (render/aql/table_reshape.go:405-407, :431 —
+	// null == true is false), so the row MATCHES MISSING and is listed.
+	// Under unlisted ERROR + missing ERROR + duplicate ERROR this pins
+	// all four cells with no raise: the spurious
+	// TABLE_PIVOT_UNLISTED_CATEGORY (the NOT COALESCE(listed,false)
+	// flip on three-valued present) and the spurious
+	// TABLE_PIVOT_CELL_MISSING (rawCount dropping the NULL-match row)
+	// are both killed by the single root COALESCE at the companion
+	// read; a bare comparison re-raises UNLISTED here (gauntlet
+	// S1-revert-present-coalesce).
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "ac1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":5}`))
+	pivot14Seed(t, svc, "ac2", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1,"cPresent":true}`))
+	pivot14Seed(t, svc, "ac3", json.RawMessage(`{"gProp":"g1","cProp":"beta","vProp":2,"cPresent":true}`))
+	pivot14Seed(t, svc, "ac4", json.RawMessage(`{"gProp":"g1","cProp":null,"vProp":3,"cPresent":true}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "ERROR", missing: "ERROR", unlisted: "ERROR", presence: "from-input"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render absent-companion parity plan: %v", err)
+	}
+	// Silence pins both divergences: runRendered fails the test on any
+	// guard raise. ac1 (companion absent) must be LISTED as MISSING.
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 1 {
+		t.Fatalf("parity rows = %v", rows)
+	}
+	row := rows[0]
+	for name, want := range map[string]string{
+		"cell_alpha":   "1",
+		"cell_beta":    "2",
+		"cell_null":    "3",
+		"cell_missing": "5",
+	} {
+		if got := row[pivot14ColIndex(t, rendered, name)]; got != want {
+			t.Fatalf("%s = %q, want %s (companion-absent row must land in MISSING, present-true rows keep their kinds)", name, got, want)
+		}
+	}
+}
+
+func TestPivot14LiveAbsentCompanionEvidenceAndAliveControls(t *testing.T) {
+	// Evidence half: under EXCLUDE_WITH_EVIDENCE the absent-companion
+	// MISSING row is listed (evidence 0 — pre-fix the NULL-listed flip
+	// inflated it to 1, gauntlet S1), while a present-true row whose
+	// category read is SQL NULL stays unlisted through the
+	// load-bearing listed-level COALESCE (evidence 1 — deleting that
+	// COALESCE drops it to 0, gauntlet S2). Categories alpha+missing
+	// only, so the SQL-NULL category read has no NULL-kind arm to
+	// catch it (matching the AQL HAS() two-valued false).
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "ae1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":5}`))
+	pivot14Seed(t, svc, "ae2", json.RawMessage(`{"gProp":"g2","vProp":7,"cPresent":true}`))
+	cats := []ir.PhysicalGroupedPivotCategory{
+		{Output: "cell_alpha", MatchKind: ir.PhysicalPivotCategoryValueMatch, ValueBindKey: "cat_alpha", ValueKind: "STRING"},
+		{Output: "cell_missing", MatchKind: ir.PhysicalPivotCategoryMissingMatch},
+	}
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{
+		duplicate: "SUM", missing: "NULL", unlisted: "EXCLUDE_WITH_EVIDENCE",
+		presence: "from-input", categories: cats,
+	})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render evidence plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	byGroup := map[string][]string{}
+	for _, row := range rows {
+		byGroup[row[pivot14ColIndex(t, rendered, "grp")]] = row
+	}
+	g1, ok := byGroup["g1"]
+	if !ok {
+		t.Fatalf("g1 missing: %v", rows)
+	}
+	if got := g1[pivot14ColIndex(t, rendered, "unlisted_n")]; got != "0" {
+		t.Fatalf("g1 evidence = %q, want 0 (absent-companion row is LISTED as MISSING per AQL)", got)
+	}
+	if got := g1[pivot14ColIndex(t, rendered, "cell_missing")]; got != "5" {
+		t.Fatalf("g1 missing cell = %q, want 5 (the row must count in rawCount, not be dropped)", got)
+	}
+	g2, ok := byGroup["g2"]
+	if !ok {
+		t.Fatalf("g2 missing: %v", rows)
+	}
+	if got := g2[pivot14ColIndex(t, rendered, "unlisted_n")]; got != "1" {
+		t.Fatalf("g2 evidence = %q, want the kept unlisted count 1", got)
+	}
+
+	// ALIVE control, unlisted site (F-3 discipline): a genuinely
+	// unlisted present-true row raises under ERROR, so the silence in
+	// the parity leg above is real listing, not a dead guard.
+	svc2 := pivot14LiveService(t)
+	pivot14Seed(t, svc2, "al1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1,"cPresent":true}`))
+	pivot14Seed(t, svc2, "al2", json.RawMessage(`{"gProp":"g1","cProp":"zeta","vProp":9,"cPresent":true}`))
+	raisePlan := pivot14ScalarPlan(t, pivot14ScalarConfig{
+		duplicate: "ERROR", missing: "NULL", unlisted: "ERROR",
+		presence: "from-input", categories: cats,
+	})
+	rendered2, err := RenderPhysicalPlan(raisePlan, pivot14Binding(t, svc2))
+	if err != nil {
+		t.Fatalf("render unlisted ALIVE plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, svc2, rendered2, pivotUnlistedTag)
+
+	// ALIVE control, cell-missing site: with every listed row present
+	// and NO row matching MISSING (companion never false/absent), the
+	// ERROR policy raises — the parity leg's silence is not a dead
+	// CELL_MISSING guard either.
+	svc3 := pivot14LiveService(t)
+	pivot14Seed(t, svc3, "am1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1,"cPresent":true}`))
+	missingPlan := pivot14ScalarPlan(t, pivot14ScalarConfig{
+		duplicate: "ERROR", missing: "ERROR", unlisted: "ERROR",
+		presence: "from-input", categories: cats,
+	})
+	rendered3, err := RenderPhysicalPlan(missingPlan, pivot14Binding(t, svc3))
+	if err != nil {
+		t.Fatalf("render cell-missing ALIVE plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, svc3, rendered3, pivotCellMissingTag)
 }
 
 func TestPivot14AbsentVersusNullAliveControl(t *testing.T) {

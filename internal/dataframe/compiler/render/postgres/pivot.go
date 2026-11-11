@@ -1041,7 +1041,19 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 		if err != nil {
 			return "", err
 		}
-		present = companion + " = 'true'::jsonb"
+		// COALESCE keeps presence TWO-VALUED: the companion read is
+		// SQL NULL when the presence property is absent from the
+		// document (no NOT-NULL guarantee on the slot read), and AQL
+		// renders presence as row[@presence] == true, which is
+		// two-valued (render/aql/table_reshape.go:405-407, :431 —
+		// null == true is false), so an absent-companion row matches
+		// MISSING and is listed, not unlisted. A bare comparison would
+		// leave present NULL there: the MISSING arm NOT (present) and
+		// every VALUE/NULL arm go NULL, the row silently drops from
+		// rawCount/typedCount (spurious CELL_MISSING under the ERROR
+		// policy) and listed NULL flips into the unlisted count
+		// through the load-bearing NOT COALESCE(listed, false) below.
+		present = "COALESCE(" + companion + " = 'true'::jsonb, false)"
 	default:
 		switch categoryBehavior {
 		case ir.PhysicalOmitNulls:
