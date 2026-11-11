@@ -1968,13 +1968,19 @@ func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, compu
 			// by the group/pivot/unpivot arm of the stage builder via
 			// constructionGeneratedRowIdentitySchema); a carried-over
 			// internal root key keeps its read role but must not claim a
-			// second identity. The registered CODED_PIVOT arm demotes the
-			// same carry-over before appending (this file, rootIdentity
-			// .Identity=false); without the demotion the stage schema
-			// declares two identity columns and dies the door's
-			// validateStageColumns / ir's validatePhysicalStageColumns
-			// re-read. Pinned by
-			// render/postgres TestSQL16CompositionKindSweep/UNPIVOT.
+			// second identity. Authority: the registered CODED_PIVOT arm
+			// demotes the same carry-over before appending (this file,
+			// rootIdentity .Identity=false), and ir holds the posture that
+			// a retained root _key stays identity-free beside the terminal
+			// identity (physical_stage_validation.go:1097-1101,
+			// "available root _key anchor must remain separate from the
+			// terminal identity"). ir.validatePhysicalStageColumns itself
+			// never counts identity columns, so no ir rule rejects the
+			// two-identity shape outright — the demotion is a lowering
+			// contract on its own merits, shared by both backends.
+			// Pinned: render/postgres TestSQL16CompositionKindSweep/
+			// UNPIVOT (PG door) and render/aql
+			// TestAQL16ConstructionUnpivotStageSchemaIdentity (AQL side).
 			column.Identity = false
 			result = append(result, column)
 		}

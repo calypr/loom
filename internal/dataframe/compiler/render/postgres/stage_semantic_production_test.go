@@ -270,12 +270,16 @@ func TestSQL16SemanticLiveVersionlessFamily(t *testing.T) {
 	// stores a version string — including s-5, whose "ghost" display
 	// therefore never enters the collapse, so the all-fallback group
 	// labels to its null code). s-12's tuple system member is the family
-	// system and its version member is the bound blank.
+	// system and its version member is NULL: the AQL twin renders the
+	// matched version as literal null for a blank-version family
+	// (construction_group.go:734-737), not the bound empty string — the
+	// bound blank rides only the identity's separate @version part, which
+	// AQL binds unconditionally (:170-171).
 	null := "<null>"
-	familySystem, familyVersion := sql16Str(sql16SemanticSystem), sql16Str("")
+	familySystem := sql16Str(sql16SemanticSystem)
 	want := [][]string{
 		{"final", "9", null, sql16SemanticIdentityTag(t, plan, sql16Str(""), [3]*string{nil, nil, nil})},
-		{"final", "1", "delta", sql16SemanticIdentityTag(t, plan, sql16Str(""), [3]*string{familySystem, familyVersion, sql16Str("d")})},
+		{"final", "1", "delta", sql16SemanticIdentityTag(t, plan, sql16Str(""), [3]*string{familySystem, nil, sql16Str("d")})},
 	}
 	if !reflect.DeepEqual(rows, want) {
 		t.Fatalf("versionless family mismatch:\n got %q\nwant %q", rows, want)

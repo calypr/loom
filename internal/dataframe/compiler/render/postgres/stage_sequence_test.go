@@ -580,6 +580,26 @@ func TestSQL16ChainRefusals(t *testing.T) {
 		{"group-input-unknown-column", func(p *ir.PhysicalPlan) {
 			p.StageSequence.Stages[1].Group.Keys[0].InputColumn = "no_such_column"
 		}, "is not a public scalar input"}, // the ir schema gate speaks first (same law, typed)
+		// ir :2632-2637 re-read at the door: the named row identity must
+		// be internal AND identity-marked. (ir counts no identity columns,
+		// so the door has no identity-count cell either — the removed
+		// identities>1 arm had no ir counterpart, PR #137 review.)
+		{"row-identity-not-identity-marked", func(p *ir.PhysicalPlan) {
+			last := &p.StageSequence.Stages[len(p.StageSequence.Stages)-1]
+			for i := range last.OutputColumns {
+				if last.OutputColumns[i].Name == last.RowIdentityColumn {
+					last.OutputColumns[i].Identity = false
+				}
+			}
+		}, "must be internal and identity-marked"},
+		{"row-identity-not-internal", func(p *ir.PhysicalPlan) {
+			last := &p.StageSequence.Stages[len(p.StageSequence.Stages)-1]
+			for i := range last.OutputColumns {
+				if last.OutputColumns[i].Name == last.RowIdentityColumn {
+					last.OutputColumns[i].Internal = false
+				}
+			}
+		}, "must be internal and identity-marked"},
 	} {
 		t.Run(cell.name, func(t *testing.T) {
 			plan := ir.ClonePhysicalPlan(base)
@@ -1133,8 +1153,11 @@ func TestSQL16SETSliceSilentDropCounterfactual(t *testing.T) {
 // Cells drive validateStageSequenceChain directly (the door the P4 leg
 // reaches); the arm must be an EXACT set, not a superset.
 func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
+	// ir-valid identity flags (physical_stage_validation.go:2632-2637):
+	// the named row identities must be internal AND identity-marked —
+	// _key for the source/prior schemas, occurrence for the stage output.
 	prior := []ir.PhysicalStageColumn{
-		{ID: "key_id", Name: "_key", Kind: "string", Cardinality: "required_one"},
+		{ID: "key_id", Name: "_key", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
 		{ID: "status_id", Name: "status", Kind: "string", Cardinality: "optional_one"},
 	}
 	adapter := &ir.PhysicalStageGroupRelatedOccurrenceAdapter{
@@ -1150,9 +1173,9 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		)
 	}
 	output := []ir.PhysicalStageColumn{
-		{ID: "key_id", Name: "_key", Kind: "string", Cardinality: "required_one"},
+		{ID: "key_id", Name: "_key", Kind: "string", Cardinality: "required_one", Internal: true, Identity: true},
 		{ID: "status_id", Name: "status", Kind: "string", Cardinality: "optional_one"},
-		{ID: "occurrence", Name: "occurrence", Kind: "object", Cardinality: "required_one", Internal: true},
+		{ID: "occurrence", Name: "occurrence", Kind: "object", Cardinality: "required_one", Internal: true, Identity: true},
 	}
 	chain := func(inputColumns []ir.PhysicalStageColumn, withAdapter bool) ir.PhysicalPlan {
 		group := &ir.PhysicalStageGroup{ConstructionIDBindKey: "ro_cid"}

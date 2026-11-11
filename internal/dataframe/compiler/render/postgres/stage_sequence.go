@@ -496,15 +496,20 @@ func validateStageSequenceChain(plan ir.PhysicalPlan) error {
 	return nil
 }
 
-// validateStageColumns mirrors ir.validatePhysicalStageColumns at the door:
-// names non-empty and unique, exactly one identity column when one is
-// required.
+// validateStageColumns re-reads ir.validatePhysicalStageColumns
+// (physical_stage_validation.go:2602) at the door, same rule set: the
+// named row identity is present, internal, and identity-marked (ir
+// :2632-2637), and names are non-empty and unique (the door's own render
+// prerequisite — the door emits every name). ir does NOT count identity
+// columns — a schema may mark more than one column identity and ir
+// accepts it — so the door declares no identity-count rule either
+// (door==ir, coordinator ir-wins rule; the earlier identities>1 arm was
+// door-invented strictness and was removed on review of PR #137).
 func validateStageColumns(columns []ir.PhysicalStageColumn, identityColumn string) error {
 	if len(columns) == 0 {
 		return fmt.Errorf("a stage schema must declare at least one column")
 	}
 	seen := map[string]bool{}
-	identities := 0
 	for _, column := range columns {
 		if strings.TrimSpace(column.Name) == "" {
 			return fmt.Errorf("column ID %q has an empty name", column.ID)
@@ -513,17 +518,18 @@ func validateStageColumns(columns []ir.PhysicalStageColumn, identityColumn strin
 			return fmt.Errorf("column name %q is declared twice", column.Name)
 		}
 		seen[column.Name] = true
-		if column.Identity {
-			identities++
-		}
 	}
 	if identityColumn != "" {
-		if !seen[identityColumn] {
-			return fmt.Errorf("row identity column %q is not declared in the stage schema", identityColumn)
+		for _, column := range columns {
+			if column.Name != identityColumn {
+				continue
+			}
+			if !column.Internal || !column.Identity {
+				return fmt.Errorf("row identity column %q must be internal and identity-marked (ir/physical_stage_validation.go:2634 re-read at the door)", identityColumn)
+			}
+			return nil
 		}
-	}
-	if identities > 1 {
-		return fmt.Errorf("the stage schema declares %d identity columns", identities)
+		return fmt.Errorf("row identity column %q is not declared in the stage schema", identityColumn)
 	}
 	return nil
 }

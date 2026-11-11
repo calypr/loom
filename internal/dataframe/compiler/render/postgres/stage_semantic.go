@@ -338,8 +338,20 @@ func (r *planRenderer) renderGroupSemanticRegion(
 		" WHERE " + matchFor("_mc.coding") +
 		" GROUP BY 1"
 
+	// The tuple's version member follows the AQL twin's matchedVersion
+	// exactly (construction_group.go:734-737): the family-version bind is
+	// referenced ONLY when semantic.Version is non-blank; a blank-version
+	// family renders the member as literal null on matched rows, not the
+	// bound empty string. The member is both the COLLECT tuple member
+	// (:149, the door's GROUP BY read) and the nested tuple inside the
+	// identity member (:170-171); the identity's separate @version part
+	// below stays on the bind unconditionally, as AQL binds it there.
+	versionMember := dollar(familyVersion) + "::text"
+	if semantic.Version == "" {
+		versionMember = "NULL::text"
+	}
 	matched := "SELECT CASE WHEN " + aggCode + " IS NOT NULL THEN " + dollar(familySystem) + "::text END," +
-		" CASE WHEN " + aggCode + " IS NOT NULL THEN " + dollar(familyVersion) + "::text END," +
+		" CASE WHEN " + aggCode + " IS NOT NULL THEN " + versionMember + " END," +
 		aggCode + ", " + aggDisplay +
 		" FROM (" + dedup + ") AS " + prefix + "sd"
 	// The zero-match fallback row (:733 — LENGTH(matched) == 0 ?
