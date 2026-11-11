@@ -14,7 +14,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
-	"github.com/calypr/loom/internal/projectid"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -138,7 +137,7 @@ func (h *Handler) sourceLoadStatusForRequest(ctx context.Context, project, opera
 }
 
 func normalizeSourceLoadIdentity(project, operationID string) (string, string, error) {
-	project = projectid.Canonical(project)
+	project = strings.TrimSpace(project)
 	operationID = strings.TrimSpace(operationID)
 	if project == "" || strings.ContainsAny(project, "\r\n\x00") || operationID == "" || len(operationID) > 200 ||
 		strings.ContainsAny(operationID, "/\\\r\n\x00") {

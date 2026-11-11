@@ -13,6 +13,7 @@ import (
 
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/catalog"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/ingest"
 )
@@ -20,14 +21,16 @@ import (
 type sourceLoadStoreFixture struct {
 	status       ingest.SourceLoadStatus
 	beginCount   int
+	beginProject string
 	uploadCount  int
 	publishCount int
 	uploadedData string
 	uploadErr    error
 }
 
-func (f *sourceLoadStoreFixture) Begin(context.Context, string, string, ingest.SourceLoadPlan) (ingest.SourceLoadStatus, error) {
+func (f *sourceLoadStoreFixture) Begin(_ context.Context, project, _ string, _ ingest.SourceLoadPlan) (ingest.SourceLoadStatus, error) {
 	f.beginCount++
+	f.beginProject = project
 	return f.status, nil
 }
 
@@ -281,5 +284,31 @@ func TestSourceLoadValidationErrorUsesBoundedSafeDetails(t *testing.T) {
 	if first["filename"] != "Patient.ndjson" || first["row"] != 7 || first["resourceType"] != "Patient" ||
 		first["message"] != `Required field "identifier" is missing.` {
 		t.Fatalf("safe issue = %#v", first)
+	}
+}
+
+func TestSourceLoadPreservesPluginProjectIdentityForScopedPublication(t *testing.T) {
+	const project = "HTAN_INT-BForePC"
+	const generation = "candidate-generation"
+	store := &sourceLoadStoreFixture{}
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ListExistingAuthResourcePaths: func(_ context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+			if opts.Project == store.beginProject && opts.DatasetGeneration == generation {
+				return []string{project}, nil
+			}
+			return nil, nil
+		},
+	})
+	principal := &authscope.Principal{Subject: "publisher", AuthResourcePaths: []string{project}}
+	handler := newSourceLoadTestHandler(t, store, authscope.ScopeAuthorizer{Resolver: resolver}, 1<<20)
+	_, err := handler.BeginSourceLoad(context.Background(), project, "task", ingest.SourceLoadPlan{
+		Repository: "https://github.com/example/data", Commit: strings.Repeat("a", 40), AuthResourcePath: "/programs/HTAN_INT/projects/BForePC", Files: []ingest.SourceManifestFile{{Path: "META/Patient.ndjson"}},
+	}, principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := resolver.ResolveReadScopeForGeneration(context.Background(), principal, project, generation, nil)
+	if err != nil || store.beginProject != project || len(scope.AuthResourcePaths) != 1 || scope.AuthResourcePaths[0] != project {
+		t.Fatalf("plugin project=%q stored=%q publication scope=%#v err=%v", project, store.beginProject, scope, err)
 	}
 }
