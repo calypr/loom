@@ -225,31 +225,43 @@ package postgres
 //     recipe.Parse→semantic→lower document with a traversal child emits
 //     SET in the source region (setOps=1, ops
 //     [ROOT_SCAN FILTER FILTER DERIVED_LET FILTER SET RETURN]) and the
-//     AQL control renders it (err=nil). But no configuration renders it
-//     on PostgreSQL: under the production default policy
-//     endpoint_traversal is on and every registered route has a proven
-//     direction (generated/fhirschema Traversals;
-//     lower/storage_route.go:50-60), so the child-set subplan carries
-//     ENDPOINT_LOOKUP and is refused at the registered gate
-//     traversal.go:141; the REQUIRED variant is additionally refused
-//     its non-Expression required-match filter at sets.go:236; with the
-//     endpoint rule dev-disabled (LOOM_PHYSICAL_RULE_ENDPOINT_TRAVERSAL
-//     =off, a developer switch, not a user surface — same non-user
-//     attribution as L-19.2) the subplan is NATIVE but the child-set
-//     argument wiring emits an unreferenced placeholder, refused by the
-//     argument-integrity guard. So the whitelist arm renders nothing in
-//     any configuration and is refused fail-closed at the door naming
-//     pg-sql-16 as the enabling ticket (registering the PostgreSQL
-//     contracts the probe located missing); corroborated by the merged
-//     sets.go:82-95 finding "No current lowering output reaches the
-//     hop-only renderer". The AQL inline render stays — this is a
-//     named cross-target divergence, not an AQL regression.
+//     AQL control renders it (err=nil). Gate chain on this head
+//     (verifier-145 corrected, sabotage runs at 85e6b47b): this door
+//     arm is the SOLE load-bearing gate. The statement renderer
+//     (renderCodedGroupStatement) has no PhysicalSetOp dispatch arm —
+//     the spine's renderSet is not wired into the coded-group path —
+//     so sabotaging this arm with SET left whitelist-acceptable makes
+//     the OPTIONAL plan RENDER with the SET silently dropped, the SQL
+//     byte-for-byte the SET-less base (145's captured statement);
+//     REQUIRED without the arm refuses at its typed required-match
+//     FILTER rendering, traversal.go:415 "typed match filters must use
+//     the Expression form" — not sets.go:236. The traversal.go:141
+//     ENDPOINT_LOOKUP gate and the argument-integrity guard do NOT
+//     fire on this committed path; they fired in the pre-fold probe
+//     legs while SET was still handed to renderSet
+//     (logs/pg19-f3-set-reachability.log) and stand as probe-era
+//     evidence for why the shape stays unrenderable even if pg-sql-16
+//     wires the dispatch: the default policy stamps ENDPOINT_LOOKUP on
+//     every registered route (generated/fhirschema Traversals;
+//     lower/storage_route.go:50-60), and the endpoint-rule dev-disabled
+//     variant (LOOM_PHYSICAL_RULE_ENDPOINT_TRAVERSAL=off, a developer
+//     switch, not a user surface — same non-user attribution as L-19.2)
+//     emits an unreferenced placeholder. So no configuration renders
+//     the whitelist arm and it is refused fail-closed at the door
+//     naming pg-sql-16 as the enabling ticket (registering the
+//     PostgreSQL contracts the probe located missing); corroborated by
+//     the merged sets.go:82-95 finding "No current lowering output
+//     reaches the hop-only renderer". The AQL inline render stays —
+//     this is a named cross-target divergence, not an AQL regression.
 //     Load-bearing proof: TestCodedGroupIRSetAliveControl builds the
 //     lowering-emitted shape through the real producer channel
 //     (plan.Validate passes) and pins the refusal cell-verbatim at both
 //     the entry and the door; arm-removal sabotage RED banked at
-//     logs/pg19-set-arm-removal-red.log. Fail-closed is zero SQL, zero
-//     side effects: TestCodedGroupIRSetLiveZeroSideEffects.
+//     logs/pg19-set-arm-removal-red.log, and the arm-removed
+//     counterfactual is a SILENTLY-DROPPED statement, not a refusal or
+//     a partial render (no dispatch arm exists; 145's sabotage table
+//     at 85e6b47b). Fail-closed is zero SQL, zero side effects:
+//     TestCodedGroupIRSetLiveZeroSideEffects.
 //   - Population / cohort / candidate-seed roots: registered gap naming
 //     population.go (pg-sql-18): the constructor-only
 //     PostgresPopulationRootBinding makes RenderPopulationRootScan the
@@ -553,19 +565,25 @@ func validateCodedGroupOperations(plan ir.PhysicalPlan) error {
 				return fmt.Errorf("%w: operation %d: derived-let payload is missing", ErrUnsupportedPostgresPlan, index)
 			}
 		case ir.PhysicalSetOp:
-			// Registered named divergence L-19.4: production lowering DOES
-			// mint SET in the coded-group source region (probe: real
-			// recipe→semantic→lower, setOps=1), but every lowering-emitted
-			// child-set subplan is refused before rendering — the default
-			// policy gives every registered route the endpoint-lookup
-			// strategy (traversal.go:141 gate) or a non-Expression
-			// required-match filter (sets.go:236 gate), and with the
-			// endpoint rule dev-disabled the child-set argument wiring
-			// renders unreferenced placeholders (caught by the
-			// argument-integrity guard). No configuration renders this
-			// shape, so the whitelist arm is refused fail-closed at the
-			// door; AQL renders it inline (probe: AQL control err=nil).
-			// Evidence: logs/pg19-f3-set-reachability.log.
+			// Registered named divergence L-19.4: production lowering
+			// DOES mint SET in the coded-group source region (probe:
+			// real recipe→semantic→lower, setOps=1) and AQL renders it
+			// inline (probe: AQL control err=nil). This arm is the SOLE
+			// load-bearing gate: the statement renderer
+			// (renderCodedGroupStatement) has no PhysicalSetOp dispatch
+			// arm, so without this refusal the OPTIONAL plan renders
+			// with the SET SILENTLY DROPPED — byte-for-byte the
+			// SET-less base SQL (verifier-145 sabotage at 85e6b47b) —
+			// and REQUIRED refuses at its required-match FILTER at
+			// traversal.go:415, never at sets.go:236. The
+			// traversal.go:141 and argument-integrity-guard citations
+			// are probe-era legs (SET still dispatched to renderSet
+			// then), kept as evidence that wiring the dispatch would
+			// not render the shape in any configuration either. No
+			// configuration renders it, so the whitelist arm is
+			// refused fail-closed here; see the file-header register
+			// for the full chain. Evidence:
+			// logs/pg19-f3-set-reachability.log.
 			return fmt.Errorf("%w: coded-group source-region SET is a pg-sql-16 capability gap (no PostgreSQL contract for lowering-emitted child-set subplans; probe-attested L-19.4) and is refused, never partially rendered",
 				ErrUnsupportedPostgresPlan)
 		case ir.PhysicalSortOp:

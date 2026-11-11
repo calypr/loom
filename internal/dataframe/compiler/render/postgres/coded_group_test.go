@@ -807,12 +807,21 @@ func coded19Inventory(t *testing.T, svc *pgir02Service) string {
 // disposable legs archived at artifacts/loom-experiment-144/probes/)
 // shows lowering EMITs the shape (setOps=1) and AQL renders it inline
 // (AQL control err=nil), but NO PostgreSQL configuration renders the
-// lowering-emitted child-set subplan: the production default policy
-// gives it ENDPOINT_LOOKUP (refused at traversal.go:141; the REQUIRED
-// variant additionally fails the non-Expression required-match filter
-// at sets.go:236), and with the endpoint rule dev-disabled the child-set
-// argument wiring emits an unreferenced placeholder, refused by the
-// argument-integrity guard. So the baseline SET whitelist
+// lowering-emitted child-set subplan. Gate chain on this head
+// (verifier-145 corrected via sabotage runs at 85e6b47b): the door's
+// L-19.4 arm is the SOLE load-bearing gate — renderCodedGroupStatement
+// has no PhysicalSetOp dispatch arm (the spine renderSet is not wired
+// into the coded-group path), so sabotaging the arm with SET left
+// whitelist-acceptable makes OPTIONAL RENDER with the SET silently
+// dropped, SQL byte-for-byte the SET-less base, and REQUIRED refuses at
+// its required-match FILTER at traversal.go:415, not sets.go:236. The
+// traversal.go:141 ENDPOINT_LOOKUP gate and the argument-integrity
+// guard fired only in the pre-fold probe legs (SET still dispatched to
+// renderSet then, logs/pg19-f3-set-reachability.log) and remain
+// evidence that wiring the dispatch would not render the shape either:
+// the default policy stamps ENDPOINT_LOOKUP on every registered route,
+// and the endpoint-rule dev-disabled variant emits an unreferenced
+// placeholder. So the baseline SET whitelist
 // (lower/recipe_construction_coded_group.go:176-179) is refused
 // fail-closed at this door naming pg-sql-16 as the enabling ticket —
 // never partially rendered, zero SQL, zero side effects. Corroboration:
