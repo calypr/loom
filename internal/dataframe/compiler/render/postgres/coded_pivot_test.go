@@ -627,7 +627,11 @@ func TestCodedPivot14LiveSystemSeparationAndVersionDuplication(t *testing.T) {
 	}
 }
 
-func TestCodedPivot14LiveChoiceArmMatchedOnly(t *testing.T) {
+// TestCodedPivot14LiveInvalidChoiceArmRaise — plan §7/§8 named guard leg
+// (sabotage victim "drop INVALID_CHOICE_ARM guard"): the ALIVE control
+// runs first (an UNMATCHED owner with an unsupported arm must not raise),
+// then the matched owner raises through the ordered chain.
+func TestCodedPivot14LiveInvalidChoiceArmRaise(t *testing.T) {
 	svc := pivot14LiveService(t)
 	// ALIVE control first: an UNMATCHED owner carrying an unsupported
 	// choice arm must not raise (the AQL ASSERT runs after the match
@@ -789,18 +793,23 @@ func TestCodedPivot14LiveValueFallbackAndTrim(t *testing.T) {
 }
 
 func TestCodedPivot14LiveReducerMissingTypedCount(t *testing.T) {
-	// Coded-branch MISSING raise on reachable data plus the NULL sibling.
-	// The §7 raw-vs-typed ALIVE asymmetry receipt for THIS branch is the
-	// textual guard in TestCodedPivot14GuardOrderAndMissingBranches, not
-	// a runtime discriminator: the AQL selector drops a JSON null final
-	// member (selectors.go:343 FILTER __value != null) and pivotSelector-
-	// Chain mirrors that, so a candidate array can never hold a JSON null
-	// — cp_cnt == cp_tcnt on every reachable row and the :267-vs-:230
-	// swap hides only in unreachable states. The runtime twins that DO
-	// discriminate are the scalar pair (TestPivot14LiveScalarMissingRaw
-	// CountNoRaise raises on raw>0/typed=0 null members, which the scalar
-	// FIRST list keeps) and the textual receipts here and in
-	// TestPivot14GoldenErrorBranch.
+	// Coded-branch MISSING raise on a zero-candidate matched owner plus
+	// the NULL sibling; the textual §7 receipt is in
+	// TestCodedPivot14GuardOrderAndMissingBranches.
+	//
+	// DATED CORRECTION (2026-11-11, 157 verdict relay F-3): an earlier
+	// revision of this comment claimed cp_cnt == cp_tcnt on every
+	// reachable row and that the :267-vs-:230 swap hid only in
+	// unreachable states. That was FALSE: a value member storing an
+	// array whose item is JSON null reaches cp_vals as a null item
+	// through the chosen-candidate FLATTEN (table_reshape.go:385), so
+	// cp_cnt = 1 while cp_tcnt = 0 — 157 drove 1 != 0 and :267 fired.
+	// The per-branch runtime ALIVE controls the ratification required
+	// are therefore built for BOTH branches: the coded :267 leg is
+	// TestCodedPivot14TypedCountMissingRaiseControl (raises, and its
+	// NULL sibling must not) and the scalar :230 twin is
+	// TestPivot14LiveScalarMissingRawCountNoRaise (raw>0/typed=0 must
+	// NOT raise, opposite polarity).
 	svc := pivot14LiveService(t)
 	// ONLY the null-candidate state (no matched-owner-with-no-candidates
 	// row here: that owner has raw count 0 too and would raise MISSING
@@ -1003,3 +1012,455 @@ func TestCodedPivot14LiveCompetingGuardsCategoryOrder(t *testing.T) {
 }
 
 func strPtr(value string) *string { return &value }
+
+// ---------------------------------------------------------------------------
+// Plan §7/§8 acceptance (157 verdict relay, 2026-11-11): plan-named
+// production leg, ALIVE controls, guard legs, the F-3 runtime raw-vs-typed
+// discriminator, and the C4/C6 IR-channel refusal controls.
+// ---------------------------------------------------------------------------
+
+func TestPivot14ProductionCodedLive(t *testing.T) {
+	// Plan §8.2: production-compiled construction CODED_PIVOT with
+	// literal expected rows — same code under different systems stays
+	// distinct cells, a versioned coding under the same (system, code)
+	// contributes as a DUPLICATE observation (version never consulted,
+	// ruling R2), duplicate identical codings within one record
+	// double-count, zero-coding roots read the NULL-policy cell, exact
+	// row identities and output columns, and category literals never
+	// reach SQL text while riding parameters.
+	svc := pivot14LiveService(t)
+	pivot14SeedObservation(t, svc, "q1", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, 120, nil),
+		},
+	})
+	pivot14SeedObservation(t, svc, "q2", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://snomed.info/sct", "8480-6", "")}, 999, nil),
+			pivot14Component([]map[string]any{pivot14Coding("http://snomed.info/sct", "8462-4", "")}, 998, nil),
+		},
+	})
+	pivot14SeedObservation(t, svc, "q3", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "1")}, 10, nil),
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "2")}, 5, nil),
+		},
+	})
+	pivot14SeedObservation(t, svc, "q4", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8462-4", "")}, 3, nil),
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8462-4", "")}, 4, nil),
+		},
+	})
+	pivot14SeedObservation(t, svc, "q5", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://example.org", "9999-9", "")}, 1, nil),
+		},
+	})
+	bundle := pivot14CodedBundle("p14_prod_coded", nil,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, "")
+	plan := pivot14CompileBundle(t, bundle, []string{"FHIR/Observation"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render production coded plan: %v", err)
+	}
+	if strings.Contains(rendered.SQL, "8480-6") || strings.Contains(rendered.SQL, "http://loinc.org") {
+		t.Fatalf("category literals leaked into SQL text:\n%s", rendered.SQL)
+	}
+	carried := 0
+	for _, parameter := range rendered.Args {
+		if text := fmt.Sprintf("%s", parameter.Value); strings.Contains(text, "8480-6") || strings.Contains(text, "8462-4") {
+			carried++
+		}
+	}
+	if carried < 2 {
+		t.Fatalf("category pairs must ride parameters: %v", rendered.Args)
+	}
+	keyIndex := pivot14ColIndex(t, rendered, "_key")
+	systolic := pivot14ColIndex(t, rendered, "systolic")
+	diastolic := pivot14ColIndex(t, rendered, "diastolic")
+	identityIndex := pivot14ColIndex(t, rendered, "__loom_row_id")
+	rows := svc.runRendered(t, rendered)
+	byRoot := map[string][]string{}
+	for _, row := range rows {
+		byRoot[row[keyIndex]] = row
+	}
+	if len(byRoot) != 5 {
+		t.Fatalf("production coded roots = %v, want all five", rows)
+	}
+	expectations := []struct {
+		root                string
+		systolic, diastolic string
+	}{
+		{"q1", "120", "<null>"},
+		{"q2", "<null>", "<null>"}, // different systems never match
+		{"q3", "15", "<null>"},     // version-varied codings: 10+5 duplicate observations
+		{"q4", "<null>", "7"},      // duplicate identical codings double-count
+		{"q5", "<null>", "<null>"}, // zero-matching-coding root: NULL-policy cell
+	}
+	for _, want := range expectations {
+		row, ok := byRoot[want.root]
+		if !ok {
+			t.Fatalf("root %s missing: %v", want.root, rows)
+		}
+		if row[systolic] != want.systolic && !(want.systolic == "<null>" && pivot14CellIsNull(row[systolic])) {
+			t.Fatalf("%s systolic = %q, want %s", want.root, row[systolic], want.systolic)
+		}
+		if row[diastolic] != want.diastolic && !(want.diastolic == "<null>" && pivot14CellIsNull(row[diastolic])) {
+			t.Fatalf("%s diastolic = %q, want %s", want.root, row[diastolic], want.diastolic)
+		}
+		wantIdentity := `["GROUPED_PIVOT","p14_prod_coded",["STRING","` + want.root + `"]]`
+		if got := row[identityIndex]; got != wantIdentity {
+			t.Fatalf("%s identity = %q, want %s", want.root, got, wantIdentity)
+		}
+	}
+}
+
+func TestCodedPivot14SameCodeDistinctSystemAliveControl(t *testing.T) {
+	// Plan §8 ALIVE control (sabotage victim "coded match drops system
+	// param"): the SAME code under a foreign system must never match —
+	// including the OTHER category's code, so a code-only match dies.
+	svc := pivot14LiveService(t)
+	pivot14SeedObservation(t, svc, "sd1", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, 120, nil),
+		},
+	})
+	pivot14SeedObservation(t, svc, "sd2", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://snomed.info/sct", "8480-6", "")}, 999, nil),
+			pivot14Component([]map[string]any{pivot14Coding("http://snomed.info/sct", "8462-4", "")}, 998, nil),
+		},
+	})
+	plan := pivot14CompileBundle(t, pivot14CodedBundle("p14_sd_system", nil,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render system-separation plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	byRoot := map[string][]string{}
+	keyIndex := pivot14ColIndex(t, rendered, "_key")
+	for _, row := range rows {
+		byRoot[row[keyIndex]] = row
+	}
+	if len(byRoot) != 2 {
+		t.Fatalf("system-separation roots = %v", rows)
+	}
+	if got := byRoot["sd2"][pivot14ColIndex(t, rendered, "systolic")]; !pivot14CellIsNull(got) {
+		t.Fatalf("foreign-system 8480-6 must never match (got %q — a system-drop would read 999)", got)
+	}
+	if got := byRoot["sd2"][pivot14ColIndex(t, rendered, "diastolic")]; !pivot14CellIsNull(got) {
+		t.Fatalf("foreign-system 8462-4 must never match (got %q — a code-only match would read 998)", got)
+	}
+	if got := byRoot["sd1"][pivot14ColIndex(t, rendered, "systolic")]; got != "120" {
+		t.Fatalf("loinc 8480-6 must match (got %q)", got)
+	}
+}
+
+func TestCodedPivot14DuplicateObservationAliveControl(t *testing.T) {
+	// Plan §8 ALIVE control (sabotage victim "coded values
+	// DISTINCT-collapse"): duplicate identical values under one (system,
+	// code) must NOT silently dedup — SUM double-counts 7+7=14, and the
+	// ERROR branch raises TABLE_PIVOT_CELL_CARDINALITY (a DISTINCT
+	// collapse makes both legs read as ONE observation).
+	bundleSum := pivot14CodedBundle("p14_dup_sum",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, "")
+	dupPayload := map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "1")}, 7, nil),
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "2")}, 7, nil),
+		},
+	}
+	sumSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, sumSvc, "dup1", dupPayload)
+	sumPlan := pivot14CompileBundle(t, bundleSum, []string{"FHIR/Observation"})
+	sumRendered, err := RenderPhysicalPlan(sumPlan, pivot14Binding(t, sumSvc))
+	if err != nil {
+		t.Fatalf("render duplicate-observation SUM plan: %v", err)
+	}
+	sumRows := sumSvc.runRendered(t, sumRendered)
+	if len(sumRows) != 1 {
+		t.Fatalf("duplicate-observation SUM rows = %v", sumRows)
+	}
+	if got := sumRows[0][pivot14ColIndex(t, sumRendered, "systolic")]; got != "14" {
+		t.Fatalf("duplicate observations must double-count (SUM 7+7=14), got %q (DISTINCT collapse reads 7)", got)
+	}
+
+	errSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, errSvc, "dup1", dupPayload)
+	bundleError := pivot14CodedBundle("p14_dup_card",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateError, recipe.PivotMissingCellNull, "", nil, false, nil, "")
+	cardPlan := pivot14CompileBundle(t, bundleError, []string{"FHIR/Observation"})
+	cardRendered, err := RenderPhysicalPlan(cardPlan, pivot14Binding(t, errSvc))
+	if err != nil {
+		t.Fatalf("render duplicate-observation cardinality plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, errSvc, cardRendered, pivotCardinalityTag)
+}
+
+func TestCodedPivot14OwnerZeroItemAliveControl(t *testing.T) {
+	// Plan §8 ALIVE control: an owner whose candidate chain yields ZERO
+	// items contributes nothing (it must not poison the cell nor count
+	// as a null observation — a renderer that minted [null] for it would
+	// trip the ERROR cardinality guard), and a root with zero matching
+	// codings reads the NULL-policy cell versus raising MISSING under
+	// MissingCellPolicy=ERROR.
+	mixed := map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, nil),
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, 5, nil),
+		},
+	}
+	zeroRoot := map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://example.org", "9999-9", "")}, 1, nil),
+		},
+	}
+	single := []recipe.ConstructionCodedPivotCategory{
+		{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+	}
+
+	zeroSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, zeroSvc, "z1", mixed)
+	zeroPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_zero_item", single,
+		recipe.PivotDuplicateError, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	zeroRendered, err := RenderPhysicalPlan(zeroPlan, pivot14Binding(t, zeroSvc))
+	if err != nil {
+		t.Fatalf("render zero-item plan: %v", err)
+	}
+	zeroRows := zeroSvc.runRendered(t, zeroRendered)
+	if len(zeroRows) != 1 || zeroRows[0][pivot14ColIndex(t, zeroRendered, "systolic")] != "5" {
+		t.Fatalf("the empty-candidate owner must contribute nothing (cell 5, no cardinality raise), got %v", zeroRows)
+	}
+
+	nullSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, nullSvc, "z2", zeroRoot)
+	nullPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_zero_null", single,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	nullRendered, err := RenderPhysicalPlan(nullPlan, pivot14Binding(t, nullSvc))
+	if err != nil {
+		t.Fatalf("render zero-coding NULL plan: %v", err)
+	}
+	nullRows := nullSvc.runRendered(t, nullRendered)
+	if len(nullRows) != 1 || !pivot14CellIsNull(nullRows[0][pivot14ColIndex(t, nullRendered, "systolic")]) {
+		t.Fatalf("zero-coding root must read the NULL-policy cell, got %v", nullRows)
+	}
+
+	raiseSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, raiseSvc, "z2", zeroRoot)
+	raisePlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_zero_raise", single,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellError, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	raiseRendered, err := RenderPhysicalPlan(raisePlan, pivot14Binding(t, raiseSvc))
+	if err != nil {
+		t.Fatalf("render zero-coding ERROR plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, raiseSvc, raiseRendered, pivotCellMissingTag)
+}
+
+func TestCodedPivot14FallbackBlankAliveControl(t *testing.T) {
+	// Plan §8 ALIVE control (renderCorrelationValues blank eligibility):
+	// a non-blank fallback IS chosen (its item then trips the DECIMAL
+	// typed guard — proof it reached the cell), while an all-blank
+	// fallback (the ONE trim set) is INELIGIBLE and the cell reads null
+	// WITHOUT a raise. Dropping the blank eligibility would choose the
+	// blank fallback and raise — this leg is the RED pin for that
+	// mutant. The DECIMAL+fallback state rides hand-carried IR (recipe
+	// and lower reject it three times over, see FallbackOrdinalPrecedence).
+	blankBundle := pivot14CodedBundle("p14_fb_blank",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "valueQuantity.value", nil, false, []string{"valueQuantity"}, "decimal")
+	blankPlan := pivot14CompileBundle(t, blankBundle, []string{"FHIR/Observation"})
+	correlation := pivot14CodedPivot(t, blankPlan).CodedCorrelation
+	correlation.ValueFallbacks = []spec.Selector{specSelector(t, "valueString")}
+	correlation.ChoiceArms = []string{"valueQuantity", "valueString"}
+	correlation.FallbackOnBlankString = true
+
+	chosenSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, chosenSvc, "fb1", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, strPtr("8.5")),
+		},
+	})
+	chosenRendered, err := RenderPhysicalPlan(blankPlan, pivot14Binding(t, chosenSvc))
+	if err != nil {
+		t.Fatalf("render fallback-chosen plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, chosenSvc, chosenRendered, pivotValueTypeTag)
+
+	nullSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, nullSvc, "fb2", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, strPtr("   ")),
+		},
+	})
+	nullRendered, err := RenderPhysicalPlan(blankPlan, pivot14Binding(t, nullSvc))
+	if err != nil {
+		t.Fatalf("render fallback-blank plan: %v", err)
+	}
+	rows := nullSvc.runRendered(t, nullRendered)
+	if len(rows) != 1 || !pivot14CellIsNull(rows[0][pivot14ColIndex(t, nullRendered, "systolic")]) {
+		t.Fatalf("the all-blank fallback must be ineligible and read null without a raise, got %v", rows)
+	}
+}
+
+func TestCodedPivot14TypedCountMissingRaiseControl(t *testing.T) {
+	// F-3 (157 verdict relay): the raw-vs-typed counts DIVERGE on
+	// reachable ir-accepted data — a value member that stores [null]
+	// reaches cp_vals as a JSON null item through the chosen-candidate
+	// FLATTEN (table_reshape.go:385), so cp_cnt (raw) = 1 while
+	// cp_tcnt (typed) = 0. The coded reducer branch conditions MISSING
+	// on the TYPED count (table_reshape.go:267), so SUM+ERROR raises
+	// TABLE_PIVOT_CELL_MISSING — the raw-count reading would silently
+	// pass (this leg is the runtime victim for that swap; it supersedes
+	// the earlier unreachable-state deviation, corrected in the PR body
+	// and plan with a dated addendum). The scalar :230 twin keeps the
+	// OPPOSITE polarity: TestPivot14LiveScalarMissingRawCountNoRaise.
+	single := []recipe.ConstructionCodedPivotCategory{
+		{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+	}
+	nullSplice := json.RawMessage(`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},"valueQuantity":{"value":[null]}}]}`)
+
+	raiseSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, raiseSvc, "tc1", nullSplice)
+	raisePlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_typed_raise", single,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellError, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	raiseRendered, err := RenderPhysicalPlan(raisePlan, pivot14Binding(t, raiseSvc))
+	if err != nil {
+		t.Fatalf("render typed-count raise plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, raiseSvc, raiseRendered, pivotCellMissingTag)
+
+	nullSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, nullSvc, "tc1", nullSplice)
+	nullPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_typed_null", single,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	nullRendered, err := RenderPhysicalPlan(nullPlan, pivot14Binding(t, nullSvc))
+	if err != nil {
+		t.Fatalf("render typed-count NULL plan: %v", err)
+	}
+	rows := nullSvc.runRendered(t, nullRendered)
+	if len(rows) != 1 || !pivot14CellIsNull(rows[0][pivot14ColIndex(t, nullRendered, "systolic")]) {
+		t.Fatalf("typed-count 0 under NULL policy must read the null cell (raw count 1 must not raise), got %v", rows)
+	}
+}
+
+func TestCodedPivot14LiveValueTypeRaise(t *testing.T) {
+	// Plan §7 named guard leg, coded branch (F-2): a wrong-typed value
+	// — coercible "12.5" or not "abc" — must abort with the canonical
+	// TABLE_PIVOT_VALUE_TYPE_MISMATCH tag through the outer chain; the
+	// pre-cast guard keeps the aggregate total so the untagged
+	// double-precision cast never wins the race (AQL asserts the type
+	// per item before reducing).
+	for _, value := range []string{"abc", "12.5"} {
+		t.Run("value_"+value, func(t *testing.T) {
+			svc := pivot14LiveService(t)
+			pivot14SeedObservation(t, svc, "cv1", json.RawMessage(
+				`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},"valueQuantity":{"value":"`+value+`"}}]}`))
+			plan := pivot14CompileBundle(t, pivot14CodedBundle("p14_coded_valuetype",
+				[]recipe.ConstructionCodedPivotCategory{
+					{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+				}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+				[]string{"FHIR/Observation"})
+			rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+			if err != nil {
+				t.Fatalf("render coded value-type plan: %v", err)
+			}
+			pivot14ExpectGuardRaise(t, svc, rendered, pivotValueTypeTag)
+		})
+	}
+
+	// Non-raise twin (ALIVE discipline: an always-firing guard must not
+	// pass this leg): clean numeric data reads the reducer, no raise.
+	cleanSvc := pivot14LiveService(t)
+	pivot14SeedObservation(t, cleanSvc, "cv0", json.RawMessage(
+		`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},"valueQuantity":{"value":6}}]}`))
+	cleanPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_coded_clean",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	cleanRendered, err := RenderPhysicalPlan(cleanPlan, pivot14Binding(t, cleanSvc))
+	if err != nil {
+		t.Fatalf("render coded clean twin: %v", err)
+	}
+	rows := cleanSvc.runRendered(t, cleanRendered)
+	if len(rows) != 1 || rows[0][pivot14ColIndex(t, cleanRendered, "systolic")] != "6" {
+		t.Fatalf("clean coded data must read SUM 6 without a raise, got %v", rows)
+	}
+}
+
+func TestCodedPivotIRRowValuesAliveControl(t *testing.T) {
+	// Plan §C4 ALIVE control: RowValues is IR-ACCEPTED (the producer
+	// emits it for coded pivots at recipe_construction_coded_pivot.go
+	// :80-91; ir/physical_stage_validation.go admits it) — reaching the
+	// door's refusal (ErrUnsupportedPostgresPlan naming pg-sql-13) via
+	// RenderPhysicalPlan proves ir validation passed first. The
+	// arm-removal counterfactual is the gauntlet mutant (renders a
+	// partial statement instead of refusing).
+	base := pivot14CompileCodedBundle(t, "p14_ir_rowvalues")
+	clone := clonePlanForPivot14(base)
+	pivot14CodedPivot(t, clone).RowValues = []ir.PhysicalStageRowValue{
+		{InputColumn: "resource_id", Output: "rv", Variable: "rv0", Policy: "ALL", InputKind: "STRING"},
+	}
+	pivot14CodedRefused(t, clone, "RowValues (ir-accepted, PG-refused) names pg-sql-13", "pg-sql-13")
+}
+
+func TestCodedPivotIRSetAliveControl(t *testing.T) {
+	// Plan §C6 ALIVE control, BOTH doors: the coded door refuses a
+	// source-region SET (the whitelist leak that the statement builder
+	// has no dispatch for — arm-removal would silently DROP the
+	// operation, the L-19.4 discipline); the scalar door refuses the
+	// coexisting SET with the registered cannot-coexist text.
+	coded := pivot14CompileCodedBundle(t, "p14_ir_set")
+	clone := clonePlanForPivot14(coded)
+	operations := make([]ir.PhysicalOperation, 0, len(clone.Operations)+1)
+	operations = append(operations, clone.Operations[0])
+	operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Set: &ir.PhysicalSet{Variable: "s"}})
+	operations = append(operations, clone.Operations[1:]...)
+	clone.Operations = operations
+	pivot14CodedRefused(t, clone, "source-region SET (ir-accepted, PG-refused)", "SET is a pg-sql-16 capability gap")
+
+	scalar := pivot14ScalarPlan(t, pivot14ScalarConfig{})
+	scalarOps := make([]ir.PhysicalOperation, 0, len(scalar.Operations)+1)
+	scalarOps = append(scalarOps, scalar.Operations[0])
+	scalarOps = append(scalarOps, ir.PhysicalOperation{Kind: ir.PhysicalSetOp, Set: &ir.PhysicalSet{Variable: "s"}})
+	scalarOps = append(scalarOps, scalar.Operations[1:]...)
+	scalar.Operations = scalarOps
+	pivot14Refused(t, scalar, "scalar-door SET coexistence", "cannot coexist with GROUPED_PIVOT")
+}
+
+func TestCodedPivotIRExpressionLetAliveControl(t *testing.T) {
+	// Plan §C6 ALIVE control for EXPRESSION_LET, both doors (same
+	// silently-dropped shape as SET; the validator arm is the sole
+	// load-bearing gate, sabotage-proven by the gauntlet mutant).
+	coded := pivot14CompileCodedBundle(t, "p14_ir_let")
+	clone := clonePlanForPivot14(coded)
+	operations := make([]ir.PhysicalOperation, 0, len(clone.Operations)+1)
+	operations = append(operations, clone.Operations[0])
+	operations = append(operations, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp,
+		ExpressionLet: &ir.PhysicalExpressionLet{Variable: "e"}})
+	operations = append(operations, clone.Operations[1:]...)
+	clone.Operations = operations
+	pivot14CodedRefused(t, clone, "source-region EXPRESSION_LET (ir-accepted, PG-refused)", "EXPRESSION_LET is a pg-sql-16 capability gap")
+
+	scalar := pivot14ScalarPlan(t, pivot14ScalarConfig{})
+	scalarOps := make([]ir.PhysicalOperation, 0, len(scalar.Operations)+1)
+	scalarOps = append(scalarOps, scalar.Operations[0])
+	scalarOps = append(scalarOps, ir.PhysicalOperation{Kind: ir.PhysicalExpressionLetOp,
+		ExpressionLet: &ir.PhysicalExpressionLet{Variable: "e"}})
+	scalarOps = append(scalarOps, scalar.Operations[1:]...)
+	scalar.Operations = scalarOps
+	pivot14Refused(t, scalar, "scalar-door EXPRESSION_LET coexistence", "cannot coexist with GROUPED_PIVOT")
+}

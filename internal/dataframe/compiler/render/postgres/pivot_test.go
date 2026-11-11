@@ -410,15 +410,18 @@ func TestPivot14GoldenScalarStatement(t *testing.T) {
 		t.Fatalf("guard chain order drifted (unlisted must precede per-category guards):\n%s", sql)
 	}
 	for _, want := range []string{
-		// Unlisted guard: COUNT(*) FILTER (WHERE NOT (listed)) > 0.
-		"COUNT(*) FILTER (WHERE NOT (",
+		// Unlisted guard: COUNT(*) FILTER (WHERE NOT COALESCE((listed),
+		// false)) > 0 — NULL-safe so an absent-category row (SQL NULL
+		// read) reads unlisted, matching AQL's two-valued FILTER NOT.
+		"COUNT(*) FILTER (WHERE NOT COALESCE((",
 		"THEN CAST('TABLE_PIVOT_UNLISTED_CATEGORY'",
 		// Reducer cell: typed-count-conditioned null else to_jsonb(REDUCER
 		// (typed text)::double precision) FILTER typed (IEEE double
 		// reducers, ruling R4 — architecturally identical to pg-sql-13).
 		"CASE WHEN COUNT(*) FILTER (WHERE",
-		"THEN 'null'::jsonb ELSE to_jsonb(SUM(",
-		"::double precision) FILTER (WHERE",
+		"THEN 'null'::jsonb ELSE to_jsonb(SUM(CASE WHEN jsonb_typeof(",
+		") = 'number' THEN ",
+		"::double precision END) FILTER (WHERE",
 		// Value-type mismatch witness over the typed enumeration.
 		"jsonb_typeof(",
 		"THEN CAST('TABLE_PIVOT_VALUE_TYPE_MISMATCH'",
@@ -1212,3 +1215,442 @@ func specSelector(t *testing.T, fields ...string) spec.Selector {
 }
 
 var _ = sort.Strings
+
+// ---------------------------------------------------------------------------
+// Plan §7/§8 acceptance (157 verdict relay, 2026-11-11): the plan-named
+// production legs, guard-raising legs, and ALIVE controls. Each guard leg
+// runs the unpivot_test.go:791-844 pattern — plain EXPLAIN plans clean,
+// execution raises 22P02 naming the tag, and the fold-control leg sets
+// loom.explorer_guard_barrier and demands BOTH the tag and the injected
+// value (the constant-folding barrier cannot be elided).
+// ---------------------------------------------------------------------------
+
+// pivot14ColIndex locates an output column by name in a rendered plan.
+func pivot14ColIndex(t *testing.T, rendered command.RenderedPostgresPhysicalPlan, name string) int {
+	t.Helper()
+	for index, candidate := range rendered.OutputColumns {
+		if candidate == name {
+			return index
+		}
+	}
+	t.Fatalf("output column %q missing: %v", name, rendered.OutputColumns)
+	return -1
+}
+
+// pivot14ExpectGuardRaise pins one guard's raise contract (plan §8):
+// plan-time EXPLAIN completes under both plan_cache modes, execution
+// aborts with SQLSTATE 22P02 carrying the canonical tag, and with the
+// fold-control sentinel set the message carries the tag AND the injected
+// value.
+func pivot14ExpectGuardRaise(t *testing.T, svc *pgir02Service, rendered command.RenderedPostgresPhysicalPlan, wantTag string) {
+	t.Helper()
+	const sentinel = "PIVOT14FOLD42"
+	for _, mode := range []string{"force_custom_plan", "force_generic_plan"} {
+		conn, err := svc.iso.Acquire(svc.ctx)
+		if err != nil {
+			svc.fail("acquire pinned connection", err)
+		}
+		if _, err := conn.Exec(svc.ctx, "SET plan_cache_mode = "+mode); err != nil {
+			conn.Release()
+			svc.fail("pin plan_cache_mode "+mode, err)
+		}
+		if _, err := conn.Exec(svc.ctx, "EXPLAIN "+rendered.SQL, pivot14Args(rendered)...); err != nil {
+			conn.Release()
+			svc.fail("plan-time EXPLAIN raised under "+mode, err)
+		}
+		if _, err := conn.Exec(svc.ctx, "SET loom.explorer_guard_barrier = "+quoteSQLLiteral(sentinel)); err != nil {
+			conn.Release()
+			svc.fail("set guard barrier under "+mode, err)
+		}
+		_, err = conn.Exec(svc.ctx, rendered.SQL, pivot14Args(rendered)...)
+		if _, resetErr := conn.Exec(svc.ctx, "RESET loom.explorer_guard_barrier"); resetErr != nil {
+			conn.Release()
+			svc.fail("reset guard barrier", resetErr)
+		}
+		conn.Release()
+		if err == nil {
+			t.Fatalf("guard %s must raise under %s:\n%s", wantTag, mode, rendered.SQL)
+		}
+		if message := err.Error(); !strings.Contains(message, "22P02") ||
+			!strings.Contains(message, wantTag) || !strings.Contains(message, sentinel) {
+			t.Fatalf("guard %s raise drifted under %s: %v", wantTag, mode, err)
+		}
+	}
+}
+
+// pivot14CellIsNull accepts either witness spelling of a JSON/SQL null cell.
+func pivot14CellIsNull(value string) bool {
+	return value == "<null>" || value == "null"
+}
+
+func TestPivot14ProductionScalarLive(t *testing.T) {
+	// Plan §8.1: production-compiled (BuildRecipePlan → Resolve → lower)
+	// scalar pivot over the owned namespace with literal expected rows —
+	// category duplicates, stored JSON null, absent value, unlisted
+	// category, and the duplicate reducers (SUM/MIN/MAX) — exact column
+	// names and exact identity strings, the auth-scoped variant, and the
+	// LIMIT window leg.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "s1", json.RawMessage(`{"gender":"female","multipleBirthInteger":0}`))
+	pivot14Seed(t, svc, "s2", json.RawMessage(`{"gender":"female","multipleBirthInteger":0}`))
+	pivot14Seed(t, svc, "s3", json.RawMessage(`{"gender":"female","multipleBirthInteger":1}`))
+	pivot14Seed(t, svc, "s4", json.RawMessage(`{"gender":"female","multipleBirthInteger":1}`))
+	pivot14Seed(t, svc, "s5", json.RawMessage(`{"gender":"female","multipleBirthInteger":null}`))
+	pivot14Seed(t, svc, "s6", json.RawMessage(`{"gender":"female"}`))
+	pivot14Seed(t, svc, "s7", json.RawMessage(`{"gender":"female","multipleBirthInteger":2}`))
+	pivot14Seed(t, svc, "s8", json.RawMessage(`{"gender":"male","multipleBirthInteger":1}`))
+
+	cases := []struct {
+		name      string
+		duplicate recipe.PivotDuplicatePolicy
+		birthZero string
+		birthOne  string
+	}{
+		{"sum", recipe.PivotDuplicateSum, "0", "2"}, // 0+0 and 1+1
+		{"min", recipe.PivotDuplicateMin, "0", "1"}, // distinct from SUM
+		{"max", recipe.PivotDuplicateMax, "0", "1"}, // distinct from SUM
+	}
+	for _, testCase := range cases {
+		bundle := pivot14ScalarBundle("p14_prod_scalar_"+testCase.name, nil,
+			testCase.duplicate, recipe.PivotMissingCellNull, recipe.PivotUnlistedCategoryExcludeWithEvidence)
+		plan := pivot14CompileBundle(t, bundle, []string{pivot14AuthPath})
+		rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+		if err != nil {
+			t.Fatalf("render %s plan: %v", testCase.name, err)
+		}
+		wantColumns := []string{"grp", "birth_zero", "birth_one", "__loom_reshape_unlisted_count", "__loom_row_id"}
+		if len(rendered.OutputColumns) != len(wantColumns) {
+			t.Fatalf("%s output columns = %v, want %v", testCase.name, rendered.OutputColumns, wantColumns)
+		}
+		for index, name := range wantColumns {
+			if rendered.OutputColumns[index] != name {
+				t.Fatalf("%s output column %d = %q, want %q", testCase.name, index, rendered.OutputColumns[index], name)
+			}
+		}
+		rows := svc.runRendered(t, rendered)
+		if len(rows) != 2 {
+			t.Fatalf("%s rows = %v, want the female and male groups", testCase.name, rows)
+		}
+		byGroup := map[string][]string{}
+		for _, row := range rows {
+			byGroup[row[pivot14ColIndex(t, rendered, "grp")]] = row
+		}
+		female, ok := byGroup["female"]
+		if !ok {
+			t.Fatalf("%s female group missing: %v", testCase.name, rows)
+		}
+		if got := female[pivot14ColIndex(t, rendered, "birth_zero")]; got != testCase.birthZero {
+			t.Fatalf("%s female birth_zero = %q, want %s", testCase.name, got, testCase.birthZero)
+		}
+		if got := female[pivot14ColIndex(t, rendered, "birth_one")]; got != testCase.birthOne {
+			t.Fatalf("%s female birth_one = %q, want %s", testCase.name, got, testCase.birthOne)
+		}
+		// s5 (stored null), s6 (absent), and s7 (value 2) are all
+		// unlisted under EXCLUDE_WITH_EVIDENCE: exactly three rows of
+		// kept evidence for female, zero for male.
+		if got := female[pivot14ColIndex(t, rendered, "__loom_reshape_unlisted_count")]; got != "3" {
+			t.Fatalf("%s female unlisted evidence = %q, want 3", testCase.name, got)
+		}
+		male, ok := byGroup["male"]
+		if !ok {
+			t.Fatalf("%s male group missing: %v", testCase.name, rows)
+		}
+		if got := male[pivot14ColIndex(t, rendered, "birth_one")]; got != "1" {
+			t.Fatalf("%s male birth_one = %q, want 1", testCase.name, got)
+		}
+		if got := male[pivot14ColIndex(t, rendered, "birth_zero")]; !pivot14CellIsNull(got) {
+			t.Fatalf("%s male birth_zero = %q, want the null cell", testCase.name, got)
+		}
+		if got := male[pivot14ColIndex(t, rendered, "__loom_reshape_unlisted_count")]; got != "0" {
+			t.Fatalf("%s male unlisted evidence = %q, want 0", testCase.name, got)
+		}
+		// Exact identity strings (the AQL TO_STRING byte counterpart).
+		for _, row := range rows {
+			group := row[pivot14ColIndex(t, rendered, "grp")]
+			want := `["GROUPED_PIVOT","p14_prod_scalar_` + testCase.name + `",["STRING","` + group + `"]]`
+			if got := row[pivot14ColIndex(t, rendered, "__loom_row_id")]; got != want {
+				t.Fatalf("%s identity = %q, want %s", testCase.name, got, want)
+			}
+		}
+
+		// Auth-scoped variant: rows stored under pivot14AuthPath are
+		// invisible to a foreign authorization scope.
+		foreign := pivot14CompileBundle(t, bundle, []string{"FHIR/Encounter"})
+		foreignRendered, err := RenderPhysicalPlan(foreign, pivot14Binding(t, svc))
+		if err != nil {
+			t.Fatalf("render foreign-auth %s plan: %v", testCase.name, err)
+		}
+		if rows := svc.runRendered(t, foreignRendered); len(rows) != 0 {
+			t.Fatalf("%s foreign auth must yield zero rows, got %v", testCase.name, rows)
+		}
+	}
+
+	// LIMIT window leg on the production-compiled plan (the registered
+	// SORT identity + bound LIMIT ops): only the COLLATE "C" identity
+	// leader survives (female before male in byte order).
+	bundle := pivot14ScalarBundle("p14_prod_scalar_window", nil,
+		recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, recipe.PivotUnlistedCategoryExcludeWithEvidence)
+	plan := pivot14CompileBundle(t, bundle, []string{pivot14AuthPath})
+	outputRowVariable := ""
+	for _, operation := range plan.Operations {
+		if operation.GroupedPivot != nil {
+			outputRowVariable = operation.GroupedPivot.OutputRowVariable
+		}
+	}
+	if outputRowVariable == "" {
+		t.Fatalf("production plan lost its GROUPED_PIVOT operation")
+	}
+	operations := make([]ir.PhysicalOperation, 0, len(plan.Operations)+2)
+	returnIndex := len(plan.Operations) - 1
+	operations = append(operations, plan.Operations[:returnIndex]...)
+	operations = append(operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalSortOp, Sort: &ir.PhysicalSort{
+			Keys: []ir.PhysicalValue{{Variable: outputRowVariable,
+				Path: []string{"__loom_row_id"}}}}},
+		ir.PhysicalOperation{Kind: ir.PhysicalLimitOp, Limit: &ir.PhysicalLimit{BindKey: "p14_prod_limit"}})
+	operations = append(operations, plan.Operations[returnIndex])
+	plan.Operations = operations
+	plan.BindVars["p14_prod_limit"] = 1
+	windowRendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render windowed production plan: %v", err)
+	}
+	windowRows := svc.runRendered(t, windowRendered)
+	if len(windowRows) != 1 || windowRows[0][pivot14ColIndex(t, windowRendered, "grp")] != "female" {
+		t.Fatalf("production LIMIT prefix drifted: %v", windowRows)
+	}
+}
+
+func TestPivot14LiveValueTypeRaise(t *testing.T) {
+	// Plan §7 sabotage victim "drop value-type guard" AND the F-2 fix
+	// cell: a non-coercable wrong-typed value must abort with the
+	// canonical TABLE_PIVOT_VALUE_TYPE_MISMATCH tag through the guard
+	// chain, not with an untagged double-precision cast failure (the
+	// pre-cast guard keeps the aggregate total so HAVING names the
+	// winner, matching the AQL per-item ASSERT, table_reshape.go:215).
+	for _, value := range []string{"abc", "12.5"} {
+		t.Run("value_"+value, func(t *testing.T) {
+			svc := pivot14LiveService(t)
+			pivot14Seed(t, svc, "vt1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":"`+value+`"}`))
+			plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "NULL"})
+			rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+			if err != nil {
+				t.Fatalf("render value-type plan: %v", err)
+			}
+			pivot14ExpectGuardRaise(t, svc, rendered, pivotValueTypeTag)
+		})
+	}
+
+	// Non-raise twin (ALIVE discipline: an always-firing guard must not
+	// pass this leg): clean numeric data reads the reducer without any
+	// raise.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "vt0", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":4}`))
+	clean := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "NULL"})
+	cleanRendered, err := RenderPhysicalPlan(clean, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render clean value-type twin: %v", err)
+	}
+	rows := svc.runRendered(t, cleanRendered)
+	if len(rows) != 1 || rows[0][pivot14ColIndex(t, cleanRendered, "cell_alpha")] != "4" {
+		t.Fatalf("clean numeric data must read SUM 4 without a raise, got %v", rows)
+	}
+}
+
+func TestPivot14LiveDuplicateCardinalityRaise(t *testing.T) {
+	// Plan §7 sabotage victim "drop cardinality guard": two rows sharing
+	// group and category abort with TABLE_PIVOT_CELL_CARDINALITY.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "dc1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":3}`))
+	pivot14Seed(t, svc, "dc2", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":4}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "ERROR", missing: "NULL"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render cardinality plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, svc, rendered, pivotCardinalityTag)
+}
+
+func TestPivot14LiveMissingCellRaise(t *testing.T) {
+	// Plan §7 sabotage victim "drop missing-cell guard" (ordinary
+	// branch): listed category alpha never appears in the group, so the
+	// RAW count is zero (table_reshape.go:230) and SUM+MissingCellPolicy
+	// =ERROR aborts with TABLE_PIVOT_CELL_MISSING.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "mc1", json.RawMessage(`{"gProp":"g1","cProp":"beta","vProp":5}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "ERROR"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render missing plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, svc, rendered, pivotCellMissingTag)
+}
+
+func TestPivot14LiveUnlistedRaise(t *testing.T) {
+	// Plan §7 sabotage victim "drop unlisted guard": a row whose
+	// category matches no declared category aborts with
+	// TABLE_PIVOT_UNLISTED_CATEGORY under UnlistedCategoryPolicy=ERROR.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "ul1", json.RawMessage(`{"gProp":"g1","cProp":"zeta","vProp":5}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "NULL", unlisted: "ERROR"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render unlisted plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, svc, rendered, pivotUnlistedTag)
+}
+
+func TestPivot14LiveUnlistedEvidenceRowsExact(t *testing.T) {
+	// Plan §7 sabotage victim "evidence→0": under
+	// EXCLUDE_WITH_EVIDENCE the per-group unlisted COUNT is kept
+	// evidence — literal per-group rows (the exclusion RETURN itself is
+	// the AQL-only pg-sql-26 operation).
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "ev1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1}`))
+	pivot14Seed(t, svc, "ev2", json.RawMessage(`{"gProp":"g1","cProp":"beta","vProp":2}`))
+	pivot14Seed(t, svc, "ev3", json.RawMessage(`{"gProp":"g1","cProp":"zeta","vProp":9}`))
+	pivot14Seed(t, svc, "ev4", json.RawMessage(`{"gProp":"g2","cProp":"alpha","vProp":7}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "NULL", unlisted: "EXCLUDE_WITH_EVIDENCE"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render evidence plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 2 {
+		t.Fatalf("evidence rows = %v", rows)
+	}
+	byGroup := map[string][]string{}
+	for _, row := range rows {
+		byGroup[row[pivot14ColIndex(t, rendered, "grp")]] = row
+	}
+	g1, ok := byGroup["g1"]
+	if !ok {
+		t.Fatalf("g1 group missing: %v", rows)
+	}
+	if got := g1[pivot14ColIndex(t, rendered, "cell_alpha")]; got != "1" {
+		t.Fatalf("g1 alpha cell = %q, want 1", got)
+	}
+	if got := g1[pivot14ColIndex(t, rendered, "cell_beta")]; got != "2" {
+		t.Fatalf("g1 beta cell = %q, want 2", got)
+	}
+	if got := g1[pivot14ColIndex(t, rendered, "unlisted_n")]; got != "1" {
+		t.Fatalf("g1 evidence = %q, want the kept unlisted count 1", got)
+	}
+	g2, ok := byGroup["g2"]
+	if !ok {
+		t.Fatalf("g2 group missing: %v", rows)
+	}
+	if got := g2[pivot14ColIndex(t, rendered, "unlisted_n")]; got != "0" {
+		t.Fatalf("g2 evidence = %q, want 0", got)
+	}
+	if got := g2[pivot14ColIndex(t, rendered, "cell_beta")]; !pivot14CellIsNull(got) {
+		t.Fatalf("g2 beta cell = %q, want the null cell", got)
+	}
+}
+
+func TestPivot14AbsentVersusNullAliveControl(t *testing.T) {
+	// Plan §8 ALIVE control (sabotage victim for the absent↔null
+	// collapse `present := v IS NOT NULL AND v<>'null'::jsonb`): with
+	// the category presence CONTRACT, a stored JSON null and an absent
+	// property are DIFFERENT cell populations — the null kind must own
+	// the stored-null row (9) and the MISSING kind the absent row (8).
+	// A collapsed presence puts both in MISSING (17) and empties NULL.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "an1", json.RawMessage(`{"gProp":"g1","cProp":null,"vProp":9}`))
+	pivot14Seed(t, svc, "an2", json.RawMessage(`{"gProp":"g1","vProp":8}`))
+	pivot14Seed(t, svc, "an3", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "NULL", presence: "contract"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render absent-versus-null plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 1 {
+		t.Fatalf("absent-versus-null rows = %v, want one group", rows)
+	}
+	row := rows[0]
+	if got := row[pivot14ColIndex(t, rendered, "cell_null")]; got != "9" {
+		t.Fatalf("stored-null row must land in the NULL cell, got %q (collapse to MISSING is the plan §7 failure)", got)
+	}
+	if got := row[pivot14ColIndex(t, rendered, "cell_missing")]; got != "8" {
+		t.Fatalf("absent row must land in the MISSING cell, got %q", got)
+	}
+	if got := row[pivot14ColIndex(t, rendered, "cell_alpha")]; got != "1" {
+		t.Fatalf("alpha cell = %q, want 1", got)
+	}
+}
+
+func TestPivot14UnlistedEvidenceAliveControl(t *testing.T) {
+	// Non-vacuity differentiator for the evidence column: an all-listed
+	// group reads 0 while a group with one unlisted row reads 1, so no
+	// constant evidence rendering survives.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "ue1", json.RawMessage(`{"gProp":"g_ok","cProp":"alpha","vProp":1}`))
+	pivot14Seed(t, svc, "ue2", json.RawMessage(`{"gProp":"g_mix","cProp":"alpha","vProp":2}`))
+	pivot14Seed(t, svc, "ue3", json.RawMessage(`{"gProp":"g_mix","cProp":"zeta","vProp":5}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "NULL", unlisted: "EXCLUDE_WITH_EVIDENCE"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render evidence control plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 2 {
+		t.Fatalf("evidence control rows = %v", rows)
+	}
+	byGroup := map[string][]string{}
+	for _, row := range rows {
+		byGroup[row[pivot14ColIndex(t, rendered, "grp")]] = row
+	}
+	okRow, ok := byGroup["g_ok"]
+	mixRow, mix := byGroup["g_mix"]
+	if !ok || !mix {
+		t.Fatalf("evidence control groups missing: %v", rows)
+	}
+	if got := okRow[pivot14ColIndex(t, rendered, "unlisted_n")]; got != "0" {
+		t.Fatalf("all-listed group evidence = %q, want 0", got)
+	}
+	if got := mixRow[pivot14ColIndex(t, rendered, "unlisted_n")]; got != "1" {
+		t.Fatalf("mixed group evidence = %q, want 1 (0≠1 is the non-vacuity differentiator)", got)
+	}
+}
+
+func TestPivot14ReducerTypedOnlyAliveControl(t *testing.T) {
+	// Plan §8 ALIVE control: the reducer skips JSON null values (raw
+	// matched list keeps them — so the RAW-count MISSING guard stays
+	// silent under MissingCellPolicy=ERROR), while the typed guard is
+	// live for a wrong-typed sibling value.
+	svc := pivot14LiveService(t)
+	pivot14Seed(t, svc, "rt1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1}`))
+	pivot14Seed(t, svc, "rt2", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":null}`))
+	pivot14Seed(t, svc, "rt3", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":2}`))
+	// Non-empty siblings keep the ERROR missing policy from raising on
+	// an untouched category; alpha's own raw count (3, null included)
+	// versus typed list ([1,2]) is what the leg discriminates.
+	pivot14Seed(t, svc, "rt4", json.RawMessage(`{"gProp":"g1","cProp":"beta","vProp":5}`))
+	pivot14Seed(t, svc, "rt5", json.RawMessage(`{"gProp":"g1","cProp":null,"vProp":6}`))
+	plan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "ERROR"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render typed-only plan: %v", err)
+	}
+	rows := svc.runRendered(t, rendered)
+	if len(rows) != 1 {
+		t.Fatalf("typed-only rows = %v, want one group", rows)
+	}
+	// raw count 3 (null included, MISSING guard silent), typed list
+	// [1,2] → SUM 3.
+	if got := rows[0][pivot14ColIndex(t, rendered, "cell_alpha")]; got != "3" {
+		t.Fatalf("alpha reducer must skip JSON null (SUM 1+2=3), got %q", got)
+	}
+
+	badSvc := pivot14LiveService(t)
+	pivot14Seed(t, badSvc, "rb1", json.RawMessage(`{"gProp":"g1","cProp":"alpha","vProp":1}`))
+	pivot14Seed(t, badSvc, "rb2", json.RawMessage(`{"gProp":"g1","cProp":"beta","vProp":"abc"}`))
+	pivot14Seed(t, badSvc, "rb3", json.RawMessage(`{"gProp":"g1","cProp":null,"vProp":6}`))
+	badPlan := pivot14ScalarPlan(t, pivot14ScalarConfig{duplicate: "SUM", missing: "ERROR"})
+	badRendered, err := RenderPhysicalPlan(badPlan, pivot14Binding(t, badSvc))
+	if err != nil {
+		t.Fatalf("render typed-guard-live plan: %v", err)
+	}
+	pivot14ExpectGuardRaise(t, badSvc, badRendered, pivotValueTypeTag)
+}

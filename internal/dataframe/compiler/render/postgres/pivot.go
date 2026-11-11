@@ -1108,8 +1108,11 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 	cellSelects := make([]string, 0, len(pivot.Categories))
 	guardTerms := make([]string, 0, 2*len(pivot.Categories))
 	if pivot.UnlistedCategoryPolicy == "ERROR" {
+		// NOT COALESCE: a row whose category read is SQL NULL (absent
+		// property) is unlisted under AQL's two-valued FILTER NOT
+		// listed; SQL's three-valued logic would drop it silently.
 		guardTerms = append(guardTerms,
-			"WHEN COUNT(*) FILTER (WHERE NOT "+listed+") > 0 THEN "+guardCast(pivotUnlistedTag))
+			"WHEN COUNT(*) FILTER (WHERE NOT COALESCE("+listed+", false)) > 0 THEN "+guardCast(pivotUnlistedTag))
 	}
 	for _, match := range matchPredicates {
 		rawCount := "COUNT(*) FILTER (WHERE " + match + ")"
@@ -1133,7 +1136,18 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 			// branch conditions MISSING on the RAW count
 			// (table_reshape.go:230); the reducer enumerates the typed
 			// list, where the value-type ASSERT lives (:215/:252).
-			reducer := pivot.DuplicatePolicy + "(" + pivotScalarText(pvVal) + "::double precision) FILTER (WHERE " + match + " AND " + typedConjunct + ")"
+			// The cast is pre-guarded on the declared type: an uncastable
+			// string (typeof <> number, e.g. "abc") would otherwise abort
+			// the aggregate with an UNTAGGED 22P02 before the HAVING chain
+			// can name the winner (the AQL ASSERT(TYPENAME(v) == @type,
+			// "TABLE_PIVOT_VALUE_TYPE_MISMATCH") at table_reshape.go:215
+			// runs per item, before the reducer). Casting only numbers
+			// keeps the aggregate total; the mismatchCount guard below
+			// then raises the canonical tag for every non-number,
+			// coercible or not (F-2).
+			safeCast := "CASE WHEN jsonb_typeof(" + pvVal + ") = " + valueTypeOf + " THEN " +
+				pivotScalarText(pvVal) + "::double precision END"
+			reducer := pivot.DuplicatePolicy + "(" + safeCast + ") FILTER (WHERE " + match + " AND " + typedConjunct + ")"
 			cell = "(CASE WHEN " + typedCount + " = 0 THEN 'null'::jsonb ELSE to_jsonb(" + reducer + ") END)"
 			if pivot.MissingCellPolicy == "ERROR" {
 				guardTerms = append(guardTerms, "WHEN "+rawCount+" = 0 THEN "+guardCast(pivotCellMissingTag))
@@ -1164,7 +1178,7 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 		// The per-group unlisted count is the kept evidence (the exclusion
 		// RETURN itself is the AQL-only pg-sql-26 operation).
 		expressions[pivot.UnlistedEvidenceColumn] =
-			"to_jsonb(COUNT(*) FILTER (WHERE NOT " + listed + "))"
+			"to_jsonb(COUNT(*) FILTER (WHERE NOT COALESCE(" + listed + ", false)))"
 	}
 	expressions[pivotRowIDColumn] = identity
 	selects := make([]string, 0, len(returnOp.Projections))
@@ -1794,9 +1808,14 @@ func (r *planRenderer) renderGroupedCodedPivotStatement(plan ir.PhysicalPlan) (s
 			" COUNT(*) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_tcnt," +
 			" BOOL_OR(e.cp_e <> 'null'::jsonb AND jsonb_typeof(e.cp_e) <> " + valueTypeOf + ") AS cp_mm," +
 			" (ARRAY_AGG(e.cp_e ORDER BY e.ord))[1] AS cp_first," +
-			" SUM((" + pivotScalarText("e.cp_e") + ")::double precision) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_sum," +
-			" MIN((" + pivotScalarText("e.cp_e") + ")::double precision) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_min," +
-			" MAX((" + pivotScalarText("e.cp_e") + ")::double precision) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_max" +
+			// Pre-cast type guard (F-2): cp_mm raises the canonical
+			// TABLE_PIVOT_VALUE_TYPE_MISMATCH tag in the outer chain; the
+			// aggregate must not die untagged on an uncastable string
+			// first (AQL asserts the type per item before reducing,
+			// table_reshape.go:376/:252).
+			" SUM(CASE WHEN jsonb_typeof(e.cp_e) = " + valueTypeOf + " THEN " + pivotScalarText("e.cp_e") + "::double precision END) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_sum," +
+			" MIN(CASE WHEN jsonb_typeof(e.cp_e) = " + valueTypeOf + " THEN " + pivotScalarText("e.cp_e") + "::double precision END) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_min," +
+			" MAX(CASE WHEN jsonb_typeof(e.cp_e) = " + valueTypeOf + " THEN " + pivotScalarText("e.cp_e") + "::double precision END) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_max" +
 			" FROM cp_elem_" + tag + " AS e GROUP BY cp_key) AS x ON x.cp_key = k.cp_key)"
 		ctes = append(ctes, matchCTE, elemCTE, aggCTE)
 
