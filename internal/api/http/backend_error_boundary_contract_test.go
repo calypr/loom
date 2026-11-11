@@ -18,15 +18,15 @@ import (
 	"testing"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func classifiedArangoFailure(t *testing.T, driverErr error) error {
 	t.Helper()
-	classified, ok := arangostore.TranslateQueryError(fmt.Errorf("arango query: %w", driverErr))
+	classified, ok := arangofactory.TranslateQueryError(fmt.Errorf("arango query: %w", driverErr))
 	if !ok {
 		t.Fatalf("adapter fixture was not classified: %v", driverErr)
 	}

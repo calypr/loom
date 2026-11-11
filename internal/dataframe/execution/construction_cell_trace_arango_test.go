@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -24,12 +24,13 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,7 +86,7 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 			return dispatchErr
 		}
 
-		return client.QueryRows(queryCtx, query, batchSize, bindVars, store.RowVisitor(visit))
+		return client.QueryRows(queryCtx, query, batchSize, bindVars, arangofactory.RowVisitor(visit))
 	}}
 	for _, want := range wants {
 		// Source identities include both tenant scope and the inserted Arango key.

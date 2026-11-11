@@ -17,8 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	driver "github.com/arangodb/go-driver/v2/arangodb"
-	"github.com/arangodb/go-driver/v2/connection"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
@@ -307,16 +306,12 @@ func runArangoLoadGeneration(ctx context.Context, args []string, runner loadRunn
 	return runner.printSummary(summary)
 }
 
-// requireDatabaseExists is copied from cmd/arango-fhir-proto/main.go:294-312
-// so the Arango route keeps the refuse-missing-database gate: the store's
-// Open keeps auto-creating for server/tests/harness; only the CLI adds this
-// gate.
+// requireDatabaseExists mirrors cmd/arango-fhir-proto/main.go so the Arango
+// route keeps the refuse-missing-database gate: the store's Open keeps
+// auto-creating for server/tests/harness; only the CLI adds this gate. The
+// probe itself is factory-owned (arangofactory.DatabaseExists).
 func requireDatabaseExists(ctx context.Context, url, database string) error {
-	conn := connection.NewHttpConnection(connection.HttpConfiguration{
-		Endpoint: connection.NewRoundRobinEndpoints([]string{url}),
-	})
-	client := driver.NewClient(conn)
-	databaseExists, err := client.DatabaseExists(ctx, database)
+	databaseExists, err := arangofactory.DatabaseExists(ctx, url, database)
 	if err != nil {
 		return fmt.Errorf("check existing database: %w", err)
 	}

@@ -35,10 +35,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataset"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -47,8 +46,8 @@ const orphDatabasePrefix = "loom_verify_orph_"
 
 type orphHarness struct {
 	ctx      context.Context
-	client   *storearango.Client
-	registry *pubarango.Registry
+	client   *arangofactory.Client
+	registry *arangofactory.PublishedRegistry
 	ch       *clickhouse.Client
 	database string
 	suffix   string
@@ -73,20 +72,21 @@ func orphOpen(t *testing.T) *orphHarness {
 	database := orphDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open %s: %v", database, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("ORPH_DATABASE=%s (via production store.Open)", database)
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		orphDropDatabase(t, endpoint, database)
 	})
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
 	ch, err := clickhouse.New(clickhouse.Options{
@@ -111,11 +111,12 @@ func orphDropDatabase(t *testing.T, endpoint, database string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := storearango.Open(ctx, endpoint, "_system")
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: "_system"})
 	if err != nil {
 		t.Logf("ORPH_CLEANUP_WARN: open _system for drop: %v", err)
 		return
 	}
+	client := arangoBackend.Client
 	defer func() { _ = client.Close(context.Background()) }()
 	request, err := http.NewRequestWithContext(ctx, http.MethodDelete,
 		strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(database), nil)
@@ -333,7 +334,7 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 			t.Fatalf("REGRESSION drift: Repair-4 janitor text %q no longer present in bundle_store.go — F-B19 growth returns; the REGRESSION arm below must fire against product behavior too", needle)
 		}
 	}
-	registrySrc := orphReadFile(t, "internal/dataframe/publication/arango/bundle_registry.go")
+	registrySrc := orphReadFile(t, "internal/backends/arango/internal/publication/bundle_registry.go")
 	if !strings.Contains(registrySrc, "SORT doc.publishedAt DESC") {
 		t.Fatalf("drift gate: name-latest selector shape changed; reassess F-B19 name-latest eligibility claim")
 	}
@@ -341,7 +342,9 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 	h := orphOpen(t)
 	ctx := h.ctx
 
-	store, err := NewBundleStore(h.ch, struct{ *pubarango.Registry }{h.registry})
+	store, err := NewBundleStore(h.ch, struct {
+		*arangofactory.PublishedRegistry
+	}{h.registry})
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
@@ -404,7 +407,9 @@ func TestPointerOrphanedPublishedNeverReclaimedAgainstArango(t *testing.T) {
 func TestPointerOrphanedPublishedJanitorRespectsActiveReleaseBindingsAgainstArango(t *testing.T) {
 	h := orphOpen(t)
 	ctx := h.ctx
-	store, err := NewBundleStore(h.ch, struct{ *pubarango.Registry }{h.registry})
+	store, err := NewBundleStore(h.ch, struct {
+		*arangofactory.PublishedRegistry
+	}{h.registry})
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}

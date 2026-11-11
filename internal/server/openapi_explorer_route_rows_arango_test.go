@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	storearango "github.com/calypr/loom/internal/store/arango"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,10 +26,11 @@ func TestSavedRelatedRouteRowsAgainstArango(t *testing.T) {
 	database := "loom_test_route_roundtrip_" + uuid.NewString()
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -49,7 +50,7 @@ func TestSavedRelatedRouteRowsAgainstArango(t *testing.T) {
 			t.Errorf("remove owned disposable database status=%d", response.StatusCode)
 		}
 	})
-	if err := client.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}, {Name: "Group"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}, {Name: "Group"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	insert := func(collection string, documents []map[string]any) {

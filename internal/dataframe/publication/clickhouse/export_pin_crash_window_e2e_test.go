@@ -14,10 +14,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	pubpublished "github.com/calypr/loom/internal/dataframe/published"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -60,7 +59,7 @@ import (
 // executes because StreamExactExport has not returned. That is the exact
 // externally observable state of a process that died inside the first window,
 // confirmed independently by a direct AQL document read on
-// pubarango.ExecutionReadPinsCollection keyed by executionStateKey
+// arangofactory.ExecutionReadPinsCollection keyed by executionStateKey
 // (bundle_registry.go:468-471 re-implemented locally, no catalog getter
 // exists). Process teardown at test end un Parks the goroutine; by then the
 // finding evidence is already recorded.
@@ -108,7 +107,7 @@ type ecwPinCall struct {
 }
 
 type ecwCatalog struct {
-	*pubarango.Registry
+	*arangofactory.PublishedRegistry
 	mu       sync.Mutex
 	acquires []ecwPinCall
 	renews   []ecwPinCall
@@ -119,14 +118,14 @@ func (c *ecwCatalog) AcquireExecutionReadPin(ctx context.Context, executionID, o
 	c.mu.Lock()
 	c.acquires = append(c.acquires, ecwPinCall{executionID: executionID, owner: owner, expires: expires})
 	c.mu.Unlock()
-	return c.Registry.AcquireExecutionReadPin(ctx, executionID, owner, expires)
+	return c.PublishedRegistry.AcquireExecutionReadPin(ctx, executionID, owner, expires)
 }
 
 func (c *ecwCatalog) RenewExecutionReadPin(ctx context.Context, executionID, owner string, expires time.Time) (bool, error) {
 	c.mu.Lock()
 	c.renews = append(c.renews, ecwPinCall{executionID: executionID, owner: owner, expires: expires})
 	c.mu.Unlock()
-	renewed, err := c.Registry.RenewExecutionReadPin(ctx, executionID, owner, expires)
+	renewed, err := c.PublishedRegistry.RenewExecutionReadPin(ctx, executionID, owner, expires)
 	return renewed, err
 }
 
@@ -134,7 +133,7 @@ func (c *ecwCatalog) ReleaseExecutionReadPin(ctx context.Context, executionID, o
 	c.mu.Lock()
 	c.releases = append(c.releases, ecwPinCall{executionID: executionID, owner: owner})
 	c.mu.Unlock()
-	return c.Registry.ReleaseExecutionReadPin(ctx, executionID, owner)
+	return c.PublishedRegistry.ReleaseExecutionReadPin(ctx, executionID, owner)
 }
 
 func (c *ecwCatalog) snapshotAcquires() []ecwPinCall {
@@ -255,7 +254,7 @@ func ecwCleanupDatabase(t *testing.T, endpoint, database string) {
 	}
 }
 
-func ecwSetup(t *testing.T) (*storearango.Client, *pubarango.Registry, context.Context, string) {
+func ecwSetup(t *testing.T) (*arangofactory.Client, *arangofactory.PublishedRegistry, context.Context, string) {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
@@ -265,18 +264,19 @@ func ecwSetup(t *testing.T) (*storearango.Client, *pubarango.Registry, context.C
 	t.Cleanup(cancel)
 	database := "loom_verify_ecw_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	t.Logf("owned arango database: %s", database)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open arango: %v", err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		ecwCleanupDatabase(t, endpoint, database)
 	})
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
@@ -315,7 +315,7 @@ func ecwExecution(tag, suffix, physicalTable string, updatedAt time.Time, publis
 
 // ecwUpsertWithLease stores an execution row through the real leased
 // SaveExecution AQL, then frees the key (fb1Seed/pbxSeed idiom).
-func ecwUpsertWithLease(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution, leaseOwner string) {
+func ecwUpsertWithLease(t *testing.T, registry *arangofactory.PublishedRegistry, ctx context.Context, exec pubpublication.BundleExecution, leaseOwner string) {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, exec.Key, leaseOwner, time.Now().UTC().Add(2*time.Minute))
 	if err != nil || !acquired {
@@ -330,11 +330,11 @@ func ecwUpsertWithLease(t *testing.T, registry *pubarango.Registry, ctx context.
 	}
 }
 
-// ecwRowQuerier is the narrow QueryRows surface of *storearango.Client used to
+// ecwRowQuerier is the narrow QueryRows surface of *arangofactory.Client used to
 // read the pins collection directly. There is no catalog GetExecutionReadPins
 // API, so the pin truth is the AQL document itself.
 type ecwRowQuerier interface {
-	QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit storearango.RowVisitor) error
+	QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit arangofactory.RowVisitor) error
 }
 
 // ecwStateKey re-implements bundle_registry.go:468-471 (unexported there):
@@ -366,7 +366,7 @@ LET active = LENGTH(FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin)
 LET far = LENGTH(FOR pin IN pins FILTER pin.expiresAt >= @horizon RETURN pin)
 RETURN {found: state != null, active: active, far: far, owners: (FOR pin IN pins RETURN pin.ownerId), expiries: (FOR pin IN pins RETURN TO_STRING(pin.expiresAt))}`,
 		1, map[string]interface{}{
-			"@collection": pubarango.ExecutionReadPinsCollection,
+			"@collection": arangofactory.ExecutionReadPinsCollection,
 			"stateKey":    ecwStateKey(executionID),
 			"now":         now,
 			"horizon":     horizon,
@@ -378,7 +378,7 @@ RETURN {found: state != null, active: active, far: far, owners: (FOR pin IN pins
 			return json.Unmarshal(data, &row)
 		})
 	if err != nil {
-		t.Fatalf("direct AQL read of %s for %s: %v", pubarango.ExecutionReadPinsCollection, executionID, err)
+		t.Fatalf("direct AQL read of %s for %s: %v", arangofactory.ExecutionReadPinsCollection, executionID, err)
 	}
 	return row
 }
@@ -399,9 +399,9 @@ func ecwHasOwner(owners []string, owner string) bool {
 // renewalInterval configures the caller-visible PinRenewalInterval; pass a
 // value >> productionFirstTickBound to model a crash inside the default
 // pre-first-tick window, or a millisecond-scale value to force real ticks.
-func ecwStartExactExport(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution, readerID string, horizon, renewalInterval time.Duration) (*ecwCatalog, *ecwQueryer, context.CancelFunc, <-chan error, time.Time) {
+func ecwStartExactExport(t *testing.T, registry *arangofactory.PublishedRegistry, ctx context.Context, exec pubpublication.BundleExecution, readerID string, horizon, renewalInterval time.Duration) (*ecwCatalog, *ecwQueryer, context.CancelFunc, <-chan error, time.Time) {
 	t.Helper()
-	catalog := &ecwCatalog{Registry: registry}
+	catalog := &ecwCatalog{PublishedRegistry: registry}
 	queryer := &ecwQueryer{started: make(chan struct{}), hold: make(chan struct{})}
 	reader := &pubpublished.Reader{Catalog: catalog, ClickHouse: queryer}
 	pinExpiresAt := time.Now().UTC().Add(horizon)
@@ -499,7 +499,7 @@ func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.
 	// pin is on the REAL pins collection under the caller's 24h horizon.
 	early := ecwReadPins(t, client, x.ID, time.Now().UTC(), time.Now().UTC().Add(23*time.Hour))
 	if !early.Found || early.Active < 1 || early.Far < 1 || !ecwHasOwner(early.Owners, readerID) {
-		t.Fatalf("crash-window pin not observed on %s for %s/%s: %+v", pubarango.ExecutionReadPinsCollection, x.ID, readerID, early)
+		t.Fatalf("crash-window pin not observed on %s for %s/%s: %+v", arangofactory.ExecutionReadPinsCollection, x.ID, readerID, early)
 	}
 	t.Logf("crash-window pin observed by direct AQL: active=%d far(>=23h)=%d owners=%v expiries=%v", early.Active, early.Far, early.Owners, early.Expiries)
 
@@ -554,7 +554,7 @@ func TestExportCrashInsideFirstTickLeavesCrashWindowPinAgainstArango(t *testing.
 	}
 	if pinErr && !xReclaimed && !yReclaimed {
 		t.Errorf("CONFIRMED with live crash realism against real Arango (F-B3): the REAL published.Reader.StreamExactExport entry point issued its own AcquireExecutionReadPin (export.go:135, recording wrapper delegating to real Registry AQL bundle_registry.go:343-376) with the artifact-supplied caller TTL %v (artifact.go:21/:104/:152 identity.ExpiresAt=now+24h); the export was abandoned in flight before its FIRST 30s renewal tick (export.go:156 ticker never fired: zero RenewExecutionReadPin calls observed; the only non-test renewers export.go:168/read_pins.go:90 are in-goroutine tickers of the owning process, bundle_store.go:266 renews the cleanup slot) and the deferred release (export.go:142-146) never ran, leaving a live 24h pin (direct AQL on %s: active=%d far=%d owners=%v). Startup Reconcile then aborted on %q with errors.Is ErrExecutionReadPinActive and the unrelated, pin-free sibling %q was STRANDED (bundle_store.go:1033-1052 first-error-wins, :1076-1079 propagation; server.go:556-558 publicationReady=false for the process lifetime). reconcileErr=%v; X table %s reclaimed=%v; Y table %s reclaimed=%v state=%q error-field=%q; dropped=%v. Contrast control TestExportCrashWithoutCrashRenewedPinExpiresFast: after ONE real ticker tick pulled the same caller 24h down to ~defaultReadPinTTL and the stream completed+released, the identical production Reconcile reclaimed BOTH executions.",
-			pinExpiresAt.UTC().Format(time.RFC3339), pubarango.ExecutionReadPinsCollection, after.Active, after.Far, after.Owners, x.ID, y.ID, reconcileErr, xTable, xReclaimed, yTable, yReclaimed, yRow.State, yRow.Error, dropped)
+			pinExpiresAt.UTC().Format(time.RFC3339), arangofactory.ExecutionReadPinsCollection, after.Active, after.Far, after.Owners, x.ID, y.ID, reconcileErr, xTable, xReclaimed, yTable, yReclaimed, yRow.State, yRow.Error, dropped)
 	} else if pinErr && !xReclaimed && yReclaimed {
 		t.Errorf("UNEXPECTED: pin abort did NOT strand sibling Y (dropped=%v): a compensating skip-and-continue path exists — re-examine F-B3 blast radius", dropped)
 	}

@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestNewGenerationLoadPlanRejectsUnsafeOrIncompleteInputs(t *testing.T) {
@@ -116,7 +116,7 @@ func TestGenerationLoadPreflightRunsBeforeOptionRejectionOrBackend(t *testing.T)
 		Project:  ref.Project,
 		Dataset:  &ref,
 		Truncate: true, // would be rejected only after preflight succeeds.
-		ConnectionOptions: arangostore.ConnectionOptions{
+		ConnectionOptions: arangofactory.ConnectionOptions{
 			URL:      "http://127.0.0.1:1",
 			Database: "generation_preflight_must_not_connect",
 		},
@@ -150,7 +150,7 @@ func TestGenerationLoadEmptyDirectoryDoesNotOpenBackend(t *testing.T) {
 		MetaDir: dir,
 		Project: ref.Project,
 		Dataset: &ref,
-		ConnectionOptions: arangostore.ConnectionOptions{
+		ConnectionOptions: arangofactory.ConnectionOptions{
 			URL:      "http://127.0.0.1:1",
 			Database: "empty_generation_must_not_connect",
 		},
@@ -364,7 +364,9 @@ func TestGenerationRowErrorSamplesCoverEveryFailingStagedFile(t *testing.T) {
 	}
 
 	opts := normalizeLoadOptions(LoadOptions{Project: "project-a", WriterCount: 2, WorkerCount: 2})
-	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	insert := func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}
 
 	var totals fileLoadResult
 	var candidates [][]RowErrorSample
@@ -444,7 +446,9 @@ func TestGenerationRowErrorSamplesLeaveCleanLoadWithoutSamples(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := normalizeLoadOptions(LoadOptions{Project: "project-a", WriterCount: 2, WorkerCount: 2})
-	insert := func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error { return nil }
+	insert := func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error {
+		return nil
+	}
 
 	var candidates [][]RowErrorSample
 	var totals fileLoadResult

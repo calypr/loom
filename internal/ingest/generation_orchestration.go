@@ -7,10 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
-	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
@@ -127,14 +126,15 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 		"database": opts.Database,
 	})
 	connectStart := time.Now()
-	client, err := openBackend(ctx, opts.ConnectionOptions)
+	backend, err := openBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
 		return summary, err
 	}
+	client := backend.Client
 	defer func() {
-		err = generationCleanupError(ctx, generationCleanupTimeout, err, "close generation backend", client.Close)
+		err = generationCleanupError(ctx, generationCleanupTimeout, err, "close generation backend", backend.Close)
 	}()
-	catalogStore, err := catalogarango.New(client)
+	catalogStore, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return summary, err
 	}
@@ -167,7 +167,7 @@ func loadGeneration(ctx context.Context, opts LoadOptions) (summary LoadSummary,
 	}
 	summary.StageSeconds["bootstrap"] = time.Since(bootstrapStart).Seconds()
 
-	lifecycleStore, err := publicationarango.New(client)
+	lifecycleStore, err := arangofactory.NewDatasetStore(client)
 	if err != nil {
 		return summary, err
 	}

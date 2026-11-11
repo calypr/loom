@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 
 	"github.com/bmeg/jsonschemagraph/graph"
 )
@@ -147,7 +147,7 @@ type fileWriteTask struct {
 	replace            bool
 }
 
-type documentInserter func(context.Context, *arangostore.Client, string, []json.RawMessage, bool, string) error
+type documentInserter func(context.Context, *arangofactory.Client, string, []json.RawMessage, bool, string) error
 
 // loadFile owns one scanner and closes it before returning. A blank generation
 // preserves the primary resource-loader identity; overwrite controls its
@@ -155,7 +155,7 @@ type documentInserter func(context.Context, *arangostore.Client, string, []json.
 func loadFile(
 	ctx context.Context,
 	opts LoadOptions,
-	client *arangostore.Client,
+	client *arangofactory.Client,
 	schema *graph.GraphSchema,
 	file string,
 	datasetGeneration string,

@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -41,7 +40,7 @@ import (
 //	   -count=1 -run "TestAbort.*AgainstArango" -v ./internal/dataframe/publication/clickhouse/'
 
 type fbxCatalog struct {
-	*pubarango.Registry
+	*arangofactory.PublishedRegistry
 	publishArmed  bool
 	publishRan    bool
 	publishLanded bool
@@ -53,7 +52,7 @@ type fbxCatalog struct {
 // error, so the production caller believes the ACK was lost after commit.
 // Genuine server-side rejections are passed through untouched.
 func (c *fbxCatalog) PublishExecution(ctx context.Context, name, expected string, execution pubpublication.BundleExecution) error {
-	err := c.Registry.PublishExecution(ctx, name, expected, execution)
+	err := c.PublishedRegistry.PublishExecution(ctx, name, expected, execution)
 	if c.publishArmed && !c.publishRan {
 		c.publishRan = true
 		if err == nil {
@@ -70,7 +69,7 @@ func (c *fbxCatalog) SaveExecution(ctx context.Context, execution pubpublication
 	if c.observedID == "" && execution.OwnerID != "" {
 		c.observedID = execution.ID
 	}
-	return c.Registry.SaveExecution(ctx, execution, fenceOwner)
+	return c.PublishedRegistry.SaveExecution(ctx, execution, fenceOwner)
 }
 
 func fbxCleanupDatabase(t *testing.T, endpoint, database string) {
@@ -93,7 +92,7 @@ func fbxCleanupDatabase(t *testing.T, endpoint, database string) {
 	}
 }
 
-func fbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
+func fbxSetup(t *testing.T) (*arangofactory.PublishedRegistry, context.Context, string) {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
@@ -103,18 +102,19 @@ func fbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
 	t.Cleanup(cancel)
 	database := "loom_verify_fbx_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	t.Logf("owned arango database: %s", database)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open arango: %v", err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		fbxCleanupDatabase(t, endpoint, database)
 	})
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
 	registry, ctx, suffix := fbxSetup(t)
 	identity := fbxBundleIdentity(suffix)
 	pointerName := identity.PointerName()
-	wrapper := &fbxCatalog{Registry: registry, publishArmed: true}
+	wrapper := &fbxCatalog{PublishedRegistry: registry, publishArmed: true}
 	ch := &fbxClickHouse{tocFakeClickHouse: &tocFakeClickHouse{}}
 	store, err := NewBundleStore(ch, wrapper)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestAbortDropsServerPublishedBundleAgainstArango(t *testing.T) {
 func TestAbortDropsUnpublishedExecutionAgainstArango(t *testing.T) {
 	registry, ctx, suffix := fbxSetup(t)
 	identity := fbxBundleIdentity(suffix)
-	wrapper := &fbxCatalog{Registry: registry}
+	wrapper := &fbxCatalog{PublishedRegistry: registry}
 	ch := &fbxClickHouse{tocFakeClickHouse: &tocFakeClickHouse{}}
 	store, err := NewBundleStore(ch, wrapper)
 	if err != nil {

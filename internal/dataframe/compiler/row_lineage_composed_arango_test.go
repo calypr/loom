@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -29,7 +29,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Specimen"}, {Name: "Observation"},
 		{Name: "fhir_edge", Edge: true}, {Name: "loom_explorer_selection_members"},
 	}}); err != nil {
@@ -377,7 +377,7 @@ func composedRelatedExpandConstructionIDs(t *testing.T, output lower.CompiledRec
 	return ids
 }
 
-func executeComposedRelatedExpandOracle(t *testing.T, ctx context.Context, client *store.Client, project, generation, selectionID string) []map[string]any {
+func executeComposedRelatedExpandOracle(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation, selectionID string) []map[string]any {
 	t.Helper()
 	// This is a source-side oracle, independent from construction compilation:
 	// it spells out membership, every typed route hop, every edge label, and all

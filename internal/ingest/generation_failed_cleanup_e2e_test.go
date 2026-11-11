@@ -11,7 +11,7 @@ package ingest
 //      GenerationLoadIncompleteError and the persisted manifest is FAILED —
 //      never left LOADING (evidence: store-visible ReadManifest readback;
 //      guard-level CAS-vs-blind-UPDATE equivalence is pinned by
-//      internal/dataset/arango/generation_activation_cas_e2e_test.go, not
+//      internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go, not
 //      by this file).
 //   2. The failed generation is never activatable: Store.Activate returns
 //      publication.ErrGenerationNotReady.
@@ -21,7 +21,7 @@ package ingest
 //      mask a dangling pointer to the FAILED manifest) is absent.
 //   4. It cannot be silently recreated: a second Load for the same dataset
 //      reference is rejected sequentially at the single-query
-//      publicationarango.CreateManifest claim with
+//      arangofactory.CreateManifest claim with
 //      publication.ErrManifestAlreadyExists. (Concurrent-claim behavior is
 //      not pinned by this test.)
 //   5. The paired semantic inventory build is marked failed
@@ -60,10 +60,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	catalog "github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	publicationarango "github.com/calypr/loom/internal/dataset/arango"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -111,7 +110,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 			t.Fatalf("ref: %v", err)
 		}
 		_, loadErr := Load(ctx, LoadOptions{
-			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+			ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
@@ -128,12 +127,13 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		}
 		t.Logf("FAILLEG fault load | %v", loadErr)
 
-		client, err := arangostore.Open(ctx, endpoint, database)
+		arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 		if err != nil {
 			t.Fatalf("open: %v", err)
 		}
+		client := arangoBackend.Client
 		defer func() { _ = client.Close(context.Background()) }()
-		store, err := publicationarango.New(client)
+		store, err := arangofactory.NewDatasetStore(client)
 		if err != nil {
 			t.Fatalf("lifecycle store: %v", err)
 		}
@@ -164,14 +164,14 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		}
 
 		if _, err := Load(ctx, LoadOptions{
-			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+			ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
 			Dataset:           &ref,
 			BatchSize:         10,
 			ProgressEvery:     100,
-		}); !errors.Is(err, publicationarango.ErrManifestAlreadyExists) {
+		}); !errors.Is(err, arangofactory.ErrManifestAlreadyExists) {
 			// FAILED blocks silent re-creation through the atomic claim: the
 			// second Load must die at CreateManifest, never reaching the
 			// loader loop again.
@@ -213,7 +213,7 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 			t.Fatalf("ref: %v", err)
 		}
 		summary, err := Load(ctx, LoadOptions{
-			ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+			ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 			Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 			MetaDir:           metaDir,
 			Project:           project,
@@ -224,12 +224,13 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 		if err != nil {
 			t.Fatalf("positive control load failed: %v", err)
 		}
-		client, err := arangostore.Open(ctx, endpoint, database)
+		arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 		if err != nil {
 			t.Fatalf("open: %v", err)
 		}
+		client := arangoBackend.Client
 		defer func() { _ = client.Close(context.Background()) }()
-		store, err := publicationarango.New(client)
+		store, err := arangofactory.NewDatasetStore(client)
 		if err != nil {
 			t.Fatalf("lifecycle store: %v", err)
 		}
@@ -252,8 +253,8 @@ func TestGenerationLoadFailureMarksManifestFailedAndBlocksActivation(t *testing.
 	t.Cleanup(func() { failLegAssertNoResidue(t, endpoint) })
 }
 
-func failLegReadActivePointer(ctx context.Context, client *arangostore.Client, project string) (string, bool, error) {
-	exists, err := client.CollectionExists(ctx, publicationarango.LifecycleCollection)
+func failLegReadActivePointer(ctx context.Context, client *arangofactory.Client, project string) (string, bool, error) {
+	exists, err := client.CollectionExists(ctx, arangofactory.DatasetLifecycleCollection)
 	if err != nil {
 		return "", false, err
 	}
@@ -263,8 +264,8 @@ func failLegReadActivePointer(ctx context.Context, client *arangostore.Client, p
 	var manifestKey string
 	var found bool
 	err = client.QueryRows(ctx, `FOR a IN @@lifecycle FILTER a._key == @active_key AND a.recordType == "active_generation" RETURN {manifestKey: a.manifestKey}`, 1, map[string]any{
-		"@lifecycle": publicationarango.LifecycleCollection,
-		"active_key": publicationarango.ActiveDocumentKey(project),
+		"@lifecycle": arangofactory.DatasetLifecycleCollection,
+		"active_key": arangofactory.DatasetActiveDocumentKey(project),
 	}, func(row map[string]any) error {
 		value, _ := row["manifestKey"].(string)
 		manifestKey, found = value, true
@@ -273,7 +274,7 @@ func failLegReadActivePointer(ctx context.Context, client *arangostore.Client, p
 	return manifestKey, found, err
 }
 
-func failLegReadBuildState(ctx context.Context, client *arangostore.Client, collection, project, generation string) (string, string, int, bool, error) {
+func failLegReadBuildState(ctx context.Context, client *arangofactory.Client, collection, project, generation string) (string, string, int, bool, error) {
 	exists, err := client.CollectionExists(ctx, collection)
 	if err != nil {
 		return "", "", 0, false, err

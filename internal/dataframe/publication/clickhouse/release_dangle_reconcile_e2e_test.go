@@ -16,12 +16,10 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	pubpublished "github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataset"
-	datasetstore "github.com/calypr/loom/internal/dataset/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -50,7 +48,7 @@ const (
 //     visibility guard at bundle_store.go:1068-1075. (Pre-run audit, reported
 //     verbatim in the task's STEP 0a: AcquireExecutionReadPin has exactly two
 //     non-test call sites, read_pins.go:63 and export.go:135, ZERO in
-//     internal/dataset/**, and there is no internal/explorer/arango/read_pins.go.)
+//     internal/dataset/**, and there is no internal/backends/arango/internal/explorer/read_pins.go.)
 //   - F-B1: ClickHouseBundleStore.Reconcile enumerates RUNNING/VALIDATING/FAILED
 //     executions older than the cutoff (bundle_store.go:1046-1053) and, once it
 //     claims the key, drops their physical tables and demotes the row to FAILED
@@ -89,7 +87,7 @@ const (
 //     execution is created via the real publish flow so its pointer names it
 //     and its outputs are queryable, then bound to an ACTIVE release via the
 //     production dataset.ReleaseService Create+Activate over the real
-//     datasetstore.Store. Inject the stale RUNNING enumeration snapshot, free
+//     arangofactory.DatasetStore. Inject the stale RUNNING enumeration snapshot, free
 //     the lease, and run the production Reconcile. Predicted: the pointer guard
 //     at :1073 skips cleanup -> NOT dangled -> current list stays healthy =>
 //     PREVENTED. (Verdict gate; FAILED-ON-PURPOSE only if it actually dangles.)
@@ -180,22 +178,22 @@ func (c *rdlClickHouse) didDrop(table string) bool {
 // candidate (lease claim) and really re-read the pointer (:1068). The wrapper
 // decides nothing; every method delegates verbatim to the embedded Registry.
 type rdlCatalog struct {
-	*pubarango.Registry
+	*arangofactory.PublishedRegistry
 	mu           sync.Mutex
 	leaseClaims  map[string]string // execution key -> reconciler owner observed
 	pointerReads map[string]int    // pointer name -> times reconcileExecution read it
 }
 
-func newRDLCatalog(registry *pubarango.Registry) *rdlCatalog {
+func newRDLCatalog(registry *arangofactory.PublishedRegistry) *rdlCatalog {
 	return &rdlCatalog{
-		Registry:     registry,
-		leaseClaims:  map[string]string{},
-		pointerReads: map[string]int{},
+		PublishedRegistry: registry,
+		leaseClaims:       map[string]string{},
+		pointerReads:      map[string]int{},
 	}
 }
 
 func (c *rdlCatalog) AcquireBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
-	claimed, err := c.Registry.AcquireBundleLease(ctx, key, owner, expires)
+	claimed, err := c.PublishedRegistry.AcquireBundleLease(ctx, key, owner, expires)
 	if claimed {
 		c.mu.Lock()
 		c.leaseClaims[key] = owner
@@ -208,7 +206,7 @@ func (c *rdlCatalog) GetPointer(ctx context.Context, name string) (pubpublicatio
 	c.mu.Lock()
 	c.pointerReads[name]++
 	c.mu.Unlock()
-	return c.Registry.GetPointer(ctx, name)
+	return c.PublishedRegistry.GetPointer(ctx, name)
 }
 
 func (c *rdlCatalog) claimedOwner(key string) (string, bool) {
@@ -254,7 +252,7 @@ func (v rdlVerifier) VerifyPublication(_ context.Context, _, generation string, 
 // owned-database harness (LOOM_TEST_ARANGO_URL opt-in, SKIP-clean)
 // ---------------------------------------------------------------------------
 
-func rdlOpen(t *testing.T, budget time.Duration) (context.Context, *storearango.Client, *pubarango.Registry, *datasetstore.Store, string) {
+func rdlOpen(t *testing.T, budget time.Duration) (context.Context, *arangofactory.Client, *arangofactory.PublishedRegistry, *arangofactory.DatasetStore, string) {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
@@ -266,10 +264,11 @@ func rdlOpen(t *testing.T, budget time.Duration) (context.Context, *storearango.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, name)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: name})
 	if err != nil {
 		t.Fatalf("open %s: %v", name, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("RDL_DATABASE=%s", name)
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
@@ -294,17 +293,17 @@ func rdlOpen(t *testing.T, budget time.Duration) (context.Context, *storearango.
 		}
 		t.Logf("RDL_DATABASE_REMOVED=%s", name)
 	})
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
-	if err := client.Bootstrap(ctx, datasetstore.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.DatasetBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	lifecycle, err := datasetstore.New(client)
+	lifecycle, err := arangofactory.NewDatasetStore(client)
 	if err != nil {
 		t.Fatalf("new dataset lifecycle store: %v", err)
 	}
@@ -364,7 +363,7 @@ func rdlBuildExecution(spec rdlExecSpec, owner string, age time.Time) pubpublica
 // rdlSeedRunning stores a RUNNING execution under a live seed lease then frees
 // the key, so a later reconciler can claim it (the stalled-publisher end state
 // reconcileExecution expects).
-func rdlSeedRunning(t *testing.T, registry *pubarango.Registry, ctx context.Context, spec rdlExecSpec, owner string) pubpublication.BundleExecution {
+func rdlSeedRunning(t *testing.T, registry *arangofactory.PublishedRegistry, ctx context.Context, spec rdlExecSpec, owner string) pubpublication.BundleExecution {
 	t.Helper()
 	if acquired, err := registry.AcquireBundleLease(ctx, spec.key, owner, time.Now().UTC().Add(5*time.Minute)); err != nil || !acquired {
 		t.Fatalf("rdl seed acquire lease %s: acquired=%v err=%v", spec.key, acquired, err)
@@ -385,7 +384,7 @@ func rdlSeedRunning(t *testing.T, registry *pubarango.Registry, ctx context.Cont
 // which atomically flips the doc to PUBLISHED and creates the visibility
 // pointer naming exec in one AQL (bundle_registry.go:274-310), then frees the
 // lease so a reconcile can claim the key. Returns the published execution.
-func rdlSeedPublished(t *testing.T, registry *pubarango.Registry, ctx context.Context, spec rdlExecSpec, owner string) pubpublication.BundleExecution {
+func rdlSeedPublished(t *testing.T, registry *arangofactory.PublishedRegistry, ctx context.Context, spec rdlExecSpec, owner string) pubpublication.BundleExecution {
 	t.Helper()
 	publishedAt := time.Now().UTC().Add(-rdlSeedAge)
 	if acquired, err := registry.AcquireBundleLease(ctx, spec.key, owner, time.Now().UTC().Add(5*time.Minute)); err != nil || !acquired {
@@ -417,14 +416,14 @@ func rdlSeedPublished(t *testing.T, registry *pubarango.Registry, ctx context.Co
 // (separate collection) and any reconcile-written marker untouched. Same
 // direct-AQL UPDATE technique the sibling export_pin_crash_window /
 // dangling_binding harnesses use to force an otherwise-unreachable state.
-func rdlFlipToRunning(t *testing.T, client *storearango.Client, ctx context.Context, execID string) {
+func rdlFlipToRunning(t *testing.T, client *arangofactory.Client, ctx context.Context, execID string) {
 	t.Helper()
 	patched := false
 	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
 FILTER doc != null
 UPDATE doc WITH {state: "RUNNING", updatedAt: @updatedAt} IN @@collection
 RETURN {patched: true}`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection,
+		"@collection": arangofactory.BundleExecutionsCollection,
 		"key":         execID,
 		"updatedAt":   time.Now().UTC().Add(-rdlSeedAge),
 	}, func(row map[string]any) error {
@@ -442,14 +441,14 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 // honest way to re-check the current-release READ result: with the injected
 // stale-enumeration flag removed, the release read's health reflects exactly
 // what reconcile did (which, under the guard, is nothing).
-func rdlRestorePublished(t *testing.T, client *storearango.Client, ctx context.Context, execID string) {
+func rdlRestorePublished(t *testing.T, client *arangofactory.Client, ctx context.Context, execID string) {
 	t.Helper()
 	patched := false
 	err := client.QueryRows(ctx, `LET doc = DOCUMENT(@@collection, @key)
 FILTER doc != null
 UPDATE doc WITH {state: "PUBLISHED", updatedAt: @updatedAt} IN @@collection
 RETURN {patched: true}`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection,
+		"@collection": arangofactory.BundleExecutionsCollection,
 		"key":         execID,
 		"updatedAt":   time.Now().UTC().Add(-rdlSeedAge),
 	}, func(row map[string]any) error {
@@ -462,12 +461,12 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 }
 
 // ---------------------------------------------------------------------------
-// production dataset release Create + Activate over the real datasetstore.Store
+// production dataset release Create + Activate over the real arangofactory.DatasetStore
 // ---------------------------------------------------------------------------
 
 // rdlCreateAndActivateRelease runs the PRODUCTION release path so the binding
 // is written the way the product writes it: persist a STAGED manifest through
-// datasetstore.CreateManifest/TransitionManifest, then dataset.ReleaseService
+// arangofactory.CreateManifest/TransitionManifest, then dataset.ReleaseService
 // with Manifests=Releases=lifecycle and a controlled verifier, and finally its
 // Activate (Create + the real CompareAndSwapActivateRelease AQL).
 //
@@ -478,7 +477,7 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 // persisted byte-for-byte from Create's publicationBinding by SaveRelease via
 // lifecycleDocument (release_store.go:105-115). It never opens the executions
 // collection and never looks the execution up.
-func rdlCreateAndActivateRelease(t *testing.T, ctx context.Context, lifecycle *datasetstore.Store, project, generation, execID string, selector dataset.DataframeSelector) dataset.ActiveRelease {
+func rdlCreateAndActivateRelease(t *testing.T, ctx context.Context, lifecycle *arangofactory.DatasetStore, project, generation, execID string, selector dataset.DataframeSelector) dataset.ActiveRelease {
 	t.Helper()
 	ref, err := dataset.NewRef(project, generation)
 	if err != nil {
@@ -546,12 +545,12 @@ func rdlCreateAndActivateRelease(t *testing.T, ctx context.Context, lifecycle *d
 // rdlExecutionRow reads an execution document verbatim (raw, no GetExecution
 // canonicalization) so the reconcile-written marker is observed exactly as the
 // reconciler wrote it.
-func rdlExecutionRow(t *testing.T, client *storearango.Client, ctx context.Context, execID string) (string, string) {
+func rdlExecutionRow(t *testing.T, client *arangofactory.Client, ctx context.Context, execID string) (string, string) {
 	t.Helper()
 	state := ""
 	errField := ""
 	err := client.QueryRows(ctx, `RETURN DOCUMENT(@@collection, @key)`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection, "key": execID,
+		"@collection": arangofactory.BundleExecutionsCollection, "key": execID,
 	}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
@@ -577,7 +576,7 @@ func rdlExecutionRow(t *testing.T, client *storearango.Client, ctx context.Conte
 // directly, returning the count of live pins (expiresAt >= now). This is the
 // live probe for the F-B9 premise: an active-release-bound execution carries NO
 // reader pin, so a pin can never be the reason it survives Reconcile.
-func rdlActivePins(t *testing.T, client *storearango.Client, ctx context.Context, execID string) int {
+func rdlActivePins(t *testing.T, client *arangofactory.Client, ctx context.Context, execID string) int {
 	t.Helper()
 	sum := sha256.Sum256([]byte("state\x00" + execID))
 	stateKey := "state_" + hex.EncodeToString(sum[:])
@@ -585,7 +584,7 @@ func rdlActivePins(t *testing.T, client *storearango.Client, ctx context.Context
 	err := client.QueryRows(ctx, `LET state = DOCUMENT(@@collection, @stateKey)
 LET pins = state == null ? [] : NOT_NULL(state.pins, [])
 RETURN {active: LENGTH(FOR pin IN pins FILTER pin.expiresAt >= @now RETURN pin), found: state != null}`, 32, map[string]interface{}{
-		"@collection": pubarango.ExecutionReadPinsCollection, "stateKey": stateKey, "now": time.Now().UTC(),
+		"@collection": arangofactory.ExecutionReadPinsCollection, "stateKey": stateKey, "now": time.Now().UTC(),
 	}, func(row map[string]any) error {
 		if a, ok := row["active"].(float64); ok {
 			active = int(a)

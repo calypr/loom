@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -20,13 +20,13 @@ import (
 // collection cannot pass a row-dropping construction stage before COHORT_GROUP.
 func TestPreCohortDropStagesExcludeMissingPinnedMembersAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
-	collections := []store.CollectionSpec{
+	collections := []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 		{Name: "loom_explorer_explicit_group_revisions"}, {Name: "loom_explorer_selections"},
 		{Name: "loom_explorer_explicit_group_definitions"}, {Name: "loom_explorer_explicit_group_memberships"},
 		{Name: "loom_explorer_selection_members"},
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
 

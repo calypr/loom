@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
@@ -67,21 +67,19 @@ const (
 // internal/api/authpolicy/policy.go:36-37 groups context.DeadlineExceeded,
 // dataframeerrors.ErrBackendUnavailable and authscope.ErrAuthorizationBackendUnavailable
 // into the retryable backend-unavailable class (mirrored at
-// internal/api/http/errors.go:53-55), and recognises Arango client faults by
-// the driver error TYPE (errors.As on shared.ArangoError, read for value and
-// pointer form as in internal/server/server.go:237-243). A driver response
-// that carries the Arango permission-decision fields (HTTP 401/403 or
-// ErrorNum shared.ErrForbidden=11 — the fields the driver itself defines as
-// ErrHttpUnauthorized/ErrHttpForbidden/ErrForbidden) is a store-level
-// permission DENIAL, not a backend fault: it keeps the 403 arm. Query-fault
-// responses (Code 400 family, bind-parameter error numbers such as
-// shared.ErrQueryBindParameterUndeclared) remain storage faults. Genuine
-// permission denials from the ScopeResolver wrap
-// authscope.ErrForbidden/ErrUnauthenticated (scope_resolver.go) and are
-// checked first, so this predicate can only ever lift a non-permission
-// storage fault out of the 403 arm; it can never relabel a denial — sentinel
-// or store-native — as 5xx. An unclassified error stays in the 403 arm
-// (unchanged pre-repair posture) — fail closed.
+// internal/api/http/errors.go:53-55), and recognises Arango client faults
+// through the backend factory's adapter-owned classifiers
+// (arangofactory.IsArangoErrorResponse / IsArangoPermissionResponse, which
+// read the driver error in value and pointer form). A driver response that
+// carries the Arango permission-decision fields (HTTP 401/403 or ErrorNum
+// 11) is a store-level permission DENIAL, not a backend fault: it keeps the
+// 403 arm. Query-fault responses (Code 400 family, bind-parameter error
+// numbers) remain storage faults. Genuine permission denials from the
+// ScopeResolver wrap authscope.ErrForbidden/ErrUnauthenticated
+// (scope_resolver.go) and are checked first, so this predicate can only ever
+// lift a non-permission storage fault out of the 403 arm; it can never
+// relabel a denial — sentinel or store-native — as 5xx. An unclassified
+// error stays in the 403 arm (unchanged pre-repair posture) — fail closed.
 func isAuthorizerStorageFault(err error) bool {
 	if err == nil {
 		return false
@@ -94,27 +92,10 @@ func isAuthorizerStorageFault(err error) bool {
 		errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	var arangoErr shared.ArangoError
-	if errors.As(err, &arangoErr) {
-		return !isArangoPermissionResponse(arangoErr)
-	}
-	var arangoErrPointer *shared.ArangoError
-	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
-		return !isArangoPermissionResponse(*arangoErrPointer)
+	if arangofactory.IsArangoErrorResponse(err) {
+		return !arangofactory.IsArangoPermissionResponse(err)
 	}
 	return false
-}
-
-// isArangoPermissionResponse reports whether an Arango driver response is the
-// store's own permission decision (fail closed to 403) rather than a backend
-// fault (retryable 5xx). Matching is on the driver's numeric response fields
-// only: go-driver v2 shared/error.go defines ErrHttpUnauthorized=401,
-// ErrHttpForbidden=403 and ErrForbidden=11; those are Arango saying
-// "not authorized", which must never surface as retryable availability.
-func isArangoPermissionResponse(arangoErr shared.ArangoError) bool {
-	return arangoErr.Code == shared.ErrHttpUnauthorized ||
-		arangoErr.Code == shared.ErrHttpForbidden ||
-		arangoErr.ErrorNum == shared.ErrForbidden
 }
 
 func (h *explorerHTTPHandlers) authoringWriteDirect(ctx context.Context, project, authResourcePath string) error {

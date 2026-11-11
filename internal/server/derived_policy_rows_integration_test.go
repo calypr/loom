@@ -14,11 +14,11 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -141,10 +141,11 @@ func TestDerivedArithmeticPoliciesAgainstArango(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	database := "loom_derived_policy_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	graph, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	graph := arangoBackend.Client
 	t.Cleanup(func() {
 		graph.Close(context.Background())
 		request, _ := http.NewRequest(http.MethodDelete, strings.TrimRight(endpoint, "/")+"/_api/database/"+database, nil)
@@ -158,7 +159,7 @@ func TestDerivedArithmeticPoliciesAgainstArango(t *testing.T) {
 			t.Errorf("owned derived database cleanup HTTP%d", response.StatusCode)
 		}
 	})
-	if err = graph.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err = graph.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 	engine, err := execution.New(execution.Config{
@@ -170,7 +171,7 @@ func TestDerivedArithmeticPoliciesAgainstArango(t *testing.T) {
 				return deriveErr
 			}
 
-			return graph.QueryRows(ctx, query, batch, binds, storearango.RowVisitor(visit))
+			return graph.QueryRows(ctx, query, batch, binds, arangofactory.RowVisitor(visit))
 		}})
 	if err != nil {
 		t.Fatal(err)

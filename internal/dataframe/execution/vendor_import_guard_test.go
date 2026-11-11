@@ -14,13 +14,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/calypr/loom/internal/store/arango"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 )
 
 // forbiddenVendorImports are import-path prefixes that would reintroduce
 // vendor failure interpretation into shared execution.
 var forbiddenVendorImports = []string{
-	"github.com/calypr/loom/internal/store/arango",
+	"github.com/calypr/loom/internal/backends/arango/internal/store",
 	"github.com/arangodb/go-driver",
 	"github.com/jackc/pgx",
 }
@@ -67,7 +67,7 @@ func TestProductionExecutionFilesNeverImportDatabaseVendors(t *testing.T) {
 
 	t.Run("non_vacuity_scanner_fires_on_a_crafted_import", func(t *testing.T) {
 		dir := t.TempDir()
-		crafted := "package execution\n\nimport \"github.com/calypr/loom/internal/store/arango\"\n\nvar _ = arango.Client{}\n"
+		crafted := "package execution\n\nimport \"github.com/calypr/loom/internal/backends/arango/internal/store\"\n\nvar _ = arango.Client{}\n"
 		if err := os.WriteFile(filepath.Join(dir, "arango_import_witness.go"), []byte(crafted), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +79,7 @@ func TestProductionExecutionFilesNeverImportDatabaseVendors(t *testing.T) {
 	t.Run("non_vacuity_scanner_fires_on_a_real_vendor_package", func(t *testing.T) {
 		// The adapter directory this ticket moved vendor interpretation INTO
 		// must itself be flagged by the same scanner.
-		if offenders := vendorImportOffenders(filepath.Join("..", "..", "store", "arango"), false); len(offenders) == 0 {
+		if offenders := vendorImportOffenders(filepath.Join("..", "..", "backends", "arango", "internal", "store"), false); len(offenders) == 0 {
 			t.Fatal("scanner missed the known vendor imports in the ArangoDB adapter")
 		}
 	})
@@ -95,7 +95,7 @@ func TestQueryMemoryBudgetIsExecutionOwnedNeutralValue(t *testing.T) {
 	}
 	// The neutral value is not the ArangoDB mechanism: the adapter's own
 	// context key stays unset, so only composition wires it.
-	if _, ok := arango.QueryMemoryLimitFromContext(ctx); ok {
+	if _, ok := arangofactory.QueryMemoryLimitFromContext(ctx); ok {
 		t.Fatal("execution attached the ArangoDB memory-limit mechanism itself")
 	}
 }

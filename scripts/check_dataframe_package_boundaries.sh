@@ -24,7 +24,7 @@ fail_if_matches "semantic imports physical compiler implementation" \
   "$root/internal/dataframe/semantic"
 
 fail_if_matches "ir imports lowering, optimization, rendering, or runtime" \
-  'internal/dataframe/compiler/(lower|optimize|render)|internal/dataframe/execution|internal/store/arango' \
+  'internal/dataframe/compiler/(lower|optimize|render)|internal/dataframe/execution|internal/backends/arango' \
   "$root/internal/dataframe/compiler/ir"
 
 fail_if_matches "optimizer imports renderer, lowerer, runtime, or schema routes" \
@@ -32,7 +32,7 @@ fail_if_matches "optimizer imports renderer, lowerer, runtime, or schema routes"
   "$root/internal/dataframe/compiler/optimize"
 
 fail_if_matches "renderer imports lowerer, optimizer, runtime, or Arango" \
-  'internal/dataframe/compiler/(lower|optimize)|internal/dataframe/execution|internal/store/arango|ResolveStorageRoute' \
+  'internal/dataframe/compiler/(lower|optimize)|internal/dataframe/execution|internal/backends/arango|ResolveStorageRoute' \
   "$root/internal/dataframe/compiler/render/aql"
 
 # arch-backend-06 leaf law: the compiled command is the compiler's leaf
@@ -40,7 +40,7 @@ fail_if_matches "renderer imports lowerer, optimizer, runtime, or Arango" \
 # database driver; the only vendor-adjacent edge is adapter -> command.
 # Go-side twin: internal/dataframe/compiler/backend_leaf_guard_test.go.
 fail_if_matches "compiler imports backend implementations or database drivers" \
-  'github.com/calypr/loom/internal/backends/|github.com/jackc/pgx' \
+  'github.com/calypr/loom/internal/backends/|github.com/jackc/pgx|"github.com/arangodb' \
   "$root/internal/dataframe/compiler"
 
 fail_if_matches "stored recipe domain imports execution or storage layers" \

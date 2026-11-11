@@ -14,12 +14,10 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -44,11 +42,12 @@ func TestRestrictedStartingCollectionRejectsDeniedReferences(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := storearango.Open(ctx, arangoURL, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: arangoURL, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.Bootstrap(ctx, storearango.BootstrapSpec{Collections: []storearango.CollectionSpec{
+	client := arangoBackend.Client
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"},
 		{Name: "fhir_field_catalog"},
 	}}); err != nil {
@@ -146,11 +145,11 @@ FOR d IN Patient
 		t.Fatalf("independent denied-path fixture=%v; want [%s]", got, deniedWitness)
 	}
 
-	catalogStore, err := catalogarango.New(client)
+	catalogStore, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
-	explorerStore, err := explorerarango.New(client)
+	explorerStore, err := arangofactory.NewExplorerStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}

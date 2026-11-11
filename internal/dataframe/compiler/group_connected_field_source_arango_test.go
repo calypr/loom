@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -34,7 +34,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -462,7 +462,7 @@ func connectedCodingWithoutSystem(version, code, display string) map[string]any 
 	return map[string]any{"version": version, "code": code, "display": display}
 }
 
-func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) []map[string]any {
+func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledQuery) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
 	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(row map[string]any) error {
@@ -615,7 +615,7 @@ func assertConnectedGroupIdentity(t *testing.T, row map[string]any, patient stri
 func assertConnectedGroupLineage(
 	t *testing.T,
 	ctx context.Context,
-	client *store.Client,
+	client *arangofactory.Client,
 	compiled lower.CompiledRecipeOutput,
 	row map[string]any,
 	project, patientKey string,

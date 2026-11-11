@@ -22,33 +22,27 @@ import (
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
-	chartifactarango "github.com/calypr/loom/internal/dataframe/execution/chartifact/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
-	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
-	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
-	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
 	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -99,7 +93,7 @@ func configuredAQLSourceRows(logger *slog.Logger, phase string, execute datafram
 		// Arango adapter's own mechanism. Vendor interpretation of failures
 		// stays inside the adapter; this only requests a capability.
 		if budget, ok := dataframeexecution.QueryMemoryBudgetFromContext(ctx); ok && budget > 0 {
-			ctx = arangostore.WithQueryMemoryLimit(ctx, budget)
+			ctx = arangofactory.WithQueryMemoryLimit(ctx, budget)
 		}
 		started := time.Now()
 		digest := sha256.Sum256([]byte(query))
@@ -203,7 +197,7 @@ func diagnosticErrorCauseValue(err error) string {
 	// The original ArangoDB cause reaches server-side logs through the
 	// adapter's own safe vendor rendering, behind the redaction and length
 	// guards below; composition never imports the driver to interpret it.
-	if cause, ok := arangostore.DiagnosticCause(err); ok {
+	if cause, ok := arangofactory.DiagnosticCause(err); ok {
 		return cause
 	}
 	return err.Error()
@@ -336,7 +330,7 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 // the repository publish path (lifecycle repository_publish.go ActivateRelease).
 // It reads the live release revision and submits it as the store's
 // compare-and-swap input, so a concurrent winning publication makes the
-// store's own guard reject: internal/dataset/arango/release_store.go
+// store's own guard reject: internal/backends/arango/internal/dataset/release_store.go
 // activateReleaseAQL compares it with `FILTER currentRevision ==
 // @expected_revision OR alreadyActive`, and the emptied result becomes
 // dataset.ErrReleaseActivationConflict (release_store.go:99-100), which the
@@ -350,7 +344,7 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 // CAS input after a successful Active read so the release CAS legitimately
 // loses while the retained candidate release stays durable. The seam sits
 // above the store on purpose: the second, Explorer-side activation leg
-// (internal/explorer/arango/activation.go compositeActivationReadAQL guards
+// (internal/backends/arango/internal/explorer/activation.go compositeActivationReadAQL guards
 // plus activateRevisionAndOwner) never yields dataset.ErrReleaseActivationConflict
 // — every guard on that leg produces only explorer.ErrDraftConflict or plain
 // faults — so the sentinel this contract classifies can only come from the
@@ -420,37 +414,32 @@ func run(ctx context.Context, serverConfig Config) error {
 	if backend == sourceBackendPostgres {
 		return ErrPostgreSQLRuntimeNotWired
 	}
-	connOpts := arangostore.ConnectionOptions{
+	// The factory owns the lifecycle client: one connection, the required
+	// collection bootstrap policy (dataset lifecycle, Explorer), and the
+	// adapter assembly. Deployment-gated degradable steps (recipe
+	// registries, dataframe registry) stay here so the degradation and
+	// logging policy remains composition-owned.
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{
 		URL:      serverConfig.Server.URL,
 		Database: serverConfig.Server.Database,
-	}
-
-	lifecycleClient, err := arangostore.Open(ctx, connOpts.URL, connOpts.Database)
+	})
 	if err != nil {
-		return fmt.Errorf("open dataset lifecycle store: %w", err)
+		return err
 	}
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
 		defer cancel()
-		_ = lifecycleClient.Close(closeCtx)
+		_ = arangoBackend.Close(closeCtx)
 	}()
-	if err := lifecycleClient.Bootstrap(ctx, publicationarango.BootstrapSpec()); err != nil {
-		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
-	}
+	lifecycleClient := arangoBackend.Client
 	var degradation error
-	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
+	if err := lifecycleClient.Bootstrap(ctx, arangofactory.RecipeBootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
 	}
-	if err := lifecycleClient.Bootstrap(ctx, recipearango.RevisionBootstrapSpec()); err != nil {
+	if err := lifecycleClient.Bootstrap(ctx, arangofactory.RevisionBootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe revision registry", err)
 	}
-	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
-		return fmt.Errorf("bootstrap Explorer store: %w", err)
-	}
-	recipeRegistry, err := recipearango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create recipe registry: %w", err)
-	}
+	recipeRegistry := arangoBackend.RecipeRegistry
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -464,17 +453,11 @@ func run(ctx context.Context, serverConfig Config) error {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
 	}
-	lifecycleStore, err := publicationarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create dataset lifecycle store: %w", err)
-	}
+	lifecycleStore := arangoBackend.Dataset
 	activeManifestResolver := publicationcontract.ActiveResolver(lifecycleStore)
 
 	discoveryCache := catalog.NewCache()
-	catalogStore, err := catalogarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create catalog store: %w", err)
-	}
+	catalogStore := arangoBackend.Catalog
 	discoverFields := discoveryCache.DiscoverFields(catalogStore.DiscoverFields)
 	discoverReferences := discoveryCache.DiscoverReferences(catalogStore.DiscoverReferences)
 
@@ -489,7 +472,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if dispatchErr != nil {
 			return dispatchErr
 		}
-		return lifecycleClient.QueryRows(ctx, query, request.BatchSize, binds, arangostore.RowVisitor(visit))
+		return lifecycleClient.QueryRows(ctx, query, request.BatchSize, binds, arangofactory.RowVisitor(visit))
 	}})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
@@ -502,12 +485,9 @@ func run(ctx context.Context, serverConfig Config) error {
 	// is not available to any caller.
 	sourceCompileTarget := compiler.ArangoTarget()
 
-	publishedRegistry, err := bundlearango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create published dataframe registry: %w", err)
-	}
+	publishedRegistry := arangoBackend.PublishedRegistry
 	publicationReady := true
-	if err := lifecycleClient.Bootstrap(ctx, bundlearango.BootstrapSpec()); err != nil {
+	if err := lifecycleClient.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap dataframe registry", err)
 		publicationReady = false
 	}
@@ -527,10 +507,10 @@ func run(ctx context.Context, serverConfig Config) error {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
 		}
-		if err := lifecycleClient.Bootstrap(ctx, chartifactarango.BootstrapSpec()); err != nil {
+		if err := lifecycleClient.Bootstrap(ctx, arangofactory.ArtifactBootstrapSpec()); err != nil {
 			return fmt.Errorf("bootstrap private dataframe artifact catalog: %w", err)
 		}
-		privateArtifactCatalog, err := chartifactarango.NewCatalog(lifecycleClient)
+		privateArtifactCatalog, err := arangofactory.NewArtifactCatalog(lifecycleClient)
 		if err != nil {
 			return fmt.Errorf("create private dataframe artifact catalog: %w", err)
 		}
@@ -542,10 +522,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		}
 		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, Logger: logger, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver, ActiveReleaseResolver: lifecycleStore}
 	}
-	recipeRevisions, err := recipearango.NewRevisionRegistry(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create recipe revision registry: %w", err)
-	}
+	recipeRevisions := arangoBackend.RecipeRevisions
 	var clickHouseQueryRows dataframeexecution.ClickHouseQueryRows
 	if clickhouse != nil {
 		clickHouseQueryRows = clickhouse.QueryRowsArgsVisit
@@ -593,7 +570,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			if dispatchErr != nil {
 				return dataframeexecution.PreviewCollectionScanEvidence{}, dispatchErr
 			}
-			result, err := lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
+			result, err := lifecycleClient.Explain(ctx, arangofactory.ExplainRequest{Query: query, BindVars: bindVars})
 			if err != nil {
 				return dataframeexecution.PreviewCollectionScanEvidence{}, err
 			}
@@ -606,7 +583,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			if dispatchErr != nil {
 				return dispatchErr
 			}
-			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, request.BatchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
+			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, request.BatchSize, bindVars, previewQueryMaxRuntime(ctx), arangofactory.RowVisitor(visit))
 		}),
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
@@ -616,7 +593,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			if dispatchErr != nil {
 				return dispatchErr
 			}
-			return lifecycleClient.QueryRows(ctx, query, request.BatchSize, bindVars, arangostore.RowVisitor(visit))
+			return lifecycleClient.QueryRows(ctx, query, request.BatchSize, bindVars, arangofactory.RowVisitor(visit))
 		}),
 		ScopeDigest:  recipeScopeDigest,
 		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
@@ -670,17 +647,11 @@ func run(ctx context.Context, serverConfig Config) error {
 	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
 		return releaseService.ValidateGeneration(ctx, project, generation)
 	}
-	explorerStore, err := explorerarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer store: %w", err)
-	}
+	explorerStore := arangoBackend.Explorer
 	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
 		return fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
 	}
-	capabilitySnapshots, err := explorerarango.NewCapabilitySnapshotStore(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer capability snapshot store: %w", err)
-	}
+	capabilitySnapshots := arangoBackend.ExplorerCapabilitySnapshots
 	capabilityResolver, err := newExplorerCapabilityResolver(catalogStore, scopeResolver, activeManifestResolver, capabilitySnapshots)
 	if err != nil {
 		return fmt.Errorf("create Explorer capability resolver: %w", err)
@@ -725,8 +696,11 @@ func run(ctx context.Context, serverConfig Config) error {
 		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 	})
 	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
-		ConnectionOptions: connOpts,
-		Schema:            serverConfig.Server.Schema,
+		ConnectionOptions: arangofactory.Config{
+			URL:      serverConfig.Server.URL,
+			Database: serverConfig.Server.Database,
+		},
+		Schema: serverConfig.Server.Schema,
 	}}
 	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
 		LoadGeneration:      ingestRunner.RunGeneration,
@@ -779,14 +753,14 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
-	tableShapeCapabilities, err := explorerarango.NewTableShapeCapabilityRepository(lifecycleClient)
+	tableShapeCapabilities, err := arangofactory.NewTableShapeCapabilityRepository(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("configure table-shape capability repository: %w", err)
 	}
 	lifecycleConfig := lifecycle.Config{
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
-		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
+		SelectionMembersCollection:         arangofactory.SelectionMembersCollection,
 		InterpretationRepository:           explorerStore,
 		PopulationMappingCursorCodec:       populationMappingCursorCodec,
 		SelectionSourceResolver:            published.SelectionSourceAdapter{Reader: materializationReader},

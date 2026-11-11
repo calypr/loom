@@ -20,10 +20,9 @@ import (
 	"strings"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dfpublication "github.com/calypr/loom/internal/dataframe/publication"
-	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -249,11 +248,12 @@ func compareSummary(payload map[string]any, want map[string]int) error {
 }
 
 func directArangoCounts(ctx context.Context, cfg ScenarioConfig) (map[string]int, error) {
-	client, err := arangostore.Open(ctx, cfg.Connections.ArangoURL, cfg.Namespace.ArangoDatabase)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: cfg.Connections.ArangoURL, Database: cfg.Namespace.ArangoDatabase})
 	if err != nil {
 		return nil, fmt.Errorf("open acceptance ArangoDB: %w", err)
 	}
-	defer client.Close(ctx)
+	defer arangoBackend.Close(ctx)
+	client := arangoBackend.Client
 	result := map[string]int{}
 	for typ := range cfg.Fixture.Counts {
 		count := 0
@@ -668,15 +668,12 @@ func successfulExecution(value map[string]any, pub publication) error {
 }
 
 func verifyClickHouse(ctx context.Context, cfg ScenarioConfig, pub publication, oracle Oracle) (map[string]any, error) {
-	arangoClient, err := arangostore.Open(ctx, cfg.Connections.ArangoURL, cfg.Namespace.ArangoDatabase)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: cfg.Connections.ArangoURL, Database: cfg.Namespace.ArangoDatabase})
 	if err != nil {
 		return nil, fmt.Errorf("open publication registry: %w", err)
 	}
-	defer arangoClient.Close(ctx)
-	registry, err := publicationarango.New(arangoClient)
-	if err != nil {
-		return nil, err
-	}
+	defer arangoBackend.Close(ctx)
+	registry := arangoBackend.PublishedRegistry
 	record, err := registry.GetExecution(ctx, pub.ExecutionID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve publication execution %s: %w", pub.ExecutionID, err)

@@ -4,26 +4,26 @@ import (
 	"context"
 	"errors"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 // explainCompiledQuery is an AQL policy surface: the EXPLAIN view is derived
 // from the command through closed dispatch, so a PostgreSQL-tagged, untagged,
 // or unknown-tag command is refused here and never sent to the Arango EXPLAIN
 // endpoint.
-func explainCompiledQuery(ctx context.Context, client *arangostore.Client, compiled compiler.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
+func explainCompiledQuery(ctx context.Context, client *arangofactory.Client, compiled compiler.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
 	query, bindVars, dispatchErr := compiled.Command.AQLParameters()
 	if dispatchErr != nil {
 		return dataframeexecution.ExplainAssessment{}, dispatchErr
 	}
-	result, err := client.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
+	result, err := client.Explain(ctx, arangofactory.ExplainRequest{Query: query, BindVars: bindVars})
 	if err != nil {
 		return dataframeexecution.ExplainAssessment{}, err
 	}
-	return arangoAssessment(arangostore.AssessExplainResult(result)), nil
+	return arangoAssessment(arangofactory.AssessExplainResult(result)), nil
 }
 
 // arangoAssessment converts the Arango store's explain assessment to the
@@ -31,7 +31,7 @@ func explainCompiledQuery(ctx context.Context, client *arangostore.Client, compi
 // shared execution) so the execution package never names a concrete Arango
 // plan or index type, and it copies every slice so callers cannot mutate
 // shared assessment state.
-func arangoAssessment(input arangostore.ExplainAssessment) dataframeexecution.ExplainAssessment {
+func arangoAssessment(input arangofactory.ExplainAssessment) dataframeexecution.ExplainAssessment {
 	out := dataframeexecution.ExplainAssessment{
 		Plans:                 make([]dataframeexecution.ExplainPlanEstimate, 0, len(input.Plans)),
 		FullCollectionScans:   make([]dataframeexecution.ExplainCollectionScan, 0, len(input.FullCollectionScans)),
@@ -68,8 +68,8 @@ func arangoAssessment(input arangostore.ExplainAssessment) dataframeexecution.Ex
 // names of the indexes attributed to that collection plus one coverage
 // tri-state: both coverage flags true is covering, both false is not
 // covering, and an incomplete or inconsistent pair is Unknown.
-func PreviewCollectionScanEvidenceFromExplain(result arangostore.ExplainResult, collection string) dataframeexecution.PreviewCollectionScanEvidence {
-	var plan *arangostore.ExplainPlan
+func PreviewCollectionScanEvidenceFromExplain(result arangofactory.ExplainResult, collection string) dataframeexecution.PreviewCollectionScanEvidence {
+	var plan *arangofactory.ExplainPlan
 	switch {
 	case result.Plan != nil && len(result.Plans) == 0:
 		plan = result.Plan
@@ -93,7 +93,7 @@ func PreviewCollectionScanEvidenceFromExplain(result arangostore.ExplainResult, 
 	return evidence
 }
 
-func previewIndexNodeEvidence(node arangostore.ExplainNode, collection string) dataframeexecution.PreviewIndexNodeEvidence {
+func previewIndexNodeEvidence(node arangofactory.ExplainNode, collection string) dataframeexecution.PreviewIndexNodeEvidence {
 	evidence := dataframeexecution.PreviewIndexNodeEvidence{Coverage: dataframeexecution.PreviewIndexCoverageUnknown}
 	if node.IndexCoversProjections != nil && node.IndexCoversOutProjections != nil {
 		switch {
@@ -113,7 +113,7 @@ func previewIndexNodeEvidence(node arangostore.ExplainNode, collection string) d
 
 // previewCollectionIndexesFromStore converts the Arango store's filtered
 // preview index listing to the neutral definition execution consumes.
-func previewCollectionIndexesFromStore(indexes []arangostore.PreviewCoveringIndex) []dataframeexecution.PreviewCollectionIndex {
+func previewCollectionIndexesFromStore(indexes []arangofactory.PreviewCoveringIndex) []dataframeexecution.PreviewCollectionIndex {
 	if indexes == nil {
 		return nil
 	}

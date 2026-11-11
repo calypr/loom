@@ -15,14 +15,13 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -45,10 +44,11 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -68,10 +68,10 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 			t.Errorf("remove owned disposable database status=%d", response.StatusCode)
 		}
 	})
-	if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.ExplorerBootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(client)
+	store, err := arangofactory.NewExplorerStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,12 +293,13 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 
 	// (12) Restart persistence: a fresh Open + fresh repository + fresh service on
 	// the same database must reproduce the committed truth from persisted bytes.
-	restartClient, err := storearango.Open(ctx, endpoint, database)
+	restartBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	restartClient := restartBackend.Client
 	t.Cleanup(func() { _ = restartClient.Close(context.Background()) })
-	restartStore, err := explorerarango.New(restartClient)
+	restartStore, err := arangofactory.NewExplorerStore(restartClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,10 +373,10 @@ func TestCoreAuthoringProtocolAgainstArango(t *testing.T) {
 	// (10) Independent-probe integrity: raw AQL counts through the second, exec-free
 	// client prove exactly one explorer document and exactly one draft revision for
 	// this identity — the rejected save and repeated compiles created no shadows.
-	if count := countDocuments(ctx, t, restartClient, explorerarango.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
+	if count := countDocuments(ctx, t, restartClient, arangofactory.ExplorersCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorers holds %d documents for project-a/core-protocol, want exactly 1", count)
 	}
-	if count := countDocuments(ctx, t, restartClient, explorerarango.DraftRevisionsCollection, "project-a", "core-protocol"); count != 1 {
+	if count := countDocuments(ctx, t, restartClient, arangofactory.DraftRevisionsCollection, "project-a", "core-protocol"); count != 1 {
 		t.Fatalf("loom_explorer_draft_revisions holds %d documents for project-a/core-protocol, want exactly 1 (the captured pre-command head)", count)
 	}
 }
@@ -393,7 +394,7 @@ func digestForWorkspace(t *testing.T, workspace authoringv2.Workspace) string {
 
 // countDocuments runs an exec-free raw AQL count through the given client for one
 // (project, explorerId) identity.
-func countDocuments(ctx context.Context, t *testing.T, client *storearango.Client, collection, project, explorerID string) int64 {
+func countDocuments(ctx context.Context, t *testing.T, client *arangofactory.Client, collection, project, explorerID string) int64 {
 	t.Helper()
 	var count int64
 	err := client.QueryRows(ctx, `FOR d IN @@c FILTER d.project == @project AND d.explorerId == @explorerId COLLECT WITH COUNT INTO total RETURN {total: total}`, 1, map[string]any{"@c": collection, "project": project, "explorerId": explorerID}, func(row map[string]any) error {

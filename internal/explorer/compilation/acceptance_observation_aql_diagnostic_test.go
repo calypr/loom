@@ -16,6 +16,7 @@ import (
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/connection"
 	"github.com/arangodb/go-driver/v2/utils"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -24,7 +25,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
@@ -191,10 +191,11 @@ func executeAcceptanceObservationAQL(
 		collections = append(collections, collection)
 	}
 
-	store, err := arangostore.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open configured ArangoDB through repository query helper: %v", err)
 	}
+	store := arangoBackend.Client
 	project, generation := "acceptance", "tcga-brca-locked"
 	vertices := map[string][]json.RawMessage{
 		patientCollection: {acceptanceRawDocument(t, map[string]any{

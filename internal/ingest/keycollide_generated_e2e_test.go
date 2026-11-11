@@ -3,7 +3,7 @@ package ingest
 // F-B25 (hypothesis probe): internal/ingest/documents.go SanitizeKey (:107-113)
 // collapses every disallowed char to `_` via validKeyPart (:17) — non-injective.
 // The vertex insert path posts with onDuplicate=replace
-// (internal/store/arango/client.go:450-451,494-495 region) and the summary
+// (internal/backends/arango/internal/store/client.go:450-451,494-495 region) and the summary
 // counter adds len(task.docs) SENT, not persisted
 // (internal/ingest/generation_workers.go:426 region). If two DIFFERENT FHIR
 // resource ids sanitize onto one `_key`, the second write silently replaces
@@ -39,8 +39,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	publication "github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -95,7 +95,7 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 				t.Fatalf("ref: %v", err)
 			}
 			summary, err := Load(ctx, LoadOptions{
-				ConnectionOptions: arangostore.ConnectionOptions{URL: endpoint, Database: database},
+				ConnectionOptions: arangofactory.ConnectionOptions{URL: endpoint, Database: database},
 				Schema:            repoPath(t, "schemas", "graph-fhir.json"),
 				MetaDir:           metaDir,
 				Project:           "KCOLL_TEST",
@@ -114,10 +114,11 @@ func TestFB25SanitizeKeyCollisionLosesAcknowledgedWrite(t *testing.T) {
 			t.Logf("FB25 %s | LOAD_SUMMARY acked=%d validation_errors=%d generation_errors=%d row_errors=%s",
 				label, summary.VerticesInserted, summary.ValidationErrors, summary.GenerationErrors, samples)
 
-			client, err := arangostore.Open(ctx, endpoint, database)
+			arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 			if err != nil {
 				t.Fatalf("open: %v", err)
 			}
+			client := arangoBackend.Client
 			defer func() { _ = client.Close(context.Background()) }()
 			exists, err := client.CollectionExists(ctx, "Patient")
 			if err != nil {
@@ -164,11 +165,12 @@ func kcollDropDatabase(t *testing.T, endpoint, database string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	client, err := arangostore.Open(ctx, endpoint, "_system")
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: "_system"})
 	if err != nil {
 		t.Logf("FB25_CLEANUP_WARN: open _system: %v", err)
 		return
 	}
+	client := arangoBackend.Client
 	defer func() { _ = client.Close(context.Background()) }()
 	request, err := http.NewRequestWithContext(ctx, http.MethodDelete,
 		strings.TrimRight(endpoint, "/")+"/_api/database/"+url.PathEscape(database), nil)
