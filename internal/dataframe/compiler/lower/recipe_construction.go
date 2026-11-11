@@ -1964,6 +1964,18 @@ func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, compu
 	}
 	for _, column := range computed {
 		if column.Internal && column.Name != constructionRowID {
+			// The stage identity is the generated __loom_row_id (appended
+			// by the group/pivot/unpivot arm of the stage builder via
+			// constructionGeneratedRowIdentitySchema); a carried-over
+			// internal root key keeps its read role but must not claim a
+			// second identity. The registered CODED_PIVOT arm demotes the
+			// same carry-over before appending (this file, rootIdentity
+			// .Identity=false); without the demotion the stage schema
+			// declares two identity columns and dies the door's
+			// validateStageColumns / ir's validatePhysicalStageColumns
+			// re-read. Pinned by
+			// render/postgres TestSQL16CompositionKindSweep/UNPIVOT.
+			column.Identity = false
 			result = append(result, column)
 		}
 	}

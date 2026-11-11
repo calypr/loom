@@ -1484,8 +1484,32 @@ func TestSQL16CompositionKindSweep(t *testing.T) {
 				t.Fatalf("door refuses the production-lowered %s plan (door/ir drift class): %v", string(kind), err)
 			}
 			// Entry level: the full entry render agrees with the door.
-			if _, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t)); err != nil {
+			rendered, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
+			if err != nil {
 				t.Fatalf("entry refuses the production-lowered %s plan the door accepted: %v", string(kind), err)
+			}
+			// Structural presence: the dispatch arm must actually render
+			// its registered shape, not an empty acceptance. The melt
+			// contract itself is pinned in unpivot_test.go (table-reshape
+			// path); these fragments pin the COMPOSITION arm wiring
+			// (stage relation x melt lateral x identity output), which
+			// had no test reference before the sweep.
+			switch kind {
+			case ir.PhysicalStageUnpivotOp:
+				// The melt VALUES region over the prior relation, the
+				// slot triple contract, and the TABLE_UNPIVOT identity
+				// witness (the registered posture: AQL's composition
+				// UNPIVOT arm is renderTableUnpivot and spells the same
+				// tag, render/aql/table_reshape.go:557).
+				for _, want := range []string{
+					"CROSS JOIN LATERAL (VALUES",
+					`AS x1(slot_key, slot_value, slot_ord)`,
+					`"TABLE_UNPIVOT"`,
+				} {
+					if !strings.Contains(rendered.SQL, want) {
+						t.Fatalf("composition melt stage missing fragment %q:\n%s", want, rendered.SQL)
+					}
+				}
 			}
 		})
 	}
