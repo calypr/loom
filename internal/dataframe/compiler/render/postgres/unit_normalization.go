@@ -523,6 +523,15 @@ func (r *planRenderer) renderUnitNormalizedProjection(projection classifiedExtra
 	if err != nil {
 		return "", fmt.Errorf("projection %q: %w", projection.projection.Name, err)
 	}
+	// The dedup cache key embeds the raw marshaled rule text (and the
+	// step emitter likewise keys path literals by their raw strings).
+	// Raw plan data reaching a helper key is safe only because the
+	// classification above re-verified every rule byte-equal to its
+	// immutable registry entry: the bytes are registry-minted, so two
+	// distinct rule sets can never collide on one key by picking texts,
+	// and a tampered set never reaches this line. Without that
+	// byte-equality gate, embedding plan strings in a dedup key would be
+	// an unbound cross-plan channel, not a cache optimization.
 	rulesIndex := r.addParameter(command.PostgreSQLParameter{
 		Type:  command.PostgreSQLParameterJSONB,
 		Value: append(json.RawMessage(nil), rulesRaw...),
