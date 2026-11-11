@@ -597,6 +597,14 @@ func validateStageKindPayload(stage ir.PhysicalConstructionStage) error {
 		// validateGroupPayload twins). Without this re-read a composed
 		// stage would silently drop the arm's rows-to-be (the L-13.2
 		// "no dispatch arm ⇒ silent drop" law).
+		//
+		// L-13.3 enabling condition (coordinator ruling 2026-11-11): the
+		// single-stage inline door CLOSED the semantic-family gap via
+		// pg-sql-16 G2 (stage_semantic.go); the COMPOSITION stays refused
+		// here, citing the enabling contract (the AQL walk reads the
+		// in-scope source row of the inline first stage,
+		// aql/stage_sequence.go:314 — the composition carrier is the
+		// enabling surface).
 		if stage.Group.SemanticKey != nil {
 			return fmt.Errorf("the semantic family Group key is a registered named gap (L-13.3; enabling contract: the semantic membership walk and matcher) and is refused, never partially rendered")
 		}

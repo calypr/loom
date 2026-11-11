@@ -161,12 +161,21 @@ package postgres
 //   - L-13.2 source-region SET: registered named divergence naming
 //     pg-sql-16, sole-load-bearing-gate chain identical to coded_group.go
 //     L-19.4 (no dispatch arm exists; removal silently drops the SET).
-//   - L-13.3 SemanticKey: probe refused at recipe.Bundle.Validate
-//     ("semanticCategory is not a resolved BINDING"); server-resolved
-//     authoring channel reachable, AQL renders (:100-181,:663-746) —
-//     registered named divergence; enabling contract is the semantic
-//     membership walk + matcher (coordinator ruling 2026-11-11: stays a
-//     named gap).
+//   - L-13.3 SemanticKey: CLOSED for the inline door by pg-sql-16 G2
+//     (stage_semantic.go: membership walk, matcher, per-row dedup,
+//     zero-match fallback, tuple identity, code policy — AQL
+//     :100-181,:663-746 twin). String-comparator honesty (D-13b law): the
+//     display MIN and tuple COLLATE "C" terms claim parity only on the
+//     ASCII-letters class, pinned by the banked ArangoDB 3.12.4-3 receipts
+//     o2b-compare.wire ("a"<"b", "A"<"a", case-strict ==) and
+//     o2b-sort.wire; the receipts also pin the divergence class (Arango
+//     sorts "_" and "~" BEFORE letters): codes/displays with symbols or
+//     mixed case are out-of-parity, no cross-engine order asserted, no
+//     fixture depends on one. The server-resolved authoring channel stays
+//     probe-refused at recipe.Bundle.Validate ("semanticCategory is not a
+//     resolved BINDING"), so a hand-assembled resolved family is the
+//     pre-approved surface; an unresolved family keeps the named-gap
+//     refusal. Composition stays refused at stage_sequence.go validateStageKindPayload GROUP-arm gate.
 //   - L-13.4 route-sourced CodingKey (RelatedSource/SourceUnnest):
 //     registered named divergence naming pg-sql-16.
 //   - L-13.5 RelatedOccurrence: repo-test-attested single-stage reachable
@@ -325,7 +334,10 @@ func validateGroupPlanSurface(plan ir.PhysicalPlan) error {
 	if err != nil {
 		return err
 	}
-	return validateGroupPayload(stage, plan.BindVars, returnNames)
+	if err := validateGroupPayload(stage, plan.BindVars, returnNames); err != nil {
+		return err
+	}
+	return validateGroupSemanticKey(plan, stage)
 }
 
 // validateGroupPayload re-reads the door-bearing contract before
@@ -343,8 +355,15 @@ func validateGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[strin
 		return fmt.Errorf("%w: unsupported missing-key policy %q (construction_group.go:131 parity)",
 			ErrUnsupportedPostgresPlan, string(group.MissingKeyPolicy))
 	}
-	if group.SemanticKey != nil {
-		return fmt.Errorf("%w: the semantic family Group key is a registered named gap (L-13.3; enabling contract: the semantic membership walk and matcher) and is refused, never partially rendered",
+	// L-13.3 is CLOSED for the inline door (pg-sql-16 G2): the semantic
+	// family key renders through the registered membership walk, matcher,
+	// per-row dedup, fallback row, tuple identity, and code policy — all in
+	// stage_semantic.go, with the door's own contract re-reads in
+	// validateGroupSemanticKey. The composed door keeps its separate
+	// byte-identical refusal (stage_sequence.go validateStageKindPayload GROUP-arm gate) until the composition
+	// carrier lands.
+	if group.SemanticKey != nil && group.CodingKey != nil {
+		return fmt.Errorf("%w: Group supports at most one coded identity key (ir/physical_stage_validation.go:1475 re-read at the door)",
 			ErrUnsupportedPostgresPlan)
 	}
 	if group.RelatedOccurrence != nil {
@@ -383,7 +402,11 @@ func validateGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[strin
 				ErrUnsupportedPostgresPlan, index, key.InputColumn)
 		}
 	}
-	keyless := len(group.Keys) == 0
+	// A semantic family key is a COLLECT key of its own (the AQL collectKeys
+	// tuple, construction_group.go:151), so a group carrying one is never
+	// the keyless grand total: the COUNT_ROWS-only gate below is the AQL
+	// :44-52 gate for a group with NO keys at all.
+	keyless := len(group.Keys) == 0 && group.SemanticKey == nil
 	for index, aggregate := range group.Aggregates {
 		switch aggregate.Operation {
 		case "COUNT_ROWS", "COUNT_NON_NULL", "COUNT_DISTINCT", "MIN", "MAX", "SUM", "MEAN":
@@ -537,6 +560,12 @@ func validateGroupOperations(plan ir.PhysicalPlan) (map[string]bool, error) {
 			sawReturn = true
 			returnNames = map[string]bool{}
 			for _, projection := range operation.Return.Projections {
+				if projection.Name == groupSemanticCarrierName {
+					// The semantic walk's carrier is renderer-minted and
+					// never addressable by plan name (stage_semantic.go).
+					return nil, fmt.Errorf("%w: source projection name %q is reserved for the renderer's semantic carrier column",
+						ErrUnsupportedPostgresPlan, projection.Name)
+				}
 				returnNames[projection.Name] = true
 			}
 		default:
@@ -630,6 +659,16 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	if err != nil {
 		return "", err
 	}
+	if stage.Group.SemanticKey != nil {
+		// The AQL walk reads the in-scope source row's payload
+		// (aql/stage_sequence.go:314), so the raw Coding projection is
+		// materialized here as one hidden g_src column (stage_semantic.go).
+		carrier, err := r.groupSemanticCarrierColumn(stage.Group.SemanticKey)
+		if err != nil {
+			return "", err
+		}
+		columns = append(columns, *carrier)
+	}
 	resource := r.storage.Resource
 	selectList := make([]string, 0, len(columns))
 	for i := range columns {
@@ -699,7 +738,16 @@ func (r *planRenderer) renderGroupAggregateRegion(
 ) (groupRegionResult, error) {
 	group := stage.Group
 	nameToColumn := map[string]*groupColumn{}
+	var semanticCarrier *groupColumn
 	for i := range columns {
+		if columns[i].name == groupSemanticCarrierName {
+			if semanticCarrier != nil {
+				return groupRegionResult{}, fmt.Errorf("%w: the semantic carrier column is declared twice",
+					ErrUnsupportedPostgresPlan)
+			}
+			semanticCarrier = &columns[i]
+			continue
+		}
 		nameToColumn[columns[i].name] = &columns[i]
 	}
 
@@ -748,6 +796,19 @@ func (r *planRenderer) renderGroupAggregateRegion(
 	}
 
 	dollar := func(index int) string { return "$" + strconv.Itoa(index) }
+
+	// --- semantic family key (pg-sql-16 G2, L-13.3 closed). ---
+	var semantic *groupSemanticRegion
+	if group.SemanticKey != nil {
+		region, err := r.renderGroupSemanticRegion(group.SemanticKey, semanticCarrier, stage, prefix, dollar)
+		if err != nil {
+			return groupRegionResult{}, fmt.Errorf("group semantic key %q: %w", group.SemanticKey.OutputColumn, err)
+		}
+		semantic = &region
+	} else if semanticCarrier != nil {
+		return groupRegionResult{}, fmt.Errorf("%w: the semantic carrier column is minted only beside a semantic family key",
+			ErrUnsupportedPostgresPlan)
+	}
 
 	// --- g_rows: row-level witnesses + missing-key policy conjuncts. ---
 	var conjuncts []string
@@ -809,6 +870,20 @@ func (r *planRenderer) renderGroupAggregateRegion(
 			guardCast(groupValueTypeTag)+" END) > 0")
 	}
 
+	// The semantic membership policy rides over membership.code at the same
+	// pre-COLLECT row position as the ordinary key policies
+	// (construction_group.go:172-180 — FILTER / ASSERT <membership>.code
+	// != null).
+	if semantic != nil {
+		switch group.MissingKeyPolicy {
+		case ir.PhysicalStageGroupMissingKeyExclude:
+			conjuncts = append(conjuncts, semantic.codeRead+" IS NOT NULL")
+		case ir.PhysicalStageGroupMissingKeyError:
+			conjuncts = append(conjuncts,
+				"(CASE WHEN "+semantic.codeRead+" IS NOT NULL THEN 1 ELSE "+guardCast(groupMissingKeyTag)+" END) > 0")
+		}
+	}
+
 	// One witness per distinct (read, tag) text: a column addressed by
 	// several consumers (key + reducer + row value) renders the identical
 	// conjunct once; the text is deterministic because textParameter binds
@@ -823,6 +898,11 @@ func (r *planRenderer) renderGroupAggregateRegion(
 		deduped = append(deduped, conjunct)
 	}
 	rows := "SELECT * FROM " + prefix + "src"
+	if semantic != nil {
+		// The AQL FOR-in-memberships sits before COLLECT, so the
+		// membership join multiplies the rows every reducer counts.
+		rows += semantic.lateral
+	}
 	if len(deduped) > 0 {
 		rows += " WHERE " + strings.Join(deduped, " AND ")
 	}
@@ -834,6 +914,25 @@ func (r *planRenderer) renderGroupAggregateRegion(
 		alias := prefix + "k" + strconv.Itoa(i)
 		grpSelects = append(grpSelects, keyReads[i]+" AS "+alias)
 		keyAliases = append(keyAliases, alias)
+	}
+	if semantic != nil {
+		// The membership tuple is the AQL COLLECT key
+		// [membership.system, membership.version, membership.code]
+		// (construction_group.go:151) and the last sort key before the
+		// identity tie-break (:152). Its members are string-or-null, so the
+		// element-wise terms carry the registered "C" collation (ASCII-letter
+		// parity class per D-16e; symbols and mixed case are the registered
+		// out-of-parity class) and Arango's
+		// null-before-value lattice (NULLS FIRST, the D-13c registration
+		// this slice already applies to every key term).
+		for i, read := range semantic.tupleReads {
+			alias := semantic.tupleAliases[i]
+			keyReads = append(keyReads, read)
+			keyCollates = append(keyCollates, ` COLLATE "C"`)
+			grpSelects = append(grpSelects, read+" AS "+alias)
+			keyAliases = append(keyAliases, alias)
+		}
+		grpSelects = append(grpSelects, semantic.label+" AS "+prefix+"slb")
 	}
 	for _, item := range aggregates {
 		expression, err := r.groupAggregateExpression(item.aggregate, item.column, dollar)
@@ -917,6 +1016,11 @@ func (r *planRenderer) renderGroupAggregateRegion(
 			return groupRegionResult{}, err
 		}
 	}
+	if semantic != nil {
+		// The semantic identity member rides after the ordinary key members,
+		// the AQL identityParts order (construction_group.go:170-171).
+		identityParts = append(identityParts, semantic.identityPart)
+	}
 	identity := "'[' || " + strings.Join(identityParts, " || ',' || ") + " || ']'"
 
 	// --- final positional projection over FinalColumns. ---
@@ -929,6 +1033,11 @@ func (r *planRenderer) renderGroupAggregateRegion(
 	}
 	for _, item := range rowValues {
 		expressions[item.rowValue.Output] = "g." + item.alias
+	}
+	if semantic != nil {
+		// The semantic output is the group label: MIN over the group's
+		// non-null displays, else the tuple's code.
+		expressions[group.SemanticKey.OutputColumn] = "g." + prefix + "slb"
 	}
 	expressions[identityColumn] = identity
 	selects := make([]string, 0, len(outputColumns))
@@ -947,7 +1056,13 @@ func (r *planRenderer) renderGroupAggregateRegion(
 		selects = append(selects, expression+` AS "c`+strconv.Itoa(len(selects))+`"`)
 		names = append(names, column.Name)
 	}
-	if len(names) != len(group.Keys)+len(aggregates)+len(rowValues)+1 {
+	emitted := len(group.Keys) + len(aggregates) + len(rowValues) + 1
+	if semantic != nil {
+		// The semantic label is one more emitted column, beside the ordinary
+		// keys, reducers, row values, and the hidden stable identity.
+		emitted++
+	}
+	if len(names) != emitted {
 		return groupRegionResult{}, fmt.Errorf("%w: the registered slice emits every key, reducer, and row value plus the hidden stable identity",
 			ErrUnsupportedPostgresPlan)
 	}
