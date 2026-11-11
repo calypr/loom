@@ -481,6 +481,27 @@ func TestPreparedResolutionRendersByteIdenticallyToUnannotated(t *testing.T) {
 			}
 			arm.annotate(annotated)
 			plainRendered, annotatedRendered := renderOK(t, plain), renderOK(t, annotated)
+			// The plan is an immutable input: the resolution clears the
+			// pointer on the rebind copy only, so the annotated IR still
+			// carries its references after rendering.
+			probe := objChildSliceOf(annotated)
+			carries := func() bool {
+				switch arm.name {
+				case "sort":
+					return probe.Sort.Extract != nil && probe.Sort.Extract.Prepared != nil
+				case "predicate":
+					return probe.Predicate != nil && probe.Predicate.Comparison != nil &&
+						probe.Predicate.Comparison.LeftExpression != nil &&
+						probe.Predicate.Comparison.LeftExpression.Extract != nil &&
+						probe.Predicate.Comparison.LeftExpression.Extract.Prepared != nil
+				default:
+					return probe.Projections[0].Expression.Extract != nil &&
+						probe.Projections[0].Expression.Extract.Prepared != nil
+				}
+			}
+			if !carries() {
+				t.Fatalf("rendering mutated the plan: %s-arm Extract.Prepared was stripped from the IR", arm.name)
+			}
 			if annotatedRendered.SQL != plainRendered.SQL {
 				t.Fatalf("annotated SQL drifted from the unannotated slot text:\nplain:     %s\nannotated: %s", plainRendered.SQL, annotatedRendered.SQL)
 			}
