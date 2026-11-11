@@ -72,16 +72,21 @@ import (
 )
 
 const (
-	ing03LoadPrefix  = "verify_ing03_load_"
-	ing03LoadDBFmt   = ing03LoadPrefix + "%d_%s"
-	ing03SchemaPfx   = ing03LoadPrefix + "s_"
-	ing03SchemaFmt   = ing03SchemaPfx + "%d_%s"
-	ing03Project     = "prj-ing03-load"
-	ing03Generation  = "gen-build-a"
-	ing03AuthPath    = "/fhir"
-	ing03AppBase     = "ing03-test"
-	ing03RaceRounds  = 10
-	ing03LoincSystem = "http://loinc.org"
+	ing03LoadPrefix = "verify_ing03_load_"
+	ing03LoadDBFmt  = ing03LoadPrefix + "%d_%s"
+	ing03SchemaPfx  = ing03LoadPrefix + "s_"
+	ing03SchemaFmt  = ing03SchemaPfx + "%d_%s"
+	// The manifest lane (dataset_release series) lives in its own
+	// caller-owned schema inside the same isolated database: one schema,
+	// one history owner.
+	ing03ManifestSchemaPfx = ing03LoadPrefix + "sm_"
+	ing03ManifestSchemaFmt = ing03ManifestSchemaPfx + "%d_%s"
+	ing03Project           = "prj-ing03-load"
+	ing03Generation        = "gen-build-a"
+	ing03AuthPath          = "/fhir"
+	ing03AppBase           = "ing03-test"
+	ing03RaceRounds        = 10
+	ing03LoincSystem       = "http://loinc.org"
 )
 
 // ing03HostileID is SQL/quote-hostile but plain JSON-string data: it must
@@ -89,10 +94,11 @@ const (
 const ing03HostileID = `O'Brien"; DROP TABLE "fhir_resource"; --$1\%2`
 
 var (
-	ing03LoadNamePattern   = regexp.MustCompile(`^verify_ing03_load_[0-9]+_[0-9a-f]+$`)
-	ing03SchemaNamePattern = regexp.MustCompile(`^verify_ing03_load_s_[0-9]+_[0-9a-f]+$`)
-	ing03OrdinalPattern    = regexp.MustCompile(`^[0-9]+$`)
-	ing03PlaceholderPat    = regexp.MustCompile(`^\$[0-9]+$`)
+	ing03LoadNamePattern       = regexp.MustCompile(`^verify_ing03_load_[0-9]+_[0-9a-f]+$`)
+	ing03SchemaNamePattern     = regexp.MustCompile(`^verify_ing03_load_s_[0-9]+_[0-9a-f]+$`)
+	ing03ManifestSchemaPattern = regexp.MustCompile(`^verify_ing03_load_sm_[0-9]+_[0-9a-f]+$`)
+	ing03OrdinalPattern        = regexp.MustCompile(`^[0-9]+$`)
+	ing03PlaceholderPat        = regexp.MustCompile(`^\$[0-9]+$`)
 )
 
 func ing03TestPostgresURL(t *testing.T) string {
@@ -173,6 +179,18 @@ func ing03CaptureBaseline(raw string) {
 // SQL helpers: dynamic identifiers are sanitized, values stay bound.
 // ---------------------------------------------------------------------------
 
+// ing03ManifestSeriesTables are the tables the dataset_release runner owns;
+// everything else in ing03KnownTables belongs to the source runner. The
+// production composition assigns each series its own schema, and this
+// fixture mirrors it: two schemas, two history ledgers.
+var ing03ManifestSeriesTables = map[string]bool{
+	"schema_migrations":           true,
+	"dataset_generation_manifest": true,
+	"dataset_active_generation":   true,
+	"project_release":             true,
+	"active_project_release":      true,
+}
+
 var ing03KnownTables = map[string]bool{
 	"schema_migrations":                    true,
 	"fhir_resource":                        true,
@@ -193,10 +211,10 @@ var ing03KnownTables = map[string]bool{
 // migration table. No caller may concatenate identifiers into SQL.
 func ing03QIdent(t *testing.T, schema, table string) string {
 	t.Helper()
-	if !ing03SchemaNamePattern.MatchString(schema) {
-		t.Fatalf("schema %q is not an owned verify_ing03_load_s_* name", schema)
+	if !ing03SchemaNamePattern.MatchString(schema) && !ing03ManifestSchemaPattern.MatchString(schema) {
+		t.Fatalf("schema %q is not an owned verify_ing03_load_s_*/sm_* name", schema)
 	}
-	if !ing03KnownTables[table] {
+	if !ing03KnownTables[table] && !ing03ManifestSeriesTables[table] {
 		t.Fatalf("table %q is not a known migration table", table)
 	}
 	return pgx.Identifier{schema, table}.Sanitize()
@@ -251,13 +269,14 @@ func ing03Count(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int64
 // ---------------------------------------------------------------------------
 
 type ing03Service struct {
-	t      *testing.T
-	ctx    context.Context
-	admin  *pgxpool.Pool
-	iso    *pgxpool.Pool
-	dsn    string
-	schema string
-	scrub  func(any) string
+	t              *testing.T
+	ctx            context.Context
+	admin          *pgxpool.Pool
+	iso            *pgxpool.Pool
+	dsn            string
+	schema         string
+	manifestSchema string
+	scrub          func(any) string
 	// faults injects catalog-evidence failures into the writers wired for
 	// the next load: a test-only seam following the merged precedent
 	// (dataset/postgres Store.commitFault). Wrappers decorate the real
@@ -424,7 +443,14 @@ func newIngest03Service(t *testing.T) *ing03Service {
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
 		t.Fatalf("create owned schema: %s", scrub(err))
 	}
-	return &ing03Service{t: t, ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub}
+	manifestSchema := fmt.Sprintf(ing03ManifestSchemaFmt, time.Now().UnixNano(), ing03RandomHex(t))
+	if !ing03ManifestSchemaPattern.MatchString(manifestSchema) {
+		t.Fatalf("manifest schema name %q does not match the required pattern", manifestSchema)
+	}
+	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+manifestSchema+`"`); err != nil {
+		t.Fatalf("create owned manifest schema: %s", scrub(err))
+	}
+	return &ing03Service{t: t, ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, manifestSchema: manifestSchema, scrub: scrub}
 }
 
 // migrate pre-applies migrations so tests can LOCK tables and seed rows
@@ -435,6 +461,9 @@ func (s *ing03Service) migrate() {
 	client := s.openClient(2)
 	if _, err := postgres.MigrateSchema(s.ctx, client, s.schema); err != nil {
 		s.t.Fatalf("MigrateSchema: %s", s.scrub(err))
+	}
+	if _, err := postgres.MigrateDatasetReleaseSchema(s.ctx, client, s.manifestSchema); err != nil {
+		s.t.Fatalf("MigrateDatasetReleaseSchema: %s", s.scrub(err))
 	}
 }
 
@@ -477,6 +506,7 @@ func (s *ing03Service) pgOptions(application string) PGSourceOptions {
 	return PGSourceOptions{
 		DSN:             s.dsn,
 		Schema:          s.schema,
+		ManifestSchema:  s.manifestSchema,
 		ApplicationName: application,
 		MaxConns:        4,
 		Catalog: ing03WireCatalogWriters(s.namedPool(application), s.schema, s.faults,
@@ -496,7 +526,7 @@ func (s *ing03Service) loadOptions(metaDir, project string, dataset *publication
 
 func (s *ing03Service) manifestState(project, generation string) (string, bool) {
 	s.t.Helper()
-	table := ing03QIdent(s.t, s.schema, "dataset_generation_manifest")
+	table := ing03QIdent(s.t, s.manifestSchema, "dataset_generation_manifest")
 	var state string
 	err := s.iso.QueryRow(context.Background(),
 		"SELECT state FROM "+table+" WHERE project = $1 AND generation = $2", project, generation).Scan(&state)
@@ -511,7 +541,7 @@ func (s *ing03Service) manifestState(project, generation string) (string, bool) 
 
 func (s *ing03Service) activePointerGeneration(project string) (string, bool) {
 	s.t.Helper()
-	table := ing03QIdent(s.t, s.schema, "dataset_active_generation")
+	table := ing03QIdent(s.t, s.manifestSchema, "dataset_active_generation")
 	var generation string
 	err := s.iso.QueryRow(context.Background(),
 		"SELECT generation FROM "+table+" WHERE project = $1", project).Scan(&generation)
@@ -524,9 +554,18 @@ func (s *ing03Service) activePointerGeneration(project string) (string, bool) {
 	return generation, true
 }
 
+// tableSchema routes a known table to the schema whose runner owns it,
+// mirroring the production two-schema composition.
+func (s *ing03Service) tableSchema(table string) string {
+	if ing03ManifestSeriesTables[table] && table != "schema_migrations" {
+		return s.manifestSchema
+	}
+	return s.schema
+}
+
 func (s *ing03Service) countTable(table, where string, args ...any) int64 {
 	s.t.Helper()
-	fqn := ing03QIdent(s.t, s.schema, table)
+	fqn := ing03QIdent(s.t, s.tableSchema(table), table)
 	sql := "SELECT count(*) FROM " + fqn
 	if where != "" {
 		sql += " WHERE " + where
@@ -564,7 +603,7 @@ func (s *ing03Service) fingerprint() string {
 	s.t.Helper()
 	digest := sha256.New()
 	for _, entry := range ing03FingerprintColumns {
-		fqn := ing03QIdent(s.t, s.schema, entry.table)
+		fqn := ing03QIdent(s.t, s.tableSchema(entry.table), entry.table)
 		sql := "SELECT " + entry.column + " FROM " + fqn
 		rows, err := s.iso.Query(context.Background(), sql)
 		if err != nil {
@@ -716,7 +755,7 @@ func (s *ing03Service) terminateAppBackends(appName string) int {
 // load touching it parks in the lock wait and can be terminated there.
 func (s *ing03Service) blockTable(table string) (release func()) {
 	s.t.Helper()
-	fqn := ing03QIdent(s.t, s.schema, table)
+	fqn := ing03QIdent(s.t, s.tableSchema(table), table)
 	conn, err := s.iso.Acquire(s.ctx)
 	if err != nil {
 		s.t.Fatalf("acquire blocker: %s", s.scrub(err))
@@ -757,7 +796,7 @@ func (s *ing03Service) blockTable(table string) (release func()) {
 // blockManifestRow parks the transition-to-STAGED UPDATE behind a row lock.
 func (s *ing03Service) blockManifestRow(project, generation string) (release func()) {
 	s.t.Helper()
-	fqn := ing03QIdent(s.t, s.schema, "dataset_generation_manifest")
+	fqn := ing03QIdent(s.t, s.manifestSchema, "dataset_generation_manifest")
 	conn, err := s.iso.Acquire(s.ctx)
 	if err != nil {
 		s.t.Fatalf("acquire manifest blocker: %s", s.scrub(err))
@@ -974,7 +1013,7 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 		// and the load must not have migrated it either.
 		var missing bool
 		if err := clean.iso.QueryRow(context.Background(),
-			`SELECT to_regclass($1) IS NULL`, clean.schema+".dataset_generation_manifest").Scan(&missing); err != nil {
+			`SELECT to_regclass($1) IS NULL`, clean.manifestSchema+".dataset_generation_manifest").Scan(&missing); err != nil {
 			t.Fatalf("probe schema: %v", err)
 		}
 		if !missing {
@@ -990,7 +1029,7 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 			t.Fatalf("preflight control load: %s", clean.scrub(cleanErr))
 		}
 		if err := clean.iso.QueryRow(context.Background(),
-			`SELECT to_regclass($1) IS NOT NULL`, clean.schema+".dataset_generation_manifest").Scan(&missing); err != nil {
+			`SELECT to_regclass($1) IS NOT NULL`, clean.manifestSchema+".dataset_generation_manifest").Scan(&missing); err != nil {
 			t.Fatalf("probe control schema: %v", err)
 		}
 		if !missing {
@@ -1001,7 +1040,7 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 	t.Run("blank dsn refused before connect", func(t *testing.T) {
 		_, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(goodDir, ing03Project, &ref),
-			PGSourceOptions{DSN: "", Schema: service.schema, ApplicationName: app, Catalog: service.catalogWriters()})
+			PGSourceOptions{DSN: "", Schema: service.schema, ManifestSchema: service.manifestSchema, ApplicationName: app, Catalog: service.catalogWriters()})
 		if !errors.Is(err, postgres.ErrInvalidDSN) {
 			t.Fatalf("error = %v, want %v", err, postgres.ErrInvalidDSN)
 		}
@@ -1010,7 +1049,7 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 	t.Run("invalid pool config refused before connect", func(t *testing.T) {
 		_, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(goodDir, ing03Project, &ref),
-			PGSourceOptions{DSN: service.dsn, Schema: service.schema, MaxConns: -3, ApplicationName: app, Catalog: service.catalogWriters()})
+			PGSourceOptions{DSN: service.dsn, Schema: service.schema, ManifestSchema: service.manifestSchema, MaxConns: -3, ApplicationName: app, Catalog: service.catalogWriters()})
 		if !errors.Is(err, postgres.ErrInvalidPoolConfig) {
 			t.Fatalf("error = %v, want %v", err, postgres.ErrInvalidPoolConfig)
 		}
@@ -1019,7 +1058,7 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 	t.Run("invalid schema name refused by named errors", func(t *testing.T) {
 		_, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(goodDir, ing03Project, &ref),
-			PGSourceOptions{DSN: service.dsn, Schema: "Not A Schema", ApplicationName: app, Catalog: service.catalogWriters()})
+			PGSourceOptions{DSN: service.dsn, Schema: "Not A Schema", ManifestSchema: service.manifestSchema, ApplicationName: app, Catalog: service.catalogWriters()})
 		if !errors.Is(err, postgres.ErrInvalidSchemaName) {
 			t.Fatalf("error = %v, want %v", err, postgres.ErrInvalidSchemaName)
 		}
@@ -1104,13 +1143,27 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 			if got := service.countTable("fhir_resource", ""); got != 5 {
 				t.Fatalf("resource rows = %d, want 5 (injection changed nothing)", got)
 			}
-			var relations int64
-			if err := service.iso.QueryRow(context.Background(),
-				`SELECT count(*) FROM pg_tables WHERE schemaname = $1`, service.schema).Scan(&relations); err != nil {
-				t.Fatalf("count relations: %s", service.scrub(err))
-			}
-			if relations != int64(len(ing03KnownTables)) {
-				t.Fatalf("relations = %d, want exactly the %d migrated tables", relations, len(ing03KnownTables))
+			for _, lane := range []struct {
+				schema string
+				want   int
+			}{
+				// The source series owns every table in the union
+				// (its 000003 creates the manifest pair too); the
+				// manifest runner owns its ledger, manifest, and
+				// active-pointer trio. Witnesses read business rows
+				// from the schema whose port the load writes (the
+				// manifest lane), never from the source duplicate.
+				{service.schema, len(ing03KnownTables)},
+				{service.manifestSchema, len(ing03ManifestSeriesTables)},
+			} {
+				var relations int64
+				if err := service.iso.QueryRow(context.Background(),
+					`SELECT count(*) FROM pg_tables WHERE schemaname = $1`, lane.schema).Scan(&relations); err != nil {
+					t.Fatalf("count relations: %s", service.scrub(err))
+				}
+				if relations != int64(lane.want) {
+					t.Fatalf("relations in %s = %d, want exactly the %d migrated tables for that runner", lane.schema, relations, lane.want)
+				}
 			}
 			// The second injection carrier (obs-b code.text) round-trips too.
 			var obsPayloadText string

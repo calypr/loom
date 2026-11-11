@@ -295,14 +295,15 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 // never carried here: the child derives it from its own inherited
 // LOOM_TEST_POSTGRES_URL plus the shared database name.
 type ing03HelperConfig struct {
-	Database    string `json:"database"`
-	Schema      string `json:"schema"`
-	MetaDir     string `json:"meta_dir"`
-	SchemaFile  string `json:"schema_file"`
-	Project     string `json:"project"`
-	Generation  string `json:"generation"`
-	AuthPath    string `json:"auth_path"`
-	Application string `json:"application"`
+	Database       string `json:"database"`
+	Schema         string `json:"schema"`
+	MetaDir        string `json:"meta_dir"`
+	SchemaFile     string `json:"schema_file"`
+	Project        string `json:"project"`
+	Generation     string `json:"generation"`
+	AuthPath       string `json:"auth_path"`
+	Application    string `json:"application"`
+	ManifestSchema string `json:"manifest_schema"`
 }
 
 const ing03HelperRunFilter = "^TestPostgresGenerationLoadReplayHelper$"
@@ -364,8 +365,8 @@ func TestPostgresGenerationLoadReplayHelper(t *testing.T) {
 		os.Exit(4)
 	})
 	if _, err := LoadPostgresGeneration(ctx, opts, PGSourceOptions{
-		DSN: dsn, Schema: config.Schema, ApplicationName: config.Application, MaxConns: 4,
-		Catalog: catalog,
+		DSN: dsn, Schema: config.Schema, ManifestSchema: config.ManifestSchema,
+		ApplicationName: config.Application, MaxConns: 4, Catalog: catalog,
 	}); err != nil {
 		switch {
 		case errors.Is(err, ErrGenerationAlreadyStaged):
@@ -493,7 +494,8 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 	referenceFingerprint := reference.fingerprint()
 
 	baseConfig := ing03HelperConfig{
-		Database: dbName, Schema: shared.schema, MetaDir: metaDir, SchemaFile: schemaFile,
+		Database: dbName, Schema: shared.schema, ManifestSchema: shared.manifestSchema,
+		MetaDir: metaDir, SchemaFile: schemaFile,
 		Project: ing03Project, Generation: crashGeneration, AuthPath: ing03AuthPath,
 	}
 

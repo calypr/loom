@@ -17,6 +17,7 @@ package control
 import (
 	"context"
 
+	datasetstore "github.com/calypr/loom/internal/backends/postgres/internal/dataset"
 	explorerstore "github.com/calypr/loom/internal/backends/postgres/internal/explorer"
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 
@@ -120,6 +121,15 @@ var CheckServerVersion = pgstore.CheckServerVersion
 // same pass against the runtime pool.
 func MigrateSchema(ctx context.Context, client *Client, schema string) (MigrateResult, error) {
 	return pgstore.MigrateSchema(ctx, client, schema)
+}
+
+// MigrateDatasetReleaseSchema applies the dataset_release series' owned
+// migrations to one schema, idempotently, over a caller-supplied pool.
+// Runtime.MigrateDatasetReleaseSchema is the same pass against the runtime
+// pool; callers that assemble their own pool (test fixtures migrating
+// ahead of a load) use this one.
+func MigrateDatasetReleaseSchema(ctx context.Context, client *Client, schema string) (MigrateResult, error) {
+	return datasetstore.MigrateSchema(ctx, client, schema)
 }
 
 var ErrResourceConflict = pgstore.ErrResourceConflict

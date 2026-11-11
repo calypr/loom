@@ -138,6 +138,7 @@ var (
 	OpenPool                                 = control.OpenPool
 	OwnerMigrations                          = control.OwnerMigrations
 	MigrateSchema                            = control.MigrateSchema
+	MigrateDatasetReleaseSchema              = control.MigrateDatasetReleaseSchema
 	NewExplorerStore                         = control.NewExplorerStore
 	NewExplicitGroupStore                    = control.NewExplicitGroupStore
 )

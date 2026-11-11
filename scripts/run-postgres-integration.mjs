@@ -155,6 +155,42 @@ export const FACTORY_INTEGRATION_TESTS = [
   'TestZZZeroLeftoverAB06LiveOpenFixtures',
 ];
 
+// The arch-backend-06 generation-load suite runs as an eighth
+// never-skipped lane: the ingest generation-load acceptance (multi-resource
+// staging, late-row failure marking, writer-failure preservation, semantic
+// contribution boundaries, application-name tagging, explicit-CAS
+// activation, no-SQL source proof, crash-injection at every durability
+// seam, separate-process replay convergence, load/activation races, and
+// cancellation branches) plus the offline shipped-config composition gate
+// and the verify_ing03_load_* zero-survivor audit. The fixture drives the
+// production two-schema composition (source series plus the dataset_release
+// manifest lane, one caller-owned schema each) through
+// ingest.PGLoadConfig, so a regression in that composition fails here on
+// the real server. The explicit -run filter excludes the child-process
+// replay helper (a deliberate skip unless invoked with a helper config);
+// checkGoEvents' zero-skip assertion makes every matched case mandatory.
+export const GENERATION_LOAD_INTEGRATION_PACKAGE = './internal/ingest';
+export const GENERATION_LOAD_INTEGRATION_FILTER = '^(TestPostgresGenerationLoad(?:PreflightRunsBeforePostgresContact|StagesMultiResourceAndNeverActivates|MalformedLateRowMarksFailedAndBlocksActivation|WriterFailuresLeaveManifestFailedAndPreserveRows|SemanticContributionsPersistWithServedStateBoundary|ApplicationNameTagging|ActivationIsExplicitCASPinned|OwnSourceHasNoSQL|ZZZeroSurvivorAudit|KillInjectionAtEveryDurabilitySeam|SeparateProcessCrashReplayConvergence|SameGenerationLoadRace|ActivationCASRace|CancellationBranches|SemanticSpillMidLoadKillReplayConvergence|ReplaySummaryCountsOnlyNewRows)$|TestPostgresShippedLoadConfigsValidateOffline)$';
+export const GENERATION_LOAD_INTEGRATION_TESTS = [
+  'TestPostgresGenerationLoadPreflightRunsBeforePostgresContact',
+  'TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates',
+  'TestPostgresGenerationLoadMalformedLateRowMarksFailedAndBlocksActivation',
+  'TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows',
+  'TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBoundary',
+  'TestPostgresGenerationLoadApplicationNameTagging',
+  'TestPostgresGenerationLoadActivationIsExplicitCASPinned',
+  'TestPostgresGenerationLoadOwnSourceHasNoSQL',
+  'TestPostgresGenerationLoadZZZeroSurvivorAudit',
+  'TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam',
+  'TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence',
+  'TestPostgresGenerationLoadSameGenerationLoadRace',
+  'TestPostgresGenerationLoadActivationCASRace',
+  'TestPostgresGenerationLoadCancellationBranches',
+  'TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence',
+  'TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows',
+  'TestPostgresShippedLoadConfigsValidateOffline',
+];
+
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
 // Administered through the repository's own pgx dependency: the runner writes
@@ -845,6 +881,36 @@ export async function runPostgres(output, deps = {}) {
       propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
       anchors: [...FACTORY_INTEGRATION_TESTS],
       passes: factoryPasses,
+    };
+    // Honest reserve: the suite measures ~33s end to end (35x under the
+    // 180s cap) and owns its database cleanup in-suite, so it reserves
+    // the timeout plus a minute rather than the 90s database-administration
+    // margin the store lanes carry.
+    budget(goTestBudgetMs + 30_000 + 60_000);
+    evidence.phases.push('generation-load-integration');
+    // arch-backend-06: the generation-load suite owns its verify_ing03_load_*
+    // isolated databases and audits them itself (ZZZeroSurvivorAudit), so
+    // this phase administers nothing. The explicit filter plus the anchor
+    // list make the whole acceptance surface mandatory on the real server;
+    // the child-process replay helper stays outside the filter by design.
+    // This suite carries 18 cases including crash-injection and replay
+    // rounds (measured ~33s on a warm host), above the 30s focused-local
+    // budget other lanes fit inside, so it gets its own ceiling: four
+    // times the measurement locally, aligned 180s under CI.
+    const generationLoadGoTestMs = Math.min(180_000, Math.max(goTestBudgetMs, 120_000));
+    const generationLoadArgs = ['test', '-json', '-count=1', `-timeout=${generationLoadGoTestMs / 1000}s`, '-run', GENERATION_LOAD_INTEGRATION_FILTER, GENERATION_LOAD_INTEGRATION_PACKAGE];
+    const generationLoad = await Promise.resolve(goTest(generationLoadArgs, childEnv));
+    writeFileSync(join(directory, 'generation-load-integration.jsonl'), scrubSecrets(generationLoad.stdout || '', secrets));
+    writeFileSync(join(directory, 'generation-load-integration.stderr'), scrubSecrets(generationLoad.stderr || '', secrets));
+    assert.equal(generationLoad.status, 0, `generation-load real-PG acceptance failed: ${scrubSecrets(generationLoad.error?.message || generationLoad.stderr || '', secrets)}`);
+    const generationLoadPasses = checkGoEvents(generationLoad.stdout, GENERATION_LOAD_INTEGRATION_TESTS).passes;
+    evidence.generationLoadIntegration = {
+      status: 'passed',
+      package: GENERATION_LOAD_INTEGRATION_PACKAGE,
+      command: ['go', 'test', '-count=1', `-timeout=${generationLoadGoTestMs / 1000}s`, '-run', GENERATION_LOAD_INTEGRATION_FILTER, GENERATION_LOAD_INTEGRATION_PACKAGE],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...GENERATION_LOAD_INTEGRATION_TESTS],
+      passes: generationLoadPasses,
     };
     evidence.status = 'passed';
   } catch (error) {

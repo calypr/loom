@@ -293,7 +293,7 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 				// reach DDL. (Genuine shared-schema ledger conflicts are
 				// exercised end-to-end by the arch-backend-05 suite.)
 				c.Schemas = postgres.SeriesSchemas{postgres.SeriesSource: "Bad Name; DROP"}
-			}, postgres.ErrSeriesAssignment},
+			}, postgres.ErrInvalidSchemaName},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {

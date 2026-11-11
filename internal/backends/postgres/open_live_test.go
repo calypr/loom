@@ -401,15 +401,7 @@ func factoryOpenLiveAssembly(t *testing.T) {
 		if created {
 			t.Fatalf("setup policy created the unassigned schema %q; the migrate runner must refuse and leave schema lifecycle to the caller", missingSchema)
 		}
-		var leaked int64
-		if err := admin.QueryRow(ctx,
-			"SELECT count(*) FROM pg_stat_activity WHERE application_name = $1", failedTag,
-		).Scan(&leaked); err != nil {
-			t.Fatalf("query pg_stat_activity for the failed-attempt tag: %v", err)
-		}
-		if leaked != 0 {
-			t.Fatalf("failed Open leaked %d live backends under tag %q", leaked, failedTag)
-		}
+		ab06WaitBackendsZero(t, admin, failedTag, "failed Open")
 
 		// Close is repeat-safe and every port refuses afterwards with the
 		// named closed error.
@@ -434,6 +426,12 @@ func factoryOpenLiveAssembly(t *testing.T) {
 		}, func(map[string]any) error { return nil }); !errors.Is(err, rows.ErrQuery) {
 			t.Fatalf("SourceRows after Close: err = %v, want an %v-classified refusal", err, rows.ErrQuery)
 		}
+
+		// The closed main pool leaves zero server backends behind. The
+		// check polls: a terminating backend can linger in
+		// pg_stat_activity for a beat after the client side closes
+		// (the CI PG18 runner proved the one-shot read was a race).
+		ab06WaitBackendsZero(t, admin, appName, "Close of the main runtime")
 
 		// Owned-namespace hygiene: only this fixture's schema remains.
 		var remaining int
@@ -478,5 +476,29 @@ func TestZZZeroLeftoverAB06LiveOpenFixtures(t *testing.T) {
 	}
 	if len(leftovers) != 0 {
 		t.Fatalf("verify_ab06_* schemas survived the suite: %v", leftovers)
+	}
+}
+
+// ab06WaitBackendsZero polls pg_stat_activity until no live backend
+// carries tag, failing with a named message past the deadline. Server
+// backends disappear asynchronously after the client closes its pool, so
+// a one-shot count is a timing race on slower hosts.
+func ab06WaitBackendsZero(t *testing.T, admin *control.Client, tag, what string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var leaked int64
+	for {
+		if err := admin.QueryRow(context.Background(),
+			"SELECT count(*) FROM pg_stat_activity WHERE application_name = $1", tag,
+		).Scan(&leaked); err != nil {
+			t.Fatalf("query pg_stat_activity for tag %q: %v", tag, err)
+		}
+		if leaked == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s leaked %d live backends under tag %q after 10s", what, leaked, tag)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

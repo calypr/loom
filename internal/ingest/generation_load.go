@@ -619,12 +619,11 @@ func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.
 			})
 		}
 	}
-	if strings.TrimSpace(pg.ManifestSchema) == "" {
-		// Checked after the tagging block so the operator-visible skip event
-		// still fires for otherwise-invalid options: the announcement is not
-		// conditional on the rest of the configuration being correct.
-		return nil, fmt.Errorf("%w: PGSourceOptions.ManifestSchema must name the schema hosting the dataset_release series (distinct from Schema); the manifest lifecycle port needs its own series assignment", postgres.ErrInvalidConfig)
-	}
+	// Config.Validate is the single refusal gate, in its documented field
+	// order (dsn, pool, application name, setup policy, then per-series
+	// assignment): a blank ManifestSchema surfaces as the named
+	// ErrSeriesAssignment blank-schema refusal rather than pre-empting
+	// more specific classifications of other malformed fields.
 	return postgres.Open(context.Background(), PGLoadConfig(pg, dsn, postgres.SetupNone))
 }
 

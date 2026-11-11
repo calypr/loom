@@ -72,6 +72,10 @@ const ApplicationNamePrefix = "loom-pg-"
 // or separators that could smuggle additional connection parameters.
 var applicationNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
+// assignedSchemaNamePattern is the one legal shape for an assigned schema
+// identifier; callers get ErrInvalidSchemaName naming the offending name.
+var assignedSchemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
 // Config is the fully explicit factory configuration. Pool bounds and DSN
 // shape are validated by the store's authoritative Config.Validate (no
 // second policy); the factory adds the connection-tag policy, the explicit
@@ -132,6 +136,13 @@ func (c Config) Validate() error {
 	for series, schema := range c.Schemas {
 		if strings.TrimSpace(schema) == "" {
 			return fmt.Errorf("%w: series %q is assigned a blank schema name", ErrSeriesAssignment, series)
+		}
+		// The identifier shape is checked before the ownership law runs, so
+		// a malformed schema name keeps its precise ErrInvalidSchemaName
+		// classification instead of surfacing wrapped in the assignment
+		// error. Same pattern the store's own boundary enforces.
+		if !assignedSchemaNamePattern.MatchString(schema) {
+			return fmt.Errorf("%w: series %q schema %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, series, schema)
 		}
 	}
 	assignment := pgstore.Assignment{}

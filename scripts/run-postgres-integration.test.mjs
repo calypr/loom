@@ -19,6 +19,9 @@ import {
   FACTORY_INTEGRATION_FILTER,
   FACTORY_INTEGRATION_PACKAGE,
   FACTORY_INTEGRATION_TESTS,
+  GENERATION_LOAD_INTEGRATION_FILTER,
+  GENERATION_LOAD_INTEGRATION_PACKAGE,
+  GENERATION_LOAD_INTEGRATION_TESTS,
   PROBE_SOURCE,
   REQUIRED_INTEGRATION_TEST,
   REQUIRED_MAJOR_VERSION,
@@ -40,7 +43,15 @@ const ADMIN_URL = 'postgresql://loom_test:s3cret-test-password@127.0.0.1:55432/l
 const events = list => list.map(event => JSON.stringify(event)).join('\n');
 const passingGo = (args = []) => ({
   status: 0,
-  stdout: events(args.includes(FACTORY_INTEGRATION_FILTER)
+  stdout: events(args.includes(GENERATION_LOAD_INTEGRATION_FILTER)
+    ? [
+      ...GENERATION_LOAD_INTEGRATION_TESTS.flatMap(name => [
+        { Action: 'run', Package: 'generationloadpkg', Test: name },
+        { Action: 'pass', Package: 'generationloadpkg', Test: name },
+      ]),
+      { Action: 'pass', Package: 'generationloadpkg' },
+    ]
+    : args.includes(FACTORY_INTEGRATION_FILTER)
     ? [
       ...FACTORY_INTEGRATION_TESTS.flatMap(name => [
         { Action: 'run', Package: 'factorypkg', Test: name },
@@ -270,14 +281,14 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.cleanup, [{ database: evidence.namespace.database, status: 'dropped' }]);
   assert.deepEqual(evidence.leftovers, []);
   assert.equal(calls[4].args[0], evidence.namespace.database, 'audit must cover only this run namespace');
-  assert.equal(goCalls.length, 7, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, and factory lanes must all run');
+  assert.equal(goCalls.length, 8, 'the pg-store-01, dataset, explorer, resource-writer, edge-writer, ownership, factory, and generation-load lanes must all run');
   assert.equal(goCalls[0].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'URL must be propagated to the child');
   assert.ok(goCalls[0].args.includes(`^${REQUIRED_INTEGRATION_TEST}$`));
   assert.ok(goCalls[0].args.includes('./internal/backends/postgres/internal/store'));
   assert.ok(goCalls[0].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the Go test timeout must be bounded at or below the aligned 180s budget');
   assert.deepEqual(evidence.integration.passes, [REQUIRED_INTEGRATION_TEST]);
-  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration']);
+  assert.deepEqual(evidence.phases, ['readiness', 'namespace', 'acceptance', 'integration', 'dataset-integration', 'explorer-integration', 'resource-writer-integration', 'edge-writer-integration', 'ownership-integration', 'factory-integration', 'generation-load-integration']);
   // The dataset lane runs whole-package: no -run filter, same propagated URL.
   assert.equal(goCalls[1].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL);
   assert.equal(goCalls[1].args.at(-1), DATASET_INTEGRATION_PACKAGE);
@@ -326,6 +337,13 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(goCalls[5].args.slice(-1), [OWNERSHIP_INTEGRATION_PACKAGE]);
   assert.ok(goCalls[6].args.includes(FACTORY_INTEGRATION_FILTER), 'the factory lane must run the exact contract filter');
   assert.deepEqual(goCalls[6].args.slice(-1), [FACTORY_INTEGRATION_PACKAGE]);
+  assert.equal(goCalls[7].childEnv.LOOM_TEST_POSTGRES_URL, ADMIN_URL, 'the generation-load lane must receive the owned service URL');
+  assert.ok(goCalls[7].args.includes('-run'), 'the generation-load lane must carry its never-skipped -run filter');
+  assert.ok(goCalls[7].args.includes(GENERATION_LOAD_INTEGRATION_FILTER), 'the recorded command must show the exact acceptance filter');
+  assert.deepEqual(goCalls[7].args.slice(-1), [GENERATION_LOAD_INTEGRATION_PACKAGE]);
+  assert.ok(goCalls[7].args.includes('-json') && goCalls[7].args.includes('-count=1'));
+  assert.ok(goCalls[7].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
+    'the generation-load lane stays within the aligned 180s Go budget');
   assert.ok(goCalls[5].args.includes('-json') && goCalls[5].args.includes('-count=1'));
   assert.ok(goCalls[5].args.some(a => /^-timeout=\d+s$/.test(a) && Number(a.slice(9, -1)) <= 180),
     'the ownership lane stays within the aligned 180s Go budget');
@@ -335,6 +353,9 @@ test('a full owned-namespace run passes with finally-cleanup of only its namespa
   assert.deepEqual(evidence.factoryIntegration.anchors, [...FACTORY_INTEGRATION_TESTS]);
   for (const name of FACTORY_INTEGRATION_TESTS) assert.ok(evidence.factoryIntegration.passes.includes(name));
   assert.ok(readFileSync(join(out, 'factory-integration.jsonl'), 'utf8').includes(FACTORY_INTEGRATION_TESTS[0]));
+  assert.deepEqual(evidence.generationLoadIntegration.anchors, [...GENERATION_LOAD_INTEGRATION_TESTS]);
+  for (const name of GENERATION_LOAD_INTEGRATION_TESTS) assert.ok(evidence.generationLoadIntegration.passes.includes(name));
+  assert.ok(readFileSync(join(out, 'generation-load-integration.jsonl'), 'utf8').includes(GENERATION_LOAD_INTEGRATION_TESTS[0]));
   const summary = readFileSync(join(out, 'summary.json'), 'utf8');
   assert.ok(!summary.includes('s3cret-test-password'), 'evidence must be credential-free');
   assert.equal(JSON.parse(summary).status, 'passed');
