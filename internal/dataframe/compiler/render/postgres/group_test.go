@@ -995,6 +995,22 @@ func TestGroupDuplicateNameRefusals(t *testing.T) {
 		// classification arm (materializeGroupSource) is the belt.
 		requireGroup13Refusal(t, plan, "is not a public scalar input")
 	})
+	t.Run("unit-normalized-refused", func(t *testing.T) {
+		// A CONTRACT-VALID pg-sql-21 unit-normalized RETURN projection
+		// (the sql21UnitProjection shape lower emits — passes ir and
+		// classifyUnitNormalizedProjection, classifying as
+		// extractionUnitNormalized at selectors.go:334-339). The read
+		// spine registers the kind (unit_normalization.go via
+		// renderReturn); the closed GROUP slice must refuse it at the
+		// materialize arm — before the pg-sql-21 merge it fell through
+		// with an EMPTY expression and degraded g_src into an untyped
+		// syntax error (review finding PRRT_kwDOS-yV5s62Cc1D).
+		plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
+		last := len(plan.Operations) - 1
+		plan.Operations[last].Return.Projections = append(plan.Operations[last].Return.Projections,
+			sql21UnitProjection(t, nil))
+		requireGroup13Refusal(t, plan, "unit normalization belongs to the read spine registration (unit_normalization.go), not the closed GROUP slice")
+	})
 }
 
 // TestGroupEntryDispatchEquality pins the door contract: for the plan
@@ -1055,6 +1071,30 @@ func TestGroupStructuralLaws(t *testing.T) {
 	}
 	if got := strings.Count(source, "const groupTrimCharacters"); got != 1 {
 		t.Fatalf("groupTrimCharacters declarations = %d, want 1", got)
+	}
+
+	// The materializeGroupSource projection switch is exhaustive: the
+	// pg-sql-21 unit-normalized kind carries an explicit refusal and a
+	// catch-all default returns a typed refusal, so a future classifier
+	// kind can never materialize with an empty expression (the
+	// fallthrough the unit arm was missing — review finding
+	// PRRT_kwDOS-yV5s62Cc1D; mirrored law in selectors.go, unnest.go,
+	// objects.go consumers).
+	start := strings.Index(source, "func (r *planRenderer) materializeGroupSource")
+	end := strings.Index(source[start:], "\nfunc groupResolveColumn")
+	if start < 0 || end < 0 {
+		t.Fatal("materializeGroupSource boundary not found for the switch-exhaustiveness law")
+	}
+	switchBody := source[start : start+end]
+	for _, required := range []string{
+		"case extractionUnitNormalized:",
+		"return nil, fmt.Errorf(\"%w: group source projection %q is a unit-normalized extraction",
+		"default:",
+		"return nil, fmt.Errorf(\"%w: group source projection %q is not a registered projection arm",
+	} {
+		if !strings.Contains(switchBody, required) {
+			t.Fatalf("materializeGroupSource switch is missing the required arm %q", required)
+		}
 	}
 
 	// The one emitter per registered shape: the ALL/ONE emitter is

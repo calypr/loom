@@ -982,6 +982,23 @@ func (r *planRenderer) materializeGroupSource(plan ir.PhysicalPlan, ret *ir.Phys
 		case extractionObject, extractionSlice:
 			return nil, fmt.Errorf("%w: group source projection %q is a composite and cannot be addressed by key, reducer, or row value (lowering admits public scalars only)",
 				ErrUnsupportedPostgresPlan, projection.projection.Name)
+		case extractionUnitNormalized:
+			// pg-sql-21 contract receipt: the unit-normalized projection
+			// is registered on the full read spine (unit_normalization.go
+			// via renderReturn), not in this closed GROUP slice — the
+			// same spine-only ruling as CALL, OBJECT, and SLICE
+			// (selectors.go:578-583 wording). Without this arm the kind
+			// fell through with an empty expression and degraded g_src
+			// into an untyped syntax error (review finding
+			// PRRT_kwDOS-yV5s62Cc1D).
+			return nil, fmt.Errorf("%w: group source projection %q is a unit-normalized extraction; unit normalization belongs to the read spine registration (unit_normalization.go), not the closed GROUP slice",
+				ErrUnsupportedPostgresPlan, projection.projection.Name)
+		default:
+			// Catch-all: a future classifier kind must never materialize
+			// with an empty expression (the fallthrough the unit arm
+			// above was missing).
+			return nil, fmt.Errorf("%w: group source projection %q is not a registered projection arm",
+				ErrUnsupportedPostgresPlan, projection.projection.Name)
 		}
 		alias := "c" + strconv.Itoa(i)
 		columns = append(columns, groupColumn{
