@@ -237,17 +237,47 @@ const (
 	qRouteAppTag  = "verify-qroute-server"
 )
 
+// Shape-scoping of the census is the registered adjudication of an
+// OBSERVED parallel-package race: `go test ./internal/api/graphql/graph/
+// query ./internal/server` runs the two packages concurrently, and the
+// query package's six live legs hold `verify_qroute_q<unixnano>_<hex>`
+// databases in flight while this file's census counted `datname LIKE
+// 'verify\_qroute\_%'`. Those in-flight sub-namespace mints matched the
+// prefix and pushed this census above baseline -- a foreign-straggler false
+// positive this package must never delete or attribute (N-5). Each package
+// now counts only its own mint shape, and
+// TestQRouteCensusVocabularyCorrespondence below pins the separation and
+// the mint/regex correspondence with assertions, not log claims.
 var (
-	qRouteDBPattern   = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+$`)
-	qRouteSrcPattern  = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_src$`)
-	qRouteRelPattern  = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_rel$`)
-	qRouteOwnedMu     sync.Mutex
-	qRouteOwned       = map[string]bool{} // database -> dropped
-	qRouteBaselineMu  sync.Mutex
-	qRouteBaseline    int64
-	qRouteBaselineSet bool
-	qRouteBaselineErr error
+	qRouteDBPattern  = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+$`)
+	qRouteSrcPattern = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_src$`)
+	qRouteRelPattern = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_rel$`)
+	// qRouteCensusSibling mirrors internal/api/graphql/graph/query/
+	// postgres_query_test.go's qrDBPattern literal; both files keep the
+	// literals byte-identical and assert neither vocabulary matches the
+	// other's census.
+	qRouteCensusSibling = regexp.MustCompile(`^verify_qroute_q[0-9]+_[0-9a-f]+$`)
+	qRouteOwnedMu       sync.Mutex
+	qRouteOwned         = map[string]qRouteMint{} // database -> minting leg + dropped
+	qRouteStrayMarks    = []string{}              // drop marks for unregistered names
+	qRouteBaselineMu    sync.Mutex
+	qRouteBaseline      int64
+	qRouteBaselineSet   bool
+	qRouteBaselineErr   error
 )
+
+type qRouteMint struct {
+	leg     string
+	dropped bool
+}
+
+// qRouteMintInventory is the checked-in enumeration of this file's minting
+// legs: exactly these tests mint, each exactly this many databases. The
+// TestZZ audit asserts the runtime registry matches it leg-for-leg.
+var qRouteMintInventory = map[string]int{
+	"TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable":     1,
+	"TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler": 1,
+}
 
 func qRouteTestPostgresURL(t *testing.T) string {
 	t.Helper()
@@ -267,16 +297,24 @@ func qRouteRandomHex(t *testing.T) string {
 	return fmt.Sprintf("%x", b[:])
 }
 
-func qRouteRegister(db string) {
+func qRouteRegister(db, leg string) {
 	qRouteOwnedMu.Lock()
 	defer qRouteOwnedMu.Unlock()
-	qRouteOwned[db] = false
+	qRouteOwned[db] = qRouteMint{leg: leg}
 }
 
 func qRouteMarkDropped(db string) {
 	qRouteOwnedMu.Lock()
 	defer qRouteOwnedMu.Unlock()
-	qRouteOwned[db] = true
+	rec, ok := qRouteOwned[db]
+	if !ok {
+		// A drop witnessed for a name this process never minted: recorded,
+		// never folded into the registry, and the audit fails on it.
+		qRouteStrayMarks = append(qRouteStrayMarks, db)
+		return
+	}
+	rec.dropped = true
+	qRouteOwned[db] = rec
 }
 
 // qRouteCaptureBaseline counts own-prefix databases once per process. The
@@ -301,8 +339,10 @@ func qRouteCaptureBaseline(t *testing.T, raw string) {
 	// Static literal; the regex is a constant, not built input. The count
 	// covers THIS file's mint shape only: internal/api/graphql/graph/query
 	// lives in the verify_qroute_q sub-namespace with its own registry and
-	// audit, so a parallel package run can never race this census. Foreign
-	// names are still enumerated and classified on mismatch (N-5).
+	// audit. That separation is the adjudication of the observed
+	// parallel-run race named on the pattern block above, and the
+	// correspondence test pins it with assertions. Foreign names are still
+	// enumerated and classified on mismatch (N-5).
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_[0-9]+_[0-9a-f]+$'").
 		Scan(&count); err != nil {
@@ -371,7 +411,7 @@ func newQRouteFixture(t *testing.T) *qRouteFixture {
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+database+`"`); err != nil {
 		t.Fatalf("create isolated database: %s", scrub(err))
 	}
-	qRouteRegister(database)
+	qRouteRegister(database, t.Name())
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(context.Background()),
 			`DROP DATABASE IF EXISTS "`+database+`" WITH (FORCE)`); err != nil {
@@ -850,11 +890,89 @@ func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testi
 	}
 }
 
+// TestQRouteCensusVocabularyCorrespondence pins, offline and with no
+// database contact, the two vocabularies this batch minted: this file's
+// bare verify_qroute_<unixnano>_<hex> census shape and the
+// verify_qroute_q<unixnano>_<hex> sub-namespace owned by
+// internal/api/graphql/graph/query/postgres_query_test.go. Conditions it
+// makes test-enforced (coordinator ruling on the census narrowing):
+//
+//   - every name shape this process mints matches its own census regex, so
+//     a leak can never go uncensused;
+//   - near-miss shapes never minted -- including the fuzz names the
+//     verifier was told to try (verify_qroute_q_zz, verify_qroute_1_x) --
+//     do NOT match, so the census cannot silently claim foreign churn;
+//   - neither vocabulary matches the other package's census, which is the
+//     exact separation that makes the parallel `go test` of this package
+//     and internal/api/graphql/graph/query race-free (see the registry
+//     comment above the pattern block).
+func TestQRouteCensusVocabularyCorrespondence(t *testing.T) {
+	qrHex := func() string {
+		var b [6]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			t.Fatalf("sample suffix: %v", err)
+		}
+		return fmt.Sprintf("%x", b[:])
+	}
+	// Positive: 200 samples through the exact mint format.
+	for i := 0; i < 200; i++ {
+		name := fmt.Sprintf(qRouteDBFmt, time.Now().UnixNano(), qrHex())
+		if !qRouteDBPattern.MatchString(name) {
+			t.Fatalf("mint-shaped name %q does not match the own census regex", name)
+		}
+		if qRouteCensusSibling.MatchString(name) {
+			t.Fatalf("own-vocabulary name %q matched the query package's census regex: parallel census race is back", name)
+		}
+	}
+	ownPositives := []string{"verify_qroute_1731234567890_0123456789ab"}
+	// Negative: shapes this file never mints. The first two are the
+	// verifier's named fuzz examples; the sub-namespace shape is the query
+	// package's whole vocabulary, and _src/_rel suffixes are this file's
+	// own schema shapes, which must never double-count as databases.
+	ownNegatives := []string{
+		"verify_qroute_q_zz",
+		"verify_qroute_1_x",
+		"verify_qroute_q1731234567890_0123456789ab", // the query package's mint shape
+		"verify_qroute_",
+		"verify_qroute_1731234567890_",
+		"verify_qroute__0123456789ab",
+		"verify_qroute_1731234567890_0123456789AB", // uppercase hex is never minted
+		"verify_qroute_1731234567890_0123456789ab_src",
+		"verify_qroute_1731234567890_0123456789ab_rel",
+		"verify_qroute_0x1f_0123456789ab",
+		"xverify_qroute_1731234567890_0123456789ab",
+		"verify_qroute_1731234567890_0123456789abx",
+	}
+	for _, name := range ownPositives {
+		if !qRouteDBPattern.MatchString(name) {
+			t.Errorf("positive %q must match the own census regex", name)
+		}
+		if qRouteCensusSibling.MatchString(name) {
+			t.Errorf("positive %q must not match the sibling census regex", name)
+		}
+	}
+	for _, name := range ownNegatives {
+		if qRouteDBPattern.MatchString(name) {
+			t.Errorf("never-minted shape %q matched the own census regex: the census can now hide foreign churn under this file's name", name)
+		}
+	}
+	// Sibling direction: the query package's sub-namespace shape is
+	// census-invisible here (mirror assertions live in that file).
+	for i := 0; i < 200; i++ {
+		sibling := fmt.Sprintf("verify_qroute_q%d_%s", time.Now().UnixNano(), qrHex())
+		if qRouteDBPattern.MatchString(sibling) {
+			t.Fatalf("sibling-vocabulary name %q matched this file's census regex", sibling)
+		}
+	}
+}
+
 // TestZZQRouteZeroLeftoverFixtures is the N-5 audit: it compares the
-// pg_database count for THIS process's own verify_qroute_ prefix against the
-// baseline captured at first use and requires every registered mint to be
-// witnessed dropped. Foreign prefixes are printed and classified only --
-// never deleted, never attributed to this pull request.
+// pg_database count for THIS process's own mint shape against the baseline
+// captured at first use and requires every registered mint to be witnessed
+// dropped. Foreign prefixes are printed and classified only -- never
+// deleted, never attributed to this pull request. The audit additionally
+// asserts (not logs) drop-list == minted-list, mint-name/regex
+// correspondence, and per-leg equality against qRouteMintInventory.
 func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 	raw := qRouteTestPostgresURL(t)
 	if !qRouteBaselineSet {
@@ -879,16 +997,47 @@ func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 		t.Fatalf("count leftovers: %s", err)
 	}
 	qRouteOwnedMu.Lock()
-	registered, outstanding := 0, []string{}
-	for db, dropped := range qRouteOwned {
+	registered, outstanding, strays := 0, []string{}, append([]string(nil), qRouteStrayMarks...)
+	perLeg := map[string]int{}
+	unmatched := []string{}
+	for db, rec := range qRouteOwned {
 		registered++
-		if !dropped {
+		perLeg[rec.leg]++
+		if !rec.dropped {
 			outstanding = append(outstanding, db)
+		}
+		if !qRouteDBPattern.MatchString(db) {
+			unmatched = append(unmatched, db)
 		}
 	}
 	qRouteOwnedMu.Unlock()
 	if len(outstanding) > 0 {
 		t.Fatalf("owned fixtures still live at audit: %v", outstanding)
+	}
+	// Drop-list == minted-list, asserted (not logged): every registered
+	// mint was witnessed dropped above, and a drop mark can only land on a
+	// registered name -- anything else went to qRouteStrayMarks:
+	if len(strays) > 0 {
+		t.Fatalf("drop marks for names this process never minted: %v", strays)
+	}
+	// Every minted name matches the census regex, so no leak of this
+	// process can hide outside the census that watches for leaks.
+	if len(unmatched) > 0 {
+		t.Fatalf("registered mints outside the census regex: %v", unmatched)
+	}
+	// Checked-in per-leg enumeration == runtime registry, both directions:
+	// every inventoried leg minted its declared count, and no leg outside
+	// the inventory minted anything. (This is the full-package census run;
+	// a -run subset that skips inventoried legs fails here on purpose so
+	// the subset is never mistaken for the census.)
+	for leg, want := range qRouteMintInventory {
+		if got := perLeg[leg]; got != want {
+			t.Errorf("mint inventory: leg %q minted %d databases, inventoried %d", leg, got, want)
+		}
+		delete(perLeg, leg)
+	}
+	for leg, got := range perLeg {
+		t.Errorf("mint inventory: leg %q minted %d databases but is not inventoried", leg, got)
 	}
 	if count != qRouteBaseline {
 		rows, err := admin.Query(ctx,

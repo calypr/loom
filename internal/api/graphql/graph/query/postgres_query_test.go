@@ -132,26 +132,71 @@ type qrLiveFixture struct {
 // harness, whose shape-scoped audit never counts these names). Every mint
 // is registered before any use, dropped by enumerated name only, and the
 // TestZZ audit below requires baseline parity plus all-registered-dropped.
+//
+// The shape-scoping is not decoration -- it is the registered adjudication
+// of an OBSERVED parallel-package race: `go test ./internal/api/graphql/
+// graph/query ./internal/server` runs the two packages concurrently, and
+// this file's live legs hold `verify_qroute_q<unixnano>_<hex>` databases in
+// flight while internal/server's census test counted `datname LIKE
+// 'verify\_qroute\_%'`. Those in-flight sub-namespace mints matched the
+// server prefix and pushed its census above baseline -- a foreign-straggler
+// false positive that package must never delete or attribute (N-5). Each
+// package now counts only its own mint shape, and
+// TestQRouteLiveCensusVocabularyCorrespondence below pins the separation
+// (and every mint-vs-regex correspondence) with assertions, not log claims.
 var (
-	qrDBPattern   = regexp.MustCompile(`^verify_qroute_q[0-9]+_[0-9a-f]+$`)
-	qrOwnedMu     sync.Mutex
-	qrOwned       = map[string]bool{} // database -> dropped
-	qrBaselineMu  sync.Mutex
-	qrBaseline    int64
-	qrBaselineSet bool
-	qrBaselineErr error
+	qrDBPattern = regexp.MustCompile(`^verify_qroute_q[0-9]+_[0-9a-f]+$`)
+	// qrCensusSibling mirrors internal/server/postgres_query_test.go's
+	// qRouteDBPattern literal; the two files' tables keep the literals
+	// byte-identical and assert neither vocabulary matches the other's
+	// census, which is exactly what keeps the parallel run race-free.
+	qrCensusSibling = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+$`)
+	qrOwnedMu       sync.Mutex
+	qrOwned         = map[string]qrMint{} // database -> minting leg + dropped
+	qrStrayMarks    = []string{}          // drop marks for unregistered names
+	qrBaselineMu    sync.Mutex
+	qrBaseline      int64
+	qrBaselineSet   bool
+	qrBaselineErr   error
 )
 
-func qrRegister(db string) {
+type qrMint struct {
+	leg     string
+	dropped bool
+}
+
+// qrMintInventory is the checked-in enumeration of this file's minting
+// legs: exactly these tests mint, each exactly this many databases. The
+// TestZZ audit asserts the runtime registry matches it leg-for-leg, so a
+// new minting leg without an inventory row fails the census instead of
+// leaking quietly.
+var qrMintInventory = map[string]int{
+	"TestFhirDataframePostgreSQLLiveExactScalarRows":                 1,
+	"TestFhirDataframePostgreSQLLiveRestrictedPrincipalSeesNoRows":   1,
+	"TestFhirDataframePostgreSQLLiveActiveGenerationExcludesStaged":  1,
+	"TestFhirDataframePostgreSQLLiveBackendOutageTyped":              1,
+	"TestFhirDataframePostgreSQLLivePreCancellationTyped":            1,
+	"TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed": 1,
+}
+
+func qrRegister(db, leg string) {
 	qrOwnedMu.Lock()
 	defer qrOwnedMu.Unlock()
-	qrOwned[db] = false
+	qrOwned[db] = qrMint{leg: leg}
 }
 
 func qrMarkDropped(db string) {
 	qrOwnedMu.Lock()
 	defer qrOwnedMu.Unlock()
-	qrOwned[db] = true
+	rec, ok := qrOwned[db]
+	if !ok {
+		// A drop witnessed for a name this process never minted: recorded,
+		// never folded into the registry, and the audit fails on it.
+		qrStrayMarks = append(qrStrayMarks, db)
+		return
+	}
+	rec.dropped = true
+	qrOwned[db] = rec
 }
 
 func qrCaptureBaseline(t *testing.T, raw string) {
@@ -257,7 +302,7 @@ func newQRLiveFixture(t *testing.T) *qrLiveFixture {
 	if !qrDBPattern.MatchString(database) {
 		t.Fatalf("mint name %q violates the owned verify_qroute_q pattern", database)
 	}
-	qrRegister(database)
+	qrRegister(database, t.Name())
 	qrCaptureBaseline(t, raw)
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+database+`"`); err != nil {
 		qrMarkDropped(database) // never existed; the audit must not double-count
@@ -659,59 +704,76 @@ func TestFhirDataframePostgreSQLLivePreCancellationTyped(t *testing.T) {
 	t.Logf("cancellation classification witness: code=%q retryable=%v", typed.Code(), typed.Retryable())
 }
 
-// TestZZQRouteLiveZeroLeftoverFixtures is this file's N-5 audit: every
-// verify_qroute_q mint this process registered must be witnessed dropped,
-// and the sub-namespace count must return to the first-use baseline. The
-// mismatch enumeration lists own sub-namespace names only; nothing outside
-// it is ever deleted or attributed (N-5).
-func TestZZQRouteLiveZeroLeftoverFixtures(t *testing.T) {
-	raw := qrTestPostgresURL(t)
-	if !qrBaselineSet {
-		t.Skip("no live fixture was created in this run; nothing to audit")
+// TestQRouteLiveCensusVocabularyCorrespondence pins, offline and with no
+// database contact, the two vocabularies this batch minted: this file's
+// verify_qroute_q<unixnano>_<hex> sub-namespace and internal/server's bare
+// verify_qroute_<unixnano>_<hex> census shape. Conditions it makes
+// test-enforced (coordinator ruling on the census narrowing):
+//
+//   - every name shape this process mints matches its own census regex, so
+//     a leak can never go uncensused;
+//   - near-miss shapes never minted -- including the fuzz names the
+//     verifier was told to try (verify_qroute_q_zz, verify_qroute_1_x) --
+//     do NOT match, so the census cannot silently claim foreign churn;
+//   - neither vocabulary matches the other package's census, which is the
+//     exact separation that makes the parallel `go test` of this package
+//     and internal/server race-free (see the registry comment above).
+func TestQRouteLiveCensusVocabularyCorrespondence(t *testing.T) {
+	qrHex := func() string {
+		var b [6]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			t.Fatalf("sample suffix: %v", err)
+		}
+		return fmt.Sprintf("%x", b[:])
 	}
-	if qrBaselineErr != nil {
-		t.Fatalf("baseline was never captured: %v", qrBaselineErr)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	admin, err := pgxpool.New(ctx, raw)
-	if err != nil {
-		t.Fatalf("connect for audit: %s", scrubQRStatic(err, raw))
-	}
-	defer admin.Close()
-	var count int64
-	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_q[0-9]+_[0-9a-f]+$'").
-		Scan(&count); err != nil {
-		t.Fatalf("count leftovers: %s", scrubQRStatic(err, raw))
-	}
-	qrOwnedMu.Lock()
-	registered, outstanding := 0, []string{}
-	for db, dropped := range qrOwned {
-		registered++
-		if !dropped {
-			outstanding = append(outstanding, db)
+	// Positive: 200 samples through the exact mint format.
+	for i := 0; i < 200; i++ {
+		name := fmt.Sprintf("verify_qroute_q%d_%s", time.Now().UnixNano(), qrHex())
+		if !qrDBPattern.MatchString(name) {
+			t.Fatalf("mint-shaped name %q does not match the own census regex", name)
+		}
+		if qrCensusSibling.MatchString(name) {
+			t.Fatalf("own-vocabulary name %q matched internal/server's census regex: parallel census race is back", name)
 		}
 	}
-	qrOwnedMu.Unlock()
-	if len(outstanding) > 0 {
-		t.Fatalf("owned fixtures still live at audit: %v", outstanding)
+	ownPositives := []string{"verify_qroute_q1731234567890_0123456789ab"}
+	// Negative: shapes this file never mints. The first two are the
+	// verifier's named fuzz examples. The bare server shape and the _src /
+	// _rel suffix shapes are the neighbouring vocabularies.
+	ownNegatives := []string{
+		"verify_qroute_q_zz",
+		"verify_qroute_1_x",
+		"verify_qroute_zz",
+		"verify_qroute_1731234567890_0123456789ab", // internal/server's mint shape
+		"verify_qroute_qq1731234567890_0123456789ab",
+		"verify_qroute_q1731234567890_0123456789AB", // uppercase hex is never minted
+		"verify_qroute_q_0123456789ab",
+		"verify_qroute_q1731234567890_",
+		"verify_qroute_q1731234567890_0123456789ab_src",
+		"verify_qroute_q1731234567890_z123456789ab",
+		"xverify_qroute_q1731234567890_0123456789ab",
 	}
-	if count != qrBaseline {
-		rows, err := admin.Query(ctx,
-			"SELECT datname FROM pg_database WHERE datname ~ '^verify_qroute_q[0-9]+_[0-9a-f]+$' ORDER BY datname")
-		names := []string{}
-		if err == nil {
-			for rows.Next() {
-				var name string
-				if err := rows.Scan(&name); err == nil {
-					names = append(names, name)
-				}
-			}
-			rows.Close()
+	for _, name := range ownPositives {
+		if !qrDBPattern.MatchString(name) {
+			t.Errorf("positive %q must match the own census regex", name)
 		}
-		t.Fatalf("own sub-namespace census: live=%d baseline=%d registered=%d names=%v",
-			count, qrBaseline, registered, names)
+		if qrCensusSibling.MatchString(name) {
+			t.Errorf("positive %q must not match the sibling census regex", name)
+		}
+	}
+	for _, name := range ownNegatives {
+		if qrDBPattern.MatchString(name) {
+			t.Errorf("never-minted shape %q matched the own census regex: the census can now hide foreign churn under this file's name", name)
+		}
+	}
+	// Sibling direction: the server's mint shape is census-invisible here,
+	// and this file's shape is census-invisible there (mirror assertions
+	// live in internal/server/postgres_query_test.go).
+	for i := 0; i < 200; i++ {
+		sibling := fmt.Sprintf("verify_qroute_%d_%s", time.Now().UnixNano(), qrHex())
+		if qrDBPattern.MatchString(sibling) {
+			t.Fatalf("sibling-vocabulary name %q matched this file's census regex", sibling)
+		}
 	}
 }
 
@@ -752,5 +814,100 @@ func TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed(t *testing.T
 	if counters.rowCalls.Load() != 0 || counters.discoverCalls.Load() != 0 {
 		t.Fatalf("garbage-principal refusal reached the backend: rows=%d discovery=%d, want 0/0",
 			counters.rowCalls.Load(), counters.discoverCalls.Load())
+	}
+}
+
+// TestZZQRouteLiveZeroLeftoverFixtures is this file's N-5 audit: every
+// verify_qroute_q mint this process registered must be witnessed dropped,
+// and the sub-namespace count must return to the first-use baseline. The
+// mismatch enumeration lists own sub-namespace names only; nothing outside
+// it is ever deleted or attributed (N-5). The audit additionally asserts
+// (not logs) drop-list == minted-list, mint-name/regex correspondence, and
+// per-leg equality against qrMintInventory.
+//
+// Go runs tests in source order, so this function is deliberately the last
+// function in the file: every minting leg above it (including
+// TestFhirDataframePostgreSQLLiveGarbagePrincipalPathsFailClosed) has
+// registered and dropped its database before the census compares. Any new
+// minting leg must be added ABOVE this audit, never below it.
+func TestZZQRouteLiveZeroLeftoverFixtures(t *testing.T) {
+	raw := qrTestPostgresURL(t)
+	if !qrBaselineSet {
+		t.Skip("no live fixture was created in this run; nothing to audit")
+	}
+	if qrBaselineErr != nil {
+		t.Fatalf("baseline was never captured: %v", qrBaselineErr)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect for audit: %s", scrubQRStatic(err, raw))
+	}
+	defer admin.Close()
+	var count int64
+	if err := admin.QueryRow(ctx,
+		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_q[0-9]+_[0-9a-f]+$'").
+		Scan(&count); err != nil {
+		t.Fatalf("count leftovers: %s", scrubQRStatic(err, raw))
+	}
+	qrOwnedMu.Lock()
+	registered, outstanding, strays := 0, []string{}, append([]string(nil), qrStrayMarks...)
+	perLeg := map[string]int{}
+	unmatched := []string{}
+	for db, rec := range qrOwned {
+		registered++
+		perLeg[rec.leg]++
+		if !rec.dropped {
+			outstanding = append(outstanding, db)
+		}
+		if !qrDBPattern.MatchString(db) {
+			unmatched = append(unmatched, db)
+		}
+	}
+	qrOwnedMu.Unlock()
+	if len(outstanding) > 0 {
+		t.Fatalf("owned fixtures still live at audit: %v", outstanding)
+	}
+	// Drop-list == minted-list, asserted (not logged): every registered
+	// mint was witnessed dropped above, and a drop mark can only land on a
+	// registered name -- anything else went to qrStrayMarks:
+	if len(strays) > 0 {
+		t.Fatalf("drop marks for names this process never minted: %v", strays)
+	}
+	// Every minted name matches the census regex, so no leak of this
+	// process can hide outside the census that watches for leaks.
+	if len(unmatched) > 0 {
+		t.Fatalf("registered mints outside the census regex: %v", unmatched)
+	}
+	// Checked-in per-leg enumeration == runtime registry, both directions:
+	// every inventoried leg minted its declared count, and no leg outside
+	// the inventory minted anything. (This is the full-package census run;
+	// a -run subset that skips inventoried legs fails here on purpose so
+	// the subset is never mistaken for the census.)
+	for leg, want := range qrMintInventory {
+		if got := perLeg[leg]; got != want {
+			t.Errorf("mint inventory: leg %q minted %d databases, inventoried %d", leg, got, want)
+		}
+		delete(perLeg, leg)
+	}
+	for leg, got := range perLeg {
+		t.Errorf("mint inventory: leg %q minted %d databases but is not inventoried", leg, got)
+	}
+	if count != qrBaseline {
+		rows, err := admin.Query(ctx,
+			"SELECT datname FROM pg_database WHERE datname ~ '^verify_qroute_q[0-9]+_[0-9a-f]+$' ORDER BY datname")
+		names := []string{}
+		if err == nil {
+			for rows.Next() {
+				var name string
+				if err := rows.Scan(&name); err == nil {
+					names = append(names, name)
+				}
+			}
+			rows.Close()
+		}
+		t.Fatalf("own sub-namespace census: live=%d baseline=%d registered=%d names=%v",
+			count, qrBaseline, registered, names)
 	}
 }
