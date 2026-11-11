@@ -13,6 +13,8 @@ package postgres
 
 import (
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -946,4 +948,175 @@ func TestSQL16SETSliceSourceColumn(t *testing.T) {
 	if door.SQL != sql {
 		t.Fatalf("door SQL drifted from the entry render")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Delivery-record RED-capable pins for the live-found source repairs
+// (coordinator order 2026-11-11): each repair gets a named offline cell that
+// fails on the pre-repair shape, not merely passes on the fixed one. The
+// root id/_key sidecar repair is pinned by TestSQL16KeySelectorSidecar; the
+// SET slice-column survival by TestSQL16SETSliceSourceColumn; the three
+// shapes below close the rest of the register.
+// ---------------------------------------------------------------------------
+
+func TestSQL16ArraySelectorIteratePathBind(t *testing.T) {
+	// Live-found repair (commit 57a6680f): the guarded gather reads the
+	// array AT the iterated selector step, INCLUSIVE of its own field
+	// (root.note[].text gathers doc.note — the AQL FLATTEN twin iterates
+	// doc.note, not doc). The pre-repair slice excluded the iterate step,
+	// so the gather read the raw payload with no path bind: jsonb_typeof
+	// over the whole document silently gathered nothing. Pinning the bind
+	// VALUE (not just the #> shape, which U3 already holds) is what kills
+	// both the exclusive slice and an over-inclusive slice.
+	rendered := sql16Render(t, sql16ExpandGroupPlan(t))
+	sql := rendered.SQL
+	guard := regexp.MustCompile(`jsonb_typeof\(r0\."payload" #> \$(\d+)::text\[\]\) = 'array'`).FindStringSubmatch(sql)
+	gather := regexp.MustCompile(`FROM jsonb_array_elements\(r0\."payload" #> \$(\d+)::text\[\]\) AS e`).FindStringSubmatch(sql)
+	if guard == nil || gather == nil {
+		t.Fatalf("the guarded gather lost its path-bound payload read:\n%s", sql)
+	}
+	if guard[1] != gather[1] {
+		t.Fatalf("the typeof guard and the elements gather read different paths (guard $%s, gather $%s):\n%s", guard[1], gather[1], sql)
+	}
+	pathIndex, err := strconv.Atoi(guard[1])
+	if err != nil || pathIndex < 1 || pathIndex > len(rendered.Args) {
+		t.Fatalf("gather path parameter $%s is not a minted bind", guard[1])
+	}
+	if bound, ok := rendered.Args[pathIndex-1].Value.(string); !ok || bound != "{note}" {
+		t.Fatalf("the gather path binds %v, want {note} (the iterated step's own field, inclusive)", rendered.Args[pathIndex-1].Value)
+	}
+	tail := regexp.MustCompile(`SELECT jsonb_agg\(e #> \$(\d+)::text\[\]\)`).FindStringSubmatch(sql)
+	if tail == nil {
+		t.Fatalf("the gather lost its leaf tail:\n%s", sql)
+	}
+	tailIndex, err := strconv.Atoi(tail[1])
+	if err != nil || tailIndex < 1 || tailIndex > len(rendered.Args) {
+		t.Fatalf("leaf tail parameter $%s is not a minted bind", tail[1])
+	}
+	if bound, ok := rendered.Args[tailIndex-1].Value.(string); !ok || bound != "{text}" {
+		t.Fatalf("the leaf tail binds %v, want {text}", rendered.Args[tailIndex-1].Value)
+	}
+	// The pre-repair shape exactly: the gather must never read the raw
+	// payload without the path.
+	if strings.Contains(sql, `jsonb_typeof(r0."payload") = 'array'`) {
+		t.Fatalf("the gather regressed to the pathless raw-payload read:\n%s", sql)
+	}
+}
+
+func TestSQL16RowValuePolicyStorageClasses(t *testing.T) {
+	// Live-found repair (commit 57a6680f, jsonbOutputs): the group emitter
+	// materializes an ALL row value as to_jsonb(ARRAY_AGG(...)) — jsonb —
+	// while the ONE policy collapses through MIN(...) and stays a SQL
+	// scalar, and the stage FACT carries that class so a later stage reads
+	// each through its own storage class. Marking a ONE row value jsonb
+	// made a later stage read it with a document operator and abort at
+	// analysis (42883, live-found); this cell is the offline RED twin.
+	keepPolicy := sql16FilterStep("keep_rows", recipe.ConstructionSourceProjectionInput, "", "status_id")
+	keepPolicy.Outputs = []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tags_id", Name: "tags"}}
+	groupOutputs := []recipe.StageColumn{
+		{ID: "status_key_id", Name: "status_key"}, {ID: "rows_id", Name: "rows"},
+		{ID: "tags_all_id", Name: "tags_all"}, {ID: "status_one_id", Name: "status_one"},
+	}
+	filterOne := sql16FilterStep("filter_one", recipe.ConstructionStepOutputInput, "group_status", "status_one_id")
+	filterOne.Outputs = groupOutputs
+	plan := sql16Compile(t, recipe.Output{
+		Name: "sql16_policy_storage", RootResourceType: "Observation", RowGrain: "observation",
+		Fields: sql16SourceFields(),
+		Construction: &recipe.Construction{Version: 1, SourceColumns: sql16SourceColumns(),
+			Steps: []recipe.ConstructionStep{
+				keepPolicy,
+				{
+					ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: "keep_rows"}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+						ConstructionID: "group_status_values",
+						Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "status_key_id"}},
+						Aggregates: []recipe.ConstructionGroupAggregate{
+							{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"},
+						},
+					}},
+					RowValues: []recipe.ConstructionRowValue{
+						{InputColumnID: "status_id", OutputColumnID: "tags_all_id", Policy: recipe.ConstructionRowValueAll},
+						{InputColumnID: "status_id", OutputColumnID: "status_one_id", Policy: recipe.ConstructionRowValueOne},
+					},
+					Outputs: []recipe.StageColumn{
+						{ID: "status_key_id", Name: "status_key"}, {ID: "rows_id", Name: "rows"},
+						{ID: "tags_all_id", Name: "tags_all"}, {ID: "status_one_id", Name: "status_one"},
+					},
+				},
+				filterOne,
+			},
+		},
+	})
+	rendered := sql16Render(t, plan)
+	sql := rendered.SQL
+	alias := func(marker string) string {
+		match := regexp.MustCompile(regexp.QuoteMeta(marker) + ` AS "(c\d+)"`).FindStringSubmatch(sql)
+		if match == nil {
+			t.Fatalf("%s never materialized into a stage column:\n%s", marker, sql)
+		}
+		return match[1]
+	}
+	allAlias := alias("__loom_g1_rv0")
+	oneAlias := alias("__loom_g1_rv1")
+	for _, fragment := range []string{
+		"to_jsonb(COALESCE(ARRAY_AGG(DISTINCT", // the ALL policy emitter (jsonb)
+		"(CASE WHEN COUNT(DISTINCT",            // the ONE policy at-most-one guard
+		"THEN MIN(",                            // the ONE policy scalar collapse
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("the group region lost the row-value policy fragment %q:\n%s", fragment, sql)
+		}
+	}
+	// The downstream stage reads each fact through its OWN storage class:
+	// the ALL column through a document path, the ONE column bare.
+	if !strings.Contains(sql, `s."`+allAlias+`" #> $`) {
+		t.Fatalf("the ALL row value fact lost its jsonb downstream read:\n%s", sql)
+	}
+	if strings.Contains(sql, `s."`+oneAlias+`" #> `) {
+		t.Fatalf("the ONE row value fact was marked jsonb (the 42883 class):\n%s", sql)
+	}
+	if !strings.Contains(sql, `s."`+oneAlias+`" AS "`) {
+		t.Fatalf("the ONE row value fact was not bare-passthrough:\n%s", sql)
+	}
+	if !strings.Contains(sql, `WHERE s."`+oneAlias+`" IS DISTINCT FROM $`) ||
+		strings.Contains(sql, `"`+oneAlias+`" IS DISTINCT FROM (`) {
+		t.Fatalf("the downstream filter did not compare the ONE column as a scalar:\n%s", sql)
+	}
+	door, err := renderStageSequencePhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
+	if err != nil {
+		t.Fatalf("direct door: %v", err)
+	}
+	if door.SQL != sql {
+		t.Fatalf("door SQL drifted from the entry render")
+	}
+}
+
+func TestSQL16SETSliceSilentDropCounterfactual(t *testing.T) {
+	// The slice-column-shaped silent-drop probe (coordinator order
+	// 2026-11-11): the registered child-set arm is the ONLY landing for a
+	// SET-sourced slice column — TestSQL16SETSliceSourceColumn pins the
+	// survival render, this cell pins the complement. A slice whose source
+	// variable the source region never registered as a child set must die
+	// TYPED at every door (the scope gate the door runs speaks first, the
+	// registered convention of the ir-gate battery cells; behind it the
+	// materializer's composite refusal stands), never render the row minus
+	// the column (the L-19.4 silent-drop law in its probe form).
+	plan, err := compileWithRegisteredSurfacePolicy(t, sql16SETCompositionBundle())
+	if err != nil {
+		t.Fatalf("production compile: %v", err)
+	}
+	last := len(plan.Operations) - 1
+	mutated := false
+	for i := range plan.Operations[last].Return.Projections {
+		projection := &plan.Operations[last].Return.Projections[i]
+		if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalSliceExpression &&
+			projection.Expression.Slice != nil {
+			projection.Expression.Slice.Source.Variable = "__loom_unregistered_set_var"
+			mutated = true
+		}
+	}
+	if !mutated {
+		t.Fatal("the bundle carries no slice projection to probe")
+	}
+	sql16RequireRefusal(t, plan, "is out of scope")
 }
