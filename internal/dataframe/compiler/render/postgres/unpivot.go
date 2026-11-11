@@ -582,6 +582,12 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 				return fmt.Errorf("unpivot input %q: %w", projection.projection.Name, err)
 			}
 			expression = presence
+		case extractionObject, extractionSlice:
+			// pg-sql-11 contract receipt: the melt input stays the spine's
+			// scalar/selector projection contract; composites are the read
+			// spine's RETURN surface (objects.go) and never an melt input.
+			return fmt.Errorf("%w: unpivot input %q uses a %s expression; melt inputs are the spine's scalar/selector projections, composites belong to the read spine registration (objects.go)",
+				ErrUnsupportedPostgresPlan, projection.projection.Name, string(projection.projection.Expression.Kind))
 		}
 		inputExprs[projection.projection.Name] = expression
 	}
