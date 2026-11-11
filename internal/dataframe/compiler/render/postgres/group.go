@@ -78,7 +78,13 @@ package postgres
 //     Infinity/n -> null rides as NULL/n -> NULL; the denominator counts
 //     beyond-bound members like AQL's LENGTH) — never a raising numeric
 //     divide: the quotient cannot overflow (|sum| < DBL_MAX, count >= 1)
-//     and PG18 flushes an underflowing double quotient to 0. MIN/MAX/COUNT_DISTINCT and the
+//     and PG18 flushes an underflowing double quotient to 0.
+//     Gray-cancellation registration (beyond-cap members, |member| >
+//     1e400, cancelling back into the double band): NOT parity — the
+//     AQL-side truth is renderer-source-derived (no live Arango harness
+//     exists in this environment).
+//     Exact-numeric accumulation cancellation: PG reads 0 where IEEE-derived AQL reads NaN; registered divergence D-13h per coordinator ruling 2026-11-11; re-measure if live Arango acceptance lands.
+//     MIN/MAX/COUNT_DISTINCT and the
 //     row-value sets compute in the numeric/text/bool domain where jsonb
 //     preserves decimal text; oracle agreement with Arango's double-domain
 //     compare is claimed for double-exactly-representable fixture values
@@ -1143,8 +1149,9 @@ func (r *planRenderer) groupAggregateExpression(aggregate ir.PhysicalStageGroupA
 // members (JSON numbers AQL's own double storage cannot hold) read the
 // registered NULL where IEEE's Infinity speaks, and cancellation of
 // beyond-cap members back into the double band is the registered gray
-// arm (the calls.go F-8 precedent: every clamped pair takes a
-// registered arm; IEEE's Infinity reading agrees where it speaks).
+// arm D-13h (the calls.go F-8 precedent: every clamped pair takes a
+// registered arm; IEEE's Infinity reading agrees where it speaks; the
+// header carries the verbatim registered-divergence attribution).
 // callDoubleOperand's CAST sits inside the abs < overflow-bound band,
 // so no arm of the rendered expression can raise.
 func groupBoundedDoubleSum(column *groupColumn, kind string) string {
