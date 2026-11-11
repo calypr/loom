@@ -258,15 +258,12 @@ type closedRow struct{}
 
 func (closedRow) Scan(dest ...any) error { return ErrRuntimeClosed }
 
-// MigrateSchema creates the assigned source schema when missing and applies
-// every owned source-series migration to it, idempotently, over the
-// runtime's own pool. The generation-load bootstrap calls this while its
-// own bootstrap stage is measured; the SetupMigrate policy covers callers
-// that want setup folded into the open.
 // MigrateDatasetReleaseSchema applies the dataset_release series' owned
 // migrations to its assigned schema over the runtime pool, idempotently and
 // advisory-locked — the manifest lane's counterpart to MigrateSchema for
-// callers that own bootstrap explicitly.
+// callers that own bootstrap explicitly. It never creates a schema: an
+// absent assigned schema is a named refusal, and schema lifecycle stays
+// with the caller.
 func (r *Runtime) MigrateDatasetReleaseSchema(ctx context.Context) (MigrateResult, error) {
 	if r.isClosed() {
 		return MigrateResult{}, ErrRuntimeClosed
@@ -277,6 +274,14 @@ func (r *Runtime) MigrateDatasetReleaseSchema(ctx context.Context) (MigrateResul
 	return datasetstore.MigrateSchema(ctx, r.client, r.datasetSchema)
 }
 
+// MigrateSchema applies every owned source-series migration to the assigned
+// source schema over the runtime's own pool, idempotently and under an
+// advisory lock. It never creates a schema: when the assigned schema is
+// absent the migration runner refuses, and the caller owns schema lifecycle
+// (the live Open witness pins exactly that refusal under SetupMigrate). The
+// generation-load bootstrap calls this while its own bootstrap stage is
+// measured; the SetupMigrate policy covers callers that want setup folded
+// into the open.
 func (r *Runtime) MigrateSchema(ctx context.Context) (MigrateResult, error) {
 	if r.isClosed() {
 		return MigrateResult{}, ErrRuntimeClosed

@@ -51,3 +51,7 @@ META/
 /verification/builder-interactions/report.md
 /verification/builder-interactions/http-500-audit.json
 /docs/verification/playwright/source-conversion-manifest.md
+
+# Root-level compiled CLI output: go build ./cmd/... drops binaries in the
+# repository root; disposable build output never enters Git.
+/loom-data
