@@ -555,6 +555,19 @@ func (r *planRenderer) renderStageRelatedRoute(
 				ErrUnsupportedPostgresPlan, hopIndex, string(operation.Kind))
 		}
 		traversal := *operation.Traversal
+		// The endpoint-lookup strategy is a planner label: PostgreSQL
+		// renders the registered native typed-identity join for it, exactly
+		// as the graph spine normalizes (graph.go:340-349 payload proof +
+		// graph20NativeStrategyTraversal). The payload the AQL endpoint arm
+		// would read must be complete first, so a hand-assembled
+		// truncation fails closed instead of silently rendering native.
+		if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
+			if strings.TrimSpace(traversal.EndpointField) == "" || strings.TrimSpace(traversal.EndpointJoinField) == "" {
+				return stageRelatedRoute{}, fmt.Errorf("%w: related route hop %d endpoint-lookup traversal payload is incomplete (the planner always names EndpointField and EndpointJoinField, lower/traversal.go:143-147)",
+					ErrUnsupportedPostgresPlan, hopIndex)
+			}
+			traversal.Strategy = ir.PhysicalTraversalNative
+		}
 		if traversal.SourceVariable != currentVar {
 			return stageRelatedRoute{}, fmt.Errorf("%w: related route hop %d must anchor on %q, got source %q",
 				ErrUnsupportedPostgresPlan, hopIndex, currentVar, traversal.SourceVariable)
