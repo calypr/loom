@@ -80,20 +80,22 @@ type PostgreSQLConfig struct {
 	MaxOpenConns    int           `yaml:"max_open_conns"`
 	MaxIdleConns    int           `yaml:"max_idle_conns"`
 	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime"`
-	// Schemas is the reserved declaration of schema ownership for each
-	// production migration series (see
-	// internal/backends/postgres/internal/store/migration_ownership.go). It is VALIDATED
-	// ONLY and not yet consumed: no production factory passes an assigned
-	// schema to MigrateSchema or to a store constructor -- the source
-	// series is migrated by the ingest CLI (ingest.PGSourceOptions.Schema)
-	// and the other five series have no production migrate call sites at
-	// all. To keep a deployment from believing a series is isolated in the
-	// named schema when it is not, ANY explicit entry is rejected at
-	// configuration time (fail closed) instead of being silently ignored.
-	// Entries become acceptable once a factory honors the map, at which
-	// point storepostgres.ValidateAssignment is the authoritative pre-pool
-	// gate (unknown series, unsafe identifiers, and series whose pinned
-	// ledgers disagree may never share one schema).
+	// Schemas is the declaration of schema ownership for each production
+	// migration series (see
+	// internal/backends/postgres/internal/store/migration_ownership.go).
+	// Since pg-runtime-first-query-route it is CONSUMED for exactly two
+	// series: the PostgreSQL first query route passes the source and
+	// dataset_release assignments through the backend factory
+	// (internal/server runPostgreSQLFirstQueryRoute), where
+	// storepostgres.ValidateAssignment is the authoritative pre-pool gate.
+	// The other four series (explorer_control, publication_control,
+	// recipe_chains, recipe_exec_registries) still have no production
+	// migrate or store call sites, so any entry for them is rejected at
+	// configuration time (fail closed) instead of being silently ignored --
+	// a deployment can never believe an unconsumed series is isolated in
+	// the named schema. A missing map is valid here (no error), but the
+	// route's pre-dial consumability gate then keeps the deployment on the
+	// ErrPostgreSQLRuntimeNotWired refusal, never a partial composition.
 	Schemas map[string]string `yaml:"schemas"`
 }
 
@@ -500,19 +502,40 @@ func (p PostgreSQLConfig) validate() error {
 	if p.ConnMaxLifetime < 0 {
 		return errors.New("server.postgresql.conn_max_lifetime cannot be negative")
 	}
-	// Fail closed until a factory consumes this map: silently ignoring an
-	// explicit entry would let a deployment believe a series is hosted in
-	// the named schema while the assignment has no effect -- the source
-	// schema comes from the ingest CLI flag and the other five series have
-	// no production migrate call sites (review on PR #110, thread
-	// PRRT_kwDOS-yV5s61pLW-). Reject any explicit entry rather than
-	// comparing against schemas the factory uses, because this process
-	// cannot observe the ingest CLI's per-invocation schema. When a
-	// factory honors the map, restore the storepostgres.ValidateAssignment
-	// pre-pool gate (it stays authoritative and fully tested at the store
-	// layer in the meantime).
-	if len(p.Schemas) > 0 {
-		return fmt.Errorf("server.postgresql.schemas: schema ownership is not yet consumed by any production factory; remove the entries or wait until a factory honors them (the source series migrates via the ingest CLI; the other five series have no production migrate call sites)")
+	// The field comment anticipated exactly this moment, verbatim: "Entries
+	// become acceptable once a factory honors the map, at which point
+	// storepostgres.ValidateAssignment is the authoritative pre-pool gate
+	// (it stays authoritative and fully tested at the store layer in the
+	// meantime)." pg-runtime-first-query-route is that factory: the first
+	// query route (runPostgreSQLFirstQueryRoute in server.go) honors exactly
+	// the source and dataset_release assignments and passes them through the
+	// factory's Config.Validate, where storepostgres.ValidateAssignment
+	// remains the authoritative pre-dial ledger gate. The fail-closed law
+	// still governs every unconsumed series: silently ignoring an explicit
+	// entry would let a deployment believe a series is hosted in the named
+	// schema while the assignment has no effect -- explorer_control,
+	// publication_control, recipe_chains, and recipe_exec_registries still
+	// have no production migrate call sites (review on PR #110, thread
+	// PRRT_kwDOS-yV5s61pLW-), so any entry for them is rejected here rather
+	// than silently dropped next to a working route.
+	if len(p.Schemas) == 0 {
+		return nil
+	}
+	for series := range p.Schemas {
+		if series != "source" && series != "dataset_release" {
+			return fmt.Errorf("server.postgresql.schemas: series %q is not consumed by any production factory; remove the entry (the first query route honors exactly source and dataset_release)", series)
+		}
+	}
+	source, hasSource := p.Schemas["source"]
+	manifest, hasManifest := p.Schemas["dataset_release"]
+	if !hasSource || !hasManifest {
+		return errors.New("server.postgresql.schemas: the consumable assignment is exactly the source and dataset_release entries; supply both together")
+	}
+	if strings.TrimSpace(source) == "" || strings.TrimSpace(manifest) == "" {
+		return errors.New("server.postgresql.schemas: the source and dataset_release entries cannot be blank")
+	}
+	if source == manifest {
+		return errors.New("server.postgresql.schemas: source and dataset_release must name distinct schemas; their pinned migration ledgers disagree, and the shared-schema refusal stays authoritative at storepostgres.ValidateAssignment")
 	}
 	return nil
 }
