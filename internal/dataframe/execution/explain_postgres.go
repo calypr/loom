@@ -71,7 +71,7 @@ var (
 // PostgreSQLPlanJSONExecutor runs one parent-tagged EXPLAIN command against
 // PostgreSQL and returns the raw FORMAT JSON plan text. It is the transport
 // seam the server owns: driver calls, connection pooling, and parameter
-// binding belong to the adapter (internal/dataframe/postgres.(*Executor)
+// binding belong to the adapter (internal/backends/postgres/internal/rows.(*Executor)
 // satisfies the dispatch requirement). The raw JSON it returns is internal
 // to PostgreSQLExplainPlan and never escapes the sanitizer.
 type PostgreSQLPlanJSONExecutor func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error)

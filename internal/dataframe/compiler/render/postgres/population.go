@@ -43,7 +43,7 @@ package postgres
 // identifier for the four state relations comes exclusively from this file's
 // registry through PostgresPopulationRootBinding, whose only constructor is
 // NewPostgresPopulationRootBinding. Registry names and column sets are pinned
-// literally against internal/explorer/postgres/migrations/000008, 000009, and
+// literally against internal/backends/postgres/internal/explorer/migrations/000008, 000009, and
 // 000010 by TestMembershipAllowlistsMatchMigrationsLiterally; a migration
 // rename fails closed. Plan strings never become SQL text.
 //
@@ -112,7 +112,7 @@ import (
 
 // postgresMembershipTableKind names one state relation of the Explorer
 // control-plane schema. The set is closed and mirrors the owning migrations
-// in internal/explorer/postgres/migrations literally.
+// in internal/backends/postgres/internal/explorer/migrations literally.
 type postgresMembershipTableKind string
 
 const (

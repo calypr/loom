@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"os"
 	"reflect"
 	"strings"
@@ -37,14 +38,13 @@ import (
 
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/spec"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // pgstoreEdgeRow builds one stored Patient→Specimen has-* occurrence for
 // the live fixtures, authenticated on the Patient path (the anchored side).
-func pgstoreEdgeRow(project, generation, label, patient, specimen, path string) pgstore.EdgeOccurrenceRow {
-	return pgstore.EdgeOccurrenceRow{
+func pgstoreEdgeRow(project, generation, label, patient, specimen, path string) control.EdgeOccurrenceRow {
+	return control.EdgeOccurrenceRow{
 		Project: project, DatasetGeneration: generation, AuthResourcePath: "FHIR/Patient",
 		Label: label, SourceResourceType: "Patient", SourceLogicalID: patient,
 		TargetResourceType: "Specimen", TargetLogicalID: specimen,
@@ -1535,7 +1535,7 @@ func TestPG18InboundTraversalOptionalAndRequired(t *testing.T) {
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Observation", "o-2", "FHIR/Observation", nil)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Observation", "o-3", "FHIR/Observation", nil)
 	inbound := func(label, observation, specimen, path string) {
-		svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+		svc.insertEdge(t, control.EdgeOccurrenceRow{
 			Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Observation",
 			Label: label, SourceResourceType: "Observation", SourceLogicalID: observation,
 			TargetResourceType: "Specimen", TargetLogicalID: specimen, SourcePath: path, SourceOrdinal: 0,
