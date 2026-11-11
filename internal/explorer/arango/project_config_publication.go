@@ -57,6 +57,13 @@ type projectConfigOwnerPlan struct {
 // execution-backed revisions, then switches the release and all config heads
 // in one Arango transaction.
 func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.ProjectConfigPublishRequest) (dataset.ActiveRelease, error) {
+	if request.CatalogSnapshot != nil {
+		normalized, err := canonicalProjectConfigRevision(*request.CatalogSnapshot)
+		if err != nil {
+			return dataset.ActiveRelease{}, err
+		}
+		request.CatalogSnapshot = &normalized
+	}
 	project, executionID, err := validateProjectConfigRequest(request)
 	if err != nil {
 		return dataset.ActiveRelease{}, err
@@ -72,7 +79,7 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 	var active dataset.ActiveRelease
 	err = s.client.WithTransaction(ctx, store.TransactionCollections{
 		Read:  []string{publicationarango.BundleExecutionsCollection},
-		Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection},
+		Write: []string{datasetarango.LifecycleCollection, ExplorersCollection, RevisionsCollection, ViewBuilderSettingsCollection},
 	}, func(txCtx context.Context, tx store.RowQueryer) error {
 		execution, err := readProjectConfigExecution(txCtx, tx, executionID)
 		if err != nil {
@@ -86,6 +93,16 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 		if err != nil {
 			return err
 		}
+		var settings *viewBuilderSettingsRow
+		if request.CatalogSnapshot != nil {
+			if err := validateExpectedProjectConfigHeads(request, project, owners); err != nil {
+				return err
+			}
+			settings, err = readViewBuilderSettings(txCtx, tx, project)
+			if err != nil {
+				return err
+			}
+		}
 		plans, retired, revisionIDs, err := planProjectConfigOwners(request, project, owners)
 		if err != nil {
 			return err
@@ -93,12 +110,31 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 		for _, plan := range plans {
 			revisionIDs = append(revisionIDs, plan.publication.Revision.ID)
 		}
+		if request.CatalogSnapshot != nil {
+			revisionIDs = append(revisionIDs, request.CatalogSnapshot.ID)
+			if settings != nil {
+				revisionIDs = append(revisionIDs, settings.value.Catalogs[request.RecipeName])
+			}
+		}
 		revisions, err := readProjectConfigRevisions(txCtx, tx, uniqueStrings(revisionIDs))
 		if err != nil {
 			return err
 		}
 		if err := validateProjectConfigRevisionGuards(plans, retired, revisions); err != nil {
 			return err
+		}
+		if request.CatalogSnapshot != nil {
+			if priorID := settingsCatalogID(settings, request.RecipeName); priorID != "" {
+				if prior, ok := revisions[priorID]; !ok || prior.Project != project || prior.ExplorerID != "" || prior.Publication.ExecutionID == "" {
+					return fmt.Errorf("stored catalog anchor for recipe %q is invalid", request.RecipeName)
+				}
+			}
+			if err := validateCatalogSnapshot(request, execution); err != nil {
+				return err
+			}
+			if existing, ok := revisions[request.CatalogSnapshot.ID]; ok && !sameProjectConfigRevision(existing, *request.CatalogSnapshot) {
+				return fmt.Errorf("catalog snapshot %q conflicts with immutable content: %w", request.CatalogSnapshot.ID, explorer.ErrImmutableRevision)
+			}
 		}
 
 		// All owner, prior-revision, immutable-key, and execution guards happen
@@ -150,22 +186,33 @@ func (s *Store) PublishProjectConfigs(ctx context.Context, request explorer.Proj
 				return err
 			}
 		}
-
-		for _, owner := range retired {
-			if owner.value.ActiveRevisionID == "" {
-				continue
-			}
-			if err := supersedeProjectConfigRevision(txCtx, tx, owner.value.ActiveRevisionID); err != nil {
+		if request.CatalogSnapshot != nil {
+			if err := insertProjectConfigRevision(txCtx, tx, *request.CatalogSnapshot, revisions[request.CatalogSnapshot.ID]); err != nil {
 				return err
 			}
-			if err := retireProjectConfigOwner(txCtx, tx, project, request.RecipeName, owner, time.Now().UTC()); err != nil {
-				return err
+			updatedSettings := settingsAfterCatalogPublish(settings, project, request.RecipeName, request.CatalogSnapshot.ID)
+			if updatedSettings.Version != settingsVersion(settings) {
+				if err := writeViewBuilderSettings(txCtx, tx, settings, updatedSettings); err != nil {
+					return err
+				}
+			}
+		} else {
+			for _, owner := range retired {
+				if owner.value.ActiveRevisionID == "" {
+					continue
+				}
+				if err := supersedeProjectConfigRevision(txCtx, tx, owner.value.ActiveRevisionID); err != nil {
+					return err
+				}
+				if err := retireProjectConfigOwner(txCtx, tx, project, request.RecipeName, owner, time.Now().UTC()); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs for %s/%s: %w", project, request.Release.Generation, err)
+		return dataset.ActiveRelease{}, fmt.Errorf("publish project configs for %s/%s: %w", project, request.Release.Generation, normalizeViewBuilderConflict(err))
 	}
 	return active, nil
 }
@@ -189,6 +236,21 @@ func canonicalProjectConfigPublications(configs []explorer.ProjectConfigPublicat
 			return nil, fmt.Errorf("normalize project config revision %q: %w", revision.ID, err)
 		}
 		canonical[index].Revision = normalized
+	}
+	return canonical, nil
+}
+
+func canonicalProjectConfigRevision(revision explorer.Revision) (explorer.Revision, error) {
+	if revision.ID == "" {
+		return explorer.Revision{}, fmt.Errorf("catalog snapshot revision has no ID")
+	}
+	doc, err := document(revision, revision.ID)
+	if err != nil {
+		return explorer.Revision{}, fmt.Errorf("encode catalog snapshot revision %q: %w", revision.ID, err)
+	}
+	canonical, err := decode[explorer.Revision](doc)
+	if err != nil {
+		return explorer.Revision{}, fmt.Errorf("normalize catalog snapshot revision %q: %w", revision.ID, err)
 	}
 	return canonical, nil
 }
@@ -311,6 +373,11 @@ func validateProjectConfigExecution(request explorer.ProjectConfigPublishRequest
 			return fmt.Errorf("project config %q revision references a different execution", config.Definition.ID)
 		}
 	}
+	if request.CatalogSnapshot != nil {
+		if err := validateCatalogSnapshot(request, execution); err != nil {
+			return err
+		}
+	}
 	for _, binding := range request.Release.Publications {
 		if binding.Selector.Recipe == request.RecipeName && binding.Generation == execution.DatasetGeneration &&
 			(binding.ExecutionID != execution.ID || binding.Stale) {
@@ -320,7 +387,121 @@ func validateProjectConfigExecution(request explorer.ProjectConfigPublishRequest
 	return nil
 }
 
+func validateCatalogSnapshot(request explorer.ProjectConfigPublishRequest, execution publicationdata.BundleExecution) error {
+	snapshot := request.CatalogSnapshot
+	if snapshot == nil {
+		return nil
+	}
+	if snapshot.ID == "" || !strings.HasPrefix(snapshot.ID, "catalog_") || snapshot.Project != projectid.Legacy(request.Release.Project) || snapshot.ExplorerID != "" {
+		return fmt.Errorf("catalog snapshot identity is invalid")
+	}
+	if snapshot.Status != explorer.RevisionReady || snapshot.SourceGeneration != execution.DatasetGeneration ||
+		snapshot.Publication.ExecutionID != execution.ID || snapshot.Publication.Generation != execution.DatasetGeneration ||
+		snapshot.Recipe.Name != execution.Name || snapshot.RecipeDigest != execution.RecipeDigest ||
+		snapshot.Dataset.SchemaDigest != execution.SchemaDigest || snapshot.Recipe.TranslationVersion != execution.TranslationVersion {
+		return fmt.Errorf("catalog snapshot does not match the published recipe execution")
+	}
+	if len(snapshot.Config) != 0 || len(snapshot.AuthoringBundle) != 0 || snapshot.IntentDigest != "" ||
+		len(snapshot.PublicOutputContract) == 0 || len(snapshot.EmittedColumns) == 0 || len(snapshot.Materializations) == 0 || len(snapshot.Dataset.Outputs) == 0 {
+		return fmt.Errorf("catalog snapshot is incomplete or contains view-owned content")
+	}
+	return nil
+}
+
+func validateExpectedProjectConfigHeads(request explorer.ProjectConfigPublishRequest, project string, owners map[string]projectConfigOwner) error {
+	if request.ExpectedConfigRevisionIDs == nil {
+		return fmt.Errorf("source publication is missing expected project config heads: %w", explorer.ErrDraftConflict)
+	}
+	candidateRevisionIDs := make(map[string]string, len(request.Configs))
+	for _, publication := range request.Configs {
+		candidateRevisionIDs[publication.Definition.ID] = publication.Revision.ID
+	}
+	managedIDs := make(map[string]struct{})
+	for id, owner := range owners {
+		if owner.value.ProjectConfig == nil || owner.value.ProjectConfig.RecipeRef.Name != request.RecipeName {
+			continue
+		}
+		expected, exists := request.ExpectedConfigRevisionIDs[id]
+		if !exists || (expected != owner.value.ActiveRevisionID && candidateRevisionIDs[id] != owner.value.ActiveRevisionID) {
+			return fmt.Errorf("project config %q changed during source publication: %w", id, explorer.ErrDraftConflict)
+		}
+		if err := validateProjectConfigOwner(owner.value, project, id, request.RecipeName); err != nil {
+			return err
+		}
+		managedIDs[id] = struct{}{}
+	}
+	configIDs := make(map[string]struct{}, len(request.Configs))
+	for _, publication := range request.Configs {
+		id := publication.Definition.ID
+		if _, duplicate := configIDs[id]; duplicate {
+			return fmt.Errorf("duplicate project config %q in source publication", id)
+		}
+		configIDs[id] = struct{}{}
+		if _, exists := request.ExpectedConfigRevisionIDs[id]; !exists {
+			return fmt.Errorf("project config %q has no expected revision head: %w", id, explorer.ErrDraftConflict)
+		}
+		if owner, exists := owners[id]; exists {
+			expected := request.ExpectedConfigRevisionIDs[id]
+			if owner.value.ProjectConfig == nil || owner.value.ProjectConfig.RecipeRef.Name != request.RecipeName ||
+				(expected != owner.value.ActiveRevisionID && publication.Revision.ID != owner.value.ActiveRevisionID) {
+				return fmt.Errorf("project config %q owner changed during source publication: %w", id, explorer.ErrDraftConflict)
+			}
+		} else if request.ExpectedConfigRevisionIDs[id] != "" {
+			return fmt.Errorf("project config %q disappeared during source publication: %w", id, explorer.ErrDraftConflict)
+		}
+	}
+	if len(configIDs) != len(request.ExpectedConfigRevisionIDs) {
+		return fmt.Errorf("source publication project config set changed: %w", explorer.ErrDraftConflict)
+	}
+	for id := range managedIDs {
+		if _, found := configIDs[id]; !found {
+			return fmt.Errorf("project config %q was omitted from source publication: %w", id, explorer.ErrDraftConflict)
+		}
+	}
+	for id := range request.ExpectedConfigRevisionIDs {
+		if _, found := configIDs[id]; !found {
+			return fmt.Errorf("expected project config %q was omitted from source publication: %w", id, explorer.ErrDraftConflict)
+		}
+	}
+	return nil
+}
+
+func settingsCatalogID(settings *viewBuilderSettingsRow, recipeName string) string {
+	if settings == nil {
+		return ""
+	}
+	return settings.value.Catalogs[recipeName]
+}
+
+func settingsVersion(settings *viewBuilderSettingsRow) int64 {
+	if settings == nil {
+		return 0
+	}
+	return settings.value.Version
+}
+
+func settingsAfterCatalogPublish(current *viewBuilderSettingsRow, project, recipeName, revisionID string) explorer.ViewBuilderSettings {
+	settings := emptyViewBuilderSettings(project)
+	if current != nil {
+		settings = cloneViewBuilderSettings(current.value)
+	}
+	if settings.Catalogs == nil {
+		settings.Catalogs = map[string]string{}
+	}
+	if settings.Catalogs[recipeName] != revisionID {
+		settings.Catalogs[recipeName] = revisionID
+		settings.Version++
+		if settings.Version == 0 {
+			settings.Version = 1
+		}
+	}
+	return settings
+}
+
 func expectedProjectConfigExecutionID(request explorer.ProjectConfigPublishRequest) string {
+	if request.CatalogSnapshot != nil {
+		return request.CatalogSnapshot.Publication.ExecutionID
+	}
 	if len(request.Configs) > 0 {
 		return request.Configs[0].Revision.Publication.ExecutionID
 	}

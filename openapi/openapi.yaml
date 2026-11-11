@@ -1618,6 +1618,126 @@ paths:
         '422': {$ref: '#/components/responses/LegacyUnprocessable'}
         '500': {$ref: '#/components/responses/LegacyInternalError'}
         '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    get:
+      operationId: getProjectViewBuilder
+      summary: Read project views and exact published dataframe metadata.
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder/adopt:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    post:
+      operationId: adoptProjectViewBuilder
+      summary: Attach existing publication metadata without reloading data.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder/defaults:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+    put:
+      operationId: saveProjectViewDefaults
+      summary: Choose the default saved view and dataframe.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RawJSON'}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+  /api/v1/projects/{project}/view-builder/configs/{explorerId}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - $ref: '#/components/parameters/ExplorerId'
+    put:
+      operationId: saveProjectViewConfig
+      summary: Save presentation against an existing published dataframe.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RawJSON'}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
+    delete:
+      operationId: deleteProjectViewConfig
+      summary: Delete a non-default saved view while retaining publication history.
+      parameters:
+        - $ref: '#/components/parameters/AuthResourcePath'
+        - name: expectedRevisionId
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+      responses:
+        '200':
+          description: Project-owned view state and published dataframe catalog.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RawJSON'}
+        '400': {$ref: '#/components/responses/LegacyBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/LegacyForbidden'}
+        '404': {$ref: '#/components/responses/LegacyNotFound'}
+        '409': {$ref: '#/components/responses/LegacyConflict'}
+        '422': {$ref: '#/components/responses/LegacyUnprocessable'}
+        '500': {$ref: '#/components/responses/LegacyInternalError'}
+        '503': {$ref: '#/components/responses/LegacyUnavailable'}
 components:
   parameters:
     Project:

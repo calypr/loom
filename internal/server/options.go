@@ -22,7 +22,6 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	ProjectConfigs                string                      `yaml:"project_configs"`
 	Listen                        string                      `yaml:"listen"`
 	URL                           string                      `yaml:"url"`
 	Database                      string                      `yaml:"database"`

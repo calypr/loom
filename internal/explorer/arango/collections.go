@@ -15,6 +15,7 @@ const (
 	ExplicitGroupMembershipsCollection = "loom_explorer_explicit_group_memberships"
 	InterpretationLibrariesCollection  = "loom_explorer_interpretation_libraries"
 	InterpretationRevisionsCollection  = "loom_explorer_interpretation_revisions"
+	ViewBuilderSettingsCollection      = "loom_explorer_view_builder_settings"
 	// LegacyRepositoryConfigsCollection is read only. It remains in bootstrap
 	// for one compatibility window so startup can migrate old default-owner
 	// pointers into loom_explorers; no current workflow writes it.
@@ -59,6 +60,7 @@ func CollectionSpecs() []store.CollectionSpec {
 		}},
 		{Name: InterpretationLibrariesCollection, Indexes: [][]string{{"project", "id"}, {"project", "headRevisionId"}}},
 		{Name: InterpretationRevisionsCollection, Indexes: [][]string{{"project", "id"}, {"project", "libraryId", "createdAt"}, {"project", "contentDigest"}}},
+		{Name: ViewBuilderSettingsCollection, Indexes: [][]string{{"project"}}},
 		{Name: LegacyRepositoryConfigsCollection, Indexes: [][]string{{"project"}}},
 		CapabilitySnapshotCollectionSpec(),
 		TableShapeCapabilitiesCollectionSpec(),

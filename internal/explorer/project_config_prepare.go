@@ -18,21 +18,38 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
+type projectConfigSnapshot struct {
+	bundle               recipe.Bundle
+	resolvedSchemaDigest string
+	emitted              []EmittedColumn
+	contractJSON         json.RawMessage
+	publicByOutput       map[string]map[string]EmittedColumn
+	physicalByOutput     map[string][]publication.PhysicalColumn
+	availableByOutput    map[string]map[string]EmittedColumn
+}
+
 // PrepareProjectConfigs binds the definitions for one recipe to an already
 // published execution. It never materializes a recipe and never infers public
 // schema facts from the publication's physical columns.
-func PrepareProjectConfigs(
-	configs []ProjectConfig,
-	resolved execution.Resolved,
-	executionValue publication.BundleExecution,
-	sourceCommit string,
-) ([]ProjectConfigPublication, error) {
-	if err := validatePreparedExecution(resolved, executionValue, sourceCommit); err != nil {
+func PrepareProjectConfigs(configs []ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]ProjectConfigPublication, error) {
+	return prepareProjectConfigs(configs, resolved, executionValue, sourceCommit, false)
+}
+
+// PrepareProjectConfigsForPublication preserves project-owned views when the
+// new schema no longer exposes a saved binding. Affected views carry a
+// diagnostic and are omitted from runtime until the project repairs them.
+func PrepareProjectConfigsForPublication(configs []ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) ([]ProjectConfigPublication, error) {
+	return prepareProjectConfigs(configs, resolved, executionValue, sourceCommit, true)
+}
+
+func prepareProjectConfigs(configs []ProjectConfig, resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string, tolerateUnavailableBindings bool) ([]ProjectConfigPublication, error) {
+	snapshot, err := prepareProjectConfigSnapshot(resolved, executionValue, sourceCommit)
+	if err != nil {
 		return nil, err
 	}
 	matching := make([]ProjectConfig, 0, len(configs))
 	for _, config := range configs {
-		if config.RecipeRef.Name == resolved.Bundle.Name {
+		if config.RecipeRef.Name == snapshot.bundle.Name {
 			matching = append(matching, config)
 		}
 	}
@@ -42,28 +59,6 @@ func PrepareProjectConfigs(
 	if err := validateProjectConfigs(matching); err != nil {
 		return nil, err
 	}
-
-	bundle, err := resolved.Bundle.CanonicalBundle()
-	if err != nil {
-		return nil, fmt.Errorf("canonicalize resolved recipe: %w", err)
-	}
-	retained, err := validateFinalPublicationSchema(resolved, executionValue)
-	if err != nil {
-		return nil, err
-	}
-	emitted, contracts, publicByOutput, physicalByOutput, err := projectConfigOutputMetadata(bundle, resolved.Compiled.Outputs, executionValue, retained)
-	if err != nil {
-		return nil, err
-	}
-	if err := contracts.ValidateAgainst(bundle, emitted); err != nil {
-		return nil, fmt.Errorf("validate compiler-derived public output contract: %w", err)
-	}
-	contractJSON, err := json.Marshal(contracts)
-	if err != nil {
-		return nil, fmt.Errorf("encode compiler-derived public output contract: %w", err)
-	}
-
-	availableByOutput := projectConfigAvailableColumns(publicByOutput, retained)
 	publications := make([]ProjectConfigPublication, 0, len(matching))
 	for index, original := range matching {
 		definition, err := cloneProjectConfigDefinition(original)
@@ -74,11 +69,13 @@ func PrepareProjectConfigs(
 		if err != nil {
 			return nil, fmt.Errorf("configs[%d] %q: %w", index, definition.ID, err)
 		}
-		if err := validateProjectConfigBindings(definition, availableByOutput); err != nil {
+		diagnostics := []Diagnostic{}
+		if tolerateUnavailableBindings {
+			diagnostics = projectConfigBindingDiagnostics(definition, snapshot.availableByOutput)
+		} else if err := validateProjectConfigBindings(definition, snapshot.availableByOutput); err != nil {
 			return nil, fmt.Errorf("configs[%d] %q: %w", index, definition.ID, err)
 		}
-
-		configJSON, err := projectConfigPresentationJSON(definition, executionValue.Project, emitted)
+		configJSON, err := projectConfigPresentationJSON(definition, executionValue.Project, snapshot.emitted)
 		if err != nil {
 			return nil, fmt.Errorf("encode config %q presentation: %w", definition.ID, err)
 		}
@@ -86,34 +83,68 @@ func PrepareProjectConfigs(
 		if err != nil {
 			return nil, fmt.Errorf("identify config %q revision: %w", definition.ID, err)
 		}
-		createdAt := executionValue.CreatedAt.UTC()
-		readyAt := executionValue.PublishedAt.UTC()
-		revision := Revision{
-			ID: revisionID, Project: executionValue.Project, ExplorerID: definition.ID,
-			Config: configJSON, IntentDigest: definitionDigest,
-			PublicOutputContract: append(json.RawMessage(nil), contractJSON...),
-			Recipe:               bundle, RecipeDigest: resolved.StoredRecipeDigest,
-			ResolvedSchemaDigest: resolved.ResolvedSchemaDigest, SourceGeneration: executionValue.DatasetGeneration,
-			Materializations: projectConfigMaterializations(bundle, executionValue, physicalByOutput),
-			EmittedColumns:   cloneProjectConfigEmissions(emitted),
-			Dataset: DatasetMetadata{
-				Generation: executionValue.DatasetGeneration, SchemaDigest: executionValue.SchemaDigest,
-				Outputs: projectConfigDatasetOutputs(bundle, executionValue, physicalByOutput),
-			},
-			QualityReports: publication.CloneQualityReports(executionValue.QualityReports),
-			Publication: PublicationMetadata{
-				State: string(RevisionReady), Generation: executionValue.DatasetGeneration,
-				ExecutionID: executionValue.ID, RevisionID: revisionID, UpdatedAt: readyAt,
-			},
-			Diagnostics: []Diagnostic{}, Status: RevisionReady, CreatedAt: createdAt,
-			ReadyAt: &readyAt,
-		}
+		revision := snapshot.configRevision(definition, definitionDigest, configJSON, revisionID, executionValue, diagnostics)
 		if _, err := BuildViewerProjection(&revision); err != nil {
 			return nil, fmt.Errorf("validate prepared config %q revision: %w", definition.ID, err)
 		}
 		publications = append(publications, ProjectConfigPublication{Definition: definition, Revision: revision})
 	}
 	return publications, nil
+}
+
+func prepareProjectConfigSnapshot(resolved execution.Resolved, executionValue publication.BundleExecution, sourceCommit string) (projectConfigSnapshot, error) {
+	if err := validatePreparedExecution(resolved, executionValue, sourceCommit); err != nil {
+		return projectConfigSnapshot{}, err
+	}
+	bundle, err := resolved.Bundle.CanonicalBundle()
+	if err != nil {
+		return projectConfigSnapshot{}, fmt.Errorf("canonicalize resolved recipe: %w", err)
+	}
+	retained, err := validateFinalPublicationSchema(resolved, executionValue)
+	if err != nil {
+		return projectConfigSnapshot{}, err
+	}
+	emitted, contracts, publicByOutput, physicalByOutput, err := projectConfigOutputMetadata(bundle, resolved.Compiled.Outputs, executionValue, retained)
+	if err != nil {
+		return projectConfigSnapshot{}, err
+	}
+	if err := contracts.ValidateAgainst(bundle, emitted); err != nil {
+		return projectConfigSnapshot{}, fmt.Errorf("validate compiler-derived public output contract: %w", err)
+	}
+	contractJSON, err := json.Marshal(contracts)
+	if err != nil {
+		return projectConfigSnapshot{}, fmt.Errorf("encode compiler-derived public output contract: %w", err)
+	}
+	return projectConfigSnapshot{
+		bundle: bundle, resolvedSchemaDigest: resolved.ResolvedSchemaDigest,
+		emitted: emitted, contractJSON: contractJSON,
+		publicByOutput: publicByOutput, physicalByOutput: physicalByOutput,
+		availableByOutput: projectConfigAvailableColumns(publicByOutput, retained),
+	}, nil
+}
+
+func (snapshot projectConfigSnapshot) configRevision(definition ProjectConfig, digest string, configJSON json.RawMessage, revisionID string, executionValue publication.BundleExecution, diagnostics []Diagnostic) Revision {
+	readyAt := executionValue.PublishedAt.UTC()
+	return Revision{
+		ID: revisionID, Project: executionValue.Project, ExplorerID: definition.ID,
+		Config: configJSON, IntentDigest: digest,
+		PublicOutputContract: append(json.RawMessage(nil), snapshot.contractJSON...),
+		Recipe:               snapshot.bundle, RecipeDigest: executionValue.RecipeDigest,
+		ResolvedSchemaDigest: snapshot.resolvedSchemaDigest, SourceGeneration: executionValue.DatasetGeneration,
+		Materializations: projectConfigMaterializations(snapshot.bundle, executionValue, snapshot.physicalByOutput),
+		EmittedColumns:   cloneProjectConfigEmissions(snapshot.emitted),
+		Dataset: DatasetMetadata{
+			Generation: executionValue.DatasetGeneration, SchemaDigest: executionValue.SchemaDigest,
+			Outputs: projectConfigDatasetOutputs(snapshot.bundle, executionValue, snapshot.physicalByOutput),
+		},
+		QualityReports: publication.CloneQualityReports(executionValue.QualityReports),
+		Publication: PublicationMetadata{
+			State: string(RevisionReady), Generation: executionValue.DatasetGeneration,
+			ExecutionID: executionValue.ID, RevisionID: revisionID, UpdatedAt: readyAt,
+		},
+		Diagnostics: append([]Diagnostic{}, diagnostics...), Status: RevisionReady,
+		CreatedAt: executionValue.CreatedAt.UTC(), ReadyAt: &readyAt,
+	}
 }
 
 func validatePreparedExecution(resolved execution.Resolved, published publication.BundleExecution, sourceCommit string) error {

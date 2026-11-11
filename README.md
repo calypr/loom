@@ -315,39 +315,32 @@ they are not supplied in the config file.
 reads and validates that recipe during startup; deployments can update it
 without rebuilding the server image.
 
-Set `server.project_configs` to a JSON catalog of named project views. Each
-view references a recipe by name and supplies presentation settings. Multiple
-views can share the same recipe execution and ClickHouse tables:
+Project views are saved in Loom for each project. A view chooses published
+output tables, tabs, columns, filters, and charts; it contains no recipe or
+loading instructions. Several views can use the same published tables.
+The first publication creates a simple table view from that project's actual
+schema. Later publications keep the project's saved views and default choices.
 
-```json
-{
-  "apiVersion": "loom.calypr.org/project-configs/v1",
-  "kind": "ProjectConfigs",
-  "configs": [
-    {
-      "id": "default",
-      "title": "Metadata",
-      "recipeRef": {"name": "metadata"},
-      "views": [{"id": "patients", "title": "Patients", "output": "Patient"}]
-    },
-    {
-      "id": "files",
-      "title": "Files",
-      "recipeRef": {"name": "metadata"},
-      "views": [{"id": "files", "title": "Files", "output": "DocumentReference"}]
-    }
-  ]
-}
-```
+The frontend's **View Builder** saves presentation changes immediately, without
+running Funnel, reloading files, or rebuilding ClickHouse tables. It also lets
+project writers choose the default view and opening table. The dataframe
+Builder, which edits recipes and rebuilds tables, is a separate feature.
 
-The server reads this catalog at startup. Source publication validates each
-config against the compiled recipe, then activates the data and all matching
-configs in one transaction. Existing Explorer list and detail endpoints serve
-the saved configs. Reading a config does not create it or materialize data.
-Config changes apply on the next source publication that runs materialization;
-a previously completed operation remains idempotent. Removing a definition
-retires that recipe's matching config at publication without deleting history.
-Interactive configs and configs for other recipes are preserved.
+The project API is under `/api/v1/projects/{project}/view-builder`:
+
+- `GET` reads saved views, defaults, and the exact published table catalog.
+- `PUT /configs/{id}` saves a view with its expected revision and catalog revision.
+- `DELETE /configs/{id}` deletes a non-default view with its expected revision.
+- `PUT /defaults` chooses a saved view and its qualified `recipe/output` table.
+- `POST /adopt` attaches existing published metadata for projects created before
+  project view settings existed. It does not reload or materialize data.
+
+Reads require project and publication-scope access; writes also require project
+write access. Stale saves return `409` instead of overwriting concurrent edits.
+If a new publication removes a saved column or filter, Loom retains the view
+and reports `VIEW_BINDING_UNAVAILABLE`. The affected tab stays unavailable until
+it is repaired, so a missing filter cannot silently broaden its results.
+Immutable publication metadata remains available after a view is deleted.
 
 ## Repository guide
 

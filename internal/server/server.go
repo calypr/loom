@@ -48,6 +48,7 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
+	"github.com/calypr/loom/internal/projectid"
 	arangostore "github.com/calypr/loom/internal/store/arango"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
@@ -469,6 +470,10 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
 		return fmt.Errorf("bootstrap Explorer store: %w", err)
 	}
+	explorerStore, err := explorerarango.New(lifecycleClient)
+	if err != nil {
+		return fmt.Errorf("create Explorer store: %w", err)
+	}
 	recipeRegistry, err := recipearango.New(lifecycleClient)
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
@@ -487,10 +492,6 @@ func run(ctx context.Context, serverConfig Config) error {
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
-	}
-	projectConfigs, err := loadProjectConfigs(serverConfig.Server, configuredRecipeName)
-	if err != nil {
-		return err
 	}
 	lifecycleStore, err := publicationarango.New(lifecycleClient)
 	if err != nil {
@@ -663,10 +664,6 @@ func run(ctx context.Context, serverConfig Config) error {
 	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
 		return releaseService.ValidateGeneration(ctx, project, generation)
 	}
-	explorerStore, err := explorerarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer store: %w", err)
-	}
 	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
 		return fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
 	}
@@ -767,11 +764,33 @@ func run(ctx context.Context, serverConfig Config) error {
 				if execution.State.Canonical() != publication.BundlePublished || execution.ReceiptID != operationID || execution.Project != project || execution.DatasetGeneration != generation {
 					return "", 0, fmt.Errorf("configured recipe did not publish the candidate generation")
 				}
+				catalogSnapshot, err := explorer.PrepareViewBuilderCatalogSnapshot(resolved, execution, commit)
+				if err != nil {
+					return "", 0, fmt.Errorf("prepare view builder catalog snapshot: %w", err)
+				}
+				settings, err := explorerStore.GetViewBuilderSettings(ctx, project)
+				if err != nil {
+					return "", 0, fmt.Errorf("load project view builder settings: %w", err)
+				}
+				catalogRevisionID, catalogAnchored := settings.Catalogs[configuredRecipeName]
+				if catalogAnchored && (strings.TrimSpace(catalogRevisionID) == "" || catalogRevisionID != strings.TrimSpace(catalogRevisionID)) {
+					return "", 0, fmt.Errorf("project view builder catalog anchor for recipe %q is invalid", configuredRecipeName)
+				}
+				owners, err := explorerStore.List(ctx, projectid.Legacy(project))
+				if err != nil {
+					return "", 0, fmt.Errorf("load project-owned Explorer views: %w", err)
+				}
+				definitions, expectedConfigRevisionIDs, err := projectConfigsForSourcePublication(
+					owners, configuredRecipeName, catalogAnchored, catalogSnapshot,
+				)
+				if err != nil {
+					return "", 0, fmt.Errorf("resolve project views for source publication: %w", err)
+				}
 				selectors := make([]publicationcontract.DataframeSelector, 0, len(execution.Outputs))
 				for _, output := range execution.Outputs {
 					selectors = append(selectors, execution.Selector(output.Name))
 				}
-				configs, err := explorer.PrepareProjectConfigs(projectConfigs.Configs, resolved, execution, commit)
+				configs, err := explorer.PrepareProjectConfigsForPublication(definitions, resolved, execution, commit)
 				if err != nil {
 					return "", 0, fmt.Errorf("prepare project configs: %w", err)
 				}
@@ -786,7 +805,8 @@ func run(ctx context.Context, serverConfig Config) error {
 				}
 				active, err := explorerStore.PublishProjectConfigs(ctx, explorer.ProjectConfigPublishRequest{
 					RecipeName: configuredRecipeName, Configs: configs, Release: release,
-					ExpectedReleaseRevision: expectedRevision,
+					ExpectedReleaseRevision: expectedRevision, ExpectedConfigRevisionIDs: expectedConfigRevisionIDs,
+					CatalogSnapshot: &catalogSnapshot,
 				})
 				if err != nil {
 					return "", 0, fmt.Errorf("activate project publication: %w", err)

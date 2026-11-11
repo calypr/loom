@@ -46,10 +46,12 @@ type ProjectConfigPublication struct {
 }
 
 type ProjectConfigPublishRequest struct {
-	RecipeName              string
-	Configs                 []ProjectConfigPublication
-	Release                 dataset.ProjectRelease
-	ExpectedReleaseRevision int64
+	RecipeName                string
+	Configs                   []ProjectConfigPublication
+	CatalogSnapshot           *Revision
+	ExpectedConfigRevisionIDs map[string]string
+	Release                   dataset.ProjectRelease
+	ExpectedReleaseRevision   int64
 }
 
 type ProjectConfigPublisher interface {

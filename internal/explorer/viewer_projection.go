@@ -175,7 +175,13 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	if !hasConfig || len(views) == 0 {
 		views = defaultProjectionViews(bundle)
 	}
+	unavailableViews := projectConfigUnavailableViewIDs(revision.Diagnostics)
 	for _, view := range views {
+		if _, unavailable := unavailableViews[view.ID]; unavailable {
+			// A stale fixed filter must fail closed with its whole view. Merely
+			// omitting that binding would broaden the displayed result set.
+			continue
+		}
 		if view.Output == "" {
 			continue
 		}
@@ -355,6 +361,20 @@ func BuildViewerProjection(revision *Revision) (*ExplorerRuntimeV1, error) {
 	}
 
 	return runtime, nil
+}
+
+func projectConfigUnavailableViewIDs(diagnostics []Diagnostic) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code != "VIEW_BINDING_UNAVAILABLE" || diagnostic.Details == nil {
+			continue
+		}
+		viewID, ok := diagnostic.Details["viewId"].(string)
+		if ok && viewID != "" {
+			ids[viewID] = struct{}{}
+		}
+	}
+	return ids
 }
 
 func decodeProjectionConfig(raw json.RawMessage) (ConfigV2, bool, error) {

@@ -3,8 +3,7 @@ package server
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
+	"reflect"
 	"testing"
 
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
@@ -16,34 +15,94 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-func TestLoadProjectConfigs(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "project-configs.json")
-	if err := os.WriteFile(path, []byte(`{"apiVersion":"loom.calypr.org/project-configs/v1","kind":"ProjectConfigs","configs":[{"id":"files","title":"Files","recipeRef":{"name":"metadata"},"views":[{"id":"files","title":"Files","output":"DocumentReference"}]}]}`), 0600); err != nil {
+func TestProjectConfigsForSourcePublicationSeedsActualOutputsOnce(t *testing.T) {
+	snapshot := explorer.Revision{Project: "project-a", Recipe: recipe.Bundle{
+		Name: "metadata-v1",
+		Outputs: []recipe.Output{
+			{Name: "Metadata"},
+			{Name: "Files"},
+		},
+	}}
+	configs, expected, err := projectConfigsForSourcePublication(nil, "metadata-v1", false, snapshot)
+	if err != nil {
 		t.Fatal(err)
 	}
-	config := ServerConfig{ProjectConfigs: path, ClickHouse: ClickHouseConfig{Enabled: true}}
-	got, err := loadProjectConfigs(config, "metadata")
-	if err != nil || len(got.Configs) != 1 {
-		t.Fatalf("catalog=%#v err=%v", got, err)
+	if len(configs) != 1 {
+		t.Fatalf("initial configs = %d, want one generic user config", len(configs))
 	}
-	for _, tc := range []struct {
-		name   string
-		config ServerConfig
-		recipe string
-	}{
-		{"disabled backend", ServerConfig{ProjectConfigs: path}, "metadata"},
-		{"no recipe", config, ""},
-		{"mismatched recipe", config, "other"},
-		{"missing file", ServerConfig{ProjectConfigs: path + "missing", ClickHouse: ClickHouseConfig{Enabled: true}}, "metadata"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if _, err := loadProjectConfigs(tc.config, tc.recipe); err == nil {
-				t.Fatal("expected startup rejection")
-			}
-		})
+	if len(configs[0].Views) != len(snapshot.Recipe.Outputs) {
+		t.Fatalf("initial tabs = %#v, want one for every compiled recipe output", configs[0].Views)
 	}
-	if _, err := loadProjectConfigs(ServerConfig{}, ""); err != nil {
+	for index, output := range snapshot.Recipe.Outputs {
+		view := configs[0].Views[index]
+		if view.Output != output.Name || view.ID != output.Name {
+			t.Fatalf("initial tab %d = %#v, want output %q", index, view, output.Name)
+		}
+	}
+	if got := expected[configs[0].ID]; got != "" {
+		t.Fatalf("initial config expected revision = %q, want absent", got)
+	}
+
+	// Once the recipe catalog anchor exists, absence of user configs means the
+	// user deleted them. A later source publication must not recreate one.
+	configs, expected, err = projectConfigsForSourcePublication(nil, "metadata-v1", true, snapshot)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(configs) != 0 || len(expected) != 0 {
+		t.Fatalf("anchored empty catalog reseeded configs=%#v expected=%#v", configs, expected)
+	}
+
+	// The starter remains a visible project config even if another interactive
+	// Explorer already uses the recipe name or the first suffix.
+	owners := []explorer.Explorer{
+		{Project: "project-a", ExplorerID: "metadata-v1"},
+		{Project: "project-a", ExplorerID: "metadata-v1-views"},
+	}
+	configs, expected, err = projectConfigsForSourcePublication(owners, "metadata-v1", false, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configs) != 1 || configs[0].ID != "metadata-v1-views-2" || expected[configs[0].ID] != "" {
+		t.Fatalf("initial config collided with another Explorer: configs=%#v expected=%#v", configs, expected)
+	}
+}
+
+func TestProjectConfigsForSourcePublicationPreservesStoredDefinitions(t *testing.T) {
+	saved := explorer.ProjectConfig{
+		ID: "my-view", Title: "My view", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "metadata-v1"},
+		SharedFilters: map[string][]explorer.SharedFilter{
+			"status": {{Output: "Metadata", Column: "status"}},
+		},
+		Views: []explorer.ConfigView{
+			{
+				ID: "metadata-tab", Title: "Chosen fields", Output: "Metadata",
+				Table:        explorer.ConfigTable{Columns: []explorer.ConfigColumn{{Column: "status", Label: "Current status", Visible: true, Pinned: true}}},
+				Filters:      []explorer.ConfigFilter{{Column: "status", Label: "Status filter"}},
+				Charts:       []explorer.ConfigChart{{Column: "status", Type: "pie", Title: "Status"}},
+				FixedFilters: map[string][]string{"status": {"active"}},
+			},
+			{ID: "files-tab", Title: "My files", Output: "Files"},
+		},
+	}
+	owners := []explorer.Explorer{
+		{Project: "project-a", ExplorerID: "my-view", ActiveRevisionID: "revision-7", ManagementMode: explorer.ManagementRepository, ProjectConfig: &saved},
+		{Project: "project-a", ExplorerID: "unrelated", ActiveRevisionID: "revision-3", ManagementMode: explorer.ManagementRepository,
+			ProjectConfig: &explorer.ProjectConfig{ID: "unrelated", Title: "Other", RecipeRef: explorer.ProjectConfigRecipeRef{Name: "other-recipe"}}},
+	}
+	snapshot := explorer.Revision{Project: "project-a", Recipe: recipe.Bundle{Name: "metadata-v1", Outputs: []recipe.Output{{Name: "Metadata"}, {Name: "Files"}}}}
+	configs, expected, err := projectConfigsForSourcePublication(owners, "metadata-v1", false, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configs) != 1 || !reflect.DeepEqual(configs[0], saved) {
+		t.Fatalf("source publication changed stored config: got %#v want %#v", configs, saved)
+	}
+	if got := expected["my-view"]; got != "revision-7" {
+		t.Fatalf("expected config revision = %q, want revision-7", got)
+	}
+	if _, exists := expected["unrelated"]; exists {
+		t.Fatalf("included another recipe's config head: %#v", expected)
 	}
 }
 
