@@ -633,7 +633,7 @@
     "internal/server/options.go": {
       "note": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
       "sha256": "7754040c10911d4d3437d094d59455704b910e96b19998847fe0e10e2460ae6d",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() at the rebased tip; hop onto feature/postgres-backend @ 15923e99 (post #135 arango-factory move, #137); file content after three-way run() dispatch merge; prior pin was stale base drift"
     },
     "internal/server/recipe_execution_status_twin_e2e_test.go": {
       "md5": "67bfaf5428239079451ccd37df659cbe",
@@ -648,7 +648,7 @@
     "internal/server/server.go": {
       "md5": "d99dcc0db26d81064a40011c515d96b0",
       "role": "r29: bundleStore.SetActiveReleaseReader(lifecycleStore) at production construction site",
-      "sha256": "a9846bb8828feae88d4ffaeb5d2a66cfea20a503a299c9e7f1897e4c0053c347",
+      "sha256": "d158ce26c9e1ddcdd3ef22181029ba718fdf588a790c165c34a0b9d277be926b",
       "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
     },
     "release_dangle_reconcile_e2e_test.go [arango pkg]": "F-B12 sanctioned-red artifact intact; 3rd reproduction f1ea7ac5 (/tmp/opencode/fb12-reconfirm.log), FAILED-ON-PURPOSE, authenticated residue 0",
@@ -1036,11 +1036,11 @@
     "internal/server/runtime.go": {
       "role": "pg-runtime-server-composition: full PG composition (composePostgreSQLFullRuntime, pgExplorerStore/pgExplorerReads/pgRecipeAuthorization/pgIngestRunner CLI-parity load->activate + catalog writers/pgGenerationActivator CAS, typed postgreSQLRuntimeUnavailable refusals, no Arango surface)",
       "sha256": "8b191a06092406a61d3a8566ed63ee3c286c8d8cfaee6f10650d396dc90efb66",
-      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (post-gofmt) (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
+      "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() at the rebased tip; hop onto feature/postgres-backend @ 15923e99; seam assertion retargeted to internal/backends/arango PublishedRegistry after arch-backend-07 adapter move; forbidden-import list now names the owned factory"
     },
     "internal/server/runtime_test.go": {
       "role": "pg-runtime-server-composition offline battery (ladder/sentinel cells, pre-dial dispatch, typed refusal posture, authorizer Arango-collection contrast, no-Arango-import source proof, dual-registry finder assertion, compose-no-deferred-cleanup AST witness, runRuntimeCloseSteps teardown semantics, activation outcome classification matrix)",
-      "sha256": "e7daf5bc6476fc9c21b6f3a442d65610cd423b428f916edc7a0c31756d01d32d",
+      "sha256": "d72f4a626a122180ae179463a97373a91e78e74c990477cef964bed491186814",
       "rederived": "SELF-RUN: live sha256 == scripts/lib/formal-tools.mjs digest() on the pg-runtime-server-composition working tree (post-gofmt) (branch ao/loom-experiment-170/runtime-composition, base feature/postgres-backend @ 28e32a41); re-pinned same-commit per amendment 2"
     },
     "internal/server/runtime_postgres_live_test.go": {
