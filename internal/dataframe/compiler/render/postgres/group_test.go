@@ -375,20 +375,20 @@ func TestGroupReducerTableRender(t *testing.T) {
 		`COUNT(DISTINCT `,
 		`MIN(`,
 		`MAX(`,
-		// SUM/MEAN are IEEE-faithful through EXACT numeric accumulation
-		// bounded back to double by the calls.go band helper (coordinator
-		// ruling 2026-11-11 Q1, corrected by verifier F-2: float8 SUM
-		// overflow raises 22003 — sum(1.7e308+1.7e308 — so accumulation
-		// moved to numeric with the F-8 clamp, and the old post-hoc
+		// SUM/MEAN run EXACT numeric accumulation through the group band
+		// cast on the calls.go band constants (coordinator ruling
+		// 2026-11-11 Q1, F-2 repair, F-6 final form: the overflow arm
+		// reads the registered 0 — oracle-attested parity, D-13h — so
+		// accumulation stays numeric-exact, and the old post-hoc
 		// non-finite gate is GONE; no 'Infinity' comparison may return).
 		`SUM((CASE WHEN `, // the F-8 member clamp inside SUM
 		` > '1e400'::numeric THEN '1e400'::numeric`,
-		`CASE WHEN abs(SUM((CASE WHEN `, // callDoubleOperand band over the exact SUM
-		`::double precision ELSE 0::double precision END ELSE NULL END)`,
-		// MEAN: the bounded DOUBLE sum divided by the pool count over the
-		// numeric read (beyond-bound members counted like AQL's LENGTH);
-		// the zero-value group reads NULL pre-division.
-		` = 0 THEN NULL ELSE (CASE WHEN abs(SUM((CASE WHEN `,
+		` IS NULL THEN NULL WHEN abs(SUM((CASE WHEN `,                                   // member-less group keeps NULL (arm-specific flip, not a coalesce)
+		`::double precision ELSE 0::double precision END ELSE 0::double precision END)`, // subnormal 0 + overflow-band 0 arms
+		// MEAN: the bounded double sum divided by the pool count over the
+		// numeric read (beyond-bound members counted like LENGTH; the
+		// zero-value group reads NULL pre-division; overflow 0/n = 0).
+		` = 0 THEN NULL ELSE (CASE WHEN SUM((CASE WHEN `,
 		`) / (COUNT(`,
 	} {
 		if !strings.Contains(sql, want) {
@@ -1103,12 +1103,17 @@ func TestGroupStructuralLaws(t *testing.T) {
 	}
 
 	// Wave 1 registers NO UNNEST render arm (verifier 156 advisory N-2,
-	// 2026-11-11): the validateGroupOperations L-13.9 refusal is the
-	// single UNNEST gate, and the emitter must not carry a renderUnnest
-	// call the gate made unreachable (the dead arm was deleted; wave 2
-	// registers its own arm when the CodingKey slice opens).
-	if got := strings.Count(source, "renderUnnest("); got != 0 {
-		t.Fatalf("group.go renderUnnest calls = %d, want 0 (L-13.9 refusal is the single UNNEST gate)", got)
+	// 2026-11-11, final form): forbidden-fragment law over the group
+	// source — group.go carries ZERO references to the spine's
+	// lateral-expansion emitter (its symbol is a "render"+"Unnest"
+	// built here so the ban works with the symbol alive in
+	// unnest.go/render.go, where the pg-sql-09 SPINE dispatch owns it —
+	// deletion was retracted by the coordinator's stop-prevention
+	// relay). The validateGroupOperations L-13.9 refusal is the single
+	// UNNEST gate for the group slice; wave 2 registers its own arm
+	// when the CodingKey slice opens.
+	if got := strings.Count(source, "render"+"Unnest"); got != 0 {
+		t.Fatalf("group.go lateral-expansion emitter references = %d, want 0 (L-13.9 refusal is the single UNNEST gate)", got)
 	}
 
 	// The materializeGroupSource projection switch is exhaustive: the
@@ -1715,13 +1720,15 @@ func TestGroupLiveRowValueInputManyDecimal(t *testing.T) {
 // post-hoc — unreachable: PG18.6 raises 22003 the moment the RUNNING
 // float8 SUM overflows (the isolated repro SUM of two 1.7e308 members,
 // fault-controlled below), while every member is finite and passes the
-// member-level band; AQL's IEEE double sum reads Infinity, JSON-invalid
-// → null (operators.md 259-262), so PG aborted where AQL answered.
-// Accumulation is now EXACT in numeric (F-8-clamped members — the clamp
-// is inert for double-representable values), bounded back to double by
-// callDoubleOperand, so every arm is raise-free and the reading matches
-// the IEEE model (Arango stores JSON numbers as IEEE-754 doubles; JS
-// numbers == IEEE-754 doubles == the Go float64 arithmetic cited here).
+// member-level band, so PG aborted where AQL answered. Accumulation is
+// now EXACT in numeric (F-8-clamped members — the clamp is inert for
+// double-representable values), bounded to double by the group band
+// cast, so every arm is raise-free, and the readings match the live
+// ArangoDB 3.12.4-3 oracle (verifier 156, coordinator ruling
+// 2026-11-11, D-13h): native SUM over storable members reads 0 when
+// the running sum leaves the double domain, and representable sums
+// read exact — the expected values below are that oracle, pinned by
+// this in-repo test.
 func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	svc := newGroup13Service(t)
 	group13TrackFixtures(t, svc)
@@ -1740,10 +1747,16 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	}
 	conn.Release()
 
-	// Fixtures: "pair" is the isolated repro (two 1.7e308); "crowd" is
-	// member-vs-cumulative (twenty 1e307 — every member finite, the
-	// sum overflows at the eighteenth add: 1.8e308 > DBL_MAX); "kept"
-	// stays finite (two 1e307 → 2e307, mean 1e307).
+	// Fixtures (oracle classes per the archived 156 probe): "pair" is the
+	// isolated repro (two 1.7e308, exact sum leaves the double band →
+	// 0/0); "crowd" is member-vs-cumulative overflow (twenty 1e307 —
+	// every member finite, exact sum 2e308 leaves the band → 0/0);
+	// "kept" is exactly representable (two 1e307 → 2e307, mean 1e307);
+	// "seventeen" is the representable-class probe (17x1e307): PG reads
+	// the correctly-rounded double of the exact sum (1.7e+308); the
+	// archived AQL stepped-IEEE SUM probe read the 1-ulp lower
+	// 1.6999999999999995e308 — see the PENDING ADJUDICATION block in
+	// the assertions.
 	fixture := group13Fixture{
 		policy: recipe.ConstructionGroupMissingKeyGroup,
 		keys: []recipe.ConstructionGroupKey{
@@ -1771,6 +1784,9 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		group13Insert(t, svc, fmt.Sprintf("ovf-k%d", i), group13Project, group13Generation, group13AuthPath, group13ValueRow("kept", 1e307))
 	}
+	for i := 0; i < 17; i++ {
+		group13Insert(t, svc, fmt.Sprintf("ovf-s%d", i), group13Project, group13Generation, group13AuthPath, group13ValueRow("seventeen", 1e307))
+	}
 
 	rendered := group13RenderSvc(t, svc, plan)
 
@@ -1779,31 +1795,61 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// of the bounded accumulator folds into a raising constant.
 	group13ExplainBothModes(t, svc, rendered)
 
-	// AQL ALIVE parity (Go float64 IS the IEEE model): 1.7e308+1.7e308
-	// = +Inf → JSON-invalid → null; 20×1e307 overflows → null; the
-	// shrinking division after an Infinity sum stays Infinity → null;
-	// the finite group reads the exact IEEE values 2e307 and 1e307.
+	// Oracle-attested parity (live ArangoDB 3.12.4-3 native SUM/LENGTH,
+	// verifier 156's archived probe; coordinator ruling 2026-11-11):
+	// any member set whose EXACT sum leaves the double band reads 0/0
+	// (pair 2x1.7e308 → 0/0, crowd 20x1e307 → 0/0 — SUM and MEAN 0/n);
+	// anything representable reads exact (kept 2x1e307 → 2e307/1e307;
+	// seventeen → 1.6999999999999995e308 and that double divided by 17).
 	rows := svc.runRendered(t, rendered)
-	if len(rows) != 3 {
-		t.Fatalf("three groups expected: %v", rows)
+	if len(rows) != 4 {
+		t.Fatalf("four groups expected: %v", rows)
 	}
-	want := map[string][]string{"crowd": {"20", "<null>", "<null>"}, "kept": {"2", "2e+307", "1e+307"}, "pair": {"2", "<null>", "<null>"}}
+	// PENDING COORDINATOR ADJUDICATION (announced with receipts): the
+	// seventeen class is a representable-case 1-ulp split between
+	// accumulation strategies. PG's numeric-exact accumulation plus the
+	// single bounded cast reads the CORRECTLY ROUNDED double of the
+	// exact decimal sum 1.7e308 (printed 1.7e+308); AQL's native SUM
+	// adds IEEE member-by-member and its archived probe read the 1-ulp
+	// lower 1.6999999999999995e308. This cell asserts the provable PG
+	// reading (correct rounding) and does NOT claim byte-parity with
+	// the stepped-IEEE oracle value — no second unreachable claim this
+	// batch.
+	sevSum, sevErr := strconv.ParseFloat("1.7e308", 64)
+	if sevErr != nil {
+		t.Fatalf("parse 1.7e308: %v", sevErr)
+	}
+	want := map[string]struct {
+		count           string
+		sum, mean       string
+		sumVal, meanVal float64
+		exact           bool
+	}{
+		"crowd":     {count: "20", sum: "0", mean: "0"},
+		"pair":      {count: "2", sum: "0", mean: "0"},
+		"kept":      {count: "2", sumVal: 2e307, meanVal: 1e307, exact: true},
+		"seventeen": {count: "17", sumVal: sevSum, meanVal: sevSum / 17, exact: true},
+	}
 	for _, row := range rows {
 		w, ok := want[row[0]]
 		if !ok {
 			t.Fatalf("unexpected group %q", row[0])
 		}
-		if row[1] != w[0] || row[2] != w[1] || row[3] != w[2] {
-			// The numeric SUM reads canonical decimal text; accept the
-			// IEEE value by parse (2e307 is the exact IEEE reading).
-			sumVal, sumErr := strconv.ParseFloat(row[2], 64)
-			meanVal, meanErr := strconv.ParseFloat(row[3], 64)
-			if w[0] == "2" && (sumErr != nil || meanErr != nil || sumVal != 2e307 || meanVal != 1e307) {
-				t.Fatalf("group %s = %v, want %v", row[0], row, w)
+		if row[1] != w.count {
+			t.Fatalf("group %s count = %q, want %q: %v", row[0], row[1], w.count, row)
+		}
+		if !w.exact {
+			if row[2] != w.sum || row[3] != w.mean {
+				t.Fatalf("overflow-band group %s = %v, want [%s 0 0]", row[0], row, w.count)
 			}
-			if w[0] != "2" {
-				t.Fatalf("group %s = %v, want %v", row[0], row, w)
-			}
+			continue
+		}
+		// Representable sums read exact; the canonical numeric text is
+		// compared through the same double value the oracle confirms.
+		sumVal, sumErr := strconv.ParseFloat(row[2], 64)
+		meanVal, meanErr := strconv.ParseFloat(row[3], 64)
+		if sumErr != nil || meanErr != nil || sumVal != w.sumVal || meanVal != w.meanVal {
+			t.Fatalf("representable group %s = %v, want exact %v/%v", row[0], row, w.sumVal, w.meanVal)
 		}
 	}
 }

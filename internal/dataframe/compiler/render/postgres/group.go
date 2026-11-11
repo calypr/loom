@@ -60,30 +60,32 @@ package postgres
 //     != null, then type-asserts CONSTRUCTION_GROUP_VALUE_TYPE_MISMATCH).
 //     The empty-group split is live-pinned per reducer:
 //     COUNT_ROWS/COUNT_NON_NULL/COUNT_DISTINCT read 0,
-//     SUM/MIN/MAX/MEAN read NULL. SUM and MEAN are IEEE-FAITHFUL per the
-//     coordinator ruling 2026-11-11 (Q1) as corrected by verifier F-2
-//     (2026-11-11: float8 SUM overflow raises 22003 on PG18.6 — isolated
-//     repro sum(1.7e308 + 1.7e308); a post-hoc finiteness gate can never
-//     decide, because every MEMBER is finite while the running SUM
-//     overflows): members accumulate EXACTLY in numeric, each magnitude
-//     capped by the calls.go F-8 clamp so the numeric addition itself can
-//     never leave the storable domain (PG18 raises 22003 on a numeric
-//     RESULT overflow even between storable operands), and the exact sum
-//     is bounded back to double through the calls.go band helper
-//     callDoubleOperand — magnitudes at or beyond the IEEE-overflow bound
-//     read the registered NULL (IEEE Infinity reads JSON-invalid -> null,
-//     operators.md 259-262 agreement with AQL), magnitudes below the
-//     subnormal floor read the registered 0. MEAN divides the bounded
-//     DOUBLE sum by the pool count over all non-null members (AQL's
-//     Infinity/n -> null rides as NULL/n -> NULL; the denominator counts
-//     beyond-bound members like AQL's LENGTH) — never a raising numeric
-//     divide: the quotient cannot overflow (|sum| < DBL_MAX, count >= 1)
-//     and PG18 flushes an underflowing double quotient to 0.
-//     Gray-cancellation registration (beyond-cap members, |member| >
-//     1e400, cancelling back into the double band): NOT parity — the
-//     AQL-side truth is renderer-source-derived (no live Arango harness
-//     exists in this environment).
-//     Exact-numeric accumulation cancellation: PG reads 0 where IEEE-derived AQL reads NaN; registered divergence D-13h per coordinator ruling 2026-11-11; re-measure if live Arango acceptance lands.
+//     SUM/MIN/MAX/MEAN read NULL. SUM and MEAN accumulate EXACTLY in
+//     numeric per the coordinator ruling 2026-11-11 (Q1, F-2 repair) in
+//     its F-6 final form (2026-11-11: float8 SUM overflow raises 22003
+//     on PG18.6 — isolated repro sum(1.7e308 + 1.7e308); a post-hoc
+//     finiteness gate can never decide, because every MEMBER is finite
+//     while the running SUM overflows): members are each magnitude-capped
+//     by the calls.go F-8 clamp so the numeric addition itself can never
+//     leave the storable domain (PG18 raises 22003 on a numeric RESULT
+//     overflow even between storable operands), and the exact sum is
+//     bounded to double by the group band cast (groupDoubleBandCast, the
+//     calls.go band discipline on the same band constants): magnitudes at
+//     or beyond the overflow band read 0, magnitudes below the subnormal
+//     floor read the registered 0 — never a raising arm. Overflow-band
+//     reads 0 matching live ArangoDB 3.12.4-3 native SUM over storable
+//     members; oracle probe archived by verifier; coordinator ruling
+//     2026-11-11 (D-13h, ORACLE-ATTESTED PARITY). MEAN divides the
+//     bounded double sum by the pool count over all non-null members
+//     (overflow-band groups read 0/n = 0, matching the native SUM/LENGTH
+//     render path — not the AVG function's interpreted-mode reading; the
+//     denominator counts beyond-bound members like LENGTH) — the quotient
+//     cannot overflow (|sum| < DBL_MAX, count >= 1) and PG18 flushes an
+//     underflowing double quotient to 0.
+//     The beyond-cap class (|member| > 1e400) is un-ingestable in Arango
+//     (VPack out of range — no divergence exists to register); PG reads
+//     0 there too, matching the closest representable AQL reading — the
+//     same D-13h parity registration.
 //     MIN/MAX/COUNT_DISTINCT and the
 //     row-value sets compute in the numeric/text/bool domain where jsonb
 //     preserves decimal text; oracle agreement with Arango's double-domain
@@ -455,7 +457,8 @@ func validateGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[strin
 // spine-registered expansion (pg-sql-09) belongs to the CodingKey source,
 // wave 1 refuses every CodingKey at the payload gate, and the emitter has
 // no UNNEST arm (verifier 156 advisory N-2, 2026-11-11 — the dead
-// renderUnnest call this gate made unreachable was deleted; wave 2
+// lateral-expansion emitter call this gate made unreachable was deleted;
+// the spine keeps its own dispatch outside this file, and wave 2
 // registers its own arm when the CodingKey slice opens). The L-13.9
 // refusal below is the single UNNEST gate.
 func validateGroupOperations(plan ir.PhysicalPlan) (map[string]bool, error) {
@@ -1107,27 +1110,28 @@ func (r *planRenderer) groupAggregateExpression(aggregate ir.PhysicalStageGroupA
 	case "MAX":
 		return "MAX(" + typedRead + collate + ")", nil
 	case "SUM":
-		// IEEE-faithful (coordinator ruling 2026-11-11 Q1, corrected by
-		// verifier F-2 2026-11-11): accumulate EXACTLY in numeric, then
-		// bound the exact sum back to double through the calls.go band
-		// helper. The previous design summed float8 and gated non-finite
-		// sums post-hoc — unreachable, because PG18.6 raises 22003 the
-		// moment the running float8 SUM overflows (sum(1.7e308+1.7e308))
-		// while every member is finite and passes the member-level gate.
+		// Exact-numeric accumulation with the group band cast
+		// (coordinator ruling 2026-11-11 Q1, F-2 repair, F-6 final form):
+		// the previous design summed float8 and gated non-finite sums
+		// post-hoc — unreachable, because PG18.6 raises 22003 the moment
+		// the running float8 SUM overflows (sum(1.7e308+1.7e308)) while
+		// every member is finite and passes the member-level gate. The
+		// overflow band reads the registered 0 (oracle-attested parity,
+		// D-13h); a member-less group keeps the registered NULL.
 		return groupBoundedDoubleSum(column, aggregate.InputKind), nil
 	case "MEAN":
-		// SUM(pool)/LENGTH(pool): AQL divides the DOUBLE sum, so the
-		// division runs on the bounded double — an overflowing exact sum
-		// already read the registered NULL and NULL divided stays NULL
-		// (AQL's Infinity/n reads Infinity -> invalid -> null). The
-		// denominator counts the whole pool (every non-null member,
-		// beyond-bound members included, like AQL's LENGTH; the
-		// consumer-side type witness already refused mistyped members at
-		// the g_rows WHERE). Denominator >= 1 whenever a value exists;
-		// the zero-value group reads NULL pre-division. The quotient
-		// cannot overflow (|sum| < DBL_MAX, count >= 1) and PG18 flushes
-		// an underflowing double quotient to 0 without raising — IEEE's
-		// own reading.
+		// SUM(pool)/LENGTH(pool) per the native render path: the division
+		// runs on the bounded double — an overflowing exact sum already
+		// read the registered 0 and 0/n reads 0 (matching the native
+		// SUM/LENGTH reading; the AVG function's interpreted-mode reading
+		// is not the emitted path). The denominator counts the whole pool
+		// (every non-null member, beyond-bound members included, like
+		// LENGTH; the consumer-side type witness already refused mistyped
+		// members at the g_rows WHERE). Denominator >= 1 whenever a value
+		// exists; the zero-value group reads NULL pre-division. The
+		// quotient cannot overflow (|sum| < DBL_MAX, count >= 1) and
+		// PG18 flushes an underflowing double quotient to 0 without
+		// raising.
 		sum := groupBoundedDoubleSum(column, aggregate.InputKind)
 		poolCount := "COUNT(" + groupNumericRead(column, aggregate.InputKind) + ")"
 		return "CASE WHEN " + poolCount + " = 0 THEN NULL ELSE " +
@@ -1136,26 +1140,47 @@ func (r *planRenderer) groupAggregateExpression(aggregate ir.PhysicalStageGroupA
 	return "", fmt.Errorf("%w: aggregate %q is not a registered reducer", ErrUnsupportedPostgresPlan, string(aggregate.Operation))
 }
 
-// groupBoundedDoubleSum renders the IEEE-faithful SUM/MEAN accumulator
-// (verifier F-2 fix, coordinator relay 2026-11-11): the exact numeric
-// SUM of F-8-clamped members, bounded back to double by the calls.go
-// band helper. Exactness matters twice: float8 SUM raises 22003 on
-// cumulative overflow (the F-2 repro), and PG18 also raises when a
-// NUMERIC RESULT leaves the storable domain between storable operands
-// (the F-8 probes) — so each member's magnitude is capped at
-// callBandOperandClamp before the addition. The cap is inert for every
-// double-representable member (it sits 10^92 above the IEEE pass
-// boundary), so pass verdicts are exact; groups containing beyond-cap
-// members (JSON numbers AQL's own double storage cannot hold) read the
-// registered NULL where IEEE's Infinity speaks, and cancellation of
-// beyond-cap members back into the double band is the registered gray
-// arm D-13h (the calls.go F-8 precedent: every clamped pair takes a
-// registered arm; IEEE's Infinity reading agrees where it speaks; the
-// header carries the verbatim registered-divergence attribution).
-// callDoubleOperand's CAST sits inside the abs < overflow-bound band,
-// so no arm of the rendered expression can raise.
+// groupDoubleBandCast bounds one never-raising numeric fragment to
+// double on the calls.go band constants (callDoubleOverflowBound /
+// callDoubleUnderflowFloor — the pg-sql-10 measurements that keep the
+// CAST inside the abs < overflow-bound band, where it cannot raise),
+// with the SUM/MEAN overflow-band arm reading the registered 0 rather
+// than the calls.go NULL: overflow-band reads 0 matching live ArangoDB
+// 3.12.4-3 native SUM over storable members; oracle probe archived by
+// verifier; coordinator ruling 2026-11-11 (D-13h, ORACLE-ATTESTED
+// PARITY — the F-6 flip over the pre-oracle NULL arm, which had been
+// blessed only as a registered divergence). A NULL fragment (the
+// member-less group, the registered empty-group SUM/MIN/MAX/MEAN
+// reading) keeps the NULL: the flip is arm-specific, not a global
+// coalesce.
+func groupDoubleBandCast(numericFragment string) string {
+	return "(CASE WHEN " + numericFragment + " IS NULL THEN NULL" +
+		" WHEN abs(" + numericFragment + ") < '" + callDoubleOverflowBound + "'::numeric" +
+		" THEN CASE WHEN abs(" + numericFragment + ") >= '" + callDoubleUnderflowFloor + "'::numeric" +
+		" THEN (" + numericFragment + ")::double precision ELSE 0::double precision END" +
+		" ELSE 0::double precision END)"
+}
+
+// groupBoundedDoubleSum renders the SUM/MEAN accumulator (verifier F-2
+// fix, coordinator relay 2026-11-11; F-6 parity form): the exact numeric
+// SUM of F-8-clamped members, bounded to double by the group band cast.
+// Exactness matters twice: float8 SUM raises 22003 on cumulative
+// overflow (the F-2 repro, live fault-controlled), and PG18 also raises
+// when a NUMERIC RESULT leaves the storable domain between storable
+// operands (the F-8 probes in calls.go) — so each member's magnitude is
+// capped by callBandOperandClamp before the addition. The cap is inert
+// for every double-representable member (it sits 10^92 above the band
+// boundary), so representable verdicts are the correctly-rounded double
+// of the exact sum (2x1e307 -> 2e307 exact; the 17x1e307 live cell
+// carries a pending-adjudication note for the 1-ulp split between this
+// exact-then-round reading and AQL's stepped IEEE SUM); any member set
+// whose exact sum leaves the double band reads 0 through the overflow
+// arm (2x1.7e308 -> 0, 20x1e307 -> 0, SUM and MEAN 0/n), and the beyond-cap
+// class (un-ingestable in Arango, VPack out of range — no divergence
+// exists to register) reads 0 as the closest representable parity — the
+// same D-13h registration the header carries.
 func groupBoundedDoubleSum(column *groupColumn, kind string) string {
-	return callDoubleOperand("SUM(" + callBandOperandClamp(groupNumericRead(column, kind)) + ")")
+	return groupDoubleBandCast("SUM(" + callBandOperandClamp(groupNumericRead(column, kind)) + ")")
 }
 
 // groupNumericRead renders the numeric-domain member read consumed by the
