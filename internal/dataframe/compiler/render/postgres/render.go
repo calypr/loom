@@ -107,9 +107,26 @@
 // CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
 // outside the two registered correlated shapes, group rows,
 // pivots, unpivots coexisting with filters, traversals, or unnests, every
-// other stage sequence (composed stage sequences are pg-sql-16; coded-group
-// row values are pg-sql-13), and ClickHouse payloads are capability gaps
-// that return typed errors.
+// other stage sequence (composed stage sequences are pg-sql-16), and
+// ClickHouse payloads are capability gaps that return typed errors.
+//
+// The construction Group stage (GROUP, pg-sql-13) is registered in
+// group.go as its own closed plan slice: the inline single-stage shape over
+// the spine's renderable source operations carries typed scalar keys
+// (STRING/INTEGER/DECIMAL/BOOLEAN; jsonb members through the canonical
+// NULLIF + #>> read with the CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH witness,
+// storage-typed columns through the direct cast), the seven reducers
+// (COUNT_ROWS, COUNT_NON_NULL, COUNT_DISTINCT, SUM, MEAN, MIN, MAX —
+// SUM/MEAN IEEE-faithful over the calls.go double band behind a
+// non-raising non-finite comparison gate reading the AQL null on
+// overflow, EXPLAIN-attested under both plan_cache_modes because PG18
+// removed isfinite), the ALL/ONE row values — one shared emitter with the
+// coded-group arm (Q4 same-emitter law) — and the stable identity in the
+// AQL TO_STRING member-array composition, ordered by the registered
+// NULLS FIRST key refinement (D-13c, per coordinator ruling 2026-11-11)
+// with the identity COLLATE "C" tie-break. CodingKey keys and the
+// many-cardinality pool over coded tuples are wave-2 refusals named in
+// their file headers.
 package postgres
 
 import (
@@ -194,6 +211,16 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	// untouched StageSequence refusal below.
 	if codedGroupPlanMentionsStage(plan) {
 		return renderCodedGroupPhysicalPlan(plan, storage)
+	}
+	// Whole-plan group delegation (group.go contract, pg-sql-13): a plan
+	// whose stage sequence mentions a GROUP stage is rendered WHOLE by the
+	// registered slice — the structural twin of the two doors above, with
+	// validateGroupPlanSurface as the single contract behind the door (and
+	// behind renderGroupPhysicalPlan, entry==dispatch message equality).
+	// No spine arm ever sees a construction stage, and every other stage
+	// sequence reaches the untouched StageSequence refusal below.
+	if groupPlanMentionsStage(plan) {
+		return renderGroupPhysicalPlan(plan, storage)
 	}
 	// Full-backstop defense in depth (unnest.go contract): a plan that
 	// mentions UNNEST is pinned to the registered slice as the first
