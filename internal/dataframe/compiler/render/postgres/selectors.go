@@ -118,6 +118,15 @@ const (
 	// bounded-slice surface registered in objects.go. Same ownership:
 	// structural here, closed contract in objects.go.
 	extractionSlice
+	// extractionUnitNormalized is an ARRAY-cardinality EMPTY_ON_NULL
+	// EXTRACT projection carrying the compiler-pinned unit normalization
+	// — the pg-sql-21 unit-conversion surface registered in
+	// unit_normalization.go on the full read spine. The whole contract
+	// (posture, closed selector, pinned-rule registry re-verification)
+	// lives there; this classifier only intercepts the unit-carrying
+	// form before the closed-selector validator, whose legacy unit
+	// refusal stays for the operand paths.
+	extractionUnitNormalized
 )
 
 // classifiedExtractionProjection is one fully checked RETURN projection:
@@ -132,6 +141,9 @@ type classifiedExtractionProjection struct {
 	// extractionPresenceSidecar facts.
 	presence     *ir.PhysicalProjectionPresence
 	presencePath []string
+	// extractionUnitNormalized facts (pg-sql-21); the closed contract
+	// that produced them is owned by unit_normalization.go.
+	unit *unitProjectionFacts
 }
 
 // extractionEvidence identifies one selector value/presence pair: the row
@@ -191,6 +203,20 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 					ErrUnsupportedPostgresPlan, projection.Name, c.expression.Extract.ResourceType, resourceType)
 			}
 			extracted[extractionEvidence{variable: source.Variable, path: pathEvidenceKey(c.path)}] = true
+		case extractionUnitNormalized:
+			// The unit projection reads exactly its source row document;
+			// the selector's schema provenance must name the type that
+			// row is scanned as — the same identity the selector arm
+			// proves (unit_normalization.go re-reads it at render time).
+			resourceType, ok := rowType(c.unit.sourceVariable)
+			if !ok {
+				return nil, fmt.Errorf("%w: projection %q extracts from variable %q, which does not bind a readable row",
+					ErrUnsupportedPostgresPlan, projection.Name, c.unit.sourceVariable)
+			}
+			if c.unit.resourceType != resourceType {
+				return nil, fmt.Errorf("%w: projection %q validates unit selectors against resource type %q, but the row is scanned as %q",
+					ErrUnsupportedPostgresPlan, projection.Name, c.unit.resourceType, resourceType)
+			}
 		case extractionCallExpression:
 			// Every row variable a CALL operand reads must bind a readable
 			// row, and every EXTRACT operand's schema provenance must name
@@ -304,6 +330,14 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 			}
 			return classifiedExtractionProjection{kind: extractionValueExpression, projection: projection}, nil
 		case ir.PhysicalExtractExpression:
+			if expression.Extract != nil && expression.Extract.UnitNormalization != nil {
+				// pg-sql-21: the registered unit-normalized projection
+				// (unit_normalization.go owns the whole contract). The
+				// intercept runs before validateSelectorExtraction, whose
+				// legacy unit refusal stays for the CALL/predicate/etc.
+				// operand paths that keep refusing unit payloads.
+				return classifyUnitNormalizedProjection(projection)
+			}
 			path, err := validateSelectorExtraction(projection)
 			if err != nil {
 				return classifiedExtractionProjection{}, err
@@ -540,6 +574,13 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 				ErrUnsupportedPostgresPlan, c.projection.Name)
 		case extractionCallExpression:
 			return fmt.Errorf("%w: projection %q uses a CALL expression; derived scalar calls register on the full read spine (RenderPhysicalPlan), not the closed selector-extraction slice",
+				ErrUnsupportedPostgresPlan, c.projection.Name)
+		case extractionUnitNormalized:
+			// pg-sql-21 contract receipt: the unit-normalized projection
+			// is registered on the full read spine (unit_normalization.go
+			// via renderReturn), not in this closed two-operation slice —
+			// the same spine-only ruling as CALL, OBJECT, and SLICE.
+			return fmt.Errorf("%w: projection %q uses a unit-normalized extraction; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars — unit normalization belongs to the read spine registration (unit_normalization.go)",
 				ErrUnsupportedPostgresPlan, c.projection.Name)
 		case extractionObject, extractionSlice:
 			// pg-sql-11 contract receipt: the composite surface is
