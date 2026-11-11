@@ -68,7 +68,6 @@ import (
 
 	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -603,16 +602,16 @@ func (r *SemanticContributionRepository) readContributionDigests(ctx context.Con
 // marker leaves the source unproven (SourceExists false), matching the
 // Arango adapter's distinctions. An empty page resumed mid-walk is simply
 // the end of the collection.
-func (r *SemanticContributionRepository) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalogarango.RetainedSemanticInventoryPage, error) {
+func (r *SemanticContributionRepository) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalog.RetainedSemanticInventoryPage, error) {
 	if canonical, ok := fhirschema.ConcreteResourceType(collection); !ok || canonical != collection {
-		return catalogarango.RetainedSemanticInventoryPage{}, fmt.Errorf(
+		return catalog.RetainedSemanticInventoryPage{}, fmt.Errorf(
 			"%w: collection %q is not a canonical concrete resource type", ErrInvalidRetainedSemanticPageRequest, collection)
 	}
 	if strings.TrimSpace(project) == "" {
-		return catalogarango.RetainedSemanticInventoryPage{}, fmt.Errorf("%w: project is blank", ErrInvalidRetainedSemanticPageRequest)
+		return catalog.RetainedSemanticInventoryPage{}, fmt.Errorf("%w: project is blank", ErrInvalidRetainedSemanticPageRequest)
 	}
 	if limit < 1 || limit > maxRetainedSemanticPageLimit {
-		return catalogarango.RetainedSemanticInventoryPage{}, fmt.Errorf("%w: limit is %d, want 1..%d",
+		return catalog.RetainedSemanticInventoryPage{}, fmt.Errorf("%w: limit is %d, want 1..%d",
 			ErrInvalidRetainedSemanticPageRequest, limit, maxRetainedSemanticPageLimit)
 	}
 	generation = catalog.NormalizeDatasetGeneration(generation)
@@ -635,7 +634,7 @@ func (r *SemanticContributionRepository) ReadRetainedSemanticInventoryPage(ctx c
 	sql.WriteString(fmt.Sprintf(` ORDER BY logical_id COLLATE "C" LIMIT $%d`, len(args)+1))
 	args = append(args, limit+1)
 
-	page := catalogarango.RetainedSemanticInventoryPage{Rows: make([]catalogarango.RetainedSemanticInventoryRow, 0, limit)}
+	page := catalog.RetainedSemanticInventoryPage{Rows: make([]catalog.RetainedSemanticInventoryRow, 0, limit)}
 	err := r.withConn(ctx, func(conn *pgxpool.Conn) error {
 		rows, err := conn.Query(ctx, sql.String(), args...)
 		if err != nil {
@@ -643,7 +642,7 @@ func (r *SemanticContributionRepository) ReadRetainedSemanticInventoryPage(ctx c
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var source catalogarango.RetainedSemanticInventoryRow
+			var source catalog.RetainedSemanticInventoryRow
 			var payload []byte
 			if err := rows.Scan(&source.Key, &source.AuthResourcePath, &payload); err != nil {
 				return fmt.Errorf("postgres: read retained %s source page: %w", collection, err)
@@ -662,7 +661,7 @@ func (r *SemanticContributionRepository) ReadRetainedSemanticInventoryPage(ctx c
 		return nil
 	})
 	if err != nil {
-		return catalogarango.RetainedSemanticInventoryPage{}, err
+		return catalog.RetainedSemanticInventoryPage{}, err
 	}
 	if len(page.Rows) > limit {
 		page.Rows = page.Rows[:limit]
@@ -672,11 +671,11 @@ func (r *SemanticContributionRepository) ReadRetainedSemanticInventoryPage(ctx c
 		// First-page empty: keep the three-way availability reading.
 		evidence, err := r.retainedSourceEvidence(ctx, project, generation, collection)
 		if err != nil {
-			return catalogarango.RetainedSemanticInventoryPage{}, err
+			return catalog.RetainedSemanticInventoryPage{}, err
 		}
 		switch evidence {
 		case retainedEvidenceDocuments:
-			return catalogarango.RetainedSemanticInventoryPage{}, &RetainedSemanticSourceMissingError{
+			return catalog.RetainedSemanticInventoryPage{}, &RetainedSemanticSourceMissingError{
 				Project: project, DatasetGeneration: generation, ResourceType: collection,
 			}
 		case retainedEvidenceCoverage:
@@ -945,7 +944,7 @@ func (s *SemanticInventoryBackfillStore) PrepareSemanticInventoryBackfill(ctx co
 
 // ReadRetainedSemanticInventoryPage delegates to the contribution
 // repository's stable byte-order keyset page over retained resources.
-func (s *SemanticInventoryBackfillStore) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalogarango.RetainedSemanticInventoryPage, error) {
+func (s *SemanticInventoryBackfillStore) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalog.RetainedSemanticInventoryPage, error) {
 	return s.contributions.ReadRetainedSemanticInventoryPage(ctx, project, generation, collection, afterKey, limit)
 }
 

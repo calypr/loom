@@ -38,7 +38,9 @@ lifecycle or authoring types. Every HTTP method and path is defined in the
 canonical [`openapi/openapi.yaml`](../openapi/openapi.yaml) contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
-owns persistence-neutral observed facts; `catalog/arango` owns catalog
+owns persistence-neutral observed facts, the shared relationship-evidence
+projection, and the cross-backend catalog read contracts (retained-source
+keyset page, semantic coverage lookup); `catalog/arango` owns catalog
 persistence; `explorer` owns portable Explorer configs, editable drafts,
 immutable revisions, and publication state; `explorer/arango` owns its durable
 adapter; `dataframe/publication` owns dataframe publishing contracts and the

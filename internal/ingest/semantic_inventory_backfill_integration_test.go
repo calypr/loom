@@ -133,13 +133,13 @@ func backfillIntegrationPayload(scope string, distinct int) map[string]any {
 	return map[string]any{"resourceType": "Observation", "id": scope, "component": components}
 }
 
-func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string) map[string]catalogarango.RetainedSemanticInventoryRow {
+func readBackfillIntegrationSources(t *testing.T, ctx context.Context, store *catalogarango.Store, project, generation string) map[string]catalog.RetainedSemanticInventoryRow {
 	t.Helper()
 	page, err := store.ReadRetainedSemanticInventoryPage(ctx, project, generation, "Observation", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := make(map[string]catalogarango.RetainedSemanticInventoryRow, len(page.Rows))
+	rows := make(map[string]catalog.RetainedSemanticInventoryRow, len(page.Rows))
 	for _, row := range page.Rows {
 		rows[row.Key] = row
 	}
