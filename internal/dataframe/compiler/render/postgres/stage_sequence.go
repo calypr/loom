@@ -1036,6 +1036,28 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 				continue
 			}
 		}
+		// The route-anchor identity arm (pg-sql-16 P4): the production
+		// lowering's typed source RETURN projects the materialized root
+		// _key as a hidden single-step Value read, and the composition
+		// ADDRESSES it — the RelatedOccurrence adapter anchors on "_key"
+		// (validateStageRelatedOccurrenceAdapter) and the chain law
+		// requires every declared source column materialized. It renders
+		// through the same logical_id sidecar twin as the spine's
+		// canonicalization (resolveValueInRows, coded_group.go:873
+		// cg_root_key, selectors.go:276-281 PreviewSourceResourceIDColumn
+		// arm): a payload-path read of the absent property would silently
+		// render SQL NULL.
+		if projection.Hidden && projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
+			projection.Value.Variable != "" && projection.Value.BindKey == "" &&
+			len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key") {
+			scope, ok := r.rows[projection.Value.Variable]
+			if !ok || scope.alias != r.rootAlias {
+				return "", nil, fmt.Errorf("%w: key identity projection %q reads a variable the composition source region has not registered (L-16.6)",
+					ErrUnsupportedPostgresPlan, projection.Name)
+			}
+			keyExprs[projection.Name] = r.rootAlias + "." + r.storage.Resource.MustColumn("logical_id").SQLText()
+			continue
+		}
 		if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalExtractExpression &&
 			projection.Expression.Cardinality != ir.PhysicalArrayCardinality {
 			if extract := projection.Expression.Extract; extract != nil &&

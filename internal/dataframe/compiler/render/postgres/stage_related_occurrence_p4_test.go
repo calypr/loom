@@ -377,8 +377,19 @@ func TestSQL16RelatedOccurrenceP4LiveRows(t *testing.T) {
 	type tuple struct{ status, count string }
 	got := make([]tuple, 0, len(rows))
 	for _, row := range rows {
-		if len(row) != 2 {
-			t.Fatalf("row = %#v, want 2 cells", row)
+		// L1 law: the raw runner returns the internal __loom_row_id
+		// runtime-key identity as the final cell (the dataframe
+		// materializer omits it post-query); the registered production-
+		// compiled live legs assert it, they do not ignore it.
+		if len(row) != 3 {
+			t.Fatalf("row = %#v, want 3 cells (group columns + __loom_row_id identity)", row)
+		}
+		keyJSON := "null"
+		if row[0] != "<null>" {
+			keyJSON = sql16JSONString(row[0])
+		}
+		if want := sql16GroupIdentity("group_related_id", "status_group_id", keyJSON); row[2] != want {
+			t.Fatalf("runtime-key identity = %q, want %q", row[2], want)
 		}
 		got = append(got, tuple{row[0], row[1]})
 	}
