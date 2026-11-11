@@ -35,6 +35,14 @@ fail_if_matches "renderer imports lowerer, optimizer, runtime, or Arango" \
   'internal/dataframe/compiler/(lower|optimize)|internal/dataframe/execution|internal/store/arango|ResolveStorageRoute' \
   "$root/internal/dataframe/compiler/render/aql"
 
+# arch-backend-06 leaf law: the compiled command is the compiler's leaf
+# output. No compiler file may reach a backend implementation package or a
+# database driver; the only vendor-adjacent edge is adapter -> command.
+# Go-side twin: internal/dataframe/compiler/backend_leaf_guard_test.go.
+fail_if_matches "compiler imports backend implementations or database drivers" \
+  'github.com/calypr/loom/internal/backends/|github.com/jackc/pgx' \
+  "$root/internal/dataframe/compiler"
+
 fail_if_matches "stored recipe domain imports execution or storage layers" \
   'internal/dataframe/(compiler|execution|materialization|publication|store)' \
   "$root"/internal/dataframe/recipe/*.go

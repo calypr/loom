@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"reflect"
@@ -18,7 +19,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/source"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -59,11 +59,11 @@ type pgir02Service struct {
 	ctx          context.Context
 	admin        *pgxpool.Pool // service database
 	iso          *pgxpool.Pool // isolated database
-	client       *pgstore.Client
+	client       *control.Client
 	schema       string
 	extraSchemas []string
-	resources    *pgstore.ResourceRepository
-	edges        *pgstore.EdgeRepository
+	resources    *control.ResourceRepository
+	edges        *control.EdgeRepository
 	scrub        func(any) string
 	fail         func(step string, err error)
 }
@@ -162,7 +162,7 @@ func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02S
 		}
 	})
 
-	client, err := pgstore.Open(ctx, pgstore.Config{
+	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
 		MinConns:       1,
@@ -172,14 +172,14 @@ func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02S
 		fail("open pg-store client (requires a PostgreSQL 18 service)", err)
 	}
 	t.Cleanup(client.Close)
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
-	resources, err := pgstore.NewResourceRepository(client, schema)
+	resources, err := control.NewResourceRepository(client, schema)
 	if err != nil {
 		fail("build resource repository", err)
 	}
-	edges, err := pgstore.NewEdgeRepository(client, schema)
+	edges, err := control.NewEdgeRepository(client, schema)
 	if err != nil {
 		fail("build edge repository", err)
 	}
@@ -201,7 +201,7 @@ func newOwnedService(t *testing.T, extraSchemaCount int, prefix string) *pgir02S
 				t.Errorf("drop extra schema: %s", scrub(err))
 			}
 		})
-		if _, err := pgstore.MigrateSchema(ctx, client, extra); err != nil {
+		if _, err := control.MigrateSchema(ctx, client, extra); err != nil {
 			fail("migrate extra schema", err)
 		}
 		svc.extraSchemas = append(svc.extraSchemas, extra)
@@ -222,7 +222,7 @@ func (s *pgir02Service) insertResource(t *testing.T, schema string, project, gen
 	repo := s.resources
 	if schema != s.schema {
 		var err error
-		repo, err = pgstore.NewResourceRepository(s.client, schema)
+		repo, err = control.NewResourceRepository(s.client, schema)
 		if err != nil {
 			t.Fatalf("build repository for schema %s: %v", schema, err)
 		}
@@ -241,7 +241,7 @@ func (s *pgir02Service) insertResource(t *testing.T, schema string, project, gen
 	return seq
 }
 
-func (s *pgir02Service) insertEdge(t *testing.T, rec pgstore.EdgeOccurrenceRow) int64 {
+func (s *pgir02Service) insertEdge(t *testing.T, rec control.EdgeOccurrenceRow) int64 {
 	t.Helper()
 	seq, err := s.edges.InsertEdge(s.ctx, rec)
 	if err != nil {
@@ -491,23 +491,23 @@ func TestPG18EdgeTraversalPreservesMultiplicityAndExcludesUnresolvedTargets(t *t
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-1", "FHIR/Specimen", nil)
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Specimen", "st-2", "FHIR/Specimen", nil)
 
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Patient",
 		Label: "has-specimen", SourceResourceType: "Patient", SourceLogicalID: "sp-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-1", SourcePath: "specimen[0]", SourceOrdinal: 0,
 	})
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Patient",
 		Label: "has-specimen", SourceResourceType: "Patient", SourceLogicalID: "sp-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-1", SourcePath: "specimen[1]", SourceOrdinal: 0,
 	})
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Patient",
 		Label: "has-specimen", SourceResourceType: "Patient", SourceLogicalID: "sp-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-2", SourcePath: "contained[0].specimen", SourceOrdinal: 0,
 	})
 	// Unresolved target: the reference is stored, but no Specimen row exists.
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Patient",
 		Label: "has-specimen", SourceResourceType: "Patient", SourceLogicalID: "sp-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-ghost", SourcePath: "specimen[9]", SourceOrdinal: 0,
@@ -578,7 +578,7 @@ func TestPG18InboundTraversalBindsReverseIdentity(t *testing.T) {
 	// Here: observations reference the specimen; INBOUND from Observation
 	// reaches... use a root Observation reaching the Specimen through the
 	// stored source side.
-	svc.insertEdge(t, pgstore.EdgeOccurrenceRow{
+	svc.insertEdge(t, control.EdgeOccurrenceRow{
 		Project: itProject, DatasetGeneration: itGeneration, AuthResourcePath: "FHIR/Observation",
 		Label: "focus-specimen", SourceResourceType: "Observation", SourceLogicalID: "o-1",
 		TargetResourceType: "Specimen", TargetLogicalID: "st-1", SourcePath: "focus[0]", SourceOrdinal: 0,
@@ -695,7 +695,7 @@ func TestPG18BindingSelectsOwnedSchemaOnly(t *testing.T) {
 	svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-in-owned", "FHIR/Patient", nil)
 	// The same logical row placed in the shadow schema must be invisible to
 	// a statement built for the owned schema.
-	shadowRepo, err := pgstore.NewResourceRepository(svc.client, other)
+	shadowRepo, err := control.NewResourceRepository(svc.client, other)
 	if err != nil {
 		t.Fatalf("shadow repository: %v", err)
 	}

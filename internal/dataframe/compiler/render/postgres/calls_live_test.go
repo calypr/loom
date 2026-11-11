@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	control "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,9 +21,11 @@ import (
 // ---------------------------------------------------------------------------
 // pg-sql-10 live proofs (plan section 6: P1-P3; P4 determinism is offline).
 //
-// Gated on LOOM_TEST_POSTGRES_URL and real PostgreSQL 18 (pgstore.Open
-// refuses any other major, and every fixture acquires its pool through
-// it). Each test owns one verify_sql10_* database and one owned schema,
+// Gated on LOOM_TEST_POSTGRES_URL and real PostgreSQL 18 (the pg-store
+// pool's Ping enforces major 18, and every fixture acquires its pool
+// through control.OpenPool). Each test owns one verify_sql10v7_* database and one owned schema
+// (round-7 namespace, coordinator-ordered for disjointness against the
+// lane-B verifier runs),
 // migrates through the real pg-store-02 runner, and stores literal rows
 // through the real pg-store-04 repository. TestMain's zero-leftover audit
 // proves nothing under the prefix survives the run.
@@ -43,7 +45,7 @@ import (
 // falsy first operand's second — raising — operand unevaluated.
 // ---------------------------------------------------------------------------
 
-var sql10LiveNamePattern = regexp.MustCompile(`^verify_sql10_[0-9]+_[0-9a-f]+$`)
+var sql10LiveNamePattern = regexp.MustCompile(`^verify_sql10v7_[0-9]+_[0-9a-f]+$`)
 
 // sql10Service owns one isolated database/schema pair. The row-insertion
 // and execution helpers are the pg-sql-01 ones (same package, same
@@ -134,7 +136,7 @@ func newSQL10Service(t *testing.T) *sql10Service {
 		}
 	})
 
-	client, err := pgstore.Open(ctx, pgstore.Config{
+	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
 		MinConns:       1,
@@ -144,7 +146,7 @@ func newSQL10Service(t *testing.T) *sql10Service {
 		fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
 	t.Cleanup(client.Close)
-	if _, err := pgstore.MigrateSchema(ctx, client, schema); err != nil {
+	if _, err := control.MigrateSchema(ctx, client, schema); err != nil {
 		fail("migrate owned schema", err)
 	}
 	return &sql10Service{pgsq01Service: &pgsq01Service{
@@ -154,7 +156,7 @@ func newSQL10Service(t *testing.T) *sql10Service {
 
 func sql10ResourceName(t *testing.T) string {
 	t.Helper()
-	name := "verify_sql10_" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + randomHex(t)
+	name := "verify_sql10v7_" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + randomHex(t)
 	if !sql10LiveNamePattern.MatchString(name) {
 		t.Fatalf("owned resource name %q does not match the required pattern", name)
 	}

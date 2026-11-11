@@ -22,11 +22,11 @@ import (
 	"strings"
 	"testing"
 
+	pgstore "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	pgstore "github.com/calypr/loom/internal/store/postgres"
 )
 
 const (

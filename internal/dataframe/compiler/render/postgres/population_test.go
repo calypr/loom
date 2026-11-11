@@ -252,7 +252,7 @@ func TestMembershipAllowlistsMatchMigrationsLiterally(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Fatalf("relation %q columns = %v, want %v", string(tc.table), got, tc.want)
 		}
-		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "explorer", "postgres", "migrations", tc.migration))
+		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "backends", "postgres", "internal", "explorer", "migrations", tc.migration))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.migration, err)
 		}

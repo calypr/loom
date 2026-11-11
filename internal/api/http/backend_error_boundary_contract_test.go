@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"net/http"
 	"strings"
 	"testing"
@@ -19,7 +20,6 @@ import (
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	arangostore "github.com/calypr/loom/internal/store/arango"
-	postgresstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -35,7 +35,7 @@ func classifiedArangoFailure(t *testing.T, driverErr error) error {
 
 func classifiedPostgresFailure(t *testing.T, driverErr error) error {
 	t.Helper()
-	translated, ok := postgresstore.TranslateError(fmt.Errorf("postgres rows: query: %w", driverErr))
+	translated, ok := postgres.TranslateError(fmt.Errorf("postgres rows: query: %w", driverErr))
 	if !ok {
 		t.Fatalf("boundary fixture was not classified: %v", driverErr)
 	}
@@ -135,8 +135,8 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		}
 		// PG boundary keeps the sentinel reachable and never marks a caller
 		// cancel retryable.
-		pgCanceled := fmt.Errorf("acquire: %w: %w", postgresstore.ErrConnect, context.Canceled)
-		translated, ok := postgresstore.TranslateError(pgCanceled)
+		pgCanceled := fmt.Errorf("acquire: %w: %w", postgres.ErrConnect, context.Canceled)
+		translated, ok := postgres.TranslateError(pgCanceled)
 		if !ok || !errors.Is(translated, context.Canceled) {
 			t.Fatalf("boundary lost cancellation identity: %v", translated)
 		}
@@ -152,7 +152,7 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 			Message:        `duplicate key value violates unique constraint "uq_cas_revision"`,
 			ConstraintName: "uq_cas_revision",
 		})
-		if errors.Is(translated, postgresstore.ErrUniqueConflict) {
+		if errors.Is(translated, postgres.ErrUniqueConflict) {
 			t.Fatal("unproven unique violation presented as domain conflict")
 		}
 		mapped := MapDataframeError(translated, "req-u")
@@ -170,25 +170,25 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		}
 		// A targeted CAS caller that proves the statement meaning can still
 		// upgrade it privately; the public mapping is unchanged either way.
-		if _, ok := postgresstore.AsUniqueConflict(translated); !ok {
+		if _, ok := postgres.AsUniqueConflict(translated); !ok {
 			t.Fatal("targeted upgrade path lost")
 		}
 	})
 
 	t.Run("ambiguous_commit_is_distinguishable_from_proven_rollback", func(t *testing.T) {
-		proven, ok := postgresstore.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
+		proven, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
 		if !ok {
 			t.Fatal("proven rollback not classified")
 		}
-		if errors.Is(proven, postgresstore.ErrCommitOutcomeUnknown) {
+		if errors.Is(proven, postgres.ErrCommitOutcomeUnknown) {
 			t.Fatal("proven rollback labeled ambiguous")
 		}
-		ambiguous, ok := postgresstore.TranslateCommitError(fmt.Errorf("commit: %w",
+		ambiguous, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w",
 			&pgconn.PgError{Code: "57P01", SeverityUnlocalized: "FATAL", Message: "terminating connection due to administrator command"}))
 		if !ok {
 			t.Fatal("mid-commit session death not classified")
 		}
-		if !errors.Is(ambiguous, postgresstore.ErrCommitOutcomeUnknown) {
+		if !errors.Is(ambiguous, postgres.ErrCommitOutcomeUnknown) {
 			t.Fatal("mid-commit session death must be outcome-unknown")
 		}
 		provenMapped := MapDataframeError(proven, "req-proven")
@@ -205,7 +205,7 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 
 	t.Run("serialization_conflicts_stay_policy_only", func(t *testing.T) {
 		translated := classifiedPostgresFailure(t, &pgconn.PgError{Code: "40001", SeverityUnlocalized: "ERROR", Message: "could not serialize access due to concurrent update"})
-		if !postgresstore.RetryableTransactionConflict(translated) {
+		if !postgres.RetryableTransactionConflict(translated) {
 			t.Fatal("operation policy recognition lost")
 		}
 		userErr, isUser := dataframeerrors.AsUserError(translated)

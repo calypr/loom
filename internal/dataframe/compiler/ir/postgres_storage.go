@@ -13,7 +13,7 @@ package ir
 // driver as ordered parameters instead.
 //
 // The allowlist mirrors exactly the tables created by the pg-store embedded
-// migrations (internal/store/postgres/migrations):
+// migrations (internal/backends/postgres/internal/store/migrations):
 //
 //	000002_fhir_resource.sql     -> PostgresResourceLogicalTable
 //	000004_edge_occurrence.sql   -> PostgresEdgeOccurrenceLogicalTable
@@ -36,7 +36,7 @@ import (
 var ErrUnregisteredPostgresIdentifier = errors.New("unregistered postgres identifier")
 
 // postgresSchemaNamePattern is the same schema-name contract the pg-store
-// repositories enforce (internal/store/postgres schemaNamePattern): a
+// repositories enforce (internal/backends/postgres/internal/store schemaNamePattern): a
 // lowercase owner-chosen schema name. Validation here means a schema name
 // that survived construction can be emitted quoted without quoting rules
 // having to defend against embedded quotes.

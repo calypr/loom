@@ -2,7 +2,7 @@ package ingest
 
 // Real-PostgreSQL acceptance tests for the ingest-layer PostgreSQL resource
 // writer (pg-ingest-01; check-2:
-// go test ./internal/ingest ./internal/store/postgres -run PostgresResourceWriter -count=1).
+// go test ./internal/ingest ./internal/backends/postgres/internal/store -run PostgresResourceWriter -count=1).
 //
 // These tests drive the real PostgresResourceWriter against the PostgreSQL
 // 18 service named by LOOM_TEST_POSTGRES_URL. Rows are built by the real
@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	postgres "github.com/calypr/loom/internal/backends/postgres"
 	"net/url"
 	"os"
 	"reflect"
@@ -47,7 +48,6 @@ import (
 
 	"github.com/bmeg/jsonschemagraph/graph"
 	"github.com/calypr/loom/internal/source"
-	postgresstore "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -220,14 +220,14 @@ func newIngest01IngestService(t *testing.T) *ing01IngestService {
 func (s *ing01IngestService) migrate(t *testing.T) {
 	t.Helper()
 	client := s.openClient(t, 4)
-	if _, err := postgresstore.MigrateSchema(s.ctx, client, s.schema); err != nil {
+	if _, err := postgres.MigrateSchema(s.ctx, client, s.schema); err != nil {
 		s.fail("MigrateSchema", err)
 	}
 }
 
-func (s *ing01IngestService) openClient(t *testing.T, maxConns int32) *postgresstore.Client {
+func (s *ing01IngestService) openClient(t *testing.T, maxConns int32) *postgres.Client {
 	t.Helper()
-	client, err := postgresstore.Open(s.ctx, postgresstore.Config{
+	client, err := postgres.OpenPool(s.ctx, postgres.ClientConfig{
 		DSN:            s.dsn,
 		MaxConns:       maxConns,
 		MinConns:       0,
@@ -240,7 +240,7 @@ func (s *ing01IngestService) openClient(t *testing.T, maxConns int32) *postgress
 	return client
 }
 
-func (s *ing01IngestService) openAppClient(t *testing.T, app string, maxConns int32) *postgresstore.Client {
+func (s *ing01IngestService) openAppClient(t *testing.T, app string, maxConns int32) *postgres.Client {
 	t.Helper()
 	u, err := url.Parse(s.dsn)
 	if err != nil {
@@ -249,7 +249,7 @@ func (s *ing01IngestService) openAppClient(t *testing.T, app string, maxConns in
 	q := u.Query()
 	q.Set("application_name", app)
 	u.RawQuery = q.Encode()
-	client, err := postgresstore.Open(s.ctx, postgresstore.Config{
+	client, err := postgres.OpenPool(s.ctx, postgres.ClientConfig{
 		DSN:            u.String(),
 		MaxConns:       maxConns,
 		MinConns:       0,
@@ -262,7 +262,7 @@ func (s *ing01IngestService) openAppClient(t *testing.T, app string, maxConns in
 	return client
 }
 
-func (s *ing01IngestService) newWriterOn(t *testing.T, src postgresstore.ConnSource) *PostgresResourceWriter {
+func (s *ing01IngestService) newWriterOn(t *testing.T, src postgres.ConnSource) *PostgresResourceWriter {
 	t.Helper()
 	writer, err := NewPostgresResourceWriter(src, s.schema)
 	if err != nil {
@@ -352,7 +352,7 @@ func (s *ing01IngestService) scopeFingerprint(t *testing.T, project, generation 
 	return fp
 }
 
-func (s *ing01IngestService) poolBackendPID(t *testing.T, client *postgresstore.Client) int64 {
+func (s *ing01IngestService) poolBackendPID(t *testing.T, client *postgres.Client) int64 {
 	t.Helper()
 	conn, err := client.Acquire(s.ctx)
 	if err != nil {
@@ -540,15 +540,15 @@ func dropField(t *testing.T, built rowBuildResult, field string) rowBuildResult 
 type ing01Recorder struct {
 	mu      sync.Mutex
 	calls   int
-	batches []postgresstore.ResourceBatch
+	batches []postgres.ResourceBatch
 }
 
-func (r *ing01Recorder) WriteResourceBatch(_ context.Context, batch postgresstore.ResourceBatch) (postgresstore.ResourceBatchResult, error) {
+func (r *ing01Recorder) WriteResourceBatch(_ context.Context, batch postgres.ResourceBatch) (postgres.ResourceBatchResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls++
 	r.batches = append(r.batches, batch)
-	return postgresstore.ResourceBatchResult{
+	return postgres.ResourceBatchResult{
 		BatchID:   batch.ID,
 		Digest:    "recorder-digest",
 		Committed: int64(len(batch.Rows)),
@@ -561,7 +561,7 @@ func (r *ing01Recorder) callCount() int {
 	return r.calls
 }
 
-func (r *ing01Recorder) lastBatch(t *testing.T) postgresstore.ResourceBatch {
+func (r *ing01Recorder) lastBatch(t *testing.T) postgres.ResourceBatch {
 	t.Helper()
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -668,7 +668,7 @@ func TestPostgresResourceWriterBatchContentMatchesLiteralCommittedBatch(t *testi
 	// ordered typed columns, the canonical encoding of each payload
 	// document (sorted keys, compact, numeric literals verbatim), and a
 	// nil payload for the absent key.
-	want := postgresstore.ResourceBatch{
+	want := postgres.ResourceBatch{
 		ID:                "ing01-ing/capture/0",
 		Project:           ing01IngestProject,
 		DatasetGeneration: ing01IngestGen,
@@ -842,11 +842,11 @@ func TestPostgresResourceWriterDuplicateNaturalIdentityDifferentPayloadRefused(t
 	secondScope := scope
 	secondScope.BatchID = "ing01-ing/dup/second"
 	_, err := writer.WriteResourceBatch(s.ctx, secondScope, second)
-	var conflict *postgresstore.BatchResourceConflictError
+	var conflict *postgres.BatchResourceConflictError
 	if !errors.As(err, &conflict) {
 		s.fail("duplicate payload batch", fmt.Errorf("err = %v, want *postgres.BatchResourceConflictError", err))
 	}
-	if !errors.Is(err, postgresstore.ErrBatchRowConflict) {
+	if !errors.Is(err, postgres.ErrBatchRowConflict) {
 		t.Fatalf("err does not match ErrBatchRowConflict: %v", err)
 	}
 	if conflict.InBatch || conflict.ResourceType != "ResearchSubject" || conflict.LogicalID != "research-subject-1" ||
@@ -901,8 +901,8 @@ type ing01Refusal struct {
 }
 
 func ing01RefusalCases(t *testing.T, goodScope PGResourceBatchScope, goodRows []rowBuildResult) []ing01Refusal {
-	overCapacity := make([]rowBuildResult, 0, postgresstore.MaxBatchResources+1)
-	for i := 0; i <= postgresstore.MaxBatchResources; i++ {
+	overCapacity := make([]rowBuildResult, 0, postgres.MaxBatchResources+1)
+	for i := 0; i <= postgres.MaxBatchResources; i++ {
 		overCapacity = append(overCapacity, handBuiltVertex(
 			ing01IngestProject, ing01IngestGen, "Observation", fmt.Sprintf("over-%d", i), ing01IngestAuth,
 			`{"resourceType":"Observation","id":"over"}`, nil))
@@ -912,7 +912,7 @@ func ing01RefusalCases(t *testing.T, goodScope PGResourceBatchScope, goodRows []
 			scope: PGResourceBatchScope{BatchID: " ", Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
 			rows:  goodRows, scopeErr: true, field: "batch id", contains: "blank"},
 		{name: "over-long batch id",
-			scope: PGResourceBatchScope{BatchID: strings.Repeat("x", postgresstore.MaxBatchIDLength+1), Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
+			scope: PGResourceBatchScope{BatchID: strings.Repeat("x", postgres.MaxBatchIDLength+1), Project: ing01IngestProject, DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
 			rows:  goodRows, scopeErr: true, field: "batch id", contains: "at most 255"},
 		{name: "blank project",
 			scope: PGResourceBatchScope{BatchID: "ing01-ing/refuse/project", Project: " ", DatasetGeneration: ing01IngestGen, AuthResourcePath: ing01IngestAuth},
@@ -1541,14 +1541,14 @@ func newIngest02IngestService(t *testing.T) *ing02IngestService {
 func (s *ing02IngestService) migrate(t *testing.T) {
 	t.Helper()
 	client := s.openClient(t, 4)
-	if _, err := postgresstore.MigrateSchema(s.ctx, client, s.schema); err != nil {
+	if _, err := postgres.MigrateSchema(s.ctx, client, s.schema); err != nil {
 		s.fail("MigrateSchema", err)
 	}
 }
 
-func (s *ing02IngestService) openClient(t *testing.T, maxConns int32) *postgresstore.Client {
+func (s *ing02IngestService) openClient(t *testing.T, maxConns int32) *postgres.Client {
 	t.Helper()
-	client, err := postgresstore.Open(s.ctx, postgresstore.Config{
+	client, err := postgres.OpenPool(s.ctx, postgres.ClientConfig{
 		DSN:            s.dsn,
 		MaxConns:       maxConns,
 		MinConns:       0,
@@ -1561,7 +1561,7 @@ func (s *ing02IngestService) openClient(t *testing.T, maxConns int32) *postgress
 	return client
 }
 
-func (s *ing02IngestService) openAppClient(t *testing.T, app string, maxConns int32) *postgresstore.Client {
+func (s *ing02IngestService) openAppClient(t *testing.T, app string, maxConns int32) *postgres.Client {
 	t.Helper()
 	u, err := url.Parse(s.dsn)
 	if err != nil {
@@ -1570,7 +1570,7 @@ func (s *ing02IngestService) openAppClient(t *testing.T, app string, maxConns in
 	q := u.Query()
 	q.Set("application_name", app)
 	u.RawQuery = q.Encode()
-	client, err := postgresstore.Open(s.ctx, postgresstore.Config{
+	client, err := postgres.OpenPool(s.ctx, postgres.ClientConfig{
 		DSN:            u.String(),
 		MaxConns:       maxConns,
 		MinConns:       0,
@@ -1583,7 +1583,7 @@ func (s *ing02IngestService) openAppClient(t *testing.T, app string, maxConns in
 	return client
 }
 
-func (s *ing02IngestService) newEdgeWriterOn(t *testing.T, src postgresstore.ConnSource) *PostgresEdgeWriter {
+func (s *ing02IngestService) newEdgeWriterOn(t *testing.T, src postgres.ConnSource) *PostgresEdgeWriter {
 	t.Helper()
 	writer, err := NewPostgresEdgeWriter(src, s.schema)
 	if err != nil {
@@ -1687,7 +1687,7 @@ func (s *ing02IngestService) edgeFingerprint(t *testing.T, project, generation s
 	return fp
 }
 
-func (s *ing02IngestService) poolBackendPID(t *testing.T, client *postgresstore.Client) int64 {
+func (s *ing02IngestService) poolBackendPID(t *testing.T, client *postgres.Client) int64 {
 	t.Helper()
 	conn, err := client.Acquire(s.ctx)
 	if err != nil {
@@ -1796,15 +1796,15 @@ func ing02LegacyRefRow(t *testing.T) rowBuildResult {
 type ing02Recorder struct {
 	mu      sync.Mutex
 	calls   int
-	batches []postgresstore.EdgeBatch
+	batches []postgres.EdgeBatch
 }
 
-func (r *ing02Recorder) WriteEdgeBatch(_ context.Context, batch postgresstore.EdgeBatch) (postgresstore.EdgeBatchResult, error) {
+func (r *ing02Recorder) WriteEdgeBatch(_ context.Context, batch postgres.EdgeBatch) (postgres.EdgeBatchResult, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls++
 	r.batches = append(r.batches, batch)
-	return postgresstore.EdgeBatchResult{
+	return postgres.EdgeBatchResult{
 		BatchID:   batch.ID,
 		Digest:    "recorder-digest",
 		Committed: int64(len(batch.Rows)),
@@ -1817,7 +1817,7 @@ func (r *ing02Recorder) callCount() int {
 	return r.calls
 }
 
-func (r *ing02Recorder) lastBatch(t *testing.T) postgresstore.EdgeBatch {
+func (r *ing02Recorder) lastBatch(t *testing.T) postgres.EdgeBatch {
 	t.Helper()
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1846,17 +1846,17 @@ const (
 	ing02KeyGenSubjectRev   = "e9a7804a-a8d3-5d34-a32d-789c9a8946fa"
 )
 
-func ing02ExpectedOccurrences(authPath string) []postgresstore.EdgeOccurrenceRow {
-	mk := func(label, srcType, srcID, tgtType, tgtID, path string, ord int64, key string) postgresstore.EdgeOccurrenceRow {
+func ing02ExpectedOccurrences(authPath string) []postgres.EdgeOccurrenceRow {
+	mk := func(label, srcType, srcID, tgtType, tgtID, path string, ord int64, key string) postgres.EdgeOccurrenceRow {
 		k := key
-		return postgresstore.EdgeOccurrenceRow{
+		return postgres.EdgeOccurrenceRow{
 			Project: ing02IngestProject, DatasetGeneration: ing02IngestGen, AuthResourcePath: authPath,
 			Label: label, SourceResourceType: srcType, SourceLogicalID: srcID,
 			TargetResourceType: tgtType, TargetLogicalID: tgtID,
 			SourcePath: path, SourceOrdinal: ord, LogicalEdgeKey: &k,
 		}
 	}
-	return []postgresstore.EdgeOccurrenceRow{
+	return []postgres.EdgeOccurrenceRow{
 		mk("focus_Observation", "Observation", "obs-generic", "Observation", "focus-1", "focus", 0, ing02KeyGenericFocusFwd),
 		mk("focus_Observation", "Observation", "obs-generic", "Observation", "focus-1", "focus", 1, ing02KeyGenericFocusFwd),
 		mk("focus_observation", "Observation", "focus-1", "Observation", "obs-generic", "focus", 0, ing02KeyGenericFocusRev),
@@ -1931,8 +1931,8 @@ func TestPostgresEdgeWriterPersistsOccurrencesEndToEndWithExactRows(t *testing.T
 	mutated := ing02DupFocusRows(t, ing02IngestAuth)
 	mutated[1] = buildGeneratedRow(t, ing02IngestProject, ing02IngestGen, ing02IngestAuth, "Observation", mutatedLine)
 	_, err = edgeWriter.WriteEdgeBatch(s.ctx, edgeScope, mutated)
-	var conflict *postgresstore.BatchIdentityConflictError
-	if !errors.As(err, &conflict) || !errors.Is(err, postgresstore.ErrBatchIdentityConflict) {
+	var conflict *postgres.BatchIdentityConflictError
+	if !errors.As(err, &conflict) || !errors.Is(err, postgres.ErrBatchIdentityConflict) {
 		t.Fatalf("mutated replay under the golden identity = %v, want *BatchIdentityConflictError", err)
 	}
 	if conflict.LedgerDigest != ing02DupBatchDigest || conflict.ProvidedDigest == ing02DupBatchDigest {
@@ -2036,16 +2036,16 @@ func TestPostgresEdgeWriterTargetResolutionIsScopeExact(t *testing.T) {
 	scopeRes("decoy", "gen-decoy", []rowBuildResult{decoyVertex})
 	scopeEdges("decoy", "gen-decoy", []rowBuildResult{decoyRow})
 
-	repo, err := postgresstore.NewEdgeRepository(s.openClient(t, 2), s.schema)
+	repo, err := postgres.NewEdgeRepository(s.openClient(t, 2), s.schema)
 	if err != nil {
 		s.fail("new edge repository", err)
 	}
 	unrestricted := true
-	ownScope := postgresstore.EdgeScope{
+	ownScope := postgres.EdgeScope{
 		Project: ing02IngestProject, DatasetGeneration: ing02IngestGen,
 		AuthResourcePathsUnrestricted: &unrestricted,
 	}
-	decoyScope := postgresstore.EdgeScope{
+	decoyScope := postgres.EdgeScope{
 		Project: ing02IngestProject, DatasetGeneration: "gen-decoy",
 		AuthResourcePathsUnrestricted: &unrestricted,
 	}
@@ -2118,8 +2118,8 @@ func TestPostgresEdgeWriterMissingSourceBatchPersistsNothing(t *testing.T) {
 	// No resource rows committed at all: the edge batch must be refused
 	// with the typed source-missing error and persist nothing.
 	res, err := s.newEdgeWriter(t).WriteEdgeBatch(s.ctx, edgeScope, rows)
-	var missing *postgresstore.EdgeSourceMissingError
-	if !errors.As(err, &missing) || !errors.Is(err, postgresstore.ErrEdgeSourceMissing) {
+	var missing *postgres.EdgeSourceMissingError
+	if !errors.As(err, &missing) || !errors.Is(err, postgres.ErrEdgeSourceMissing) {
 		t.Fatalf("unseeded WriteEdgeBatch = %v, want *EdgeSourceMissingError", err)
 	}
 	if res.Committed != 0 || res.SkippedIdentical != 0 || res.Replay {
@@ -2184,7 +2184,7 @@ func TestPostgresEdgeWriterPartialSourceLossRollsBackWholeBatch(t *testing.T) {
 		BatchID: "ing02-ing/rollback", Project: ing02IngestProject,
 		DatasetGeneration: ing02IngestGen, AuthResourcePath: ing02IngestAuth,
 	}, rows)
-	var missing *postgresstore.EdgeSourceMissingError
+	var missing *postgres.EdgeSourceMissingError
 	if !errors.As(err, &missing) {
 		t.Fatalf("mixed batch = %v, want *EdgeSourceMissingError", err)
 	}
@@ -2307,7 +2307,7 @@ func TestPostgresEdgeWriterRefusalMatrix(t *testing.T) {
 		},
 		{
 			name: "overlong batch id", rows: []rowBuildResult{legacy()},
-			scope:        ing02LegacyScope(strings.Repeat("x", postgresstore.MaxBatchIDLength+1)),
+			scope:        ing02LegacyScope(strings.Repeat("x", postgres.MaxBatchIDLength+1)),
 			controlScope: ing02LegacyScope("ing02-ing/matrix/longid/control"),
 			controlRows:  []rowBuildResult{legacy()},
 			scopeErr:     true, wantField: "batch id", wantReason: "want at most",
@@ -2515,9 +2515,9 @@ func TestPostgresEdgeWriterRefusalMatrix(t *testing.T) {
 		},
 		{
 			name:        "edge capacity exceeded",
-			rows:        []rowBuildResult{bigHandBuiltRow(t, postgresstore.MaxBatchEdges+1)},
+			rows:        []rowBuildResult{bigHandBuiltRow(t, postgres.MaxBatchEdges+1)},
 			scope:       ing02LegacyScope("ing02-ing/matrix/edge-capacity"),
-			controlRows: []rowBuildResult{bigHandBuiltRow(t, postgresstore.MaxBatchEdges)},
+			controlRows: []rowBuildResult{bigHandBuiltRow(t, postgres.MaxBatchEdges)},
 			scopeErr:    true, wantField: "rows", wantReason: "want at most",
 		},
 	}
