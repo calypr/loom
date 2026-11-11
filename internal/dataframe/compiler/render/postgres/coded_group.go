@@ -19,10 +19,10 @@ package postgres
 // :606-626). The registered mapping:
 //
 //   - The source region (root scan, canonical scope, typed FILTERs,
-//     canonical auth LET, parent-grain SET, SORT/LIMIT window) renders
-//     through the UNTOUCHED spine arms — loadScope, renderRootScan,
+//     canonical auth LET, SORT/LIMIT window) renders through the
+//     UNTOUCHED spine arms — loadScope, renderRootScan,
 //     acceptCanonicalScopeFilter/renderFilter (which owns
-//     rejectOptionalRowReferences), acceptCanonicalAuthLet, renderSet,
+//     rejectOptionalRowReferences), acceptCanonicalAuthLet,
 //     renderWindowSort/renderWindowLimit (W1) — assembled as
 //     "WITH cg_src AS (…)". The AQL inline door also renders the full
 //     source and discards only the terminal projection
@@ -214,6 +214,42 @@ package postgres
 //     with another InputStageID is a typed refusal. Dependency note per
 //     the ruling: if a future probe finds this shape reachable, it is
 //     pg-sql-16 territory (L-19.1), not a new refusal surface here.
+//   - L-19.4 REGISTERED NAMED DIVERGENCE — renders-at-AQL/
+//     PG-typed-refused (coordinator F-3 ruling 2026-11-11,
+//     "PROBE FIRST, no silent divergence either direction").
+//     SET in the coded-group source region is whitelisted by lowering
+//     (lower/recipe_construction_coded_group.go:176-179) and rendered
+//     inline by AQL, so the probe decision was forced. Probe
+//     (logs/pg19-f3-set-reachability.log, disposable legs archived at
+//     artifacts/loom-experiment-144/probes/): a real
+//     recipe.Parse→semantic→lower document with a traversal child emits
+//     SET in the source region (setOps=1, ops
+//     [ROOT_SCAN FILTER FILTER DERIVED_LET FILTER SET RETURN]) and the
+//     AQL control renders it (err=nil). But no configuration renders it
+//     on PostgreSQL: under the production default policy
+//     endpoint_traversal is on and every registered route has a proven
+//     direction (generated/fhirschema Traversals;
+//     lower/storage_route.go:50-60), so the child-set subplan carries
+//     ENDPOINT_LOOKUP and is refused at the registered gate
+//     traversal.go:141; the REQUIRED variant is additionally refused
+//     its non-Expression required-match filter at sets.go:236; with the
+//     endpoint rule dev-disabled (LOOM_PHYSICAL_RULE_ENDPOINT_TRAVERSAL
+//     =off, a developer switch, not a user surface — same non-user
+//     attribution as L-19.2) the subplan is NATIVE but the child-set
+//     argument wiring emits an unreferenced placeholder, refused by the
+//     argument-integrity guard. So the whitelist arm renders nothing in
+//     any configuration and is refused fail-closed at the door naming
+//     pg-sql-16 as the enabling ticket (registering the PostgreSQL
+//     contracts the probe located missing); corroborated by the merged
+//     sets.go:82-95 finding "No current lowering output reaches the
+//     hop-only renderer". The AQL inline render stays — this is a
+//     named cross-target divergence, not an AQL regression.
+//     Load-bearing proof: TestCodedGroupIRSetAliveControl builds the
+//     lowering-emitted shape through the real producer channel
+//     (plan.Validate passes) and pins the refusal cell-verbatim at both
+//     the entry and the door; arm-removal sabotage RED banked at
+//     logs/pg19-set-arm-removal-red.log. Fail-closed is zero SQL, zero
+//     side effects: TestCodedGroupIRSetLiveZeroSideEffects.
 //   - Population / cohort / candidate-seed roots: registered gap naming
 //     population.go (pg-sql-18): the constructor-only
 //     PostgresPopulationRootBinding makes RenderPopulationRootScan the
@@ -221,7 +257,8 @@ package postgres
 //     path (this door included) never carries one.
 //   - TRAVERSAL, UNNEST, UNPIVOT, PATH_*, COLLECTION/KEY-SET/DOCUMENT
 //     scans, EXPRESSION_LET, or any operation kind outside [ROOT_SCAN,
-//     FILTER, canonical-DERIVED_LET, SET, SORT, LIMIT, RETURN]:
+//     FILTER, canonical-DERIVED_LET, SORT, LIMIT, RETURN] (SET has its
+//     own entry, L-19.4):
 //     probe-attested production-unreachable for a CODED_GROUP plan —
 //     lowering's own uniqueness gate refuses cardinality-changing
 //     operations before a stage is ever built
@@ -478,7 +515,8 @@ func validateCodedGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[
 
 // validateCodedGroupOperations pins the source region to the shapes the
 // spine arms render: one leading direct ROOT_SCAN, FILTER / canonical
-// DERIVED_LET / SET operations before the window, at most one SORT and one
+// DERIVED_LET operations before the window (SET is refused outright,
+// L-19.4), at most one SORT and one
 // LIMIT (the merged spine pairing, W1), and one terminal RETURN.
 // Everything outside is a registered refusal (see the file-header register
 // for the reachability citations).
@@ -503,7 +541,7 @@ func validateCodedGroupOperations(plan ir.PhysicalPlan) error {
 			if index != 0 {
 				return fmt.Errorf("%w: exactly one leading ROOT_SCAN is required", ErrUnsupportedPostgresPlan)
 			}
-		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalSetOp:
+		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp:
 			if sawSort || sawLimit || sawReturn {
 				return fmt.Errorf("%w: source operations must precede the execution window and the terminal RETURN",
 					ErrUnsupportedPostgresPlan)
@@ -514,9 +552,22 @@ func validateCodedGroupOperations(plan ir.PhysicalPlan) error {
 			if operation.Kind == ir.PhysicalDerivedLetOp && operation.DerivedLet == nil {
 				return fmt.Errorf("%w: operation %d: derived-let payload is missing", ErrUnsupportedPostgresPlan, index)
 			}
-			if operation.Kind == ir.PhysicalSetOp && operation.Set == nil {
-				return fmt.Errorf("%w: operation %d: set payload is missing", ErrUnsupportedPostgresPlan, index)
-			}
+		case ir.PhysicalSetOp:
+			// Registered named divergence L-19.4: production lowering DOES
+			// mint SET in the coded-group source region (probe: real
+			// recipe→semantic→lower, setOps=1), but every lowering-emitted
+			// child-set subplan is refused before rendering — the default
+			// policy gives every registered route the endpoint-lookup
+			// strategy (traversal.go:141 gate) or a non-Expression
+			// required-match filter (sets.go:236 gate), and with the
+			// endpoint rule dev-disabled the child-set argument wiring
+			// renders unreferenced placeholders (caught by the
+			// argument-integrity guard). No configuration renders this
+			// shape, so the whitelist arm is refused fail-closed at the
+			// door; AQL renders it inline (probe: AQL control err=nil).
+			// Evidence: logs/pg19-f3-set-reachability.log.
+			return fmt.Errorf("%w: coded-group source-region SET is a pg-sql-16 capability gap (no PostgreSQL contract for lowering-emitted child-set subplans; probe-attested L-19.4) and is refused, never partially rendered",
+				ErrUnsupportedPostgresPlan)
 		case ir.PhysicalSortOp:
 			if sawSort || sawLimit || sawReturn {
 				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
@@ -584,10 +635,6 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 			if !canonical {
 				return "", fmt.Errorf("%w: operation %q is not part of the registered coded-group source surface",
 					ErrUnsupportedPostgresPlan, string(operation.Kind))
-			}
-		case ir.PhysicalSetOp:
-			if err := r.renderSet(plan, *operation.Set); err != nil {
-				return "", err
 			}
 		}
 	}

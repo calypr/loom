@@ -425,6 +425,23 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 			pin: "coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered",
 		},
 		{
+			// Registered named divergence L-19.4 (coordinator F-3
+			// ruling): lowering EMITs SET in the source region (probe:
+			// logs/pg19-f3-set-reachability.log) and AQL renders it
+			// inline; no PostgreSQL configuration can render the
+			// lowering-emitted child-set subplan, so the door refuses
+			// fail-closed. The producer-channel pin is
+			// TestCodedGroupIRSetAliveControl.
+			name: "source_region_set_pg_sql_16_gap",
+			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
+				last := len(plan.Operations) - 1
+				plan.Operations = append(plan.Operations[:last],
+					ir.PhysicalOperation{Kind: ir.PhysicalSetOp},
+					plan.Operations[last])
+			},
+			pin: "coded-group source-region SET is a pg-sql-16 capability gap (no PostgreSQL contract for lowering-emitted child-set subplans; probe-attested L-19.4) and is refused, never partially rendered",
+		},
+		{
 			name: "occurrence_must_be_base",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				plan.BindVars[plan.StageSequence.Stages[0].CodedGroup.OccurrenceIDBindKey] = "v2"
@@ -780,6 +797,159 @@ func coded19Inventory(t *testing.T, svc *pgir02Service) string {
 	resourceRows := svc.witness(t,
 		`SELECT count(*), coalesce(md5(string_agg(payload::text, ',' ORDER BY resource_seq)), '') FROM "`+svc.schema+`"."fhir_resource"`)
 	return strings.Join([]string{fmt.Sprint(tables), fmt.Sprint(resourceRows)}, "|")
+}
+
+// ---------------------------------------------------------------------------
+// Registered named divergence L-19.4 (coordinator F-3 ruling 2026-11-11,
+// "PROBE FIRST, no silent divergence either direction"): SET in the
+// coded-group source region. The forced probe (real
+// recipe.Parse→semantic→lower, logs/pg19-f3-set-reachability.log,
+// disposable legs archived at artifacts/loom-experiment-144/probes/)
+// shows lowering EMITs the shape (setOps=1) and AQL renders it inline
+// (AQL control err=nil), but NO PostgreSQL configuration renders the
+// lowering-emitted child-set subplan: the production default policy
+// gives it ENDPOINT_LOOKUP (refused at traversal.go:141; the REQUIRED
+// variant additionally fails the non-Expression required-match filter
+// at sets.go:236), and with the endpoint rule dev-disabled the child-set
+// argument wiring emits an unreferenced placeholder, refused by the
+// argument-integrity guard. So the baseline SET whitelist
+// (lower/recipe_construction_coded_group.go:176-179) is refused
+// fail-closed at this door naming pg-sql-16 as the enabling ticket —
+// never partially rendered, zero SQL, zero side effects. Corroboration:
+// the merged sets.go:82-95 finding "No current lowering output reaches
+// the hop-only renderer". The arm-removal sabotage RED is banked at
+// logs/pg19-set-arm-removal-red.log.
+// ---------------------------------------------------------------------------
+
+// coded19SetRefusalMessage is the cell-verbatim L-19.4 refusal.
+const coded19SetRefusalMessage = "postgres renderer: unsupported physical plan: coded-group source-region SET is a pg-sql-16 capability gap (no PostgreSQL contract for lowering-emitted child-set subplans; probe-attested L-19.4) and is refused, never partially rendered"
+
+// coded19SetInSourceRegionPlan replays the banked F-3 probe through the
+// real producer channel: a recipe document whose only child traversal
+// feeds the CODED_GROUP source, lowering a SET into the source region.
+func coded19SetInSourceRegionPlan(t *testing.T, required bool) ir.PhysicalPlan {
+	t.Helper()
+	match := ""
+	if required {
+		match = `"matchMode":"REQUIRED",`
+	}
+	doc := `{"recipeSchemaVersion":1,"name":"coded_group_rows","translationVersion":"test","outputs":[{
+	 "name":"coded_group_rows","rootResourceType":"Observation","rowGrain":"resource",
+	 "fields":[{"name":"resource_id","columnId":"resource_id","expr":{"select":"root.id"}}],
+	 "traversals":[{"name":"subject_Patient","alias":"occ_parent","toResourceType":"Patient",` + match + `"fields":[{"name":"subject_gender","columnId":"subject_gender","expr":{"select":"occ_parent.gender"}}]}],
+	 "construction":{"version":1,
+	 "sourceColumns":[{"id":"resource_id","name":"resource_id"},{"id":"occ_parent__subject_gender","name":"occ_parent__subject_gender"}],
+	 "steps":[{"id":"group_codes","inputs":[{"kind":"SOURCE_PROJECTION"}],
+	  "operation":{"kind":"CODED_GROUP","codedGroup":{
+	   "constructionId":"group_codes",
+	   "source":{"occurrenceId":"base","resourceType":"Observation","codingPath":"component[].code.coding[]","fhirType":"Coding","cardinality":"MANY","shape":"ARRAY","route":[]},
+	   "missingKeyPolicy":"GROUP",
+	   "systemOutputColumnId":"system_id","versionOutputColumnId":"version_id","codeOutputColumnId":"code_id","distinctSourceCountOutputColumnId":"count_id"}},
+	  "outputs":[
+	   {"id":"system_id","name":"code_system","type":"string","nullable":true},
+	   {"id":"version_id","name":"code_version","type":"string","nullable":true},
+	   {"id":"code_id","name":"code","type":"string","nullable":true},
+	   {"id":"count_id","name":"source_records","type":"integer"}]}]}}]}`
+	parsed, err := recipe.Parse([]byte(doc))
+	if err != nil {
+		t.Fatalf("recipe.Parse (probe-banked document): %v", err)
+	}
+	bindings := recipe.RuntimeBindings{Project: coded19Project, DatasetGeneration: coded19Generation, AuthResourcePaths: []string{"FHIR/Observation"}}
+	plan, err := semantic.BuildRecipePlan(parsed, bindings)
+	if err != nil {
+		t.Fatalf("BuildRecipePlan: %v", err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, bindings.Project, bindings.DatasetGeneration)
+	if err != nil {
+		t.Fatalf("ResolveRecipePlan: %v", err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("lower.CompileResolvedRecipePlan (the whitelist emits SET): %v", err)
+	}
+	lowered := compiled.Outputs[0].Plan
+	setOps := 0
+	for _, operation := range lowered.Operations {
+		if operation.Kind == ir.PhysicalSetOp {
+			setOps++
+		}
+	}
+	if setOps != 1 {
+		t.Fatalf("the probe-banked document must lower exactly one source-region SET, got %d", setOps)
+	}
+	return ir.ClonePhysicalPlan(lowered)
+}
+
+// TestCodedGroupIRSetAliveControl is the L-19.4 load-bearing assertion:
+// the producer channel ACCEPTs and EMITs the shape (plan.Validate
+// passes, the default policy stamps the child-set traversal
+// ENDPOINT_LOOKUP — the exact probe finding), so the ONLY thing standing
+// between it and a rendered statement is this renderer's fail-closed
+// arm. Removing the arm must turn the register cell and this test RED —
+// evidence banked at logs/pg19-set-arm-removal-red.log.
+func TestCodedGroupIRSetAliveControl(t *testing.T) {
+	for _, required := range []bool{false, true} {
+		plan := coded19SetInSourceRegionPlan(t, required)
+		if err := plan.Validate(); err != nil {
+			t.Fatalf("required=%v: the producer channel must accept this shape (probe-banked EMIT): %v", required, err)
+		}
+		strategies := map[ir.PhysicalTraversalStrategy]bool{}
+		for _, operation := range plan.Operations {
+			if operation.Kind != ir.PhysicalSetOp || operation.Set == nil {
+				continue
+			}
+			for _, sub := range operation.Set.Subplan.Operations {
+				if sub.Kind == ir.PhysicalTraversalOp && sub.Traversal != nil {
+					strategies[sub.Traversal.Strategy] = true
+				}
+			}
+		}
+		if !strategies[ir.PhysicalTraversalEndpointLookup] {
+			t.Fatalf("required=%v: the probe pinned the default policy to stamp ENDPOINT_LOOKUP on the child-set subplan, got %v", required, strategies)
+		}
+		for label, render := range map[string]func(ir.PhysicalPlan, ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error){
+			"entry": RenderPhysicalPlan,
+			"door":  renderCodedGroupPhysicalPlan,
+		} {
+			rendered, err := render(ir.ClonePhysicalPlan(plan), mustBinding(t))
+			if err == nil {
+				t.Fatalf("required=%v %s rendered the refused SET shape — the fail-closed arm is not load-bearing:\n%s", required, label, rendered.SQL)
+			}
+			if !errors.Is(err, ErrUnsupportedPostgresPlan) {
+				t.Fatalf("required=%v %s error = %v (%T), want ErrUnsupportedPostgresPlan", required, label, err, err)
+			}
+			if err.Error() != coded19SetRefusalMessage {
+				t.Fatalf("required=%v %s refusal message must be cell-verbatim:\n got %q\nwant %q", required, label, err.Error(), coded19SetRefusalMessage)
+			}
+		}
+	}
+}
+
+// TestCodedGroupIRSetLiveZeroSideEffects is the live proof on the owned
+// coded19_it_* namespace: the refusal happens BEFORE any SQL is
+// produced, so a refused SET-in-source-region plan touches the
+// PostgreSQL service not at all.
+func TestCodedGroupIRSetLiveZeroSideEffects(t *testing.T) {
+	svc := newCoded19Service(t)
+	coded19TrackFixtures(t, svc)
+	coded19Insert(t, svc, "stw-1", coded19Project, coded19Generation, "FHIR/Observation", codingPayload(coding("sys-stw", "", "kept")))
+
+	plan := coded19SetInSourceRegionPlan(t, false)
+
+	before := coded19Inventory(t, svc)
+	rendered, err := RenderPhysicalPlan(plan, bindingFor(t, svc.schema))
+	if err == nil || err.Error() != coded19SetRefusalMessage {
+		t.Fatalf("refusal required before any SQL; got rendered=%v err=%v", rendered.SQL, err)
+	}
+	if rendered.SQL != "" || len(rendered.Args) != 0 || len(rendered.OutputColumns) != 0 {
+		t.Fatalf("a refused plan must carry zero SQL, zero parameters, zero columns: %#v", rendered)
+	}
+	if after := coded19Inventory(t, svc); after != before {
+		t.Fatalf("the refused SET plan changed service state:\n before %q\n after  %q", before, after)
+	}
+	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, coded19Project); rows[0][0] != "1" {
+		t.Fatalf("alive witness: %v, want the single inserted row", rows)
+	}
 }
 
 // TestCodedGroupTrimSetStructuralLaw enforces the single-trim-set law: the
