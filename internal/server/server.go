@@ -1200,6 +1200,24 @@ func (c postgreSQLFirstQueryRecipeControl) Run(ctx context.Context, name string,
 	return c.Control.Run(ctx, name, bindings)
 }
 
+// postgreSQLFirstQueryDataframeReleases keeps the dataframe-release read
+// port explicitly unavailable: server-side activation switches a dataframe
+// publication pointer, and the PostgreSQL publication lane belongs to
+// pg-runtime-server-composition. Answering with the loadapi lane's nil-store
+// guard would surface a 500 INTERNAL_ERROR for what is a known un-served
+// posture; naming the refusal here keeps every activation attempt typed,
+// retryable-false, and backend-tagged -- and it is the load-bearing check
+// that the route never half-activates from stale release evidence.
+type postgreSQLFirstQueryDataframeReleases struct{}
+
+func (postgreSQLFirstQueryDataframeReleases) GetExecution(context.Context, string) (publication.BundleExecution, error) {
+	return publication.BundleExecution{}, postgreSQLFirstQueryRouteWiringError("Dataframe release reads", "pg-runtime-server-composition")
+}
+
+func (postgreSQLFirstQueryDataframeReleases) GetPointer(context.Context, string) (publication.BundlePointer, error) {
+	return publication.BundlePointer{}, postgreSQLFirstQueryRouteWiringError("Dataframe release pointer reads", "pg-runtime-server-composition")
+}
+
 // runPostgreSQLFirstQueryRoute composes the explicitly selected PostgreSQL
 // source backend for the first scoped scalar read. Order of laws: (1) the
 // consumability gate runs first and pre-dial — configs it cannot consume
@@ -1217,17 +1235,24 @@ func (c postgreSQLFirstQueryRecipeControl) Run(ctx context.Context, name string,
 // AQL surface is constructed anywhere in this branch. Explorer/row/recipe/
 // graph/traversal/publication routes stay explicitly unavailable through the
 // typed refusals above and the nil-port guards, never silently Arango-backed.
-func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) error {
+// composePostgreSQLFirstQueryRoute is the listen-free composition seam: every
+// port, refusal, and route registration the production route installs,
+// returned as a fully wired HTTPServer plus the runtime-close function. The
+// production path below adds listen/shutdown around it; the route-census
+// test drives the returned app through fiber's in-process app.Test so the
+// explicit-unavailable posture is asserted through the PRODUCTION handler
+// stack without a listen-port race.
+func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) (*httpapi.HTTPServer, func() error, error) {
 	assignment, sourceSchema, _, err := postgresFirstQueryRouteAssignment(serverConfig.Server.PostgreSQL)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	pg := serverConfig.Server.PostgreSQL
 	if err := pg.validate(); err != nil {
-		return err
+		return nil, nil, err
 	}
 	if serverConfig.Server.ClickHouse.Enabled {
-		return errors.New("server.clickhouse.enabled cannot be combined with server.backend postgres in this slice; the PostgreSQL publication composition belongs to pg-runtime-server-composition")
+		return nil, nil, errors.New("server.clickhouse.enabled cannot be combined with server.backend postgres in this slice; the PostgreSQL publication composition belongs to pg-runtime-server-composition")
 	}
 
 	dsn := postgresFirstQueryRouteDSN(pg)
@@ -1240,24 +1265,24 @@ func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logg
 		Setup:          backendspostgres.SetupNone,
 	})
 	if err != nil {
-		return postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL source runtime: %w", err), pg, dsn)
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL source runtime: %w", err), pg, dsn)
 	}
-	defer func() {
-		if closeErr := runtime.Close(); closeErr != nil {
-			logger.Error("close PostgreSQL source runtime", "error", postgresFirstQueryRouteError(closeErr, pg, dsn))
-		}
-	}()
+	closeRuntime := func() error {
+		return postgresFirstQueryRouteError(runtime.Close(), pg, dsn)
+	}
 
 	// The compile target is selected exactly once from the source schema
 	// placement, mirroring the executor witnesses: per-request dialect
 	// selection is not available to any caller.
 	binding, err := ir.NewPostgresStorageBinding(sourceSchema)
 	if err != nil {
-		return postgresFirstQueryRouteError(fmt.Errorf("bind PostgreSQL storage placement: %w", err), pg, dsn)
+		_ = closeRuntime()
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("bind PostgreSQL storage placement: %w", err), pg, dsn)
 	}
 	sourceCompileTarget, err := compiler.PostgreSQLTarget(binding)
 	if err != nil {
-		return postgresFirstQueryRouteError(fmt.Errorf("select PostgreSQL compile target: %w", err), pg, dsn)
+		_ = closeRuntime()
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("select PostgreSQL compile target: %w", err), pg, dsn)
 	}
 
 	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
@@ -1273,7 +1298,8 @@ func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logg
 	}
 	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, listExistingAuthPaths)
 	if err != nil {
-		return fmt.Errorf("configure authentication: %w", err)
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
@@ -1311,11 +1337,12 @@ func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logg
 			return ingest.LoadSummary{}, postgreSQLFirstQueryRouteWiringError("Server-side PostgreSQL generation load", "pg-runtime-server-composition (the loom-data CLI drives the production ingest path today)")
 		},
 		GenerationActivator: postgreSQLGenerationStatusReader{manifests: runtime.Manifests},
-		DataframeReleases:   nil,
+		DataframeReleases:   postgreSQLFirstQueryDataframeReleases{},
 		Logger:              logger,
 	})
 	if err != nil {
-		return fmt.Errorf("create generation load service: %w", err)
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("create generation load service: %w", err)
 	}
 
 	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{
@@ -1329,20 +1356,39 @@ func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logg
 		ClickHouseEnabled:    false,
 	})
 	if err != nil {
-		return fmt.Errorf("create HTTP server: %w", err)
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("create HTTP server: %w", err)
 	}
 	// Explorer handlers stay nil: every Explorer/authoring/row/preview/trace
 	// route already returns its typed AUTHORING_UNAVAILABLE/TRACE_UNAVAILABLE/
 	// ROW_LINEAGE_UNAVAILABLE refusal through the nil-handler guards, and the
 	// route census test pins that none of them ever serves Arango-backed data.
 	if err := registerRoutes(server, generationService, authorizer, resolver, nil, scopeResolver); err != nil {
-		return fmt.Errorf("register HTTP routes: %w", err)
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
+	return server, closeRuntime, nil
+}
 
+func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) error {
+	server, closeRuntime, err := composePostgreSQLFirstQueryRoute(ctx, serverConfig, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeRuntime(); closeErr != nil {
+			logger.Error("close PostgreSQL source runtime", "error", closeErr)
+		}
+	}()
+
+	// The startup line keeps the source-schema placement visible for
+	// operators; recomputing the validated assignment is free and cannot
+	// diverge from what compose opened (the gate is pure).
+	_, startSourceSchema, _, _ := postgresFirstQueryRouteAssignment(serverConfig.Server.PostgreSQL)
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "backend", serverConfig.Server.Backend,
-			"source_schema", sourceSchema, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
+			"source_schema", startSourceSchema, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
 		errCh <- server.App().Listen(serverConfig.Server.Listen)
 	}()
 
