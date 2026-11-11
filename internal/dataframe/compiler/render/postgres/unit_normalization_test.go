@@ -19,6 +19,8 @@ import (
 	"math/big"
 	"os"
 	"reflect"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -160,11 +162,13 @@ func sql21RenderError(t *testing.T, projection ir.PhysicalProjection) error {
 	return err
 }
 
-// sql21RulesParameter decodes the one jsonb rule-set parameter the render
-// must carry, asserting it is the ONLY rules-shaped bind.
-func sql21RulesParameter(t *testing.T, args []command.PostgreSQLParameter) []map[string]any {
+// sql21RulesParameters returns EVERY rules-shaped jsonb bind, decoded,
+// in argument order. A rules-shaped bind is a jsonb parameter whose
+// encoded text carries the renderer-minted source_system key; the auth
+// resource-path jsonb bind never matches.
+func sql21RulesParameters(t *testing.T, args []command.PostgreSQLParameter) [][]map[string]any {
 	t.Helper()
-	var rules []map[string]any
+	var all [][]map[string]any
 	for _, argument := range args {
 		raw, ok := argument.Value.(json.RawMessage)
 		if !ok {
@@ -173,16 +177,98 @@ func sql21RulesParameter(t *testing.T, args []command.PostgreSQLParameter) []map
 		if argument.Type != command.PostgreSQLParameterJSONB || !strings.Contains(string(raw), "source_system") {
 			continue
 		}
-		{
-			if err := json.Unmarshal(raw, &rules); err != nil {
-				t.Fatalf("rules parameter is not valid JSON: %v", err)
-			}
+		var rules []map[string]any
+		if err := json.Unmarshal(raw, &rules); err != nil {
+			t.Fatalf("rules parameter is not valid JSON: %v", err)
 		}
+		all = append(all, rules)
 	}
-	if rules == nil {
-		t.Fatalf("no jsonb rules parameter among %d args", len(args))
+	return all
+}
+
+// sql21RulesParameter decodes the one jsonb rule-set parameter the render
+// must carry, FAILING (not last-wins) unless the rules-shaped match count
+// is exactly one: the renderer mints exactly one shared bind per distinct
+// rule set (addParameter cache key unit_rules plus the canonical marshal),
+// so a second rules-shaped bind is a duplicate-bind regression.
+func sql21RulesParameter(t *testing.T, args []command.PostgreSQLParameter) []map[string]any {
+	t.Helper()
+	all := sql21RulesParameters(t, args)
+	if len(all) != 1 {
+		t.Fatalf("rules-shaped jsonb binds = %d, want exactly 1 (one renderer-minted shared bind per distinct rule set)", len(all))
 	}
-	return rules
+	return all[0]
+}
+
+// sql21RulesBindIndexes returns the $n indexes of every
+// jsonb_array_elements($n::jsonb) rules-lateral reference in the SQL.
+func sql21RulesBindIndexes(t *testing.T, sql string) []string {
+	t.Helper()
+	var indexes []string
+	for _, match := range sql21RulesBindPattern.FindAllStringSubmatch(sql, -1) {
+		indexes = append(indexes, match[1])
+	}
+	return indexes
+}
+
+var sql21RulesBindPattern = regexp.MustCompile(`jsonb_array_elements\(\$(\d+)::jsonb\)`)
+
+// TestSQL21IdenticalRuleSetsShareOneBind is the enforcing victim for the
+// load-bearing dedup claim (review thread on unit_normalization_test.go):
+// two unit projections over one plan with the SAME pinned rule set must
+// share the single rules bind. Dropping the addParameter cache key would
+// mint two binds and pass the rest of the suite silently — this test dies
+// at either layer: two rules-shaped args, or two distinct $n references.
+func TestSQL21IdenticalRuleSetsShareOneBind(t *testing.T) {
+	first := sql21UnitProjection(t, nil)
+	first.Name = "length_cm"
+	second := sql21UnitProjection(t, nil)
+	second.Name = "width_cm"
+	binding, err := ir.NewPostgresStorageBinding("loom_offline")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	rendered, err := RenderPhysicalPlan(sql21Plan(first, second), binding)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan: %v", err)
+	}
+	if all := sql21RulesParameters(t, rendered.Args); len(all) != 1 {
+		t.Fatalf("identical rule sets minted %d rules binds, want one shared bind", len(all))
+	}
+	indexes := sql21RulesBindIndexes(t, rendered.SQL)
+	if len(indexes) != 2 {
+		t.Fatalf("rules-lateral references = %d, want one per projection:\n%s", len(indexes), rendered.SQL)
+	}
+	if indexes[0] != indexes[1] {
+		t.Fatalf("identical rule sets read separate binds $%s and $%s:\n%s", indexes[0], indexes[1], rendered.SQL)
+	}
+	position, err := strconv.Atoi(indexes[0])
+	if err != nil || position < 1 || position > len(rendered.Args) ||
+		rendered.Args[position-1].Type != command.PostgreSQLParameterJSONB {
+		t.Fatalf("shared rules bind $%s does not name a jsonb argument", indexes[0])
+	}
+}
+
+// TestSQL21DistinctRuleSetsGetSeparateBinds is the over-merge control:
+// two DIFFERENT pinned rule sets in one plan must mint two binds with two
+// distinct indexes (a cache key that ignored the rule-set text would
+// collapse them and execute the wrong conversions).
+func TestSQL21DistinctRuleSetsGetSeparateBinds(t *testing.T) {
+	binding, err := ir.NewPostgresStorageBinding("loom_offline")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	rendered, err := RenderPhysicalPlan(sql21Plan(sql21UnitProjection(t, nil), sql21FahrenheitProjection(t)), binding)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan: %v", err)
+	}
+	if all := sql21RulesParameters(t, rendered.Args); len(all) != 2 {
+		t.Fatalf("distinct rule sets minted %d binds, want two", len(all))
+	}
+	indexes := sql21RulesBindIndexes(t, rendered.SQL)
+	if len(indexes) != 2 || indexes[0] == indexes[1] {
+		t.Fatalf("distinct rule sets must read two separate binds, got %v:\n%s", indexes, rendered.SQL)
+	}
 }
 
 // ---------------------------------------------------------------------------
