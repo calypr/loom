@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -408,21 +409,31 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 			pin: "the DOCUMENT re-query shape is production-unreachable (recipe/construction.go:665-668)",
 		},
 		{
-			name: "row_values_pg_sql_13_gap",
+			name: "row_value_input_many_wave2_gap",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
-				coded19AttachIRRowValues(t, plan)
+				coded19AttachIRRowValuesPolicy(t, plan, "ONE", true)
 			},
-			pin: "coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered",
+			pin: coded19ManyRowValuesRefusalPin,
 		},
 		{
-			name: "row_value_projections_pg_sql_13_gap",
+			name: "row_value_input_without_projection",
+			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
+				coded := plan.StageSequence.Stages[0].CodedGroup
+				coded.RowValues = []ir.PhysicalStageRowValue{{
+					InputColumn: "resource_id", InputKind: "STRING", Output: "row_value_1", Policy: "ONE", Variable: "cg19_rv_var",
+				}}
+			},
+			pin: "needs exactly one source projection",
+		},
+		{
+			name: "row_value_projections_without_row_values",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				// Projections present without the RowValues list: the
-				// other half of the same registered divergence (L-19.2).
+				// unmatched-projection half of the door contract.
 				coded := plan.StageSequence.Stages[0].CodedGroup
 				coded.RowValueProjections = []ir.PhysicalProjection{{Name: "resource_id", Hidden: true, Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}}}
 			},
-			pin: "coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered",
+			pin: "addresses no row value input column",
 		},
 		{
 			// Registered named divergence L-19.4 (coordinator F-3
@@ -690,9 +701,11 @@ func errorOf(_ any, err error) error { return err }
 // shows that without the arm the plan renders a PARTIAL statement.
 // ---------------------------------------------------------------------------
 
-// coded19IRRowValuesRefusalMessage is the cell-verbatim refusal of the
-// registered divergence (D2 condition 4).
-const coded19IRRowValuesRefusalMessage = "postgres renderer: unsupported physical plan: coded-group row values are a pg-sql-13 capability gap and are refused, never partially rendered"
+// coded19ManyRowValuesRefusalPin is the refusal of the ONE remaining
+// coded-group row-values shape: the many-cardinality (local-array
+// expansion) input, whose shared pool emitter renders from g_rows — the
+// named wave-2 gap of the pg-sql-13 Q4 arm.
+const coded19ManyRowValuesRefusalPin = "coded-group many-cardinality (local-array-expansion) row values are a wave-2 pg-sql-13 gap"
 
 // coded19AttachIRRowValues attaches a rowValues list the ir validator
 // ACCEPTS (the ACCEPT+EMIT channel the probe banked), built to the exact
@@ -700,6 +713,11 @@ const coded19IRRowValuesRefusalMessage = "postgres renderer: unsupported physica
 // clone of the resolved source projection, the exact-variable output
 // projection, and the ONE-policy output column.
 func coded19AttachIRRowValues(t *testing.T, plan *ir.PhysicalPlan) {
+	t.Helper()
+	coded19AttachIRRowValuesPolicy(t, plan, "ONE", false)
+}
+
+func coded19AttachIRRowValuesPolicy(t *testing.T, plan *ir.PhysicalPlan, policy string, many bool) {
 	t.Helper()
 	sourceReturn := plan.Operations[len(plan.Operations)-1].Return
 	var resourceID ir.PhysicalProjection
@@ -715,74 +733,177 @@ func coded19AttachIRRowValues(t *testing.T, plan *ir.PhysicalPlan) {
 	resourceID.Hidden = true
 	coded := plan.StageSequence.Stages[0].CodedGroup
 	coded.RowValues = []ir.PhysicalStageRowValue{{
-		InputColumn: "resource_id", InputKind: "STRING", InputMany: false,
-		Output: "row_value_1", Policy: "ONE", Variable: "cg19_rv_var",
+		InputColumn: "resource_id", InputKind: "STRING", InputMany: many,
+		Output: "row_value_1", Policy: policy, Variable: "cg19_rv_var",
 	}}
 	coded.RowValueProjections = []ir.PhysicalProjection{resourceID}
 	stage := &plan.StageSequence.Stages[0]
 	stage.OutputProjections = append(stage.OutputProjections, ir.PhysicalProjection{Name: "row_value_1", Value: ir.PhysicalValue{Variable: "cg19_rv_var"}})
-	column := ir.PhysicalStageColumn{ID: "rv_id", Name: "row_value_1", Label: "row_value_1", Kind: "string", Cardinality: "optional_one", Nullable: true}
+	cardinality := "many"
+	nullable := false
+	if policy == "ONE" {
+		cardinality = "optional_one"
+		nullable = true
+	}
+	column := ir.PhysicalStageColumn{ID: "rv_id", Name: "row_value_1", Label: "row_value_1", Kind: "string", Cardinality: cardinality, Nullable: nullable}
 	stage.OutputColumns = append(stage.OutputColumns, column)
 	plan.StageSequence.FinalColumns = append(plan.StageSequence.FinalColumns, column)
 }
 
-// TestCodedGroupIRRowValuesAliveControl is the D2 condition-2 ALIVE
-// assertion: the assembled plan passes ir.Validate (the producer chain
-// accepts and emits this shape), so the ONLY thing standing between it and
-// a rendered statement is this renderer's fail-closed arm. Removing the
-// arm must turn this test RED with a rendered partial statement —
-// evidence banked at logs/pg19-arm-removal-red.log.
+// TestCodedGroupIRRowValuesAliveControl is the pg-sql-13 (Q4) registration
+// proof: the producer-accepted ACCEPT+EMIT shape (probe-banked while the
+// arm was a refusal — logs/pg19-arm-removal-red.log showed a PARTIAL
+// statement then) now renders THROUGH THE SHARED GROUP EMITTER. The cell
+// pins the carry chain (cg_src → cg_candidates → cg_tuples → cg_grouped),
+// the shared ONE fragment byte-identical (parameter indices normalized —
+// a hand-copied emitter in coded_group.go drifts here), and the six
+// positional outputs.
 func TestCodedGroupIRRowValuesAliveControl(t *testing.T) {
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
 	coded19AttachIRRowValues(t, &plan)
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("the producer channel must accept this shape (probe-banked ACCEPT+EMIT): %v", err)
 	}
+	shared, err := groupRowValueExpressionFor("ONE", "STRING", false,
+		&groupColumn{name: "resource_id", alias: "cg_rv0", ref: `"cg_rv0"`, jsonb: true},
+		func(index int) string { return "$" + strconv.Itoa(index) })
+	if err != nil {
+		t.Fatalf("shared emitter: %v", err)
+	}
+	normalize := regexp.MustCompile(`\$[0-9]+`).ReplaceAllString(shared, "$N")
 	for label, render := range map[string]func(ir.PhysicalPlan, ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error){
 		"entry": RenderPhysicalPlan,
 		"door":  renderCodedGroupPhysicalPlan,
 	} {
 		rendered, err := render(ir.ClonePhysicalPlan(plan), mustBinding(t))
-		if err == nil {
-			t.Fatalf("%s rendered the refused RowValues shape — the fail-closed arm is not load-bearing:\n%s", label, rendered.SQL)
+		if err != nil {
+			t.Fatalf("%s must render the registered row-values arm (pg-sql-13 Q4): %v", label, err)
 		}
-		if !errors.Is(err, ErrUnsupportedPostgresPlan) {
-			t.Fatalf("%s error = %v (%T), want ErrUnsupportedPostgresPlan", label, err, err)
+		for _, want := range []string{
+			` AS cg_payload, `, ` AS cg_rv0`, `, s.cg_rv0`, `, c.cg_rv0`,
+			`AS cg_g0`, `g.cg_g0 AS "c5"`,
+		} {
+			if !strings.Contains(rendered.SQL, want) {
+				t.Fatalf("%s arm is missing %q:\n%s", label, want, rendered.SQL)
+			}
 		}
-		if err.Error() != coded19IRRowValuesRefusalMessage {
-			t.Fatalf("%s refusal message must be cell-verbatim:\n got %q\nwant %q", label, err.Error(), coded19IRRowValuesRefusalMessage)
+		if normalized := regexp.MustCompile(`\$[0-9]+`).ReplaceAllString(rendered.SQL, "$N"); !strings.Contains(normalized, normalize+` AS cg_g0`) {
+			t.Fatalf("%s must emit the SHARED ONE fragment byte-identical (same-emitter law, Q4):\n%s", label, rendered.SQL)
+		}
+		if len(rendered.OutputColumns) != 6 {
+			t.Fatalf("%s outputs = %d, want five tuple members plus the row value", label, len(rendered.OutputColumns))
 		}
 	}
 }
 
-// TestCodedGroupIRRowValuesLiveZeroSideEffects is the D2 condition-3 live
-// proof on the owned coded19_it_* namespace: the refusal happens BEFORE
-// any SQL is produced, so a refused RowValues plan touches the PostgreSQL
-// service not at all — no tables, no rows, no statement text.
+// TestCodedGroupRowValuesSharedEmitterLaw is the Q4 sabotage gate: the
+// coded-group arm may only reach ALL/ONE through the shared group emitter
+// calls; an inlined copy in coded_group.go (a second emitter) fails here
+// even if it renders the same bytes today.
+func TestCodedGroupRowValuesSharedEmitterLaw(t *testing.T) {
+	source, err := os.ReadFile("coded_group.go")
+	if err != nil {
+		t.Fatalf("read coded_group.go: %v", err)
+	}
+	var code []string
+	for _, line := range strings.Split(string(source), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "*") {
+			continue
+		}
+		code = append(code, line)
+	}
+	text := strings.Join(code, "\n")
+	for _, want := range []string{`groupRowValueExpressionFor(`, `groupColumnRead(`} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the coded-group row-values arm must dispatch through the shared emitter %q", want)
+		}
+	}
+	for _, forbidden := range []string{`ARRAY_AGG(DISTINCT `, `CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES`, `CONSTRUCTION_GROUP_VALUE_TYPE_MISMATCH`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("coded_group.go carries an inlined emitter literal %q — one emitter only (Q4)", forbidden)
+		}
+	}
+}
+
+// TestCodedGroupIRRowValuesLiveZeroSideEffects keeps the D2 condition-3
+// live proof on the shape that remains refused after the Q4 arm: the
+// many-cardinality (wave-2) input. The refusal happens BEFORE any SQL is
+// produced, so it touches the PostgreSQL service not at all — no tables,
+// no rows, no statement text.
 func TestCodedGroupIRRowValuesLiveZeroSideEffects(t *testing.T) {
 	svc := newCoded19Service(t)
 	coded19TrackFixtures(t, svc)
 	coded19Insert(t, svc, "rvw-1", coded19Project, coded19Generation, "FHIR/Observation", codingPayload(coding("sys-rv", "", "kept")))
 
 	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, coded19Project, coded19Generation)
-	coded19AttachIRRowValues(t, &plan)
+	coded19AttachIRRowValuesPolicy(t, &plan, "ONE", true)
 
 	before := coded19Inventory(t, svc)
 	rendered, err := RenderPhysicalPlan(plan, bindingFor(t, svc.schema))
-	if err == nil || !strings.Contains(err.Error(), "pg-sql-13") {
+	if err == nil || !strings.Contains(err.Error(), coded19ManyRowValuesRefusalPin) {
 		t.Fatalf("refusal required before any SQL; got rendered=%v err=%v", rendered.SQL, err)
 	}
 	if rendered.SQL != "" || len(rendered.Args) != 0 || len(rendered.OutputColumns) != 0 {
 		t.Fatalf("a refused plan must carry zero SQL, zero parameters, zero columns: %#v", rendered)
 	}
 	if after := coded19Inventory(t, svc); after != before {
-		t.Fatalf("the refused RowValues plan changed service state:\n before %q\n after  %q", before, after)
+		t.Fatalf("the refused many row-values plan changed service state:\n before %q\n after  %q", before, after)
 	}
 	// Alive control: the schema is live and readable — the inventory
 	// equality above is a real zero-delta, not a query silently returning
 	// nothing.
 	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, coded19Project); rows[0][0] != "1" {
 		t.Fatalf("alive witness: %v, want the single inserted row", rows)
+	}
+}
+
+// TestCodedGroupRowValuesLiveRender runs the registered arm against the
+// PostgreSQL service: the tuple pool is the DISTINCT contributing roots,
+// ALL reads the JSON array of their ids, ONE reads the single distinct id
+// and raises the canonical multi-value tag through the barrier once a
+// second contributing root joins the tuple.
+func TestCodedGroupRowValuesLiveRender(t *testing.T) {
+	svc := newCoded19Service(t)
+	coded19TrackFixtures(t, svc)
+	onePayload := codingPayload(coding("sys-rv", "", "kept"))
+	onePayload["id"] = "rv-a"
+	coded19Insert(t, svc, "rvw-a", coded19Project, coded19Generation, "FHIR/Observation", onePayload)
+
+	onePlan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, coded19Project, coded19Generation)
+	coded19AttachIRRowValuesPolicy(t, &onePlan, "ONE", false)
+	oneRendered, err := RenderPhysicalPlan(onePlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("registered row-values arm must render: %v", err)
+	}
+	rows := svc.runRendered(t, oneRendered)
+	// Columns: system, version, code, count, identity, row_value_1.
+	if len(rows) != 1 || rows[0][0] != "sys-rv" || rows[0][2] != "kept" || rows[0][3] != "1" || rows[0][5] != "rv-a" {
+		t.Fatalf("ONE over one contributing root: %v", rows)
+	}
+
+	allPlan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, coded19Project, coded19Generation)
+	coded19AttachIRRowValuesPolicy(t, &allPlan, "ALL", false)
+	allRendered, err := RenderPhysicalPlan(allPlan, bindingFor(t, svc.schema))
+	if err != nil {
+		t.Fatalf("registered row-values arm must render (ALL): %v", err)
+	}
+
+	// A second root joins the tuple: ALL grows, ONE raises.
+	secondPayload := codingPayload(coding("sys-rv", "", "kept"))
+	secondPayload["id"] = "rv-b"
+	coded19Insert(t, svc, "rvw-b", coded19Project, coded19Generation, "FHIR/Observation", secondPayload)
+	allRows := svc.runRendered(t, allRendered)
+	if len(allRows) != 1 || allRows[0][3] != "2" || allRows[0][5] != `[rv-a rv-b]` {
+		t.Fatalf("ALL over two contributing roots: %v", allRows)
+	}
+	group13ExpectRaise(t, svc, oneRendered, groupRowValueMultipleTag)
+
+	// Alive control: removing the second root returns ONE to the single
+	// distinct reading (the raise is data-driven, not constant).
+	svc.witness(t, `DELETE FROM "`+svc.schema+`"."fhir_resource" WHERE logical_id = 'rvw-b'`)
+	if again := svc.runRendered(t, oneRendered); len(again) != 1 || again[0][5] != "rv-a" {
+		t.Fatalf("ONE after removing the second root: %v", again)
 	}
 }
 
