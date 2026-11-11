@@ -25,7 +25,7 @@
     "internal/explorer/capability/population_route_choice.go": "425b5a511e37af114951be176fac06adba1991cc77a6695ea5e7635b3d3bc56b",
     "internal/explorer/lifecycle/query.go": "9215067bc93acc21df1ba12f7f332da9e8ab16d5f414ea7dcd867319e8643e51",
     "internal/backends/arango/internal/explorer/drafts.go": "202efc4d66d895e49c62dff0e3d0fee143c2d4bd72ef7d3922310fa19ba10dd6",
-    "internal/backends/arango/internal/store/client.go": "1a1b7e64277fd658a7f462a5e65d88431c8649e3085f07805086719a09af666e",
+    "internal/backends/arango/internal/store/client.go": "df49ede78861f0857e20410e4b37369ec3efd4cc38873191c98059d0a25fc4d5",
     "internal/dataframe/compiler/render/clickhouse/workspace_combine.go": "847ed920a4f05f9979c68c505437187f50e8e495f66011403a7a7ebd0b17958b",
     "internal/dataframe/compiler/lower/recipe_derived_columns.go": "147a430d800304ed9fcc2571ab338feb8c8b62bd5e872ba5caaa5ee9d8631e4c",
     "internal/dataframe/compiler/render/aql/stage_sequence.go": "7a98d58e27b154bda15b81b576b9ab614d8647dd4baf62c53d28b081670d3ea1",

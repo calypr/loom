@@ -45,7 +45,10 @@ type previewIndexReplacement struct {
 // ListPreviewCoveringIndexes returns only persistent, non-sparse,
 // non-unique indexes owned by the preview compiler for the named collection.
 func (c *Client) ListPreviewCoveringIndexes(ctx context.Context, collection string) ([]PreviewCoveringIndex, error) {
-	if c == nil || c.db == nil || collection == "" || !validIndexPath(collection) {
+	if err := c.checkOpen(); err != nil {
+		return nil, err
+	}
+	if c.db == nil || collection == "" || !validIndexPath(collection) {
 		return nil, fmt.Errorf("invalid preview covering collection")
 	}
 	col, err := c.db.GetCollection(ctx, collection, nil)
@@ -85,6 +88,9 @@ func previewCoveringIndexDefinitions(collection string, indexes []driver.IndexRe
 // The caller's AQL hint is non-forcing, so previews continue on the canonical
 // plan if index preparation is unavailable.
 func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, name string, fields []string) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	return c.ensurePreviewCoveringIndex(ctx, collection, name, fields, nil)
 }
 
@@ -93,7 +99,10 @@ func (c *Client) EnsurePreviewCoveringIndex(ctx context.Context, collection, nam
 // exact index definition because Arango's ensure operation does not distinguish
 // otherwise identical field tuples by stored-value configuration.
 func (c *Client) EnsurePreviewCoveringIndexWithStoredValues(ctx context.Context, collection, name string, fields, storedValues []string) error {
-	if c == nil || !validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
+	if !validPreviewCoveringIndexWithStoredValues(collection, name, fields, storedValues) {
 		return fmt.Errorf("invalid preview covering index specification")
 	}
 	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues, nil)
@@ -107,7 +116,10 @@ func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context
 		name: supersededName, fields: append([]string(nil), supersededFields...),
 		storedValues: append([]string(nil), supersededStoredValues...),
 	}
-	if c == nil || !validPreviewCoveringIndexStoredValuesReplacement(collection, name, fields, storedValues, replacement) {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
+	if !validPreviewCoveringIndexStoredValuesReplacement(collection, name, fields, storedValues, replacement) {
 		return fmt.Errorf("invalid preview covering index replacement specification")
 	}
 	return c.ensurePreviewCoveringIndexDefinition(ctx, collection, name, fields, storedValues, replacement)
@@ -118,7 +130,10 @@ func (c *Client) EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx context
 // category index supplied by the same plan.
 func (c *Client) EnsurePreviewCoveringIndexReplacing(ctx context.Context, collection, name string, fields []string, supersededName string, supersededFields []string) error {
 	replacement := &previewIndexReplacement{name: supersededName, fields: append([]string(nil), supersededFields...)}
-	if c == nil || !validPreviewCoveringIndexReplacement(collection, name, fields, replacement) {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
+	if !validPreviewCoveringIndexReplacement(collection, name, fields, replacement) {
 		return fmt.Errorf("invalid preview covering index replacement specification")
 	}
 	return c.ensurePreviewCoveringIndex(ctx, collection, name, fields, replacement)

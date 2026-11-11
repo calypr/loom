@@ -27,8 +27,10 @@ package arango_test
 //     attestation and idempotent re-bootstrap;
 //   - representative query/control ops (bindVars cursors, query-memory
 //     context, max-runtime control, vendor diagnostic at the boundary);
-//   - post-Open failure cleanup, repeated-close safety, post-close queries
-//     fail without panic;
+//   - post-Open failure cleanup, repeated-close safety, and a
+//     closedEntryCalls table (all sixteen exported entry paths incl. the
+//     preview-index surface) failing with ErrClientClosed post-close and
+//     on a nil receiver without panic;
 //   - missing-database auto-provision is not a leak (banked design fact).
 
 import (
@@ -519,20 +521,36 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 		if err := backend.Close(context.Background()); err != nil {
 			t.Fatalf("repeated close must be safe: %v", err)
 		}
-		// Terminal-state contract: every entry path fails with the named
-		// sentinel without reaching the server. A no-op Close would let
-		// these succeed.
-		if err := backend.Client.QueryRows(context.Background(), "RETURN {ok: true}", 10, nil, func(map[string]any) error { return nil }); !errors.Is(err, arango.ErrClientClosed) {
-			t.Fatalf("post-close QueryRows: err=%v, want ErrClientClosed", err)
+		// Terminal-state contract pinned across EVERY exported entry path
+		// (11 in client.go, 5 in preview_index.go — including the
+		// preview-index surface internal/server drives for preview
+		// preparation): each fails with the named sentinel without
+		// reaching the server. A missing guard lets that cell bleed.
+		for _, cell := range closedEntryCalls() {
+			t.Run(cell.name, func(t *testing.T) {
+				if err := cell.call(backend.Client); !errors.Is(err, arango.ErrClientClosed) {
+					t.Fatalf("post-close %s: err=%v, want ErrClientClosed", cell.name, err)
+				}
+			})
 		}
-		if err := backend.Client.ExecuteAQL(context.Background(), "RETURN {ok: true}", nil); !errors.Is(err, arango.ErrClientClosed) {
-			t.Fatalf("post-close ExecuteAQL: err=%v, want ErrClientClosed", err)
-		}
-		if _, err := backend.Client.CollectionExists(context.Background(), arango.DatasetLifecycleCollection); !errors.Is(err, arango.ErrClientClosed) {
-			t.Fatalf("post-close CollectionExists: err=%v, want ErrClientClosed", err)
-		}
-		if err := backend.Client.Bootstrap(context.Background(), arango.DatasetBootstrapSpec()); !errors.Is(err, arango.ErrClientClosed) {
-			t.Fatalf("post-close Bootstrap: err=%v, want ErrClientClosed", err)
+	})
+
+	t.Run("nil_receiver_is_rejected_on_every_exported_entry_path", func(t *testing.T) {
+		// The store package convention treats a nil *Client receiver as
+		// supported input; every entry path must answer with the named
+		// sentinel, never a nil-pointer panic.
+		var client *arango.Client
+		for _, cell := range closedEntryCalls() {
+			t.Run(cell.name, func(t *testing.T) {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						t.Fatalf("nil-receiver %s panicked: %v", cell.name, recovered)
+					}
+				}()
+				if err := cell.call(client); !errors.Is(err, arango.ErrClientClosed) {
+					t.Fatalf("nil-receiver %s: err=%v, want ErrClientClosed", cell.name, err)
+				}
+			})
 		}
 	})
 
@@ -620,6 +638,81 @@ func requireLiveArango(t *testing.T) string {
 		t.Skip("LOOM_TEST_ARANGO_URL must point to the supplied ArangoDB 3.12 service (the runner lane asserts this never skips)")
 	}
 	return url
+}
+
+// closedEntryCalls enumerates every exported network entry path on the
+// factory Client: eleven in client.go (query, write, control, explain,
+// profile surfaces) and five preview-index methods in preview_index.go
+// that internal/server drives on the factory-owned client. Both the
+// post-close leg and the nil-receiver leg run this exact table, so the
+// "Close is terminal; every operation fails closed" claim is pinned
+// across the whole surface, not a subset. The WithTransaction callback
+// is nil because the guard must reject the call before the callback is
+// ever reached — a dropped guard then bleeds as a panic or a nil error,
+// either way naming the cell.
+func closedEntryCalls() []struct {
+	name string
+	call func(*arango.Client) error
+} {
+	ctx := context.Background()
+	visit := func(map[string]any) error { return nil }
+	fields := []string{"project", "dataset_generation", "auth_resource_path", "_key"}
+	indexName := "loom_pivot_preview_0123456789abcdef"
+	return []struct {
+		name string
+		call func(*arango.Client) error
+	}{
+		{"Bootstrap", func(c *arango.Client) error { return c.Bootstrap(ctx, arango.BootstrapSpec{}) }},
+		{"InsertBatchRaw", func(c *arango.Client) error {
+			return c.InsertBatchRaw(ctx, "Observation", []json.RawMessage{json.RawMessage(`{"_key":"ownership-witness"}`)}, false, "document")
+		}},
+		{"QueryRows", func(c *arango.Client) error {
+			return c.QueryRows(ctx, "RETURN {ok: true}", 10, nil, visit)
+		}},
+		{"QueryRowsWithMaxRuntime", func(c *arango.Client) error {
+			return c.QueryRowsWithMaxRuntime(ctx, "RETURN {ok: true}", 10, nil, time.Second, visit)
+		}},
+		{"CollectionRevision", func(c *arango.Client) error {
+			_, err := c.CollectionRevision(ctx, "Observation")
+			return err
+		}},
+		{"CollectionCount", func(c *arango.Client) error {
+			_, err := c.CollectionCount(ctx, "Observation")
+			return err
+		}},
+		{"WithTransaction", func(c *arango.Client) error {
+			return c.WithTransaction(ctx, arango.TransactionCollections{Read: []string{"Observation"}}, nil)
+		}},
+		{"CollectionExists", func(c *arango.Client) error {
+			_, err := c.CollectionExists(ctx, "Observation")
+			return err
+		}},
+		{"ExecuteAQL", func(c *arango.Client) error { return c.ExecuteAQL(ctx, "RETURN {ok: true}", nil) }},
+		{"Explain", func(c *arango.Client) error {
+			_, err := c.Explain(ctx, arango.ExplainRequest{Query: "RETURN 1"})
+			return err
+		}},
+		{"Profile", func(c *arango.Client) error {
+			_, err := c.Profile(ctx, arango.ProfileRequest{Query: "RETURN 1"})
+			return err
+		}},
+		{"ListPreviewCoveringIndexes", func(c *arango.Client) error {
+			_, err := c.ListPreviewCoveringIndexes(ctx, "Observation")
+			return err
+		}},
+		{"EnsurePreviewCoveringIndex", func(c *arango.Client) error {
+			return c.EnsurePreviewCoveringIndex(ctx, "Observation", indexName, fields)
+		}},
+		{"EnsurePreviewCoveringIndexWithStoredValues", func(c *arango.Client) error {
+			return c.EnsurePreviewCoveringIndexWithStoredValues(ctx, "Observation", indexName, fields, []string{"payload.witness"})
+		}},
+		{"EnsurePreviewCoveringIndexWithStoredValuesReplacing", func(c *arango.Client) error {
+			return c.EnsurePreviewCoveringIndexWithStoredValuesReplacing(ctx, "Observation", indexName, fields, []string{"payload.witness"}, indexName+"x", fields, []string{"payload.witness"})
+		}},
+		{"EnsurePreviewCoveringIndexReplacing", func(c *arango.Client) error {
+			return c.EnsurePreviewCoveringIndexReplacing(ctx, "Observation", indexName, fields, indexName+"x", fields)
+		}},
+	}
 }
 
 func mintDatabaseName(t *testing.T, kind string) string {

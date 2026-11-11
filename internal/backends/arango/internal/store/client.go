@@ -37,9 +37,14 @@ type Client struct {
 var ErrClientClosed = errors.New("arango: client closed")
 
 // checkOpen is the single closed-state guard every network entry path
-// must take before touching the driver.
+// must take before touching the driver. A nil receiver is supported
+// input in this package: it fails closed without dereferencing the
+// receiver or loading the flag.
 func (c *Client) checkOpen() error {
-	if c == nil || c.closed.Load() {
+	if c == nil {
+		return fmt.Errorf("%w: nil client", ErrClientClosed)
+	}
+	if c.closed.Load() {
 		return fmt.Errorf("%w: %s/%s", ErrClientClosed, c.rawURL, c.dbName)
 	}
 	return nil
