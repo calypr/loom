@@ -21120,11 +21120,40 @@ type StrictHandlerFunc func(ctx fiber.Ctx, args any) (any, error)
 
 type StrictMiddlewareFunc func(f StrictHandlerFunc, operationID string) StrictHandlerFunc
 
-func streamedBodyReader(ctx fiber.Ctx) io.Reader {
-	if body := ctx.Request().BodyStream(); body != nil {
-		return body
+type streamedMultipartBody struct {
+	reader io.Reader
+	eof    bool
+}
+
+func (body *streamedMultipartBody) Read(p []byte) (int, error) {
+	if body.eof {
+		return 0, io.EOF
 	}
-	return bytes.NewReader(ctx.Request().Body())
+	n, err := body.reader.Read(p)
+	body.eof = err == io.EOF
+	return n, err
+}
+
+func streamedBodyReader(ctx fiber.Ctx) *streamedMultipartBody {
+	if body := ctx.Request().BodyStream(); body != nil {
+		return &streamedMultipartBody{reader: body}
+	}
+	return &streamedMultipartBody{reader: bytes.NewReader(ctx.Request().Body())}
+}
+
+func finishStreamedMultipartBody(ctx fiber.Ctx, body *streamedMultipartBody, responseWritten bool) {
+	if ctx.Request().BodyStream() == nil {
+		return
+	}
+	if !responseWritten || ctx.Response().StatusCode() >= 300 {
+		ctx.RequestCtx().SetConnectionClose()
+		return
+	}
+	// MIME EOF can precede HTTP EOF. Consume the chunk terminator before
+	// reusing the connection; close instead of draining an arbitrary epilogue.
+	if _, err := io.CopyN(io.Discard, body, 1); err != io.EOF {
+		ctx.RequestCtx().SetConnectionClose()
+	}
 }
 
 func limitSourceLoadPlanBody(ctx fiber.Ctx) error {
@@ -21218,11 +21247,14 @@ func (sh *strictHandler) GetDatasetGenerationStatus(ctx fiber.Ctx, project Proje
 // CreateDatasetGeneration operation middleware
 func (sh *strictHandler) CreateDatasetGeneration(ctx fiber.Ctx, project Project, generation Generation) error {
 	var request CreateDatasetGenerationRequestObject
+	multipartBody := streamedBodyReader(ctx)
+	multipartResponseWritten := false
+	defer func() { finishStreamedMultipartBody(ctx, multipartBody, multipartResponseWritten) }()
 
 	request.Project = project
 	request.Generation = generation
 
-	request.Body = multipart.NewReader(streamedBodyReader(ctx), string(ctx.Request().Header.MultipartFormBoundary()))
+	request.Body = multipart.NewReader(multipartBody, string(ctx.Request().Header.MultipartFormBoundary()))
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
 		return sh.ssi.CreateDatasetGeneration(ctx.Context(), request.(CreateDatasetGenerationRequestObject))
@@ -21239,6 +21271,7 @@ func (sh *strictHandler) CreateDatasetGeneration(ctx fiber.Ctx, project Project,
 		if err := validResponse.VisitCreateDatasetGenerationResponse(ctx); err != nil {
 			return err
 		}
+		multipartResponseWritten = true
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}
@@ -21342,12 +21375,15 @@ func (sh *strictHandler) BeginDatasetSourceLoad(ctx fiber.Ctx, project Project, 
 // UploadDatasetSourceLoadFile operation middleware
 func (sh *strictHandler) UploadDatasetSourceLoadFile(ctx fiber.Ctx, project Project, operation string, resourceType string) error {
 	var request UploadDatasetSourceLoadFileRequestObject
+	multipartBody := streamedBodyReader(ctx)
+	multipartResponseWritten := false
+	defer func() { finishStreamedMultipartBody(ctx, multipartBody, multipartResponseWritten) }()
 
 	request.Project = project
 	request.Operation = operation
 	request.ResourceType = resourceType
 
-	request.Body = multipart.NewReader(streamedBodyReader(ctx), string(ctx.Request().Header.MultipartFormBoundary()))
+	request.Body = multipart.NewReader(multipartBody, string(ctx.Request().Header.MultipartFormBoundary()))
 
 	handler := func(ctx fiber.Ctx, request interface{}) (interface{}, error) {
 		return sh.ssi.UploadDatasetSourceLoadFile(ctx.Context(), request.(UploadDatasetSourceLoadFileRequestObject))
@@ -21364,6 +21400,7 @@ func (sh *strictHandler) UploadDatasetSourceLoadFile(ctx fiber.Ctx, project Proj
 		if err := validResponse.VisitUploadDatasetSourceLoadFileResponse(ctx); err != nil {
 			return err
 		}
+		multipartResponseWritten = true
 	} else if response != nil {
 		return fmt.Errorf("unexpected response type: %T", response)
 	}

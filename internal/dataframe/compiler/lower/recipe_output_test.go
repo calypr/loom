@@ -460,6 +460,42 @@ func TestCompileResolvedRecipePlanUsesCanonicalUnnest(t *testing.T) {
 	}
 }
 
+func TestCompileGroupMemberKeepsRequiredRowIdentityNonNullable(t *testing.T) {
+	bundle := compilerFixtureBundle(t)
+	bundle.Outputs[1].Fields = append(bundle.Outputs[1].Fields, recipe.Field{
+		Name: "inactive", Expr: recipe.Expression{Select: "member.inactive"},
+	})
+	plan, err := semantic.BuildRecipePlan(bundle, recipe.RuntimeBindings{Project: "project", DatasetGeneration: "generation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.Outputs = []semantic.OutputPlan{plan.Outputs[len(plan.Outputs)-1]}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope", "generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := CompileResolvedRecipePlan(resolved, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	columns := make(map[string]CompiledOutputColumn, len(compiled.Outputs[0].OutputSchema))
+	for _, column := range compiled.Outputs[0].OutputSchema {
+		columns[column.Name] = column
+	}
+	identity, ok := columns["__loom_row_id"]
+	if !ok {
+		t.Fatal("GroupMember output schema omitted its hidden row identity")
+	}
+	if identity.Kind != string(expression.KindString) || identity.Cardinality != string(expression.RequiredOne) || identity.Nullable || !identity.Internal || !identity.Identity {
+		t.Fatalf("GroupMember row identity schema = %#v, want required non-nullable internal string identity", identity)
+	}
+	inactive, ok := columns["inactive"]
+	if !ok || inactive.Kind != string(expression.KindBoolean) || inactive.Cardinality != string(expression.OptionalOne) || !inactive.Nullable {
+		t.Fatalf("optional GroupMember.inactive schema = %#v, present=%t; want nullable optional boolean", inactive, ok)
+	}
+}
+
 func compilerFixtureBundle(t *testing.T) recipe.Bundle {
 	t.Helper()
 	bundle, err := recipe.Parse([]byte(`{

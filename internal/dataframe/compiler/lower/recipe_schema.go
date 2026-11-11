@@ -190,6 +190,10 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 					column.Kind = string(expression.KindObject)
 				}
 			}
+			if projection.Name == "__loom_row_id" {
+				column.Cardinality = string(expression.RequiredOne)
+				column.Nullable = false
+			}
 			column.Name = projection.Name
 			if field, ok := fieldMetadata[projection.Name]; ok {
 				column.ID = field.id

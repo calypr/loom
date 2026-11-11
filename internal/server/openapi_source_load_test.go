@@ -77,7 +77,7 @@ func sourceLoadServePartialRequest(t *testing.T, app *fiber.App, method, path, c
 		t.Fatalf("set pipe deadline: %v", err)
 	}
 	_, err := fmt.Fprintf(clientConn,
-		"%s %s HTTP/1.1\r\nHost: loom\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+		"%s %s HTTP/1.1\r\nHost: loom\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
 		method, path, contentType, contentLength)
 	if err != nil {
 		t.Fatalf("write request headers: %v", err)
@@ -198,8 +198,8 @@ func TestGeneratedRouterDoesNotReadMultipartBodyBeforeAuthorization(t *testing.T
 		"/api/v1/datasets/project-a/source-loads/task-1/files/Patient",
 		writer.FormDataContentType(), multipartBody.Len(), multipartBody.Bytes()[:prefixLength])
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusForbidden || loader.uploadCalls != 0 {
-		t.Fatalf("streaming auth response status=%d uploadCalls=%d", response.StatusCode, loader.uploadCalls)
+	if response.StatusCode != http.StatusForbidden || loader.uploadCalls != 0 || !response.Close {
+		t.Fatalf("streaming auth response status=%d uploadCalls=%d close=%t", response.StatusCode, loader.uploadCalls, response.Close)
 	}
 }
 
@@ -224,5 +224,78 @@ func TestGeneratedBeginRouteCapsPlanJSONBody(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusRequestEntityTooLarge || loader.beginCalls != 0 {
 		t.Fatalf("oversized plan response status=%d beginCalls=%d", response.StatusCode, loader.beginCalls)
+	}
+}
+
+type sourceLoadSuccessfulLoader struct{ sourceLoadValidationLoader }
+
+func (*sourceLoadSuccessfulLoader) UploadFile(context.Context, string, string, string, string) (ingest.SourceFileReceipt, error) {
+	return ingest.SourceFileReceipt{}, nil
+}
+
+func TestChunkedSourceUploadKeepsNextRequestIntact(t *testing.T) {
+	for _, trailingCRLF := range []bool{true, false} {
+		t.Run(fmt.Sprintf("trailingCRLF=%t", trailingCRLF), func(t *testing.T) {
+			testChunkedSourceUploadKeepsNextRequestIntact(t, trailingCRLF)
+		})
+	}
+}
+
+func testChunkedSourceUploadKeepsNextRequestIntact(t *testing.T, trailingCRLF bool) {
+	t.Helper()
+	loader := &sourceLoadSuccessfulLoader{}
+	loadHandler, err := loadapi.NewHandler(loadapi.Config{Service: &loadapi.Service{}, Authorizer: authscope.AllowAllAuthorizer{}, SourceLoader: loader})
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := fiber.New(fiber.Config{StreamRequestBody: true, DisablePreParseMultipartForm: true})
+	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(&HTTPRoutes{load: loadHandler}, nil), loomapi.FiberServerOptions{})
+	app.Get("/next-request", func(c fiber.Ctx) error { return c.SendString("next request intact") })
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "META/Patient.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, strings.Repeat("x", 64<<10)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !trailingCRLF {
+		body.Truncate(body.Len() - 2)
+	}
+	serverConn, clientConn := net.Pipe()
+	server := &fasthttp.Server{Handler: app.Handler(), StreamRequestBody: true, DisablePreParseMultipartForm: true}
+	go func() { _ = server.ServeConn(serverConn) }()
+	t.Cleanup(func() { _ = clientConn.Close(); _ = serverConn.Close() })
+	if err := clientConn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _ = fmt.Fprintf(clientConn, "PUT /api/v1/datasets/project-a/source-loads/task-1/files/Patient HTTP/1.1\r\nHost: loom\r\nContent-Type: %s\r\nTransfer-Encoding: chunked\r\n\r\n%x\r\n%s\r\n0\r\n\r\nGET /next-request HTTP/1.1\r\nHost: loom\r\nConnection: close\r\n\r\n", writer.FormDataContentType(), body.Len(), body.Bytes())
+	}()
+	reader := bufio.NewReader(clientConn)
+	first, err := http.ReadResponse(reader, &http.Request{Method: http.MethodPut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, first.Body)
+	_ = first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("upload status=%d", first.StatusCode)
+	}
+	second, err := http.ReadResponse(reader, &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatalf("read next response: %v", err)
+	}
+	defer second.Body.Close()
+	payload, err := io.ReadAll(second.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.StatusCode != http.StatusOK || string(payload) != "next request intact" {
+		t.Fatalf("next request corrupted: status=%d body=%q", second.StatusCode, payload)
 	}
 }

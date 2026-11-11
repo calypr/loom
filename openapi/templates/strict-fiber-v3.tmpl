@@ -5,11 +5,40 @@ type StrictHandlerFunc func(ctx fiber.Ctx, args any) (any, error)
 
 type StrictMiddlewareFunc func(f StrictHandlerFunc, operationID string) StrictHandlerFunc
 
-func streamedBodyReader(ctx fiber.Ctx) io.Reader {
-	if body := ctx.Request().BodyStream(); body != nil {
-		return body
+type streamedMultipartBody struct {
+	reader io.Reader
+	eof bool
+}
+
+func (body *streamedMultipartBody) Read(p []byte) (int, error) {
+	if body.eof {
+		return 0, io.EOF
 	}
-	return bytes.NewReader(ctx.Request().Body())
+	n, err := body.reader.Read(p)
+	body.eof = err == io.EOF
+	return n, err
+}
+
+func streamedBodyReader(ctx fiber.Ctx) *streamedMultipartBody {
+	if body := ctx.Request().BodyStream(); body != nil {
+		return &streamedMultipartBody{reader: body}
+	}
+	return &streamedMultipartBody{reader: bytes.NewReader(ctx.Request().Body())}
+}
+
+func finishStreamedMultipartBody(ctx fiber.Ctx, body *streamedMultipartBody, responseWritten bool) {
+	if ctx.Request().BodyStream() == nil {
+		return
+	}
+	if !responseWritten || ctx.Response().StatusCode() >= 300 {
+		ctx.RequestCtx().SetConnectionClose()
+		return
+	}
+	// MIME EOF can precede HTTP EOF. Consume the chunk terminator before
+	// reusing the connection; close instead of draining an arbitrary epilogue.
+	if _, err := io.CopyN(io.Discard, body, 1); err != io.EOF {
+		ctx.RequestCtx().SetConnectionClose()
+	}
 }
 
 func limitSourceLoadPlanBody(ctx fiber.Ctx) error {
@@ -50,6 +79,13 @@ type strictHandler struct {
     // {{$opid}} operation middleware
     func (sh *strictHandler) {{.OperationId}}(ctx fiber.Ctx{{genParamArgs .PathParams}}{{if .RequiresParamObject}}, params {{.OperationId}}Params{{end}}) error {
         var request {{$opid | ucFirst}}RequestObject
+        {{$hasMultipart := false -}}
+        {{range .Bodies}}{{if eq .NameTag "Multipart"}}{{$hasMultipart = true}}{{end}}{{end -}}
+        {{if $hasMultipart -}}
+        multipartBody := streamedBodyReader(ctx)
+        multipartResponseWritten := false
+        defer func() { finishStreamedMultipartBody(ctx, multipartBody, multipartResponseWritten) }()
+        {{end}}
 
         {{range .PathParams -}}
             {{$varName := .GoVariableName -}}
@@ -86,14 +122,14 @@ type strictHandler struct {
                     request.{{if $multipleBodies}}{{.NameTag}}{{end}}Body = &body
                 {{else if eq .NameTag "Multipart" -}}
                     {{if eq .ContentType "multipart/form-data" -}}
-                    request.{{if $multipleBodies}}{{.NameTag}}{{end}}Body = multipart.NewReader(streamedBodyReader(ctx), string(ctx.Request().Header.MultipartFormBoundary()))
+                    request.{{if $multipleBodies}}{{.NameTag}}{{end}}Body = multipart.NewReader(multipartBody, string(ctx.Request().Header.MultipartFormBoundary()))
                     {{else -}}
                     if _, params, err := mime.ParseMediaType(string(ctx.Request().Header.ContentType())); err != nil {
                         return fiber.NewError(fiber.StatusBadRequest, err.Error())
                     } else if boundary := params["boundary"]; boundary == "" {
                         return fiber.NewError(fiber.StatusBadRequest, http.ErrMissingBoundary.Error())
                     } else {
-                        request.{{if $multipleBodies}}{{.NameTag}}{{end}}Body = multipart.NewReader(streamedBodyReader(ctx), boundary)
+                        request.{{if $multipleBodies}}{{.NameTag}}{{end}}Body = multipart.NewReader(multipartBody, boundary)
                     }
                     {{end -}}
                 {{else if eq .NameTag "Text" -}}
@@ -121,6 +157,9 @@ type strictHandler struct {
             if err := validResponse.Visit{{$opid}}Response(ctx); err != nil {
                 return err
             }
+            {{if $hasMultipart -}}
+            multipartResponseWritten = true
+            {{end -}}
         } else if response != nil {
             return fmt.Errorf("unexpected response type: %T", response)
         }
