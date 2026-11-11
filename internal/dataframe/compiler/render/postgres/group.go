@@ -171,17 +171,31 @@ package postgres
 //     o2b-sort.wire; the receipts also pin the divergence class (Arango
 //     sorts "_" and "~" BEFORE letters): codes/displays with symbols or
 //     mixed case are out-of-parity, no cross-engine order asserted, no
-//     fixture depends on one. The server-resolved authoring channel stays
-//     probe-refused at recipe.Bundle.Validate ("semanticCategory is not a
-//     resolved BINDING"), so a hand-assembled resolved family is the
-//     pre-approved surface; an unresolved family keeps the named-gap
-//     refusal. Composition stays refused at stage_sequence.go validateStageKindPayload GROUP-arm gate.
+//     fixture depends on one. The door still REFUSES an UNRESOLVED family
+//     (blank binding/rule/family/system) with the historical registered-gap
+//     wording — that preserved refusal now guards the malformed-input path,
+//     not an open gap: resolution happens upstream at
+//     recipe/construction_reshape.go:68 (Bundle.Validate, "semanticCategory
+//     is not a resolved BINDING"), lower/recipe_construction_reshape.go:
+//     71-105 (BINDING kind + resource + FHIR-schema-proven Coding path),
+//     and ir/physical_stage_validation.go:1478-1489 (exact resolved family
+//     identity), the last enforced by plan.Validate at every render entry
+//     (render.go, group.go) after this door's own re-read
+//     (validateGroupSemanticKey precedes it). Nothing in the production
+//     pipeline can mint an unresolved family: a plan that reaches the
+//     renderer unresolved is reachable-by-construction only as
+//     hand-carried IR, the pre-approved surface of plan §5 G2. Composition
+//     stays refused at the stage_sequence.go validateStageKindPayload
+//     GROUP-arm gate.
 //   - L-13.4 route-sourced CodingKey (RelatedSource/SourceUnnest):
 //     registered named divergence naming pg-sql-16.
-//   - L-13.5 RelatedOccurrence: repo-test-attested single-stage reachable
-//     (TestRelatedGroupFieldSourcesShareOneExactRouteAdapter); registered
-//     named divergence naming pg-sql-16 (correlated-hop contracts;
-//     sets.go:82-95 hop-only finding cited).
+//   - L-13.5 RelatedOccurrence: CLOSED for the composed door by pg-sql-16
+//     G3(c) (stage_related_occurrence.go; entry routes adapter-mentioning
+//     sequences to the composition slice, the dispatch arm consumes every
+//     adapter column). The single-stage INLINE door keeps this
+//     defense-in-depth re-read for direct callers — repo-test-attested
+//     single-stage reachable shape (TestRelatedGroupFieldSourcesShareOneExactRouteAdapter);
+//     sets.go:82-95 hop-only finding cited in the adapter header.
 //   - L-13.6 RootContributorInputColumn: probe-attested unreachable
 //     through the PG compile target (lineage surfaces refuse at their own
 //     doors: compiler/row_lineage.go:655, cell_trace.go:54,
