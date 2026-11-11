@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -23,9 +24,11 @@ import (
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
 	arangofactory "github.com/calypr/loom/internal/backends/arango"
+	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -35,6 +38,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
@@ -389,9 +393,15 @@ func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseServ
 // the explicitly selected PostgreSQL source backend (arch-backend-06 D1).
 // The PostgreSQL factory lives at internal/backends/postgres; this sentinel
 // is the gate its composition (pg-runtime-server-composition) must retarget,
-// and TestPostgresFactoryOwnershipContract asserts it stays closed until
-// then. It is returned before any store connection is opened, so selecting
-// postgres can never silently fall through to the ArangoDB stores below.
+// and TestPostgresFactoryOwnershipContract asserts it stays closed for
+// configurations the first query route cannot consume. Since
+// pg-runtime-first-query-route, only configurations that do NOT carry the
+// consumable first-query-route series assignment (server.postgresql.schemas
+// with exactly the source and dataset_release entries) reach the full
+// composition; every other postgres selection still receives this sentinel
+// before any store connection is opened, so selecting postgres can never
+// silently fall through to the ArangoDB stores below. The sentinel text is
+// byte-stable and pinned by postgres_refusal_contract_test.go.
 var ErrPostgreSQLRuntimeNotWired = errors.New("server.backend postgres is configured, but the PostgreSQL source runtime is not wired yet; refusing to start on the ArangoDB backend")
 
 // RunWithConfig executes the server composition for an already-parsed
@@ -412,7 +422,14 @@ func run(ctx context.Context, serverConfig Config) error {
 		return err
 	}
 	if backend == sourceBackendPostgres {
-		return ErrPostgreSQLRuntimeNotWired
+		// pg-runtime-first-query-route owns the explicitly selected PostgreSQL
+		// source backend. The branch's first statement is the consumability
+		// gate: configurations without the consumable series assignment still
+		// receive ErrPostgreSQLRuntimeNotWired before any dial, keeping the
+		// pinned startup-refusal contract byte-stable, while a consumable
+		// configuration composes the scoped PostgreSQL scalar read over the
+		// backend factory. Nothing in this branch reaches an ArangoDB store.
+		return runPostgreSQLFirstQueryRoute(ctx, serverConfig, logger)
 	}
 	// The factory owns the lifecycle client: one connection, the required
 	// collection bootstrap policy (dataset lifecycle, Explorer), and the
@@ -940,6 +957,435 @@ func run(ctx context.Context, serverConfig Config) error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "database", serverConfig.Server.Database, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
+		errCh <- server.App().Listen(serverConfig.Server.Listen)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("server stopped: %w", err)
+		}
+	case <-ctx.Done():
+		logger.Info("shutting down HTTP server", "reason", ctx.Err())
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		if err := server.App().ShutdownWithContext(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// pg-runtime-first-query-route: the explicitly selected PostgreSQL source
+// backend's first scoped scalar read through the public GraphQL query route.
+// ---------------------------------------------------------------------------
+
+// postgreSQLFirstQueryRouteAcquireTimeout bounds waiting for a pooled
+// connection, matching the ingest lane's default (ingest.PGLoadConfig).
+const postgreSQLFirstQueryRouteAcquireTimeout = 30 * time.Second
+
+// postgreSQLFirstQueryRouteWiringError is the single typed refusal used by
+// every PostgreSQL route this slice deliberately does not serve. It is the
+// explicit-unavailable posture required by the architecture contract: a
+// named, retryable-false, backend-tagged typed error that never falls
+// through to the ArangoDB stores and never degrades to a silent zero value.
+func postgreSQLFirstQueryRouteWiringError(operation, enablingTicket string) error {
+	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable,
+		operation+" is not served by the PostgreSQL first query route; it belongs to "+enablingTicket,
+		dataframeerrors.WithRetryable(false),
+		dataframeerrors.WithDetails(map[string]any{"backend": "postgresql", "stage": "wiring", "enablingTicket": enablingTicket}))
+}
+
+// postgresFirstQueryRouteAssignment resolves the only consumable first-query-
+// route configuration shape: server.postgresql.schemas carrying exactly the
+// source and dataset_release series assignments, distinct and non-blank.
+// Every other shape — missing, blank, duplicated across the two series, or
+// carrying an entry for a series this route does not consume — keeps the
+// arch-backend-06 startup refusal: ErrPostgreSQLRuntimeNotWired is returned
+// before any credential validation and before any dial, so the pinned
+// byte-stable sentinel contract (postgres_refusal_contract_test.go,
+// TestPostgresFactoryOwnershipContract) stays intact for configurations the
+// route cannot honestly serve. Deep schema-identifier and cross-series
+// ledger validation stays with the factory's authoritative
+// control.Config.Validate, which also runs pre-dial.
+func postgresFirstQueryRouteAssignment(pg PostgreSQLConfig) (backendspostgres.SeriesSchemas, string, string, error) {
+	source, hasSource := pg.Schemas[string(backendspostgres.SeriesSource)]
+	manifest, hasManifest := pg.Schemas[string(backendspostgres.SeriesDatasetRelease)]
+	source, manifest = strings.TrimSpace(source), strings.TrimSpace(manifest)
+	if !hasSource || !hasManifest || source == "" || manifest == "" || source == manifest || len(pg.Schemas) != 2 {
+		return nil, "", "", ErrPostgreSQLRuntimeNotWired
+	}
+	return backendspostgres.SeriesSchemas{
+		backendspostgres.SeriesSource:         source,
+		backendspostgres.SeriesDatasetRelease: manifest,
+	}, source, manifest, nil
+}
+
+// postgresFirstQueryRouteDSN renders the configured PostgreSQL connection as
+// a URL DSN. The returned string carries the credential and must never be
+// logged or interpolated into an error; route errors pass through
+// postgresFirstQueryRouteError, which scrubs every credential form.
+func postgresFirstQueryRouteDSN(pg PostgreSQLConfig) string {
+	u := &url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(pg.User, pg.Password),
+		Host:     fmt.Sprintf("%s:%d", pg.Host, pg.Port),
+		Path:     "/" + pg.Database,
+		RawQuery: "sslmode=" + url.QueryEscape(strings.ToLower(strings.TrimSpace(pg.SSLMode))),
+	}
+	return u.String()
+}
+
+// redactedRouteError keeps the cause reachable while rendering a credential-
+// scrubbed text.
+type redactedRouteError struct {
+	msg   string
+	cause error
+}
+
+func (e *redactedRouteError) Error() string { return e.msg }
+func (e *redactedRouteError) Unwrap() error { return e.cause }
+
+// postgresFirstQueryRouteError scrubs every credential-bearing form of the
+// connection configuration from an error text. The factory's own open path
+// already redacts the DSN password; this is the composition's defensive
+// second layer so no route error can echo a credential. The percent-encoded
+// forms are covered too: url.UserPassword stores the userinfo in escaped
+// form, so a driver echo of the parsed credential shows the escaped shape,
+// not the raw one (review e22c4825 optional 2, defense-in-depth).
+func postgresFirstQueryRouteError(err error, pg PostgreSQLConfig, dsn string) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	queryEscaped := url.QueryEscape(pg.Password)
+	pathEscaped := url.PathEscape(pg.Password)
+	secrets := []string{
+		dsn,
+		pg.Password,
+		pg.User + ":" + pg.Password,
+		queryEscaped,
+		pathEscaped,
+		pg.User + ":" + queryEscaped,
+		pg.User + ":" + pathEscaped,
+	}
+	for _, secret := range secrets {
+		if secret != "" {
+			text = strings.ReplaceAll(text, secret, "<redacted>")
+		}
+	}
+	if text == err.Error() {
+		return err
+	}
+	return &redactedRouteError{msg: text, cause: err}
+}
+
+// configuredPostgreSQLSourceRows is the PostgreSQL sibling of
+// configuredAQLSourceRows for the deployment that selected the PostgreSQL
+// target. The dispatch guard derives the SQL view through closed dispatch:
+// a command that is not PostgreSQL-tagged is rejected here, before execute
+// and long before any driver call, with the compiler's typed routing
+// sentinel. The logging and hash policy records only the SHA-256 of the
+// statement text plus its byte length and bind-value count; SQL text and
+// bound values are never logged, hashed as if they were AQL, or routed to
+// any AQL surface (this branch constructs no ArangoDB adapter at all).
+func configuredPostgreSQLSourceRows(logger *slog.Logger, phase string, execute dataframeexecution.SourceRows) dataframeexecution.SourceRows {
+	return func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		sqlText, bindValues, dispatchErr := request.Command.PostgreSQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+		started := time.Now()
+		digest := sha256.Sum256([]byte(sqlText))
+		queryHash := hex.EncodeToString(digest[:])
+		if logger != nil {
+			logger.Info("dataframe SQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
+				"query_hash", queryHash, "statement_bytes", len(sqlText), "bind_values", len(bindValues))
+		}
+		err := preserveConfiguredQueryError(execute(ctx, request, visit))
+		level := slog.LevelInfo
+		if err != nil {
+			level = slog.LevelError
+		}
+		logServerDiagnostic(logger, level, "dataframe SQL execution", requestIDFromContext(ctx), phase, time.Since(started), err,
+			"query_hash", queryHash)
+		return err
+	}
+}
+
+// postgreSQLGenerationStatusReader answers generation status reads from the
+// runtime's manifest lifecycle port — a real PostgreSQL read, never an
+// ArangoDB one — and refuses server-side activation: the activation CAS is
+// driven by the loom-data CLI's ingest lane until pg-runtime-server-composition.
+type postgreSQLGenerationStatusReader struct {
+	manifests publicationcontract.ManifestLifecycle
+}
+
+func (r postgreSQLGenerationStatusReader) ReadManifest(ctx context.Context, ref publicationcontract.Ref) (publicationcontract.Manifest, error) {
+	if r.manifests == nil {
+		return publicationcontract.Manifest{}, postgreSQLFirstQueryRouteWiringError("Generation status reads", "pg-runtime-server-composition")
+	}
+	return r.manifests.ReadManifest(ctx, ref)
+}
+
+func (r postgreSQLGenerationStatusReader) Activate(context.Context, publicationcontract.Manifest) error {
+	return postgreSQLFirstQueryRouteWiringError("Server-side generation activation", "pg-runtime-server-composition")
+}
+
+// postgreSQLFirstQueryRecipeControl keeps every recipe-control operation
+// explicitly unavailable while the PostgreSQL recipe registry, revision
+// chain, and execution registries land in later slices. The embedded
+// dataframeexecution.Control carries the live PostgreSQL EXPLAIN callback
+// over the runtime's PlanJSON port (retiring the documented nil stopgap on
+// this branch); it stays unreachable until a recipe Engine is composed, and
+// that seam is registered rather than silently AQL-routed: an AQL-tagged
+// command is never handed to ExplainPostgreSQLConnection and a PostgreSQL-
+// tagged command is never handed to the AQL policy surface.
+type postgreSQLFirstQueryRecipeControl struct {
+	dataframeexecution.Control
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (dataframeexecution.Validation, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.Validation{}, postgreSQLFirstQueryRouteWiringError("Recipe validation", "pg-runtime-server-composition")
+	}
+	return c.Control.Validate(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Explain(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
+	if c.Control.Engine == nil {
+		return semantic.RecipePlanExplanation{}, postgreSQLFirstQueryRouteWiringError("Recipe explain", "pg-runtime-server-composition")
+	}
+	return c.Control.Explain(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (dataframeexecution.PhysicalExplanation, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.PhysicalExplanation{}, postgreSQLFirstQueryRouteWiringError("Recipe physical explain", "pg-runtime-server-composition")
+	}
+	return c.Control.ExplainPhysical(ctx, name, bindings, live)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+	if c.Control.Engine == nil {
+		return semantic.ResolvedRecipePlan{}, postgreSQLFirstQueryRouteWiringError("Recipe resolution", "pg-runtime-server-composition")
+	}
+	return c.Control.Resolve(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Preview(ctx context.Context, name string, bindings recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.Preview{}, postgreSQLFirstQueryRouteWiringError("Recipe preview", "pg-runtime-server-composition")
+	}
+	return c.Control.Preview(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.Preview{}, postgreSQLFirstQueryRouteWiringError("Recipe run", "pg-runtime-server-composition")
+	}
+	return c.Control.Run(ctx, name, bindings)
+}
+
+// postgreSQLFirstQueryDataframeReleases keeps the dataframe-release read
+// port explicitly unavailable: server-side activation switches a dataframe
+// publication pointer, and the PostgreSQL publication lane belongs to
+// pg-runtime-server-composition. Answering with the loadapi lane's nil-store
+// guard would surface a 500 INTERNAL_ERROR for what is a known un-served
+// posture; naming the refusal here keeps every activation attempt typed,
+// retryable-false, and backend-tagged -- and it is the load-bearing check
+// that the route never half-activates from stale release evidence.
+type postgreSQLFirstQueryDataframeReleases struct{}
+
+func (postgreSQLFirstQueryDataframeReleases) GetExecution(context.Context, string) (publication.BundleExecution, error) {
+	return publication.BundleExecution{}, postgreSQLFirstQueryRouteWiringError("Dataframe release reads", "pg-runtime-server-composition")
+}
+
+func (postgreSQLFirstQueryDataframeReleases) GetPointer(context.Context, string) (publication.BundlePointer, error) {
+	return publication.BundlePointer{}, postgreSQLFirstQueryRouteWiringError("Dataframe release pointer reads", "pg-runtime-server-composition")
+}
+
+// runPostgreSQLFirstQueryRoute composes the explicitly selected PostgreSQL
+// source backend for the first scoped scalar read. Order of laws: (1) the
+// consumability gate runs first and pre-dial — configs it cannot consume
+// keep receiving ErrPostgreSQLRuntimeNotWired byte-stably, preserving the
+// pinned startup-refusal contracts; (2) connection-contract validation and
+// the ClickHouse refusal also run pre-dial; (3) the runtime opens exactly
+// through the backend factory (internal/backends/postgres) with the source
+// and dataset_release series assigned and SetupNone — migrations belong to
+// the ingest lane (ingest.PGLoadConfig convention), and a schema the caller
+// has not arranged is a named factory refusal, never a silent create;
+// (4) every port is PostgreSQL: the compile target is selected once from the
+// source schema binding, the row port is the factory's tagged executor
+// behind configuredPostgreSQLSourceRows, the active generation resolves
+// through the runtime's manifest port, and no ArangoDB client, adapter, or
+// AQL surface is constructed anywhere in this branch. Explorer/row/recipe/
+// graph/traversal/publication routes stay explicitly unavailable through the
+// typed refusals above and the nil-port guards, never silently Arango-backed.
+// composePostgreSQLFirstQueryRoute is the listen-free composition seam: every
+// port, refusal, and route registration the production route installs,
+// returned as a fully wired HTTPServer plus the runtime-close function. The
+// production path below adds listen/shutdown around it; the route-census
+// test drives the returned app through fiber's in-process app.Test so the
+// explicit-unavailable posture is asserted through the PRODUCTION handler
+// stack without a listen-port race.
+func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) (*httpapi.HTTPServer, func() error, error) {
+	assignment, sourceSchema, _, err := postgresFirstQueryRouteAssignment(serverConfig.Server.PostgreSQL)
+	if err != nil {
+		return nil, nil, err
+	}
+	pg := serverConfig.Server.PostgreSQL
+	if err := pg.validate(); err != nil {
+		return nil, nil, err
+	}
+	if serverConfig.Server.ClickHouse.Enabled {
+		return nil, nil, errors.New("server.clickhouse.enabled cannot be combined with server.backend postgres in this slice; the PostgreSQL publication composition belongs to pg-runtime-server-composition")
+	}
+
+	dsn := postgresFirstQueryRouteDSN(pg)
+	runtime, err := backendspostgres.Open(ctx, backendspostgres.Config{
+		DSN:            dsn,
+		MaxConns:       int32(pg.MaxOpenConns),
+		MinConns:       int32(pg.MaxIdleConns),
+		AcquireTimeout: postgreSQLFirstQueryRouteAcquireTimeout,
+		Schemas:        assignment,
+		Setup:          backendspostgres.SetupNone,
+	})
+	if err != nil {
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL source runtime: %w", err), pg, dsn)
+	}
+	closeRuntime := func() error {
+		return postgresFirstQueryRouteError(runtime.Close(), pg, dsn)
+	}
+
+	// The compile target is selected exactly once from the source schema
+	// placement, mirroring the executor witnesses: per-request dialect
+	// selection is not available to any caller.
+	binding, err := ir.NewPostgresStorageBinding(sourceSchema)
+	if err != nil {
+		_ = closeRuntime()
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("bind PostgreSQL storage placement: %w", err), pg, dsn)
+	}
+	sourceCompileTarget, err := compiler.PostgreSQLTarget(binding)
+	if err != nil {
+		_ = closeRuntime()
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("select PostgreSQL compile target: %w", err), pg, dsn)
+	}
+
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
+		SourceRows: configuredPostgreSQLSourceRows(logger, "query_rows", runtime.SourceRows),
+	})
+
+	// Catalog discovery rides the backend's own field-profile read lane
+	// (Ask C) behind the same catalog.NewCache the Arango lane uses. The
+	// reference reads fhir_field_catalog; the PostgreSQL mirror of that
+	// reference table is the persisted field-profile rows, so the auth-
+	// path lister is derived there too -- never an Arango catalog surface.
+	discoveryCache := catalog.NewCache()
+	discoverFields := discoveryCache.DiscoverFields(runtime.DiscoverFields)
+
+	// Auth wiring mirrors the Arango lane's shape (server.go:490-498): the
+	// existing-auth-path lister is the backend read lane's own listing;
+	// noAuth and basic modes never call it, and calypr mode resolves
+	// against PostgreSQL-persisted paths only.
+	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, runtime.DiscoverExistingAuthResourcePaths)
+	if err != nil {
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("configure authentication: %w", err)
+	}
+	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
+
+	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
+		DataframeQuery: queryapi.Config{
+			CompileTarget: sourceCompileTarget,
+			// Field discovery is the backend read lane's own port behind the
+			// discovery cache. Reference discovery stays nil on purpose:
+			// reference-backed traversal fails closed as typed
+			// BACKEND_UNAVAILABLE (catalogUnavailable) until the reference
+			// read lane lands -- never a partial read, never Arango.
+			// Graph queries that resolve without references still reach
+			// compilation, where the PostgreSQL renderer honestly refuses
+			// the graph physical plan (see the fhirGraph census leg).
+			DiscoverReferences:     nil,
+			DiscoverFields:         discoverFields,
+			Dataframes:             dataframes,
+			ScopeResolver:          scopeResolver,
+			ActiveManifestResolver: runtime.Manifests,
+			// The AQL explain policy surface is not wired on this branch;
+			// the graph service already refuses a nil explain as typed
+			// unavailable.
+			Explain: nil,
+		},
+		MaterializationReader: nil,
+		Logger:                logger,
+		RecipeControl: postgreSQLFirstQueryRecipeControl{Control: dataframeexecution.Control{
+			ExplainPostgreSQLConnection: func(ctx context.Context, compiled compiler.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
+				return explainPostgreSQLCompiledQuery(ctx, runtime.PlanJSON, compiled)
+			},
+		}},
+		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
+		RecipeRevisions:  nil,
+		RecipeExecutions: nil,
+	})
+
+	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
+		LoadGeneration: func(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+			return ingest.LoadSummary{}, postgreSQLFirstQueryRouteWiringError("Server-side PostgreSQL generation load", "pg-runtime-server-composition (the loom-data CLI drives the production ingest path today)")
+		},
+		GenerationActivator: postgreSQLGenerationStatusReader{manifests: runtime.Manifests},
+		DataframeReleases:   postgreSQLFirstQueryDataframeReleases{},
+		Logger:              logger,
+	})
+	if err != nil {
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("create generation load service: %w", err)
+	}
+
+	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{
+		Authenticator: authenticator,
+		Authorizer:    authorizer,
+		Logger:        logger,
+		CoreReadyCheck: func(ctx context.Context) error {
+			return runtime.Health(ctx)
+		},
+		ClickHouseReadyCheck: nil,
+		ClickHouseEnabled:    false,
+	})
+	if err != nil {
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("create HTTP server: %w", err)
+	}
+	// Explorer handlers stay nil: every Explorer/authoring/row/preview/trace
+	// route already returns its typed AUTHORING_UNAVAILABLE/TRACE_UNAVAILABLE/
+	// ROW_LINEAGE_UNAVAILABLE refusal through the nil-handler guards, and the
+	// route census test pins that none of them ever serves Arango-backed data.
+	if err := registerRoutes(server, generationService, authorizer, resolver, nil, scopeResolver); err != nil {
+		_ = closeRuntime()
+		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
+	}
+	return server, closeRuntime, nil
+}
+
+func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) error {
+	server, closeRuntime, err := composePostgreSQLFirstQueryRoute(ctx, serverConfig, logger)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := closeRuntime(); closeErr != nil {
+			logger.Error("close PostgreSQL source runtime", "error", closeErr)
+		}
+	}()
+
+	// The startup line keeps the source-schema placement visible for
+	// operators; recomputing the validated assignment is free and cannot
+	// diverge from what compose opened (the gate is pure).
+	_, startSourceSchema, _, _ := postgresFirstQueryRouteAssignment(serverConfig.Server.PostgreSQL)
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "backend", serverConfig.Server.Backend,
+			"source_schema", startSourceSchema, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
 		errCh <- server.App().Listen(serverConfig.Server.Listen)
 	}()
 

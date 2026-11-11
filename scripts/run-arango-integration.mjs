@@ -121,6 +121,23 @@ export const pgExec03PostQuery = new Set([
     'TestPostgresPostQueryMutationControls',
     'TestZZPostgresPostQueryZeroLeftoverFixtures',
 ]);
+// pg-runtime-first-query-route: the public fhirDataframe query-route live
+// battery (census through the production handler, the exact-literals
+// serving leg, the dead-endpoint bound witness, and the N-5 census audit)
+// requires the separate PostgreSQL fixture service
+// (LOOM_TEST_POSTGRES_URL), never Arango. It runs against the real
+// PostgreSQL service under the ticket check-1 harness (go test
+// ./internal/server); in this Arango-only lane its explicit skips stay
+// visible in the proof summary, following the pg-exec-02/#99, pg-exec-04,
+// and pg-exec-05/#123 registration precedent. Membership is byte-exact
+// against the offline go test -json skip capture for this package (the
+// parents skip before any sub-leg runs, so no slash-qualified names).
+const pgQueryRoute = new Set([
+    'TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable',
+    'TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler',
+    'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
+    'TestZZQRouteZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -134,6 +151,7 @@ const external = new Set([
     ...pgExecRootPaging,
     ...pgExec04Preview,
     ...pgExec03PostQuery,
+    ...pgQueryRoute,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
