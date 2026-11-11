@@ -727,6 +727,109 @@ func TestSQL16RelatedOccurrenceRefusals(t *testing.T) {
 		{"anchor-fact-jsonb", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
 			f["_key"] = stageColumnFact{alias: "c0", jsonb: true}
 		}, "not the materialized root-key scalar"},
+		// --- guard-level battery completions (worker-167). Every remaining
+		// renderer guard in stage_related_occurrence.go is now killed by at
+		// least one cell that asserts its own message fragment, so
+		// disabling any guard turns some cell RED (run_guards.py attests
+		// this mechanically). Four guards are deliberately cell-less:
+		//   - the membership-without-selector else arm: the adapter gate
+		//     (Coding selector vs. declared Coding details, and the array/
+		//     membership/unnest triple) refuses every input that could
+		//     reach it, and no stage declares a ""-named column;
+		//   - the hop-anchor "binds no readable row" lookup: currentVar is
+		//     only ever scan.Variable or a traversal target, both always
+		//     registered in the rows map;
+		//   - the "reaches not its declared target type" check: the
+		//     hop-label/traversal payload agreement and the gate's
+		//     ends-at-declared-target check jointly make it unreachable;
+		//   - the "correlation marker lost" internal invariant: the marker
+		//     is placed by this renderer itself, one statement earlier.
+		{"identity-field-arity", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			field := &s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[0]
+			field.Expression.Value.Path = []string{"_id", "extra"}
+		}, "field must read the reached target row directly"},
+		{"coding-column-source-drift", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			coding.Expression.Extract.Source.Variable = "anchor_doc"
+		}, "Coding column \"__loom_group_related_codings\" must read the reached target row directly"},
+		{"coding-resource-type-drift", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			coding.Expression.Extract.ResourceType = "Patient"
+		}, "not the target type"},
+		{"subplan-distinct-by", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.DistinctBy =
+				&ir.PhysicalValue{Variable: "observation_doc", Path: []string{"_id"}}
+		}, "DISTINCT BY modifier"},
+		{"subplan-empty-operations", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations = nil
+		}, "no operations"},
+		{"anchor-scan-unnamed", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[0].CollectionScan.Variable = ""
+		}, "name its variable and root collection bind"},
+		{"anchor-filter-missing", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations =
+				s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[:1]
+		}, "followed by its root-key equality filter"},
+		{"hop-operation-missing", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations =
+				s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[:6]
+		}, "is missing its operation"},
+		{"hop-operation-kind", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[6] =
+				ir.PhysicalOperation{Kind: ir.PhysicalDerivedLetOp, DerivedLet: &ir.PhysicalDerivedLet{
+					Variable: "extra", Operator: "UNIQUE",
+					Inputs: []ir.PhysicalValue{{Variable: "observation_doc", Path: []string{"payload"}}},
+				}}
+		}, "exactly its canonical hops"},
+		{"hop-source-variable", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations[6].Traversal.SourceVariable = "anchor_other"
+		}, "must anchor on"},
+		{"hop-scope-block-defect", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			ops := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations
+			s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Operations = append(ops[:9], ops[10:]...)
+		}, "hop 0 scope block"},
+		{"coding-source-path-drift", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			coding.Expression.Extract.Source.Path = []string{"document"}
+		}, "reached document at"},
+		{"coding-selector-indexed-step", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			index := 0
+			coding.Expression.Extract.Selector.Steps[0].Index = &index
+		}, "indexed steps"},
+		{"coding-selector-unsafe-step", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			coding.Expression.Extract.Selector.Steps[1].Field = "bad field[]"
+		}, "Coding column \"__loom_group_related_codings\": selector step \"bad field[]\" is not renderer-safe"},
+		{"coding-selector-two-iterates", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			coding.Expression.Extract.Selector.Steps = append(
+				coding.Expression.Extract.Selector.Steps, spec.SelectorStep{Field: "tail", Iterate: true})
+		}, "repeated steps beyond one iterate step"},
+		{"coding-selector-no-iterate", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			coding := s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[3]
+			coding.Expression.Extract.Selector.Steps = coding.Expression.Extract.Selector.Steps[:1]
+		}, "no iterated selector step"},
+		{"adapter-witness-missing", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RouteHasItemVariable = ""
+		}, "lacks its has-item witness"},
+		{"route-empty", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.Route = nil
+		}, "at least one hop"},
+		{"hop0-not-at-anchor", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.RelatedRecords.Route[0].FromNodeID = "wrong-node"
+		}, "does not start at the anchor node"},
+		{"hop1-discontinuous", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			route := s.Group.RelatedOccurrence.RelatedRecords.Route
+			s.Group.RelatedOccurrence.RelatedRecords.Route = append(route, ir.PhysicalStageRelatedRouteStep{
+				StepIndex: 1, FromOccurrenceID: "other-occ", FromNodeID: "wrong-node", FromResourceType: "Patient",
+				EdgeID: "level-edge", Relationship: "subject_Reference", StorageDirection: "INBOUND", MatchMode: "REQUIRED",
+				ToOccurrenceID: "observation-occ", ToNodeID: "observation-node", ToResourceType: "Observation",
+			})
+		}, "is discontinuous"},
+		{"coding-membership-missing", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
+			s.Group.RelatedOccurrence.CodingMembershipColumn = ""
+		}, "no matching array column"},
 	}
 	// One ALIVE control first: the canonical fixture renders.
 	{
