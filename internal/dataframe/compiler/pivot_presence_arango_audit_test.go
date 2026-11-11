@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -28,12 +28,21 @@ func TestPivotPresenceArangoAudit(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}}}); err != nil {
+	client := arangoBackend.Client
+	// Close is terminal, and t.Cleanup bodies run after deferred calls, so
+	// the close must also be a cleanup — registered first so LIFO ordering
+	// runs it last, after the fixture removal below still has an open
+	// client.
+	t.Cleanup(func() {
+		if err := client.Close(context.Background()); err != nil {
+			t.Errorf("close presence audit client: %v", err)
+		}
+	})
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -167,7 +176,7 @@ func compilePresenceAuditOutput(t *testing.T, output recipe.Output, project, gen
 	return compiled.Outputs[0]
 }
 
-func executePresenceAuditScan(t *testing.T, ctx context.Context, client *store.Client, scanned CompiledCategoryScanQuery) (presentFalse int, missing, conclusive bool, rows int, err error) {
+func executePresenceAuditScan(t *testing.T, ctx context.Context, client *arangofactory.Client, scanned CompiledCategoryScanQuery) (presentFalse int, missing, conclusive bool, rows int, err error) {
 	if witness := scanned.OverflowWitness; witness != nil {
 		witnessRows := 0
 		witnessMissing := false
@@ -206,7 +215,7 @@ func executePresenceAuditScan(t *testing.T, ctx context.Context, client *store.C
 	return presentFalse, presentFalse > 0, false, rows, nil
 }
 
-func seedPresenceAuditDocuments(t *testing.T, ctx context.Context, client *store.Client, project, generation, authPath string) {
+func seedPresenceAuditDocuments(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation, authPath string) {
 	t.Helper()
 	base := func(key, resourceType string) map[string]any {
 		return map[string]any{
@@ -419,7 +428,7 @@ func seedPresenceAuditDocuments(t *testing.T, ctx context.Context, client *store
 	insertPresenceAuditBatch(t, ctx, client, "Patient", patients)
 }
 
-func insertPresenceAuditBatch(t *testing.T, ctx context.Context, client *store.Client, collection string, rows []map[string]any) {
+func insertPresenceAuditBatch(t *testing.T, ctx context.Context, client *arangofactory.Client, collection string, rows []map[string]any) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(rows))
 	for _, row := range rows {

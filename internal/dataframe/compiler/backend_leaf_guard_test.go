@@ -4,7 +4,8 @@ package compiler
 // output. The only vendor-adjacent edge in the dataframe pipeline is
 // adapter -> compiler/command; the compiler subtree itself may never import
 // a backend implementation package (internal/backends/...) or a database
-// driver (github.com/jackc/pgx/...). This guard is the Go-side twin of the
+// driver (github.com/jackc/pgx/..., github.com/arangodb/...). This guard is
+// the Go-side twin of the
 // scripts/check_dataframe_package_boundaries.sh rule, so the leaf law is
 // enforced by every go test run, not only by the shell check.
 
@@ -25,6 +26,7 @@ import (
 var forbiddenBackendImports = []string{
 	"github.com/calypr/loom/internal/backends",
 	"github.com/jackc/pgx",
+	"github.com/arangodb",
 }
 
 // backendImportOffenders walks root recursively and reports every production
@@ -84,6 +86,7 @@ func TestCompilerProductionFilesNeverImportBackendsOrDrivers(t *testing.T) {
 		victims := map[string]string{
 			"victim_backends_import.go": "package compiler\n\nimport \"github.com/calypr/loom/internal/backends/postgres/internal/store\"\n\nvar _ = store.SeriesSource\n",
 			"victim_pgx_import.go":      "package compiler\n\nimport \"github.com/jackc/pgx/v5/pgxpool\"\n\nvar _ = pgxpool.Config{}\n",
+			"victim_arangodb_import.go": "package compiler\n\nimport \"github.com/arangodb/go-driver\"\n\nvar _ = go-driver.Database\n",
 		}
 		for name, body := range victims {
 			if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
@@ -103,6 +106,15 @@ func TestCompilerProductionFilesNeverImportBackendsOrDrivers(t *testing.T) {
 		// legitimately imports jackc/pgx outside the compiler subtree).
 		if offenders := backendImportOffenders(filepath.Join("..", "postgres"), false); len(offenders) == 0 {
 			t.Fatal("scanner missed the known PostgreSQL driver imports in internal/backends/postgres/internal/rows")
+		}
+	})
+
+	t.Run("non_vacuity_fires_on_a_real_arango_adapter", func(t *testing.T) {
+		// The ArangoDB twin (arch-backend-07): the same scanner must flag the
+		// real ArangoDB adapter tree, which legitimately imports
+		// github.com/arangodb/go-driver outside the compiler subtree.
+		if offenders := backendImportOffenders(filepath.Join("..", "..", "backends", "arango"), false); len(offenders) == 0 {
+			t.Fatal("scanner missed the known ArangoDB driver imports in internal/backends/arango/internal/store")
 		}
 	})
 }

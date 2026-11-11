@@ -10,9 +10,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -36,7 +35,7 @@ import (
 //	  "cd /workspace && go test -count=1 -run TestReconcileDropsJustPublishedBundleAgainstArango -v ./internal/dataframe/publication/clickhouse/"
 
 type fb1Catalog struct {
-	*pubarango.Registry
+	*arangofactory.PublishedRegistry
 	race    func()
 	raceRan bool
 }
@@ -51,10 +50,10 @@ func (c *fb1Catalog) ClaimExecutionCleanup(ctx context.Context, executionID, own
 			c.race()
 		}
 	}
-	return c.Registry.ClaimExecutionCleanup(ctx, executionID, owner)
+	return c.PublishedRegistry.ClaimExecutionCleanup(ctx, executionID, owner)
 }
 
-func fb1Setup(t *testing.T) (*pubarango.Registry, publicationSetup) {
+func fb1Setup(t *testing.T) (*arangofactory.PublishedRegistry, publicationSetup) {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
@@ -63,10 +62,11 @@ func fb1Setup(t *testing.T) (*pubarango.Registry, publicationSetup) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	t.Cleanup(cancel)
 	database := "loom_verify_fb1_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open arango: %v", err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
@@ -85,10 +85,10 @@ func fb1Setup(t *testing.T) (*pubarango.Registry, publicationSetup) {
 			t.Errorf("drop database %s: status %d", database, response.StatusCode)
 		}
 	})
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
@@ -120,7 +120,7 @@ func fb1Execution(suffix string) pubpublication.BundleExecution {
 // fb1Seed stores the stale execution row under a seed-held lease, then frees
 // the key: the identical registry state a stalled reconciler faces when it
 // arrives to a candidate whose previous holder's lease has lapsed.
-func fb1Seed(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution) {
+func fb1Seed(t *testing.T, registry *arangofactory.PublishedRegistry, ctx context.Context, exec pubpublication.BundleExecution) {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, exec.Key, "seed", time.Now().UTC().Add(2*time.Minute))
 	if err != nil || !acquired {
@@ -141,7 +141,7 @@ func TestReconcileDropsJustPublishedBundleAgainstArango(t *testing.T) {
 
 	pointerName := exec.PointerName()
 	runner := "runner-" + uuid.NewString()
-	wrapper := &fb1Catalog{Registry: registry}
+	wrapper := &fb1Catalog{PublishedRegistry: registry}
 	wrapper.race = func() {
 		ctx := context.Background()
 		acquired, err := registry.AcquireBundleLease(ctx, exec.Key, runner, time.Now().UTC().Add(2*time.Minute))
@@ -216,7 +216,7 @@ func TestReconcileSkipsPointerNamedExecutionAgainstArango(t *testing.T) {
 		t.Fatalf("pre-publish pointer: %v", err)
 	}
 	ch := &tocFakeClickHouse{table: exec.Outputs[0].PhysicalTable}
-	store, err := NewBundleStore(ch, &fb1Catalog{Registry: registry})
+	store, err := NewBundleStore(ch, &fb1Catalog{PublishedRegistry: registry})
 	if err != nil {
 		t.Fatalf("NewBundleStore: %v", err)
 	}

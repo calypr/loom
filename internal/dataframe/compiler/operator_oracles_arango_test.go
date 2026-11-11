@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -17,7 +18,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -89,12 +89,13 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -669,7 +670,7 @@ func compileOracleBundle(t *testing.T, bundle recipe.Bundle, project, generation
 	return compiled
 }
 
-func executeOracleQuery(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) []map[string]any {
+func executeOracleQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput) []map[string]any {
 	t.Helper()
 	rows, err := queryOracleOutput(ctx, client, output)
 	if err != nil {
@@ -678,7 +679,7 @@ func executeOracleQuery(t *testing.T, ctx context.Context, client *store.Client,
 	return rows
 }
 
-func queryOracleOutput(ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) ([]map[string]any, error) {
+func queryOracleOutput(ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput) ([]map[string]any, error) {
 	rendered, err := aql.RenderPhysicalPlan(output.Plan)
 	if err != nil {
 		return nil, err
@@ -694,7 +695,7 @@ func queryOracleOutput(ctx context.Context, client *store.Client, output lower.C
 	return rows, err
 }
 
-func executeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) map[string][]operatorOracleContributor {
+func executeOracleTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput, column string) map[string][]operatorOracleContributor {
 	t.Helper()
 	_, cells := executeOracleTraceResults(t, ctx, client, output, column)
 	contributors := make(map[string][]operatorOracleContributor, len(cells))
@@ -707,7 +708,7 @@ func executeOracleTrace(t *testing.T, ctx context.Context, client *store.Client,
 	return contributors
 }
 
-func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
+func executeOracleTraceResults(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
 	trace, err := CompileCellTraceOutput(ArangoTarget(), output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {

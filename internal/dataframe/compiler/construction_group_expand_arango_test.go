@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -911,7 +911,7 @@ func constructionExpandGroupOutput() recipe.Output {
 	return output
 }
 
-func openConstructionReshapeArango(t *testing.T) (context.Context, *store.Client) {
+func openConstructionReshapeArango(t *testing.T) (context.Context, *arangofactory.Client) {
 	t.Helper()
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -919,18 +919,19 @@ func openConstructionReshapeArango(t *testing.T) (context.Context, *store.Client
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 	return ctx, client
 }
 
-func insertConstructionReshapeRows(t *testing.T, ctx context.Context, client *store.Client, project, generation string, payloads []map[string]any) {
+func insertConstructionReshapeRows(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string, payloads []map[string]any) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(payloads))
 	for _, payload := range payloads {
@@ -953,13 +954,13 @@ func insertConstructionReshapeRows(t *testing.T, ctx context.Context, client *st
 	}
 }
 
-func executeConstructionOutput(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string) []map[string]any {
+func executeConstructionOutput(t *testing.T, ctx context.Context, client *arangofactory.Client, output recipe.Output, project, generation string) []map[string]any {
 	t.Helper()
 	query := compileConstructionOutputQuery(t, output, project, generation)
 	return executeReshapeOracleQuery(t, ctx, client, query)
 }
 
-func executeConstructionOutputError(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string) error {
+func executeConstructionOutputError(t *testing.T, ctx context.Context, client *arangofactory.Client, output recipe.Output, project, generation string) error {
 	t.Helper()
 	query := compileConstructionOutputQuery(t, output, project, generation)
 	return client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(map[string]any) error { return nil })

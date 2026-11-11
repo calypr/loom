@@ -299,7 +299,7 @@ const releaseIDDomain = "loom-release-id-v2|"
 //
 // FIELD SCOPE (why every persisted immutable category must feed the digest).
 // The stores key the immutable document on this id
-// (internal/dataset/arango/release_store.go: releaseDocument["_key"] =
+// (internal/backends/arango/internal/dataset/release_store.go: releaseDocument["_key"] =
 // releaseDocumentKey(release.ID)) and refuse to overwrite an existing key whose
 // content differs, so the digest must separate exactly the fields the document
 // persists. A framing over Project/Generation/(Selector.Key(), ExecutionID)
@@ -344,7 +344,7 @@ const releaseIDDomain = "loom-release-id-v2|"
 //
 // OUTPUT-STABILITY ANALYSIS (derived from the store code). Changing this
 // function changes every digest, and releaseId IS persisted and re-compared
-// across binary versions: internal/dataset/arango/release_store.go keys the
+// across binary versions: internal/backends/arango/internal/dataset/release_store.go keys the
 // document on it ("releaseDocument[\"_key\"] = releaseDocumentKey(release.ID)"
 // at L17/L73), stores the id field, and patches it onto the pointers
 // ("releaseKey: @release_key, releaseId: @release_id" at L176-177). It is

@@ -11,9 +11,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -122,7 +121,7 @@ func pbxCleanupDatabase(t *testing.T, endpoint, database string) {
 	}
 }
 
-func pbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
+func pbxSetup(t *testing.T) (*arangofactory.PublishedRegistry, context.Context, string) {
 	t.Helper()
 	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
 	if endpoint == "" {
@@ -132,18 +131,19 @@ func pbxSetup(t *testing.T) (*pubarango.Registry, context.Context, string) {
 	t.Cleanup(cancel)
 	database := "loom_verify_pbx_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	t.Logf("owned arango database: %s", database)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open arango: %v", err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		pbxCleanupDatabase(t, endpoint, database)
 	})
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap: %v", err)
 	}
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
@@ -173,7 +173,7 @@ func pbxExecution(tag, suffix, physicalTable string, updatedAt time.Time) pubpub
 // the identical registry state a stale candidate presents to a reconciler
 // (same idiom as fb1Seed). No pointer is ever created, so both executions are
 // un-advertised and the cleanup slot is free.
-func pbxSeed(t *testing.T, registry *pubarango.Registry, ctx context.Context, exec pubpublication.BundleExecution) {
+func pbxSeed(t *testing.T, registry *arangofactory.PublishedRegistry, ctx context.Context, exec pubpublication.BundleExecution) {
 	t.Helper()
 	acquired, err := registry.AcquireBundleLease(ctx, exec.Key, "seed", time.Now().UTC().Add(2*time.Minute))
 	if err != nil || !acquired {

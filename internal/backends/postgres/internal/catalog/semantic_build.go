@@ -29,7 +29,7 @@
 // materialization, and public page reads are separate tickets. Unsupported
 // request shapes (for example a file-sourced claim, which this retained
 // backfill path never issues) are typed errors, never silent fallbacks. The
-// Arango adapter (internal/catalog/arango/semantic_inventory.go) remains the
+// Arango adapter (internal/backends/arango/internal/catalog/semantic_inventory.go) remains the
 // behavioral reference, including its convergence of whitespace-padded
 // generations: every entry point normalizes the requested dataset generation
 // with catalog.NormalizeDatasetGeneration before any statement runs, so the

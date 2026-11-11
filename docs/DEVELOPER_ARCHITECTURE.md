@@ -107,7 +107,7 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/dataset` and `internal/dataset/arango`. Dataset
+Immutable loads use `internal/dataset` and `internal/backends/arango/internal/dataset`. Dataset
 owns schema identity and generation manifests; ingest owns the Arango vertex
 and edge document shapes it writes. Their manifest records project, generation,
 and schema identity; the active pointer selects one READY generation per

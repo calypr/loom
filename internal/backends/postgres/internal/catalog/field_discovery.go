@@ -1,7 +1,8 @@
 // Read-side catalog discovery over persisted field-profile rows
 // (pg-runtime-first-query-route, Ask C). The Arango adapter's
 // DiscoverFields / DiscoverExistingAuthResourcePaths over collection
-// fhir_field_catalog (internal/catalog/arango/fields.go, resources.go) is
+// fhir_field_catalog (internal/backends/arango/internal/catalog/fields.go,
+// resources.go) is
 // the behavioral reference: identical option semantics, the same concrete-
 // type law, and the same restricted-empty no-query rule. There is no
 // fallback: a store failure surfaces wrapped, never as an empty "success".

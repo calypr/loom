@@ -21,9 +21,9 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	httpapi "github.com/calypr/loom/internal/api/http"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -44,7 +44,7 @@ func driveAQLAdapter(t *testing.T, adapterFailure error) error {
 }
 
 func arangoAdapterFailure(driverErr error) error {
-	classified, ok := arangostore.TranslateQueryError(fmt.Errorf("arango query: %w", driverErr))
+	classified, ok := arangofactory.TranslateQueryError(fmt.Errorf("arango query: %w", driverErr))
 	if !ok {
 		panic("fixture error was not classified by the adapter")
 	}

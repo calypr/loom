@@ -64,14 +64,13 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -938,7 +937,7 @@ func TestCoreAuthoringProtocolRowSchemaSemantics(t *testing.T) {
 		// every accepted draft CAS snapshots the head as it stood BEFORE the command and
 		// publishes that snapshot's store-minted id as the new head's history pointer
 		// (map double internal/server/http_test_helpers_test.go:152-161; Arango
-		// internal/explorer/arango/drafts.go:52-77). service.go:324 never touches the
+		// internal/backends/arango/internal/explorer/drafts.go:52-77). service.go:324 never touches the
 		// pointer, and draft_restore.go:33/47 validates the consumed undo target against the
 		// OLD head's pointer instead of copying it forward. So the restored head's pointer is
 		// the snapshot of the EDITED head (the next Undo slot), distinct from the revision the
@@ -1050,10 +1049,11 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		cleanupCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1073,10 +1073,10 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 			t.Errorf("remove owned C19 database status=%d", response.StatusCode)
 		}
 	})
-	if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.ExplorerBootstrapSpec()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(client)
+	store, err := arangofactory.NewExplorerStore(client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1223,12 +1223,13 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 
 	// Restart-equivalent read: a fresh repository instance reproduces the restored head from
 	// persisted bytes, so the restored rows/schema rest on committed state.
-	restartClient, err := storearango.Open(ctx, endpoint, database)
+	restartBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	restartClient := restartBackend.Client
 	t.Cleanup(func() { _ = restartClient.Close(context.Background()) })
-	restartStore, err := explorerarango.New(restartClient)
+	restartStore, err := arangofactory.NewExplorerStore(restartClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1249,8 +1250,10 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	// Same traced semantics as the map-store leg: the pointer names the store's snapshot of
 	// the head as it stood before the restore (the edited head at ack.DraftVersion), and the
 	// consumed undo target names the revision whose bytes were restored. Arango mints those
-	// ids as "draft_revision_" + sha256-keyed parts (drafts.go:139-141 with store/arango
-	// store.go:27-34), a different spelling from the map double, so BOTH sides are read back
+	// ids as "draft_revision_" + sha256-keyed parts
+	// (internal/backends/arango/internal/explorer/drafts.go:139-141 with
+	// internal/backends/arango/internal/explorer/store.go:27-34), a different spelling from
+	// the map double, so BOTH sides are read back
 	// through a second repository instance and asserted on content.
 	c19ExpectRestoreHistory(t, "arango restart", restarted.PreviousDraftRevisionID, undoRevision,
 		ack.DraftVersion, ack.DraftDigest, c19LabelPatientEdit,

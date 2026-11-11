@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -29,11 +29,11 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 		revisionsCollection, selectionsCollection, definitionsCollection,
 		membershipsCollection, selectionMembersCollection, "Observation",
 	}
-	specs := make([]store.CollectionSpec, 0, len(collections))
+	specs := make([]arangofactory.CollectionSpec, 0, len(collections))
 	for _, collection := range collections {
-		specs = append(specs, store.CollectionSpec{Name: collection})
+		specs = append(specs, arangofactory.CollectionSpec{Name: collection})
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
 

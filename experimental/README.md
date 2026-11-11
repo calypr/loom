@@ -7,7 +7,7 @@ used by the quickstart. Start it from the repository root:
 rtk docker compose -f experimental/docker-compose.yml up -d
 ```
 
-The runtime implementation lives under [`internal/store/arango/`](../internal/store/arango/)
+The runtime implementation lives under [`internal/backends/arango/internal/store/`](../internal/backends/arango/internal/store/)
 and [`internal/ingest/`](../internal/ingest/). This is not a home for a second
 query engine or manually maintained AQL recipes.
 

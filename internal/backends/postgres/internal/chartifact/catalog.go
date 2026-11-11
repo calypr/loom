@@ -13,7 +13,7 @@
 // Explorer filesystem ZIP ArtifactStore: private artifacts are never
 // registered as published outputs and never advance a visibility pointer.
 //
-// Guarantees, mirroring internal/dataframe/execution/chartifact/arango:
+// Guarantees, mirroring internal/backends/arango/internal/chartifact:
 //   - Create is conditional on the ArtifactID being absent (ON CONFLICT DO
 //     NOTHING): a concurrent duplicate reports ErrArtifactExists and the
 //     stored manifest is never replaced, so Create is immutable.

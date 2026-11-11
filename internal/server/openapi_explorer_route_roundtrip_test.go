@@ -14,14 +14,13 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -32,7 +31,7 @@ func TestSavedRelatedRouteProposalApplyRestoreAndFreshRead(t *testing.T) {
 	savedRelatedRouteRoundtrip(t, nil)
 }
 
-func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
+func savedRelatedRouteRoundtrip(t *testing.T, rowClient *arangofactory.Client) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	for _, resource := range []string{"Observation", "Group", "Specimen"} {
@@ -92,10 +91,10 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}
 	var store explorer.Store = newTestExplorerStore()
 	if rowClient != nil {
-		if err := rowClient.Bootstrap(context.Background(), explorerarango.BootstrapSpec()); err != nil {
+		if err := rowClient.Bootstrap(context.Background(), arangofactory.ExplorerBootstrapSpec()); err != nil {
 			t.Fatal(err)
 		}
-		store, err = explorerarango.New(rowClient)
+		store, err = arangofactory.NewExplorerStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -121,7 +120,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 				return deriveErr
 			}
 
-			return rowClient.QueryRows(ctx, query, batch, variables, storearango.RowVisitor(visit))
+			return rowClient.QueryRows(ctx, query, batch, variables, arangofactory.RowVisitor(visit))
 		}
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: queryRows})
@@ -321,7 +320,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if rowClient != nil {
 		// A fresh repository instance reads persisted bytes rather than the service's
 		// response or the in-memory fixture used by the fast structural case.
-		fresh, err := explorerarango.New(rowClient)
+		fresh, err := arangofactory.NewExplorerStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}

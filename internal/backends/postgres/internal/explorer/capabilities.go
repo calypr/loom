@@ -7,12 +7,12 @@ package postgres
 //
 //   - CapabilitySnapshotStore persists complete canonical capability
 //     snapshots under their content token, mirroring
-//     internal/explorer/arango/capability_snapshot_store.go: insert-ignore,
+//     internal/backends/arango/internal/explorer/capability_snapshot_store.go: insert-ignore,
 //     never an UPDATE, so a retry of the same token is idempotent and a
 //     payload that no longer matches its token is a typed collision.
 //   - TableShapeCapabilityStore persists catalog, category-scan, and
 //     resolution receipts create-once and fully bound to their request
-//     identity, mirroring internal/explorer/arango/
+//     identity, mirroring internal/backends/arango/internal/explorer/
 //     table_shape_capabilities.go: an opaque ID is never trusted without
 //     the caller's current project/Explorer/output/snapshot/source
 //     binding, and same-ID content drift is the typed identity clash.

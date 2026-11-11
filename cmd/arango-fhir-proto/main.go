@@ -16,15 +16,11 @@ import (
 	"strings"
 	"syscall"
 
-	driver "github.com/arangodb/go-driver/v2/arangodb"
-	"github.com/arangodb/go-driver/v2/connection"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
-	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 const (
@@ -297,11 +293,7 @@ func parseMemoryBytes(raw string) (int64, error) {
 // have the CLI silently auto-create an empty database. The store's Open keeps
 // auto-creating for the server/tests/harness; only the CLI adds this gate.
 func requireDatabaseExists(ctx context.Context, url, database string) error {
-	conn := connection.NewHttpConnection(connection.HttpConfiguration{
-		Endpoint: connection.NewRoundRobinEndpoints([]string{url}),
-	})
-	client := driver.NewClient(conn)
-	databaseExists, err := client.DatabaseExists(ctx, database)
+	databaseExists, err := arangofactory.DatabaseExists(ctx, url, database)
 	if err != nil {
 		return fmt.Errorf("check existing database: %w", err)
 	}
@@ -315,11 +307,15 @@ func requireDatabaseExists(ctx context.Context, url, database string) error {
 // opens the shared store client. It never disables the store's auto-create; it
 // simply declines to open when the database is absent, so no CLI path creates
 // one implicitly.
-func openClientRequiringDatabase(ctx context.Context, url, database string) (*arangostore.Client, error) {
+func openClientRequiringDatabase(ctx context.Context, url, database string) (*arangofactory.Client, error) {
 	if err := requireDatabaseExists(ctx, url, database); err != nil {
 		return nil, err
 	}
-	return arangostore.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
+	if err != nil {
+		return nil, err
+	}
+	return arangoBackend.Client, nil
 }
 
 func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
@@ -332,7 +328,7 @@ func runDiscoverPopulatedReferences(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client)
+	adapter, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return err
 	}
@@ -353,7 +349,7 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client)
+	adapter, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return err
 	}
@@ -367,7 +363,7 @@ func runDiscoverPopulatedFields(ctx context.Context, args []string) error {
 func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("rebuild-relationship-catalog", flag.ExitOnError)
 	opts := catalog.RelationshipRebuildOptions{}
-	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	connection := arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
@@ -383,7 +379,7 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client)
+	adapter, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return err
 	}
@@ -397,7 +393,7 @@ func runRebuildRelationshipCatalog(ctx context.Context, args []string) error {
 func runRebuildResourceInventory(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("rebuild-resource-inventory", flag.ExitOnError)
 	opts := catalog.ResourceInventoryRebuildOptions{}
-	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	connection := arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
@@ -417,7 +413,7 @@ func runRebuildResourceInventory(ctx context.Context, args []string) error {
 		return err
 	}
 	defer client.Close(ctx)
-	lifecycleStore, err := publicationarango.New(client)
+	lifecycleStore, err := arangofactory.NewDatasetStore(client)
 	if err != nil {
 		return err
 	}
@@ -432,7 +428,7 @@ func runRebuildResourceInventory(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("staged generation %s/%s has invalid generated-resource coverage: %w", ref.Project, ref.Generation, err)
 	}
-	adapter, err := catalogarango.New(client)
+	adapter, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return err
 	}
@@ -463,7 +459,7 @@ func canonicalManifestResourceTypes(resourceTypes []string) ([]string, error) {
 func runAuditRelationshipEdges(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("audit-relationship-edges", flag.ExitOnError)
 	opts := catalog.RelationshipAuditOptions{}
-	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	connection := arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Arango database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
@@ -479,13 +475,13 @@ func runAuditRelationshipEdges(ctx context.Context, args []string) error {
 	return printJSON(result)
 }
 
-func auditRelationshipEdges(ctx context.Context, connection arangostore.ConnectionOptions, opts catalog.RelationshipAuditOptions) (catalog.RelationshipAuditSummary, error) {
+func auditRelationshipEdges(ctx context.Context, connection arangofactory.ConnectionOptions, opts catalog.RelationshipAuditOptions) (catalog.RelationshipAuditSummary, error) {
 	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return catalog.RelationshipAuditSummary{}, err
 	}
 	defer client.Close(ctx)
-	adapter, err := catalogarango.New(client)
+	adapter, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return catalog.RelationshipAuditSummary{}, err
 	}
@@ -509,7 +505,7 @@ type repairGenerationReport struct {
 }
 
 type activateCommandConfig struct {
-	Connection arangostore.ConnectionOptions
+	Connection arangofactory.ConnectionOptions
 	Project    string
 	Generation string
 }
@@ -559,7 +555,7 @@ func runRepairGeneration(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	connection := arangostore.ConnectionOptions{URL: config.Load.Options.URL, Database: config.Load.Options.Database}
+	connection := arangofactory.ConnectionOptions{URL: config.Load.Options.URL, Database: config.Load.Options.Database}
 	sourceAudit, err := auditRelationshipEdges(ctx, connection, catalog.RelationshipAuditOptions{Project: config.Load.Options.Project, DatasetGeneration: config.SourceGeneration})
 	if err != nil {
 		return fmt.Errorf("audit source generation: %w", err)
@@ -587,7 +583,7 @@ func runRepairGeneration(ctx context.Context, args []string) error {
 
 func parseActivateCommand(args []string, errorHandling flag.ErrorHandling) (activateCommandConfig, error) {
 	fs := flag.NewFlagSet("activate-generation", errorHandling)
-	config := activateCommandConfig{Connection: arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}}
+	config := activateCommandConfig{Connection: arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}}
 	fs.StringVar(&config.Connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&config.Connection.Database, "database", defaultDatabase, "Arango database")
 	fs.StringVar(&config.Project, "project", defaultProject, "Project label")
@@ -623,13 +619,13 @@ func runActivateGeneration(ctx context.Context, args []string) error {
 	return printJSON(activateGenerationReport{Project: config.Project, Generation: config.Generation, TargetAudit: audit, Activated: true})
 }
 
-func activateStagedGeneration(ctx context.Context, connection arangostore.ConnectionOptions, ref publication.Ref) error {
+func activateStagedGeneration(ctx context.Context, connection arangofactory.ConnectionOptions, ref publication.Ref) error {
 	client, err := openClientRequiringDatabase(ctx, connection.URL, connection.Database)
 	if err != nil {
 		return err
 	}
 	defer client.Close(ctx)
-	lifecycle, err := publicationarango.New(client)
+	lifecycle, err := arangofactory.NewDatasetStore(client)
 	if err != nil {
 		return err
 	}
@@ -641,13 +637,13 @@ func activateStagedGeneration(ctx context.Context, connection arangostore.Connec
 }
 
 type semanticInventoryBackfillCommand struct {
-	Connection arangostore.ConnectionOptions
+	Connection arangofactory.ConnectionOptions
 	Options    ingest.SemanticInventoryBackfillOptions
 }
 
 func parseBackfillSemanticInventoryCommand(args []string, errorHandling flag.ErrorHandling) (semanticInventoryBackfillCommand, error) {
 	fs := flag.NewFlagSet("backfill-semantic-inventory", errorHandling)
-	config := semanticInventoryBackfillCommand{Connection: arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}}
+	config := semanticInventoryBackfillCommand{Connection: arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}}
 	fs.StringVar(&config.Connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&config.Connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&config.Options.Project, "project", "", "Immutable generation project (required)")
@@ -686,7 +682,7 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	}
 	defer func() { _ = client.Close(ctx) }()
 	ref, _ := publication.NewRef(config.Options.Project, config.Options.DatasetGeneration)
-	lifecycle, err := publicationarango.New(client)
+	lifecycle, err := arangofactory.NewDatasetStore(client)
 	if err != nil {
 		return err
 	}
@@ -694,7 +690,7 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read backfill generation manifest: %w", err)
 	}
-	store, err := catalogarango.New(client)
+	store, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return err
 	}
@@ -713,10 +709,10 @@ func runBackfillSemanticInventory(ctx context.Context, args []string) error {
 	return printJSON(report)
 }
 
-func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, arangostore.ConnectionOptions, error) {
+func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedReferenceOptions, arangofactory.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-references", errorHandling)
 	opts := catalog.PopulatedReferenceOptions{}
-	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	connection := arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
@@ -726,18 +722,18 @@ func parseDiscoverPopulatedReferenceOptions(args []string, errorHandling flag.Er
 	fs.StringVar(&opts.Mode, "mode", catalog.TraversalModeStorage, "Traversal discovery mode: storage or builder")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedReferenceOptions{}, arangostore.ConnectionOptions{}, err
+		return catalog.PopulatedReferenceOptions{}, arangofactory.ConnectionOptions{}, err
 	}
 	if opts.Mode != catalog.TraversalModeStorage && opts.Mode != catalog.TraversalModeBuilder {
-		return catalog.PopulatedReferenceOptions{}, arangostore.ConnectionOptions{}, fmt.Errorf("invalid --mode %q: must be %s or %s", opts.Mode, catalog.TraversalModeStorage, catalog.TraversalModeBuilder)
+		return catalog.PopulatedReferenceOptions{}, arangofactory.ConnectionOptions{}, fmt.Errorf("invalid --mode %q: must be %s or %s", opts.Mode, catalog.TraversalModeStorage, catalog.TraversalModeBuilder)
 	}
 	return opts, connection, nil
 }
 
-func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, arangostore.ConnectionOptions, error) {
+func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorHandling) (catalog.PopulatedFieldOptions, arangofactory.ConnectionOptions, error) {
 	fs := flag.NewFlagSet("discover-populated-fields", errorHandling)
 	opts := catalog.PopulatedFieldOptions{}
-	connection := arangostore.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
+	connection := arangofactory.ConnectionOptions{URL: defaultURL, Database: defaultDatabase}
 	fs.StringVar(&connection.URL, "url", defaultURL, "Backend base URL")
 	fs.StringVar(&connection.Database, "database", defaultDatabase, "Backend database")
 	fs.StringVar(&opts.Project, "project", defaultProject, "Project label")
@@ -746,7 +742,7 @@ func parseDiscoverPopulatedFieldOptions(args []string, errorHandling flag.ErrorH
 	fs.BoolVar(&opts.PivotOnly, "pivot-only", false, "Return only pivot-candidate fields")
 	fs.IntVar(&opts.CursorBatch, "cursor-batch-size", 1000, "Query cursor batch size")
 	if err := fs.Parse(args); err != nil {
-		return catalog.PopulatedFieldOptions{}, arangostore.ConnectionOptions{}, err
+		return catalog.PopulatedFieldOptions{}, arangofactory.ConnectionOptions{}, err
 	}
 	return opts, connection, nil
 }

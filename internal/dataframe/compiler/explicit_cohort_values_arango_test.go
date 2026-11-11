@@ -10,23 +10,23 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
 func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
-	collections := []store.CollectionSpec{
+	collections := []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 		{Name: "loom_explorer_explicit_group_revisions"}, {Name: "loom_explorer_selections"},
 		{Name: "loom_explorer_explicit_group_definitions"}, {Name: "loom_explorer_explicit_group_memberships"},
 		{Name: "loom_explorer_selection_members"},
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
 	project := "LOOM_COHORT/related-append-" + uuid.NewString()
@@ -361,11 +361,11 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
 	collections := []string{"Patient", "loom_explorer_explicit_group_revisions", "loom_explorer_selections", "loom_explorer_explicit_group_definitions", "loom_explorer_explicit_group_memberships", "loom_explorer_selection_members"}
-	specs := make([]store.CollectionSpec, 0, len(collections))
+	specs := make([]arangofactory.CollectionSpec, 0, len(collections))
 	for _, name := range collections {
-		specs = append(specs, store.CollectionSpec{Name: name})
+		specs = append(specs, arangofactory.CollectionSpec{Name: name})
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
 	project := "LOOM_COHORT/member-values-" + uuid.NewString()
