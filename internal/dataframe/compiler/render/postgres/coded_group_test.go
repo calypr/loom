@@ -162,13 +162,17 @@ func TestCodedGroupRenderedSliceContract(t *testing.T) {
 
 	for _, want := range []string{
 		`WITH cg_src AS (`,
-		`LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(`,
-		// Expansion regression pin: the first lateral must reach the first
-		// repeated segment by NAME through the payload (AQL attribute step
-		// per segment), never unnest the payload root itself.
+		// Expansion shape (AQL parity, construction_coded_group.go:54-75):
+		// ONE LEFT JOIN LATERAL wraps the CROSS JOIN LATERAL chain, so the
+		// zero-item rule fires once per root, not once per emptied branch.
+		`LEFT JOIN LATERAL (SELECT cgx2.elem FROM jsonb_array_elements(CASE WHEN jsonb_typeof(`,
+		// Expansion regression pin: the first expansion must reach the
+		// first repeated segment by NAME through the payload (AQL
+		// attribute step per segment), never unnest the payload root.
 		`jsonb_typeof(s.cg_payload #> $`,
-		`ELSE '[]'::jsonb END) AS cgx1(elem) ON true`,
-		`AS cgx2(elem) ON true`,
+		`AS cgx1(elem) CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(`,
+		`) AS cgx2(elem)) AS cgexp(elem) ON true`,
+		`cgexp.elem ->> $`,
 		`SELECT DISTINCT c.cg_root_key,`,
 		`COUNT(*) AS cg_count FROM cg_tuples GROUP BY 1, 2, 3`,
 		`COLLATE "C" ASC`,
@@ -176,6 +180,11 @@ func TestCodedGroupRenderedSliceContract(t *testing.T) {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("statement is missing %q:\n%s", want, sql)
 		}
+	}
+	// One wrapping LEFT JOIN only: per-level LEFT JOINs would materialize
+	// a NULL candidate per emptied branch (the mixed-branch parity bug).
+	if got := strings.Count(sql, "LEFT JOIN LATERAL"); got != 1 {
+		t.Fatalf("wrapping LEFT JOIN LATERAL count = %d, want exactly 1:\n%s", got, sql)
 	}
 	// Group policy keeps every candidate: no WHERE on the dedup step.
 	if strings.Contains(sql, " WHERE c.cg_valid") {
@@ -304,6 +313,30 @@ func TestCodedGroupWindowedSourceRegion(t *testing.T) {
 	source := rendered.SQL[:srcEnd]
 	if !strings.Contains(source, `r0."logical_id" ASC`) || !strings.Contains(source, `"resource_seq" ASC`) || !strings.Contains(source, "LIMIT $") {
 		t.Fatalf("the W1 window must be rendered inside cg_src:\n%s", source)
+	}
+}
+
+func TestCodedGroupSingleSegmentKeepsFlatLateral(t *testing.T) {
+	// A single repeated segment keeps the flat LEFT JOIN LATERAL form
+	// (its zero-row behavior already equals the wrapped chain, and the
+	// merged golden stays byte-identical); only two or more repeated
+	// segments mint the CROSS JOIN LATERAL chain.
+	plan := coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, "proj-a", "gen-1")
+	coded := plan.StageSequence.Stages[0].CodedGroup
+	coded.PathSegments = []ir.PhysicalCodedGroupPathSegment{{Name: "coding", Repeated: true}}
+	coded.CodingPath = "coding[]"
+	plan.BindVars[coded.CodingPathBindKey] = coded.CodingPath
+	sql := renderOK(t, plan).SQL
+	for _, want := range []string{
+		`LEFT JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(`,
+		`AS cgx1(elem) ON true`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("single-segment statement is missing %q:\n%s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "CROSS JOIN LATERAL") || strings.Contains(sql, "cgexp") {
+		t.Fatalf("single-segment statement must keep the flat form:\n%s", sql)
 	}
 }
 
@@ -1465,6 +1498,91 @@ func TestCodedGroupLiveProductionCompiledGoldenDedupTieBreak(t *testing.T) {
 	// Determinism across executions on the production-compiled plan.
 	if repeat := coded19Rows(t, svc.runRendered(t, rendered)); !reflect.DeepEqual(rows, repeat) {
 		t.Fatalf("production-compiled grouping changed between executions:\n%v\n%v", rows, repeat)
+	}
+}
+
+// TestCodedGroupLiveMultiComponentBranchPruning pins the AQL nested-FOR
+// branch-pruning parity for the production two-repeat path
+// (component[].code.coding[]): a root whose first component carries
+// codings while a second component's code.coding is absent, an empty
+// array, or non-array must contribute NO invalid NULL candidate — under
+// GROUP no extra (null,null,null) tuple, under ERROR no raise (AQL
+// raises nothing on such a query). Only a root whose WHOLE nested
+// expansion is empty substitutes the single [null] candidate
+// (construction_coded_group.go:54-75). A per-level LEFT JOIN chain
+// fails both cells; this is the review-finding regression cell.
+func TestCodedGroupLiveMultiComponentBranchPruning(t *testing.T) {
+	svc := newCoded19Service(t)
+	coded19TrackFixtures(t, svc)
+	const project = "p19-branch"
+	const allEmptyProject = "p19-branch-zero"
+
+	component := func(codings any) map[string]any {
+		if codings == nil {
+			return map[string]any{"code": map[string]any{}}
+		}
+		return map[string]any{"code": map[string]any{"coding": codings}}
+	}
+	twoComponents := func(first, second map[string]any) map[string]any {
+		return map[string]any{"component": []any{first, second}}
+	}
+	kept := []any{coding("sys-br", "", "kept")}
+	coded19Insert(t, svc, "br-empty-second", project, coded19Generation, "FHIR/Observation",
+		twoComponents(component(kept), component([]any{})))
+	coded19Insert(t, svc, "br-absent-second", project, coded19Generation, "FHIR/Observation",
+		twoComponents(component(kept), component(nil)))
+	coded19Insert(t, svc, "br-nonarray-second", project, coded19Generation, "FHIR/Observation",
+		twoComponents(component(kept), component(coding("sys-br", "", "ghost"))))
+	// Order-mirrored branch: the EMPTY component comes first.
+	coded19Insert(t, svc, "br-empty-first", project, coded19Generation, "FHIR/Observation",
+		twoComponents(component([]any{}), component(kept)))
+	// Whole-expansion-empty root: exactly one [null] candidate.
+	coded19Insert(t, svc, "br-zero", allEmptyProject, coded19Generation, "FHIR/Observation",
+		twoComponents(component([]any{}), component(nil)))
+
+	// GROUP over the mixed-branch project: exactly the one tuple, count 4
+	// contributing roots, and NO (null,null,null) row — the emptied
+	// branches pruned with their outer rows, contributing nothing.
+	grouped := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc,
+		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, project, coded19Generation))))
+	if len(grouped) != 1 || deref(grouped[0].system) != "sys-br" || grouped[0].version != nil ||
+		deref(grouped[0].code) != "kept" || grouped[0].count != "4" {
+		t.Fatalf("mixed-branch GROUP multiset = %v, want ONLY the (sys-br,null,kept) tuple with count 4 and no null tuple", grouped)
+	}
+
+	// ERROR over the same data: AQL raises nothing here, so neither may
+	// PostgreSQL (the per-level bug raised CONSTRUCTION_CODED_GROUP_
+	// MISSING_KEY from the spurious NULL candidates).
+	if err := coded19ExecErr(svc, coded19RenderSvc(t, svc,
+		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, project, coded19Generation))); err != nil {
+		t.Fatalf("ERROR must stay silent when every root has at least one item: %v", svc.scrub(err))
+	}
+
+	// The zero-item rule still fires exactly once per root: the wholly
+	// empty expansion contributes the missing tuple (count 1) and the
+	// ERROR ASSERT raises on it.
+	zero := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc,
+		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, allEmptyProject, coded19Generation))))
+	if len(zero) != 1 || zero[0].system != nil || zero[0].version != nil || zero[0].code != nil || zero[0].count != "1" {
+		t.Fatalf("whole-expansion-empty root must contribute exactly the missing tuple with count 1: %v", zero)
+	}
+	if err := coded19ExecErr(svc, coded19RenderSvc(t, svc,
+		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyError, allEmptyProject, coded19Generation))); err == nil ||
+		!strings.Contains(svc.scrub(err), codedGroupMissingKeyTag) {
+		t.Fatalf("ERROR must raise on the wholly-empty expansion candidate: %v", svc.scrub(fmt.Sprint(err)))
+	}
+
+	// Alive controls: the branch roots exist, and a newly inserted
+	// coding-less root lifts the missing tuple — the GROUP cell's null-
+	// tuple ABSENCE above is pruning, not a query that sees no rows.
+	if rows := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`"."fhir_resource" WHERE project = $1`, project); rows[0][0] != "4" {
+		t.Fatalf("branch witness: %v, want 4 roots", rows)
+	}
+	coded19Insert(t, svc, "br-none", project, coded19Generation, "FHIR/Observation", nil)
+	mutated := coded19Rows(t, svc.runRendered(t, coded19RenderSvc(t, svc,
+		coded19LoweredPlan(t, recipe.ConstructionGroupMissingKeyGroup, project, coded19Generation))))
+	if len(mutated) != 2 || mutated[1].system != nil || mutated[1].count != "1" {
+		t.Fatalf("alive control: coding-less insertion must add the missing tuple: %v", mutated)
 	}
 }
 

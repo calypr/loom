@@ -41,20 +41,36 @@ package postgres
 //     at graph.go:513-521), so cg_root_key = logical_id is the exact
 //     counterpart and "distinct source records" counts roots, never rows.
 //   - Coding enumeration: the AQL path walk (construction_coded_group.go
-//     :54-71) reads each non-repeated attribute and guards every repeated
-//     segment with (x == null ? [] : (IS_ARRAY(x) ? x : [])). The
-//     PostgreSQL counterpart is a LEFT JOIN LATERAL chain: consecutive
-//     scalar segments collapse into one #> text[] extraction through
-//     documentPathFromExpression (null_semantics.go, the package's single
-//     path-binding authority — path segments reach SQL only as $n
-//     parameters), and each repeated segment expands jsonb_array_elements
-//     behind a CASE WHEN jsonb_typeof(cur) = 'array' THEN cur ELSE
-//     '[]'::jsonb END guard, so SQL NULL, the jsonb null scalar, a
-//     non-array value, and a missing parent all read as the empty array
-//     exactly as the AQL null/IS_ARRAY guard does. LEFT JOIN (not CROSS)
-//     keeps the AQL zero-item rule (LENGTH(raw) == 0 ? [null] : raw, :75):
-//     an emptied expansion still contributes exactly one SQL-NULL-item
-//     candidate, which the total validity predicate reads invalid.
+//     :54-71) reads each non-repeated attribute and nests one FOR loop per
+//     repeated segment inside ONE subquery, each guarded with
+//     (x == null ? [] : (IS_ARRAY(x) ? x : [])); an empty, null, or
+//     non-array value prunes that branch entirely — it contributes NO
+//     candidate. Only when the WHOLE nested expansion produced zero items
+//     does the root substitute exactly one null candidate
+//     (LENGTH(rawCodings) == 0 ? [null] : rawCodings, :75). The PostgreSQL
+//     counterpart mints the chain as ONE LEFT JOIN LATERAL around
+//     (SELECT lastElem FROM jsonb_array_elements(G1) AS cgx1(elem) CROSS
+//     JOIN LATERAL ... AS cgxN(elem)): CROSS JOIN LATERAL reproduces the
+//     FOR-loop branch pruning (an emptied inner expansion removes its
+//     outer row), and the single wrapping LEFT JOIN reproduces the
+//     per-root zero-item rule — exactly one SQL-NULL-item candidate
+//     appears only when the entire chain yields zero rows, which the
+//     total validity predicate reads invalid. Per-level LEFT JOINs would
+//     instead materialize a NULL candidate for EVERY emptied branch (the
+//     component[].code.coding[] mixed-branch cell: one component with
+//     codings, another with an empty coding array must contribute no
+//     null tuple under GROUP and no raise under ERROR — pinned live in
+//     coded_group_test.go). Consecutive scalar segments collapse into one
+//     #> text[] extraction through documentPathFromExpression
+//     (null_semantics.go, the package's single path-binding authority —
+//     path segments reach SQL only as $n parameters), and every repeated
+//     segment expands jsonb_array_elements behind a
+//     CASE WHEN jsonb_typeof(cur) = 'array' THEN cur ELSE '[]'::jsonb END
+//     guard, so SQL NULL, the jsonb null scalar, a non-array value, and a
+//     missing parent all read as the empty array exactly as the AQL
+//     null/IS_ARRAY guard does. A single-repeated-segment path keeps the
+//     flat LEFT JOIN LATERAL jsonb_array_elements(guard) AS cgx1(elem)
+//     ON true form, whose zero-row behavior already equals the chain.
 //   - Tuple validity: the AQL valid LET (:77) is object AND
 //     TYPENAME(system) == "string" AND TRIM(system) != "" AND
 //     TYPENAME(code) == "string" AND TRIM(code) != ""; the key LETs (:100
@@ -712,16 +728,30 @@ func (r *planRenderer) renderCodedGroupStatement(plan ir.PhysicalPlan) (string, 
 
 // codedGroupExpansion renders the guarded jsonb expansion over the source
 // payload: consecutive scalar segments collapse into one #> text[]
-// extraction through the package's single path-binding authority, and each
-// repeated segment contributes one guarded LEFT JOIN LATERAL
-// jsonb_array_elements so an empty, null, or non-array intermediate still
-// yields exactly one SQL-NULL-item candidate (the AQL
-// LENGTH(raw) == 0 ? [null] : raw rule, construction_coded_group.go:75).
-// It returns the lateral clauses (in chain order, appended after the
-// cg_src row) and the jsonb expression of the final item.
+// extraction through the package's single path-binding authority. The
+// AQL ground truth nests one FOR loop per repeated segment inside ONE
+// subquery that prunes emptied branches, and substitutes the null
+// candidate exactly once per root, only when the whole expansion is empty
+// (LENGTH(raw) == 0 ? [null] : raw, construction_coded_group.go:54-75).
+// The SQL reproduces that exactly: two or more repeated segments mint ONE
+// LEFT JOIN LATERAL around
+// (SELECT cgxN.elem FROM jsonb_array_elements(guard1) AS cgx1(elem)
+// CROSS JOIN LATERAL ... AS cgxN(elem)) AS cgexp(elem) ON true — CROSS
+// JOIN LATERAL prunes an emptied inner branch with its outer row, and the
+// single wrapping LEFT JOIN contributes exactly one SQL-NULL-item
+// candidate only when the entire chain yields zero rows. A per-level
+// LEFT JOIN would instead materialize a NULL candidate for every emptied
+// branch (a root whose first component carries codings while a second
+// has an empty coding array would gain a spurious invalid candidate). A
+// single repeated segment keeps the flat LEFT JOIN LATERAL
+// jsonb_array_elements(guard) AS cgx1(elem) ON true form, whose zero-row
+// behavior already equals the chain. It returns the lateral clauses (in
+// chain order, appended after the cg_src row) and the jsonb expression of
+// the final item.
 func (r *planRenderer) codedGroupExpansion(segments []ir.PhysicalCodedGroupPathSegment) (string, string, error) {
 	current := "s.cg_payload"
-	var laterals []string
+	var expansions []string
+	var lastAlias string
 	var pending []string
 	sequence := 0
 	for _, segment := range segments {
@@ -742,7 +772,8 @@ func (r *planRenderer) codedGroupExpansion(segments []ir.PhysicalCodedGroupPathS
 		sequence++
 		alias := "cgx" + strconv.Itoa(sequence)
 		guard := "CASE WHEN jsonb_typeof(" + current + ") = 'array' THEN " + current + " ELSE '[]'::jsonb END"
-		laterals = append(laterals, "LEFT JOIN LATERAL jsonb_array_elements("+guard+") AS "+alias+"(elem) ON true")
+		expansions = append(expansions, "jsonb_array_elements("+guard+") AS "+alias+"(elem)")
+		lastAlias = alias
 		current = alias + ".elem"
 	}
 	if len(pending) != 0 || sequence == 0 {
@@ -750,7 +781,16 @@ func (r *planRenderer) codedGroupExpansion(segments []ir.PhysicalCodedGroupPathS
 		// repeated); the fail-closed refusal stays.
 		return "", "", fmt.Errorf("%w: the Coding path must end in a repeated Coding array", ErrUnsupportedPostgresPlan)
 	}
-	return " " + strings.Join(laterals, " "), current, nil
+	if sequence == 1 {
+		// Flat form: a lone guarded expansion already contributes
+		// exactly one NULL row when empty (the AQL zero-item rule).
+		return " LEFT JOIN LATERAL " + expansions[0] + " ON true", "cgx1.elem", nil
+	}
+	// One LEFT JOIN LATERAL around the CROSS JOIN LATERAL chain so the
+	// AQL per-root zero-item rule fires once, not once per branch.
+	chain := " LEFT JOIN LATERAL (SELECT " + lastAlias + ".elem FROM " +
+		strings.Join(expansions, " CROSS JOIN LATERAL ") + ") AS cgexp(elem) ON true"
+	return chain, "cgexp.elem", nil
 }
 
 // bindStringVar re-reads a door-validated non-empty string bind.
