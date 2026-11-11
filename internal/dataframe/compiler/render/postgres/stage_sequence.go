@@ -121,6 +121,20 @@ package postgres
 //     same static-tag posture as the pivot guard chain.
 //   - D-16e+ oracle-attested cells (tail semantics, comparison class) carry
 //     their receipts in the test comments with the o1/o2 wire names.
+//   - D-16f composition correlation version clause (plan §5 G5(b) closure
+//     adjudication): the AQL version clause
+//     (render/aql/correlation_value_scope.go:28-38,
+//     NOT_NULL(x,"")==@bind) has no composition surface to arm — the only
+//     correlation-carrying composition read is a comparison predicate, and
+//     PostgreSQL has no registered correlated-comparison rendering at all
+//     (predicates.go:276 typed refusal, spine-wide, cited; the graph slice
+//     refuses correlated extend filters the same way, graph_test.go:511).
+//     Census re-attested at this head: LowerCorrelatedBinding never fills
+//     version for construction (P-14.5), so the vacuous surface stays
+//     fail-closed with battery pins (correlated composition filter refuses
+//     typed; VersionSelector-without-VersionBindKey refuses at the ir
+//     gate). The version-equality that AQL does consult lands through the
+//     G2 semantic matcher, not here. No silent path.
 
 import (
 	"fmt"
@@ -897,6 +911,14 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 		declaredCardinality[column.Name] = strings.ToUpper(strings.TrimSpace(column.Cardinality))
 	}
 	arrayExprs := map[string]string{}
+	// The canonical-key selector arm: a stored FHIR document never carries
+	// an "id"/"_key" property (traversal.go:490-501, graph.go:94-104), so
+	// a root single-step id/_key selector reads the logical_id sidecar,
+	// the exact registered twin of resolveValueInRows' canonicalization
+	// and of coded_group.go:873's cg_root_key. A payload-path read of the
+	// absent property would silently render SQL NULL.
+	keyExprs := map[string]string{}
+	setExprs := map[string]string{}
 	filtered := ir.PhysicalReturn{}
 	for _, projection := range returnOp.Projections {
 		if !addressed[projection.Name] {
@@ -915,6 +937,59 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 			}
 			companionExprs[projection.Name] = "(" + presence + ")"
 			continue
+		}
+		// The SET slice-column arm: a representative-slice SLICE over a
+		// correlated child set renders through the registered child-set
+		// slice contract (objects.go renderSliceValue → the setBodies arm,
+		// renderSliceOverChildSet) exactly as the spine's RETURN does. The
+		// group materializer's composite refusal is never reached; a slice
+		// over anything else keeps its registered refusals (root-row slice
+		// is the spine's, child sets the composition never rendered stay
+		// the materializer's typed composite refusal).
+		if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalSliceExpression &&
+			projection.Expression.Slice != nil {
+			if _, registered := r.setBodies[projection.Expression.Slice.Source.Variable]; registered {
+				expression, err := r.renderSliceValue(plan, r.rows, *projection.Expression, 0)
+				if err != nil {
+					return "", nil, fmt.Errorf("slice column %q: %w", projection.Name, err)
+				}
+				setExprs[projection.Name] = expression
+				continue
+			}
+		}
+		if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalExtractExpression &&
+			projection.Expression.Cardinality != ir.PhysicalArrayCardinality {
+			if extract := projection.Expression.Extract; extract != nil &&
+				len(extract.Selector.Steps) == 1 && !extract.Selector.Steps[0].Iterate &&
+				extract.Selector.Steps[0].Index == nil && extract.Selector.Filter == nil &&
+				len(extract.Fallbacks) == 0 && !extract.Distinct &&
+				extract.Prepared == nil && extract.UnitNormalization == nil &&
+				len(extract.Source.Path) == 1 && extract.Source.Path[0] == "payload" {
+				// Only the three registered scalar postures (scalarExtract
+				// ValueExpression, null_semantics.go:279-296) intercept; an
+				// unregistered posture stays the classifier's typed refusal,
+				// the key arm never swallows it.
+				posture := projection.Expression.NullBehavior
+				if column := canonicalKeyColumn(extract.Selector.Steps[0].Field); resourceFilterColumns[column] &&
+					(posture == ir.PhysicalPreserveNull || posture == ir.PhysicalOmitNulls ||
+						posture == ir.PhysicalEmptyOnNull) {
+					scope, ok := r.rows[extract.Source.Variable]
+					if !ok || scope.alias != r.rootAlias {
+						return "", nil, fmt.Errorf("%w: key selector %q reads a variable the composition source region has not registered (L-16.6)",
+							ErrUnsupportedPostgresPlan, projection.Name)
+					}
+					if extract.ResourceType != scope.resourceType {
+						return "", nil, fmt.Errorf("%w: key selector %q validates against resource type %q, but the row is scanned as %q",
+							ErrUnsupportedPostgresPlan, projection.Name, extract.ResourceType, scope.resourceType)
+					}
+					// All three registered scalar postures collapse onto the
+					// sidecar for an always-present identity: the column is
+					// never missing, never JSON null.
+					keyExprs[projection.Name] = r.rootAlias + "." +
+						r.storage.Resource.MustColumn(column).SQLText()
+					continue
+				}
+			}
 		}
 		if projection.Expression != nil && projection.Expression.Kind == ir.PhysicalExtractExpression &&
 			projection.Expression.Cardinality == ir.PhysicalArrayCardinality {
@@ -953,6 +1028,22 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 					ErrUnsupportedPostgresPlan, column.Name, column.Kind, column.Identity)
 			}
 			selects = append(selects, presence+` AS "`+alias+`"`)
+			facts[column.Name] = stageColumnFact{alias: alias, jsonb: false}
+			continue
+		}
+		if composite, ok := setExprs[column.Name]; ok {
+			if err := validateStageColumnClass(column, true); err != nil {
+				return "", nil, fmt.Errorf("%w: source column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
+			}
+			selects = append(selects, composite+` AS "`+alias+`"`)
+			facts[column.Name] = stageColumnFact{alias: alias, jsonb: true}
+			continue
+		}
+		if key, ok := keyExprs[column.Name]; ok {
+			if err := validateStageColumnClass(column, false); err != nil {
+				return "", nil, fmt.Errorf("%w: source column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
+			}
+			selects = append(selects, key+` AS "`+alias+`"`)
 			facts[column.Name] = stageColumnFact{alias: alias, jsonb: false}
 			continue
 		}
@@ -1059,8 +1150,12 @@ func (r *planRenderer) stageArraySelectorExpression(projection ir.PhysicalProjec
 		return "", fmt.Errorf("%w: array source projection %q has no iterated selector step; a many column needs exactly one [] step",
 			ErrUnsupportedPostgresPlan, projection.Name)
 	}
-	prefixSteps := make([]string, 0, iterate)
-	for _, step := range extract.Selector.Steps[:iterate] {
+	// The iterated step's own field names the array: root.note[].text
+	// gathers over the note array itself, so the guarded array path
+	// includes the iterate step (the AQL FLATTEN twin iterates
+	// doc.note, not doc).
+	prefixSteps := make([]string, 0, iterate+1)
+	for _, step := range extract.Selector.Steps[:iterate+1] {
 		prefixSteps = append(prefixSteps, step.Field)
 	}
 	tailSteps := make([]string, 0, len(extract.Selector.Steps)-iterate-1)
@@ -1441,7 +1536,14 @@ func (r *planRenderer) renderStageGroup(
 	}
 	jsonbOutputs := map[string]bool{}
 	for _, rowValue := range stage.Group.RowValues {
-		jsonbOutputs[rowValue.Output] = true
+		// The storage class follows the emitter exactly: an ALL policy
+		// row value materializes as to_jsonb(ARRAY_AGG(...)) — jsonb —
+		// while the ONE policy collapses through MIN(...) #>> '{}' and
+		// stays a SQL scalar. Marking a ONE row value jsonb would make a
+		// later stage read it with a document operator and abort at
+		// analysis (42883), so the fact must describe what group.go
+		// actually emits per policy (groupRowValueExpressionFor).
+		jsonbOutputs[rowValue.Output] = rowValue.Policy == "ALL"
 	}
 	region, err := r.renderGroupAggregateRegion(plan, stage, columns,
 		"SELECT * FROM "+relation, "__loom_g"+strconv.Itoa(index)+"_",
