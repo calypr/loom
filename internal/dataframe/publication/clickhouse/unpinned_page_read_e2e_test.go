@@ -105,10 +105,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	dataframepublished "github.com/calypr/loom/internal/dataframe/published"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -155,19 +154,19 @@ func (l *uprLog) emit(t *testing.T) {
 // *Registry and overrides only observers — every decision is still made by real
 // Arango AQL in the embedded registry; this wrapper never gates or decides.
 type uprCatalog struct {
-	*pubarango.Registry
+	*arangofactory.PublishedRegistry
 	mu           sync.Mutex
 	claims       map[string]string
 	pointerReads map[string]int
 	pinsAcquired int
 }
 
-func newUprCatalog(registry *pubarango.Registry) *uprCatalog {
-	return &uprCatalog{Registry: registry, claims: map[string]string{}, pointerReads: map[string]int{}}
+func newUprCatalog(registry *arangofactory.PublishedRegistry) *uprCatalog {
+	return &uprCatalog{PublishedRegistry: registry, claims: map[string]string{}, pointerReads: map[string]int{}}
 }
 
 func (c *uprCatalog) AcquireBundleLease(ctx context.Context, key, owner string, expires time.Time) (bool, error) {
-	claimed, err := c.Registry.AcquireBundleLease(ctx, key, owner, expires)
+	claimed, err := c.PublishedRegistry.AcquireBundleLease(ctx, key, owner, expires)
 	if claimed {
 		c.mu.Lock()
 		c.claims[key] = owner
@@ -180,14 +179,14 @@ func (c *uprCatalog) GetPointer(ctx context.Context, name string) (pubpublicatio
 	c.mu.Lock()
 	c.pointerReads[name]++
 	c.mu.Unlock()
-	return c.Registry.GetPointer(ctx, name)
+	return c.PublishedRegistry.GetPointer(ctx, name)
 }
 
 func (c *uprCatalog) AcquireExecutionReadPin(ctx context.Context, executionID, owner string, expires time.Time) (bool, error) {
 	c.mu.Lock()
 	c.pinsAcquired++
 	c.mu.Unlock()
-	return c.Registry.AcquireExecutionReadPin(ctx, executionID, owner, expires)
+	return c.PublishedRegistry.AcquireExecutionReadPin(ctx, executionID, owner, expires)
 }
 
 func (c *uprCatalog) claimOwner(key string) (string, bool) {
@@ -216,8 +215,8 @@ func (c *uprCatalog) pinAcquireCount() int {
 type uprHarness struct {
 	ctx      context.Context
 	endpoint string
-	client   *storearango.Client
-	registry *pubarango.Registry
+	client   *arangofactory.Client
+	registry *arangofactory.PublishedRegistry
 	ch       *clickhouse.Client
 	database string
 	suffix   string
@@ -251,10 +250,11 @@ func uprOpen(t *testing.T) *uprHarness {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open %s: %v", database, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("UPR_DATABASE=%s", database)
 	// Registered FIRST so it runs LAST: ClickHouse artifacts must be dropped and
 	// asserted empty before the Arango database disappears (LIFO cleanup order).
@@ -262,11 +262,11 @@ func uprOpen(t *testing.T) *uprHarness {
 		_ = client.Close(context.Background())
 		uprDropDatabase(t, endpoint, database)
 	})
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
 	ch, err := clickhouse.New(clickhouse.Options{
@@ -423,7 +423,7 @@ func uprCount(value any) (int64, bool) {
 // observe the raw reconcile-written `state` and `error` marker.
 func (h *uprHarness) rawExecutionRow(ctx context.Context, execID string) (state, errField string) {
 	err := h.client.QueryRows(ctx, `RETURN DOCUMENT(@@collection, @key)`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection, "key": execID,
+		"@collection": arangofactory.BundleExecutionsCollection, "key": execID,
 	}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
@@ -458,7 +458,7 @@ func (h *uprHarness) flipToRunningStale(t *testing.T, ctx context.Context, execI
 FILTER doc != null
 UPDATE doc WITH {state: "RUNNING", updatedAt: @updatedAt} IN @@collection
 RETURN {patched: true}`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection,
+		"@collection": arangofactory.BundleExecutionsCollection,
 		"key":         execID,
 		"updatedAt":   time.Now().UTC().Add(-uprReconcileAge),
 	}, func(row map[string]any) error {

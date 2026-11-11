@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,17 +26,18 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE"))
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: os.Getenv("LOOM_TEST_ARANGO_URL"), Database: os.Getenv("LOOM_TEST_ARANGO_DATABASE")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	t.Cleanup(func() { _ = arangoBackend.Close(context.Background()) })
+	client := arangoBackend.Client
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	observations := "loom_population_frontier_observations_" + suffix
 	patients := "loom_population_frontier_patients_" + suffix
 	edges := "loom_population_frontier_edges_" + suffix
 	members := "loom_population_frontier_members_" + suffix
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: observations}, {Name: patients}, {Name: edges, Edge: true}, {Name: members},
 	}}); err != nil {
 		t.Fatal(err)
@@ -204,9 +205,9 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 
 	queryCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	profile, err := client.Profile(queryCtx, store.ProfileRequest{
+	profile, err := client.Profile(queryCtx, arangofactory.ProfileRequest{
 		Query: testAQLText(t, compiled.Command), BindVars: testAQLBinds(t, compiled.Command), BatchSize: 256,
-		Count: true, Options: store.ProfileOptions{Profile: 2},
+		Count: true, Options: arangofactory.ProfileOptions{Profile: 2},
 	})
 	if err != nil {
 		t.Fatalf("execute scoped 8-hop population mapping query: %v\n%s", err, testAQLText(t, compiled.Command))
@@ -255,7 +256,7 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 	if len(witnesses) != 2 {
 		t.Fatalf("mapped member count = %d, want two accessible selected members", len(witnesses))
 	}
-	stats := store.SummarizeProfile(profile)
+	stats := arangofactory.SummarizeProfile(profile)
 	t.Logf("8-hop overlapping-member query scanned index=%d full=%d peak=%d bytes (%.1f MiB) profile-runtime=%.3fs", stats.ScannedIndex, stats.ScannedFull, stats.PeakMemory, float64(stats.PeakMemory)/(1024*1024), stats.RuntimeSeconds)
 	scanned := stats.ScannedIndex + stats.ScannedFull
 	if scanned > 50000 {

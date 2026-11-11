@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -27,13 +27,13 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	observations := "loom_population_routed_observations_" + suffix
 	patients := "loom_population_routed_patients_" + suffix
 	edges := "loom_population_routed_edges_" + suffix
-	collections := []store.CollectionSpec{
+	collections := []arangofactory.CollectionSpec{
 		{Name: observations}, {Name: patients}, {Name: edges, Edge: true},
 		{Name: "loom_explorer_explicit_group_revisions"}, {Name: "loom_explorer_selections"},
 		{Name: "loom_explorer_explicit_group_definitions"}, {Name: "loom_explorer_explicit_group_memberships"},
 		{Name: "loom_explorer_selection_members"},
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
 	owned := make(map[string][]string)

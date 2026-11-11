@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
-	store "github.com/calypr/loom/internal/store/arango"
 )
 
 // requireStableRuntimeCode asserts that a query executed through the live
@@ -29,7 +29,7 @@ func requireStableRuntimeCode(t *testing.T, err error, code string) string {
 	} else if !strings.Contains(err.Error(), code) {
 		t.Fatalf("error = %v, want stable code %s", err, code)
 	}
-	if cause, ok := store.DiagnosticCause(err); ok {
+	if cause, ok := arangofactory.DiagnosticCause(err); ok {
 		return cause
 	}
 	return err.Error()

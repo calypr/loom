@@ -17,13 +17,12 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
@@ -297,7 +296,7 @@ func coreProtocolReplayMapStores(t *testing.T) coreProtocolReplayStores {
 // identity mutation: the capability snapshot pins its identity project
 // (compileExplorerReceipt rejects any request whose project does not canonicalize
 // to the snapshot's, so identities must stay exactly at the map fixture's).
-func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, graph *explorerarango.Store, database string) coreProtocolReplayStores {
+func coreProtocolReplayArangoStores(t *testing.T, client *arangofactory.Client, graph *arangofactory.ExplorerStore, database string) coreProtocolReplayStores {
 	t.Helper()
 	// The map fixture is the single source for the seed bytes; constructing it
 	// and discarding its app/store costs one rebuild and guarantees the seeded
@@ -374,7 +373,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, domain, serviceConfig)
 	fixture.app = app
 	t.Logf("core protocol replay store=arango: disposable database=%s project=%s explorerId=%s (identity bytes identical to map mode; isolation comes from the per-schedule database)", database, coreProtocolReplayProject, coreProtocolReplayExplorerID)
-	t.Log("store=arango documented divergence: draft revision ids are sha256-derived by the Arango store (internal/explorer/arango/drafts.go via key() in store.go), not the map store's draft_revision_core-protocol_N literal; the replay body never hardcodes a revision id, so both modes drive head identity solely from the save acknowledgement and stored bytes")
+	t.Log("store=arango documented divergence: draft revision ids are sha256-derived by the Arango store (internal/backends/arango/internal/explorer/drafts.go via key() in store.go), not the map store's draft_revision_core-protocol_N literal; the replay body never hardcodes a revision id, so both modes drive head identity solely from the save acknowledgement and stored bytes")
 	return coreProtocolReplayStores{
 		mode:    coreProtocolReplayStoreNameArango,
 		fixture: fixture,
@@ -390,7 +389,7 @@ func coreProtocolReplayArangoStores(t *testing.T, client *storearango.Client, gr
 		hasReceipts: func(context.Context) bool {
 			readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer readCancel()
-			return countDocuments(readCtx, t, client, explorerarango.CompilationReceiptsCollection, coreProtocolReplayProject, coreProtocolReplayExplorerID) > 0
+			return countDocuments(readCtx, t, client, arangofactory.CompilationReceiptsCollection, coreProtocolReplayProject, coreProtocolReplayExplorerID) > 0
 		},
 		history: func(_ context.Context, revisionID string) (explorer.DraftRevision, bool) {
 			readCtx, readCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -657,9 +656,9 @@ func observeReconcileConflictBody(t *testing.T, observation *coreProtocolReplayO
 
 // runCoreProtocolReplayAgainstArango owns the container-side Arango pattern of
 // TestCoreAuthoringProtocolAgainstArango: endpoint from LOOM_TEST_ARANGO_URL, a
-// per-test disposable database auto-created by storearango.Open, t.Cleanup that
+// per-test disposable database auto-created by arangofactory.Open, t.Cleanup that
 // closes with a fresh context and then raw-DELETEs the database (t.Error on
-// failure, still attempting the drop), Bootstrap + explorerarango.New, and the
+// failure, still attempting the drop), Bootstrap + arangofactory.NewExplorerStore, and the
 // schedules S1-S8 executed through the SAME shared replay body as map mode.
 func runCoreProtocolReplayAgainstArango(t *testing.T, replayCases []coreProtocolReplayCase, endpoint string, observations *[]coreProtocolReplayObservation) {
 	t.Helper()
@@ -672,10 +671,11 @@ func runCoreProtocolReplayAgainstArango(t *testing.T, replayCases []coreProtocol
 			database := coreProtocolReplayDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
-			client, err := storearango.Open(ctx, endpoint, database)
+			arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 			if err != nil {
 				t.Fatal(err)
 			}
+			client := arangoBackend.Client
 			t.Cleanup(func() {
 				_ = client.Close(context.Background())
 				cleanupCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -695,10 +695,10 @@ func runCoreProtocolReplayAgainstArango(t *testing.T, replayCases []coreProtocol
 					t.Errorf("remove owned disposable database status=%d", response.StatusCode)
 				}
 			})
-			if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
+			if err := client.Bootstrap(ctx, arangofactory.ExplorerBootstrapSpec()); err != nil {
 				t.Fatal(err)
 			}
-			graph, err := explorerarango.New(client)
+			graph, err := arangofactory.NewExplorerStore(client)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1031,10 +1031,11 @@ func runCoreProtocolConcreteAgainstArango(t *testing.T, programs []coreProtocolC
 			database := coreProtocolReplayDatabasePrefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
-			client, err := storearango.Open(ctx, endpoint, database)
+			arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 			if err != nil {
 				t.Fatal(err)
 			}
+			client := arangoBackend.Client
 			t.Cleanup(func() {
 				_ = client.Close(context.Background())
 				cleanupCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1054,10 +1055,10 @@ func runCoreProtocolConcreteAgainstArango(t *testing.T, programs []coreProtocolC
 					t.Errorf("remove owned disposable database status=%d", response.StatusCode)
 				}
 			})
-			if err := client.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
+			if err := client.Bootstrap(ctx, arangofactory.ExplorerBootstrapSpec()); err != nil {
 				t.Fatal(err)
 			}
-			graph, err := explorerarango.New(client)
+			graph, err := arangofactory.NewExplorerStore(client)
 			if err != nil {
 				t.Fatal(err)
 			}

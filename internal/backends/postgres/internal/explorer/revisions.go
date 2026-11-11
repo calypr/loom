@@ -3,7 +3,7 @@ package postgres
 // Immutable Explorer revisions on PostgreSQL 18.
 //
 // The frozen boundary is the exact field set the Arango adapter compares
-// (internal/explorer/arango/revisions.go immutableRevision): definition,
+// (internal/backends/arango/internal/explorer/revisions.go immutableRevision): definition,
 // recipe, digests, source generation, frozen materialization mappings,
 // emitted columns, dataset metadata, quality reports, and the authoring
 // payloads, decided equal the same way the adapter decides it: quality

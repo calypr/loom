@@ -59,10 +59,9 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	"github.com/calypr/loom/internal/dataframe/published"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -242,8 +241,8 @@ func mustReadPnnFile(t *testing.T, root, rel string) []byte {
 
 type pnnHarness struct {
 	ctx      context.Context
-	client   *storearango.Client
-	registry *pubarango.Registry
+	client   *arangofactory.Client
+	registry *arangofactory.PublishedRegistry
 	ch       *clickhouse.Client
 	database string
 	suffix   string
@@ -277,10 +276,11 @@ func pnnOpen(t *testing.T) *pnnHarness {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open %s: %v", database, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("PNN_DATABASE=%s", database)
 	// Registered FIRST so it runs LAST: ClickHouse artifacts must be dropped
 	// before the Arango database disappears (LIFO cleanup order).
@@ -288,11 +288,11 @@ func pnnOpen(t *testing.T) *pnnHarness {
 		_ = client.Close(context.Background())
 		pnnDropDatabase(t, endpoint, database)
 	})
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
 	ch, err := clickhouse.New(clickhouse.Options{

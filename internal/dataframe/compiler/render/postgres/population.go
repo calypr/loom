@@ -125,7 +125,7 @@ const (
 // canonicalMembershipCollections maps each payload collection-bind value the
 // compiler-pinned lowering emits (lower/group_rows.go:33-37; the population
 // member collection is runtime-bound from arango.SelectionMembersCollection,
-// internal/explorer/arango/collections.go:12) to its registered state
+// internal/backends/arango/internal/explorer/collections.go:12) to its registered state
 // relation. The map is validation-only: plan strings select a registry entry,
 // they never reach SQL text.
 var canonicalMembershipCollections = map[string]postgresMembershipTableKind{

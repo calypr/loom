@@ -2,7 +2,7 @@ package postgres
 
 // Compilation receipts on PostgreSQL 18.
 //
-// Parity contract (internal/explorer/arango/receipts.go): insert-once,
+// Parity contract (internal/backends/arango/internal/explorer/receipts.go): insert-once,
 // retry conflicts by scoped reread, compare the validated canonical
 // ReceiptID digest -- jsonb object order never replaces the digest check --
 // and report corrupt-ID reuse as explorer.ErrCorruptReceipt. The relational
@@ -146,7 +146,7 @@ func compilationReceiptArgs(receipt explorer.CompilationReceipt, doc []byte) []a
 }
 
 // validateReceiptForStore mirrors the Arango adapter's insert validation
-// (internal/explorer/arango/receipts.go validateReceipt): an empty ID is
+// (internal/backends/arango/internal/explorer/receipts.go validateReceipt): an empty ID is
 // corrupt, a receipt carrying its contract fields must pass Validate, and a
 // content-addressed "receipt_<sha256hex>" ID must match its canonical
 // ReceiptID digest.

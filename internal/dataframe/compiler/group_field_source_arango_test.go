@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/capability"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -72,7 +72,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "fhir_edge", Edge: true}, {Name: "loom_explorer_selection_members"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestConstructionGroupAncestorRowValuesAgainstArango(t *testing.T) {
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "fhir_edge", Edge: true}, {Name: "loom_explorer_selection_members"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -969,7 +969,7 @@ func expandedCodingGroupObservation(id string, includeSharedDuplicates bool) map
 	}
 }
 
-func insertExpandedCodingGroupSelectionMember(t *testing.T, ctx context.Context, client *store.Client, project, generation, selectionID string) {
+func insertExpandedCodingGroupSelectionMember(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation, selectionID string) {
 	t.Helper()
 	document, err := json.Marshal(map[string]any{
 		"_key": selectionID + "_patient", "selectionId": selectionID,
@@ -983,7 +983,7 @@ func insertExpandedCodingGroupSelectionMember(t *testing.T, ctx context.Context,
 	}
 }
 
-func replaceExpandedCodingGroupObservation(t *testing.T, ctx context.Context, client *store.Client, key string, payload map[string]any) {
+func replaceExpandedCodingGroupObservation(t *testing.T, ctx context.Context, client *arangofactory.Client, key string, payload map[string]any) {
 	t.Helper()
 	err := client.ExecuteAQL(ctx,
 		"FOR document IN Observation FILTER document._key == @key UPDATE document WITH {payload: @payload} IN Observation",
@@ -994,7 +994,7 @@ func replaceExpandedCodingGroupObservation(t *testing.T, ctx context.Context, cl
 	}
 }
 
-func insertExpandedCodingGroupResource(t *testing.T, ctx context.Context, client *store.Client, collection, key, project, generation string, payload map[string]any) {
+func insertExpandedCodingGroupResource(t *testing.T, ctx context.Context, client *arangofactory.Client, collection, key, project, generation string, payload map[string]any) {
 	t.Helper()
 	document, err := json.Marshal(map[string]any{
 		"_key": key, "id": payload["id"], "project": project, "project_id": project,
@@ -1008,7 +1008,7 @@ func insertExpandedCodingGroupResource(t *testing.T, ctx context.Context, client
 	}
 }
 
-func insertExpandedCodingGroupEdge(t *testing.T, ctx context.Context, client *store.Client, key, observationKey, patientKey, project, generation string) {
+func insertExpandedCodingGroupEdge(t *testing.T, ctx context.Context, client *arangofactory.Client, key, observationKey, patientKey, project, generation string) {
 	t.Helper()
 	document, err := json.Marshal(map[string]any{
 		"_key": key, "_from": "Observation/" + observationKey, "_to": "Patient/" + patientKey,
@@ -1048,7 +1048,7 @@ func assertExpandedCodingGroupOwnerValues(t *testing.T, raw any, want []string) 
 func assertExpandedCodingGroupLineage(
 	t *testing.T,
 	ctx context.Context,
-	client *store.Client,
+	client *arangofactory.Client,
 	compiled lower.CompiledRecipeOutput,
 	row map[string]any,
 	project, patientKey string,

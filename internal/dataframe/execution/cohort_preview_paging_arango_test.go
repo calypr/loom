@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	compilerIR "github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,20 +26,21 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() { _ = client.Close(context.Background()) })
 	collections := []string{
 		"Patient", "loom_explorer_explicit_group_revisions", "loom_explorer_selections", "loom_explorer_selection_members",
 		"loom_explorer_explicit_group_definitions", "loom_explorer_explicit_group_memberships",
 	}
-	specs := make([]store.CollectionSpec, 0, len(collections))
+	specs := make([]arangofactory.CollectionSpec, 0, len(collections))
 	for _, name := range collections {
-		specs = append(specs, store.CollectionSpec{Name: name})
+		specs = append(specs, arangofactory.CollectionSpec{Name: name})
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
 	project, generation := "loom_cohort_preview_"+uuid.NewString(), "cohort-preview-generation"
@@ -161,7 +162,7 @@ func TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango(t *te
 				candidateScanQuery = query
 				candidateScanBinds = bindVars
 			}
-			queryErr = client.QueryRows(queryCtx, query, batchSize, bindVars, store.RowVisitor(visit))
+			queryErr = client.QueryRows(queryCtx, query, batchSize, bindVars, arangofactory.RowVisitor(visit))
 			return queryErr
 		},
 	})

@@ -10,11 +10,11 @@ import (
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 func TestChooseGroupPreviewScanReusesSmallestCompatibleCoveringIndex(t *testing.T) {
@@ -1170,7 +1170,7 @@ func TestPreviewOutputDoesNotRetryOrdinaryQueryAfterFactoredQueryFailure(t *test
 			factoredCalls++
 			// The production AQL adapter classifies its own driver failures
 			// at the seam; this fake simulates a correctly wired adapter.
-			translated, _ := arango.TranslateQueryError(fmt.Errorf("arango query: %w", wantErr))
+			translated, _ := arangofactory.TranslateQueryError(fmt.Errorf("arango query: %w", wantErr))
 			return translated
 		case commandText(t, query.Command):
 			ordinaryCalls++

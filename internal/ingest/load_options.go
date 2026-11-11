@@ -7,11 +7,10 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type LoadOptions struct {
-	arangostore.ConnectionOptions
+	ConnectionOptions
 	Schema           string
 	MetaDir          string
 	Project          string

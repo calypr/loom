@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -168,7 +168,7 @@ FOR document IN Observation
 func insertRootQuantityCategoryFixtureRows(
 	t *testing.T,
 	ctx context.Context,
-	client *store.Client,
+	client *arangofactory.Client,
 	project, generation string,
 	fixtures []struct {
 		id             string

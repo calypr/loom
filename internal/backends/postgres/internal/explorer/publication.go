@@ -8,7 +8,7 @@ package postgres
 // the active Explorer owner pointer, AND the project release activation in
 // ONE PostgreSQL transaction, after the caller has already materialized and
 // verified the ClickHouse publication rows. The Arango baseline
-// (internal/explorer/arango/publication.go PublishAuthoring) runs the same
+// (internal/backends/arango/internal/explorer/publication.go PublishAuthoring) runs the same
 // five legs inside one Arango transaction -- receipt upsert + readback
 // compare, revision upsert, CompareAndSwapPublishRelease, and the owner +
 // candidate activation -- and this adapter reproduces that contract on the
@@ -271,7 +271,7 @@ func newPublishStatements(explorerSchema, datasetSchema string) publishStatement
 // PublishAuthoring atomically commits the verified receipt, the immutable
 // revision, the active Explorer owner pointer, and the project release
 // activation in one PostgreSQL transaction, mirroring the Arango baseline
-// (internal/explorer/arango/publication.go) leg for leg, and returns the
+// (internal/backends/arango/internal/explorer/publication.go) leg for leg, and returns the
 // revision as PostgreSQL stored it. The caller has already verified the
 // ClickHouse rows: this method touches no outside data plane and accepts no
 // callbacks. See the file contract for the full guarantee list; the typed
@@ -617,7 +617,7 @@ func (p *PublishStore) claimRevisionForPublish(ctx context.Context, tx pgx.Tx, r
 
 // activateReleaseInTx is the publish-path release activation CAS -- the
 // CompareAndSwapPublishRelease sibling of the release lane's
-// CompareAndSwapActivateRelease (internal/dataset/arango/release_store.go):
+// CompareAndSwapActivateRelease (internal/backends/arango/internal/dataset/release_store.go):
 // same rules, plus the current-generation guard that makes "the active
 // generation pointer still identifies this release's source manifest" a
 // precondition. It runs entirely on the caller's pgx.Tx against the release

@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -235,7 +235,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	project, generation := "loom_coded_group_inline_"+suffix, "generation-coded-group-inline"
 	fixtureCollection := "loom_coded_group_inline_roots_" + suffix
 	populationCollection := "loom_coded_group_inline_members_" + suffix
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: fixtureCollection}, {Name: populationCollection},
 	}}); err != nil {
 		t.Fatal(err)
@@ -283,7 +283,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	assertCodedGroupSourceIDsMatchCodes(t, selectedRows, selectedSourceIDs)
 }
 
-func insertCodedGroupResources(t *testing.T, ctx context.Context, client *store.Client, collection, project, generation string, payloads []map[string]any) {
+func insertCodedGroupResources(t *testing.T, ctx context.Context, client *arangofactory.Client, collection, project, generation string, payloads []map[string]any) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(payloads))
 	for _, payload := range payloads {
@@ -309,7 +309,7 @@ func codedGroupComponent(code string) map[string]any {
 	}}}
 }
 
-func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client *store.Client, collection, selectionID, project, generation string, ids []string) {
+func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client *arangofactory.Client, collection, selectionID, project, generation string, ids []string) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(ids))
 	for _, id := range ids {
@@ -327,7 +327,7 @@ func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client
 	}
 }
 
-func codedGroupSourceProjectionIDs(t *testing.T, ctx context.Context, client *store.Client, compiled lower.CompiledRecipeOutput, collection string) []string {
+func codedGroupSourceProjectionIDs(t *testing.T, ctx context.Context, client *arangofactory.Client, compiled lower.CompiledRecipeOutput, collection string) []string {
 	t.Helper()
 	plan := ir.ClonePhysicalPlan(compiled.Plan)
 	plan.StageSequence = nil

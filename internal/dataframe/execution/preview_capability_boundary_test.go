@@ -18,16 +18,16 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	exec "github.com/calypr/loom/internal/dataframe/recipe/exec"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 // forbiddenPreviewPkgPrefixes name the vendor implementation trees that the
 // shared preview contracts and configuration must never reference by type.
 var forbiddenPreviewPkgPrefixes = []string{
-	"github.com/calypr/loom/internal/store/arango",
+	"github.com/calypr/loom/internal/backends/arango/internal/store",
 	"github.com/jackc/pgx",
 }
 
@@ -192,8 +192,8 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		// vendor-shaped callbacks, proving the guard would fire if concrete
 		// Arango plan/index types returned to the shared contracts.
 		legacy := struct {
-			PreviewExplainQuery    func(context.Context, string, map[string]any) (arango.ExplainResult, error)
-			PreviewCoveringIndexes func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
+			PreviewExplainQuery    func(context.Context, string, map[string]any) (arangofactory.ExplainResult, error)
+			PreviewCoveringIndexes func(context.Context, string) ([]arangofactory.PreviewCoveringIndex, error)
 		}{}
 		offenders := previewContractVendorOffenders(reflect.TypeOf(legacy), map[reflect.Type]bool{}, 0)
 		if len(offenders) != 2 {

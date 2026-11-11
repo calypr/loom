@@ -2,7 +2,7 @@
 // the PostgreSQL source store (pg-catalog-06).
 //
 // SemanticReadRepository serves the two public read surfaces that
-// internal/catalog/arango/semantic_inventory.go PageSemanticInventory and
+// internal/backends/arango/internal/catalog/semantic_inventory.go PageSemanticInventory and
 // ResolveSemanticInventorySelections serve from Arango, against the one
 // contribution table pg-catalog-05 persists
 // (fhir_semantic_inventory_contribution, migration
@@ -858,7 +858,7 @@ func semanticInventoryPageLimit(limit int) int {
 // --- SQL expression helpers ---------------------------------------------
 //
 // Each helper emits the PostgreSQL reading of one AQL expression from the
-// reference queries in internal/catalog/arango/semantic_inventory.go. The
+// reference queries in internal/backends/arango/internal/catalog/semantic_inventory.go. The
 // observation leaf rule (absent and JSON-null both read as not present) is
 // documented in the file header; the only writer encodes the typed catalog
 // struct, so the JSON-null spelling is unreachable except in adversarially

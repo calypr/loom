@@ -252,7 +252,7 @@ func ab03RequireCode(t *testing.T, err error, want dataframeerrors.ErrorCode) {
 // (statement_timeout, 57014) arrives boundary-classified as
 // ConditionQueryCanceled with the cross-backend-equivalent severity literal
 // CodeQueryResourceLimitExceeded — the literal the Arango adapter seam uses
-// for query resource limits (golden-pinned in internal/store/arango). The
+// for query resource limits (golden-pinned in internal/backends/arango/internal/store). The
 // paired control proves the same adapter streams happy rows without any
 // classification.
 func TestAB03BoundaryThroughQueryCanceled(t *testing.T) {

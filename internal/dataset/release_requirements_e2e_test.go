@@ -9,8 +9,8 @@ package dataset_test
 //
 // PACKAGE CHOICE (documented deviation, forced by the Go compiler): the
 // assignment asked for `package dataset`, but the real `datasetarango` store it
-// requires lives in internal/dataset/arango, which IMPORTS internal/dataset
-// (`go list -deps ./internal/dataset/arango` lists
+// requires lives in internal/backends/arango/internal/dataset, which IMPORTS internal/dataset
+// (`go list -deps ./internal/backends/arango/internal/dataset` lists
 // github.com/calypr/loom/internal/dataset). A same-package test file
 // (`package dataset`) that imports a package importing `dataset` is an import
 // cycle that Go rejects ("import cycle not allowed in test"). The external test
@@ -76,9 +76,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataset "github.com/calypr/loom/internal/dataset"
-	datasetarango "github.com/calypr/loom/internal/dataset/arango"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -219,7 +218,7 @@ var _ dataset.PublicationVerifier = (*r14FakeVerifier)(nil)
 
 // r14Open is the env-gated owned-database harness (SKIP-clean when
 // LOOM_TEST_ARANGO_URL is unset), opening only the dataset lifecycle collection.
-func r14Open(t *testing.T, budget time.Duration) (context.Context, *arangostore.Client, *datasetarango.Store) {
+func r14Open(t *testing.T, budget time.Duration) (context.Context, *arangofactory.Client, *arangofactory.DatasetStore) {
 	t.Helper()
 	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
 	if endpoint == "" {
@@ -231,10 +230,11 @@ func r14Open(t *testing.T, budget time.Duration) (context.Context, *arangostore.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
-	client, err := arangostore.Open(ctx, endpoint, name)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: name})
 	if err != nil {
 		t.Fatalf("open %s: %v", name, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("R14_DATABASE=%s endpoint=%s", name, endpoint)
 
 	// Registered FIRST so it runs LAST (Go cleanups are LIFO): after the drop
@@ -283,10 +283,10 @@ func r14Open(t *testing.T, budget time.Duration) (context.Context, *arangostore.
 		t.Logf("R14_DATABASE_REMOVED=%s", name)
 	})
 
-	if err := client.Bootstrap(ctx, datasetarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.DatasetBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap dataset lifecycle collections: %v", err)
 	}
-	lifecycle, err := datasetarango.New(client)
+	lifecycle, err := arangofactory.NewDatasetStore(client)
 	if err != nil {
 		t.Fatalf("new dataset lifecycle store: %v", err)
 	}
@@ -326,7 +326,7 @@ func r14AuthenticatedDatabaseList(endpoint string) ([]string, error) {
 // exact pre-state dataset.ReleaseService.Create's validateGeneration requires
 // (release.go:154 -> validateGeneration -> manifest.IsStaged). The manifest docs
 // live only in the owned database.
-func r14StageManifest(t *testing.T, ctx context.Context, lifecycle *datasetarango.Store, project, generation string) error {
+func r14StageManifest(t *testing.T, ctx context.Context, lifecycle *arangofactory.DatasetStore, project, generation string) error {
 	t.Helper()
 	ref, err := dataset.NewRef(project, generation)
 	if err != nil {
@@ -392,7 +392,7 @@ func r14CanonicalDoc(d map[string]any) string {
 		r14Any(d, "revision"), r14Any(d, "releaseId"), r14Any(d, "releaseKey"), r14Any(d, "manifestKey"))
 }
 
-func r14TakeSnapshot(t *testing.T, ctx context.Context, client *arangostore.Client, lifecycle *datasetarango.Store, project string) r14Snapshot {
+func r14TakeSnapshot(t *testing.T, ctx context.Context, client *arangofactory.Client, lifecycle *arangofactory.DatasetStore, project string) r14Snapshot {
 	t.Helper()
 	s := r14Snapshot{}
 	active, err := lifecycle.ReadActiveRelease(ctx, project)
@@ -405,7 +405,7 @@ func r14TakeSnapshot(t *testing.T, ctx context.Context, client *arangostore.Clie
 	}
 
 	var docs []map[string]any
-	err = client.QueryRows(ctx, `FOR d IN @@c RETURN d`, 500, map[string]any{"@c": datasetarango.LifecycleCollection}, func(row map[string]any) error {
+	err = client.QueryRows(ctx, `FOR d IN @@c RETURN d`, 500, map[string]any{"@c": arangofactory.DatasetLifecycleCollection}, func(row map[string]any) error {
 		docs = append(docs, row)
 		return nil
 	})
@@ -413,7 +413,7 @@ func r14TakeSnapshot(t *testing.T, ctx context.Context, client *arangostore.Clie
 		t.Fatalf("dump lifecycle collection: %v", err)
 	}
 	s.totalDocs = len(docs)
-	activeGenKey := datasetarango.ActiveDocumentKey(project)
+	activeGenKey := arangofactory.DatasetActiveDocumentKey(project)
 	canon := make([]string, 0, len(docs))
 	for _, d := range docs {
 		canon = append(canon, r14CanonicalDoc(d))

@@ -75,7 +75,7 @@ func (r *devFaultReleaseRepository) ReadActiveRelease(_ context.Context, _ strin
 }
 
 // CompareAndSwapActivateRelease mirrors the shipped store guard in
-// internal/dataset/arango/release_store.go: activateReleaseAQL compares the
+// internal/backends/arango/internal/dataset/release_store.go: activateReleaseAQL compares the
 // pointer revision with FILTER currentRevision == @expected_revision OR
 // alreadyActive, and an emptied result becomes
 // dataset.ErrReleaseActivationConflict (release_store.go:99-100). The

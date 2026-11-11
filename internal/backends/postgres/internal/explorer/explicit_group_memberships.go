@@ -4,7 +4,7 @@ package postgres
 // PostgreSQL 18 (pg-state-explicit-group-members-v1).
 //
 // This file is the membership half of the relational counterpart of
-// internal/explorer/arango/explicit_groups.go: the header/definition half
+// internal/backends/arango/internal/explorer/explicit_groups.go: the header/definition half
 // (Begin, Put, Abort, Cleanup, Get, List) lives in explicit_groups.go,
 // while Append, Digest, Complete, and Visit -- the methods the Arango
 // adapter's membership lifecycle exposes -- live here method for method so

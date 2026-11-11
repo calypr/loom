@@ -154,14 +154,15 @@ const external = new Set([
     ...pgQueryRoute,
 ]);
 export const profiles = [
-    ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
+    ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
+    ['catalog', './internal/backends/arango/internal/catalog', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
     ['compiler', './internal/dataframe/compiler', 'TestPivotPresenceArangoAudit'],
     ['execution', './internal/dataframe/execution', 'TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango'],
-    ['explorer', './internal/explorer/arango', 'TestSelectionStorageAgainstArango'],
-    ['store', './internal/store/arango', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
+    ['explorer', './internal/backends/arango/internal/explorer', 'TestSelectionStorageAgainstArango'],
+    ['store', './internal/backends/arango/internal/store', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
     ['server', './internal/server', 'TestSavedRelatedRouteRowsAgainstArango'],
-    ['artifact', './internal/dataframe/execution/chartifact/arango', 'TestCatalogLeaseArbitrationAgainstArango'],
-    ['publication', './internal/dataframe/publication/arango', 'TestExecutionReadPinArbitrationAgainstArango'],
+    ['artifact', './internal/backends/arango/internal/chartifact', 'TestCatalogLeaseArbitrationAgainstArango'],
+    ['publication', './internal/backends/arango/internal/publication', 'TestExecutionReadPinArbitrationAgainstArango'],
     ['backfill', './internal/ingest', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
 ].map(([id, pkg, required]) => ({ id, package: pkg, required, ...(id === 'backfill' ? { run: required } : {}) }));
 // The store package's retained cases require external seeded data. Its ordinary

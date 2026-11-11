@@ -133,7 +133,7 @@ The current eleven operation-history witnesses are supporting checks. They are n
 | Public HTTP adapters | `internal/server/openapi_explorer_routes.go` and `internal/server/explorer_authoring_http.go` |
 | Authoritative state and reconciliation | `internal/explorer/lifecycle/query.go`, `authoring.go` and `draft_restore.go` |
 | Compilation and receipt validation | `internal/server/explorer_receipt_contract.go`, `explorer_receipt_validation.go`, `internal/explorer/compilation_receipt.go` and the compiler callbacks they invoke |
-| Persistence | `internal/explorer/arango/drafts.go` and existing transaction/database checks |
+| Persistence | `internal/backends/arango/internal/explorer/drafts.go` and existing transaction/database checks |
 | Existing verification | `verification/builder-interactions/`, `scripts/verify-builder-formal-core.mjs`, `scripts/lib/formal-*.mjs`, mounted Workspace tests and public server tests |
 
 “Compilations API” is a product-area label here. Inventory the actual public routes and internal receipt operations; do not invent a standalone `/compilations` endpoint or model only the endpoint name.

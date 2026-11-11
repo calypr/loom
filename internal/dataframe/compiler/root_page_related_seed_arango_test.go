@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -62,7 +62,7 @@ func TestRootPageRelatedSeedConstructionFilterPlacement(t *testing.T) {
 
 func TestRootPageRelatedSeedFalsePositiveDoesNotConsumePageAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Observation"}, {Name: "Patient"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatalf("bootstrap related root-page fixture collections: %v", err)
@@ -295,7 +295,7 @@ type rootPageRelatedSeedPage struct {
 	rows []map[string]any
 }
 
-func rootPageRelatedSeedReadPage(t *testing.T, ctx context.Context, client *store.Client, page CompiledOutputPage, after string) rootPageRelatedSeedPage {
+func rootPageRelatedSeedReadPage(t *testing.T, ctx context.Context, client *arangofactory.Client, page CompiledOutputPage, after string) rootPageRelatedSeedPage {
 	t.Helper()
 	keyBinds := rootPageRelatedSeedCloneBinds(testAQLBinds(t, page.RootKeys))
 	keyBinds[RootPageAfterKeyBind] = after

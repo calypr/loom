@@ -17,9 +17,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -29,7 +28,7 @@ import (
 // transaction (bundle_registry.go WithTransaction over
 // executions+pointers+leases), so the PRODUCT can no longer produce the
 // two-answers split; durable post-fix proof lives in
-// internal/dataframe/publication/arango/publish_atomicity_e2e_test.go (arms
+// internal/backends/arango/internal/publication/publish_atomicity_e2e_test.go (arms
 // A/B: split observable only when the legs are separate requests; repaired
 // publish rolls back wholly). Historical pre-fix FAILED-ON-PURPOSE evidence is
 // preserved in FINDINGS.md Round 11 and the archived parent runs (artifact
@@ -48,7 +47,7 @@ import (
 // Verified source facts (re-read and quoted at runtime by
 // pppQuoteVerifiedSource, which fails this test if any anchor drifts):
 //
-//   - Registry.PublishExecution (internal/dataframe/publication/arango/
+//   - Registry.PublishExecution (internal/backends/arango/internal/publication/
 //     bundle_registry.go) contains the execution UPDATE
 //     (`UPDATE execution WITH @execution IN @@executions`) and the
 //     visibility pointer UPSERT in the SAME statement, now executed inside
@@ -130,16 +129,16 @@ type pppPublishCall struct {
 }
 
 type pppCatalog struct {
-	*pubarango.Registry
-	client *storearango.Client
+	*arangofactory.PublishedRegistry
+	client *arangofactory.Client
 
 	mu         sync.Mutex
 	faultArmed bool
 	calls      []pppPublishCall
 }
 
-func newPPPCatalog(registry *pubarango.Registry, client *storearango.Client) *pppCatalog {
-	return &pppCatalog{Registry: registry, client: client}
+func newPPPCatalog(registry *arangofactory.PublishedRegistry, client *arangofactory.Client) *pppCatalog {
+	return &pppCatalog{PublishedRegistry: registry, client: client}
 }
 
 func (c *pppCatalog) armFault() {
@@ -207,7 +206,7 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 
 	if !armed {
 		call.Delegated = true
-		err = c.Registry.PublishExecution(ctx, name, expected, execution)
+		err = c.PublishedRegistry.PublishExecution(ctx, name, expected, execution)
 		if err == nil {
 			call.LegTwoExecuted = true // the real single-AQL publish covers both legs
 		}
@@ -220,9 +219,9 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 	// Leg ONE only: the exec UPDATE, same binds as bundle_registry.go:298-301.
 	updated := false
 	err = c.client.QueryRows(ctx, pppLegOneAQL, 32, map[string]interface{}{
-		"@pointers":    pubarango.BundlePointersCollection,
-		"@executions":  pubarango.BundleExecutionsCollection,
-		"@leases":      pubarango.BundleLeasesCollection,
+		"@pointers":    arangofactory.BundlePointersCollection,
+		"@executions":  arangofactory.BundleExecutionsCollection,
+		"@leases":      arangofactory.BundleLeasesCollection,
 		"pointerKey":   pppPointerDocumentKey(name),
 		"executionKey": execution.ID,
 		"leaseKey":     execution.Key,
@@ -263,8 +262,8 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 
 type pppHarness struct {
 	ctx      context.Context
-	client   *storearango.Client
-	registry *pubarango.Registry
+	client   *arangofactory.Client
+	registry *arangofactory.PublishedRegistry
 	catalog  *pppCatalog
 	ch       *clickhouse.Client
 	database string
@@ -299,10 +298,11 @@ func pppOpen(t *testing.T) *pppHarness {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open %s: %v", database, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("PPP_DATABASE=%s", database)
 	// Registered FIRST so it runs LAST: ClickHouse artifacts must be dropped
 	// before the Arango database disappearance (LIFO cleanup order).
@@ -310,11 +310,11 @@ func pppOpen(t *testing.T) *pppHarness {
 		_ = client.Close(context.Background())
 		pppDropDatabase(t, endpoint, database)
 	})
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
 	ch, err := clickhouse.New(clickhouse.Options{
@@ -480,10 +480,10 @@ func pppProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p p
 // direct fact readers
 // ---------------------------------------------------------------------------
 
-func pppRawExecutionRow(t *testing.T, client *storearango.Client, ctx context.Context, execID string) (state, errField string) {
+func pppRawExecutionRow(t *testing.T, client *arangofactory.Client, ctx context.Context, execID string) (state, errField string) {
 	t.Helper()
 	err := client.QueryRows(ctx, `RETURN DOCUMENT(@@collection, @key)`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection, "key": execID,
+		"@collection": arangofactory.BundleExecutionsCollection, "key": execID,
 	}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
@@ -599,7 +599,7 @@ var pppRequiredQuotations = []struct {
 	needles []string
 }{
 	{
-		file: "internal/dataframe/publication/arango/bundle_registry.go",
+		file: "internal/backends/arango/internal/publication/bundle_registry.go",
 		needles: []string{
 			"UPDATE execution WITH @execution IN @@executions",
 			"UPSERT {_key: @pointerKey}",

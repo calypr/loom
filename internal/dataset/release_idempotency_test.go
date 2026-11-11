@@ -15,12 +15,12 @@ import (
 // Both drive the production ReleaseService.Create/Activate path against the
 // package release fixture. The fixture's activation guard has the same shape as
 // the production Arango CAS alreadyActive branch
-// (internal/dataset/arango/release_store.go: "releasePointer.releaseId ==
+// (internal/backends/arango/internal/dataset/release_store.go: "releasePointer.releaseId ==
 // @release_id" makes a re-submission that already owns the pointer a no-op),
 // modelled there as "expectedRevision+1 == current revision AND same id". So
 // the replay asserted here re-sends the successful expected revision. The real
 // store converges for a live revision as well, and that is exercised against
-// Arango in internal/dataset/arango/release_policy_change_e2e_test.go.
+// Arango in internal/backends/arango/internal/dataset/release_policy_change_e2e_test.go.
 
 func storedReleaseCandidates(store *MemoryLifecycleStore, project string) map[string]ProjectRelease {
 	store.mu.RLock()

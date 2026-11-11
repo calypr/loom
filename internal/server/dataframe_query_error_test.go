@@ -1,8 +1,8 @@
 package server
 
 // The 14-branch vendor classifier moved verbatim into the ArangoDB adapter
-// (internal/store/arango/errors.go, pinned by the golden table in
-// internal/store/arango/errors_test.go). These tests keep the composition
+// (internal/backends/arango/internal/store/errors.go, pinned by the golden table in
+// internal/backends/arango/internal/store/errors_test.go). These tests keep the composition
 // side of the boundary: adapter-classified errors must route exactly as the
 // classifier's output did, unknown errors pass through, and the neutral
 // execution budget is wired into the ArangoDB adapter mechanism by
@@ -16,15 +16,15 @@ import (
 	"testing"
 
 	"github.com/arangodb/go-driver/v2/arangodb/shared"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/explorer"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func classifyThroughAdapter(t *testing.T, driverErr error) error {
 	t.Helper()
-	classified, ok := arangostore.TranslateQueryError(fmt.Errorf("arango query: %w", driverErr))
+	classified, ok := arangofactory.TranslateQueryError(fmt.Errorf("arango query: %w", driverErr))
 	if !ok {
 		t.Fatalf("adapter did not classify %v", driverErr)
 	}
@@ -174,14 +174,14 @@ func TestConfiguredAQLQueryRowsWiresExecutionBudgetIntoArangoAdapter(t *testing.
 	if err := adapter(ctx, dataframeexecution.RowsRequest{Command: compiledCommand, BatchSize: 10}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if limit, ok := arangostore.QueryMemoryLimitFromContext(captured); !ok || limit != 900000 {
+	if limit, ok := arangofactory.QueryMemoryLimitFromContext(captured); !ok || limit != 900000 {
 		t.Fatalf("adapter memory limit = %d/%t, want the execution budget 900000", limit, ok)
 	}
 
 	if err := adapter(context.Background(), dataframeexecution.RowsRequest{Command: compiledCommand, BatchSize: 10}, func(map[string]any) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if limit, ok := arangostore.QueryMemoryLimitFromContext(captured); ok {
+	if limit, ok := arangofactory.QueryMemoryLimitFromContext(captured); ok {
 		t.Fatalf("adapter memory limit attached without an execution budget: %d", limit)
 	}
 }

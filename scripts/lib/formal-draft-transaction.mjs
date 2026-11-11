@@ -9,14 +9,14 @@ import { apiDoctor, checkApiEvents } from './formal-api.mjs';
 import { verificationTimeoutMs, goTestTimeout } from './verification-budget.mjs';
 
 export const draftTransactionModel = 'DraftSaveTransaction';
-export const draftTransactionFile = 'internal/explorer/arango/drafts.go';
-export const draftTransactionAdapter = 'internal/explorer/arango/draft_transaction_formal_replay_test.go';
+export const draftTransactionFile = 'internal/backends/arango/internal/explorer/drafts.go';
+export const draftTransactionAdapter = 'internal/backends/arango/internal/explorer/draft_transaction_formal_replay_test.go';
 export const draftTransactionProperties = ['Inv_NoPartialDraftHistory', 'Inv_ConflictIsDomainConflict', 'Inv_SuccessRequiresConfirmedCommit', 'Inv_MissingCASAborts', 'Inv_ValidSaveWorks', 'Inv_KnownFailureDoesNotPublish'];
 const modelDirectory = join(root, 'verification/builder-interactions');
 const testName = 'TestDraftTransactionModelReplay';
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(name => [name, canonical(value[name])])) : value;
 const key = value => JSON.stringify(canonical(value));
-const files = () => ['go.mod', 'go.sum', draftTransactionAdapter, ...['internal/explorer/arango', 'internal/explorer', 'internal/store/arango'].flatMap(directory => readdirSync(join(root, directory)).filter(file => file.endsWith('.go') && !file.endsWith('_test.go')).map(file => `${directory}/${file}`))].sort();
+const files = () => ['go.mod', 'go.sum', draftTransactionAdapter, ...['internal/backends/arango/internal/explorer', 'internal/explorer', 'internal/backends/arango/internal/store'].flatMap(directory => readdirSync(join(root, directory)).filter(file => file.endsWith('.go') && !file.endsWith('_test.go')).map(file => `${directory}/${file}`))].sort();
 export const draftTransactionSourceHashes = () => Object.fromEntries(files().map(file => [file, digest(join(root, file))]));
 const fields = ['begin', 'read', 'archive', 'update', 'commit'];
 const initial = () => ({ phase: 'begin', outcomes: Object.fromEntries(fields.map(name => [name, 'none'])), stagedHistory: false, stagedHead: false, history: false, head: false, transactionResult: 'none', result: 'none', backendConflict: false });
@@ -106,7 +106,7 @@ function runGo(cases,{productionSource,output}={}) {
         const input=join(scratch,'input.json'),out=join(scratch,'output.json');writeFileSync(input,JSON.stringify({schemaVersion:1,cases:cases.map(({id,outcomes})=>({id,outcomes}))}));const inputSha=digest(input);
         const args=['test','-json',`-timeout=${goTestTimeout}`,'-count=1','-run',`^${testName}$`];
         if(productionSource!==undefined){const replacement=join(scratch,'drafts.go'),overlay=join(scratch,'overlay.json');writeFileSync(replacement,productionSource);writeFileSync(overlay,JSON.stringify({Replace:{[join(root,draftTransactionFile)]:replacement}}));args.push('-overlay',overlay);}
-        args.push('./internal/explorer/arango');const env={...process.env,GOFLAGS:'',GOWORK:'off',GOTOOLCHAIN:'local',LOOM_FORMAL_DRAFT_TRANSACTION_INPUT:input,LOOM_FORMAL_DRAFT_TRANSACTION_OUTPUT:out};
+        args.push('./internal/backends/arango/internal/explorer');const env={...process.env,GOFLAGS:'',GOWORK:'off',GOTOOLCHAIN:'local',LOOM_FORMAL_DRAFT_TRANSACTION_INPUT:input,LOOM_FORMAL_DRAFT_TRANSACTION_OUTPUT:out};
         if(tool.executable==='/workspace/.loom-setup/go/bin/go'){if(!env.GOMODCACHE&&existsSync('/workspace/.loom-setup/gomod'))env.GOMODCACHE='/workspace/.loom-setup/gomod';if(!env.GOCACHE&&existsSync('/workspace/loom/.gocache'))env.GOCACHE='/workspace/loom/.gocache';}
         const result=spawnSync(tool.executable,args,{cwd:root,env,encoding:'utf8',timeout:verificationTimeoutMs,maxBuffer:8*1024*1024,detached:true});
         if(result.error&&result.pid){try{process.kill(-result.pid,'SIGKILL');}catch(error){if(error.code!=='ESRCH')throw error;}}

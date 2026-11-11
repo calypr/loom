@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 )
 
 // LoadIncompleteError means row-level validation, generation, or edge
@@ -102,12 +102,13 @@ func loadResource(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		"database": opts.Database,
 	})
 	connectStart := time.Now()
-	client, err := openBackend(ctx, opts.ConnectionOptions)
+	backend, err := openBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
 		return summary, err
 	}
-	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
-	catalogStore, err := catalogarango.New(client)
+	client := backend.Client
+	defer func() { _ = backend.Close(context.WithoutCancel(ctx)) }()
+	catalogStore, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return summary, err
 	}

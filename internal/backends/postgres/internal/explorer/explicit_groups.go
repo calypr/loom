@@ -17,7 +17,7 @@ package postgres
 // to the stored definition and membership rows, and COMPLETE rows are
 // frozen history.
 //
-// Semantics mirror the Arango adapter (internal/explorer/arango/
+// Semantics mirror the Arango adapter (internal/backends/arango/internal/explorer/
 // explicit_groups.go) one-for-one where this slice reaches:
 //
 //   - Begin is the idempotency claim: the revision ID is the deterministic

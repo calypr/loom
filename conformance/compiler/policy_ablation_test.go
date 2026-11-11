@@ -12,17 +12,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/store/arango"
 )
 
 func explainCompiledQuery(ctx context.Context, opts arango.ConnectionOptions, compiled compiler.CompiledQuery) (arango.ExplainResult, error) {
-	client, err := arango.Open(ctx, opts.URL, opts.Database)
+	backend, err := arango.Open(ctx, opts)
 	if err != nil {
 		return arango.ExplainResult{}, err
 	}
-	defer client.Close(ctx)
+	defer backend.Close(ctx)
+	client := backend.Client
 	query, bindVars, err := compiled.Command.AQLParameters()
 	if err != nil {
 		return arango.ExplainResult{}, err
@@ -79,10 +80,11 @@ func TestGDCOptimizationPolicyAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	var expectedHash string
 	var expectedRows []map[string]any
@@ -161,10 +163,11 @@ func TestTraversalSharingAblationAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"patient-sibling-targets", "patient-deep-filter"} {
 		fixture, ok := byID[fixtureID]
@@ -267,10 +270,11 @@ func TestPreparedSelectorAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-observation-pivot", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
@@ -372,10 +376,11 @@ func TestRichConsumerReuseProfileAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]
@@ -459,10 +464,11 @@ func TestCompactSetProjectionAblationAgainstArango(t *testing.T) {
 	opts := arango.ConnectionOptions{URL: url, Database: database}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arango.Open(ctx, url, database)
+	arangoBackend, err := arango.Open(ctx, arango.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(ctx)
 	for _, fixtureID := range []string{"specimen-aggregate-slice", "patient-specimen-file", "patient-deep-filter", "gdc-case-matrix"} {
 		fixture, ok := byID[fixtureID]

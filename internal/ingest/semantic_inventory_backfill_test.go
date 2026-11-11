@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
@@ -81,7 +81,7 @@ func TestBackfillSemanticInventoryRejectsConcurrentClaim(t *testing.T) {
 	_, err := BackfillSemanticInventory(context.Background(), backend, backfillManifest(t, publication.StateStaged), SemanticInventoryBackfillOptions{
 		Project: "project", DatasetGeneration: "generation",
 	})
-	if !errors.Is(err, catalogarango.ErrSemanticInventoryClaimed) {
+	if !errors.Is(err, arangofactory.ErrSemanticInventoryClaimed) {
 		t.Fatalf("concurrent claim error = %v, want ErrSemanticInventoryClaimed", err)
 	}
 	if backend.readCalls != 0 || len(backend.contributions) != 0 {
@@ -315,13 +315,13 @@ func (f *backfillFake) ReadRetainedSemanticInventoryPage(ctx context.Context, pr
 
 func (f *backfillFake) ClaimSemanticInventoryBackfill(_ context.Context, build catalog.SemanticInventoryBuild, token string, lease time.Duration) (catalog.SemanticInventoryBuild, bool, error) {
 	if f.claimedByOther {
-		return catalog.SemanticInventoryBuild{}, false, catalogarango.ErrSemanticInventoryClaimed
+		return catalog.SemanticInventoryBuild{}, false, arangofactory.ErrSemanticInventoryClaimed
 	}
 	if f.build.State == catalog.SemanticInventoryComplete {
 		return f.build, false, nil
 	}
 	if f.build.LeaseToken != "" && f.build.LeaseToken != token {
-		return catalog.SemanticInventoryBuild{}, false, catalogarango.ErrSemanticInventoryClaimed
+		return catalog.SemanticInventoryBuild{}, false, arangofactory.ErrSemanticInventoryClaimed
 	}
 	if f.build.Key == "" {
 		f.build = build
@@ -340,7 +340,7 @@ func (f *backfillFake) ClaimSemanticInventoryBackfill(_ context.Context, build c
 func (f *backfillFake) AdvanceSemanticInventoryBackfill(_ context.Context, build catalog.SemanticInventoryBuild, token string, expected, next catalog.SemanticInventoryCheckpoint, scanned int64, lease time.Duration) (catalog.SemanticInventoryBuild, error) {
 	f.advanceCalls++
 	if f.build.LeaseToken != token || f.build.SourceCheckpoint != expected {
-		return catalog.SemanticInventoryBuild{}, catalogarango.ErrSemanticInventoryClaimLost
+		return catalog.SemanticInventoryBuild{}, arangofactory.ErrSemanticInventoryClaimLost
 	}
 	f.build.SourceCheckpoint = next
 	f.build.ScannedResources = scanned
@@ -352,7 +352,7 @@ func (f *backfillFake) AdvanceSemanticInventoryBackfill(_ context.Context, build
 func (f *backfillFake) CompleteSemanticInventoryBackfill(_ context.Context, build catalog.SemanticInventoryBuild, token string, expected catalog.SemanticInventoryCheckpoint, scanned int64) (catalog.SemanticInventoryBuild, error) {
 	f.completeCalls++
 	if f.build.LeaseToken != token || f.build.SourceCheckpoint != expected {
-		return catalog.SemanticInventoryBuild{}, catalogarango.ErrSemanticInventoryClaimLost
+		return catalog.SemanticInventoryBuild{}, arangofactory.ErrSemanticInventoryClaimLost
 	}
 	f.build.State = catalog.SemanticInventoryComplete
 	f.build.ScannedResources = scanned
@@ -368,7 +368,7 @@ func (f *backfillFake) FailSemanticInventoryBackfill(ctx context.Context, _ cata
 		return err
 	}
 	if f.build.LeaseToken != token {
-		return catalogarango.ErrSemanticInventoryClaimLost
+		return arangofactory.ErrSemanticInventoryClaimLost
 	}
 	f.build.State = catalog.SemanticInventoryFailed
 	f.build.LeaseToken = ""
