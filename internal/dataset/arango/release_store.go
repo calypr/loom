@@ -187,6 +187,7 @@ FILTER manifest != null AND manifest.recordType == "manifest"
 FILTER manifest.dataset.project == @project AND manifest.dataset.generation == @generation
 FILTER manifest.state IN [@staged_state, @ready_state]
 FILTER generationPointer != null AND generationPointer.recordType == "active_generation"
+FILTER generationPointer.sourceTracked != true
 FILTER NOT @require_current_generation OR (
   generationPointer.dataset.project == @project
   AND generationPointer.dataset.generation == @generation

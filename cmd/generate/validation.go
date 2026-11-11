@@ -17,6 +17,9 @@ func generateValidate(schema *Schema, path string) error {
 	sb.WriteString("\t\"regexp\"\n")
 	sb.WriteString("\t\"unicode/utf8\"\n")
 	sb.WriteString(")\n\n")
+	sb.WriteString("// MissingRequiredFieldError identifies a missing schema-owned field.\n")
+	sb.WriteString("type MissingRequiredFieldError struct { Field string }\n\n")
+	sb.WriteString("func (e *MissingRequiredFieldError) Error() string { return fmt.Sprintf(\"required field '%s' is missing\", e.Field) }\n\n")
 
 	var keys []string
 	for k := range schema.Defs {
@@ -73,7 +76,7 @@ func generateValidate(schema *Schema, path string) error {
 			// 1. Required field check
 			if required {
 				sb.WriteString(fmt.Sprintf("\tif %s == nil {\n", goName))
-				sb.WriteString(fmt.Sprintf("\t\treturn fmt.Errorf(\"required field '%s' is missing\")\n", pk))
+				sb.WriteString(fmt.Sprintf("\t\treturn &MissingRequiredFieldError{Field: %q}\n", pk))
 				sb.WriteString("\t}\n")
 			}
 

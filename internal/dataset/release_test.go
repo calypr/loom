@@ -247,3 +247,17 @@ func stageManifest(t *testing.T, store *MemoryLifecycleStore, project, generatio
 func published(selector DataframeSelector, execution, generation string, now time.Time) PublicationVerification {
 	return PublicationVerification{Selector: selector, ExecutionID: execution, Generation: generation, State: "PUBLISHED", Queryable: true, VerifiedAt: now}
 }
+
+func TestReleasePreservesSourceCommitDistinctFromCandidateGeneration(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryLifecycleStore()
+	stageManifest(t, store, "project-a", "load-operation-a")
+	service := ReleaseService{Manifests: store, Releases: store, Verifier: &verificationFixture{results: map[string]PublicationVerification{}, errors: map[string]error{}}}
+	active, err := service.Activate(ctx, ActivationRequest{Project: "project-a", Generation: "load-operation-a", GitCommit: "source-commit", ExpectedRevision: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Release.GitCommit != "source-commit" || active.Release.Generation != "load-operation-a" {
+		t.Fatalf("release lost source identity: %#v", active.Release)
+	}
+}

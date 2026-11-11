@@ -62,7 +62,7 @@ func (s *MemoryLifecycleStore) CompareAndSwapActivateRelease(_ context.Context, 
 	if current.Revision != expectedRevision {
 		return ActiveRelease{}, ErrReleaseActivationConflict
 	}
-	if release.Project == "" || release.Generation == "" || release.GitCommit != release.Generation {
+	if release.Project == "" || release.Generation == "" || release.GitCommit == "" {
 		return ActiveRelease{}, fmt.Errorf("invalid project release")
 	}
 	active := ActiveRelease{Release: cloneRelease(release), Revision: expectedRevision + 1}

@@ -8,3 +8,5 @@ generate:
 output: generated/loomapi/api.gen.go
 output-options:
   skip-prune: false
+  user-templates:
+    strict/strict-fiber-v3.tmpl: ./openapi/templates/strict-fiber-v3.tmpl

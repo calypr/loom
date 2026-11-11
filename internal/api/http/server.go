@@ -77,9 +77,10 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		clickHouseEnabled:    cfg.ClickHouseEnabled,
 	}
 	app := fiber.New(fiber.Config{
-		BodyLimit:         cfg.BodyLimit,
-		ReadBufferSize:    cfg.ReadBufferSize,
-		StreamRequestBody: true,
+		BodyLimit:                    cfg.BodyLimit,
+		ReadBufferSize:               cfg.ReadBufferSize,
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			requestID := requestIDFromCtx(c)
 			mapped := MapDataframeError(err, requestID)

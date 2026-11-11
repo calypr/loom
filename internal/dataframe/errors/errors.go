@@ -106,23 +106,31 @@ type UserError interface {
 // server-side logs and errors.Is/errors.As callers, but is never exposed by
 // the transport mappers unless it is itself a safe UserError.
 type Error struct {
-	code      ErrorCode
-	message   string
-	fieldPath []string
-	details   map[string]any
-	retryable bool
-	cause     error
+	code          ErrorCode
+	message       string
+	fieldPath     []string
+	details       map[string]any
+	retryable     bool
+	cause         error
+	publicMessage string
 }
 
 type errorOptions struct {
-	fieldPath []string
-	details   map[string]any
-	retryable bool
-	cause     error
+	fieldPath     []string
+	details       map[string]any
+	retryable     bool
+	cause         error
+	publicMessage string
 }
 
 // ErrorOption configures a typed dataframe Error.
 type ErrorOption func(*errorOptions)
+
+// WithPublicMessage sets reviewed, client-safe explanatory text. Never pass
+// raw backend errors, credentials, queries, or resource payloads here.
+func WithPublicMessage(message string) ErrorOption {
+	return func(opts *errorOptions) { opts.publicMessage = message }
+}
 
 func WithFieldPath(path ...string) ErrorOption {
 	return func(opts *errorOptions) { opts.fieldPath = append([]string(nil), path...) }
@@ -151,12 +159,13 @@ func NewError(code ErrorCode, message string, options ...ErrorOption) *Error {
 		message = defaultMessage(code)
 	}
 	return &Error{
-		code:      code,
-		message:   message,
-		fieldPath: append([]string(nil), opts.fieldPath...),
-		details:   cloneSafeDetails(opts.details),
-		retryable: opts.retryable,
-		cause:     opts.cause,
+		code:          code,
+		message:       message,
+		fieldPath:     append([]string(nil), opts.fieldPath...),
+		details:       cloneSafeDetails(opts.details),
+		retryable:     opts.retryable,
+		cause:         opts.cause,
+		publicMessage: opts.publicMessage,
 	}
 }
 
@@ -258,6 +267,9 @@ func PublicMessage(err error) string {
 	userErr := Normalize(err)
 	if userErr == nil {
 		return defaultMessage(CodeInternalError)
+	}
+	if typed, ok := userErr.(*Error); ok && strings.TrimSpace(typed.publicMessage) != "" {
+		return typed.publicMessage
 	}
 	if userErr.Code() == string(CodeRecipeResolutionFailed) {
 		return userErr.Error()

@@ -468,6 +468,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
+	var configuredRecipeName string
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -477,6 +478,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		if err != nil {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
+		configuredRecipeName = defaultBundle.Name
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
@@ -715,6 +717,70 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create generation load service: %w", err)
 	}
+	sourceLoadLimits := loadapi.SourceLoadLimits{MaxFileBytes: serverConfig.Server.SourceLoadMaxFileBytes}
+	var sourceLoader loadapi.SourceLoader
+	if bundleTarget != nil && configuredRecipeName != "" {
+		sourceLoader, err = ingest.NewRepositorySourceLoader(ingest.SourceLoadPublisherConfig{
+			Client: lifecycleClient, DatasetStore: lifecycleStore, SchemaPath: serverConfig.Server.Schema,
+			ValidateProject: func(ctx context.Context, project string) error {
+				if scopeResolver == nil {
+					return nil
+				}
+				principal, _ := authscope.PrincipalFromContext(ctx)
+				if err := scopeResolver.AuthorizeReadProject(ctx, principal, project); err != nil {
+					return recipeAuthorizationError(err)
+				}
+				return nil
+			},
+			MaterializeAndSelect: func(ctx context.Context, project, generation, operationID, commit string, expectedRevision int64) (string, int64, error) {
+				bindings, err := (recipeAuthorization{resolver: scopeResolver}).AuthorizeRead(ctx, recipe.RuntimeBindings{Project: project, DatasetGeneration: generation})
+				if err != nil {
+					return "", 0, err
+				}
+				var identity publication.BundleIdentity
+				_, err = recipeEngine.Materialize(ctx, configuredRecipeName, bindings, func(publishCtx context.Context, full dataframeexecution.Resolved) error {
+					var publishErr error
+					identity, publishErr = publishResolvedRecipe(
+						publishCtx, recipeEngine, bundleTarget, configuredRecipeName, bindings, full,
+						operationID, nil, serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
+						serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
+					)
+					return publishErr
+				})
+				if err != nil {
+					return "", 0, err
+				}
+				execution, err := publishedRegistry.FindExecutionByKey(ctx, identity.Key())
+				if err != nil {
+					return "", 0, err
+				}
+				if execution.State.Canonical() != publication.BundlePublished || execution.ReceiptID != operationID || execution.Project != project || execution.DatasetGeneration != generation {
+					return "", 0, fmt.Errorf("configured recipe did not publish the candidate generation")
+				}
+				selectors := make([]publicationcontract.DataframeSelector, 0, len(execution.Outputs))
+				for _, output := range execution.Outputs {
+					selectors = append(selectors, execution.Selector(output.Name))
+				}
+				candidateReleaseService := *releaseService
+				candidateReleaseService.Required = append(append([]publicationcontract.DataframeSelector(nil), releaseService.Required...), selectors...)
+				active, err := candidateReleaseService.Activate(ctx, publicationcontract.ActivationRequest{
+					Project: project, Generation: generation, GitCommit: commit,
+					ExpectedRevision: expectedRevision,
+				})
+				if err != nil {
+					return "", 0, err
+				}
+				discoveryCache.InvalidateProject(project)
+				if scopeResolver != nil {
+					scopeResolver.InvalidateProject(project)
+				}
+				return execution.ID, active.Revision, nil
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("create per-file source loader: %w", err)
+		}
+	}
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		var resolveCombineSchemas combineInputSchemaResolver
 		if materializationReader != nil {
@@ -904,7 +970,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
+	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver, sourceLoader, sourceLoadLimits); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {

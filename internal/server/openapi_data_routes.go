@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"time"
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
@@ -203,6 +205,10 @@ func generationActivationResponse(result *loadapi.GenerationActivationResult) lo
 
 func mapServiceError(err error, ctx context.Context) (int, loomapi.ServiceErrorResponse) {
 	mapped := httpapi.MapDataframeError(err, httpapi.RequestIDFromContext(ctx))
+	if mapped.Status >= http.StatusInternalServerError {
+		logServerDiagnostic(slog.Default(), slog.LevelError, "data request failed",
+			httpapi.RequestIDFromContext(ctx), "response", time.Duration(0), err)
+	}
 	return mapped.Status, serviceErrorResponse(mapped.Body)
 }
 

@@ -1230,6 +1230,123 @@ paths:
         '409': {$ref: '#/components/responses/ServiceConflict'}
         '500': {$ref: '#/components/responses/ServiceInternalError'}
         '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+    put:
+      operationId: beginDatasetSourceLoad
+      summary: Create or retrieve a durable source-load plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SourceLoadPlan'}
+      responses:
+        '200':
+          description: The durable source-load plan and completed file receipts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadStatus'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+    get:
+      operationId: getDatasetSourceLoadStatus
+      summary: Read a durable source-load plan and completed file receipts.
+      responses:
+        '200':
+          description: The durable source-load plan and completed file receipts.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadStatus'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}/files/{resourceType}:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+      - name: resourceType
+        in: path
+        required: true
+        schema: {type: string, minLength: 1}
+    put:
+      operationId: uploadDatasetSourceLoadFile
+      summary: Upload exactly one canonical META NDJSON file into the inactive source generation.
+      requestBody:
+        required: true
+        description: One streamed file is uploaded per request. The configurable byte limit applies to this file; other selected resource files use separate requests.
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary, description: "Exactly one file named META/{resourceType}.ndjson."}
+      responses:
+        '200':
+          description: The file was fully validated and durably accepted.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceFileReceipt'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422':
+          description: The entire file was rejected before a READY receipt was recorded. Details contain at most 100 safe row issues, totalErrors, and truncated.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourceLoadValidationErrorResponse'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/datasets/{project}/source-loads/{operation}/publish:
+    parameters:
+      - $ref: '#/components/parameters/Project'
+      - name: operation
+        in: path
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 200}
+    post:
+      operationId: publishDatasetSourceLoad
+      summary: Materialize the completed candidate and select its published release.
+      responses:
+        '200':
+          description: The source-load publication completed or was safely replayed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SourcePublishReceipt'}
+        '400': {$ref: '#/components/responses/ServiceBadRequest'}
+        '401': {$ref: '#/components/responses/ServiceUnauthorized'}
+        '403': {$ref: '#/components/responses/ServiceForbidden'}
+        '404': {$ref: '#/components/responses/ServiceNotFound'}
+        '409': {$ref: '#/components/responses/ServiceConflict'}
+        '413': {$ref: '#/components/responses/ServicePayloadTooLarge'}
+        '415': {$ref: '#/components/responses/ServiceUnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/ServiceUnprocessable'}
+        '500': {$ref: '#/components/responses/ServiceInternalError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/dataframe/recipe-executions/{id}:
     parameters:
       - name: id
@@ -1677,6 +1794,95 @@ components:
         text/html:
           schema: {type: string}
   schemas:
+    SourceManifestFile:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1, description: Canonical META/<ResourceType>.ndjson path.}
+        sha256: {type: string, pattern: '^[0-9a-fA-F]{64}$', description: Optional expected file digest.}
+    SourceLoadPlan:
+      type: object
+      additionalProperties: false
+      required: [repository, commit, files]
+      properties:
+        repository: {type: string, minLength: 1}
+        commit: {type: string, minLength: 40, maxLength: 64}
+        files:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/SourceManifestFile'}
+        auth_resource_path: {type: string}
+        expected_revision: {type: integer, format: int64, minimum: 0}
+    SourceFileReceipt:
+      type: object
+      additionalProperties: false
+      required: [path, resource_type, sha256, rows, state]
+      properties:
+        path: {type: string}
+        resource_type: {type: string}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        rows: {type: integer, format: int64, minimum: 0}
+        state: {type: string, enum: [READY]}
+    SourceLoadStatus:
+      type: object
+      additionalProperties: false
+      required: [operation_id, generation, state, base_revision, files]
+      properties:
+        operation_id: {type: string}
+        generation: {type: string}
+        state: {type: string, enum: [UPLOADING, READY, PUBLISH_PENDING, PUBLISHED, SUPERSEDED]}
+        base_revision: {type: integer, format: int64, minimum: 0}
+        files:
+          type: array
+          items: {$ref: '#/components/schemas/SourceFileReceipt'}
+    SourcePublishReceipt:
+      type: object
+      additionalProperties: false
+      required: [operation_id, source_revision, manifest_hash, execution_id, state, reused]
+      properties:
+        operation_id: {type: string}
+        source_revision: {type: integer, format: int64, minimum: 0}
+        manifest_hash: {type: string}
+        execution_id: {type: string}
+        state: {type: string, enum: [PUBLISHED]}
+        reused: {type: boolean}
+    SourceLoadValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [filename, row, resourceType, category, message]
+      properties:
+        filename: {type: string}
+        row: {type: integer, format: int64, minimum: 1}
+        resourceType: {type: string}
+        category: {type: string}
+        message: {type: string, description: Safe summary without resource payloads or credentials.}
+    SourceLoadValidationDetails:
+      type: object
+      additionalProperties: false
+      required: [issues, totalErrors, truncated]
+      properties:
+        issues:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/SourceLoadValidationIssue'}
+        totalErrors: {type: integer, format: int64, minimum: 0}
+        truncated: {type: boolean}
+    SourceLoadValidationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, details]
+          properties:
+            code: {type: string, enum: [INVALID_DATA]}
+            message: {type: string}
+            details: {$ref: '#/components/schemas/SourceLoadValidationDetails'}
+            requestId: {type: string}
+            retryable: {type: boolean}
     SelectionResourceRef:
       type: object
       additionalProperties: false

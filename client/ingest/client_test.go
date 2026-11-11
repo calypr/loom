@@ -1,265 +1,377 @@
 package ingest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestPublishStreamsMultipartAndAuthorization(t *testing.T) {
-	localPath := writeFixture(t, "Patient.ndjson", "{\"resourceType\":\"Patient\",\"id\":\"p1\"}\n")
-	var received upload
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Errorf("method = %s, want POST", r.Method)
-		}
-		if got := r.Header.Get("Authorization"); got != "Bearer test-secret" {
-			t.Errorf("authorization = %q, want bearer token", got)
-		}
-		if got := r.Header.Get("Idempotency-Key"); got != "operation-1" {
-			t.Errorf("Idempotency-Key = %q", got)
-		}
-		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data; boundary=") {
-			t.Errorf("Content-Type = %q", r.Header.Get("Content-Type"))
-		}
-		var err error
-		received, err = readUpload(r)
-		if err != nil {
-			t.Errorf("read multipart upload: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"operation_id":"operation-1","source_revision":7,"manifest_hash":"`+strings.Repeat("a", 64)+`","execution_id":"execution-7","state":"PUBLISHED","reused":false}`)
-	}))
-	defer server.Close()
+const testToken = "test-bearer-secret"
 
-	client, err := New(server.URL, "test-secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
+var elevenResourceTypes = []string{
+	"Patient", "Specimen", "Observation", "Encounter", "Condition", "Procedure",
+	"Medication", "Organization", "Group", "DocumentReference", "DiagnosticReport",
+}
+
+func TestPublishStreamsElevenFilesThroughSerialLoadProtocol(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "")
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+
+	var acquired, active, maximumActive atomic.Int32
+	request := lazyRequest(elevenPaths())
+	request.AcquireFile = func(_ context.Context, sourcePath string) (string, func(), error) {
+		acquired.Add(1)
+		current := active.Add(1)
+		for maximum := maximumActive.Load(); current > maximum; maximum = maximumActive.Load() {
+			if maximumActive.CompareAndSwap(maximum, current) {
+				break
+			}
+		}
+		localPath := filepath.Join(t.TempDir(), path.Base(sourcePath))
+		if err := os.WriteFile(localPath, []byte("resource "+resourceType(sourcePath)), 0o600); err != nil {
+			active.Add(-1)
+			return "", nil, err
+		}
+		return localPath, func() {
+			if err := os.Remove(localPath); err != nil && !os.IsNotExist(err) {
+				t.Errorf("remove hydrated file: %v", err)
+			}
+			active.Add(-1)
+		}, nil
 	}
-	receipt, err := client.Publish(context.Background(), sourceRequest(localPath))
+
+	receipt, err := client.Publish(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
-	if receipt.OperationID != "operation-1" || receipt.SourceRevision != 7 || receipt.ManifestHash != strings.Repeat("a", 64) || receipt.ExecutionID != "execution-7" || receipt.State != "PUBLISHED" || receipt.Reused {
+	if receipt.OperationID != "operation-1" || receipt.SourceRevision != 8 || receipt.ManifestHash != strings.Repeat("a", 64) || receipt.ExecutionID != "execution-8" || receipt.State != "PUBLISHED" {
 		t.Fatalf("receipt = %#v", receipt)
 	}
-	if received.fields["auth_resource_path"] != "program/project" {
-		t.Fatalf("auth_resource_path = %q", received.fields["auth_resource_path"])
+	if acquired.Load() != 11 || maximumActive.Load() != 1 || active.Load() != 0 {
+		t.Fatalf("file acquisition counts: acquired=%d max-active=%d active=%d", acquired.Load(), maximumActive.Load(), active.Load())
 	}
-	var manifest Manifest
-	if err := json.Unmarshal([]byte(received.fields["manifest"]), &manifest); err != nil {
-		t.Fatalf("manifest JSON: %v", err)
+	if got, want := api.snapshotEvents(), append([]string{"begin", "status"}, append(uploadEvents(elevenResourceTypes), "publish")...); !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocol events = %v, want %v", got, want)
 	}
-	if manifest.Repository != "https://github.com/example/data" || manifest.Commit != strings.Repeat("b", 40) || len(manifest.Files) != 1 || manifest.Files[0].Path != "META/Patient.ndjson" {
-		t.Fatalf("manifest = %#v", manifest)
+	if api.badAuth.Load() || api.authRequests.Load() != 14 {
+		t.Fatalf("authorization requests=%d bad-auth=%t, want 14 authenticated requests", api.authRequests.Load(), api.badAuth.Load())
 	}
-	if len(received.files) != 1 || received.files[0].name != "Patient.ndjson" || received.files[0].content != "{\"resourceType\":\"Patient\",\"id\":\"p1\"}\n" {
-		t.Fatalf("uploaded files = %#v", received.files)
+	if api.plan.AuthResourcePath != "/programs/org/projects/project" || api.plan.Repository != "https://github.com/example/data" || api.plan.Commit != strings.Repeat("b", 40) {
+		t.Fatalf("source load plan identity = %#v", api.plan)
+	}
+	if len(api.plan.Files) != 11 {
+		t.Fatalf("plan files = %d, want 11", len(api.plan.Files))
+	}
+	for _, file := range api.plan.Files {
+		if file.SHA256 != "" {
+			t.Fatalf("client sent a redundant file digest in plan: %#v", file)
+		}
+	}
+	if got := api.snapshotUploadCounts(); len(got) != 11 {
+		t.Fatalf("uploaded resource types = %v", got)
 	}
 }
 
-func TestPublishRetriesRetryableResponseAndReopensFiles(t *testing.T) {
-	localPath := writeFixture(t, "Patient.ndjson", "first payload\n")
-	var attempts atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		attempt := attempts.Add(1)
-		uploaded, err := readUpload(r)
-		if err != nil {
-			t.Errorf("read attempt %d: %v", attempt, err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		if len(uploaded.files) != 1 || uploaded.files[0].content != "first payload\n" {
-			t.Errorf("attempt %d file = %#v", attempt, uploaded.files)
-		}
-		if attempt == 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = io.WriteString(w, `{"error":{"code":"BACKEND_UNAVAILABLE","message":"try again","retryable":true}}`)
-			return
-		}
-		writeReceipt(w, "operation-1")
-	}))
-	defer server.Close()
-	client, err := New(server.URL, "test-secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
+func TestPublishValidationFailurePreventsLaterFilesAndFinalPublish(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "Specimen")
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+	request := lazyRequest([]string{"META/Patient.ndjson", "META/Specimen.ndjson", "META/Encounter.ndjson"})
+	var acquired atomic.Int32
+	request.AcquireFile = func(_ context.Context, sourcePath string) (string, func(), error) {
+		acquired.Add(1)
+		return writeTempFile(t, path.Base(sourcePath), "resource"), func() {}, nil
 	}
-	receipt, err := client.Publish(context.Background(), sourceRequest(localPath))
-	if err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-	if receipt.State != "PUBLISHED" || attempts.Load() != 2 {
-		t.Fatalf("receipt = %#v, attempts = %d", receipt, attempts.Load())
-	}
-}
 
-func TestPublishRetriesTransportFailureDuringUpload(t *testing.T) {
-	payload := strings.Repeat("z", 2<<20)
-	localPath := writeFixture(t, "Patient.ndjson", payload)
-	var attempts atomic.Int32
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		attempt := attempts.Add(1)
-		if attempt == 1 {
-			_, _ = io.CopyN(io.Discard, request.Body, 4096)
-			_ = request.Body.Close()
-			return nil, errors.New("injected transient transport failure")
-		}
-		body, err := io.ReadAll(request.Body)
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Contains(body, []byte(payload)) {
-			return nil, errors.New("retried multipart body did not contain the staged file")
-		}
-		return response(http.StatusOK, receiptJSON("operation-1", 3, strings.Repeat("c", 64), "execution-3", "PUBLISHED")), nil
-	})
-	client, err := New("https://loom.example", "test-secret", &http.Client{Transport: transport})
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := client.Publish(context.Background(), sourceRequest(localPath))
-	if err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-	if attempts.Load() != 2 || receipt.ExecutionID != "execution-3" {
-		t.Fatalf("attempts = %d, receipt = %#v", attempts.Load(), receipt)
-	}
-}
-
-func TestPublishRetriesTruncatedAcknowledgementAfterCommit(t *testing.T) {
-	localPath := writeFixture(t, "Patient.ndjson", "resource\n")
-	var attempts atomic.Int32
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		attempt := attempts.Add(1)
-		if _, err := io.Copy(io.Discard, request.Body); err != nil {
-			return nil, err
-		}
-		if attempt == 1 {
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     http.Header{"Content-Type": []string{"application/json"}},
-				Body:       &truncatedBody{data: []byte(`{"operation_id":"operation-1"}`)},
-				Request:    request,
-			}, nil
-		}
-		body := receiptJSON("operation-1", 4, strings.Repeat("d", 64), "execution-4", "PUBLISHED")
-		body = strings.Replace(body, `"reused":false`, `"reused":true`, 1)
-		return response(http.StatusOK, body), nil
-	})
-	client, err := New("https://loom.example", "test-secret", &http.Client{Transport: transport})
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := client.Publish(context.Background(), sourceRequest(localPath))
-	if err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-	if attempts.Load() != 2 || !receipt.Reused || receipt.ExecutionID != "execution-4" {
-		t.Fatalf("attempts = %d, receipt = %#v", attempts.Load(), receipt)
-	}
-}
-
-func TestPublishRedactsTokenFromStructuredError(t *testing.T) {
-	const token = "secret-token-value"
-	localPath := writeFixture(t, "Patient.ndjson", "resource\n")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = readUpload(r)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = fmt.Fprintf(w, `{"error":{"code":"FORBIDDEN","message":"rejected %s","requestId":"request-1","retryable":false}}`, token)
-	}))
-	defer server.Close()
-	client, err := New(server.URL, token, server.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = client.Publish(context.Background(), sourceRequest(localPath))
-	var publishErr *Error
-	if !errors.As(err, &publishErr) {
+	_, err := client.Publish(context.Background(), request)
+	var loomErr *Error
+	if !errors.As(err, &loomErr) {
 		t.Fatalf("error = %T %v, want *Error", err, err)
 	}
-	if publishErr.Code != "FORBIDDEN" || publishErr.StatusCode != http.StatusForbidden || publishErr.Retryable || publishErr.RequestID != "request-1" {
-		t.Fatalf("structured error = %#v", publishErr)
+	if loomErr.StatusCode != http.StatusUnprocessableEntity || loomErr.Code != "INVALID_DATA" || loomErr.RequestID != "validation-request-17" || loomErr.Retryable {
+		t.Fatalf("validation error = %#v", loomErr)
 	}
-	if strings.Contains(err.Error(), token) || strings.Contains(publishErr.Message, token) {
-		t.Fatalf("token leaked in error: %v", err)
+	if len(loomErr.Issues) != 1 || loomErr.TotalErrors != 3 || !loomErr.Truncated {
+		t.Fatalf("validation issues = %#v total=%d truncated=%t", loomErr.Issues, loomErr.TotalErrors, loomErr.Truncated)
 	}
-}
-
-func TestPublishRejectsInvalidReceiptsWithoutRetry(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-	}{
-		{name: "wrong operation", body: receiptJSON("another-operation", 1, strings.Repeat("a", 64), "execution-1", "PUBLISHED")},
-		{name: "zero revision", body: receiptJSON("operation-1", 0, strings.Repeat("a", 64), "execution-1", "PUBLISHED")},
-		{name: "invalid hash", body: receiptJSON("operation-1", 1, "no-hash", "execution-1", "PUBLISHED")},
-		{name: "missing execution", body: receiptJSON("operation-1", 1, strings.Repeat("a", 64), "", "PUBLISHED")},
-		{name: "wrong state", body: receiptJSON("operation-1", 1, strings.Repeat("a", 64), "execution-1", "RUNNING")},
-		{name: "invalid JSON", body: "{"},
+	message := err.Error()
+	for _, part := range []string{"validation-request-17", "META/Specimen.ndjson", "row 8", "resource type Specimen", "required field \"subject\" is missing"} {
+		if !strings.Contains(message, part) {
+			t.Fatalf("error %q does not include %q", message, part)
+		}
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			localPath := writeFixture(t, "Patient.ndjson", "resource\n")
-			var attempts atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				attempts.Add(1)
-				_, _ = readUpload(r)
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, test.body)
-			}))
-			defer server.Close()
-			client, err := New(server.URL, "test-secret", server.Client())
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = client.Publish(context.Background(), sourceRequest(localPath))
-			if err == nil {
-				t.Fatal("Publish() error = nil, want invalid receipt error")
-			}
-			if attempts.Load() != 1 {
-				t.Fatalf("attempts = %d, want 1", attempts.Load())
-			}
-		})
+	if acquired.Load() != 2 {
+		t.Fatalf("acquired files = %d, want only Patient and rejected Specimen", acquired.Load())
+	}
+	if got, want := api.snapshotEvents(), []string{"begin", "status", "file:Patient", "file:Specimen"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocol events = %v, want %v", got, want)
+	}
+	if api.publishCount.Load() != 0 || api.snapshotUploadCounts()["Patient"] != 1 {
+		t.Fatalf("publish count=%d upload counts=%v", api.publishCount.Load(), api.snapshotUploadCounts())
 	}
 }
 
-func TestPublishCancellationInterruptsRetryDelay(t *testing.T) {
-	localPath := writeFixture(t, "Patient.ndjson", "resource\n")
-	firstRequest := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = readUpload(r)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = io.WriteString(w, `{"error":{"code":"BACKEND_UNAVAILABLE","message":"retry","retryable":true}}`)
-		firstRequest <- struct{}{}
+func TestPublishLostFileAcknowledgementRetriesOnlyThatFile(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "")
+	defer api.server.Close()
+	base := api.server.Client().Transport
+	transport := &dropAcknowledgementTransport{base: base, target: "/files/Specimen"}
+	client := newTestClient(t, api.server.URL, &http.Client{Transport: transport})
+	request := lazyRequest([]string{"META/Patient.ndjson", "META/Specimen.ndjson", "META/Encounter.ndjson"})
+	var acquired atomic.Int32
+	request.AcquireFile = func(_ context.Context, sourcePath string) (string, func(), error) {
+		acquired.Add(1)
+		return writeTempFile(t, path.Base(sourcePath), "resource "+resourceType(sourcePath)), func() {}, nil
+	}
+
+	receipt, err := client.Publish(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if receipt.State != "PUBLISHED" || !transport.dropped.Load() {
+		t.Fatalf("receipt = %#v, acknowledgement dropped=%t", receipt, transport.dropped.Load())
+	}
+	if got, want := api.snapshotEvents(), []string{"begin", "status", "file:Patient", "file:Specimen", "file:Specimen", "file:Encounter", "publish"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocol events = %v, want %v", got, want)
+	}
+	if got := api.snapshotUploadCounts(); got["Patient"] != 1 || got["Specimen"] != 2 || got["Encounter"] != 1 {
+		t.Fatalf("per-file upload attempts = %v", got)
+	}
+	if acquired.Load() != 3 || api.publishCount.Load() != 1 {
+		t.Fatalf("acquisitions=%d publish-count=%d", acquired.Load(), api.publishCount.Load())
+	}
+}
+
+func TestPublishRetriesPublicationInProgressAcrossProtocolSteps(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "")
+	api.busyResponses = map[string]int{"begin": 2, "file:Patient": 1, "publish": 2}
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+	client.busyRetryInterval = time.Millisecond
+	client.busyRetryBudget = 200 * time.Millisecond
+
+	if _, err := client.Publish(context.Background(), localRequest(t, []string{"META/Patient.ndjson"})); err != nil {
+		t.Fatalf("Publish() after temporary publication locks: %v", err)
+	}
+	want := []string{"begin", "begin", "begin", "status", "file:Patient", "file:Patient", "publish", "publish", "publish"}
+	if got := api.snapshotEvents(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocol events = %v, want %v", got, want)
+	}
+}
+
+func TestPublishCapsOrdinaryRetryableFailuresAtFourAttempts(t *testing.T) {
+	var attempts atomic.Int32
+	server := newLocalServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPut {
+			http.Error(writer, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		_, _ = io.Copy(io.Discard, request.Body)
+		attempts.Add(1)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(writer, `{"error":{"code":"BACKEND_UNAVAILABLE","message":"try again","retryable":true}}`)
 	}))
 	defer server.Close()
-	client, err := New(server.URL, "test-secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
+	client := newTestClient(t, server.URL, server.Client())
+	_, err := client.Publish(context.Background(), localRequest(t, []string{"META/Patient.ndjson"}))
+	var loomErr *Error
+	if !errors.As(err, &loomErr) || loomErr.Attempts != 4 || attempts.Load() != 4 {
+		t.Fatalf("Publish() error=%#v HTTP attempts=%d, want four ordinary attempts", loomErr, attempts.Load())
 	}
+}
+
+func TestPublishDoesNotRetryPermanentPublicationConflict(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "")
+	api.conflictBegin = true
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+	_, err := client.Publish(context.Background(), localRequest(t, []string{"META/Patient.ndjson"}))
+	var loomErr *Error
+	if !errors.As(err, &loomErr) || loomErr.Code != "PUBLICATION_CONFLICT" || loomErr.Retryable {
+		t.Fatalf("Publish() error = %v, want permanent PUBLICATION_CONFLICT", err)
+	}
+	if got, want := api.snapshotEvents(), []string{"begin"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocol events = %v, want %v", got, want)
+	}
+}
+
+func TestPublishBusyWaitInterruptsOnCancellation(t *testing.T) {
+	firstBegin := make(chan struct{}, 1)
+	server := newLocalServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPut {
+			_, _ = io.Copy(io.Discard, request.Body)
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusConflict)
+			_, _ = io.WriteString(writer, `{"error":{"code":"PUBLICATION_IN_PROGRESS","message":"another publisher is recovering","retryable":true}}`)
+			firstBegin <- struct{}{}
+			return
+		}
+		http.Error(writer, "unexpected request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	client := newTestClient(t, server.URL, server.Client())
+	request := localRequest(t, []string{"META/Patient.ndjson"})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := client.Publish(ctx, sourceRequest(localPath))
+		_, err := client.Publish(ctx, request)
 		done <- err
 	}()
-	<-firstRequest
+	<-firstBegin
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Publish() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Publish() did not stop during the busy retry wait")
+	}
+}
+
+func TestRetryStateFailsFastForPermanentConflictsAndStopsAtBusyDeadline(t *testing.T) {
+	client, err := New("https://loom.example", testToken, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.busyRetryInterval != 15*time.Second || client.busyRetryBudget != 5*time.Minute {
+		t.Fatalf("busy retry defaults = interval %s, budget %s", client.busyRetryInterval, client.busyRetryBudget)
+	}
+
+	state := retryState{}
+	retry, err := state.wait(context.Background(), &Error{Code: "PUBLICATION_CONFLICT", StatusCode: http.StatusConflict}, time.Millisecond, time.Second)
+	if err != nil || retry {
+		t.Fatalf("permanent conflict retry = %t, err=%v, want fast failure", retry, err)
+	}
+
+	state = retryState{busyStarted: time.Now().Add(-time.Second)}
+	retry, err = state.wait(context.Background(), &Error{Code: "PUBLICATION_IN_PROGRESS", StatusCode: http.StatusConflict, Retryable: true}, time.Millisecond, 10*time.Millisecond)
+	if err != nil || retry {
+		t.Fatalf("expired busy retry = %t, err=%v, want stop at deadline", retry, err)
+	}
+}
+
+func TestPublishSkipsFilesAlreadyCompletedByPriorAttempt(t *testing.T) {
+	completed := []SourceFileReceipt{receiptForPath("META/Patient.ndjson")}
+	api := newLoadTestAPI(t, completed, "")
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+	request := localRequest(t, []string{"META/Patient.ndjson", "META/Condition.ndjson"})
+	request.Files[0].LocalPath = filepath.Join(t.TempDir(), "already-completed-file-is-gone")
+	if _, err := client.Publish(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := api.snapshotEvents(), []string{"begin", "status", "file:Condition", "publish"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("protocol events = %v, want %v", got, want)
+	}
+}
+
+func TestPublishStopsOnSupersededLoad(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "")
+	api.statusState = "SUPERSEDED"
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+	request := lazyRequest([]string{"META/Patient.ndjson"})
+	var acquired atomic.Int32
+	request.AcquireFile = func(_ context.Context, _ string) (string, func(), error) {
+		acquired.Add(1)
+		return writeTempFile(t, "Patient.ndjson", "resource"), func() {}, nil
+	}
+	_, err := client.Publish(context.Background(), request)
+	var loomErr *Error
+	if !errors.As(err, &loomErr) || loomErr.Code != "PUBLICATION_CONFLICT" || loomErr.StatusCode != http.StatusConflict {
+		t.Fatalf("Publish() error = %v, want superseded publication conflict", err)
+	}
+	if acquired.Load() != 0 || api.publishCount.Load() != 0 {
+		t.Fatalf("acquired=%d publish-count=%d, want no file requests", acquired.Load(), api.publishCount.Load())
+	}
+}
+
+func TestNewBlocksBearerTokenOnRedirect(t *testing.T) {
+	var targetRequests atomic.Int32
+	target := newLocalServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		targetRequests.Add(1)
+		if request.Header.Get("Authorization") != "" {
+			t.Errorf("bearer token forwarded to redirect target")
+		}
+	}))
+	defer target.Close()
+	redirect := newLocalServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+testToken {
+			t.Errorf("source request authorization = %q", request.Header.Get("Authorization"))
+		}
+		http.Redirect(writer, request, target.URL, http.StatusFound)
+	}))
+	defer redirect.Close()
+	client := newTestClient(t, redirect.URL, redirect.Client())
+	_, err := client.Publish(context.Background(), localRequest(t, []string{"META/Patient.ndjson"}))
+	var loomErr *Error
+	if !errors.As(err, &loomErr) || loomErr.StatusCode != http.StatusFound {
+		t.Fatalf("Publish() error = %v, want redirect HTTP error", err)
+	}
+	if targetRequests.Load() != 0 {
+		t.Fatalf("redirect target requests = %d, want 0", targetRequests.Load())
+	}
+}
+
+func TestPublishValidationErrorRedactsTokenAcrossDetails(t *testing.T) {
+	const token = "private-token-value"
+	api := newLoadTestAPIWithValidation(t, "Patient", token)
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client(), token)
+	_, err := client.Publish(context.Background(), localRequest(t, []string{"META/Patient.ndjson"}))
+	if err == nil {
+		t.Fatal("Publish() error = nil, want validation failure")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("bearer token leaked in worker error: %s", err)
+	}
+	var loomErr *Error
+	if !errors.As(err, &loomErr) || loomErr.RequestID != "[redacted]" || len(loomErr.Issues) != 1 || loomErr.Issues[0].Message == token {
+		t.Fatalf("structured validation error = %#v", loomErr)
+	}
+}
+
+func TestPublishContextCancellationInterruptsRetryDelay(t *testing.T) {
+	firstBegin := make(chan struct{}, 1)
+	server := newLocalServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPut {
+			_, _ = io.Copy(io.Discard, request.Body)
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(writer, `{"error":{"code":"BACKEND_UNAVAILABLE","message":"retry","retryable":true}}`)
+			firstBegin <- struct{}{}
+			return
+		}
+		http.Error(writer, "unexpected request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	client := newTestClient(t, server.URL, server.Client())
+	request := localRequest(t, []string{"META/Patient.ndjson"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Publish(ctx, request)
+		done <- err
+	}()
+	<-firstBegin
 	cancel()
 	select {
 	case err := <-done:
@@ -268,6 +380,21 @@ func TestPublishCancellationInterruptsRetryDelay(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Publish() did not stop after cancellation")
+	}
+}
+
+func TestPublishRejectsInvalidFinalReceipt(t *testing.T) {
+	api := newLoadTestAPI(t, nil, "")
+	api.wrongFinalOperation = true
+	defer api.server.Close()
+	client := newTestClient(t, api.server.URL, api.server.Client())
+	_, err := client.Publish(context.Background(), localRequest(t, []string{"META/Patient.ndjson"}))
+	var loomErr *Error
+	if !errors.As(err, &loomErr) || loomErr.Code != "INVALID_RECEIPT" {
+		t.Fatalf("Publish() error = %v, want INVALID_RECEIPT", err)
+	}
+	if api.publishCount.Load() != 1 {
+		t.Fatalf("publish attempts = %d, want 1", api.publishCount.Load())
 	}
 }
 
@@ -285,92 +412,314 @@ func TestNewRejectsUnsafeConfiguration(t *testing.T) {
 	}
 }
 
-func TestPublishRejectsUnsafeManifestFilenameBeforeNetwork(t *testing.T) {
-	localPath := writeFixture(t, "Patient.ndjson", "resource\n")
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-	client, err := New(server.URL, "test-secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
-	}
-	request := sourceRequest(localPath)
-	request.Manifest.Files[0].Path = "META/Patient\r\nX.ndjson"
-	request.Files[0].Path = request.Manifest.Files[0].Path
-	if _, err := client.Publish(context.Background(), request); err == nil {
-		t.Fatal("Publish() error = nil for a control character in the multipart filename")
-	}
-	if requests.Load() != 0 {
-		t.Fatalf("server requests = %d, want no request", requests.Load())
-	}
+type testLoadAPI struct {
+	server              *httptest.Server
+	mu                  sync.Mutex
+	events              []string
+	plan                sourceLoadPlan
+	uploads             map[string]int
+	completed           map[string]SourceFileReceipt
+	failResource        string
+	validationToken     string
+	busyResponses       map[string]int
+	conflictBegin       bool
+	statusState         string
+	wrongFinalOperation bool
+	badAuth             atomic.Bool
+	authRequests        atomic.Int32
+	publishCount        atomic.Int32
 }
 
-func TestPublishRejectsOperationIDWhitespaceBeforeNetwork(t *testing.T) {
-	localPath := writeFixture(t, "Patient.ndjson", "resource\n")
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-	client, err := New(server.URL, "test-secret", server.Client())
-	if err != nil {
-		t.Fatal(err)
+func newLoadTestAPI(t *testing.T, completed []SourceFileReceipt, failResource string) *testLoadAPI {
+	t.Helper()
+	return newLoadTestAPIWithValidation(t, failResource, "", completed...)
+}
+
+func newLoadTestAPIWithValidation(t *testing.T, failResource, validationToken string, completed ...SourceFileReceipt) *testLoadAPI {
+	t.Helper()
+	api := &testLoadAPI{
+		uploads:         make(map[string]int),
+		completed:       make(map[string]SourceFileReceipt),
+		failResource:    failResource,
+		validationToken: validationToken,
 	}
-	for _, operationID := range []string{" operation-1", "operation-1 ", "\toperation-1", "operation-1\t"} {
-		request := sourceRequest(localPath)
-		request.OperationID = operationID
-		_, err := client.Publish(context.Background(), request)
-		var publishErr *Error
-		if !errors.As(err, &publishErr) || publishErr.Code != "INVALID_REQUEST" {
-			t.Fatalf("Publish(%q) error = %v, want INVALID_REQUEST", operationID, err)
+	for _, receipt := range completed {
+		api.completed[receipt.Path] = receipt
+	}
+	api.server = newLocalServer(http.HandlerFunc(api.serveHTTP))
+	return api
+}
+
+func (api *testLoadAPI) serveHTTP(writer http.ResponseWriter, request *http.Request) {
+	api.authRequests.Add(1)
+	if got := request.Header.Get("Authorization"); got != "Bearer "+testToken {
+		api.badAuth.Store(true)
+	}
+	if request.Header.Get("Idempotency-Key") != "operation-1" {
+		api.badAuth.Store(true)
+	}
+	const basePath = "/api/v1/datasets/project-1/source-loads/operation-1"
+	switch {
+	case request.URL.Path == basePath && request.Method == http.MethodPut:
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			http.Error(writer, "bad plan body", http.StatusBadRequest)
+			return
 		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(body, &raw); err != nil {
+			http.Error(writer, "bad plan", http.StatusBadRequest)
+			return
+		}
+		if err := json.Unmarshal(body, &api.plan); err != nil {
+			http.Error(writer, "bad plan payload", http.StatusBadRequest)
+			return
+		}
+		if _, exists := raw["auth_resource_path"]; !exists {
+			api.badAuth.Store(true)
+		}
+		api.addEvent("begin")
+		if api.conflictBegin {
+			api.writeConflict(writer)
+			return
+		}
+		if api.takeBusy("begin") {
+			api.writeBusy(writer)
+			return
+		}
+		api.writeStatus(writer)
+	case request.URL.Path == basePath && request.Method == http.MethodGet:
+		api.addEvent("status")
+		api.writeStatus(writer)
+	case strings.HasPrefix(request.URL.Path, basePath+"/files/") && request.Method == http.MethodPut:
+		resource := strings.TrimPrefix(request.URL.Path, basePath+"/files/")
+		filename, content, err := readSingleUpload(request)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		api.addEvent("file:" + resource)
+		if filename != "META/"+resource+".ndjson" || content != "resource "+resource && !strings.HasPrefix(content, "resource") {
+			http.Error(writer, "unexpected file part", http.StatusBadRequest)
+			return
+		}
+		api.mu.Lock()
+		api.uploads[resource]++
+		api.mu.Unlock()
+		if api.takeBusy("file:" + resource) {
+			api.writeBusy(writer)
+			return
+		}
+		if resource == api.failResource {
+			if api.validationToken != "" {
+				api.writeValidationError(writer, api.validationToken)
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = io.WriteString(writer, `{"error":{"code":"INVALID_DATA","message":"source file validation failed","requestId":"validation-request-17","retryable":true,"details":{"issues":[{"file":"META/Specimen.ndjson","row":8,"resourceType":"Specimen","category":"validation","message":"required field \"subject\" is missing"}],"totalErrors":3,"truncated":true}}}`)
+			return
+		}
+		receipt := receiptForPath("META/" + resource + ".ndjson")
+		api.mu.Lock()
+		api.completed[receipt.Path] = receipt
+		api.mu.Unlock()
+		writeJSON(writer, receipt)
+	case request.URL.Path == basePath+"/publish" && request.Method == http.MethodPost:
+		api.publishCount.Add(1)
+		api.addEvent("publish")
+		if api.takeBusy("publish") {
+			api.writeBusy(writer)
+			return
+		}
+		operationID := "operation-1"
+		if api.wrongFinalOperation {
+			operationID = "other-operation"
+		}
+		writeJSON(writer, Receipt{
+			OperationID: operationID, SourceRevision: 8, ManifestHash: strings.Repeat("a", 64),
+			ExecutionID: "execution-8", State: "PUBLISHED", Reused: false,
+		})
+	default:
+		http.NotFound(writer, request)
 	}
-	if requests.Load() != 0 {
-		t.Fatalf("server requests = %d, want no request", requests.Load())
+}
+
+func (api *testLoadAPI) takeBusy(operation string) bool {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.busyResponses == nil || api.busyResponses[operation] == 0 {
+		return false
 	}
+	api.busyResponses[operation]--
+	return true
 }
 
-type uploadedFile struct {
-	name    string
-	content string
+func (api *testLoadAPI) writeBusy(writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusConflict)
+	_, _ = io.WriteString(writer, `{"error":{"code":"PUBLICATION_IN_PROGRESS","message":"another publisher is recovering","retryable":true}}`)
 }
 
-type upload struct {
-	fields map[string]string
-	files  []uploadedFile
+func (api *testLoadAPI) writeConflict(writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusConflict)
+	_, _ = io.WriteString(writer, `{"error":{"code":"PUBLICATION_CONFLICT","message":"base revision is stale","retryable":true}}`)
 }
 
-func readUpload(request *http.Request) (upload, error) {
+func (api *testLoadAPI) writeValidationError(writer http.ResponseWriter, token string) {
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusUnprocessableEntity)
+	_, _ = fmt.Fprintf(writer, `{"error":{"code":"INVALID_DATA","message":"invalid %s","requestId":"%s","details":{"issues":[{"file":"META/Patient.ndjson","row":2,"resourceType":"Patient","category":"validation","message":"%s"}],"totalErrors":1,"truncated":false}}}`, token, token, token)
+}
+
+func newLocalServer(handler http.Handler) *httptest.Server {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		panic(err)
+	}
+	server := &httptest.Server{Listener: listener, Config: &http.Server{Handler: handler}}
+	server.Start()
+	return server
+}
+
+func (api *testLoadAPI) writeStatus(writer http.ResponseWriter) {
+	api.mu.Lock()
+	files := make([]SourceFileReceipt, 0, len(api.completed))
+	for _, receipt := range api.completed {
+		files = append(files, receipt)
+	}
+	api.mu.Unlock()
+	state := api.statusState
+	if state == "" {
+		state = "UPLOADING"
+	}
+	writeJSON(writer, SourceLoadStatus{OperationID: "operation-1", Generation: "candidate-1", State: state, BaseRevision: 7, Files: files})
+}
+
+func (api *testLoadAPI) addEvent(event string) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	api.events = append(api.events, event)
+}
+
+func (api *testLoadAPI) snapshotEvents() []string {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	return append([]string(nil), api.events...)
+}
+
+func (api *testLoadAPI) snapshotUploadCounts() map[string]int {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	result := make(map[string]int, len(api.uploads))
+	for resource, count := range api.uploads {
+		result[resource] = count
+	}
+	return result
+}
+
+func readSingleUpload(request *http.Request) (filename, content string, err error) {
 	reader, err := request.MultipartReader()
 	if err != nil {
-		return upload{}, err
+		return "", "", err
 	}
-	result := upload{fields: make(map[string]string)}
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			return result, nil
-		}
-		if err != nil {
-			return upload{}, err
-		}
-		data, err := io.ReadAll(part)
-		if err != nil {
-			return upload{}, err
-		}
-		if part.FileName() == "" {
-			result.fields[part.FormName()] = string(data)
-		} else {
-			result.files = append(result.files, uploadedFile{name: part.FileName(), content: string(data)})
-		}
+	part, err := reader.NextPart()
+	if err != nil {
+		return "", "", err
+	}
+	if part.FormName() != "file" || part.FileName() == "" {
+		return "", "", errors.New("multipart file part must use the file field")
+	}
+	_, parameters, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+	if err != nil {
+		return "", "", err
+	}
+	body, err := io.ReadAll(part)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := reader.NextPart(); !errors.Is(err, io.EOF) {
+		return "", "", errors.New("multipart request must contain exactly one file part")
+	}
+	return parameters["filename"], string(body), nil
+}
+
+type dropAcknowledgementTransport struct {
+	base    http.RoundTripper
+	target  string
+	dropped atomic.Bool
+}
+
+func (transport *dropAcknowledgementTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := transport.base.RoundTrip(request)
+	if err != nil || !strings.HasSuffix(request.URL.Path, transport.target) || !transport.dropped.CompareAndSwap(false, true) {
+		return response, err
+	}
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	return nil, errors.New("injected lost file acknowledgement")
+}
+
+func newTestClient(t *testing.T, baseURL string, httpClient *http.Client, token ...string) *Client {
+	t.Helper()
+	bearer := testToken
+	if len(token) > 0 {
+		bearer = token[0]
+	}
+	client, err := New(baseURL, bearer, httpClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+func lazyRequest(paths []string) Request {
+	files := make([]File, len(paths))
+	manifestFiles := make([]ManifestFile, len(paths))
+	for index, sourcePath := range paths {
+		files[index] = File{Path: sourcePath}
+		manifestFiles[index] = ManifestFile{Path: sourcePath}
+	}
+	return Request{
+		Project: "project-1", AuthResourcePath: "/programs/org/projects/project", OperationID: "operation-1",
+		Manifest: Manifest{Repository: "https://github.com/example/data", Commit: strings.Repeat("b", 40), Files: manifestFiles},
+		Files:    files,
 	}
 }
 
-func writeFixture(t *testing.T, name, content string) string {
+func localRequest(t *testing.T, paths []string) Request {
+	t.Helper()
+	request := lazyRequest(paths)
+	for index := range request.Files {
+		request.Files[index].LocalPath = writeTempFile(t, path.Base(paths[index]), "resource "+resourceType(paths[index]))
+	}
+	return request
+}
+
+func elevenPaths() []string {
+	paths := make([]string, len(elevenResourceTypes))
+	for index, resource := range elevenResourceTypes {
+		paths[index] = "META/" + resource + ".ndjson"
+	}
+	return paths
+}
+
+func uploadEvents(resources []string) []string {
+	events := make([]string, len(resources))
+	for index, resource := range resources {
+		events[index] = "file:" + resource
+	}
+	return events
+}
+
+func receiptForPath(sourcePath string) SourceFileReceipt {
+	return SourceFileReceipt{
+		Path: sourcePath, ResourceType: resourceType(sourcePath), SHA256: strings.Repeat("c", 64), Rows: 1, State: "READY",
+	}
+}
+
+func writeTempFile(t *testing.T, name, content string) string {
 	t.Helper()
 	localPath := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(localPath, []byte(content), 0o600); err != nil {
@@ -379,48 +728,33 @@ func writeFixture(t *testing.T, name, content string) string {
 	return localPath
 }
 
-func sourceRequest(localPath string) Request {
-	return Request{
-		Project: "project-1", AuthResourcePath: "program/project", OperationID: "operation-1",
-		Manifest: Manifest{
-			Repository: "https://github.com/example/data", Commit: strings.Repeat("b", 40),
-			Files: []ManifestFile{{Path: "META/Patient.ndjson"}},
-		},
-		Files: []File{{Path: "META/Patient.ndjson", LocalPath: localPath}},
+func writeJSON(writer http.ResponseWriter, value any) {
+	writer.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(writer).Encode(value); err != nil {
+		panic(err)
 	}
 }
 
-func writeReceipt(w http.ResponseWriter, operationID string) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = io.WriteString(w, receiptJSON(operationID, 7, strings.Repeat("a", 64), "execution-7", "PUBLISHED"))
+type unreadableValidationTransport struct{ calls int }
+
+func (t *unreadableValidationTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	t.calls++
+	return &http.Response{StatusCode: http.StatusUnprocessableEntity, Header: http.Header{"X-Request-Id": []string{"validation-request"}}, Body: unreadableValidationBody{}}, nil
 }
 
-func receiptJSON(operationID string, revision int64, manifestHash, executionID, state string) string {
-	return fmt.Sprintf(`{"operation_id":%q,"source_revision":%d,"manifest_hash":%q,"execution_id":%q,"state":%q,"reused":false}`, operationID, revision, manifestHash, executionID, state)
-}
+type unreadableValidationBody struct{}
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
-
-type truncatedBody struct {
-	data []byte
-	done bool
-}
-
-func (b *truncatedBody) Read(data []byte) (int, error) {
-	if b.done {
-		return 0, io.ErrUnexpectedEOF
+func (unreadableValidationBody) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+func (unreadableValidationBody) Close() error             { return nil }
+func TestPublishDoesNotRetryUnreadableValidationResponse(t *testing.T) {
+	transport := &unreadableValidationTransport{}
+	client, err := New("https://loom.example", "token", &http.Client{Transport: transport})
+	if err != nil {
+		t.Fatal(err)
 	}
-	b.done = true
-	return copy(data, b.data), nil
-}
-
-func (b *truncatedBody) Close() error { return nil }
-
-func response(status int, body string) *http.Response {
-	return &http.Response{
-		StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}},
-		Body: io.NopCloser(strings.NewReader(body)),
+	_, err = client.doJSON(context.Background(), http.MethodPut, "https://loom.example/test", "operation", nil)
+	var responseErr *Error
+	if transport.calls != 1 || !errors.As(err, &responseErr) || responseErr.Retryable || responseErr.StatusCode != http.StatusUnprocessableEntity || responseErr.RequestID != "validation-request" {
+		t.Fatalf("calls=%d err=%#v", transport.calls, err)
 	}
 }
