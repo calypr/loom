@@ -10,7 +10,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 )
@@ -230,7 +229,7 @@ func TestFieldPresentationReadsStayInsideCurrentAuthorizationScope(t *testing.T)
 			Entries: []catalog.SemanticInventoryEntry{fixture.entry},
 		}, nil
 	}
-	fixture.service.config.SemanticCoverage = func(_ context.Context, options catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
+	fixture.service.config.SemanticCoverage = func(_ context.Context, options catalog.SemanticCoverageLookupOptions) (catalog.SemanticCoverageLookupResult, error) {
 		fixture.coverageReads++
 		if options.AuthResourcePathsUnrestricted || !reflect.DeepEqual(options.AuthResourcePaths, scope.AuthResourcePaths) {
 			t.Fatalf("coverage lookup escaped the current authorization path: %#v", options)
@@ -276,8 +275,8 @@ func TestFieldPresentationDoesNotCollapseCompilerOrCoverageReadErrors(t *testing
 
 	t.Run("coverage read failure", func(t *testing.T) {
 		fixture := newFieldPresentationTestFixture(t, false)
-		fixture.service.config.SemanticCoverage = func(context.Context, catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
-			return catalogarango.SemanticCoverageLookupResult{}, errors.New("injected coverage read failure")
+		fixture.service.config.SemanticCoverage = func(context.Context, catalog.SemanticCoverageLookupOptions) (catalog.SemanticCoverageLookupResult, error) {
+			return catalog.SemanticCoverageLookupResult{}, errors.New("injected coverage read failure")
 		}
 		_, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
 		assertLifecycleError(t, err, ClassInternal, "FIELD_PRESENTATION_LOOKUP_FAILED")
@@ -329,7 +328,7 @@ func TestFieldPresentationKeepsRawWhenCoverageProofIsMissingPartialOrStale(t *te
 			fixture.service.config.SemanticCoverage = nil
 		}},
 		{name: "build still building", mutate: func(fixture *fieldPresentationTestFixture) {
-			fixture.coverageResult.State = catalogarango.SemanticCoverageBuildBuilding
+			fixture.coverageResult.State = catalog.SemanticCoverageBuildBuilding
 		}},
 		{name: "requested facet missing", mutate: func(fixture *fieldPresentationTestFixture) {
 			fixture.coverageResult.Candidates = nil
@@ -397,7 +396,7 @@ func TestFieldPresentationKeepsRawWhenReplacementIsUnavailableOrNotInCodedView(t
 
 func TestFieldPresentationKeepsRawForClosedCoverageDisposition(t *testing.T) {
 	fixture := newFieldPresentationTestFixture(t, false)
-	fixture.coverageResult.Candidates[0].Status = catalogarango.SemanticCoverageCandidateKeepRaw
+	fixture.coverageResult.Candidates[0].Status = catalog.SemanticCoverageCandidateKeepRaw
 	fixture.coverageResult.Candidates[0].Reason = catalog.SemanticCoverageReasonMissingSystem
 	fixture.coverageResult.Candidates[0].References = nil
 	response, err := fixture.service.BrowseSemanticInventory(context.Background(), fixture.request())
@@ -464,30 +463,30 @@ func TestFieldPresentationGroupsExactRelatedOccurrenceAndAppliesCurrentChoice(t 
 
 func TestFieldPresentationGroupsRawCodingFacetUnderExistingCategoryFamily(t *testing.T) {
 	assertFieldPresentationCodedFamilyProof(
-		t, "Observation", "code", catalogarango.SemanticCoverageBuildComplete,
-		catalogarango.SemanticCoverageBuildComplete, catalogarango.SemanticCoverageCandidateGroupable, true,
+		t, "Observation", "code", catalog.SemanticCoverageBuildComplete,
+		catalog.SemanticCoverageBuildComplete, catalog.SemanticCoverageCandidateGroupable, true,
 	)
 }
 
 func TestFieldPresentationGroupsSpecimenCandidateDuringPartialAudit(t *testing.T) {
 	assertFieldPresentationCodedFamilyProof(
-		t, "Specimen", "type", catalogarango.SemanticCoverageBuildPartial,
-		catalogarango.SemanticCoverageBuildComplete, catalogarango.SemanticCoverageCandidateGroupable, true,
+		t, "Specimen", "type", catalog.SemanticCoverageBuildPartial,
+		catalog.SemanticCoverageBuildComplete, catalog.SemanticCoverageCandidateGroupable, true,
 	)
 }
 
 func TestFieldPresentationKeepsTaskCandidateRawWithoutResourceCertificate(t *testing.T) {
 	assertFieldPresentationCodedFamilyProof(
-		t, "Task", "code", catalogarango.SemanticCoverageBuildPartial,
-		catalogarango.SemanticCoverageBuildMissing, catalogarango.SemanticCoverageCandidateUnavailable, false,
+		t, "Task", "code", catalog.SemanticCoverageBuildPartial,
+		catalog.SemanticCoverageBuildMissing, catalog.SemanticCoverageCandidateUnavailable, false,
 	)
 }
 
 func assertFieldPresentationCodedFamilyProof(
 	t *testing.T,
 	resourceType, ownerField string,
-	globalState, resourceState catalogarango.SemanticCoverageBuildState,
-	candidateStatus catalogarango.SemanticCoverageCandidateStatus,
+	globalState, resourceState catalog.SemanticCoverageBuildState,
+	candidateStatus catalog.SemanticCoverageCandidateStatus,
 	wantGroup bool,
 ) {
 	t.Helper()
@@ -554,11 +553,11 @@ func assertFieldPresentationCodedFamilyProof(
 			{ID: displayCandidate.ID, NodeID: displayCandidate.NodeID, FieldPath: displayCandidate.FieldPath, Label: displayCandidate.Label, LogicalType: displayCandidate.LogicalType, Cardinality: displayCandidate.Cardinality, Repeated: true, ProjectionModes: []string{"FIRST", "ARRAY"}, DefaultProjectionMode: "FIRST", ConstructionChoice: &displayChoice},
 		},
 	}
-	coverage := catalogarango.SemanticCoverageCandidateResult{
+	coverage := catalog.SemanticCoverageCandidateResult{
 		ResourceType: codeCandidate.ResourceType, CanonicalPath: codeCandidate.FieldPath, CoverageID: "coding-code-coverage",
 		ResourceState: resourceState, Status: candidateStatus, Reason: catalog.SemanticCoverageReasonIncompleteSource,
 	}
-	if candidateStatus == catalogarango.SemanticCoverageCandidateGroupable {
+	if candidateStatus == catalog.SemanticCoverageCandidateGroupable {
 		coverage.References = []catalog.SemanticCoverageReference{{
 			Kind: catalog.SemanticCoverageFamilyReference, BindingID: family.BindingID,
 			Family: family.SemanticInventoryFamilyReference, CandidatePath: codeCandidate.FieldPath, ResourceType: codeCandidate.ResourceType,
@@ -574,11 +573,11 @@ func assertFieldPresentationCodedFamilyProof(
 		SemanticInventory: func(context.Context, catalog.SemanticInventoryPageOptions) (catalog.SemanticInventoryPage, error) {
 			return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: build, Families: []catalog.SemanticInventoryFamily{family}}, nil
 		},
-		SemanticCoverage: func(_ context.Context, options catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
-			if len(options.Candidates) != 1 || options.Candidates[0] != (catalogarango.SemanticCoverageCandidatePath{ResourceType: codeCandidate.ResourceType, CanonicalPath: codeCandidate.FieldPath}) {
+		SemanticCoverage: func(_ context.Context, options catalog.SemanticCoverageLookupOptions) (catalog.SemanticCoverageLookupResult, error) {
+			if len(options.Candidates) != 1 || options.Candidates[0] != (catalog.SemanticCoverageCandidatePath{ResourceType: codeCandidate.ResourceType, CanonicalPath: codeCandidate.FieldPath}) {
 				t.Fatalf("coverage lookup did not use the exact Coding leaf facet: %#v", options)
 			}
-			return catalogarango.SemanticCoverageLookupResult{State: globalState, Candidates: []catalogarango.SemanticCoverageCandidateResult{coverage}}, nil
+			return catalog.SemanticCoverageLookupResult{State: globalState, Candidates: []catalog.SemanticCoverageCandidateResult{coverage}}, nil
 		},
 		ResolveSemanticInventorySelections: func(_ context.Context, options catalog.SemanticInventoryResolveOptions) (catalog.SemanticInventoryResolveResult, error) {
 			if len(options.FamilyReferences) != 1 || options.FamilyReferences[0] != family.SemanticInventoryFamilyReference || len(options.References) != 0 {
@@ -712,7 +711,7 @@ type fieldPresentationTestFixture struct {
 	buildID            string
 	occurrenceID       string
 	rootResourceType   string
-	coverageResult     catalogarango.SemanticCoverageLookupResult
+	coverageResult     catalog.SemanticCoverageLookupResult
 	resolvedInventory  catalog.SemanticInventoryResolveResult
 	authorizationReads int
 	inventoryReads     int
@@ -800,9 +799,9 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 		document.Route = authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Observation", Children: []authoringv2.RouteNode{}}
 	}
 	persistTestWorkspace(t, store, workspace)
-	coverage := catalogarango.SemanticCoverageCandidateResult{
+	coverage := catalog.SemanticCoverageCandidateResult{
 		ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath, CoverageID: "coverage-id",
-		ResourceState: catalogarango.SemanticCoverageBuildComplete, Status: catalogarango.SemanticCoverageCandidateGroupable,
+		ResourceState: catalog.SemanticCoverageBuildComplete, Status: catalog.SemanticCoverageCandidateGroupable,
 		References: []catalog.SemanticCoverageReference{{
 			Kind: catalog.SemanticCoverageExactReference, ConceptID: entry.ConceptID, BindingID: entry.BindingID,
 			CandidatePath: candidate.FieldPath, ResourceType: candidate.ResourceType,
@@ -811,8 +810,8 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 	fixture := &fieldPresentationTestFixture{
 		store: store, snapshot: snapshot, candidate: candidate, entry: entry, buildID: buildID,
 		occurrenceID: occurrenceID, rootResourceType: rootResourceType,
-		coverageResult: catalogarango.SemanticCoverageLookupResult{
-			State: catalogarango.SemanticCoverageBuildComplete, Candidates: []catalogarango.SemanticCoverageCandidateResult{coverage},
+		coverageResult: catalog.SemanticCoverageLookupResult{
+			State: catalog.SemanticCoverageBuildComplete, Candidates: []catalog.SemanticCoverageCandidateResult{coverage},
 		},
 		resolvedInventory: semanticAuthoringInventory(snapshot, []catalog.SemanticInventoryEntry{entry}),
 	}
@@ -832,11 +831,11 @@ func newFieldPresentationTestFixture(t *testing.T, related bool) *fieldPresentat
 			}
 			return catalog.SemanticInventoryPage{State: catalog.SemanticInventoryComplete, Build: build, Entries: []catalog.SemanticInventoryEntry{entry}}, nil
 		},
-		SemanticCoverage: func(_ context.Context, options catalogarango.SemanticCoverageLookupOptions) (catalogarango.SemanticCoverageLookupResult, error) {
+		SemanticCoverage: func(_ context.Context, options catalog.SemanticCoverageLookupOptions) (catalog.SemanticCoverageLookupResult, error) {
 			fixture.coverageReads++
 			if options.Project != project || options.DatasetGeneration != generation || options.BuildID != buildID ||
 				options.SourceKind != catalog.SemanticInventorySourceFile || !options.AuthResourcePathsUnrestricted ||
-				len(options.Candidates) != 1 || options.Candidates[0] != (catalogarango.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}) {
+				len(options.Candidates) != 1 || options.Candidates[0] != (catalog.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}) {
 				t.Fatalf("coverage lookup lost exact bounded scope: %#v", options)
 			}
 			return fixture.coverageResult, nil

@@ -108,7 +108,7 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 	} else {
 		vars["resource_types"] = nil
 	}
-	counts := make(map[relationshipObservationKey]int64)
+	counts := make(map[catalog.RelationshipEvidenceKey]int64)
 	var queryErr error
 	err := s.client.QueryRows(ctx, relationshipObservationsAQL, opts.CursorBatch, vars, func(row map[string]any) error {
 		storageFrom := stringValue(row["storage_from_type"])
@@ -124,13 +124,12 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 			result.Diagnostics = append(result.Diagnostics, catalog.EvidenceDiagnostic{Code: "INVALID_RELATIONSHIP_ENDPOINT", Message: "relationship endpoint is not a concrete generated FHIR resource", StorageFromType: storageFrom, Label: label, StorageToType: storageTo, Count: count})
 			return nil
 		}
-		observation, ok, diagnostic := relationshipObservation(stringValue(row["project"]), stringValue(row["dataset_generation"]), stringValue(row["auth_resource_path"]), from, label, to, count)
+		observation, ok, diagnostic := catalog.ProjectRelationshipObservation(stringValue(row["project"]), stringValue(row["dataset_generation"]), stringValue(row["auth_resource_path"]), from, label, to, count)
 		if !ok {
 			result.Diagnostics = append(result.Diagnostics, diagnostic)
 			return nil
 		}
-		key := relationshipObservationKey{project: observation.Project, generation: observation.DatasetGeneration, auth: observation.AuthResourcePath, storageFrom: observation.StorageFromType, label: observation.Label, storageTo: observation.StorageToType, builderFrom: observation.BuilderFromType, builderTo: observation.BuilderToType, builderDirection: observation.BuilderDirection}
-		counts[key] += observation.EdgeCount
+		counts[catalog.RelationshipEvidenceKeyFor(observation)] += observation.EdgeCount
 		return nil
 	})
 	queryErr = err
@@ -140,11 +139,11 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 		return result, queryErr
 	}
 	for key, count := range counts {
-		result.Values = append(result.Values, catalog.RelationshipObservation{Project: key.project, DatasetGeneration: key.generation, AuthResourcePath: key.auth, FromType: key.builderFrom, Label: key.label, ToType: key.builderTo, EdgeCount: count, StorageFromType: key.storageFrom, StorageToType: key.storageTo, StorageDirection: "OUTBOUND", BuilderFromType: key.builderFrom, BuilderToType: key.builderTo, BuilderDirection: key.builderDirection})
+		result.Values = append(result.Values, catalog.RelationshipObservationFromKey(key, count))
 	}
-	sort.Slice(result.Values, func(i, j int) bool { return relationshipLess(result.Values[i], result.Values[j]) })
+	sort.Slice(result.Values, func(i, j int) bool { return catalog.RelationshipEvidenceLess(result.Values[i], result.Values[j]) })
 	result.Digest, _ = catalog.RelationshipObservationDigest(result.Values)
-	result.Status = evidenceStatus(result.Available, result.Complete, result.Truncated, len(result.Values))
+	result.Status = catalog.EvidenceStatusFor(result.Available, result.Complete, result.Truncated, len(result.Values))
 	return result, nil
 }
 
