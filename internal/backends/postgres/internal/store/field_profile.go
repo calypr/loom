@@ -97,8 +97,16 @@ type FieldProfileFilter struct {
 	Project           string
 	DatasetGeneration string
 	// ResourceTypes bounds the read to the declared types; an empty list
-	// reads nothing (there is no implicit "all types" here).
+	// reads nothing (there is no implicit "all types" here). The explicit
+	// AllResourceTypes opt-in below is the only all-types mode.
 	ResourceTypes []string
+	// AllResourceTypes selects the true all-types mode: the read omits the
+	// resource_type predicate entirely, spanning every persisted type in
+	// the project/generation scope (the shape the Arango auth-path
+	// reference COLLECT needs). It must be requested deliberately and
+	// never accompanies a declared ResourceTypes list; the zero value
+	// keeps the declared-list semantics byte-identical.
+	AllResourceTypes bool
 	// AuthResourcePathsUnrestricted must be non-nil: true selects the
 	// explicit unrestricted mode (then AuthResourcePaths must be empty),
 	// false selects restricted mode.
@@ -401,10 +409,12 @@ func (r *FieldProfileRepository) ReadProfileCoverage(ctx context.Context, filter
 }
 
 // fieldProfileFilterSQL renders the shared WHERE clause for filtered reads.
-// Ordered parameters: $1 project, $2 generation, $3 resource types, and
-// $4 auth paths (restricted mode only). empty is true when the filter is a
-// legitimate read-nothing state (restricted with no authorized paths, or no
-// declared resource types).
+// Declared-list mode: $1 project, $2 generation, $3 resource types, and
+// $4 auth paths (restricted mode only). AllResourceTypes mode omits the
+// resource types parameter, so auth paths shift to $3. empty is true when
+// the filter is a legitimate read-nothing state (restricted with no
+// authorized paths, or no declared resource types without the explicit
+// all-types opt-in).
 func fieldProfileFilterSQL(filter FieldProfileFilter) (string, []any, bool, error) {
 	if strings.TrimSpace(filter.Project) == "" {
 		return "", nil, false, fmt.Errorf("%w: project is blank", ErrInvalidFieldProfileScope)
@@ -422,6 +432,24 @@ func fieldProfileFilterSQL(filter FieldProfileFilter) (string, []any, bool, erro
 		}
 	} else if len(filter.AuthResourcePaths) == 0 {
 		return "", nil, true, nil
+	}
+	if filter.AllResourceTypes {
+		// The one explicit all-types mode: no resource_type predicate at
+		// all, so every persisted type in the scope is in the read. It
+		// must not accompany a declared list -- a declared list plus
+		// "all" would make the caller's intent ambiguous.
+		if len(filter.ResourceTypes) > 0 {
+			return "", nil, false, fmt.Errorf(
+				"%w: AllResourceTypes must not accompany a declared resource types list (%d given)",
+				ErrInvalidFieldProfileScope, len(filter.ResourceTypes))
+		}
+		where := "project = $1 AND dataset_generation = $2"
+		args := []any{filter.Project, filter.DatasetGeneration}
+		if !*filter.AuthResourcePathsUnrestricted {
+			where += " AND auth_resource_path = ANY($3::text[])"
+			args = append(args, append([]string(nil), filter.AuthResourcePaths...))
+		}
+		return where, args, false, nil
 	}
 	if len(filter.ResourceTypes) == 0 {
 		return "", nil, true, nil

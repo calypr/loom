@@ -23,18 +23,6 @@ var (
 	ErrRetainedSemanticSourceMissing             = errors.New("retained semantic inventory source is missing despite field-profile evidence")
 )
 
-type RetainedSemanticInventoryRow struct {
-	Key              string          `json:"key"`
-	AuthResourcePath *string         `json:"auth_resource_path"`
-	Payload          json.RawMessage `json:"payload"`
-}
-
-type RetainedSemanticInventoryPage struct {
-	Rows         []RetainedSemanticInventoryRow
-	HasMore      bool
-	SourceExists bool
-}
-
 // PrepareSemanticInventoryBackfill bootstraps only the derived inventory
 // collections. Retained resource collections are never created or changed.
 func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
@@ -56,26 +44,26 @@ func (s *Store) PrepareSemanticInventoryBackfill(ctx context.Context) error {
 // ReadRetainedSemanticInventoryPage returns at most limit retained source
 // vertices in stable _key order, without loading a resource collection into
 // application memory.
-func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (RetainedSemanticInventoryPage, error) {
+func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, generation, collection, afterKey string, limit int) (catalog.RetainedSemanticInventoryPage, error) {
 	canonical, ok := fhirschema.ConcreteResourceType(collection)
 	if !ok || canonical != collection || strings.TrimSpace(project) == "" || catalog.NormalizeDatasetGeneration(generation) == "" || limit < 1 || limit > 1000 {
-		return RetainedSemanticInventoryPage{}, ErrInvalidSemanticInventoryPage
+		return catalog.RetainedSemanticInventoryPage{}, ErrInvalidSemanticInventoryPage
 	}
 	exists, err := s.client.CollectionExists(ctx, collection)
 	if err != nil {
-		return RetainedSemanticInventoryPage{}, err
+		return catalog.RetainedSemanticInventoryPage{}, err
 	}
 	if !exists {
 		profileEvidence, err := s.retainedSourceFieldProfileExists(ctx, project, generation, collection)
 		if err != nil {
-			return RetainedSemanticInventoryPage{}, err
+			return catalog.RetainedSemanticInventoryPage{}, err
 		}
 		if profileEvidence {
-			return RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s", ErrRetainedSemanticSourceMissing, project, generation, collection)
+			return catalog.RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s", ErrRetainedSemanticSourceMissing, project, generation, collection)
 		}
-		return RetainedSemanticInventoryPage{Rows: []RetainedSemanticInventoryRow{}}, nil
+		return catalog.RetainedSemanticInventoryPage{Rows: []catalog.RetainedSemanticInventoryRow{}}, nil
 	}
-	page := RetainedSemanticInventoryPage{Rows: make([]RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
+	page := catalog.RetainedSemanticInventoryPage{Rows: make([]catalog.RetainedSemanticInventoryRow, 0, limit), SourceExists: true}
 	err = s.client.QueryRows(ctx, retainedSemanticInventorySourcePageAQL, limit+1, map[string]interface{}{
 		"@collection":        collection,
 		"project":            project,
@@ -83,7 +71,7 @@ func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, 
 		"after_key":          afterKey,
 		"limit":              limit + 1,
 	}, func(row map[string]any) error {
-		var source RetainedSemanticInventoryRow
+		var source catalog.RetainedSemanticInventoryRow
 		if err := decodeInventoryRow(row, &source); err != nil {
 			return err
 		}
@@ -94,7 +82,7 @@ func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, 
 		return nil
 	})
 	if err != nil {
-		return RetainedSemanticInventoryPage{}, fmt.Errorf("read retained %s source page: %w", collection, err)
+		return catalog.RetainedSemanticInventoryPage{}, fmt.Errorf("read retained %s source page: %w", collection, err)
 	}
 	if len(page.Rows) > limit {
 		page.Rows = page.Rows[:limit]
@@ -103,10 +91,10 @@ func (s *Store) ReadRetainedSemanticInventoryPage(ctx context.Context, project, 
 	if len(page.Rows) == 0 && afterKey == "" {
 		profileEvidence, err := s.retainedSourceFieldProfileExists(ctx, project, generation, collection)
 		if err != nil {
-			return RetainedSemanticInventoryPage{}, err
+			return catalog.RetainedSemanticInventoryPage{}, err
 		}
 		if profileEvidence {
-			return RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s has no retained rows", ErrRetainedSemanticSourceMissing, project, generation, collection)
+			return catalog.RetainedSemanticInventoryPage{}, fmt.Errorf("%w: %s/%s/%s has no retained rows", ErrRetainedSemanticSourceMissing, project, generation, collection)
 		}
 	}
 	return page, nil

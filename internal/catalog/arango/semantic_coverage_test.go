@@ -349,7 +349,7 @@ func TestWriteSemanticCoverageBatchesAtomicSourceEnvelopes(t *testing.T) {
 		t.Fatal("resource certification accepted a partial envelope batch")
 	}
 	for _, document := range interrupted.documents {
-		if document.RecordKind == "resource" && document.ResourceState == SemanticCoverageBuildComplete {
+		if document.RecordKind == "resource" && document.ResourceState == catalog.SemanticCoverageBuildComplete {
 			t.Fatalf("partial envelope batch published COMPLETE resource marker: %+v", document)
 		}
 	}
@@ -501,13 +501,13 @@ func TestSemanticCoverageBuildMaterializesExactAuthAndBuildSummaries(t *testing.
 	}
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 	marker := client.documents[semanticCoverageBuildKey(identity)]
-	if marker.BuildState != SemanticCoverageBuildComplete || marker.MaterializedSourceCount != 1 || marker.SummaryCount != 4 {
+	if marker.BuildState != catalog.SemanticCoverageBuildComplete || marker.MaterializedSourceCount != 1 || marker.SummaryCount != 4 {
 		t.Fatalf("coverage marker = %+v, want complete owner and exact leaf summaries for one source", marker)
 	}
-	options := SemanticCoverageLookupOptions{
+	options := catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
-		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath}, Candidates: []SemanticCoverageCandidatePath{{
+		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath}, Candidates: []catalog.SemanticCoverageCandidatePath{{
 			ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code",
 		}},
 	}
@@ -515,7 +515,7 @@ func TestSemanticCoverageBuildMaterializesExactAuthAndBuildSummaries(t *testing.
 	if err != nil {
 		t.Fatalf("lookup exact coverage: %v", err)
 	}
-	if lookup.State != SemanticCoverageBuildComplete || len(lookup.Candidates) != 1 || lookup.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(lookup.Candidates[0].References) != 2 {
+	if lookup.State != catalog.SemanticCoverageBuildComplete || len(lookup.Candidates) != 1 || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateGroupable || len(lookup.Candidates[0].References) != 2 {
 		t.Fatalf("exact lookup = %+v, want one groupable candidate with typed refs", lookup)
 	}
 	if lookup.Candidates[0].CanonicalPath != "coding[].code" {
@@ -528,30 +528,30 @@ func TestSemanticCoverageBuildMaterializesExactAuthAndBuildSummaries(t *testing.
 	}
 
 	absent := options
-	absent.Candidates = []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "optional.absent"}}
+	absent.Candidates = []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "optional.absent"}}
 	lookup, err = adapter.LookupSemanticCoverage(context.Background(), absent)
-	if err != nil || lookup.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || lookup.Candidates[0].Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata {
+	if err != nil || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateKeepRaw || lookup.Candidates[0].Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata {
 		t.Fatalf("proven absent facet lookup = %+v err=%v, want KEEP_RAW after complete source partition", lookup, err)
 	}
 
 	metadata := options
-	metadata.Candidates = []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].userSelected"}}
+	metadata.Candidates = []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].userSelected"}}
 	lookup, err = adapter.LookupSemanticCoverage(context.Background(), metadata)
-	if err != nil || lookup.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || lookup.Candidates[0].Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateKeepRaw || lookup.Candidates[0].Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("raw metadata facet lookup = %+v err=%v, want KEEP_RAW without inherited owner refs", lookup, err)
 	}
 
 	unauthorized := options
 	unauthorized.AuthResourcePaths = []string{"Patient/other"}
 	lookup, err = adapter.LookupSemanticCoverage(context.Background(), unauthorized)
-	if err != nil || len(lookup.Candidates) != 1 || lookup.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || len(lookup.Candidates) != 1 || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateKeepRaw || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("source-free authorized scope lookup = %+v err=%v, want proven KEEP_RAW without refs", lookup, err)
 	}
 
 	otherBuild := options
 	otherBuild.BuildID = "stale-build"
 	lookup, err = adapter.LookupSemanticCoverage(context.Background(), otherBuild)
-	if err != nil || lookup.State != SemanticCoverageBuildUnavailable || lookup.Reason != "BUILD_ID_MISMATCH" || lookup.Candidates[0].Status != SemanticCoverageCandidateUnavailable {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildUnavailable || lookup.Reason != "BUILD_ID_MISMATCH" || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateUnavailable {
 		t.Fatalf("stale build lookup = %+v err=%v, want unavailable exact-build result", lookup, err)
 	}
 }
@@ -588,17 +588,17 @@ func TestSemanticCoverageIncompleteReplayCannotReuseCompletedMarkerOrSummary(t *
 		t.Fatal("interrupted source-set replay returned nil")
 	}
 	marker := client.documents[semanticCoverageBuildKey(identity)]
-	if marker.BuildState != SemanticCoverageBuildBuilding {
+	if marker.BuildState != catalog.SemanticCoverageBuildBuilding {
 		t.Fatalf("marker after interrupted replay = %q, want BUILDING", marker.BuildState)
 	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
-		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath}, Candidates: []SemanticCoverageCandidatePath{{
+		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath}, Candidates: []catalog.SemanticCoverageCandidatePath{{
 			ResourceType: contribution.Identity.ResourceType, CanonicalPath: "component[].code",
 		}},
 	})
-	if err != nil || lookup.State != SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("lookup during replay = %+v err=%v, want BUILDING with no replacement refs", lookup, err)
 	}
 	page, err := adapter.readSemanticCoveragePage(context.Background(), identity.Project, identity.DatasetGeneration, buildID, identity.SourceKind, identity.SchemaIdentity, semanticCoverageEnvelopeRecordKind, []string{contribution.Identity.AuthResourcePath}, false, "", 10)
@@ -638,19 +638,19 @@ func TestSemanticCoverageMaterializationKeepsUnauthorizedPartitionSeparate(t *te
 		t.Fatal(err)
 	}
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, allowed, unauthorized)
-	candidate := SemanticCoverageCandidatePath{ResourceType: "Observation", CanonicalPath: "coding[].code"}
-	restricted, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	candidate := catalog.SemanticCoverageCandidatePath{ResourceType: "Observation", CanonicalPath: "coding[].code"}
+	restricted, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
-		SourceKind: identity.SourceKind, AuthResourcePaths: []string{"Patient/allowed"}, Candidates: []SemanticCoverageCandidatePath{candidate},
+		SourceKind: identity.SourceKind, AuthResourcePaths: []string{"Patient/allowed"}, Candidates: []catalog.SemanticCoverageCandidatePath{candidate},
 	})
-	if err != nil || restricted.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(restricted.Candidates[0].References) == 0 {
+	if err != nil || restricted.Candidates[0].Status != catalog.SemanticCoverageCandidateGroupable || len(restricted.Candidates[0].References) == 0 {
 		t.Fatalf("restricted authorized lookup = %+v err=%v, want only allowed groupable proof", restricted, err)
 	}
-	unrestricted, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	unrestricted, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
-		SourceKind: identity.SourceKind, AuthResourcePathsUnrestricted: true, Candidates: []SemanticCoverageCandidatePath{candidate},
+		SourceKind: identity.SourceKind, AuthResourcePathsUnrestricted: true, Candidates: []catalog.SemanticCoverageCandidatePath{candidate},
 	})
-	if err != nil || unrestricted.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || len(unrestricted.Candidates[0].References) != 0 {
+	if err != nil || unrestricted.Candidates[0].Status != catalog.SemanticCoverageCandidateKeepRaw || len(unrestricted.Candidates[0].References) != 0 {
 		t.Fatalf("unrestricted mixed partition lookup = %+v err=%v, want KEEP_RAW with no cross-partition refs", unrestricted, err)
 	}
 }
@@ -674,12 +674,12 @@ func TestFacetProofTruncationKeepsExactCandidateRaw(t *testing.T) {
 		t.Fatalf("write truncated facet source: %v", err)
 	}
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
 		SourceKind: identity.SourceKind, AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-		Candidates: []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
+		Candidates: []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || lookup.Candidates[0].Reason != catalog.SemanticCoverageReasonTruncatedEvidence || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateKeepRaw || lookup.Candidates[0].Reason != catalog.SemanticCoverageReasonTruncatedEvidence || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("truncated exact facet lookup = %+v err=%v, want KEEP_RAW/TRUNCATED_EVIDENCE without refs", lookup, err)
 	}
 }
@@ -709,13 +709,13 @@ func TestSemanticCoverageExactFacetIgnoresRawSiblingAndOwnerDisposition(t *testi
 	}
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, contribution)
 
-	lookup := func(path string) SemanticCoverageCandidateResult {
+	lookup := func(path string) catalog.SemanticCoverageCandidateResult {
 		t.Helper()
-		result, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+		result, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 			Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
 			SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 			AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-			Candidates:        []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: path}},
+			Candidates:        []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: path}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -723,15 +723,15 @@ func TestSemanticCoverageExactFacetIgnoresRawSiblingAndOwnerDisposition(t *testi
 		return result.Candidates[0]
 	}
 	code := lookup("coding[].code")
-	if code.Status != SemanticCoverageCandidateGroupable || len(code.References) == 0 {
+	if code.Status != catalog.SemanticCoverageCandidateGroupable || len(code.References) == 0 {
 		t.Fatalf("semantic code facet = %+v, want GROUPABLE with exact refs despite raw owner/sibling", code)
 	}
 	displayResult := lookup("coding[].display")
-	if displayResult.Status != SemanticCoverageCandidateGroupable || len(displayResult.References) == 0 {
+	if displayResult.Status != catalog.SemanticCoverageCandidateGroupable || len(displayResult.References) == 0 {
 		t.Fatalf("semantic display facet = %+v, want GROUPABLE with exact refs despite raw owner/sibling", displayResult)
 	}
 	userSelected := lookup("coding[].userSelected")
-	if userSelected.Status != SemanticCoverageCandidateKeepRaw || userSelected.Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata || len(userSelected.References) != 0 {
+	if userSelected.Status != catalog.SemanticCoverageCandidateKeepRaw || userSelected.Reason != catalog.SemanticCoverageReasonUnrepresentedMetadata || len(userSelected.References) != 0 {
 		t.Fatalf("raw userSelected sibling = %+v, want KEEP_RAW without inherited refs", userSelected)
 	}
 }
@@ -763,19 +763,19 @@ func TestIncompletePathlessPartitionCannotBorrowProofFromAnotherAuthorizedPartit
 		t.Fatalf("write source partitions: %v", err)
 	}
 	completeSemanticCoverageMemoryBuild(t, adapter, identity, complete, incomplete)
-	candidate := SemanticCoverageCandidatePath{ResourceType: complete.Identity.ResourceType, CanonicalPath: "coding[].code"}
-	restricted, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	candidate := catalog.SemanticCoverageCandidatePath{ResourceType: complete.Identity.ResourceType, CanonicalPath: "coding[].code"}
+	restricted, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
-		SourceKind: identity.SourceKind, AuthResourcePaths: []string{complete.Identity.AuthResourcePath}, Candidates: []SemanticCoverageCandidatePath{candidate},
+		SourceKind: identity.SourceKind, AuthResourcePaths: []string{complete.Identity.AuthResourcePath}, Candidates: []catalog.SemanticCoverageCandidatePath{candidate},
 	})
-	if err != nil || restricted.Candidates[0].Status != SemanticCoverageCandidateGroupable || len(restricted.Candidates[0].References) == 0 {
+	if err != nil || restricted.Candidates[0].Status != catalog.SemanticCoverageCandidateGroupable || len(restricted.Candidates[0].References) == 0 {
 		t.Fatalf("complete auth partition lookup = %+v err=%v, want isolated complete proof", restricted, err)
 	}
-	unrestricted, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	unrestricted, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
-		SourceKind: identity.SourceKind, AuthResourcePathsUnrestricted: true, Candidates: []SemanticCoverageCandidatePath{candidate},
+		SourceKind: identity.SourceKind, AuthResourcePathsUnrestricted: true, Candidates: []catalog.SemanticCoverageCandidatePath{candidate},
 	})
-	if err != nil || unrestricted.Candidates[0].Status != SemanticCoverageCandidateUnavailable || len(unrestricted.Candidates[0].References) != 0 {
+	if err != nil || unrestricted.Candidates[0].Status != catalog.SemanticCoverageCandidateUnavailable || len(unrestricted.Candidates[0].References) != 0 {
 		t.Fatalf("mixed complete/pathless partition lookup = %+v err=%v, want unavailable without borrowed proof", unrestricted, err)
 	}
 }
@@ -803,15 +803,15 @@ func TestEmptySchemaCoverageBuildAndLookupRemainUnavailable(t *testing.T) {
 		t.Fatalf("finalize empty-schema build: %v", err)
 	}
 	marker := client.documents[semanticCoverageBuildKey(identity)]
-	if marker.BuildState != SemanticCoverageBuildUnavailable || marker.BuildReason != "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE" {
+	if marker.BuildState != catalog.SemanticCoverageBuildUnavailable || marker.BuildReason != "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE" {
 		t.Fatalf("empty-schema build marker = %+v, want exact unavailable reason", marker)
 	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
 		SourceKind: identity.SourceKind, AuthResourcePathsUnrestricted: true,
-		Candidates: []SemanticCoverageCandidatePath{{ResourceType: "Observation", CanonicalPath: "coding[].code"}},
+		Candidates: []catalog.SemanticCoverageCandidatePath{{ResourceType: "Observation", CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.State != SemanticCoverageBuildUnavailable || lookup.Reason != "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE" || lookup.Candidates[0].Status != SemanticCoverageCandidateUnavailable || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildUnavailable || lookup.Reason != "SOURCE_SCHEMA_IDENTITY_UNAVAILABLE" || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateUnavailable || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("empty-schema lookup = %+v err=%v, want unavailable without references", lookup, err)
 	}
 }
@@ -861,12 +861,12 @@ func TestSemanticCoverageCandidateLookupConsidersEveryBoundarySignature(t *testi
 	if len(seenBoundarySignatures) != 2 || !seenBoundarySignatures[""] || !seenBoundarySignatures[subtype.Paths[0].ResourceBoundarySignature] {
 		t.Fatalf("facet summary boundary signatures = %#v, want ordinary and subtype scopes", seenBoundarySignatures)
 	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
 		SourceKind: identity.SourceKind, AuthResourcePaths: []string{ordinary.Identity.AuthResourcePath},
-		Candidates: []SemanticCoverageCandidatePath{{ResourceType: "Observation", CanonicalPath: "coding[].code"}},
+		Candidates: []catalog.SemanticCoverageCandidatePath{{ResourceType: "Observation", CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.Candidates[0].Status != SemanticCoverageCandidateKeepRaw || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateKeepRaw || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("candidate lookup across ordinary and subtype summaries = %+v err=%v, want nonempty-boundary signature to block inherited grouping", lookup, err)
 	}
 }
@@ -934,13 +934,13 @@ func TestSemanticCoverageLookupRejectsStorageFormatMismatch(t *testing.T) {
 	marker.CoverageStorageFormatVersion++
 	client.documents[semanticCoverageBuildKey(identity)] = marker
 
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-		Candidates:        []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
+		Candidates:        []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.State != SemanticCoverageBuildUnavailable || lookup.Reason != "COVERAGE_FORMAT_VERSION_MISMATCH" || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildUnavailable || lookup.Reason != "COVERAGE_FORMAT_VERSION_MISMATCH" || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("format-mismatch lookup = %+v err=%v, want unavailable with no references", lookup, err)
 	}
 }
@@ -969,15 +969,15 @@ func TestSemanticCoverageReadFailureCannotPublishComplete(t *testing.T) {
 	}
 	client.queryErr = nil
 	marker := client.documents[semanticCoverageBuildKey(identity)]
-	if marker.BuildState != SemanticCoverageBuildBuilding {
+	if marker.BuildState != catalog.SemanticCoverageBuildBuilding {
 		t.Fatalf("marker after failed materialization read = %q, want BUILDING", marker.BuildState)
 	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
 		SourceKind: identity.SourceKind, AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-		Candidates: []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
+		Candidates: []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.State != SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("lookup after failed materialization read = %+v err=%v, want BUILDING without refs", lookup, err)
 	}
 }
@@ -1008,15 +1008,15 @@ func TestSemanticCoverageSummaryWriteFailureCannotPublishComplete(t *testing.T) 
 	client.failInsertAt = 0
 	client.insertAttempts = 0
 	marker := client.documents[semanticCoverageBuildKey(identity)]
-	if marker.BuildState != SemanticCoverageBuildBuilding {
+	if marker.BuildState != catalog.SemanticCoverageBuildBuilding {
 		t.Fatalf("marker after failed summary write = %q, want BUILDING", marker.BuildState)
 	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID, SchemaIdentity: identity.SchemaIdentity,
 		SourceKind: identity.SourceKind, AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-		Candidates: []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
+		Candidates: []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.State != SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("lookup after failed summary write = %+v err=%v, want BUILDING without refs", lookup, err)
 	}
 }
@@ -1024,7 +1024,7 @@ func TestSemanticCoverageSummaryWriteFailureCannotPublishComplete(t *testing.T) 
 func TestCompleteRetainedSemanticCoverageResourceReturnsCertificationSourceRows(t *testing.T) {
 	client := newSemanticCoverageMemoryClient()
 	authPath := "Patient/authorized"
-	client.retainedSources["Observation"] = []RetainedSemanticInventoryRow{{
+	client.retainedSources["Observation"] = []catalog.RetainedSemanticInventoryRow{{
 		Key: "source-1", AuthResourcePath: &authPath, Payload: json.RawMessage(`{"id":"observation-1"}`),
 	}}
 	adapter, err := New(client)
@@ -1048,7 +1048,7 @@ func TestCompleteRetainedSemanticCoverageResourceReturnsCertificationSourceRows(
 		t.Fatalf("retained certification rows=%d err=%v, want one enumerated source row", certificationRows, err)
 	}
 	marker := client.documents[semanticCoverageResourceKey(identity, "Observation")]
-	if marker.ResourceState != SemanticCoverageBuildComplete || marker.MaterializedSourceCount != certificationRows {
+	if marker.ResourceState != catalog.SemanticCoverageBuildComplete || marker.MaterializedSourceCount != certificationRows {
 		t.Fatalf("retained resource marker = %+v, want one source and COMPLETE", marker)
 	}
 }
@@ -1064,20 +1064,20 @@ func TestSemanticCoverageLookupPropagatesErrorsAndSeparatesBuildStates(t *testin
 	if err := adapter.BeginSemanticCoverageBuild(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
-	options := SemanticCoverageLookupOptions{
+	options := catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: buildID,
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind, AuthResourcePathsUnrestricted: true,
-		Candidates: []SemanticCoverageCandidatePath{{ResourceType: "Observation", CanonicalPath: "code"}},
+		Candidates: []catalog.SemanticCoverageCandidatePath{{ResourceType: "Observation", CanonicalPath: "code"}},
 	}
 	lookup, err := adapter.LookupSemanticCoverage(context.Background(), options)
-	if err != nil || lookup.State != SemanticCoverageBuildBuilding || lookup.Candidates[0].Status != SemanticCoverageCandidateUnavailable {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildBuilding || lookup.Candidates[0].Status != catalog.SemanticCoverageCandidateUnavailable {
 		t.Fatalf("building lookup = %+v err=%v", lookup, err)
 	}
 	if err := adapter.FailSemanticCoverageBuild(context.Background(), identity, "injected source read failure"); err != nil {
 		t.Fatal(err)
 	}
 	lookup, err = adapter.LookupSemanticCoverage(context.Background(), options)
-	if err != nil || lookup.State != SemanticCoverageBuildFailed || lookup.Reason != "injected source read failure" {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildFailed || lookup.Reason != "injected source read failure" {
 		t.Fatalf("failed lookup = %+v err=%v", lookup, err)
 	}
 	client.queryErr = errors.New("injected query error")
@@ -1093,12 +1093,12 @@ func TestSemanticCoverageUnrestrictedLookupBindsAnEmptyAuthArray(t *testing.T) {
 		t.Fatal(err)
 	}
 	project, generation := "project", "generation"
-	_, err = adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	_, err = adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: project, DatasetGeneration: generation,
 		BuildID:        catalog.SemanticInventoryBuildID(project, generation),
 		SchemaIdentity: "schema", SourceKind: catalog.SemanticInventorySourceRetained,
 		AuthResourcePathsUnrestricted: true,
-		Candidates:                    []SemanticCoverageCandidatePath{{ResourceType: "Specimen", CanonicalPath: "status"}},
+		Candidates:                    []catalog.SemanticCoverageCandidatePath{{ResourceType: "Specimen", CanonicalPath: "status"}},
 	})
 	if err != nil {
 		t.Fatalf("unrestricted lookup: %v", err)
@@ -1138,16 +1138,16 @@ func TestWriteSemanticCoverageFailureKeepsBuildUnavailableAfterReplayStarts(t *t
 	if err == nil || !strings.Contains(err.Error(), "replace semantic coverage source envelopes") || stats.Rows != 0 {
 		t.Fatalf("failed source replacement stats=%#v err=%v, want atomic envelope failure", stats, err)
 	}
-	if marker := client.documents[semanticCoverageBuildKey(identity)]; marker.BuildState != SemanticCoverageBuildBuilding {
+	if marker := client.documents[semanticCoverageBuildKey(identity)]; marker.BuildState != catalog.SemanticCoverageBuildBuilding {
 		t.Fatalf("build marker after failed replay = %+v, want BUILDING", marker)
 	}
-	lookup, err := adapter.LookupSemanticCoverage(context.Background(), SemanticCoverageLookupOptions{
+	lookup, err := adapter.LookupSemanticCoverage(context.Background(), catalog.SemanticCoverageLookupOptions{
 		Project: identity.Project, DatasetGeneration: identity.DatasetGeneration, BuildID: identity.BuildID,
 		SchemaIdentity: identity.SchemaIdentity, SourceKind: identity.SourceKind,
 		AuthResourcePaths: []string{contribution.Identity.AuthResourcePath},
-		Candidates:        []SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
+		Candidates:        []catalog.SemanticCoverageCandidatePath{{ResourceType: contribution.Identity.ResourceType, CanonicalPath: "coding[].code"}},
 	})
-	if err != nil || lookup.State != SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
+	if err != nil || lookup.State != catalog.SemanticCoverageBuildBuilding || len(lookup.Candidates[0].References) != 0 {
 		t.Fatalf("lookup after failed replay = %+v err=%v, want BUILDING and no refs", lookup, err)
 	}
 }
@@ -1370,7 +1370,7 @@ func (c *semanticCoverageTestClient) Bootstrap(_ context.Context, spec store.Boo
 
 type semanticCoverageMemoryClient struct {
 	documents       map[string]semanticCoverageStoredDocument
-	retainedSources map[string][]RetainedSemanticInventoryRow
+	retainedSources map[string][]catalog.RetainedSemanticInventoryRow
 	events          []string
 	insertAttempts  int
 	failInsertAt    int
@@ -1380,7 +1380,7 @@ type semanticCoverageMemoryClient struct {
 func newSemanticCoverageMemoryClient() *semanticCoverageMemoryClient {
 	return &semanticCoverageMemoryClient{
 		documents:       make(map[string]semanticCoverageStoredDocument),
-		retainedSources: make(map[string][]RetainedSemanticInventoryRow),
+		retainedSources: make(map[string][]catalog.RetainedSemanticInventoryRow),
 	}
 }
 
@@ -1392,7 +1392,7 @@ func (c *semanticCoverageMemoryClient) QueryRows(_ context.Context, query string
 		collection := vars["@collection"].(string)
 		afterKey := vars["after_key"].(string)
 		limit := vars["limit"].(int)
-		rows := append([]RetainedSemanticInventoryRow(nil), c.retainedSources[collection]...)
+		rows := append([]catalog.RetainedSemanticInventoryRow(nil), c.retainedSources[collection]...)
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Key < rows[j].Key })
 		count := 0
 		for _, source := range rows {
