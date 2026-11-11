@@ -121,23 +121,15 @@ type exec04srvService struct {
 	executor *dataframepostgres.Executor
 }
 
-func newExec04srvService(t *testing.T) *exec04srvService {
-	t.Helper()
-	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-	if raw == "" {
-		t.Skip("set LOOM_TEST_POSTGRES_URL to run the PostgreSQL 18 server-preview wiring tests")
-	}
-	exec04srvCaptureBaseline(raw)
-	if exec04srvBaselineErr != nil {
-		t.Fatalf("capture pg_database baseline: %v", exec04srvBaselineErr)
-	}
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
-		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
-	}
-	var secrets []string
-	secrets = append(secrets, raw)
-	if u.User != nil {
+// exec04srvScrubberFor returns an error formatter that replaces every
+// credential-bearing form of the raw test service URL with <redacted>, so no
+// fatal path echoes credentials into the test log: connection failures from
+// pgxpool.New / pgx.ParseConfig on the raw URL can quote the full URL.
+// addSecret registers further forms (the derived isolated-database DSN) for
+// scrubbing.
+func exec04srvScrubberFor(raw string) (func(any) string, func(string)) {
+	secrets := []string{raw}
+	if u, err := url.Parse(raw); err == nil && u.User != nil {
 		secrets = append(secrets, u.User.String())
 		if pw, ok := u.User.Password(); ok && pw != "" {
 			secrets = append(secrets, pw)
@@ -151,6 +143,46 @@ func newExec04srvService(t *testing.T) *exec04srvService {
 			}
 		}
 		return s
+	}
+	return scrub, func(s string) { secrets = append(secrets, s) }
+}
+
+// TestExec04srvScrubberHidesCredentialForms pins the scrubber contract for
+// the credential-bearing URL forms: every verbatim occurrence of the raw
+// URL, the userinfo, the bare password, and registered derived DSNs must be
+// replaced, so no error path that echoes a pool or config failure can print
+// a credential. Offline string check: never contacts a service.
+func TestExec04srvScrubberHidesCredentialForms(t *testing.T) {
+	raw := "postgres://verify_user:S3cr3t-Pw@db.internal:5432/loomsvc?sslmode=require"
+	scrub, addSecret := exec04srvScrubberFor(raw)
+	dsn := "postgres://verify_user:S3cr3t-Pw@db.internal:5432/verify_exec04_srv_it"
+	addSecret(dsn)
+	probe := fmt.Errorf("cannot parse `%s`: pq: auth failed for %s via %s", raw, "verify_user:S3cr3t-Pw", dsn)
+	got := scrub(probe)
+	for _, secret := range []string{raw, "verify_user:S3cr3t-Pw", "S3cr3t-Pw", dsn} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("scrubbed text still contains credential form %q: %s", secret, got)
+		}
+	}
+	if !strings.Contains(got, "<redacted>") {
+		t.Fatalf("scrubbed text lost the redaction marker: %s", got)
+	}
+}
+
+func newExec04srvService(t *testing.T) *exec04srvService {
+	t.Helper()
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		t.Skip("set LOOM_TEST_POSTGRES_URL to run the PostgreSQL 18 server-preview wiring tests")
+	}
+	scrub, addSecret := exec04srvScrubberFor(raw)
+	exec04srvCaptureBaseline(raw)
+	if exec04srvBaselineErr != nil {
+		t.Fatalf("capture pg_database baseline: %s", scrub(exec04srvBaselineErr))
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 	fail := func(step string, err error) {
 		t.Fatalf("%s: %s", step, scrub(err))
@@ -200,7 +232,7 @@ func newExec04srvService(t *testing.T) *exec04srvService {
 	}
 	u.Path = "/" + dbName
 	dsn := u.String()
-	secrets = append(secrets, dsn)
+	addSecret(dsn)
 
 	iso, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -423,15 +455,16 @@ func TestZZPostgresPreviewServerZeroLeftoverFixtures(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	scrub, _ := exec04srvScrubberFor(raw)
 	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
-		t.Fatalf("connect for audit: %v", err)
+		t.Fatalf("connect for audit: %s", scrub(err))
 	}
 	defer admin.Close()
 	for db := range exec04srvRegistrySnapshot() {
 		var count int
 		if err := admin.QueryRow(ctx, "SELECT count(*) FROM pg_database WHERE datname = $1", db).Scan(&count); err != nil {
-			t.Fatalf("audit %s: %v", db, err)
+			t.Fatalf("audit %s: %s", db, scrub(err))
 		}
 		if count != 0 {
 			t.Errorf("owned fixture database %s survived", db)
@@ -443,19 +476,19 @@ func TestZZPostgresPreviewServerZeroLeftoverFixtures(t *testing.T) {
 	}
 	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec04\\_srv\\_%' ESCAPE '\\'")
 	if err != nil {
-		t.Fatalf("audit sweep: %v", err)
+		t.Fatalf("audit sweep: %s", scrub(err))
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("audit scan: %v", err)
+			t.Fatalf("audit scan: %s", scrub(err))
 		}
 		if !baseline[name] {
 			t.Errorf("unregistered survivor under owned prefix: %s", name)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		t.Fatalf("audit rows: %v", err)
+		t.Fatalf("audit rows: %s", scrub(err))
 	}
 }
