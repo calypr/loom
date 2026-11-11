@@ -35,9 +35,18 @@ import (
 // (objects_test.go obj11RunDeltaAudit) wraps that quartet around the run
 // over its own disjoint obj11_it_* namespace — and asserts the namespace
 // starts empty, since this ticket owns the prefix alone (ruling D5).
+// pg-sql-19's delta-scoped audit (coded_group_test.go
+// coded19RunDeltaAudit) wraps the whole chain around the run over its own
+// disjoint coded19_it_* namespace. pg-sql-19's hook is declared the 6th in
+// the composed chain (outermost; merge order
+// sets08→unp→graph20→obj11→coded19 — sql10 has not landed), so a conflict
+// here is a seam in the wrapping text only: every hook keeps its own
+// namespace and none audits another's.
 func TestMain(m *testing.M) {
-	code := obj11RunDeltaAudit(func() int {
-		return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	code := coded19RunDeltaAudit(func() int {
+		return obj11RunDeltaAudit(func() int {
+			return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+		})
 	})
 	if err := auditNoLeftoverVerifySQL05(); err != nil {
 		fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
