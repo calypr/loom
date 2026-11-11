@@ -94,6 +94,15 @@ func TestPostgreSQLConfigSchemasConsumablePairAndFailClosed(t *testing.T) {
 			wantSubstrings: []string{"must name distinct schemas"},
 		},
 		{
+			// The assignment trims before the factory sees the pair, so a
+			// whitespace-only-differing pair must get THIS precise message
+			// at validate time, not the generic not-wired sentinel after
+			// the trimmed names collapse (review e22c4825 optional 3).
+			name:           "whitespace-only-differing pair gets the precise distinct-schema refusal",
+			schemas:        map[string]string{"source": " shared ", "dataset_release": "shared"},
+			wantSubstrings: []string{"must name distinct schemas"},
+		},
+		{
 			name:           "explorer_control entry rejected: not consumed by any factory",
 			schemas:        map[string]string{"explorer_control": "loom_explorer"},
 			wantSubstrings: []string{"explorer_control", "not consumed by any production factory"},

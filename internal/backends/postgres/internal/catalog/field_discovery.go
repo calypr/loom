@@ -136,12 +136,20 @@ func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts cata
 			ErrAllGenerationsUnsupported, opts.Project)
 	}
 	// Every recorded row of the scope is a path witness regardless of
-	// record type or concrete-type law: the reference COLLECT spans the
-	// whole collection and keeps paths from non-concrete rows too.
+	// record type or concrete-type law: existingAuthResourcePathsAQL has
+	// no resource_type filter at all and COLLECTs auth_resource_path over
+	// the whole project/generation scope, keeping paths from non-concrete
+	// rows (custom, backbone, abstract) too. The read therefore uses the
+	// persistence boundary's explicit AllResourceTypes mode -- restricting
+	// to fhirschema.ResourceTypes() would silently drop a path that only
+	// exists on non-concrete rows, and this lister feeds scope resolution
+	// through wireAuth (review r4543172882). The concrete-type law stays
+	// exactly where the reference applies it: the silent skip inside
+	// DiscoverFields, never here.
 	filter := storepostgres.FieldProfileFilter{
 		Project:                       opts.Project,
 		DatasetGeneration:             datasetGeneration,
-		ResourceTypes:                 fhirschema.ResourceTypes(),
+		AllResourceTypes:              true,
 		AuthResourcePathsUnrestricted: catalog.ExplicitAuthResourcePathsUnrestricted(true),
 	}
 	rows, err := s.profiles.ReadFieldProfileRowsFiltered(ctx, filter)

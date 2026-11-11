@@ -534,7 +534,13 @@ func (p PostgreSQLConfig) validate() error {
 	if strings.TrimSpace(source) == "" || strings.TrimSpace(manifest) == "" {
 		return errors.New("server.postgresql.schemas: the source and dataset_release entries cannot be blank")
 	}
-	if source == manifest {
+	// Compare the TRIMMED values: the route's assignment trims before
+	// handing the pair to the factory, so names that differ only by
+	// surrounding whitespace would collapse to one schema downstream and
+	// surface as the generic not-wired sentinel. Refusing them here keeps
+	// the precise shared-schema message for the operator
+	// (review e22c4825 optional 3; both paths already failed closed).
+	if strings.TrimSpace(source) == strings.TrimSpace(manifest) {
 		return errors.New("server.postgresql.schemas: source and dataset_release must name distinct schemas; their pinned migration ledgers disagree, and the shared-schema refusal stays authoritative at storepostgres.ValidateAssignment")
 	}
 	return nil

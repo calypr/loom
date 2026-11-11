@@ -181,6 +181,47 @@ func TestPostgreSQLFirstQueryRouteScrubberPinsCredentials(t *testing.T) {
 		}
 	}
 
+	// Percent-encoded echo legs (review e22c4825 optional 2): a driver
+	// echoing the credential parsed from the connection URL renders the
+	// ESCAPED form, which raw-string scrubbing alone misses. The fixture
+	// password is escape-invariant and cannot exercise this, so pin a
+	// variant whose password requires escaping in both encodings.
+	esc := qRoutePostgreSQLConfig()
+	esc.Password = "qroute p@ss:w0rd/s?x=&%"
+	escDSN := postgresFirstQueryRouteDSN(esc)
+	queryEscaped, pathEscaped := url.QueryEscape(esc.Password), url.PathEscape(esc.Password)
+	if queryEscaped == esc.Password || pathEscaped == esc.Password {
+		t.Fatalf("variant password must require escaping in both encodings: query=%q path=%q", queryEscaped, pathEscaped)
+	}
+	// The DSN's own userinfo follows the URL package's user-password
+	// encoding (a third shape); the scrubber must not depend on which
+	// encoding an echo used, so the legs below drive the escaped forms
+	// directly alongside the full DSN.
+	if !strings.Contains(escDSN, esc.User) {
+		t.Fatalf("variant DSN lost the user: %q", escDSN)
+	}
+	for _, raw := range []string{
+		"auth failed for user " + esc.User + ":" + queryEscaped + " (sqlstate 28P01)",
+		"server rejected password " + pathEscaped,
+		"driver echoed parsed credential " + esc.User + ":" + pathEscaped + " while dialing " + escDSN,
+	} {
+		got := postgresFirstQueryRouteError(fmt.Errorf("%s: %w", raw, cause), esc, escDSN)
+		if got == nil {
+			t.Fatalf("scrubber dropped a non-nil error %q", raw)
+		}
+		for _, secret := range []string{escDSN, esc.Password, queryEscaped, pathEscaped} {
+			if secret != "" && strings.Contains(got.Error(), secret) {
+				t.Fatalf("scrubbed error %q still contains credential %q", got.Error(), secret)
+			}
+		}
+		if !strings.Contains(got.Error(), "<redacted>") || !strings.Contains(got.Error(), "dial failed") {
+			t.Fatalf("scrubbed error %q lost the marker or the cause text", got.Error())
+		}
+		if !errors.Is(got, cause) {
+			t.Fatalf("scrubbed error %v lost the original cause identity", got)
+		}
+	}
+
 	// Secret-free errors pass through by identity: no fabricated wrapper.
 	plain := errors.New("schema loom_source does not exist")
 	if got := postgresFirstQueryRouteError(plain, pg, dsn); got != plain {

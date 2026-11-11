@@ -1076,13 +1076,27 @@ func (e *redactedRouteError) Unwrap() error { return e.cause }
 // postgresFirstQueryRouteError scrubs every credential-bearing form of the
 // connection configuration from an error text. The factory's own open path
 // already redacts the DSN password; this is the composition's defensive
-// second layer so no route error can echo a credential.
+// second layer so no route error can echo a credential. The percent-encoded
+// forms are covered too: url.UserPassword stores the userinfo in escaped
+// form, so a driver echo of the parsed credential shows the escaped shape,
+// not the raw one (review e22c4825 optional 2, defense-in-depth).
 func postgresFirstQueryRouteError(err error, pg PostgreSQLConfig, dsn string) error {
 	if err == nil {
 		return nil
 	}
 	text := err.Error()
-	for _, secret := range []string{dsn, pg.Password, pg.User + ":" + pg.Password} {
+	queryEscaped := url.QueryEscape(pg.Password)
+	pathEscaped := url.PathEscape(pg.Password)
+	secrets := []string{
+		dsn,
+		pg.Password,
+		pg.User + ":" + pg.Password,
+		queryEscaped,
+		pathEscaped,
+		pg.User + ":" + queryEscaped,
+		pg.User + ":" + pathEscaped,
+	}
+	for _, secret := range secrets {
 		if secret != "" {
 			text = strings.ReplaceAll(text, secret, "<redacted>")
 		}

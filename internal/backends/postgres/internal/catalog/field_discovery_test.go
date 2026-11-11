@@ -325,6 +325,18 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 			Project: fdProject, DatasetGeneration: fdGenA, AuthResourcePath: "/fhir/research",
 			ResourceType: "Patient", EnrichmentComplete: &complete, EnrichmentTruncated: truncated,
 		})
+	// A path witnessed ONLY on a non-concrete resource_type row must
+	// still list: the reference existingAuthResourcePathsAQL carries no
+	// resource_type filter, and this lister feeds wireAuth scope
+	// resolution, so dropping such a path would treat a legitimate scope
+	// as non-existent for restricted principals (review r4543172882).
+	// "CustomCarePlan" is outside fhirschema.ResourceTypes(); the write
+	// path persists it (the row validator requires only a non-blank
+	// type). DiscoverFields' silent concrete-type skip stays where the
+	// reference puts it -- that leg (named-type/pivot/concrete laws)
+	// pins the discovery side.
+	fdWrite(t, s, fdScope(fdProject, fdGenA, "/fhir/custom", "CustomCarePlan"),
+		fdDoc(fdProject, fdGenA, "/fhir/custom", "CustomCarePlan", "status", 2))
 	// Foreign project/generation must never appear.
 	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
 	fdWrite(t, s, fdScope(fdProject, "generation-z", fdPath1, "Patient"), fdDoc(fdProject, "generation-z", fdPath1, "Patient", "gender", 1))
@@ -336,7 +348,9 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 	if err != nil {
 		s.fail("auth-path listing", err)
 	}
-	want := []string{fdPath1, fdPath2, "/fhir/research"}
+	// Ascending order is the contract: /fhir/clinical < /fhir/custom <
+	// /fhir/finance < /fhir/research.
+	want := []string{fdPath1, "/fhir/custom", fdPath2, "/fhir/research"}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("auth paths = %v, want sorted distinct %v", paths, want)
 	}
