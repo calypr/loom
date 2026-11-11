@@ -803,8 +803,12 @@ func requireGroup13Refusal(t *testing.T, plan ir.PhysicalPlan, want string) {
 	// surface (so the door dispatches), RenderPhysicalPlan must refuse
 	// with the identical message. Mutations that rename the stage kind
 	// away are direct-door cells only (the sequence then never reaches
-	// the group door).
-	if groupPlanMentionsStage(plan) {
+	// the group door). Multi-stage sequences are the exception since
+	// pg-sql-16: the composition door (stage_sequence.go) claims them
+	// ahead of this slice, so their entry refusal is the composition
+	// register's own message (pinned in stage_sequence_test.go) while the
+	// group door keeps the single-stage L-13.1 message for direct calls.
+	if groupPlanMentionsStage(plan) && !stageSequenceCompositionMentions(plan) {
 		_, entryErr := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
 		if entryErr == nil || entryErr.Error() != err.Error() {
 			t.Fatalf("entry door refused differently: entry=%v dispatch=%v", entryErr, err)

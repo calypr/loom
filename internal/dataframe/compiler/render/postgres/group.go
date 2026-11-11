@@ -575,7 +575,6 @@ type groupColumn struct {
 // identity-ordered positional projection.
 func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error) {
 	stage := plan.StageSequence.Stages[0]
-	group := stage.Group
 
 	// --- source region: the spine's own arms, untouched. ---
 	if err := r.renderRootScan(plan, *plan.Operations[0].RootScan); err != nil {
@@ -631,11 +630,6 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	if err != nil {
 		return "", err
 	}
-	nameToColumn := map[string]*groupColumn{}
-	for i := range columns {
-		nameToColumn[columns[i].name] = &columns[i]
-	}
-
 	resource := r.storage.Resource
 	selectList := make([]string, 0, len(columns))
 	for i := range columns {
@@ -654,12 +648,67 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	}
 	source += " ORDER BY " + strings.Join(r.windowOrder(), ", ") + r.window.limitClause
 
+	region, err := r.renderGroupAggregateRegion(plan, stage, columns, source, "g_",
+		plan.StageSequence.FinalColumns, groupRowIDColumn)
+	if err != nil {
+		return "", err
+	}
+	r.outputColumns = region.names
+	final := region.final + " ORDER BY " + strings.Join(region.order, ", ")
+	if plan.StageSequence.PreviewLimitBindKey != "" {
+		limit := plan.BindVars[plan.StageSequence.PreviewLimitBindKey].(int)
+		index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(limit)}, "")
+		final += " LIMIT $" + strconv.Itoa(index)
+	}
+	return "WITH " + strings.Join(region.ctes, ", ") + " " + final, nil
+}
+
+// groupRegionResult is one rendered grouped-aggregate region: the WITH
+// members (source, guarded rows, optional InputMany pools, grouped row) in
+// dependency order, the positional final SELECT over them, the registered
+// ORDER BY terms, and the positional output names. The inline single-stage
+// door (renderGroupStatement) and the composed stage builder
+// (stage_sequence.go) share this one emitter through
+// renderGroupAggregateRegion: the inline door passes the group slice's own
+// prefix "g_" plus the spine-built source text and FinalColumns and renders
+// byte-identically to the pre-composition emitter (the byte-preservation
+// law); composition passes a per-stage prefix and a prior-CTE source text.
+type groupRegionResult struct {
+	ctes        []string
+	final       string
+	order       []string
+	names       []string
+	keyCollates []string
+}
+
+// renderGroupAggregateRegion renders the registered grouped-aggregate
+// region (the guarded rows, the aggregates and row values, the construction
+// identity, and the positional final projection) over a caller-supplied
+// source SELECT and relation prefix. Every relation and internal column
+// name is prefix-minted by the renderer, never plan data. columns is the
+// positional name->column map for the source relation; identityColumn names
+// the hidden stable row-identity output.
+func (r *planRenderer) renderGroupAggregateRegion(
+	plan ir.PhysicalPlan,
+	stage ir.PhysicalConstructionStage,
+	columns []groupColumn,
+	sourceText string,
+	prefix string,
+	outputColumns []ir.PhysicalStageColumn,
+	identityColumn string,
+) (groupRegionResult, error) {
+	group := stage.Group
+	nameToColumn := map[string]*groupColumn{}
+	for i := range columns {
+		nameToColumn[columns[i].name] = &columns[i]
+	}
+
 	// --- resolve key/aggregate/row-value inputs through the name map. ---
 	keyColumns := make([]*groupColumn, len(group.Keys))
 	for i, key := range group.Keys {
 		column, err := groupResolveColumn(nameToColumn, key.InputColumn)
 		if err != nil {
-			return "", fmt.Errorf("group key %q: %w", key.OutputColumn, err)
+			return groupRegionResult{}, fmt.Errorf("group key %q: %w", key.OutputColumn, err)
 		}
 		keyColumns[i] = column
 	}
@@ -672,13 +721,14 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	for i, aggregate := range group.Aggregates {
 		var column *groupColumn
 		if aggregate.InputColumn != "" {
-			column, err = groupResolveColumn(nameToColumn, aggregate.InputColumn)
+			resolved, err := groupResolveColumn(nameToColumn, aggregate.InputColumn)
 			if err != nil {
-				return "", fmt.Errorf("group aggregate %q: %w", aggregate.Output, err)
+				return groupRegionResult{}, fmt.Errorf("group aggregate %q: %w", aggregate.Output, err)
 			}
+			column = resolved
 		}
 		aggregates = append(aggregates, groupedAggregate{
-			aggregate: aggregate, column: column, alias: "g_a" + strconv.Itoa(i),
+			aggregate: aggregate, column: column, alias: prefix + "a" + strconv.Itoa(i),
 		})
 	}
 	type groupedRowValue struct {
@@ -690,10 +740,10 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	for i, rowValue := range group.RowValues {
 		column, err := groupResolveColumn(nameToColumn, rowValue.InputColumn)
 		if err != nil {
-			return "", fmt.Errorf("group row value %q: %w", rowValue.Output, err)
+			return groupRegionResult{}, fmt.Errorf("group row value %q: %w", rowValue.Output, err)
 		}
 		rowValues = append(rowValues, groupedRowValue{
-			rowValue: rowValue, column: column, alias: "g_rv" + strconv.Itoa(i),
+			rowValue: rowValue, column: column, alias: prefix + "rv" + strconv.Itoa(i),
 		})
 	}
 
@@ -706,7 +756,7 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	for i, key := range group.Keys {
 		typedRead, witness, err := r.groupColumnRead(keyColumns[i], key.Kind, groupKeyTypeTag, dollar)
 		if err != nil {
-			return "", fmt.Errorf("group key %q: %w", key.OutputColumn, err)
+			return groupRegionResult{}, fmt.Errorf("group key %q: %w", key.OutputColumn, err)
 		}
 		keyReads[i] = typedRead
 		if key.Kind == "STRING" {
@@ -729,7 +779,7 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 		}
 		_, witness, err := r.groupColumnRead(item.column, item.aggregate.InputKind, groupValueTypeTag, dollar)
 		if err != nil {
-			return "", fmt.Errorf("group aggregate %q: %w", item.aggregate.Output, err)
+			return groupRegionResult{}, fmt.Errorf("group aggregate %q: %w", item.aggregate.Output, err)
 		}
 		if witness != "" {
 			conjuncts = append(conjuncts, witness)
@@ -739,7 +789,7 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 		if !item.rowValue.InputMany {
 			_, witness, err := r.groupColumnRead(item.column, item.rowValue.InputKind, groupValueTypeTag, dollar)
 			if err != nil {
-				return "", fmt.Errorf("group row value %q: %w", item.rowValue.Output, err)
+				return groupRegionResult{}, fmt.Errorf("group row value %q: %w", item.rowValue.Output, err)
 			}
 			if witness != "" {
 				conjuncts = append(conjuncts, witness)
@@ -772,7 +822,7 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 		seenConjunct[conjunct] = true
 		deduped = append(deduped, conjunct)
 	}
-	rows := "SELECT * FROM g_src"
+	rows := "SELECT * FROM " + prefix + "src"
 	if len(deduped) > 0 {
 		rows += " WHERE " + strings.Join(deduped, " AND ")
 	}
@@ -781,25 +831,25 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	grpSelects := make([]string, 0, len(keyReads)+1+len(aggregates)+len(rowValues))
 	keyAliases := make([]string, 0, len(keyReads))
 	for i := range keyReads {
-		alias := "g_k" + strconv.Itoa(i)
+		alias := prefix + "k" + strconv.Itoa(i)
 		grpSelects = append(grpSelects, keyReads[i]+" AS "+alias)
 		keyAliases = append(keyAliases, alias)
 	}
 	for _, item := range aggregates {
 		expression, err := r.groupAggregateExpression(item.aggregate, item.column, dollar)
 		if err != nil {
-			return "", fmt.Errorf("group aggregate %q: %w", item.aggregate.Output, err)
+			return groupRegionResult{}, fmt.Errorf("group aggregate %q: %w", item.aggregate.Output, err)
 		}
 		grpSelects = append(grpSelects, expression+" AS "+item.alias)
 	}
 	var manyCTEs, manyJoins []string
 	for i, item := range rowValues {
 		if item.rowValue.InputMany {
-			name := "g_m" + strconv.Itoa(i)
+			name := prefix + "m" + strconv.Itoa(i)
 			selectText, singleValueRef, err := r.groupManyRowValuePoolFor(item.rowValue.Policy, item.rowValue.InputKind,
-				item.column, keyReads, name, dollar)
+				item.column, keyReads, name, prefix+"rows", dollar)
 			if err != nil {
-				return "", fmt.Errorf("group row value %q: %w", item.rowValue.Output, err)
+				return groupRegionResult{}, fmt.Errorf("group row value %q: %w", item.rowValue.Output, err)
 			}
 			manyCTEs = append(manyCTEs, name+" AS ("+selectText+")")
 			grpSelects = append(grpSelects, singleValueRef+" AS "+item.alias)
@@ -817,11 +867,11 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 		expression, err := groupRowValueExpressionFor(item.rowValue.Policy, item.rowValue.InputKind,
 			item.rowValue.InputMany, item.column, dollar)
 		if err != nil {
-			return "", fmt.Errorf("group row value %q: %w", item.rowValue.Output, err)
+			return groupRegionResult{}, fmt.Errorf("group row value %q: %w", item.rowValue.Output, err)
 		}
 		grpSelects = append(grpSelects, expression+" AS "+item.alias)
 	}
-	grouped := "SELECT " + strings.Join(grpSelects, ", ") + " FROM g_rows"
+	grouped := "SELECT " + strings.Join(grpSelects, ", ") + " FROM " + prefix + "rows"
 	if len(manyJoins) > 0 {
 		grouped += " " + strings.Join(manyJoins, " ")
 	}
@@ -863,8 +913,8 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 		return nil
 	}
 	for i, key := range group.Keys {
-		if err := appendKeyPart(key.OutputColumn, "g_k"+strconv.Itoa(i)); err != nil {
-			return "", err
+		if err := appendKeyPart(key.OutputColumn, prefix+"k"+strconv.Itoa(i)); err != nil {
+			return groupRegionResult{}, err
 		}
 	}
 	identity := "'[' || " + strings.Join(identityParts, " || ',' || ") + " || ']'"
@@ -872,7 +922,7 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	// --- final positional projection over FinalColumns. ---
 	expressions := map[string]string{}
 	for i, key := range group.Keys {
-		expressions[key.OutputColumn] = "g.g_k" + strconv.Itoa(i)
+		expressions[key.OutputColumn] = "g." + prefix + "k" + strconv.Itoa(i)
 	}
 	for _, item := range aggregates {
 		expressions[item.aggregate.Output] = "g." + item.alias
@@ -880,30 +930,29 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 	for _, item := range rowValues {
 		expressions[item.rowValue.Output] = "g." + item.alias
 	}
-	expressions[groupRowIDColumn] = identity
-	selects := make([]string, 0, len(plan.StageSequence.FinalColumns))
-	names := make([]string, 0, len(plan.StageSequence.FinalColumns))
-	for _, column := range plan.StageSequence.FinalColumns {
+	expressions[identityColumn] = identity
+	selects := make([]string, 0, len(outputColumns))
+	names := make([]string, 0, len(outputColumns))
+	for _, column := range outputColumns {
 		expression, ok := expressions[column.Name]
 		if !ok {
-			return "", fmt.Errorf("%w: group final column %q is not a registered key, reducer, row value, or the stable identity",
+			return groupRegionResult{}, fmt.Errorf("%w: group final column %q is not a registered key, reducer, row value, or the stable identity",
 				ErrUnsupportedPostgresPlan, column.Name)
 		}
 		for _, seen := range names {
 			if seen == column.Name {
-				return "", fmt.Errorf("%w: group final column %q is declared twice", ErrUnsupportedPostgresPlan, column.Name)
+				return groupRegionResult{}, fmt.Errorf("%w: group final column %q is declared twice", ErrUnsupportedPostgresPlan, column.Name)
 			}
 		}
 		selects = append(selects, expression+` AS "c`+strconv.Itoa(len(selects))+`"`)
 		names = append(names, column.Name)
 	}
 	if len(names) != len(group.Keys)+len(aggregates)+len(rowValues)+1 {
-		return "", fmt.Errorf("%w: the registered slice emits every key, reducer, and row value plus the hidden stable identity",
+		return groupRegionResult{}, fmt.Errorf("%w: the registered slice emits every key, reducer, and row value plus the hidden stable identity",
 			ErrUnsupportedPostgresPlan)
 	}
-	r.outputColumns = names
 
-	final := "SELECT " + strings.Join(selects, ", ") + " FROM g_grp AS g"
+	final := "SELECT " + strings.Join(selects, ", ") + " FROM " + prefix + "grp AS g"
 	// Key terms sort ASC NULLS FIRST: Arango's ASC total order places
 	// null before every value (its documented sort lattice), so NULLS
 	// FIRST keeps the KEY positions in the AQL order; the identity
@@ -913,20 +962,14 @@ func (r *planRenderer) renderGroupStatement(plan ir.PhysicalPlan) (string, error
 		order = append(order, "g."+alias+keyCollates[i]+" ASC NULLS FIRST")
 	}
 	order = append(order, identity+` COLLATE "C" ASC`)
-	final += " ORDER BY " + strings.Join(order, ", ")
-	if plan.StageSequence.PreviewLimitBindKey != "" {
-		limit := plan.BindVars[plan.StageSequence.PreviewLimitBindKey].(int)
-		index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(limit)}, "")
-		final += " LIMIT $" + strconv.Itoa(index)
-	}
 
-	sql := "WITH g_src AS (" + source +
-		"), g_rows AS (" + rows + ")"
-	for _, cte := range manyCTEs {
-		sql += ", " + cte
+	ctes := []string{
+		prefix + "src AS (" + sourceText + ")",
+		prefix + "rows AS (" + rows + ")",
 	}
-	sql += ", g_grp AS (" + grouped + ") " + final
-	return sql, nil
+	ctes = append(ctes, manyCTEs...)
+	ctes = append(ctes, prefix+"grp AS ("+grouped+")")
+	return groupRegionResult{ctes: ctes, final: final, order: order, names: names, keyCollates: keyCollates}, nil
 }
 
 // materializeGroupSource renders the source RETURN projections through the
@@ -1257,7 +1300,7 @@ func groupRowValueCollateAndArrayType(kind string) (collate, arrayType string, o
 // groupRowValueExpressionFor (coordinator ruling 2026-11-11, Q4 —
 // mechanical dispatch only, shared member read, a drift is a
 // sabotage-test failure).
-func (r *planRenderer) groupManyRowValuePoolFor(policy, kind string, column *groupColumn, keyReads []string, cteName string, dollar func(int) string) (selectText, singleValueRef string, err error) {
+func (r *planRenderer) groupManyRowValuePoolFor(policy, kind string, column *groupColumn, keyReads []string, cteName string, rowsRelation string, dollar func(int) string) (selectText, singleValueRef string, err error) {
 	switch policy {
 	case "ALL", "ONE":
 	default:
@@ -1301,7 +1344,7 @@ func (r *planRenderer) groupManyRowValuePoolFor(policy, kind string, column *gro
 	// cast-free shape; the aggregates over memberRead then see only
 	// guard-passed rows, where the cast cannot raise.
 	selectText = "SELECT " + strings.Join(selects, ", ") +
-		" FROM g_rows, LATERAL jsonb_array_elements(" + groupNullRead(column) + ") _rv(item)" +
+		" FROM " + rowsRelation + ", LATERAL jsonb_array_elements(" + groupNullRead(column) + ") _rv(item)" +
 		" WHERE " + itemNull + " IS NOT NULL AND (CASE WHEN COALESCE(" + itemNull +
 		" IS NULL OR jsonb_typeof(" + itemNull + ") = " + dollar(typeBind) + "::text, false) THEN 1 ELSE " +
 		guardCast(groupValueTypeTag) + " END) > 0"

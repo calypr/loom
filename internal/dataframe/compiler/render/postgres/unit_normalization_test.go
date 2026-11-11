@@ -439,12 +439,78 @@ func TestSQL21IndexedQuantityRegistersBoundIndex(t *testing.T) {
 	}
 }
 
+// TestSQL21NegativeIndexTailArm registers the pg-sql-16 G1 closure: a
+// negative indexed selector step renders the oracle-pinned tail-index CASE
+// (oracle receipts o1-idx-*.wire, ArangoDB 3.12.4-3: arrays tail-index with
+// out-of-range null, objects read the decimal-text property, falsy/null/
+// missing read null). The step splits the path: prefix and suffix cross as
+// ordinary bound text[] chunks, the step itself is the jsonb_typeof CASE
+// with the index carried as a bound bigint — never SQL text (S7 kills an
+// inverted CASE, L7 executes the oracle classes live).
+func TestSQL21NegativeIndexTailArm(t *testing.T) {
+	projection := sql21UnitProjection(t, func(x *ir.PhysicalExtract) {
+		index := -1
+		valueSelector := spec.Selector{Steps: []spec.SelectorStep{
+			{Field: "valueQuantity", Index: &index}, {Field: "value"},
+		}}
+		systemSelector := spec.Selector{Steps: []spec.SelectorStep{
+			{Field: "valueQuantity", Index: &index}, {Field: "system"},
+		}}
+		codeSelector := spec.Selector{Steps: []spec.SelectorStep{
+			{Field: "valueQuantity", Index: &index}, {Field: "code"},
+		}}
+		x.Selector = valueSelector
+		x.UnitNormalization.OriginalValue = valueSelector
+		x.UnitNormalization.SourceSystem = systemSelector
+		x.UnitNormalization.SourceCode = codeSelector
+	})
+	binding, err := ir.NewPostgresStorageBinding("loom_offline")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	rendered, err := RenderPhysicalPlan(sql21Plan(projection), binding)
+	if err != nil {
+		t.Fatalf("RenderPhysicalPlan: %v", err)
+	}
+	sql := rendered.SQL
+	// The registered CASE, once per selector path, with the tail branch
+	// and the object property branch in their pinned shapes.
+	for _, fragment := range []string{
+		"CASE WHEN jsonb_typeof(",
+		"THEN (CASE WHEN $",
+		"< 0 THEN ",
+		"-> (jsonb_array_length(",
+		") + $",
+		") END) ELSE ",
+		"#> $",
+	} {
+		if !strings.Contains(sql, fragment) {
+			t.Fatalf("tail-arm SQL lost fragment %q:\n%s", fragment, sql)
+		}
+	}
+	// The index crosses ONLY as a bound bigint, never as SQL text.
+	var boundIndex bool
+	for _, argument := range rendered.Args {
+		if argument.Type == command.PostgreSQLParameterBigint {
+			if value, ok := argument.Value.(int64); ok && value == -1 {
+				boundIndex = true
+			}
+		}
+	}
+	if !boundIndex {
+		t.Fatalf("negative index did not cross as a bound bigint parameter:\n%s", sql)
+	}
+	if strings.Contains(sql, "[-1]") || strings.Contains(sql, "- 1)") || strings.Contains(sql, ",-1}") ||
+		strings.Contains(sql, "{-1}") {
+		t.Fatalf("negative index leaked into SQL text:\n%s", sql)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Refusal table — every row is exactly ONE mutation of the legal baseline.
 // ---------------------------------------------------------------------------
 
 func TestSQL21RefusalTable(t *testing.T) {
-	negative := -1
 	for _, caseItem := range []struct {
 		name    string
 		mutate  func(*ir.PhysicalExtract)
@@ -502,35 +568,6 @@ func TestSQL21RefusalTable(t *testing.T) {
 		{"iterated system step", func(x *ir.PhysicalExtract) {
 			x.UnitNormalization.SourceSystem = spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity"}, {Field: "system", Iterate: true}}}
 		}, nil, "scalar or indexed Quantity"},
-		{"negative value index", func(x *ir.PhysicalExtract) {
-			indexed := func(terminal string) spec.Selector {
-				return spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity", Index: &negative}, {Field: terminal}}}
-			}
-			x.Selector = indexed("value")
-			x.UnitNormalization.OriginalValue = indexed("value")
-			x.UnitNormalization.SourceSystem = indexed("system")
-			x.UnitNormalization.SourceCode = indexed("code")
-		}, nil, "tail-index semantics"},
-		{"negative system index", func(x *ir.PhysicalExtract) {
-			indexed := func(terminal string, position *int) spec.Selector {
-				return spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity", Index: position}, {Field: terminal}}}
-			}
-			positive := 0
-			x.Selector = indexed("value", &positive)
-			x.UnitNormalization.OriginalValue = indexed("value", &positive)
-			x.UnitNormalization.SourceSystem = indexed("system", &negative)
-			x.UnitNormalization.SourceCode = indexed("code", &positive)
-		}, nil, "tail-index semantics"},
-		{"negative code index", func(x *ir.PhysicalExtract) {
-			indexed := func(terminal string, position *int) spec.Selector {
-				return spec.Selector{Steps: []spec.SelectorStep{{Field: "valueQuantity", Index: position}, {Field: terminal}}}
-			}
-			positive := 0
-			x.Selector = indexed("value", &positive)
-			x.UnitNormalization.OriginalValue = indexed("value", &positive)
-			x.UnitNormalization.SourceSystem = indexed("system", &positive)
-			x.UnitNormalization.SourceCode = indexed("code", &negative)
-		}, nil, "tail-index semantics"},
 		{"empty selector", func(x *ir.PhysicalExtract) { x.Selector = spec.Selector{} }, nil, "original value must match"},
 		{"empty value steps", func(x *ir.PhysicalExtract) {
 			x.Selector = sql21Steps("valueQuantity", "value")

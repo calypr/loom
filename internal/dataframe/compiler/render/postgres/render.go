@@ -213,6 +213,24 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if graphPlanMentionsPathOperations(plan) {
 		return renderGraphPhysicalPlan(plan, storage)
 	}
+	// Whole-plan composition delegation (stage_sequence.go contract,
+	// pg-sql-16): a stage sequence with two or more construction stages is
+	// the composed shape and is rendered WHOLE by the registered
+	// composition slice — the structural twin of the graph door above, with
+	// validateStageSequencePlanSurface as the single contract behind the
+	// door (and behind renderStageSequencePhysicalPlan, entry==dispatch
+	// message equality). The door sits after the graph door and BEFORE the
+	// four inline slice doors: a composed plan is never claimed by an
+	// inline single-stage door, and the inline doors keep rendering their
+	// single-stage shapes byte-identically. Single-stage plans fall through
+	// to their inline doors; the ones no inline door claims reach this same
+	// door through the converted StageSequence refusal below (coordinator
+	// ruling 2026-11-11: the blanket refusal becomes the same total
+	// validator, so every such shape gets a typed refusal or a render — no
+	// silent path).
+	if stageSequenceCompositionMentions(plan) {
+		return renderStageSequencePhysicalPlan(plan, storage)
+	}
 	// Whole-plan coded-group delegation (coded_group.go contract,
 	// pg-sql-19): a plan whose stage sequence mentions a CODED_GROUP stage
 	// is rendered WHOLE by the registered slice — the structural twin of
@@ -292,6 +310,17 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 			return renderGroupedPivotPhysicalPlan(plan, storage)
 		}
 	}
+	// Single-stage composition claim (stage_sequence.go, pg-sql-16): the
+	// former blanket StageSequence refusal, converted per the coordinator
+	// ruling of 2026-11-11 into the SAME door a composed sequence enters.
+	// It sits BEFORE plan.Validate so validateStageSequencePlanSurface
+	// stays the first plan-facing act for every shape no inline door
+	// claimed: such a plan renders or refuses with a typed
+	// ErrUnsupportedPostgresPlan message, never a silent drop and never a
+	// partial render.
+	if plan.StageSequence != nil {
+		return renderStageSequencePhysicalPlan(plan, storage)
+	}
 	if err := plan.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
@@ -303,10 +332,6 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if plan.ClickHouseCombine != nil || plan.ClickHousePrefix != nil {
 		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
 			"%w: ClickHouse combine/prefix payloads have no PostgreSQL rendering", ErrUnsupportedPostgresPlan)
-	}
-	if plan.StageSequence != nil {
-		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
-			"%w: staged row-operator sequences are not yet implemented for PostgreSQL", ErrUnsupportedPostgresPlan)
 	}
 	if plan.PreviewSourceWindowByRootID {
 		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
@@ -367,6 +392,12 @@ type planRenderer struct {
 	// (scope_ops.go). The LET and its closing equality carry no PostgreSQL
 	// meaning; loadScope owns the scope.
 	canonicalAuthLets map[string]string
+
+	// stageRows binds each composed-construction stage row variable (pg-sql-16,
+	// stage_sequence.go) to the prior stage CTE's materialized columns. Like
+	// unpivotOutputs it is a routed read contract: a stage row is never a
+	// stored document, so its reads resolve positionally and nothing else.
+	stageRows map[string]stageRowScope
 
 	// scope is the re-read canonical scope established by loadScope (its
 	// definition and predicate mapping live in scope.go).
@@ -620,6 +651,9 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 	// Melt output reads (unpivot.go) resolve through the registered output
 	// contract, never the stored-row path; with no melt rendered the map is
 	// nil and this branch is inert.
+	if scope, ok := r.stageRows[value.Variable]; ok {
+		return r.resolveStageRowValue(scope, value)
+	}
 	if columns, ok := r.unpivotOutputs[value.Variable]; ok {
 		return r.resolveUnpivotOutputValue(columns, value)
 	}
