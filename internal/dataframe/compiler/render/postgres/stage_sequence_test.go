@@ -638,7 +638,7 @@ func TestSQL16RefusalBattery(t *testing.T) {
 		}, "the semantic family Group key is a registered named gap (L-13.3"},
 		{"group-arm-related-occurrence", func(p *ir.PhysicalPlan) {
 			p.StageSequence.Stages[1].Group.RelatedOccurrence = &ir.PhysicalStageGroupRelatedOccurrenceAdapter{}
-		}, "the related-occurrence Group adapter is a pg-sql-16 capability gap (L-13.5"},
+		}, "unreferenced related route adapter"}, // G3(c) CLOSED the door refusal: the adapter now reaches the dispatch arm, and the ir bound-field gate (physical_stage_validation.go:2143) speaks first; behind it validateStageRelatedOccurrenceAdapter is the fail-closed renderer re-read (TestSQL16RelatedOccurrenceRefusals pins its voices)
 		{"group-arm-coding-key", func(p *ir.PhysicalPlan) {
 			p.StageSequence.Stages[1].Group.CodingKey = &ir.PhysicalStageGroupCodingKey{}
 		}, "CodingKey group keys are refused at the composition payload gate"},

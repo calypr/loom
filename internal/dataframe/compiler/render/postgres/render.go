@@ -241,6 +241,22 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if codedGroupPlanMentionsStage(plan) {
 		return renderCodedGroupPhysicalPlan(plan, storage)
 	}
+	// Related-occurrence composition claim (stage_sequence.go G3(c),
+	// pg-sql-16): a stage sequence mentioning the related-occurrence Group
+	// adapter is the related-expand shape and is rendered WHOLE by the
+	// registered composition slice, whose renderStageGroup dispatch arm
+	// feeds the adapter to stage_related_occurrence.go. Multi-stage
+	// sequences already entered through the composition door above; this
+	// claim adds the single-stage shape, which the inline group door keeps
+	// refusing on direct call (defense-in-depth re-read, group.go). It sits
+	// AFTER the graph, composition, and coded-group doors so those doors'
+	// voices stay byte-identical for the shapes they claim, and BEFORE the
+	// group door so no GROUP-with-adapter plan is claimed inline.
+	// validateStageSequencePlanSurface behind renderStageSequencePhysicalPlan
+	// stays the single contract (entry==dispatch message equality).
+	if stageSequenceRelatedOccurrenceMentions(plan) {
+		return renderStageSequencePhysicalPlan(plan, storage)
+	}
 	// Whole-plan group delegation (group.go contract, pg-sql-13): a plan
 	// whose stage sequence mentions a GROUP stage is rendered WHOLE by the
 	// registered slice — the structural twin of the two doors above, with

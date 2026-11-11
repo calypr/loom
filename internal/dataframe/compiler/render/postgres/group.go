@@ -366,6 +366,12 @@ func validateGroupPayload(stage ir.PhysicalConstructionStage, bindVars map[strin
 		return fmt.Errorf("%w: Group supports at most one coded identity key (ir/physical_stage_validation.go:1475 re-read at the door)",
 			ErrUnsupportedPostgresPlan)
 	}
+	// L-13.5 enabling condition CLOSED by pg-sql-16 G3(c): the composed
+	// door dispatches the adapter (stage_sequence.go renderStageGroup,
+	// stage_related_occurrence.go), and the RenderPhysicalPlan entry routes
+	// every adapter-mentioning sequence there ahead of this door. This
+	// re-read stays as the direct-call defense-in-depth refusal — a shape
+	// that reaches the inline slice speaks the registered gap voice.
 	if group.RelatedOccurrence != nil {
 		return fmt.Errorf("%w: the related-occurrence Group adapter is a pg-sql-16 capability gap (L-13.5; correlated-hop child-set contracts) and is refused, never partially rendered",
 			ErrUnsupportedPostgresPlan)

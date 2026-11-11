@@ -172,6 +172,27 @@ func stageSequenceCompositionMentions(plan ir.PhysicalPlan) bool {
 	return plan.StageSequence != nil && len(plan.StageSequence.Stages) >= 2
 }
 
+// stageSequenceRelatedOccurrenceMentions reports the G3(c) claim: a stage
+// sequence with at least one GROUP stage carrying the related-occurrence
+// adapter. The composition door above already claims every multi-stage
+// sequence, so in practice this adds the SINGLE-stage related-occurrence
+// shape, routing it to the composition slice whose renderStageGroup
+// dispatch arm owns the adapter (stage_related_occurrence.go); the inline
+// group door's L-13.5 re-read stays as the direct-call defense. Every plan
+// this mentions is judged by the single total contract behind
+// renderStageSequencePhysicalPlan — entry==dispatch message equality.
+func stageSequenceRelatedOccurrenceMentions(plan ir.PhysicalPlan) bool {
+	if plan.StageSequence == nil {
+		return false
+	}
+	for _, stage := range plan.StageSequence.Stages {
+		if stage.Group != nil && stage.Group.RelatedOccurrence != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // renderStageSequencePhysicalPlan is the single composition door behind
 // both entry points (the RenderPhysicalPlan hook and the direct door
 // tests). Gate order mirrors the other slice doors: storage validation,
@@ -608,9 +629,16 @@ func validateStageKindPayload(stage ir.PhysicalConstructionStage) error {
 		if stage.Group.SemanticKey != nil {
 			return fmt.Errorf("the semantic family Group key is a registered named gap (L-13.3; enabling contract: the semantic membership walk and matcher) and is refused, never partially rendered")
 		}
-		if stage.Group.RelatedOccurrence != nil {
-			return fmt.Errorf("the related-occurrence Group adapter is a pg-sql-16 capability gap (L-13.5; correlated-hop child-set contracts) and is refused, never partially rendered")
-		}
+		// L-13.5 enabling condition (pg-sql-16 G3(c), 2026-11-11): the
+		// related-occurrence Group adapter is REGISTERED here — the
+		// renderStageGroup dispatch arm feeds it to
+		// renderStageGroupRelatedOccurrence, whose fail-closed
+		// validateStageRelatedOccurrenceAdapter re-read is the single
+		// contract behind the door (an adapter outside the registered
+		// shape refuses with a typed ErrUnsupportedPostgresPlan, never a
+		// silent drop: the L-13.2 law is discharged by the dispatch arm's
+		// presence). The inline single-stage door keeps its own
+		// defense-in-depth re-read (group.go) for direct door callers.
 		if stage.Group.CodingKey != nil {
 			return fmt.Errorf("CodingKey group keys are refused at the composition payload gate until their registered arm lands (group.go:444 twin, wave law)")
 		}
@@ -807,7 +835,14 @@ func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (strin
 }
 
 // stageTerminalOrder renders the registered terminal ORDER BY terms over the
-// last stage's materialized columns.
+// last stage's materialized columns. A related-occurrence GROUP keeps these
+// exact terms: keys + row identity is already total over the group rows, the
+// adapter's parent-first rank terms read the PRIOR relation inside the
+// group slice's source CTE (where s binds the prior rows, and the aggregate
+// has already dropped the rank column), and the AQL COLLECT twin sorts group
+// output by the keys alone — so the rank law is the adapter-embedded source
+// ORDER BY, the same registered CTE-order posture as every other composed
+// GROUP (D-16a ruling), not a terminal term.
 func stageTerminalOrder(stage ir.PhysicalConstructionStage, facts map[string]stageColumnFact) []string {
 	read := func(name string) string {
 		return stageTerminalAlias + "." + `"` + facts[name].alias + `"`
@@ -1529,8 +1564,39 @@ func (r *planRenderer) renderStageGroup(
 	relation string,
 	facts map[string]stageColumnFact,
 ) (string, []string, map[string]stageColumnFact, error) {
+	// G3(c) dispatch arm (stage_related_occurrence.go, L-13.5 CLOSED): a
+	// GROUP stage carrying the related-occurrence adapter materializes its
+	// one shared correlated-hop expansion into the group slice's own source
+	// CTE. The L-13.2 "no dispatch arm ⇒ silent drop" law is discharged by
+	// this arm's presence plus the emitter's fail-closed
+	// validateStageRelatedOccurrenceAdapter re-read — an adapter no rule
+	// covers reaches a typed refusal, never a group over rows missing the
+	// adapter's columns (an adapter-owned input column absent from the
+	// region also fails the facts lookup below, never silently).
+	var relRegion *stageRelatedOccurrenceRegion
+	source := "SELECT * FROM " + relation
+	if stage.Group.RelatedOccurrence != nil {
+		relRendered, relErr := r.renderStageGroupRelatedOccurrence(plan, stage, index, relation, facts)
+		if relErr != nil {
+			return "", nil, nil, relErr
+		}
+		relRegion = &relRendered
+		// The region's sourceText goes to the aggregate region VERBATIM —
+		// never re-wrapped or re-projected (spec rule 2): it carries the
+		// expansion joins and the registered parent-first source order.
+		source = relRegion.sourceText
+	}
 	columns := make([]groupColumn, 0, len(stage.InputColumns))
 	for _, column := range stage.InputColumns {
+		// Spec rule 1: adapter-owned input columns resolve through the
+		// region's materialized columns; everything else keeps the prior
+		// facts reading byte-identically.
+		if relRegion != nil {
+			if adapted, ok := relRegion.columns[column.Name]; ok {
+				columns = append(columns, adapted)
+				continue
+			}
+		}
 		fact, ok := facts[column.Name]
 		if !ok {
 			return "", nil, nil, fmt.Errorf("%w: group input column %q is not among the prior stage's registered columns (L-16.1)",
@@ -1554,7 +1620,7 @@ func (r *planRenderer) renderStageGroup(
 		jsonbOutputs[rowValue.Output] = rowValue.Policy == "ALL"
 	}
 	region, err := r.renderGroupAggregateRegion(plan, stage, columns,
-		"SELECT * FROM "+relation, "__loom_g"+strconv.Itoa(index)+"_",
+		source, "__loom_g"+strconv.Itoa(index)+"_",
 		stage.OutputColumns, stage.RowIdentityColumn)
 	if err != nil {
 		return "", nil, nil, err
