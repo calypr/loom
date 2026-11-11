@@ -1459,6 +1459,49 @@ func TestObject11LiveSortHomogeneousTypeClasses(t *testing.T) {
 	}
 }
 
+// TestCanonicalKeyReferencesResolveToTheIdentityColumnOnBothLegs pins the
+// traversal.go resolveValueInRows fix the production witness demanded
+// (obj11_live logs: the root identity cell rendered <null> pre-fix): the
+// Arango document-key spellings the shared lowering emits (["_key"] for
+// root key projections, lower/root_projection.go:116; ["id"] for identity
+// comparisons, predicates.go:290 leg) must read the logical_id storage
+// column on BOTH the direct VALUE projection leg and the COMPARISON Left
+// leg — the same canonicalKeyColumn reading the sort leg (window.go:221)
+// and the direct-value validator (selectors.go:496) already applied. The
+// pre-fix behavior (payload #> '{_key}', always SQL NULL) is captured in
+// artifacts/.../logs/obj11-traversal-hunk-before.log against the merged
+// baseline f1389b45; the after text in obj11-traversal-hunk-after.log.
+func TestCanonicalKeyReferencesResolveToTheIdentityColumnOnBothLegs(t *testing.T) {
+	plan := basePlan()
+	plan.BindVars["id_value"] = "p-1"
+	plan.Operations = plan.Operations[:len(plan.Operations)-1]
+	plan.Operations = append(plan.Operations,
+		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
+			Operator: "EQUALS",
+			Left:     ir.PhysicalValue{Variable: "root", Path: []string{"id"}},
+			Right:    &ir.PhysicalValue{BindKey: "id_value"},
+		}}},
+		ir.PhysicalOperation{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{Projections: []ir.PhysicalProjection{
+			{Name: "key", Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}},
+			{Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}}},
+		}}})
+	rendered := renderOK(t, plan)
+	// Both legs read the column; no document-path extraction survives for
+	// the identity spellings, and the key names never reach Args.
+	for _, want := range []string{`r0."logical_id" AS "c0"`, `r0."logical_id" AS "c1"`, `r0."logical_id" = $`} {
+		if !strings.Contains(rendered.SQL, want) {
+			t.Fatalf("canonical-key leg lost %q: %s", want, rendered.SQL)
+		}
+	}
+	for _, forbidden := range []string{"_key", "id", "_id"} {
+		for _, arg := range rendered.Args {
+			if text, ok := arg.Value.(string); ok && text == forbidden {
+				t.Fatalf("identity spelling %q reached Args: %v", forbidden, rendered.Args)
+			}
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // D5 delta-scoped zero-leftover audit over the disjoint obj11_it_*
 // namespace: zero rows before the run, zero survivors after it.
