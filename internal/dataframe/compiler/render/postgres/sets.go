@@ -263,9 +263,11 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 // child-set contract, renders each reduction field as one correlated
 // scalar sublink over the deduped child items, and binds the reduced
 // variable as a renderer-derived jsonb value. The set variable itself is
-// deliberately never bound: the registered surface has no item-array
-// consumer, so any direct read of the set fails closed as an unbound
-// variable instead of rendering an unregistered aggregate.
+// deliberately never bound: the registered item-array consumers — the
+// FIRST/ALL/DISTINCT reductions here, and the pg-sql-11 SLICE over the
+// stashed body (objects.go renderSliceOverChildSet) — read the validated
+// body, so any direct read of the set fails closed as an unbound variable
+// instead of rendering an unregistered aggregate.
 //
 // Derived reads inline their expression, so each projection of the reduced
 // variable repeats the sublink text once per reader. That duplication is
@@ -287,11 +289,11 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 	default:
 		return fmt.Errorf("%w: unknown set kind %q", ErrUnsupportedPostgresPlan, string(set.Kind))
 	}
-	if set.Reduction == nil {
+	if set.Reduction == nil && !sliceConsumesSetVariable(plan, set.Variable) {
 		return fmt.Errorf("%w: set %q has no reduction contract; the registered surface renders sets only through their FIRST/ALL/DISTINCT selector reductions, because no other consumer of the item array is registered",
 			ErrUnsupportedPostgresPlan, set.Variable)
 	}
-	if set.Projection == nil {
+	if set.Reduction != nil && set.Projection == nil {
 		return fmt.Errorf("%w: set %q reduction requires the traversal-time selector projection lower/child_sets.go computes in the child subquery",
 			ErrUnsupportedPostgresPlan, set.Variable)
 	}
@@ -318,6 +320,32 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 		ret.Value.BindKey != "" || ret.Value.Variable != corr.targetVar || len(ret.Value.Path) != 0 {
 		return fmt.Errorf("%w: set %q subplan return must be the canonical whole-document VALUE expression over the reached target row (lower/child_sets.go buildOptionalChildPhysicalSet)",
 			ErrUnsupportedPostgresPlan, set.Variable)
+	}
+
+	// D2 handoff stash (pg-sql-11): a registered SLICE over this set
+	// renders over exactly this validated occurrence-join body — the same
+	// text the reductions below read — so one child scan contract serves
+	// both surfaces. The registered projection slots are stashed alongside
+	// so a slice extract's Extract.Prepared reference resolves against
+	// the same compact-projection contract the reductions read (the
+	// Option A ruling: resolution, not refusal, for Prepared refs naming
+	// these slots). Stashed only after every structural pin above and
+	// the canonical-return pin have passed.
+	if r.setBodies == nil {
+		r.setBodies = make(map[string]correlatedSetBody)
+	}
+	r.setBodies[set.Variable] = corr
+	if set.Projection != nil && len(set.Projection.Fields) > 0 {
+		if r.setProjections == nil {
+			r.setProjections = make(map[string][]ir.PhysicalSetProjectionField)
+		}
+		r.setProjections[set.Variable] = append([]ir.PhysicalSetProjectionField(nil), set.Projection.Fields...)
+	}
+	if set.Reduction == nil {
+		// Registered consumer is a SLICE (the nil guard above proved one
+		// exists): the set contributes its item relation only, no reduced
+		// variable is bound.
+		return nil
 	}
 
 	projectionFields := make(map[string]ir.PhysicalSetProjectionField, len(set.Projection.Fields))
