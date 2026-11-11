@@ -10,9 +10,17 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io"
+	"net"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/calypr/loom/internal/authscope"
 	backendsarango "github.com/calypr/loom/internal/backends/arango"
@@ -21,6 +29,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
+	"github.com/calypr/loom/internal/ingest"
 )
 
 // The receipt-materializer seam must be satisfied by BOTH registries purely
@@ -246,6 +255,269 @@ func TestPostgresRuntimeCompositionHasNoArangoImport(t *testing.T) {
 	for _, token := range []string{"arangostore.", "AQLParameters"} {
 		if strings.Contains(text, token) {
 			t.Fatalf("the PostgreSQL composition must not mention %s (no AQL/Arango surface on the PostgreSQL lane)", token)
+		}
+	}
+}
+
+// ---- closer ordering law (compose must not own deferred cleanup) ----
+
+// TestPostgresRuntimeComposeOwnsNoDeferredCleanup is the witness for the
+// close-ordering law: composePostgreSQLFullRuntime returns while the server
+// is still about to Listen, so nothing that must outlive compose may be
+// deferred in its body. The pre-fix shape deferred clickhouse.Close() and
+// both reconciler cancel-and-wait closures inside compose, closing the
+// client and cancelling the reconcilers before a single request was served.
+// This cell goes red if any defer reappears directly in the compose body:
+// exactly one defer is legal -- the zero-argument error-path sweep that
+// drains the cleanups stack, as the first statement.
+func TestPostgresRuntimeComposeOwnsNoDeferredCleanup(t *testing.T) {
+	source, err := os.ReadFile("runtime.go")
+	if err != nil {
+		t.Fatalf("read the composition source: %v", err)
+	}
+	fileSet := token.NewFileSet()
+	parsed, err := parser.ParseFile(fileSet, "runtime.go", source, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parse the composition source: %v", err)
+	}
+	var compose *ast.FuncDecl
+	for _, decl := range parsed.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "composePostgreSQLFullRuntime" {
+			compose = fn
+		}
+	}
+	if compose == nil {
+		t.Fatal("composePostgreSQLFullRuntime is missing from the composition source")
+	}
+	var bodyDefers []*ast.DeferStmt
+	var insideFuncLit []bool
+	ast.Inspect(compose.Body, func(n ast.Node) bool {
+		if n == nil {
+			insideFuncLit = insideFuncLit[:len(insideFuncLit)-1]
+			return false
+		}
+		nested := len(insideFuncLit) > 0 && insideFuncLit[len(insideFuncLit)-1]
+		_, isLiteral := n.(*ast.FuncLit)
+		insideFuncLit = append(insideFuncLit, nested || isLiteral)
+		if stmt, ok := n.(*ast.DeferStmt); ok && !nested {
+			bodyDefers = append(bodyDefers, stmt)
+		}
+		return true
+	})
+	if len(bodyDefers) != 1 {
+		positions := make([]string, 0, len(bodyDefers))
+		for _, d := range bodyDefers {
+			positions = append(positions, fileSet.Position(d.Pos()).String())
+		}
+		t.Fatalf("compose must own exactly one deferred cleanup sweep (resources that outlive compose belong to the returned closer); found %d at %v", len(bodyDefers), positions)
+	}
+	sweep := bodyDefers[0]
+	for _, before := range compose.Body.List {
+		if before == sweep {
+			break
+		}
+		decl, isDecl := before.(*ast.DeclStmt)
+		if !isDecl {
+			t.Fatalf("nothing may run before the deferred cleanup sweep (it must precede every acquisition), found %T at %s", before, fileSet.Position(before.Pos()).String())
+		}
+		gen, ok := decl.Decl.(*ast.GenDecl)
+		if !ok {
+			t.Fatalf("statements before the sweep must be plain declarations, found %T at %s", decl.Decl, fileSet.Position(before.Pos()).String())
+		}
+		for _, spec := range gen.Specs {
+			if value, ok := spec.(*ast.ValueSpec); ok && len(value.Values) != 0 {
+				t.Fatalf("statements before the sweep must be bare declarations (an initialized var can acquire); found initializer at %s", fileSet.Position(spec.Pos()).String())
+			}
+		}
+	}
+	literal, ok := sweep.Call.Fun.(*ast.FuncLit)
+	if !ok || len(literal.Type.Params.List) != 0 || literal.Type.Results != nil {
+		t.Fatalf("the deferred sweep must be a zero-argument closure, got %s", fileSet.Position(sweep.Pos()).String())
+	}
+	if !expressionReferences(literal.Body, "cleanups") {
+		t.Fatal("the deferred sweep must drain the cleanups stack")
+	}
+	if !expressionReferences(literal.Body, "runRuntimeCloseSteps") {
+		t.Fatal("the deferred sweep must tear down through runRuntimeCloseSteps (one ordering implementation for both paths)")
+	}
+	// The full composition must hand its closer the four acquired resources:
+	// pool, ClickHouse client, private-artifact reconciler, artifact-fs
+	// reconciler. A dropped push (e.g. the ClickHouse close deleted instead
+	// of moved) fails here as well.
+	composeText := string(source)[fileSet.Position(compose.Pos()).Offset:fileSet.Position(compose.End()).Offset]
+	if got := strings.Count(composeText, "cleanups = append("); got != 4 {
+		t.Fatalf("the full composition must push exactly four closer steps (pool, ClickHouse client, private-artifact reconciler, artifact-fs reconciler), found %d", got)
+	}
+	if !strings.Contains(composeText, "closeRuntime = func() error { return runRuntimeCloseSteps(cleanups) }") {
+		t.Fatal("the returned closer must be the reverse-order cleanups drain")
+	}
+}
+
+func expressionReferences(node ast.Node, name string) bool {
+	found := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok && ident.Name == name {
+			found = true
+		}
+		return true
+	})
+	return found
+}
+
+// TestPostgresRuntimeCloseStepsTearDownInReverseAndKeepFirstError pins the
+// shared teardown semantics: reverse acquisition order, every step runs
+// even after a failure, and the first failure encountered (the
+// most-recently-acquired failing resource) is the reported one.
+func TestPostgresRuntimeCloseStepsTearDownInReverseAndKeepFirstError(t *testing.T) {
+	var order []int
+	errAcquiredThird := errors.New("third-acquired step failed")
+	errAcquiredSecond := errors.New("second-acquired step failed")
+	steps := []func() error{
+		func() error { order = append(order, 0); return nil },
+		func() error { order = append(order, 1); return errAcquiredSecond },
+		func() error { order = append(order, 2); return nil },
+		func() error { order = append(order, 3); return errAcquiredThird },
+		func() error { order = append(order, 4); return nil },
+	}
+	if err := runRuntimeCloseSteps(steps); !errors.Is(err, errAcquiredThird) {
+		t.Fatalf("teardown runs newest-first, so the most recently acquired failure (step 3) must be reported, got %v", err)
+	}
+	if want := []int{4, 3, 2, 1, 0}; len(order) != len(want) {
+		t.Fatalf("every step must run even after a failure: wanted %v, got %v", want, order)
+	} else {
+		for i := range want {
+			if order[i] != want[i] {
+				t.Fatalf("teardown must run in reverse acquisition order: wanted %v, got %v", want, order)
+			}
+		}
+	}
+	if err := runRuntimeCloseSteps(nil); err != nil {
+		t.Fatalf("an empty teardown must report no failure, got %v", err)
+	}
+}
+
+// ---- activation outcome classification (CLI-parity law) ----
+
+// activationMatrixStore is a ManifestLifecycle double that only answers the
+// two calls the activation path makes: the active-pointer read and the CAS
+// itself. Anything else means the activator grew an uncontracted store call
+// and the cell crashes on it.
+type activationMatrixStore struct {
+	activateErr error
+}
+
+func (s activationMatrixStore) CreateManifest(context.Context, publicationcontract.Manifest) (publicationcontract.Manifest, error) {
+	panic("CreateManifest is outside the activation path")
+}
+
+func (s activationMatrixStore) ReadManifest(context.Context, publicationcontract.Ref) (publicationcontract.Manifest, error) {
+	panic("ReadManifest is outside the activation path")
+}
+
+func (s activationMatrixStore) TransitionManifest(context.Context, publicationcontract.Manifest, publicationcontract.State) (publicationcontract.Manifest, error) {
+	panic("TransitionManifest is outside the activation path")
+}
+
+func (s activationMatrixStore) ResolveActiveManifest(context.Context, string) (publicationcontract.Manifest, error) {
+	return publicationcontract.Manifest{}, publicationcontract.ErrNoActiveGeneration
+}
+
+func (s activationMatrixStore) ActivateGeneration(_ context.Context, manifest publicationcontract.Manifest, expected *publicationcontract.Ref) error {
+	if !manifest.IsStaged() {
+		return errors.New("matrix fixture: manifest must reach the CAS staged")
+	}
+	if expected != nil {
+		return errors.New("matrix fixture: no active generation means a nil expected pointer")
+	}
+	return s.activateErr
+}
+
+func stagedActivationManifest(t *testing.T) publicationcontract.Manifest {
+	t.Helper()
+	ref, err := publicationcontract.NewRef("acme", "gen-1")
+	if err != nil {
+		t.Fatalf("build dataset ref: %v", err)
+	}
+	snapshot, err := publicationcontract.NewSchemaSnapshot("", "", strings.Repeat("a", 64), []string{"Patient"})
+	if err != nil {
+		t.Fatalf("build schema snapshot: %v", err)
+	}
+	manifest, err := publicationcontract.NewManifest(ref, snapshot)
+	if err != nil {
+		t.Fatalf("build manifest: %v", err)
+	}
+	staged, err := manifest.Transition(publicationcontract.StateStaged)
+	if err != nil {
+		t.Fatalf("stage manifest: %v", err)
+	}
+	return staged
+}
+
+type activationTimeoutError struct{}
+
+func (activationTimeoutError) Error() string   { return "activation network timeout" }
+func (activationTimeoutError) Timeout() bool   { return true }
+func (activationTimeoutError) Temporary() bool { return false }
+
+var _ net.Error = activationTimeoutError{}
+
+// TestPostgresRuntimeActivationOutcomeClassification is the CLI-parity
+// cell for pgGenerationActivator.Activate: every error class that the CLI
+// lane's pgCommitOutcomeUnknown treats as commit-outcome-unknown must
+// surface wrapped as *ingest.ActivationOutcomeError, and every known typed
+// refusal must surface unchanged. Narrowing the mapping back to the single
+// ErrCommitOutcomeUnknown sentinel -- the pre-fix shape -- fails every
+// connectivity-class row; broadening it to wrap-everything fails the
+// known-refusal rows.
+func TestPostgresRuntimeActivationOutcomeClassification(t *testing.T) {
+	manifest := stagedActivationManifest(t)
+	outcomeUnknownCases := []struct {
+		name string
+		err  error
+	}{
+		{"store commit-outcome-unknown sentinel", backendspostgres.ErrCommitOutcomeUnknown},
+		{"connect sentinel", fmt.Errorf("dial postgres: %w", backendspostgres.ErrConnect)},
+		{"batch-write sentinel", fmt.Errorf("copy rows: %w", backendspostgres.ErrBatchWrite)},
+		{"sqlstate connection exception", &pgconn.PgError{Code: "08006", Message: "connection failure"}},
+		{"sqlstate admin shutdown", &pgconn.PgError{Code: "57P01", Message: "admin shutdown"}},
+		{"sqlstate crash shutdown", &pgconn.PgError{Code: "57P02", Message: "crash shutdown"}},
+		{"context cancellation", fmt.Errorf("activate cas: %w", context.Canceled)},
+		{"context deadline exceeded", fmt.Errorf("activate cas: %w", context.DeadlineExceeded)},
+		{"network timeout", activationTimeoutError{}},
+		{"eof mid-commit", io.EOF},
+		{"unexpected eof mid-commit", io.ErrUnexpectedEOF},
+	}
+	for _, tc := range outcomeUnknownCases {
+		err := pgGenerationActivator{manifests: activationMatrixStore{activateErr: tc.err}}.Activate(context.Background(), manifest)
+		var outcome *ingest.ActivationOutcomeError
+		if !errors.As(err, &outcome) {
+			t.Fatalf("%s: connectivity-class activation failure must surface as *ingest.ActivationOutcomeError (CLI parity), got %v", tc.name, err)
+		}
+		if !errors.Is(outcome.Err, tc.err) {
+			t.Fatalf("%s: the underlying failure must stay wrapped for the audit, got %v", tc.name, outcome.Err)
+		}
+		if outcome.Dataset != manifest.Dataset {
+			t.Fatalf("%s: the outcome error must name the dataset generation, got %+v", tc.name, outcome.Dataset)
+		}
+	}
+	knownRefusalCases := []struct {
+		name string
+		err  error
+	}{
+		{"activation conflict", backendspostgres.ErrActivationConflict},
+		{"generation not ready", publicationcontract.ErrGenerationNotReady},
+		{"invalid active generation", publicationcontract.ErrInvalidActiveGeneration},
+		{"conflict outranks connectivity", fmt.Errorf("%w: %w", backendspostgres.ErrActivationConflict, backendspostgres.ErrConnect)},
+		{"plain store refusal", errors.New("no such staged manifest")},
+	}
+	for _, tc := range knownRefusalCases {
+		err := pgGenerationActivator{manifests: activationMatrixStore{activateErr: tc.err}}.Activate(context.Background(), manifest)
+		if !errors.Is(err, tc.err) {
+			t.Fatalf("%s: known typed refusal must surface unchanged, got %v", tc.name, err)
+		}
+		var outcome *ingest.ActivationOutcomeError
+		if errors.As(err, &outcome) {
+			t.Fatalf("%s: known typed refusal must not be laundered into an outcome-unknown audit", tc.name)
 		}
 	}
 }

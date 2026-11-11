@@ -509,6 +509,41 @@ func TestPostgresRuntimeFullLadderServesProductionReads(t *testing.T) {
 			}
 		})
 	}
+
+	// Live witness for the closer ordering law, gated on an owned
+	// ClickHouse (LOOM_CLICKHOUSE_URL; the leg is absent -- not skipped --
+	// when the environment does not own one, so the registered skip-set is
+	// unchanged). compose has already returned here, so a ClickHouse client
+	// deferred closed inside compose would be closed while readiness runs:
+	// the Ping inside ClickHouseReadyCheck fails and readiness reports
+	// 503/backend_unavailable instead of 200/ready. With the client owned
+	// by the returned closer, readiness stays ready for the whole serve.
+	if clickhouseURL := strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_URL")); clickhouseURL != "" {
+		t.Run("clickhouse_client_survives_compose_return", func(t *testing.T) {
+			chConfig := pgCompBootConfig(t, fixture, "127.0.0.1:0")
+			chConfig.Server.ClickHouse = ClickHouseConfig{
+				Enabled:  true,
+				URL:      clickhouseURL,
+				Database: os.Getenv("LOOM_CLICKHOUSE_DATABASE"),
+				Username: os.Getenv("LOOM_CLICKHOUSE_USERNAME"),
+				Password: os.Getenv("LOOM_CLICKHOUSE_PASSWORD"),
+			}
+			chServer, chClose, err := composePostgreSQLFullRuntime(ctx, chConfig, logger)
+			if err != nil {
+				t.Fatalf("compose ClickHouse-enabled full runtime: %s", fixture.scrub(err))
+			}
+			defer func() {
+				if err := chClose(); err != nil {
+					t.Errorf("close ClickHouse-enabled full runtime: %s", fixture.scrub(err))
+				}
+			}()
+			body, status := chServer.Readiness(ctx)
+			dataframe, _ := body["dataframe"].(string)
+			if status != http.StatusOK || body["status"] != "ready" || dataframe != "ready" {
+				t.Fatalf("ClickHouse-enabled readiness after compose returned = %d %#v; want 200 ready/ready (a client closed by compose instead of the closer fails the Ping)", status, body)
+			}
+		})
+	}
 }
 
 // TestPostgresRuntimeServerLoadRouteServesEndToEnd is the headline delta of

@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -295,12 +296,41 @@ func (a pgGenerationActivator) Activate(ctx context.Context, manifest publicatio
 		expected = nil
 	}
 	if err := a.manifests.ActivateGeneration(ctx, manifest, expected); err != nil {
-		if errors.Is(err, backendspostgres.ErrCommitOutcomeUnknown) {
+		// CLI-parity classification (ingest.ActivatePostgresGeneration):
+		// known typed refusals surface unchanged; connectivity-class
+		// failures that leave the commit outcome unknown are wrapped so
+		// the caller audits the pointer instead of retrying blind.
+		if errors.Is(err, backendspostgres.ErrActivationConflict) ||
+			errors.Is(err, publicationcontract.ErrGenerationNotReady) ||
+			errors.Is(err, publicationcontract.ErrInvalidActiveGeneration) {
+			return err
+		}
+		if pgActivationOutcomeUnknown(err) {
 			return &ingest.ActivationOutcomeError{Dataset: ref, Err: err}
 		}
 		return err
 	}
 	return nil
+}
+
+// pgActivationOutcomeUnknown is the server-side sibling of the CLI lane's
+// pgCommitOutcomeUnknown for the activation CAS. The driver-aware half
+// (SQLSTATE 08xx/57P01/57P02, the store sentinels ErrCommitOutcomeUnknown /
+// ErrConnect / ErrBatchWrite, context cancellation, and net.Error) is the
+// backend's own CommitOutcomeUnknown classifier; the EOF pair joins it here
+// exactly as on the CLI side. The CLI's pgSafePointCancelError exclusion is
+// deliberately absent: that marker is produced only by the load phase's
+// between-statement checkpoints, and an error surfacing from inside a store
+// call -- which is the only source here -- is never wrapped that way, so a
+// cancellation observed mid-activation is genuinely outcome-unknown.
+func pgActivationOutcomeUnknown(err error) bool {
+	if err == nil {
+		return false
+	}
+	if backendspostgres.CommitOutcomeUnknown(err) {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 // composePostgreSQLFullRuntime is the listen-free full composition for a
@@ -324,7 +354,22 @@ func (a pgGenerationActivator) Activate(ctx context.Context, manifest publicatio
 // lane: without it the publication target stays nil and Explorer publication
 // refuses with the recorded degradation, while every read lane keeps serving
 // from PostgreSQL.
-func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logger *slog.Logger) (*httpapi.HTTPServer, func() error, error) {
+func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logger *slog.Logger) (server *httpapi.HTTPServer, closeRuntime func() error, err error) {
+	// Cleanup law: compose must not own any cleanup whose duty outlives its
+	// return. Every acquired resource is pushed onto cleanups (acquisition
+	// order); on an error return the deferred sweep tears down what was
+	// acquired so far in reverse order, and on success the same stack is
+	// returned as the caller's closer, so reconciler stops, the ClickHouse
+	// client, and the pool all close at serve shutdown -- never when compose
+	// returns. The AST witness in runtime_test.go fails this build's tests
+	// if a defer reappears directly in this body.
+	var cleanups []func() error
+	defer func() {
+		if err == nil {
+			return
+		}
+		_ = runRuntimeCloseSteps(cleanups)
+	}()
 	assignment, schemas, err := postgresRuntimeAssignment(serverConfig.Server.PostgreSQL)
 	if err != nil {
 		return nil, nil, err
@@ -345,9 +390,9 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	if err != nil {
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL server runtime: %w", err), pg, dsn)
 	}
-	closeRuntime := func() error {
+	cleanups = append(cleanups, func() error {
 		return postgresFirstQueryRouteError(runtime.Close(), pg, dsn)
-	}
+	})
 	// The six data-plane families are assembled by the factory only when
 	// their series is assigned; the gate above assigns all six, so a nil here
 	// means the factory regressed its own assembly contract. Fail closed with
@@ -356,7 +401,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		runtime.ExplicitGroups == nil || runtime.CapabilitySnapshots == nil || runtime.TableShapes == nil ||
 		runtime.Bundles == nil || runtime.RecipeRevisions == nil || runtime.RecipeExecutions == nil ||
 		runtime.Catalog == nil || runtime.SemanticReads == nil || runtime.Releases == nil || runtime.Manifests == nil {
-		_ = closeRuntime()
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("%w: assembled PostgreSQL runtime is missing a required data-plane port", backendspostgres.ErrBootstrap), pg, dsn)
 	}
 
@@ -367,12 +411,10 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	// PostgreSQL target through the same target-aware operations.
 	binding, err := ir.NewPostgresStorageBinding(schemas[backendspostgres.SeriesSource])
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("bind PostgreSQL storage placement: %w", err), pg, dsn)
 	}
 	sourceCompileTarget, err := compiler.PostgreSQLTarget(binding)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("select PostgreSQL compile target: %w", err), pg, dsn)
 	}
 
@@ -385,7 +427,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 
 	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, runtime.DiscoverExistingAuthResourcePaths)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
@@ -398,10 +439,9 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	if serverConfig.Server.ClickHouse.Enabled {
 		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password})
 		if err != nil {
-			_ = closeRuntime()
 			return nil, nil, fmt.Errorf("create ClickHouse client: %w", err)
 		}
-		defer clickhouse.Close()
+		cleanups = append(cleanups, clickhouse.Close)
 		if err := clickhouse.EnsureDatabase(ctx); err != nil {
 			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
 			publicationReady = false
@@ -411,7 +451,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 			BatchBytes: serverConfig.Server.RecipeBatchBytes,
 		})
 		if err != nil {
-			_ = closeRuntime()
 			return nil, nil, fmt.Errorf("create private ClickHouse artifact manager: %w", err)
 		}
 		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: runtime.Bundles, Logger: logger, MaxPage: 1000, ActiveManifestResolver: runtime.Manifests, ActiveReleaseResolver: runtime.Releases}
@@ -453,7 +492,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		RootPageRows:               serverConfig.Server.RecipeQueryPageRows,
 	})
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("create dataframe recipe engine: %w", err)
 	}
 
@@ -461,7 +499,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
 		bundleStore, err := publicationclickhouse.NewBundleStore(clickhouse, runtime.Bundles)
 		if err != nil {
-			_ = closeRuntime()
 			return nil, nil, fmt.Errorf("create dataframe bundle store: %w", err)
 		}
 		bundleStore.SetActiveReleaseReader(runtime.Releases)
@@ -518,17 +555,14 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	explorerReads := pgExplorerReads{ExplorerStore: runtime.Explorer, ExplicitGroupStore: runtime.ExplicitGroups}
 	capabilityResolver, err := newExplorerCapabilityResolver(runtime.Catalog, scopeResolver, runtime.Manifests, runtime.CapabilitySnapshots)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("create Explorer capability resolver: %w", err)
 	}
 	explorerService, err := explorer.NewService(explorerStore)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("create Explorer service: %w", err)
 	}
 	artifactStore, err := artifactfs.New(serverConfig.Server.ArtifactDirectory)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("create Explorer artifact store: %w", err)
 	}
 
@@ -592,7 +626,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		},
 	})
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("create generation load service: %w", err)
 	}
 
@@ -607,12 +640,10 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	}
 	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("configure local workspace writeback: %w", err)
 	}
 	populationMappingCursorCodec, err := lifecycle.NewHMACPopulationMappingCursorCodec(serverConfig.Server.PopulationMappingCursorSecret)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("configure population mapping cursor signing: %w", err)
 	}
 	var artifactPublishedReader lifecycle.ArtifactPublishedReader
@@ -624,17 +655,14 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	}
 	schemaIndex, err := fhirschema.GeneratedIndex()
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("load generated schema index for row choices: %w", err)
 	}
 	rowChoiceResolver, err := lifecycle.NewSchemaRowChoiceResolver(schemaIndex)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("configure row-choice schema resolver: %w", err)
 	}
 	explicitGroupResolver, err := lifecycle.NewRepositoryExplicitGroupRevisionResolver(explorerReads)
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("configure explicit group revision resolver: %w", err)
 	}
 	lifecycleConfig := lifecycle.Config{
@@ -763,7 +791,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		PrepareRelease:            prepareExplorerRelease,
 		PersistPublishedWorkspace: persistPublishedWorkspace,
 	}
-	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
+	server, err = httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		CoreReadyCheck: func(ctx context.Context) error {
 			return runtime.Health(ctx)
 		},
@@ -774,7 +802,6 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 			return clickhouse.Ping(ctx)
 		}, ClickHouseEnabled: serverConfig.Server.ClickHouse.Enabled})
 	if err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("create HTTP server: %w", err)
 	}
 	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
@@ -788,13 +815,12 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
 	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, runtime.Bundles, scopeResolver); err != nil {
-		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {
 		reconcileCtx, cancelReconciler := context.WithCancel(ctx)
 		reconcilerDone := startPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
-		defer func() {
+		cleanups = append(cleanups, func() error {
 			cancelReconciler()
 			timer := time.NewTimer(cleanupTimeout)
 			defer timer.Stop()
@@ -803,12 +829,13 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 			case <-timer.C:
 				logger.Error("private ClickHouse artifact reconciler did not stop before shutdown deadline")
 			}
-		}()
+			return nil
+		})
 	}
 	if artifactStore != nil {
 		artifactReconcileCtx, cancelArtifactReconciler := context.WithCancel(ctx)
 		artifactReconcilerDone := startArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
-		defer func() {
+		cleanups = append(cleanups, func() error {
 			cancelArtifactReconciler()
 			timer := time.NewTimer(cleanupTimeout)
 			defer timer.Stop()
@@ -817,9 +844,30 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 			case <-timer.C:
 				logger.Error("filesystem artifact reconciler did not stop before shutdown deadline")
 			}
-		}()
+			return nil
+		})
 	}
+	// The caller's closer tears the runtime down in reverse acquisition
+	// order: reconcilers stop first (they may still be writing through the
+	// ClickHouse client and the pool), then the ClickHouse client closes,
+	// then the pool.
+	closeRuntime = func() error { return runRuntimeCloseSteps(cleanups) }
 	return server, closeRuntime, nil
+}
+
+// runRuntimeCloseSteps tears down acquired resources in reverse
+// acquisition order: every step runs even after one fails, and the first
+// failure is the reported one. This is both compose's error-path sweep and
+// the returned closer's body, so the shutdown ordering law has exactly one
+// implementation.
+func runRuntimeCloseSteps(steps []func() error) error {
+	var firstErr error
+	for i := len(steps) - 1; i >= 0; i-- {
+		if cerr := steps[i](); cerr != nil && firstErr == nil {
+			firstErr = cerr
+		}
+	}
+	return firstErr
 }
 
 // runPostgreSQLFullRuntime is the production entry: compose, then serve. The
