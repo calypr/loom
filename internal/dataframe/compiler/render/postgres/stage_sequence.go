@@ -547,13 +547,49 @@ func sameStageColumns(left, right []ir.PhysicalStageColumn) bool {
 }
 
 // groupInputColumnsExtendSource is the ir :65 group-extend rule re-read:
-// a GROUP stage may carry exactly the prior schema plus the compiler-
-// stamped group inputs (the lowering keeps InputColumns a superset form
-// for the group's hidden reads); membership is by name against the prior
-// schema, matching ir.physicalGroupInputColumnsExtendSource.
+// a plain GROUP stage may carry exactly the prior schema plus the
+// compiler-stamped group inputs, and a RelatedOccurrence GROUP may extend
+// the prior schema with exactly the adapter-internal columns; mirrors
+// ir.physicalGroupInputColumnsExtendSource (physical_stage_validation.go:2659).
 func groupInputColumnsExtendSource(stage ir.PhysicalConstructionStage, prior []ir.PhysicalStageColumn) bool {
-	if stage.Kind != ir.PhysicalStageGroupOp {
+	if stage.Kind != ir.PhysicalStageGroupOp || stage.Group == nil {
 		return false
+	}
+	if adapter := stage.Group.RelatedOccurrence; adapter != nil {
+		// RelatedOccurrence arm: prior prefix + exactly the adapter set.
+		if len(stage.InputColumns) <= len(prior) ||
+			!sameStageColumns(stage.InputColumns[:len(prior)], prior) {
+			return false
+		}
+		expected := make(map[string]bool, len(adapter.ScalarProjections)+2)
+		for _, projection := range adapter.ScalarProjections {
+			if projection.InputColumn == "" || expected[projection.InputColumn] {
+				return false
+			}
+			expected[projection.InputColumn] = true
+		}
+		if adapter.CodingMembershipColumn != "" {
+			if expected[adapter.CodingMembershipColumn] {
+				return false
+			}
+			expected[adapter.CodingMembershipColumn] = true
+		}
+		if adapter.OccurrenceKeyColumn != "" {
+			if expected[adapter.OccurrenceKeyColumn] {
+				return false
+			}
+			expected[adapter.OccurrenceKeyColumn] = true
+		}
+		if len(stage.InputColumns)-len(prior) != len(expected) {
+			return false
+		}
+		for _, column := range stage.InputColumns[len(prior):] {
+			if !expected[column.Name] || !column.Internal || column.ID != column.Name {
+				return false
+			}
+			delete(expected, column.Name)
+		}
+		return len(expected) == 0
 	}
 	priorNames := map[string]bool{}
 	for _, column := range prior {

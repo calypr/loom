@@ -1120,3 +1120,116 @@ func TestSQL16SETSliceSilentDropCounterfactual(t *testing.T) {
 	}
 	sql16RequireRefusal(t, plan, "is out of scope")
 }
+
+// TestSQL16RelatedOccurrenceDoorExtend pins the ir :65 group-extend mirror
+// (groupInputColumnsExtendSource, stage_sequence.go) for the PRODUCTION
+// lowering shape the P4 leg exercises: lower.CompileResolvedRecipePlan emits
+// the RelatedOccurrence GROUP with InputColumns = prior schema ++ the
+// adapter-internal columns (a stage EXTENSION), and ir
+// physicalGroupInputColumnsExtendSource (physical_stage_validation.go:2659)
+// accepts that shape. Before the mirror was made byte-parallel the door
+// implemented a name-subset law instead and refused the production plan
+// ("input schema differs from preceding stage output") while ir accepted it.
+// Cells drive validateStageSequenceChain directly (the door the P4 leg
+// reaches); the arm must be an EXACT set, not a superset.
+func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
+	prior := []ir.PhysicalStageColumn{
+		{ID: "key_id", Name: "_key", Kind: "string", Cardinality: "required_one"},
+		{ID: "status_id", Name: "status", Kind: "string", Cardinality: "optional_one"},
+	}
+	adapter := &ir.PhysicalStageGroupRelatedOccurrenceAdapter{
+		ScalarProjections:      []ir.PhysicalStageGroupRelatedProjection{{InputColumn: "related_status", ResultField: "status"}},
+		CodingMembershipColumn: "membership",
+		OccurrenceKeyColumn:    "occurrence",
+	}
+	extension := func() []ir.PhysicalStageColumn {
+		return append(append([]ir.PhysicalStageColumn{}, prior...),
+			ir.PhysicalStageColumn{ID: "related_status", Name: "related_status", Kind: "string", Cardinality: "optional_one", Internal: true},
+			ir.PhysicalStageColumn{ID: "membership", Name: "membership", Kind: "object", Cardinality: "optional_one", Internal: true},
+			ir.PhysicalStageColumn{ID: "occurrence", Name: "occurrence", Kind: "object", Cardinality: "required_one", Internal: true},
+		)
+	}
+	output := []ir.PhysicalStageColumn{
+		{ID: "key_id", Name: "_key", Kind: "string", Cardinality: "required_one"},
+		{ID: "status_id", Name: "status", Kind: "string", Cardinality: "optional_one"},
+		{ID: "occurrence", Name: "occurrence", Kind: "object", Cardinality: "required_one", Internal: true},
+	}
+	chain := func(inputColumns []ir.PhysicalStageColumn, withAdapter bool) ir.PhysicalPlan {
+		group := &ir.PhysicalStageGroup{ConstructionIDBindKey: "ro_cid"}
+		if withAdapter {
+			group.RelatedOccurrence = adapter
+		}
+		stage := ir.PhysicalConstructionStage{
+			ID: "group_related", InputStageID: "source_projection", Kind: ir.PhysicalStageGroupOp,
+			InputRowVariable: "inputrow", OutputRowVariable: "group_row",
+			InputColumns: inputColumns, OutputColumns: output, RowIdentityColumn: "occurrence",
+			Group: group,
+		}
+		return ir.PhysicalPlan{
+			Operations: []ir.PhysicalOperation{{Kind: ir.PhysicalReturnOp, Return: &ir.PhysicalReturn{
+				Projections: []ir.PhysicalProjection{{Name: "_key"}, {Name: "status"}},
+			}}},
+			StageSequence: &ir.PhysicalStageSequence{
+				SourceStageID: "source_projection", SourceRowIdentity: "_key", SourceColumns: prior,
+				Stages:           []ir.PhysicalConstructionStage{stage},
+				FinalStageID:     "group_related",
+				FinalRowIdentity: "occurrence",
+				FinalColumns:     output,
+			},
+		}
+	}
+	t.Run("extend-shape-passes", func(t *testing.T) {
+		if err := validateStageSequenceChain(chain(extension(), true)); err != nil {
+			t.Fatalf("the production extension shape must pass the door mirror (ir :2659 twin): %v", err)
+		}
+	})
+	t.Run("renamed-extension-refuses", func(t *testing.T) {
+		columns := extension()
+		columns[2].Name = "membershp"
+		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("renamed adapter column must die at the door: %v", err)
+		}
+	})
+	t.Run("fourth-extension-refuses", func(t *testing.T) {
+		columns := append(extension(), ir.PhysicalStageColumn{ID: "extra", Name: "extra", Kind: "object", Cardinality: "optional_one", Internal: true})
+		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("a fourth extension column proves the arm is exact-set, not superset: %v", err)
+		}
+	})
+	t.Run("non-internal-extension-refuses", func(t *testing.T) {
+		columns := extension()
+		columns[3].Internal = false
+		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("an adapter column that is not Internal must die at the door: %v", err)
+		}
+	})
+	t.Run("id-drift-extension-refuses", func(t *testing.T) {
+		columns := extension()
+		columns[2].ID = "membership_alias"
+		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("extension columns carry ID==Name (sidecar law); drift must die at the door: %v", err)
+		}
+	})
+	t.Run("prefix-drift-refuses", func(t *testing.T) {
+		columns := extension()
+		columns[1].Kind = "required_one"
+		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("the prior prefix must be schema-identical: %v", err)
+		}
+	})
+	t.Run("plain-group-unknown-column-refuses", func(t *testing.T) {
+		// The plain-GROUP arm is unchanged: a name outside the prior schema
+		// still dies (no RelatedOccurrence extension is invented).
+		columns := append(append([]ir.PhysicalStageColumn{}, prior...),
+			ir.PhysicalStageColumn{ID: "ghost", Name: "ghost", Kind: "object", Cardinality: "optional_one", Internal: true})
+		if err := validateStageSequenceChain(chain(columns, false)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("plain GROUP may not extend the prior schema: %v", err)
+		}
+	})
+}
