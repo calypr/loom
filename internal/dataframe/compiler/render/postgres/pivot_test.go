@@ -716,6 +716,17 @@ func TestPivot14ScalarRefusalRegister(t *testing.T) {
 				p.Operations[2])
 			p.BindVars["bad_limit"] = 0
 		}, "positive int"},
+		// The validator reads Operations[0].RootScan below; the front
+		// check must refuse (never panic) a hand-carried plan without a
+		// leading ROOT_SCAN payload — the unpivot index-0 refusal twin
+		// (unpivot.go:219-221) and the coded leading-scan check.
+		{"missing leading ROOT_SCAN", func(p *ir.PhysicalPlan) {
+			p.Operations = p.Operations[1:]
+		}, "ROOT_SCAN"},
+		{"ROOT_SCAN not first", func(p *ir.PhysicalPlan) {
+			p.Operations = append([]ir.PhysicalOperation{{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{
+				Predicate: ir.PhysicalPredicate{Operator: "IS_NULL"}}}}, p.Operations...)
+		}, "ROOT_SCAN"},
 		{"population root", func(p *ir.PhysicalPlan) {
 			p.Operations[0].RootScan.Population = &ir.PhysicalPopulationRootSource{}
 		}, "population"},

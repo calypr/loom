@@ -175,13 +175,22 @@ func TestCodedPivot14ProductionRenders(t *testing.T) {
 		") = 'string'",
 		"::text <> ''",
 		"LEFT JOIN cp_agg_0 AS a0 ON a0.cp_key = s.cp_key",
-		// The INVALID_CHOICE_ARM assert on MATCHED owners only
-		// (predicates.go:185-207 + the AQL ASSERT position after the
-		// match filter, before value emptiness).
-		"WHEN t.cp_m AND t.cp_bad THEN CAST('INVALID_CHOICE_ARM'",
-		"AND t.cp_m)",
-		// FIRST-over-candidates chain then FLATTEN in document order.
-		"jsonb_agg(f.x ORDER BY f.ord)",
+		// The INVALID_CHOICE_ARM assert on MATCHED owners only (the
+		// per-category match keeps badness as DATA — cp_bad is the
+		// BOOL_OR over matched rows only, WHERE t.cp_m precedes the
+		// aggregation) and raises it in the single ordered outer chain
+		// (the AQL lazy category LETs force the owner-loop ASSERT with
+		// the category's values, ahead of that category's cell guards:
+		// table_reshape.go:384).
+		"WHERE t.cp_m)",
+		"BOOL_OR(cp_bad) AS cp_bad",
+		"WHEN COALESCE(a0.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'",
+		// FIRST-over-candidates chain, ordinal-pinned to declared order
+		// (predicates.go:177), then the one-level FLATTEN of the chosen
+		// candidate (table_reshape.go:385) in document order.
+		"jsonb_agg(s.cp_e ORDER BY f.ord, s.ord1)",
+		"ELSE jsonb_build_array(f.x) END) WITH ORDINALITY AS s(cp_e, ord1)",
+		"(ARRAY_AGG(e.cp_e ORDER BY e.ord))[1] AS cp_first",
 		// Terminal identity order (stage_sequence.go:399-448 parity).
 		`ORDER BY '[' || '"GROUPED_PIVOT"'`,
 		`COLLATE "C" ASC`,
@@ -190,6 +199,26 @@ func TestCodedPivot14ProductionRenders(t *testing.T) {
 			t.Fatalf("coded statement lost %q:\n%s", want, sql)
 		}
 	}
+	// The ordinal-pinned VALUES pick only exists on the multi-candidate
+	// path (a hand-carried fallback makes candidates > 1; the recipe
+	// layer's DECIMAL veto is irrelevant here because we hand-carry), so
+	// its text receipt lives with a fallback-carrying plan.
+	multi := pivot14CompileCodedBundle(t, "p14_coded_multi_candidate")
+	multiCodedPivot := pivot14CodedPivot(t, multi)
+	multiCodedPivot.CodedCorrelation.ValueFallbacks = []spec.Selector{specSelector(t, "valueString")}
+	multiRendered, err := RenderPhysicalPlan(multi, mustBinding(t))
+	if err != nil {
+		t.Fatalf("render multi-candidate plan: %v", err)
+	}
+	for _, want := range []string{
+		"AS c(ord, cand) WHERE ",
+		"ORDER BY c.ord LIMIT 1",
+	} {
+		if !strings.Contains(multiRendered.SQL, want) {
+			t.Fatalf("multi-candidate pick lost %q:\n%s", want, multiRendered.SQL)
+		}
+	}
+
 	// Category pairs ride $n (the AQL @system/@code binds, :367/:370).
 	for _, forbidden := range []string{"8480-6", "8462-4", "http://loinc.org", "proj-a", "gen-1", "FHIR/Observation"} {
 		if strings.Contains(sql, forbidden) {
@@ -231,6 +260,7 @@ func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	sql := rendered.SQL
+	sumErrorChainSQL := sql
 	if !strings.Contains(sql, "COALESCE(a0.cp_tcnt, 0) = 0 THEN CAST('TABLE_PIVOT_CELL_MISSING'") {
 		t.Fatalf("coded reducer MISSING guard must read the TYPED count (:267):\n%s", sql)
 	}
@@ -254,18 +284,50 @@ func TestCodedPivot14GuardOrderAndMissingBranches(t *testing.T) {
 		t.Fatalf("coded ERROR branch must not enumerate typed reducers:\n%s", sql)
 	}
 
-	// The choice-arm ASSERT sits AFTER the match filter (predicates.go
-	// :185-207 at the :377 position): the guard must be gated by the
-	// match conjunct, so an UNMATCHED owner carrying an unsupported
-	// choice arm can never raise it regardless of PostgreSQL's qual
-	// evaluation order — the textual twin of the ALIVE control in
-	// TestCodedPivot14LiveChoiceArmMatchedOnly.
+	// The choice-arm guard is DATA-qualified by the match (cp_bad is the
+	// BOOL_OR over matched rows only — WHERE t.cp_m precedes it, so an
+	// UNMATCHED owner carrying an unsupported arm can never raise it,
+	// predicates.go :185-207 at the :377 position) and raised ONLY in
+	// the single ordered outer chain, never inside the per-category CTE
+	// where CTE materialization would outrank the AQL lazy-LET order.
 	armRendered, err := RenderPhysicalPlan(pivot14CompileCodedBundle(t, "p14_coded_arm_guard"), mustBinding(t))
 	if err != nil {
 		t.Fatalf("render arm guard plan: %v", err)
 	}
-	if !strings.Contains(armRendered.SQL, "CASE WHEN t.cp_m AND t.cp_bad THEN CAST('INVALID_CHOICE_ARM'") {
-		t.Fatalf("choice-arm guard must be qualified by the match conjunct (post-filter ASSERT position):\n%s", armRendered.SQL)
+	if strings.Contains(armRendered.SQL, "CASE WHEN t.cp_m AND t.cp_bad THEN CAST('INVALID_CHOICE_ARM'") {
+		t.Fatalf("choice-arm raise must not live in the per-category CTE (unstable cross-CTE order):\n%s", armRendered.SQL)
+	}
+	if !strings.Contains(armRendered.SQL, "BOOL_OR(cp_bad) AS cp_bad") ||
+		!strings.Contains(armRendered.SQL, "WHEN COALESCE(a0.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'") ||
+		!strings.Contains(armRendered.SQL, "WHEN COALESCE(a1.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'") {
+		t.Fatalf("choice-arm guard must ride the outer chain per category:\n%s", armRendered.SQL)
+	}
+	// Chain order receipts on the SUM+ERROR plan (sql): category order and
+	// within-category order — choice-arm, then that category's missing,
+	// then that category's value-type — mirror the AQL projection forcing
+	// each category's owner-loop ASSERT with its values LET.
+	type term struct {
+		frag  string
+		label string
+	}
+	chain := []term{
+		{"WHEN COALESCE(a0.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'", "cat0 choice-arm"},
+		{"WHEN COALESCE(a0.cp_tcnt, 0) = 0 THEN CAST('TABLE_PIVOT_CELL_MISSING'", "cat0 missing"},
+		{"a0.cp_mm, false) THEN CAST('TABLE_PIVOT_VALUE_TYPE_MISMATCH'", "cat0 value-type"},
+		{"WHEN COALESCE(a1.cp_bad, false) THEN CAST('INVALID_CHOICE_ARM'", "cat1 choice-arm"},
+		{"WHEN COALESCE(a1.cp_tcnt, 0) = 0 THEN CAST('TABLE_PIVOT_CELL_MISSING'", "cat1 missing"},
+		{"a1.cp_mm, false) THEN CAST('TABLE_PIVOT_VALUE_TYPE_MISMATCH'", "cat1 value-type"},
+	}
+	previous := -1
+	for _, entry := range chain {
+		at := strings.Index(sumErrorChainSQL, entry.frag)
+		if at < 0 {
+			t.Fatalf("guard chain lost %s:\n%s", entry.label, sumErrorChainSQL)
+		}
+		if at < previous {
+			t.Fatalf("guard chain order drifted at %s (AQL lazy-LET order):\n%s", entry.label, sumErrorChainSQL)
+		}
+		previous = at
 	}
 }
 
@@ -353,6 +415,29 @@ func TestCodedPivot14RefusalRegister(t *testing.T) {
 		{"extension URL selectors (C10)", func(p *ir.PhysicalPlan) {
 			pivot14CodedPivot(t, *p).CodedCorrelation.ExtensionURLSelectors = []spec.Selector{{Steps: []spec.SelectorStep{{Field: "url"}}}}
 		}, "extension-URL"},
+		// The (system, code) match renders ONE property test on the
+		// coding item; the AQL oracle would evaluate the whole selector
+		// chain (renderCorrelationScalar, predicates.go:151-157), and ir
+		// admits these forms for EXACT scope
+		// (physical_validation_refs.go:420-425), so the door refuses
+		// everything outside the single plain step instead of silently
+		// matching nothing. ALIVE control: the goldens render the
+		// single-step pair (TestCodedPivot14ProductionRenders).
+		{"multi-step system selector", func(p *ir.PhysicalPlan) {
+			correlation := pivot14CodedPivot(t, *p).CodedCorrelation
+			correlation.SystemSelector.Steps = append([]spec.SelectorStep(nil), correlation.SystemSelector.Steps...)
+			correlation.SystemSelector.Steps = append(correlation.SystemSelector.Steps, spec.SelectorStep{Field: "extension"})
+		}, "system selector must be one plain property step"},
+		{"indexed code selector", func(p *ir.PhysicalPlan) {
+			correlation := pivot14CodedPivot(t, *p).CodedCorrelation
+			zero := 0
+			correlation.CodeSelector.Steps = append([]spec.SelectorStep(nil), correlation.CodeSelector.Steps...)
+			correlation.CodeSelector.Steps[0].Index = &zero
+		}, "code selector must be one plain property step"},
+		{"CONTAINS-filtered system selector", func(p *ir.PhysicalPlan) {
+			correlation := pivot14CodedPivot(t, *p).CodedCorrelation
+			correlation.SystemSelector.Filter = &spec.ContainsFilter{Field: "system", Needle: "loinc"}
+		}, "system selector must be one plain property step"},
 		{"duplicate system/code pair", func(p *ir.PhysicalPlan) {
 			categories := pivot14CodedPivot(t, *p).CodedCategories
 			categories[1].CodeBindKey = categories[0].CodeBindKey
@@ -759,6 +844,161 @@ func TestCodedPivot14LiveReducerMissingTypedCount(t *testing.T) {
 	}
 	if rows[0][1] != "<null>" && rows[0][1] != "null" {
 		t.Fatalf("null-only candidate cells must read JSON null, got %v", rows)
+	}
+}
+
+func TestCodedPivot14LiveFlattenChosenCandidate(t *testing.T) {
+	// The chosen candidate is FLATTENed ONE level at exactly the layer
+	// the oracle does (LET __coded_values = FLATTEN(chosen),
+	// table_reshape.go:385): a value selector whose final member stores
+	// an array splices that member into its items, so counts and cell
+	// readings match AQL instead of treating the array as one element.
+	// Without the splice: the cardinality guard stays silent (the
+	// cardinality twin below passes vacuously) and the reducer raises
+	// VALUE_TYPE on the array (the SUM twin fails) where AQL returns a
+	// number.
+	svc := pivot14LiveService(t)
+	// One owner whose only value member is an array of two numbers:
+	// AQL sees items [7, 3] (raw count 2), not one array element.
+	pivot14SeedObservation(t, svc, "fl1", json.RawMessage(
+		`{"component":[{"code":{"coding":[{"system":"http://loinc.org","code":"8480-6"}]},`+
+			`"valueQuantity":{"value":[7,3]}}]}`))
+
+	// Cardinality twin: ERROR duplicate over the two spliced items must
+	// raise TABLE_PIVOT_CELL_CARDINALITY (22P02). Pre-splice this does
+	// not raise at all (raw count 1).
+	cardPlan := pivot14CompileBundle(t, pivot14CodedBundle("p14_live_flatten_card",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateError, recipe.PivotMissingCellNull, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	cardRendered, err := RenderPhysicalPlan(cardPlan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render flatten cardinality plan: %v", err)
+	}
+	if _, err := svc.iso.Exec(svc.ctx, cardRendered.SQL, pivot14Args(cardRendered)...); err == nil ||
+		!strings.Contains(err.Error(), "TABLE_PIVOT_CELL_CARDINALITY") || !strings.Contains(err.Error(), "22P02") {
+		t.Fatalf("spliced array member must reach the cardinality guard like AQL: %v", err)
+	}
+
+	// SUM twin: the reducer must return 10 where pre-splice the array
+	// item would trip the value-type guard.
+	sumBundle := pivot14CodedBundle("p14_live_flatten_sum",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "", nil, false, nil, "")
+	sumPlan := pivot14CompileBundle(t, sumBundle, []string{"FHIR/Observation"})
+	probeRendered, err := RenderPhysicalPlan(sumPlan, mustBinding(t))
+	if err != nil {
+		t.Fatalf("probe flatten SUM plan: %v", err)
+	}
+	systolicIndex := -1
+	for index, name := range probeRendered.OutputColumns {
+		if name == "systolic" {
+			systolicIndex = index
+		}
+	}
+	if systolicIndex < 0 {
+		t.Fatalf("systolic column missing: %v", probeRendered.OutputColumns)
+	}
+	sumRendered, err := RenderPhysicalPlan(sumPlan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render flatten SUM plan: %v", err)
+	}
+	rows := svc.runRendered(t, sumRendered)
+	if len(rows) != 1 || rows[0][systolicIndex] != "10" {
+		t.Fatalf("array member must FLATTEN into the reducer (SUM 7+3=10), got %v", rows)
+	}
+}
+
+func TestCodedPivot14LiveFallbackOrdinalPrecedence(t *testing.T) {
+	// FIRST-over-candidates is FIRST-in-DECLARED-order (the AQL
+	// FIRST(FOR __correlation_candidate IN [a1, a2, ...] FILTER eligible
+	// RETURN candidate), predicates.go:177): the VALUES pick carries an
+	// explicit ordinal and ORDER BY it, so a planner change can never
+	// let a later eligible fallback silently win. Here BOTH candidates
+	// are eligible on one matched owner — the primary number must win.
+	// (A wrong pick reads the string "999" under DECIMAL, tripping the
+	// value-type guard, so the leg fails loudly rather than drifting.)
+	// The DECIMAL + valueString-fallback state is refused by the recipe
+	// and lower layers (see TestCodedPivot14LiveValueFallbackAndTrim),
+	// so it rides hand-carried IR.
+	svc := pivot14LiveService(t)
+	bundle := pivot14CodedBundle("p14_live_fallback_precedence",
+		[]recipe.ConstructionCodedPivotCategory{
+			{System: "http://loinc.org", Code: "8480-6", OutputColumnID: "systolic_id"},
+		}, recipe.PivotDuplicateSum, recipe.PivotMissingCellNull, "valueQuantity.value", nil, false, []string{"valueQuantity"}, "decimal")
+	plan := pivot14CompileBundle(t, bundle, []string{"FHIR/Observation"})
+	correlation := pivot14CodedPivot(t, plan).CodedCorrelation
+	correlation.ValueFallbacks = []spec.Selector{specSelector(t, "valueString")}
+	correlation.ChoiceArms = []string{"valueQuantity", "valueString"}
+	pivot14SeedObservation(t, svc, "fp1", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, 120, strPtr("999")),
+		},
+	})
+	rendered, err := RenderPhysicalPlan(plan, mustBinding(t))
+	if err != nil {
+		t.Fatalf("probe precedence plan: %v", err)
+	}
+	systolicIndex := -1
+	for index, name := range rendered.OutputColumns {
+		if name == "systolic" {
+			systolicIndex = index
+		}
+	}
+	if systolicIndex < 0 {
+		t.Fatalf("systolic column missing: %v", rendered.OutputColumns)
+	}
+	liveRendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render precedence plan: %v", err)
+	}
+	rows := svc.runRendered(t, liveRendered)
+	if len(rows) != 1 {
+		t.Fatalf("precedence rows = %v", rows)
+	}
+	if rows[0][systolicIndex] != "120" {
+		t.Fatalf("declared-order FIRST must pick the primary value 120, got %q", rows[0][systolicIndex])
+	}
+}
+
+func TestCodedPivot14LiveCompetingGuardsCategoryOrder(t *testing.T) {
+	// ALIVE control for the single ordered outer chain: category 0 is in
+	// the MISSING state and category 1 carries a matched owner with an
+	// unsupported choice arm. The AQL projection forces category 0's
+	// LETs first: the category-0 cell guard wins with
+	// TABLE_PIVOT_CELL_MISSING (table_reshape.go:384-:386 evaluates the
+	// categories strictly in declared order). Raising the choice-arm
+	// inside the per-category CTE let the CTE materialization pick
+	// INVALID_CHOICE_ARM instead — an unstable winner PostgreSQL does
+	// not even fix among the CTEs.
+	svc := pivot14LiveService(t)
+	// g0: matched 8480-6 owner with NO value → category 0 raw count 0.
+	pivot14SeedObservation(t, svc, "g0", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8480-6", "")}, nil, nil),
+		},
+	})
+	// g1: matched 8462-4 owner whose only value is on an arm OUTSIDE the
+	// checked binding (default arms = [valueQuantity]) → cp_bad for
+	// category 1.
+	pivot14SeedObservation(t, svc, "g1", map[string]any{
+		"component": []map[string]any{
+			pivot14Component([]map[string]any{pivot14Coding("http://loinc.org", "8462-4", "")}, nil, strPtr("bad-arm")),
+		},
+	})
+	plan := pivot14CompileBundle(t, pivot14CodedBundle("p14_live_guard_order", nil,
+		recipe.PivotDuplicateError, recipe.PivotMissingCellError, "", nil, false, nil, ""),
+		[]string{"FHIR/Observation"})
+	rendered, err := RenderPhysicalPlan(plan, pivot14Binding(t, svc))
+	if err != nil {
+		t.Fatalf("render competing-guards plan: %v", err)
+	}
+	if _, err := svc.iso.Exec(svc.ctx, rendered.SQL, pivot14Args(rendered)...); err == nil ||
+		!strings.Contains(err.Error(), "TABLE_PIVOT_CELL_MISSING") ||
+		strings.Contains(err.Error(), "INVALID_CHOICE_ARM") {
+		t.Fatalf("the declared-category-order chain must pick TABLE_PIVOT_CELL_MISSING over the later category's choice arm: %v", err)
 	}
 }
 

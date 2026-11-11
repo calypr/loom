@@ -43,8 +43,11 @@ package postgres
 //
 // Registered mappings (unit- and live-pinned):
 //   - Guards: one CASE chain in the AQL evaluation order (unlisted, then
-//     per category missing, then cardinality-or-type-mismatch) so
-//     competing guards pick the same winner the AQL lazy-LET order picks;
+//     per category: choice-arm (owner-loop ASSERT), missing, then
+//     cardinality-or-type-mismatch; categories in declared order) so
+//     competing guards pick the same winner the AQL lazy-LET order picks
+//     (table_reshape.go:384 forces each category's owner-loop ASSERT
+//     with its values LET, ahead of that category's cell guards);
 //     SQLSTATE 22P02 tags through population.go's guardCast barrier.
 //   - Identity: the renderer-composed JSON-compact concatenation is the
 //     byte counterpart of TO_STRING(["GROUPED_PIVOT", @constructionID,
@@ -423,6 +426,17 @@ func (r *planRenderer) pivotIdentitySQL(constructionID string, kinds []string, k
 func validateGroupedPivotPlanSurface(plan ir.PhysicalPlan) error {
 	if len(plan.Operations) == 0 {
 		return fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
+	}
+	// The leading ROOT_SCAN is required, not optional: the statement
+	// builder and validateGroupedPivotPayload read Operations[0].RootScan
+	// below, so without this front check a hand-carried plan such as
+	// Operations = [GROUPED_PIVOT, RETURN] (or any non-root first
+	// operation) would reach a nil payload dereference instead of a
+	// typed refusal (the coded twin's leading-scan check at
+	// validateCodedPivotOperations and the unpivot index-0 refusal,
+	// unpivot.go:219-221; payload-nil discipline, unpivot.go:191-194).
+	if plan.Operations[0].Kind != ir.PhysicalRootScanOp || plan.Operations[0].RootScan == nil {
+		return fmt.Errorf("%w: the pivot slice leads with exactly one ROOT_SCAN at position 0", ErrUnsupportedPostgresPlan)
 	}
 	if plan.StageSequence != nil {
 		return fmt.Errorf("%w: a pivot combined with a stage sequence has no PostgreSQL rendering (staged compositions are pg-sql-16)", ErrUnsupportedPostgresPlan)
@@ -1479,6 +1493,31 @@ func validateCodedPivotPayload(plan ir.PhysicalPlan, stage ir.PhysicalConstructi
 			return fmt.Errorf("%w: coded pivot correlation %s selector: %w", ErrUnsupportedPostgresPlan, name, err)
 		}
 	}
+	// The (system, code) match renders as ONE property test on the coding
+	// item (the AQL LET __coded_system/__coded_code over one FLATTENed
+	// KeySelector member, table_reshape.go:369-373), so only a single
+	// plain property step is renderable. ir admits the full selector
+	// grammar here (physical_validation_refs.go:420-425 gates multi-step
+	// only for SYSTEM_VERSION) and the AQL oracle would evaluate the
+	// whole chain (renderCorrelationScalar, predicates.go:151-157);
+	// rendering Steps[0] alone and dropping the rest would silently match
+	// nothing, which the closed-slice contract forbids. Refuse at the
+	// door (the producer lowers both selectors as single steps;
+	// lower/correlated_binding.go).
+	for _, entry := range []struct {
+		name     string
+		selector *spec.Selector
+	}{
+		{"system", &correlation.SystemSelector},
+		{"code", &correlation.CodeSelector},
+	} {
+		selector := entry.selector
+		if len(selector.Steps) != 1 || selector.Filter != nil ||
+			selector.Steps[0].Iterate || selector.Steps[0].Index != nil {
+			return fmt.Errorf("%w: coded pivot correlation %s selector must be one plain property step (the rendered match is a single property test on the coding item; multi-step, indexed, iterated, and filtered forms have no registered rendering, pg-sql-16)",
+				ErrUnsupportedPostgresPlan, entry.name)
+		}
+	}
 	for index, fallback := range correlation.ValueFallbacks {
 		if err := pivotSelectorOK(fallback); err != nil {
 			return fmt.Errorf("%w: coded pivot value fallback %d: %w", ErrUnsupportedPostgresPlan, index, err)
@@ -1716,7 +1755,14 @@ func (r *planRenderer) renderGroupedCodedPivotStatement(plan ir.PhysicalPlan) (s
 
 		// Unsupported choice arms on MATCHED owners only (the AQL
 		// renderCorrelationUnsupportedChoiceValues + ASSERT position:
-		// after the match filter, before value emptiness).
+		// after the match filter, before value emptiness). The badness is
+		// carried as DATA (cp_bad) and raised only in the single ordered
+		// outer guard chain below — raising inside this CTE would let the
+		// per-category CTE materialization outrank guards that AQL's lazy
+		// category LETs evaluate first (table_reshape.go:384 forces the
+		// category's owner-loop ASSERT ahead of that category's cell
+		// guards and strictly before the next category), and PostgreSQL
+		// fixes no order among the CTEs.
 		unsupported, err := r.pivotUnsupportedChoiceValues(correlation, "o.cp_owner", "cs"+tag)
 		if err != nil {
 			return "", err
@@ -1734,20 +1780,20 @@ func (r *planRenderer) renderGroupedCodedPivotStatement(plan ir.PhysicalPlan) (s
 			"SELECT * FROM (SELECT o.cp_key, " + exists + " AS cp_m, " +
 			"(jsonb_array_length(" + unsupported + ")) > 0 AS cp_bad, " + values + " AS cp_vals" +
 			" FROM cp_owner AS o) t" +
-			" WHERE (CASE WHEN t.cp_m AND t.cp_bad THEN " + guardCast(pivotChoiceArmTag) + " ELSE 1 END) = 1" +
-			" AND t.cp_m)"
+			" WHERE t.cp_m)"
 		elemCTE := "cp_elem_" + tag + " AS (" +
-			"SELECT m.cp_key, e.cp_e FROM cp_cat_" + tag + " AS m" +
-			" CROSS JOIN LATERAL jsonb_array_elements(m.cp_vals) AS e(cp_e))"
+			"SELECT m.cp_key, e.cp_e, e.ord FROM cp_cat_" + tag + " AS m" +
+			" CROSS JOIN LATERAL jsonb_array_elements(m.cp_vals) WITH ORDINALITY AS e(cp_e, ord))"
 		aggCTE := "cp_agg_" + tag + " AS (" +
 			"SELECT k.cp_key, k.cp_cnt," +
 			" COALESCE(x.cp_tcnt, 0) AS cp_tcnt, COALESCE(x.cp_mm, false) AS cp_mm," +
-			" x.cp_first, x.cp_sum, x.cp_min, x.cp_max" +
-			" FROM (SELECT cp_key, SUM(jsonb_array_length(cp_vals)) AS cp_cnt FROM cp_cat_" + tag + " GROUP BY cp_key) AS k" +
+			" x.cp_first, x.cp_sum, x.cp_min, x.cp_max, k.cp_bad" +
+			" FROM (SELECT cp_key, SUM(jsonb_array_length(cp_vals)) AS cp_cnt," +
+			" BOOL_OR(cp_bad) AS cp_bad FROM cp_cat_" + tag + " GROUP BY cp_key) AS k" +
 			" LEFT JOIN (SELECT cp_key," +
 			" COUNT(*) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_tcnt," +
 			" BOOL_OR(e.cp_e <> 'null'::jsonb AND jsonb_typeof(e.cp_e) <> " + valueTypeOf + ") AS cp_mm," +
-			" (ARRAY_AGG(e.cp_e))[1] AS cp_first," +
+			" (ARRAY_AGG(e.cp_e ORDER BY e.ord))[1] AS cp_first," +
 			" SUM((" + pivotScalarText("e.cp_e") + ")::double precision) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_sum," +
 			" MIN((" + pivotScalarText("e.cp_e") + ")::double precision) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_min," +
 			" MAX((" + pivotScalarText("e.cp_e") + ")::double precision) FILTER (WHERE e.cp_e <> 'null'::jsonb) AS cp_max" +
@@ -1757,6 +1803,13 @@ func (r *planRenderer) renderGroupedCodedPivotStatement(plan ir.PhysicalPlan) (s
 		alias := "a" + tag
 		aggJoins = append(aggJoins, " LEFT JOIN cp_agg_"+tag+" AS "+alias+" ON "+alias+".cp_key = s.cp_key")
 
+		// Category-local guard order mirrors the AQL projection: the
+		// owner-loop choice-arm ASSERT (table_reshape.go:384) is forced
+		// with the category's values LET, before that category's cell
+		// guards, and the categories themselves are evaluated in
+		// declared order — one CASE chain preserves all competing
+		// winners (registered mapping, header :45-48).
+		guardTerms = append(guardTerms, "WHEN COALESCE("+alias+".cp_bad, false) THEN "+guardCast(pivotChoiceArmTag))
 		cnt := "COALESCE(" + alias + ".cp_cnt, 0)"
 		typedCnt := "COALESCE(" + alias + ".cp_tcnt, 0)"
 		cell := ""
@@ -1873,11 +1926,21 @@ func pivotChoiceArmAllowed(arm string, allowed []string) bool {
 }
 
 // pivotCodedValues renders the value candidate chain of
-// renderCorrelationValues (:159-175): the FIRST candidate array whose
-// LENGTH is non-empty (or, in FallbackOnBlankString mode, whose items
-// include a string that survives the ONE trim set), then FLATTENed. A
-// matched owner whose candidates are all ineligible contributes nothing
-// (the AQL FILTER LENGTH(__coded_values) > 0).
+// renderCorrelationValues (:159-175) plus the category-layer FLATTEN:
+// FIRST over [ValueSelector, ValueFallbacks...] of the candidate arrays
+// whose LENGTH is non-empty (or, in FallbackOnBlankString mode, whose
+// items include a string that survives the ONE trim set), with the pick
+// pinned to declared order by an explicit ordinal, then the chosen
+// candidate FLATTENed ONE level exactly where the oracle does
+// (LET __coded_values = FLATTEN(chosen), table_reshape.go:385): a
+// top-level item that is itself an array splices into its items, while
+// arrays nested below stay items — AQL FLATTEN is one level, the bound
+// the package documents elsewhere (calls.go:1592-1594,
+// unnest.go:61-62). The per-owner FLATTEN (:369) is mirrored by the
+// cp_elem expansion in the statement builder. A matched owner whose
+// candidates are all ineligible — or whose single candidate is [[]],
+// flattening to empty — contributes nothing (the AQL FILTER
+// LENGTH(__coded_values) > 0).
 func (r *planRenderer) pivotCodedValues(correlation *ir.PhysicalCorrelation, base string, name string) (string, error) {
 	candidates := make([]spec.Selector, 0, 1+len(correlation.ValueFallbacks))
 	candidates = append(candidates, correlation.ValueSelector)
@@ -1899,10 +1962,26 @@ func (r *planRenderer) pivotCodedValues(correlation *ir.PhysicalCorrelation, bas
 				" WHERE jsonb_typeof(b.x) = 'string'" +
 				" AND " + r.codedGroupTrimmedNonBlank("b.x #>> '{}'") + "))"
 		}
-		chosen = "COALESCE((SELECT c.cand FROM (VALUES (" +
-			strings.Join(arrays, "),(") + ")) AS c(cand) WHERE " + eligible + " LIMIT 1), '[]'::jsonb)"
+		// The ordinal column pins FIRST-in-declared-order (the AQL
+		// FIRST(FOR __correlation_candidate IN [a1, a2, ...] FILTER
+		// eligible RETURN candidate), predicates.go:177): a VALUES list
+		// carries no row-order guarantee, so LIMIT 1 without ORDER BY
+		// could let a later eligible fallback win under a planner
+		// change and silently change cell values.
+		rows := make([]string, 0, len(arrays))
+		for index, array := range arrays {
+			rows = append(rows, "("+strconv.Itoa(index+1)+",("+array+"))")
+		}
+		chosen = "COALESCE((SELECT c.cand FROM (VALUES " + strings.Join(rows, ",") +
+			") AS c(ord, cand) WHERE " + eligible + " ORDER BY c.ord LIMIT 1), '[]'::jsonb)"
 	}
-	return "(SELECT COALESCE(jsonb_agg(f.x ORDER BY f.ord), '[]'::jsonb)" +
+	// FLATTEN at the chosen-candidate layer (table_reshape.go:385):
+	// splice each top-level item one level (non-items pass through via
+	// jsonb_build_array), aggregating in document order — outer ordinal
+	// first, spliced-item ordinal second.
+	return "(SELECT COALESCE(jsonb_agg(s.cp_e ORDER BY f.ord, s.ord1), '[]'::jsonb)" +
 		" FROM jsonb_array_elements(CASE WHEN jsonb_typeof(" + chosen + ") = 'array' THEN " + chosen + " ELSE '[]'::jsonb END)" +
-		" WITH ORDINALITY AS f(x, ord))", nil
+		" WITH ORDINALITY AS f(x, ord)" +
+		" CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(f.x) = 'array' THEN f.x" +
+		" ELSE jsonb_build_array(f.x) END) WITH ORDINALITY AS s(cp_e, ord1))", nil
 }
