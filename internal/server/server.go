@@ -454,6 +454,11 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err := lifecycleClient.Bootstrap(ctx, publicationarango.BootstrapSpec()); err != nil {
 		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
 	}
+	if err := lifecycleClient.Bootstrap(ctx, arangostore.BootstrapSpec{
+		Collections: []arangostore.CollectionSpec{{Name: catalog.FieldCatalogCollection}},
+	}); err != nil {
+		return fmt.Errorf("bootstrap authorization catalog: %w", err)
+	}
 	var degradation error
 	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
 		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
