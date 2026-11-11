@@ -93,6 +93,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
@@ -172,37 +173,81 @@ func (r *planRenderer) documentPathStepsExpression(alias string, steps []documen
 // missing parent, a non-object key step, and an out-of-range or
 // non-array index step all as SQL NULL, which is this file's ABSENT
 // reading; a stored JSON null terminal stays the jsonb 'null' scalar.
-// Indexes arrive validated non-negative by the calling capability
-// (unit_normalization.go refuses negative indexes as an unregistered
-// capability gap); this boundary re-reads that pin so no future caller
-// can smuggle PostgreSQL's distinct-from-AQL negative subscript reading
-// through this emitter.
+// A NEGATIVE index step is the pg-sql-16 registered tail-index arm (G1),
+// pinned by the banked ArangoDB 3.12.4-3 oracle receipts o1-idx-*.wire
+// (session loom-experiment-161 logs/): under the AQL guard form
+// ((x.f ? x.f : [])[n]) (render/aql/selector.go:30-51), an ARRAY reads n
+// from the tail with out-of-range n as null (d1 [-1]→30, [-3]→10,
+// [-4]→null), an OBJECT reads the property named the decimal text of n
+// (d3 [-1]→"objhit"), and falsy/null/missing/non-array scalars read null
+// (d2/d4/d5/d6). PostgreSQL's own subscript never tail-indexes, so the
+// path SPLITS at the negative step: the prefix crosses as the ordinary
+// #> chunk, the step itself renders
+// CASE WHEN $n < 0 THEN arr -> (jsonb_array_length(arr) + $n) END over
+// the jsonb_array branch with an ELSE #> property reading, and the
+// suffix continues as ordinary chunks from that result. The falsy arms
+// agree without a guard expression: a jsonb scalar fails both
+// jsonb_typeof branches' data reads as NULL exactly as the AQL []-guard
+// does. Non-negative steps keep the single-chunk byte-identical form.
 func (r *planRenderer) documentPathStepsFromExpression(base string, steps []documentPathStep) (string, error) {
 	if len(steps) == 0 {
 		return "", fmt.Errorf("%w: a document path must have at least one segment", ErrUnsupportedPostgresPlan)
 	}
-	elements := make([]string, 0, len(steps))
-	for _, step := range steps {
+	current := base
+	for start := 0; start < len(steps); {
+		end := start
+		for end < len(steps) && !(steps[end].indexed && steps[end].index < 0) {
+			end++
+		}
+		if end > start {
+			elements := make([]string, 0, end-start)
+			for _, step := range steps[start:end] {
+				if !payloadPathSegmentPattern.MatchString(step.field) {
+					return "", fmt.Errorf("%w: payload path segment %q is not renderer-safe", ErrUnsupportedPostgresPlan, step.field)
+				}
+				if step.indexed {
+					if step.index < 0 {
+						return "", fmt.Errorf("%w: negative document path index %d under segment %q reached the non-negative chunk", ErrUnsupportedPostgresPlan, step.index, step.field)
+					}
+					// One selector step {field, index} addresses field[index]:
+					// AQL renders the same pair (render/aql/selector.go:34,47),
+					// so the key AND the position are both path elements —
+					// dropping the key would index the PARENT instead.
+					elements = append(elements, arrayLiteralElement(step.field))
+					elements = append(elements, arrayLiteralElement(strconv.Itoa(step.index)))
+					continue
+				}
+				elements = append(elements, arrayLiteralElement(step.field))
+			}
+			pathLiteral := "{" + strings.Join(elements, ",") + "}"
+			current = current + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]"
+		}
+		if end >= len(steps) {
+			break
+		}
+		step := steps[end]
 		if !payloadPathSegmentPattern.MatchString(step.field) {
 			return "", fmt.Errorf("%w: payload path segment %q is not renderer-safe", ErrUnsupportedPostgresPlan, step.field)
 		}
-		if step.indexed {
-			if step.index < 0 {
-				return "", fmt.Errorf("%w: negative document path index %d under segment %q has no registered PostgreSQL reading (ArangoDB tail-index semantics belong to the pg-sql-16 array-rendering capability)",
-					ErrUnsupportedPostgresPlan, step.index, step.field)
-			}
-			// One selector step {field, index} addresses field[index]:
-			// AQL renders the same pair (render/aql/selector.go:34,47),
-			// so the key AND the position are both path elements —
-			// dropping the key would index the PARENT instead.
-			elements = append(elements, arrayLiteralElement(step.field))
-			elements = append(elements, arrayLiteralElement(strconv.Itoa(step.index)))
-			continue
-		}
-		elements = append(elements, arrayLiteralElement(step.field))
+		arrLiteral := "{" + arrayLiteralElement(step.field) + "}"
+		arr := current + " #> $" + strconv.Itoa(r.textParameter(arrLiteral, "path:"+arrLiteral)) + "::text[]"
+		indexParameter := strconv.Itoa(r.addParameter(
+			command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(step.index)},
+			"tailidx:"+strconv.Itoa(step.index)))
+		propertyLiteral := "{" + arrayLiteralElement(strconv.Itoa(step.index)) + "}"
+		property := arr + " #> $" + strconv.Itoa(r.textParameter(propertyLiteral, "path:"+propertyLiteral)) + "::text[]"
+		// The oracle-attested twin, verbatim shape from the plan's G1
+		// registration: the negative branch is the tail subscript over an
+		// array (jsonb -> of a still-negative sum reads NULL, the
+		// out-of-range arm), the object branch is the #> property reading
+		// of the decimal-text key, and every other jsonb class falls to
+		// NULL.
+		current = "(CASE WHEN jsonb_typeof(" + arr + ") = 'array' THEN (CASE WHEN $" + indexParameter +
+			" < 0 THEN " + arr + " -> (jsonb_array_length(" + arr + ") + $" + indexParameter + ") END) ELSE " +
+			property + " END)"
+		start = end + 1
 	}
-	pathLiteral := "{" + strings.Join(elements, ",") + "}"
-	return base + " #> $" + strconv.Itoa(r.textParameter(pathLiteral, "path:"+pathLiteral)) + "::text[]", nil
+	return current, nil
 }
 
 // arrayLiteralElement renders one validated path segment as a PostgreSQL

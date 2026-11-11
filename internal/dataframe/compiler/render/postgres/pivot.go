@@ -969,12 +969,124 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 		}
 	}
 
+	// The source relation is assembled from the spine arms; the region
+	// emitter renders everything above it. Composition (stage_sequence.go)
+	// calls the same region with the prior stage CTE as the relation and a
+	// read callback over the materialized intermediate columns, so neither
+	// path reparses the other's SQL (the typed-intermediate-row law).
+	fromText := r.storage.Resource.Identifier().SQLText() + " AS " + r.rootAlias
+	for _, join := range r.joins {
+		fromText += " " + join
+	}
+	for _, lateral := range r.laterals {
+		fromText += " " + lateral
+	}
+	if len(r.where) > 0 {
+		fromText += " WHERE " + strings.Join(r.where, " AND ")
+	}
+	var returnOp *ir.PhysicalReturn
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalReturnOp {
+			returnOp = operation.Return
+		}
+	}
+	projectionNames := make([]string, 0, len(returnOp.Projections))
+	for _, projection := range returnOp.Projections {
+		projectionNames = append(projectionNames, projection.Name)
+	}
+	region, err := r.renderGroupedPivotRegion(plan, pivot, "pv_", projectionNames, pivotRowIDColumn,
+		fromText,
+		func(projection ir.PhysicalProjection) (string, ir.PhysicalNullBehavior, error) {
+			path, behavior, err := pivotInputReadShape(projection, rootVariable)
+			if err != nil {
+				return "", "", err
+			}
+			if projection.Expression != nil {
+				extraction, err := r.documentPathExpression(r.rootAlias, path)
+				if err != nil {
+					return "", "", err
+				}
+				switch behavior {
+				case ir.PhysicalOmitNulls:
+					return "NULLIF((" + extraction + "), 'null'::jsonb)", behavior, nil
+				case ir.PhysicalEmptyOnNull:
+					return "COALESCE(NULLIF((" + extraction + "), 'null'::jsonb), '\"\"'::jsonb)", behavior, nil
+				default:
+					return "(" + extraction + ")", behavior, nil
+				}
+			}
+			extraction, err := r.documentPathFromExpression(r.documentColumn(r.rootAlias), path)
+			if err != nil {
+				return "", "", err
+			}
+			return "(" + extraction + ")", behavior, nil
+		},
+		func(paths [][]string) (string, error) {
+			proofs := make([]string, 0, len(paths))
+			for _, path := range paths {
+				proof, err := r.propertyPresenceExpression(r.rootAlias, path)
+				if err != nil {
+					return "", err
+				}
+				proofs = append(proofs, proof)
+			}
+			return "CASE WHEN " + strings.Join(proofs, " OR ") + " THEN 'true'::jsonb ELSE 'false'::jsonb END", nil
+		})
+	if err != nil {
+		return "", err
+	}
+	r.outputColumns = region.names
+	statement := "WITH " + strings.Join(region.ctes, ", ") + " " + region.final
+	statement += " ORDER BY " + pivotWindowOrder(region.keySlots, region.identity, sortSeen)
+	if limitBind != "" {
+		limit := plan.BindVars[limitBind].(int)
+		index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(limit)}, "")
+		statement += " LIMIT " + pivotDollar(index)
+	}
+	return statement, nil
+}
+
+// pivotRegionResult is one rendered grouped-pivot region: the WITH members
+// in dependency order, the grouped final SELECT over them, the key reads and
+// identity text the registered window ORDER BY needs, and the positional
+// output names.
+type pivotRegionResult struct {
+	ctes     []string
+	final    string
+	keySlots []string
+	identity string
+	names    []string
+}
+
+// renderGroupedPivotRegion renders the registered grouped-pivot region: the
+// consumed input reads, the category presence contract, the frozen-value
+// match predicates, the group keys, the cell/guard chain, the construction
+// identity, and the positional final projection. The inline door and the
+// composed stage builder share this ONE emitter (the byte-preservation law):
+// the inline door passes the spine arms and the registered RETURN list,
+// composition passes the prior stage CTE as fromText, a read callback over
+// the materialized intermediate columns, and the stage OutputColumns.
+// readFor renders one consumed input projection over the source relation;
+// presenceProof renders the document-path presence CASE, and nil refuses a
+// document-path presence proof on rows that are no longer documents (the
+// registered staged-pivot refusal in stage_sequence.go). Category values
+// stay $n parameters end to end, never SQL identifiers.
+func (r *planRenderer) renderGroupedPivotRegion(
+	plan ir.PhysicalPlan,
+	pivot *ir.PhysicalGroupedPivot,
+	prefix string,
+	projectionNames []string,
+	identityColumn string,
+	fromText string,
+	readFor func(projection ir.PhysicalProjection) (string, ir.PhysicalNullBehavior, error),
+	presenceProof func(paths [][]string) (string, error),
+) (pivotRegionResult, error) {
 	// --- consumed input reads into source columns. ---
 	consumed := pivotConsumedInputNames(*pivot)
 	reads := map[string]string{}
 	slotExpressions := make([]string, 0, len(pivot.InputProjections))
 	addSlot := func(expression string) string {
-		slot := "pv_" + strconv.Itoa(len(slotExpressions))
+		slot := prefix + strconv.Itoa(len(slotExpressions))
 		slotExpressions = append(slotExpressions, expression+" AS "+slot)
 		return "p." + slot
 	}
@@ -983,30 +1095,9 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 		if !consumed[projection.Name] {
 			continue
 		}
-		path, behavior, err := pivotInputReadShape(projection, rootVariable)
+		expression, behavior, err := readFor(projection)
 		if err != nil {
-			return "", err
-		}
-		var expression string
-		if projection.Expression != nil {
-			extraction, err := r.documentPathExpression(r.rootAlias, path)
-			if err != nil {
-				return "", err
-			}
-			switch behavior {
-			case ir.PhysicalOmitNulls:
-				expression = "NULLIF((" + extraction + "), 'null'::jsonb)"
-			case ir.PhysicalEmptyOnNull:
-				expression = "COALESCE(NULLIF((" + extraction + "), 'null'::jsonb), '\"\"'::jsonb)"
-			default:
-				expression = "(" + extraction + ")"
-			}
-		} else {
-			extraction, err := r.documentPathFromExpression(r.documentColumn(r.rootAlias), path)
-			if err != nil {
-				return "", err
-			}
-			expression = "(" + extraction + ")"
+			return pivotRegionResult{}, err
 		}
 		reads[projection.Name] = addSlot(expression)
 		if projection.Name == pivot.CategoryColumn {
@@ -1015,31 +1106,30 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 	}
 	pvCat, err := pivotSlotRead(reads, pivot.CategoryColumn)
 	if err != nil {
-		return "", err
+		return pivotRegionResult{}, err
 	}
 	pvVal, err := pivotSlotRead(reads, pivot.ValueColumn)
 	if err != nil {
-		return "", err
+		return pivotRegionResult{}, err
 	}
 
 	// --- category presence (null_semantics contract). ---
 	present := ""
 	switch {
 	case pivot.CategoryPresence != nil:
-		proofs := make([]string, 0, len(pivot.CategoryPresence.Paths))
-		for _, path := range pivot.CategoryPresence.Paths {
-			proof, err := r.propertyPresenceExpression(r.rootAlias, path)
-			if err != nil {
-				return "", err
-			}
-			proofs = append(proofs, proof)
+		if presenceProof == nil {
+			return pivotRegionResult{}, fmt.Errorf("%w: a document-path category presence needs the source document; a staged pivot reads typed intermediate columns, so the presence must ride a materialized presence companion (CategoryPresenceFromInput)",
+				ErrUnsupportedPostgresPlan)
 		}
-		presence := "CASE WHEN " + strings.Join(proofs, " OR ") + " THEN 'true'::jsonb ELSE 'false'::jsonb END"
+		presence, err := presenceProof(pivot.CategoryPresence.Paths)
+		if err != nil {
+			return pivotRegionResult{}, err
+		}
 		present = addSlot(presence) + " = 'true'::jsonb"
 	case pivot.CategoryPresenceFromInput:
 		companion, err := pivotSlotRead(reads, pivot.CategoryPresenceColumn)
 		if err != nil {
-			return "", err
+			return pivotRegionResult{}, err
 		}
 		// COALESCE keeps presence TWO-VALUED: the companion read is
 		// SQL NULL when the presence property is absent from the
@@ -1078,7 +1168,7 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 		case ir.PhysicalPivotCategoryValueMatch:
 			raw, err := pivotCategoryRaw(plan.BindVars, category)
 			if err != nil {
-				return "", err
+				return pivotRegionResult{}, err
 			}
 			valueParameter := pivotDollar(r.jsonbParameter(raw))
 			matchPredicates = append(matchPredicates,
@@ -1105,7 +1195,7 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 	for _, key := range pivot.GroupKeys {
 		expr, err := pivotSlotRead(reads, key.Column)
 		if err != nil {
-			return "", err
+			return pivotRegionResult{}, err
 		}
 		keySlots = append(keySlots, expr)
 		kinds = append(kinds, key.Kind)
@@ -1172,13 +1262,7 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 	// --- identity (one composition shared with the window ORDER BY). ---
 	identity := r.pivotIdentitySQL(bindStringVar(plan.BindVars, pivot.ConstructionIDBindKey), kinds, keySlots)
 
-	// --- final positional projection over the registered RETURN list. ---
-	var returnOp *ir.PhysicalReturn
-	for _, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalReturnOp {
-			returnOp = operation.Return
-		}
-	}
+	// --- final positional projection over the positional output list. ---
 	expressions := map[string]string{}
 	for index, name := range keyNames {
 		expressions[name] = keySlots[index]
@@ -1192,50 +1276,37 @@ func (r *planRenderer) renderGroupedPivotStatement(plan ir.PhysicalPlan) (string
 		expressions[pivot.UnlistedEvidenceColumn] =
 			"to_jsonb(COUNT(*) FILTER (WHERE NOT COALESCE(" + listed + ", false)))"
 	}
-	expressions[pivotRowIDColumn] = identity
-	selects := make([]string, 0, len(returnOp.Projections))
-	names := make([]string, 0, len(returnOp.Projections))
-	for _, projection := range returnOp.Projections {
-		expression, ok := expressions[projection.Name]
+	expressions[identityColumn] = identity
+	selects := make([]string, 0, len(projectionNames))
+	names := make([]string, 0, len(projectionNames))
+	for _, name := range projectionNames {
+		expression, ok := expressions[name]
 		if !ok {
-			return "", fmt.Errorf("%w: pivot RETURN projection %q has no rendered expression",
-				ErrUnsupportedPostgresPlan, projection.Name)
+			return pivotRegionResult{}, fmt.Errorf("%w: pivot output projection %q has no rendered expression",
+				ErrUnsupportedPostgresPlan, name)
 		}
 		selects = append(selects, expression+` AS "c`+strconv.Itoa(len(selects))+`"`)
-		names = append(names, projection.Name)
+		names = append(names, name)
 	}
-	r.outputColumns = names
 
-	// --- source SQL (spine arms) and the grouped statement. ---
-	source := "SELECT " + strings.Join(slotExpressions, ", ") + " FROM " +
-		r.storage.Resource.Identifier().SQLText() + " AS " + r.rootAlias
-	for _, join := range r.joins {
-		source += " " + join
-	}
-	for _, lateral := range r.laterals {
-		source += " " + lateral
-	}
-	if len(r.where) > 0 {
-		source += " WHERE " + strings.Join(r.where, " AND ")
-	}
-	statement := "WITH pv_src AS (" + source + ") SELECT " + strings.Join(selects, ", ") +
-		" FROM pv_src AS p"
+	sourceText := "SELECT " + strings.Join(slotExpressions, ", ") + " FROM " + fromText
+	final := "SELECT " + strings.Join(selects, ", ") + " FROM " + prefix + "src AS p"
 	if len(keySlots) > 0 {
-		statement += " GROUP BY " + strings.Join(keySlots, ", ")
+		final += " GROUP BY " + strings.Join(keySlots, ", ")
 	} else {
 		// A keyless pivot still groups all rows into one group.
-		statement += " GROUP BY ()"
+		final += " GROUP BY ()"
 	}
 	if len(guardTerms) > 0 {
-		statement += " HAVING (CASE " + strings.Join(guardTerms, " ") + " ELSE 1 END) = 1"
+		final += " HAVING (CASE " + strings.Join(guardTerms, " ") + " ELSE 1 END) = 1"
 	}
-	statement += " ORDER BY " + pivotWindowOrder(keySlots, identity, sortSeen)
-	if limitBind != "" {
-		limit := plan.BindVars[limitBind].(int)
-		index := r.addParameter(command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(limit)}, "")
-		statement += " LIMIT " + pivotDollar(index)
-	}
-	return statement, nil
+	return pivotRegionResult{
+		ctes:     []string{prefix + "src AS (" + sourceText + ")"},
+		final:    final,
+		keySlots: keySlots,
+		identity: identity,
+		names:    names,
+	}, nil
 }
 
 func pivotSlotRead(reads map[string]string, name string) (string, error) {

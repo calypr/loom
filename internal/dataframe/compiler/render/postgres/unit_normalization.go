@@ -51,15 +51,17 @@ package postgres
 //	                        Quantity first", recipe_rich_shaping.go:471;
 //	                        #> text[] reads out-of-range and
 //	                        non-array indexes as SQL NULL = AQL's missing
-//	                        reads null). Repeated ([]) steps keep the
-//	                        closed-slice array refusal; negative indexes
-//	                        refuse as a named capability gap (ArangoDB
-//	                        renders [n] verbatim, render/aql/selector.go:34,
-//	                        47, so [-1] carries tail-index semantics with
-//	                        no registered PostgreSQL equivalence — the
-//	                        enabling array-rendering capability is
-//	                        pg-sql-16, EXPAND/repeated items over typed
-//	                        intermediate rows).
+//	                        reads null) and the pg-sql-16 REGISTERED
+//	                        negative-index tail arm (G1; oracle receipts
+//	                        o1-idx-*.wire, ArangoDB 3.12.4-3: AQL renders
+//	                        [n] verbatim, render/aql/selector.go:34,47, so
+//	                        [-1] tail-indexes arrays with out-of-range
+//	                        null and reads objects by the decimal-text
+//	                        property; the PostgreSQL twin is
+//	                        null_semantics.go's jsonb_typeof CASE with the
+//	                        index as a bound bigint — live leg L7, mutant
+//	                        S7). Repeated ([]) steps keep the closed-slice
+//	                        array refusal.
 //	per-measurement rule    one rule per row: the row's system/code
 //	identity                FIRST-sibling strings (ordinality 1 of the
 //	                        one-item-normalized sibling list — array
@@ -384,9 +386,18 @@ func unitSelectorIterates(selector spec.Selector) bool {
 }
 
 // unitProjectionSelectorSteps validates one of the three unit selectors
-// into the registered step forms: direct properties and non-negative
-// indexed steps. Repeated steps and negative indexes are named refusals
-// (file header: the enabling array-rendering capability is pg-sql-16).
+// into the registered step forms: direct properties, non-negative indexed
+// steps, and the pg-sql-16 registered negative-index tail arm (G1).
+// Repeated steps remain a named refusal (the enabling full array-rendering
+// capability did not land for []; the tail arm needs only the indexed
+// form). The negative arm is pinned by the banked ArangoDB 3.12.4-3 oracle
+// receipts o1-idx-*.wire (this session's logs/): the AQL guard form
+// ((x.f ? x.f : [])[n]) (render/aql/selector.go:30-51) tail-indexes
+// arrays with out-of-range null, reads objects by the decimal-text
+// property name, and reads every falsy/null/missing class null — the
+// registered PostgreSQL twin is documentPathStepsFromExpression's
+// jsonb_typeof CASE arm (null_semantics.go), and the live leg L7 with
+// counterfactual mutant S7 keeps both ends honest.
 func unitProjectionSelectorSteps(projectionName, role string, selector spec.Selector) ([]documentPathStep, error) {
 	if len(selector.Steps) == 0 {
 		return nil, fmt.Errorf("%w: projection %q: the unit %s selector is empty", ErrUnsupportedPostgresPlan, projectionName, role)
@@ -398,9 +409,6 @@ func unitProjectionSelectorSteps(projectionName, role string, selector spec.Sele
 			return nil, fmt.Errorf("%w: projection %q: unit %s selector step %d has no property", ErrUnsupportedPostgresPlan, projectionName, role, index)
 		case step.Iterate:
 			return nil, fmt.Errorf("%w: projection %q: unit %s selector repeated ([]) step %d requires array rendering, which is not registered (the enabling capability is pg-sql-16)", ErrUnsupportedPostgresPlan, projectionName, role, index)
-		case step.Index != nil && *step.Index < 0:
-			return nil, fmt.Errorf("%w: projection %q: unit %s selector step %d uses negative index %d; ArangoDB renders [n] verbatim with tail-index semantics (render/aql/selector.go:34,47) and no PostgreSQL equivalence is registered (the enabling array-rendering capability is pg-sql-16)",
-				ErrUnsupportedPostgresPlan, projectionName, role, index, *step.Index)
 		}
 		if !payloadPathSegmentPattern.MatchString(step.Field) {
 			return nil, fmt.Errorf("%w: projection %q: unit %s selector step %q is not renderer-safe", ErrUnsupportedPostgresPlan, projectionName, role, step.Field)

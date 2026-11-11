@@ -595,6 +595,48 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 	r.unpivotSeq++
 	alias := "x" + strconv.Itoa(r.unpivotSeq)
 
+	region, err := r.renderMeltRegion(plan, unpivot, inputExprs, alias)
+	if err != nil {
+		return err
+	}
+	r.laterals = append(r.laterals, region.lateral)
+	r.where = append(r.where, region.conjuncts...)
+	if r.unpivotOutputs == nil {
+		r.unpivotOutputs = map[string]map[string]string{}
+	}
+	r.unpivotOutputs[unpivot.OutputRowVariable] = region.columns
+
+	// Window registration through the sanctioned seam (unnest.go:670's
+	// hasUnnest precedent): W3 orders by the renderer's identity expression
+	// (mapped in renderFinalWindowSortUnpivot) and appends exactly the
+	// slot-ordinality witness below. The dedicated list — not the unnest
+	// lateralAliases witnesses — keeps every existing ORDER BY term
+	// byte-identical: the expansion exposes slot_ord, not rn, and the
+	// has-item term would be a vacuous constant on a VALUES expansion that
+	// never pads.
+	r.window.hasUnpivot = true
+	r.window.unpivotOrdinals = append(r.window.unpivotOrdinals, region.ordinal)
+	return nil
+}
+
+// meltRegionResult is one rendered melt expansion: the VALUES LATERAL text,
+// the row-level conjuncts the caller places in its own WHERE, the legal
+// output-name to expression map, and the slot-ordinality ORDER BY witness.
+type meltRegionResult struct {
+	lateral   string
+	conjuncts []string
+	columns   map[string]string
+	ordinal   string
+}
+
+// renderMeltRegion renders the registered melt over caller-supplied input
+// expressions. The inline door (renderUnpivot) classifies the spine's own
+// projection contract; composition (stage_sequence.go) passes reads over the
+// prior stage CTE's materialized columns. Both then share this ONE emitter —
+// the VALUES slots, the per-row type witness, the null-row policy, the legal
+// output map, and the melt identity — so a staged melt cannot drift from the
+// inline melt (the byte-preservation law).
+func (r *planRenderer) renderMeltRegion(plan ir.PhysicalPlan, unpivot ir.PhysicalUnpivot, inputExprs map[string]string, alias string) (meltRegionResult, error) {
 	// The VALUES rows: one per authored input in authored order — the
 	// counterpart of the AQL slot array (table_reshape.go:511-531). The key
 	// is the declared literal, re-read and re-marshalled as one JSONB
@@ -606,18 +648,17 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 	for _, input := range unpivot.Inputs {
 		raw, err := unpivotKeyJSON(plan.BindVars[input.KeyBindKey], input.KeyKind)
 		if err != nil {
-			return fmt.Errorf("unpivot input %q: %w", input.Column, err)
+			return meltRegionResult{}, fmt.Errorf("unpivot input %q: %w", input.Column, err)
 		}
 		keyIndex := r.jsonbParameter(raw)
 		expression, ok := inputExprs[input.Column]
 		if !ok {
-			return fmt.Errorf("%w: unpivot input %q has no rendered projection expression", ErrUnsupportedPostgresPlan, input.Column)
+			return meltRegionResult{}, fmt.Errorf("%w: unpivot input %q has no rendered projection expression", ErrUnsupportedPostgresPlan, input.Column)
 		}
 		rows = append(rows, fmt.Sprintf("($%d::jsonb, to_jsonb(%s), %d)", keyIndex, expression, len(rows)+1))
 	}
 	lateral := "CROSS JOIN LATERAL (VALUES " + strings.Join(rows, ", ") + ") AS " +
 		alias + "(slot_key, slot_value, slot_ord)"
-	r.laterals = append(r.laterals, lateral)
 
 	// The per-row type witness (the AQL FILTER ASSERT counterpart,
 	// table_reshape.go:538) and the null-row policy. Conjunct order is
@@ -632,9 +673,9 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 	// PostgreSQL requires one resolvable type across CASE branches, so an
 	// ELSE true against the guardCast integer aborts at parse time
 	// (SQLSTATE 42804) and never plans.
-	r.where = append(r.where, "(CASE WHEN "+bad+" THEN "+guardCast(unpivotValueTypeTag)+" ELSE 1 END) = 1")
+	conjuncts := []string{"(CASE WHEN " + bad + " THEN " + guardCast(unpivotValueTypeTag) + " ELSE 1 END) = 1"}
 	if unpivot.NullRowPolicy == "DROP" {
-		r.where = append(r.where, "("+slotValue+" IS NOT NULL AND "+slotValue+" <> 'null'::jsonb)")
+		conjuncts = append(conjuncts, "("+slotValue+" IS NOT NULL AND "+slotValue+" <> 'null'::jsonb)")
 	}
 
 	// The melt output contract: each legal output name maps to the SQL
@@ -671,10 +712,10 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 		}
 		expression, ok := inputExprs[projection.Name]
 		if !ok {
-			return fmt.Errorf("%w: unpivot preserved column %q has no rendered projection expression", ErrUnsupportedPostgresPlan, projection.Name)
+			return meltRegionResult{}, fmt.Errorf("%w: unpivot preserved column %q has no rendered projection expression", ErrUnsupportedPostgresPlan, projection.Name)
 		}
 		if _, taken := columns[outputName]; taken {
-			return fmt.Errorf("%w: melt output column %q is emitted twice", ErrUnsupportedPostgresPlan, outputName)
+			return meltRegionResult{}, fmt.Errorf("%w: melt output column %q is emitted twice", ErrUnsupportedPostgresPlan, outputName)
 		}
 		columns[outputName] = expression
 	}
@@ -685,24 +726,9 @@ func (r *planRenderer) renderUnpivot(plan ir.PhysicalPlan, unpivot ir.PhysicalUn
 	// occupy this slot before the melt identity owns it.
 	columns[unpivotRowIDColumn] = r.unpivotIdentityExpression(plan, unpivot, inputExprs, alias)
 	if columns[unpivotRowIDColumn] == "" {
-		return fmt.Errorf("%w: unpivot identity expression failed", ErrUnsupportedPostgresPlan)
+		return meltRegionResult{}, fmt.Errorf("%w: unpivot identity expression failed", ErrUnsupportedPostgresPlan)
 	}
-	if r.unpivotOutputs == nil {
-		r.unpivotOutputs = map[string]map[string]string{}
-	}
-	r.unpivotOutputs[unpivot.OutputRowVariable] = columns
-
-	// Window registration through the sanctioned seam (unnest.go:670's
-	// hasUnnest precedent): W3 orders by the renderer's identity expression
-	// (mapped in renderFinalWindowSortUnpivot) and appends exactly the
-	// slot-ordinality witness below. The dedicated list — not the unnest
-	// lateralAliases witnesses — keeps every existing ORDER BY term
-	// byte-identical: the expansion exposes slot_ord, not rn, and the
-	// has-item term would be a vacuous constant on a VALUES expansion that
-	// never pads.
-	r.window.hasUnpivot = true
-	r.window.unpivotOrdinals = append(r.window.unpivotOrdinals, alias+".slot_ord")
-	return nil
+	return meltRegionResult{lateral: lateral, conjuncts: conjuncts, columns: columns, ordinal: alias + ".slot_ord"}, nil
 }
 
 // unpivotKeyJSON re-reads one key bind under the closed per-kind type table

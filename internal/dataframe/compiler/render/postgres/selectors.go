@@ -260,6 +260,22 @@ func classifyExtractionProjections(projections []ir.PhysicalProjection,
 	return classified, nil
 }
 
+// hiddenRootKeyRead is the ONE registered predicate for the hidden
+// single-step root-key Value read posture: no expression, no presence
+// claim, a bound row variable, no bind key, and exactly one path step
+// named id or _key (the materialized root identity's payload twins).
+// Shared (maximum-shared-implementation, coordinator ruling 2026-11-11)
+// between the canonical preview source identity arm below
+// (ir.PreviewSourceResourceIDColumn) and the composition source
+// materializer's route-anchor arm (stage_sequence.go, P4): the two sites
+// gate on name/root-scope respectively, the SHAPE law lives here so the
+// arms cannot drift.
+func hiddenRootKeyRead(projection ir.PhysicalProjection) bool {
+	return projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
+		projection.Value.Variable != "" && projection.Value.BindKey == "" &&
+		len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key")
+}
+
 // classifyExtractionProjection enforces the structural half of the
 // projection contract (everything checkable without plan context).
 func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedExtractionProjection, error) {
@@ -273,10 +289,7 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 		// the one hidden projection with a registered PostgreSQL rendering:
 		// exactly the root row's logical id, published through the internal
 		// column contract and never as public output.
-		if projection.Name == ir.PreviewSourceResourceIDColumn &&
-			projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
-			projection.Value.Variable != "" && projection.Value.BindKey == "" &&
-			len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key") {
+		if projection.Name == ir.PreviewSourceResourceIDColumn && hiddenRootKeyRead(projection) {
 			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
 		}
 		return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q is hidden executor-side metadata with no registered PostgreSQL rendering",

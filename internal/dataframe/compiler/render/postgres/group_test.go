@@ -803,8 +803,12 @@ func requireGroup13Refusal(t *testing.T, plan ir.PhysicalPlan, want string) {
 	// surface (so the door dispatches), RenderPhysicalPlan must refuse
 	// with the identical message. Mutations that rename the stage kind
 	// away are direct-door cells only (the sequence then never reaches
-	// the group door).
-	if groupPlanMentionsStage(plan) {
+	// the group door). Multi-stage sequences are the exception since
+	// pg-sql-16: the composition door (stage_sequence.go) claims them
+	// ahead of this slice, so their entry refusal is the composition
+	// register's own message (pinned in stage_sequence_test.go) while the
+	// group door keeps the single-stage L-13.1 message for direct calls.
+	if groupPlanMentionsStage(plan) && !stageSequenceCompositionMentions(plan) {
 		_, entryErr := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
 		if entryErr == nil || entryErr.Error() != err.Error() {
 			t.Fatalf("entry door refused differently: entry=%v dispatch=%v", entryErr, err)
@@ -885,9 +889,6 @@ func TestGroupRefusalRegister(t *testing.T) {
 				LabelVariable: "code_label", MembershipColumn: "codes",
 			}
 		}, "CODING_IDENTITY Group key is refused"},
-		{"L-13.5-related-occurrence", func(t *testing.T, plan *ir.PhysicalPlan) {
-			plan.StageSequence.Stages[0].Group.RelatedOccurrence = &ir.PhysicalStageGroupRelatedOccurrenceAdapter{RouteID: "r"}
-		}, "related-occurrence Group adapter is a pg-sql-16 capability gap"},
 		{"L-13.6-root-contributor", func(t *testing.T, plan *ir.PhysicalPlan) {
 			plan.StageSequence.Stages[0].Group.RootContributorInputColumn = "contributors"
 		}, "root-contributor set is production-unreachable"},
@@ -944,6 +945,34 @@ func TestGroupRefusalRegister(t *testing.T) {
 			requireGroup13Refusal(t, plan, cell.want)
 		})
 	}
+	// L-13.5 was the refusal pin for the related-occurrence Group adapter.
+	// pg-sql-16 G3(c) CLOSED the gap: the RenderPhysicalPlan entry now
+	// ROUTES every adapter-mentioning sequence to the composition slice
+	// (stageSequenceRelatedOccurrenceMentions, ahead of this door), whose
+	// renderStageGroup dispatch arm owns the adapter, so the table's
+	// entry==dispatch equality arm cannot apply to this shape — it reaches
+	// a different door by design. This pin keeps both halves honest.
+	t.Run("L-13.5-related-occurrence-routes-to-composition", func(t *testing.T) {
+		plan := ir.ClonePhysicalPlan(base)
+		plan.StageSequence.Stages[0].Group.RelatedOccurrence = &ir.PhysicalStageGroupRelatedOccurrenceAdapter{RouteID: "r"}
+		if !stageSequenceRelatedOccurrenceMentions(plan) {
+			t.Fatal("the entry claim must route the adapter shape to the composition slice")
+		}
+		_, entryErr := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
+		if entryErr == nil || !strings.Contains(entryErr.Error(), "unreferenced related route adapter") {
+			t.Fatalf("the entry must reach the composition door and the ir bound-field gate: %v", entryErr)
+		}
+		if strings.Contains(entryErr.Error(), "registered group slice") ||
+			strings.Contains(entryErr.Error(), "L-13.5; correlated-hop") {
+			t.Fatalf("the group door must not answer an adapter-bearing sequence: %v", entryErr)
+		}
+		_, directErr := renderGroupPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t))
+		if directErr == nil || !strings.Contains(directErr.Error(),
+			"related-occurrence Group adapter is a pg-sql-16 capability gap") {
+			t.Fatalf("the direct door must keep the registered L-13.5 defense-in-depth refusal: %v", directErr)
+		}
+	})
+
 	group13AliveControl(t)
 }
 

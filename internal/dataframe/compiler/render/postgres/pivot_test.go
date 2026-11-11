@@ -648,20 +648,25 @@ func TestPivot14SpinePathUntouched(t *testing.T) {
 	if sql := pivot14Render(t, pivot14ScalarPlan(t, pivot14ScalarConfig{})); sql == "" {
 		t.Fatal("canonical pivot rendered empty")
 	}
-	// The default-arm refusals for pivot-free plans are byte-identical:
-	// the merged StageSequence refusal and the plan-level window refusal
-	// must keep their exact pre-ticket texts (C3).
-	// C3: a single-stage NON-coded construction PIVOT (the authored
-	// recipe PIVOT operation) never enters the coded door — the merged
-	// StageSequence refusal keeps its exact pre-ticket text.
+	// The plan-level window refusal keeps its exact pre-ticket text (C3).
+	// C3 CONVERTED TO A POSITIVE by pg-sql-16 (plan G4): a single-stage
+	// NON-coded construction PIVOT (the authored recipe PIVOT operation)
+	// never enters the coded door — it now renders through the registered
+	// composition door (stage_sequence.go). The coded door's
+	// CodedCorrelation-keyed dispatch stays byte-identical for coded
+	// shapes; the composition renders this shape and the full
+	// production-compiled fixtures live in stage_sequence_test.go.
 	nonCoded := pivot14CompileBundle(t, pivot14NonCodedPivotBundle(t, "p14_spine_noncoded"), []string{"FHIR/Observation"})
 	if nonCoded.StageSequence == nil || nonCoded.StageSequence.Stages[0].GroupedPivot == nil ||
 		nonCoded.StageSequence.Stages[0].GroupedPivot.CodedCorrelation != nil {
 		t.Fatalf("non-coded construction pivot shape drifted: %+v", nonCoded.StageSequence)
 	}
-	if _, err := RenderPhysicalPlan(nonCoded, mustBinding(t)); err == nil ||
-		!strings.Contains(err.Error(), "staged row-operator sequences are not yet implemented for PostgreSQL") {
-		t.Fatalf("merged StageSequence refusal drifted: %v", err)
+	rendered, err := RenderPhysicalPlan(nonCoded, mustBinding(t))
+	if err != nil {
+		t.Fatalf("staged non-coded pivot must render through the composition door (G4): %v", err)
+	}
+	if !strings.Contains(rendered.SQL, "WITH ") || !strings.Contains(rendered.SQL, "__loom_") {
+		t.Fatalf("staged non-coded pivot did not render a composed CTE chain:\n%s", rendered.SQL)
 	}
 	windowed := basePlan()
 	windowed.PreviewSourceWindowByRootID = true
