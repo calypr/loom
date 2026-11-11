@@ -218,9 +218,9 @@ func TestPublishProjectConfigsReactivatesSupersededSameExecutionRevisionAgainstA
 
 func projectConfigPublicationDB(t *testing.T) (context.Context, *projectstore.Client, *Store, *datasetarango.Store) {
 	t.Helper()
-	endpoint := os.Getenv("LOOM_ARANGO_URL")
+	endpoint := os.Getenv("LOOM_TEST_ARANGO_URL")
 	if endpoint == "" {
-		t.Skip("set LOOM_ARANGO_URL to run project config publication against a disposable database")
+		t.Skip("set LOOM_TEST_ARANGO_URL to run project config publication against a disposable database")
 	}
 	database := "loom_test_project_configs_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
