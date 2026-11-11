@@ -1232,4 +1232,261 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 			t.Fatalf("plain GROUP may not extend the prior schema: %v", err)
 		}
 	})
+	t.Run("plain-group-reordered-refuses", func(t *testing.T) {
+		// ir-wins ruling 2026-11-11: the extend rule is RelatedOccurrence-
+		// only; ir :65 accepts a plain GROUP InputColumns ONLY through
+		// samePhysicalStageColumns, which is positional. The removed
+		// name-subset plain arm accepted this reordered name-bijection.
+		reordered := []ir.PhysicalStageColumn{prior[1], prior[0]}
+		if err := validateStageSequenceChain(chain(reordered, false)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("a reordered plain GROUP input must die at the door (ir :65 is positional): %v", err)
+		}
+	})
+	t.Run("anchor-drift-input-refuses", func(t *testing.T) {
+		// The sameStageColumns field set mirrors ir exactly: ir compares
+		// RelatedRecordAnchor with reflect.DeepEqual — input drift in the
+		// anchor must die at the door.
+		columns := append([]ir.PhysicalStageColumn{}, prior...)
+		columns[0].RelatedRecordAnchor = &ir.PhysicalStageRelatedRecordAnchor{ResourceType: "Patient"}
+		if err := validateStageSequenceChain(chain(columns, false)); err == nil ||
+			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("RelatedRecordAnchor drift must die at the door (ir DeepEqual leg): %v", err)
+		}
+	})
+	t.Run("presence-companion-drift-tolerated", func(t *testing.T) {
+		// The ir-wins side of the same receipt: ir.samePhysicalStageColumns
+		// does NOT compare PresenceCompanionName; the door dropped its
+		// unregistered extra comparison. Pinning the tolerance so a future
+		// hardening is a deliberate ir-changing decision, not door drift.
+		columns := append([]ir.PhysicalStageColumn{}, prior...)
+		columns[1].PresenceCompanionName = "status_present"
+		if err := validateStageSequenceChain(chain(columns, false)); err != nil {
+			t.Fatalf("PresenceCompanionName drift must pass (ir does not compare it): %v", err)
+		}
+	})
+	t.Run("empty-projection-input-column-refuses", func(t *testing.T) {
+		// ir :2662-2666 REJECTS an empty ScalarProjections[].InputColumn
+		// outright (not skip): the extension then cannot name the column.
+		broken := &ir.PhysicalStageGroupRelatedOccurrenceAdapter{
+			ScalarProjections:   []ir.PhysicalStageGroupRelatedProjection{{InputColumn: "", ResultField: "status"}},
+			OccurrenceKeyColumn: "occurrence",
+		}
+		group := &ir.PhysicalStageGroup{ConstructionIDBindKey: "ro_cid", RelatedOccurrence: broken}
+		stages := chain(extension(), true).StageSequence
+		stages.Stages[0].Group = group
+		if err := validateStageSequenceChain(ir.PhysicalPlan{
+			Operations:    chain(extension(), true).Operations,
+			StageSequence: stages,
+		}); err == nil || !strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+			t.Fatalf("empty projection InputColumn must refuse (ir rejects, not skips): %v", err)
+		}
+	})
+	t.Run("empty-coding-names-tolerated", func(t *testing.T) {
+		// ir :2670-2682 skips an empty CodingMembershipColumn/
+		// OccurrenceKeyColumn as absent: a no-Coding adapter extends by
+		// exactly the scalar projection set.
+		noCoding := &ir.PhysicalStageGroupRelatedOccurrenceAdapter{
+			ScalarProjections: []ir.PhysicalStageGroupRelatedProjection{{InputColumn: "related_status", ResultField: "status"}},
+		}
+		columns := append(append([]ir.PhysicalStageColumn{}, prior...),
+			ir.PhysicalStageColumn{ID: "related_status", Name: "related_status", Kind: "string", Cardinality: "optional_one", Internal: true})
+		group := &ir.PhysicalStageGroup{ConstructionIDBindKey: "ro_cid", RelatedOccurrence: noCoding}
+		base := chain(columns, true)
+		base.StageSequence.Stages[0].Group = group
+		if err := validateStageSequenceChain(base); err != nil {
+			t.Fatalf("empty Coding column names must be treated as absent (ir skip arms): %v", err)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// All-kinds P4 sweep (coordinator ruling 2026-11-11): every composition-
+// claimed stage kind gets ONE production-lowered-through-door cell
+// (recipe -> semantic.BuildRecipePlan -> semantic.ResolveRecipePlan ->
+// lower.CompileResolvedRecipePlan -> door + entry, zero hand-shaping).
+// The hand-parked sequence.SourceColumns blind spot produced two real
+// door/ir drifts through the production channel (door extend rule, hidden
+// _key arm); every other claimed kind is assumed to hide the same until
+// its cell exists. If a cell reveals drift: mirror ir, RED-first, pin.
+// ---------------------------------------------------------------------------
+
+// sql16SweepOutput authors the recipe for one composition-claimed kind.
+// Each shape is copied from a proven lowering-channel precedent
+// (T-bundle FILTER/GROUP/EXPAND, the registered pivot cell, the lower
+// unpivot cell, the construction-oracle derive cell) so the sweep tests
+// the DOOR, not the authoring.
+func sql16SweepOutput(t *testing.T, kind ir.PhysicalStageOperationKind) recipe.Output {
+	t.Helper()
+	base := func(name string, fields []recipe.Field, columns []recipe.StageColumn) recipe.Output {
+		return recipe.Output{
+			Name: "sql16_sweep_" + name, RootResourceType: "Observation", RowGrain: "observation",
+			Fields:       fields,
+			Construction: &recipe.Construction{Version: 1, SourceColumns: columns},
+		}
+	}
+	numeric := func() ([]recipe.Field, []recipe.StageColumn) {
+		return []recipe.Field{
+				{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+				{Name: "score", ColumnID: "score_id", Expr: recipe.Expression{Select: "root.valueInteger"}},
+				{Name: "amount", ColumnID: "amount_id", Expr: recipe.Expression{Select: "root.valueQuantity.value"}},
+			}, []recipe.StageColumn{
+				{ID: "status_id", Name: "status"}, {ID: "score_id", Name: "score"}, {ID: "amount_id", Name: "amount"},
+			}
+	}
+	switch kind {
+	case ir.PhysicalStageFilterOp:
+		output := base("filter", sql16SourceFields(), sql16SourceColumns())
+		step := sql16FilterStep("keep_rows", recipe.ConstructionSourceProjectionInput, "", "status_id")
+		step.Outputs = []recipe.StageColumn{{ID: "status_id", Name: "status"}, {ID: "tags_id", Name: "tags"}}
+		output.Construction.Steps = []recipe.ConstructionStep{step}
+		return output
+	case ir.PhysicalStageGroupOp:
+		// Scalar-only source fields: an array-selector source RETURN is the
+		// registered composition refusal (selector extraction is SCALAR-
+		// only); this cell must exercise the GROUP kind, not that refusal.
+		groupFields, groupColumns := numeric()
+		_ = groupFields
+		output := base("group", groupFields, groupColumns)
+		output.Construction.Steps = []recipe.ConstructionStep{{
+			ID: "group_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionGroupOp, Group: &recipe.ConstructionGroup{
+				ConstructionID: "group_status_values",
+				Keys:           []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "status_key_id"}},
+				Aggregates: []recipe.ConstructionGroupAggregate{
+					{Operation: recipe.ConstructionGroupCountRows, OutputColumnID: "rows_id"},
+				},
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "status_key_id", Name: "status_key"}, {ID: "rows_id", Name: "rows"},
+			},
+		}}
+		return output
+	case ir.PhysicalStageExpandOp:
+		output := base("expand", sql16SourceFields(), sql16SourceColumns())
+		output.Construction.Steps = []recipe.ConstructionStep{{
+			ID: "expand_tags", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionExpandOp, Expand: &recipe.ConstructionExpand{
+				ConstructionID: "expand_tag_values", InputColumnID: "tags_id",
+				OutputColumnID: "tag_id", OrdinalColumnID: "ordinal_id",
+				EmptyPolicy: recipe.ExpansionPreserveParent,
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "status_id", Name: "status"}, {ID: "tag_id", Name: "tag"}, {ID: "ordinal_id", Name: "ordinal"},
+			},
+		}}
+		return output
+	case ir.PhysicalStageDeriveOp:
+		fields, columns := numeric()
+		output := base("derive", fields, columns)
+		output.Construction.Steps = []recipe.ConstructionStep{{
+			ID: "derive_total", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionDeriveOp, Derive: &recipe.ConstructionDerive{
+				ConstructionID: "derive_total_sum", OutputColumnID: "total_id", Operation: recipe.DerivedAdd,
+				Left:               recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "score_id"},
+				Right:              recipe.ConstructionOperand{Kind: recipe.DerivedColumnOperand, ColumnID: "amount_id"},
+				MissingInputPolicy: recipe.MissingInputPropagateNull,
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "status_id", Name: "status"}, {ID: "score_id", Name: "score"},
+				{ID: "amount_id", Name: "amount"}, {ID: "total_id", Name: "total"},
+			},
+		}}
+		return output
+	case ir.PhysicalStageUnpivotOp:
+		fields, columns := numeric()
+		output := base("unpivot", fields, columns)
+		keyScore, keyAmount := "score", "amount"
+		output.Construction.Steps = []recipe.ConstructionStep{{
+			ID: "unpivot_measures", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+			Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionUnpivotOp, Unpivot: &recipe.ConstructionUnpivot{
+				ConstructionID: "unpivot_measures_values",
+				Inputs: []recipe.ConstructionUnpivotInput{
+					{ColumnID: "score_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &keyScore}},
+					{ColumnID: "amount_id", Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &keyAmount}},
+				},
+				KeyOutputColumnID: "measure_id", ValueOutputColumnID: "measure_value_id",
+				NullRowPolicy: recipe.UnpivotNullDrop,
+			}},
+			Outputs: []recipe.StageColumn{
+				{ID: "status_id", Name: "status"}, {ID: "measure_id", Name: "measure"},
+				{ID: "measure_value_id", Name: "measure_value"},
+			},
+		}}
+		return output
+	case ir.PhysicalStagePivotOp:
+		final := "final"
+		return recipe.Output{
+			Name: "sql16_sweep_pivot", RootResourceType: "Observation", RowGrain: "observation",
+			Fields: []recipe.Field{
+				{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}},
+				{Name: "rid", ColumnID: "rid_id", Expr: recipe.Expression{Select: "root.id"}},
+				{Name: "val", ColumnID: "val_id", Expr: recipe.Expression{Select: "root.valueString"}},
+			},
+			Construction: &recipe.Construction{Version: 1,
+				SourceColumns: []recipe.StageColumn{
+					{ID: "status_id", Name: "status"}, {ID: "rid_id", Name: "rid"}, {ID: "val_id", Name: "val"},
+				},
+				Steps: []recipe.ConstructionStep{{
+					ID: "pivot_status", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionSourceProjectionInput}},
+					Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionPivotOp, Pivot: &recipe.ConstructionPivot{
+						ConstructionID: "status_pivot", GroupKeyIDs: []string{"val_id"},
+						CategoryColumnID: "status_id", ValueColumnID: "rid_id",
+						Categories: []recipe.ConstructionPivotCategory{
+							{Key: recipe.TableScalar{Kind: recipe.TableScalarString, String: &final}, OutputColumnID: "final_id"},
+						},
+						DuplicatePolicy: recipe.PivotDuplicateError, MissingCellPolicy: recipe.PivotMissingCellNull,
+						UnlistedCategoryPolicy: recipe.PivotUnlistedCategoryError,
+					}},
+					Outputs: []recipe.StageColumn{
+						{ID: "val_id", Name: "val", Type: "string", Nullable: true},
+						{ID: "final_id", Name: "final_cell", Type: "string", Nullable: true},
+					},
+				}},
+			},
+		}
+	}
+	t.Fatalf("unregistered sweep kind %q", string(kind))
+	return recipe.Output{}
+}
+
+func TestSQL16CompositionKindSweep(t *testing.T) {
+	for _, kind := range []ir.PhysicalStageOperationKind{
+		ir.PhysicalStageFilterOp, ir.PhysicalStageDeriveOp, ir.PhysicalStageExpandOp,
+		ir.PhysicalStageUnpivotOp, ir.PhysicalStageGroupOp, ir.PhysicalStagePivotOp,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			plan := sql16Compile(t, sql16SweepOutput(t, kind))
+			sequence := plan.StageSequence
+			if sequence == nil || len(sequence.Stages) != 1 {
+				t.Fatalf("the recipe must lower to one composed stage, got %#v", sequence)
+			}
+			if got := sequence.Stages[0].Kind; got != kind {
+				t.Fatalf("production lowering emitted kind %q, want %q (the sweep cell must exercise its kind)", got, string(kind))
+			}
+			if kind == ir.PhysicalStageDeriveOp {
+				// Registered posture, not drift: every recipe-authored
+				// DERIVE lowers its arithmetic operand (ADD/SUBTRACT/
+				// MULTIPLY/DIVIDE — recipe.DerivedOperation is closed to
+				// CALL forms) to a CALL LET, and the composition DERIVE
+				// arm refuses CALL LETs as the L-16.6 named gap (CALL/
+				// selector/unit-normalization belong to calls.go,
+				// selectors.go, unit_normalization.go) — never partially
+				// rendered. The sweep pins the production path speaking
+				// that refusal at BOTH doors (entry==dispatch, U1 law).
+				sql16RequireRefusal(t, ir.ClonePhysicalPlan(plan),
+					`composition DERIVE LET of expression kind "CALL" has no registered rendering`)
+				return
+			}
+			// Door level (dispatch): the chain re-reads must accept the
+			// production-lowered shape with zero hand-shaping.
+			if err := validateStageSequenceChain(ir.ClonePhysicalPlan(plan)); err != nil {
+				t.Fatalf("door refuses the production-lowered %s plan (door/ir drift class): %v", string(kind), err)
+			}
+			// Entry level: the full entry render agrees with the door.
+			if _, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(plan), mustBinding(t)); err != nil {
+				t.Fatalf("entry refuses the production-lowered %s plan the door accepted: %v", string(kind), err)
+			}
+		})
+	}
 }

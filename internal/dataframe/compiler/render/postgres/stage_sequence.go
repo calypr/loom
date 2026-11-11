@@ -138,6 +138,7 @@ package postgres
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -527,9 +528,13 @@ func validateStageColumns(columns []ir.PhysicalStageColumn, identityColumn strin
 	return nil
 }
 
-// sameStageColumns compares two declared schemas by the ir rule
-// (reflect.DeepEqual parity at physical_stage_validation.go:65): same
-// columns in same order, same declared types and roles.
+// sameStageColumns compares two declared schemas byte-parallel with
+// ir.samePhysicalStageColumns (physical_stage_validation.go:2645): same
+// columns in same order, same declared types and roles; the ir field set
+// exactly — RelatedRecordAnchor by reflect.DeepEqual, and
+// PresenceCompanionName deliberately NOT compared because the ir rule
+// does not compare it (door==ir, coordinator ir-wins ruling 2026-11-11;
+// TestSQL16RelatedOccurrenceDoorExtend pins both legs).
 func sameStageColumns(left, right []ir.PhysicalStageColumn) bool {
 	if len(left) != len(right) {
 		return false
@@ -539,68 +544,65 @@ func sameStageColumns(left, right []ir.PhysicalStageColumn) bool {
 		if a.ID != b.ID || a.Name != b.Name || a.Label != b.Label || a.Kind != b.Kind ||
 			a.Cardinality != b.Cardinality || a.Nullable != b.Nullable || a.Internal != b.Internal ||
 			a.Identity != b.Identity || a.RootContributorResourceType != b.RootContributorResourceType ||
-			a.PresenceCompanionName != b.PresenceCompanionName {
+			!reflect.DeepEqual(a.RelatedRecordAnchor, b.RelatedRecordAnchor) {
 			return false
 		}
 	}
 	return true
 }
 
-// groupInputColumnsExtendSource is the ir :65 group-extend rule re-read:
-// a plain GROUP stage may carry exactly the prior schema plus the
-// compiler-stamped group inputs, and a RelatedOccurrence GROUP may extend
-// the prior schema with exactly the adapter-internal columns; mirrors
-// ir.physicalGroupInputColumnsExtendSource (physical_stage_validation.go:2659).
+// groupInputColumnsExtendSource is the door mirror of
+// ir.physicalGroupInputColumnsExtendSource (physical_stage_validation.go:2659):
+// the extend rule is RelatedOccurrence-ONLY. A plain GROUP stage is
+// accepted by the chain law solely through the sameStageColumns re-read
+// the caller runs first (ir :65 samePhysicalStageColumns leg) — ir returns
+// false here whenever Group.RelatedOccurrence == nil. The pre-ruling
+// name-subset plain arm was door-permissive drift (it accepted reordered
+// name-bijections that ir's :65 refuses); removed per the coordinator
+// ir-wins ruling 2026-11-11, pinned by
+// TestSQL16RelatedOccurrenceDoorExtend/plain-group-* cells.
 func groupInputColumnsExtendSource(stage ir.PhysicalConstructionStage, prior []ir.PhysicalStageColumn) bool {
-	if stage.Kind != ir.PhysicalStageGroupOp || stage.Group == nil {
+	if stage.Kind != ir.PhysicalStageGroupOp || stage.Group == nil || stage.Group.RelatedOccurrence == nil ||
+		len(stage.InputColumns) <= len(prior) ||
+		!sameStageColumns(stage.InputColumns[:len(prior)], prior) {
 		return false
 	}
-	if adapter := stage.Group.RelatedOccurrence; adapter != nil {
-		// RelatedOccurrence arm: prior prefix + exactly the adapter set.
-		if len(stage.InputColumns) <= len(prior) ||
-			!sameStageColumns(stage.InputColumns[:len(prior)], prior) {
+	adapter := stage.Group.RelatedOccurrence
+	// RelatedOccurrence arm: prior prefix + exactly the adapter set
+	// (byte-parallel with ir :2661-2694, including the empty-name
+	// semantics: an empty ScalarProjections[].InputColumn REJECTS the
+	// stage, while an empty CodingMembershipColumn/OccurrenceKeyColumn
+	// is treated as absent — both verified in the ir-diff receipt,
+	// coordinator order 2026-11-11, and pinned by the door battery).
+	expected := make(map[string]bool, len(adapter.ScalarProjections)+2)
+	for _, projection := range adapter.ScalarProjections {
+		if projection.InputColumn == "" || expected[projection.InputColumn] {
 			return false
 		}
-		expected := make(map[string]bool, len(adapter.ScalarProjections)+2)
-		for _, projection := range adapter.ScalarProjections {
-			if projection.InputColumn == "" || expected[projection.InputColumn] {
-				return false
-			}
-			expected[projection.InputColumn] = true
-		}
-		if adapter.CodingMembershipColumn != "" {
-			if expected[adapter.CodingMembershipColumn] {
-				return false
-			}
-			expected[adapter.CodingMembershipColumn] = true
-		}
-		if adapter.OccurrenceKeyColumn != "" {
-			if expected[adapter.OccurrenceKeyColumn] {
-				return false
-			}
-			expected[adapter.OccurrenceKeyColumn] = true
-		}
-		if len(stage.InputColumns)-len(prior) != len(expected) {
+		expected[projection.InputColumn] = true
+	}
+	if adapter.CodingMembershipColumn != "" {
+		if expected[adapter.CodingMembershipColumn] {
 			return false
 		}
-		for _, column := range stage.InputColumns[len(prior):] {
-			if !expected[column.Name] || !column.Internal || column.ID != column.Name {
-				return false
-			}
-			delete(expected, column.Name)
-		}
-		return len(expected) == 0
+		expected[adapter.CodingMembershipColumn] = true
 	}
-	priorNames := map[string]bool{}
-	for _, column := range prior {
-		priorNames[column.Name] = true
-	}
-	for _, column := range stage.InputColumns {
-		if !priorNames[column.Name] {
+	if adapter.OccurrenceKeyColumn != "" {
+		if expected[adapter.OccurrenceKeyColumn] {
 			return false
 		}
+		expected[adapter.OccurrenceKeyColumn] = true
 	}
-	return len(stage.InputColumns) >= len(prior)
+	if len(stage.InputColumns)-len(prior) != len(expected) {
+		return false
+	}
+	for _, column := range stage.InputColumns[len(prior):] {
+		if !expected[column.Name] || !column.Internal || column.ID != column.Name {
+			return false
+		}
+		delete(expected, column.Name)
+	}
+	return len(expected) == 0
 }
 
 // validateStageKindPayload re-reads the per-kind payload exclusivity table
@@ -1046,10 +1048,11 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 		// canonicalization (resolveValueInRows, coded_group.go:873
 		// cg_root_key, selectors.go:276-281 PreviewSourceResourceIDColumn
 		// arm): a payload-path read of the absent property would silently
-		// render SQL NULL.
-		if projection.Hidden && projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
-			projection.Value.Variable != "" && projection.Value.BindKey == "" &&
-			len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key") {
+		// render SQL NULL. The shape law is the SHARED hiddenRootKeyRead
+		// predicate (maximum-shared-implementation with the
+		// PreviewSourceResourceIDColumn arm, selectors.go); this site
+		// adds the root-scope proof the source region must carry.
+		if projection.Hidden && hiddenRootKeyRead(projection) {
 			scope, ok := r.rows[projection.Value.Variable]
 			if !ok || scope.alias != r.rootAlias {
 				return "", nil, fmt.Errorf("%w: key identity projection %q reads a variable the composition source region has not registered (L-16.6)",
