@@ -37,14 +37,14 @@ import (
 	"testing"
 	"time"
 
+	postgres "github.com/calypr/loom/internal/backends/postgres"
+	storepg "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/source"
-	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -118,7 +118,7 @@ type exec04srvService struct {
 	target   compiler.Target
 	scrub    func(any) string
 	fail     func(step string, err error)
-	executor *dataframepostgres.Executor
+	executor dataframeexecution.SourceRows
 }
 
 // exec04srvScrubberFor returns an error formatter that replaces every
@@ -254,7 +254,7 @@ func newExec04srvService(t *testing.T) *exec04srvService {
 		}
 	})
 
-	executor, err := dataframepostgres.NewExecutor(iso)
+	executor, err := postgres.NewSourceRows(iso)
 	if err != nil {
 		fail("create PostgreSQL row executor", err)
 	}
@@ -280,7 +280,7 @@ func exec04srvRandomHex(t *testing.T) string {
 
 func (s *exec04srvService) migrateSeed(t *testing.T) {
 	t.Helper()
-	client, err := storepg.Open(s.ctx, storepg.Config{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
+	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
 	if err != nil {
 		s.fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
@@ -394,7 +394,7 @@ func TestPostgresPreviewServerWiringFailClosesPGPlan(t *testing.T) {
 				if _, _, dispatchErr := request.Command.PostgreSQLParameters(); dispatchErr != nil {
 					return dispatchErr
 				}
-				return s.executor.SourceRows(ctx, request, visit)
+				return s.executor(ctx, request, visit)
 			},
 		})
 		if err != nil {

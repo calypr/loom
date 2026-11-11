@@ -48,14 +48,15 @@ import (
 	"testing"
 	"time"
 
+	postgres "github.com/calypr/loom/internal/backends/postgres"
+	storepg "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	dataframepostgres "github.com/calypr/loom/internal/dataframe/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	exec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/source"
-	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -138,7 +139,7 @@ type exec04pvService struct {
 	target   compiler.Target
 	scrub    func(any) string
 	fail     func(step string, err error)
-	executor *dataframepostgres.Executor
+	executor dataframeexecution.SourceRows
 }
 
 // exec04pvScrubberFor returns an error formatter that replaces every
@@ -274,7 +275,7 @@ func newExec04pvService(t *testing.T) *exec04pvService {
 		}
 	})
 
-	executor, err := dataframepostgres.NewExecutor(iso)
+	executor, err := postgres.NewSourceRows(iso)
 	if err != nil {
 		fail("create PostgreSQL row executor", err)
 	}
@@ -293,7 +294,7 @@ func newExec04pvService(t *testing.T) *exec04pvService {
 // production migration runner.
 func (s *exec04pvService) migrate(t *testing.T) {
 	t.Helper()
-	client, err := storepg.Open(s.ctx, storepg.Config{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
+	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
 	if err != nil {
 		s.fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
@@ -376,17 +377,74 @@ func (r *exec04pvRecorder) port(ctx context.Context, request dataframeexecution.
 		return err
 	}
 	r.calls = append(r.calls, exec04pvCall{sql: sqlText, args: args, declared: append([]string(nil), request.DeclaredColumns...), tag: request.Command.Backend()})
-	return r.s.executor.SourceRows(ctx, request, visit)
+	return r.s.executor(ctx, request, visit)
 }
 
 func (r *exec04pvRecorder) counts() int { return len(r.calls) }
+
+// exec04pvInvalidRegistry refuses recipe loads: this battery compiles
+// authored bundles only, mirroring the relocated exec-02 witness.
+type exec04pvInvalidRegistry struct{}
+
+func (exec04pvInvalidRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
+	return exec.Entry{}, errors.New("the preview battery compiles authored bundles only")
+}
+
+func (exec04pvInvalidRegistry) LoadRecipeVersion(context.Context, string, string) (exec.Entry, error) {
+	return exec.Entry{}, errors.New("the preview battery compiles authored bundles only")
+}
+
+// exec04pvForbidArango arms every AQL/Arango/ClickHouse callback as an
+// error landmine (the arch-backend-06 relocation moved the shared
+// exec02ForbidArango into the backends tree with its battery): a
+// PostgreSQL-served plan that touches any of them fails.
+func exec04pvForbidArango() dataframeexecution.Config {
+	return dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      exec04pvInvalidRegistry{},
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, _ dataframeexecution.RowVisitor) error {
+			cmd := request.Command
+			_, _, dispatchErr := cmd.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return errors.New("AQL QueryRows must never run for a PostgreSQL-served plan")
+		},
+		PreviewSourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, _ dataframeexecution.RowVisitor) error {
+			cmd := request.Command
+			_, _, dispatchErr := cmd.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return errors.New("AQL PreviewQueryRows must never run for a PostgreSQL-served plan")
+		},
+		PreparePreviewIndex: func(context.Context, compiler.PreviewCoveringIndexSpec) error {
+			return errors.New("preparePreviewIndex must never run for a PostgreSQL-served plan")
+		},
+		PreviewCoveringIndexes: func(context.Context, string) ([]dataframeexecution.PreviewCollectionIndex, error) {
+			return nil, errors.New("previewCoveringIndexes must never run for a PostgreSQL-served plan")
+		},
+		PreviewCollectionRevision: func(context.Context, string) (string, error) {
+			return "", errors.New("previewCollectionRevision must never run for a PostgreSQL-served plan")
+		},
+		PreviewCollectionScans: func(context.Context, command.CompiledCommand, string) (dataframeexecution.PreviewCollectionScanEvidence, error) {
+			return dataframeexecution.PreviewCollectionScanEvidence{}, errors.New("previewCollectionScans must never run for a PostgreSQL-served plan")
+		},
+		PreviewCollectionCount: func(context.Context, string) (int64, error) {
+			return 0, errors.New("previewCollectionCount must never run for a PostgreSQL-served plan")
+		},
+		ClickHouseQueryRows: func(context.Context, string, []string, func(map[string]any) error, ...any) error {
+			return errors.New("ClickHouse callbacks must never run for a PostgreSQL-served plan")
+		},
+	}
+}
 
 // engine wires a PostgreSQL-selected engine with every Arango/ClickHouse
 // control armed as a landmine and the recording wrapper around the real
 // adapter as the single source row port.
 func (s *exec04pvService) engine(t *testing.T, recorder *exec04pvRecorder, rootPageRows int) *dataframeexecution.Engine {
 	t.Helper()
-	config := exec02ForbidArango()
+	config := exec04pvForbidArango()
 	config.CompileTarget = s.target
 	config.PreviewSourceRows = nil
 	config.ScopeDigest = func(recipe.RuntimeBindings) string { return "exec04-pv-scope" }

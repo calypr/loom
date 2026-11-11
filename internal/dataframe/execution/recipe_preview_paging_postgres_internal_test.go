@@ -41,6 +41,7 @@ import (
 	"testing"
 	"time"
 
+	storepg "github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -48,7 +49,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	exec "github.com/calypr/loom/internal/dataframe/recipe/exec"
 	"github.com/calypr/loom/internal/source"
-	storepg "github.com/calypr/loom/internal/store/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -307,7 +307,7 @@ func (s *exec04pgService) qualifiedTable(name string) string {
 
 func (s *exec04pgService) migrate(t *testing.T) {
 	t.Helper()
-	client, err := storepg.Open(s.ctx, storepg.Config{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
+	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
 	if err != nil {
 		s.fail("open pg-store client (requires a live PostgreSQL 18 service)", err)
 	}
