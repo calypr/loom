@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	driver "github.com/arangodb/go-driver/v2/arangodb"
@@ -24,7 +25,24 @@ type Client struct {
 	rawURL         string
 	dbName         string
 	client         *http.Client
+	transport      *http.Transport
 	previewIndexMu sync.Mutex
+	closed         atomic.Bool
+}
+
+// ErrClientClosed marks every operation attempted on a closed Client.
+// Close is terminal: after it returns, every entry path fails with this
+// sentinel instead of reaching the server, so "closed" is an observable
+// state, not a documentation claim.
+var ErrClientClosed = errors.New("arango: client closed")
+
+// checkOpen is the single closed-state guard every network entry path
+// must take before touching the driver.
+func (c *Client) checkOpen() error {
+	if c == nil || c.closed.Load() {
+		return fmt.Errorf("%w: %s/%s", ErrClientClosed, c.rawURL, c.dbName)
+	}
+	return nil
 }
 
 const previewCursorCleanupTimeout = time.Second
@@ -137,14 +155,18 @@ func Open(ctx context.Context, url, database string) (*Client, error) {
 
 	httpClient := &http.Client{Transport: transport}
 	return &Client{
-		db:     db,
-		rawURL: url,
-		dbName: database,
-		client: httpClient,
+		db:        db,
+		rawURL:    url,
+		dbName:    database,
+		client:    httpClient,
+		transport: transport,
 	}, nil
 }
 
 func (c *Client) Bootstrap(ctx context.Context, spec BootstrapSpec) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	total := len(spec.Collections)
 	for i, collection := range spec.Collections {
 		reportBootstrap(spec, "go_bootstrap_collection_start", map[string]any{
@@ -204,6 +226,9 @@ func (c *Client) Bootstrap(ctx context.Context, spec BootstrapSpec) error {
 }
 
 func (c *Client) InsertBatchRaw(ctx context.Context, collection string, docs []json.RawMessage, overwrite bool, writeAPI string) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	if len(docs) == 0 {
 		return nil
 	}
@@ -217,6 +242,9 @@ func (c *Client) InsertBatchRaw(ctx context.Context, collection string, docs []j
 }
 
 func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, visit RowVisitor) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	return queryRows(ctx, c.db, query, batchSize, bindVars, visit)
 }
 
@@ -224,13 +252,19 @@ func (c *Client) QueryRows(ctx context.Context, query string, batchSize int, bin
 // runtime limit. It is intended for bounded previews whose client request may
 // be canceled while the server is still evaluating the query.
 func (c *Client) QueryRowsWithMaxRuntime(ctx context.Context, query string, batchSize int, bindVars map[string]interface{}, maxRuntime time.Duration, visit RowVisitor) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	return queryRowsWithMaxRuntime(ctx, c.db, query, batchSize, bindVars, maxRuntime, visit)
 }
 
 // CollectionRevision returns ArangoDB's collection data revision. Callers can
 // use it to validate cached read results against intervening document writes.
 func (c *Client) CollectionRevision(ctx context.Context, name string) (string, error) {
-	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
+	if err := c.checkOpen(); err != nil {
+		return "", err
+	}
+	if c.db == nil || strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("Arango collection revision requires a client and collection")
 	}
 	collection, err := c.db.GetCollection(ctx, name, nil)
@@ -250,7 +284,10 @@ func (c *Client) CollectionRevision(ctx context.Context, name string) (string, e
 // CollectionCount returns Arango's collection cardinality metadata without
 // scanning its documents.
 func (c *Client) CollectionCount(ctx context.Context, name string) (int64, error) {
-	if c == nil || c.db == nil || strings.TrimSpace(name) == "" {
+	if err := c.checkOpen(); err != nil {
+		return 0, err
+	}
+	if c.db == nil || strings.TrimSpace(name) == "" {
 		return 0, fmt.Errorf("Arango collection count requires a client and collection")
 	}
 	collection, err := c.db.GetCollection(ctx, name, nil)
@@ -298,6 +335,9 @@ func queryRowsWithMaxRuntime(ctx context.Context, queryer driver.DatabaseQuery, 
 }
 
 func (c *Client) WithTransaction(ctx context.Context, collections TransactionCollections, fn TransactionFunc) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	if fn == nil {
 		return fmt.Errorf("Arango transaction callback is required")
 	}
@@ -383,6 +423,9 @@ func queryRowsWithOptions(ctx context.Context, queryer driver.DatabaseQuery, que
 }
 
 func (c *Client) CollectionExists(ctx context.Context, name string) (bool, error) {
+	if err := c.checkOpen(); err != nil {
+		return false, err
+	}
 	return c.db.CollectionExists(ctx, name)
 }
 
@@ -390,6 +433,9 @@ func (c *Client) CollectionExists(ctx context.Context, name string) (bool, error
 // deliberately small so durable registries can perform compare-and-swap
 // updates without exposing the Arango driver through their public APIs.
 func (c *Client) ExecuteAQL(ctx context.Context, query string, bindVars map[string]interface{}) error {
+	if err := c.checkOpen(); err != nil {
+		return err
+	}
 	cursor, err := c.db.Query(ctx, query, &driver.QueryOptions{BatchSize: 32, BindVars: bindVars})
 	if err != nil {
 		return err
@@ -407,7 +453,24 @@ func (c *Client) ExecuteAQL(ctx context.Context, query string, bindVars map[stri
 	return nil
 }
 
+// Close is terminal: it releases the owned transport (shared by the driver
+// connection and the raw HTTP client) and puts the Client into a closed
+// state in which every subsequent operation fails with ErrClientClosed
+// without reaching the server. Close is safe to call more than once;
+// repeated calls are no-ops returning nil. The ctx parameter is accepted
+// for interface stability; the release is synchronous.
 func (c *Client) Close(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	if c.closed.CompareAndSwap(false, true) {
+		if c.client != nil {
+			c.client.CloseIdleConnections()
+		}
+		if c.transport != nil {
+			c.transport.CloseIdleConnections()
+		}
+	}
 	return nil
 }
 

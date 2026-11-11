@@ -87,6 +87,10 @@ var (
 	// DatabaseExists is the no-provision existence probe the CLI routes use
 	// to refuse a missing database before Open would create one.
 	DatabaseExists = store.DatabaseExists
+	// ErrClientClosed marks every operation attempted after Runtime.Close.
+	// Close is terminal: post-close calls fail with this sentinel without
+	// reaching the server.
+	ErrClientClosed = store.ErrClientClosed
 	// Vendor-response classifiers for the server's authz taxonomy: which
 	// errors are ArangoDB responses, and which of those are the store's own
 	// permission decision. Classification stays adapter-owned.

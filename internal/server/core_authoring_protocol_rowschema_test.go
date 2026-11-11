@@ -1250,8 +1250,10 @@ func c19AgainstArango(t *testing.T, endpoint string) {
 	// Same traced semantics as the map-store leg: the pointer names the store's snapshot of
 	// the head as it stood before the restore (the edited head at ack.DraftVersion), and the
 	// consumed undo target names the revision whose bytes were restored. Arango mints those
-	// ids as "draft_revision_" + sha256-keyed parts (drafts.go:139-141 with store/arango
-	// store.go:27-34), a different spelling from the map double, so BOTH sides are read back
+	// ids as "draft_revision_" + sha256-keyed parts
+	// (internal/backends/arango/internal/explorer/drafts.go:139-141 with
+	// internal/backends/arango/internal/explorer/store.go:27-34), a different spelling from
+	// the map double, so BOTH sides are read back
 	// through a second repository instance and asserted on content.
 	c19ExpectRestoreHistory(t, "arango restart", restarted.PreviousDraftRevisionID, undoRevision,
 		ack.DraftVersion, ack.DraftDigest, c19LabelPatientEdit,

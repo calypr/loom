@@ -63,6 +63,73 @@ var retiredAdapterPaths = []string{
 	"internal/dataframe/execution/chartifact/arango",
 }
 
+// contractTestRelPath is this file, exempt from the retired-path text scan
+// because it carries retiredAdapterPaths as data.
+const contractTestRelPath = "internal/backends/arango/ownership_contract_test.go"
+
+// retiredPathPendingAllowlist lists repository zones whose retired-path
+// citations are known and pending a repoint by the named owner. Each entry
+// is proven to hide a live offender by the allowlist_load_bearing control,
+// so an entry must be pruned the moment its citations are fixed.
+var retiredPathPendingAllowlist = []struct {
+	name   string
+	prefix string
+	reason string
+}{
+	{
+		name:   "postgres_parity_pointers",
+		prefix: "internal/backends/postgres/",
+		reason: "comment-only sweep of the coordinator-serialized postgres tree (PR #135 review thread); repoint awaits the coordinator's ruling",
+	},
+}
+
+// retiredPathTextOffenders names every Go file under dir whose full text —
+// comments included — cites a retired adapter path, minus files under any
+// exempt root-relative prefix. testdata trees are skipped as pinned
+// historical fixtures.
+func retiredPathTextOffenders(t *testing.T, dir string, exempt ...string) []string {
+	t.Helper()
+	var offenders []string
+	walkErr := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walk %s: %w", path, err)
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "testdata":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".go") {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil {
+			return fmt.Errorf("rel %s: %w", path, relErr)
+		}
+		for _, prefix := range exempt {
+			if strings.HasPrefix(rel, prefix) {
+				return nil
+			}
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return fmt.Errorf("read %s: %w", path, readErr)
+		}
+		for _, retired := range retiredAdapterPaths {
+			if strings.Contains(string(content), retired) {
+				offenders = append(offenders, rel+" cites "+retired)
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatal(walkErr)
+	}
+	return offenders
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -227,8 +294,8 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 	})
 
 	t.Run("zero_references_to_retired_adapter_paths", func(t *testing.T) {
-		// Tests included: the retired paths must be gone from every Go file
-		// in the repository, witnesses included.
+		// Imports: the retired paths must be gone from every Go file in the
+		// repository, witnesses included.
 		var offenders []string
 		for _, retired := range retiredAdapterPaths {
 			for _, offender := range importOffenders(t, root, true, []string{modulePrefix + retired}) {
@@ -237,6 +304,22 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 		}
 		if len(offenders) != 0 {
 			t.Fatalf("retired adapter paths still imported: %v", offenders)
+		}
+		// Text (comments included): a Go file must not cite a retired path
+		// even in prose, so parity pointers cannot silently dangle after a
+		// move. Exemptions are explicit and each one is proven load-bearing
+		// below; this contract test file is exempt because it carries the
+		// retired list as data, and testdata trees are exempt as pinned
+		// historical fixtures.
+		exempt := []string{contractTestRelPath}
+		for _, zone := range retiredPathPendingAllowlist {
+			exempt = append(exempt, zone.prefix)
+		}
+		for _, offender := range retiredPathTextOffenders(t, root, exempt...) {
+			offenders = append(offenders, offender)
+		}
+		if len(offenders) != 0 {
+			t.Fatalf("retired adapter paths still cited: %v", offenders)
 		}
 		t.Run("non_vacuity_planted_retired_import_bleeds", func(t *testing.T) {
 			dir := t.TempDir()
@@ -249,6 +332,35 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 				t.Fatalf("scanner did not name the planted victim: %v", offenders)
 			}
 		})
+		t.Run("non_vacuity_planted_retired_comment_bleeds", func(t *testing.T) {
+			dir := t.TempDir()
+			victim := filepath.Join(dir, "victim_retired_comment.go")
+			if err := os.WriteFile(victim, []byte("package x\n\n// Parity contract (internal/explorer/arango/receipts.go): insert-once.\nfunc f() {}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			found := retiredPathTextOffenders(t, dir)
+			if len(found) == 0 || !strings.Contains(found[0], "victim_retired_comment.go") {
+				t.Fatalf("text scanner did not name the planted comment victim: %v", found)
+			}
+		})
+		for _, zone := range retiredPathPendingAllowlist {
+			t.Run("allowlist_load_bearing_"+zone.name, func(t *testing.T) {
+				// Every allowlisted zone must be hiding a real offender
+				// right now. A zone that protects nothing is stale and must
+				// be pruned once its citations are repointed, so the
+				// exemption can never decay into permanent blindness.
+				var named []string
+				// Exempt only this file — the zone under test stays visible.
+				for _, offender := range retiredPathTextOffenders(t, root, contractTestRelPath) {
+					if strings.HasPrefix(offender, zone.prefix) {
+						named = append(named, offender)
+					}
+				}
+				if len(named) == 0 {
+					t.Errorf("allowlist zone %q (%s) names no current offender — repoint the citations and prune this entry", zone.prefix, zone.reason)
+				}
+			})
+		}
 	})
 
 	t.Run("config_validation_refuses_invalid_shapes", func(t *testing.T) {
@@ -387,6 +499,15 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 		if err != nil {
 			t.Fatalf("factory Open: %v", err)
 		}
+		// Prove the client is live before closing: an object-returning row
+		// query must succeed (a scalar would fail cursor decoding even on
+		// an open client, which is how an earlier revision of this leg
+		// false-passed with a no-op Close).
+		probe := 0
+		if err := backend.Client.QueryRows(context.Background(), "RETURN {ok: true}", 10, nil, func(map[string]any) error { probe++; return nil }); err != nil || probe != 1 {
+			_ = backend.Close(context.Background())
+			t.Fatalf("pre-close probe query: rows=%d err=%v", probe, err)
+		}
 		// A mid-bootstrap hard failure through the exported client surface
 		// must be reported, and the owned client must then close cleanly —
 		// twice.
@@ -400,8 +521,20 @@ func TestArangoFactoryOwnershipContract(t *testing.T) {
 		if err := backend.Close(context.Background()); err != nil {
 			t.Fatalf("repeated close must be safe: %v", err)
 		}
-		if err := backend.Client.QueryRows(context.Background(), "RETURN 1", 10, nil, func(map[string]any) error { return nil }); err == nil {
-			t.Fatal("query after close succeeded")
+		// Terminal-state contract: every entry path fails with the named
+		// sentinel without reaching the server. A no-op Close would let
+		// these succeed.
+		if err := backend.Client.QueryRows(context.Background(), "RETURN {ok: true}", 10, nil, func(map[string]any) error { return nil }); !errors.Is(err, arango.ErrClientClosed) {
+			t.Fatalf("post-close QueryRows: err=%v, want ErrClientClosed", err)
+		}
+		if err := backend.Client.ExecuteAQL(context.Background(), "RETURN {ok: true}", nil); !errors.Is(err, arango.ErrClientClosed) {
+			t.Fatalf("post-close ExecuteAQL: err=%v, want ErrClientClosed", err)
+		}
+		if _, err := backend.Client.CollectionExists(context.Background(), arango.DatasetLifecycleCollection); !errors.Is(err, arango.ErrClientClosed) {
+			t.Fatalf("post-close CollectionExists: err=%v, want ErrClientClosed", err)
+		}
+		if err := backend.Client.Bootstrap(context.Background(), arango.DatasetBootstrapSpec()); !errors.Is(err, arango.ErrClientClosed) {
+			t.Fatalf("post-close Bootstrap: err=%v, want ErrClientClosed", err)
 		}
 	})
 

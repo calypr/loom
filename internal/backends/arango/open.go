@@ -135,8 +135,11 @@ func (r *Runtime) assemble(client *store.Client) error {
 	return nil
 }
 
-// Close releases the owned client. Close is safe to call more than once;
-// the underlying driver client close is idempotent.
+// Close releases the owned client and is terminal. After it returns, the
+// Runtime and its Client hold no reusable connection: every operation on
+// the client fails with ErrClientClosed without reaching the server, and
+// the owned HTTP transport's idle connections are released. Close is safe
+// to call more than once; repeated calls are no-ops returning nil.
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil || r.Client == nil {
 		return nil

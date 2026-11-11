@@ -17,6 +17,9 @@ import (
 // large BatchSize when they need to profile a complete result export; normal
 // dataframe execution remains on QueryRows and is never profiled implicitly.
 func (c *Client) Profile(ctx context.Context, request ProfileRequest) (ProfileResult, error) {
+	if err := c.checkOpen(); err != nil {
+		return ProfileResult{}, err
+	}
 	if strings.TrimSpace(request.Query) == "" {
 		return ProfileResult{}, fmt.Errorf("AQL profile query is required")
 	}
