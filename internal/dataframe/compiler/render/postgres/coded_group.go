@@ -242,7 +242,13 @@ package postgres
 //     probe-attested production-unreachable — the source-identity window
 //     requires a terminal Pivot group key (ir/physical_stage_sequence.go
 //     :16-20) and the Pivot-window proof (ir/physical_stage_validation.go
-//     :278-284) restricts to Pivot terminals. Refused.
+//     :278-284) restricts to Pivot terminals; production lowering sets
+//     only the sequence-level field. BOTH levels are refused here — the
+//     plan-level PreviewSourceWindowByRootID (ir/physical_types.go:27)
+//     too, because this door dispatches before the spine's plan-level
+//     gate (render.go:237) and is the only place the check can fire for
+//     a coded-group plan, mirroring the graph door (graph.go:228-231).
+//     Hand-assembled IR is refused fail-closed.
 //   - OutputAuthResourcePathBindKey: the typed composite Combine prefix
 //     surface (ir/physical_stage_sequence.go:25-28, physical_combine.go);
 //     ClickHouse prefix/combine plans are already refused by the spine
@@ -382,7 +388,17 @@ func validateCodedGroupPlanSurface(plan ir.PhysicalPlan) error {
 		return fmt.Errorf("%w: row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route (compiler/row_lineage.go:655, cell_trace.go:54, population_mapping.go:38)",
 			ErrUnsupportedPostgresPlan)
 	}
-	if sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow {
+	if plan.PreviewSourceWindowByRootID || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow {
+		// The plan-level PreviewSourceWindowByRootID (ir/physical_types.go
+		// :27) must be refused HERE: the RenderPhysicalPlan hook dispatches
+		// a coded-group plan before the spine's plan-level window gate
+		// (render.go:237), so this door is the only place that check can
+		// fire — the twin graph door keeps the same check
+		// (graph.go:228-231). plan.Validate refuses the plan-level flag
+		// only under whole-relation evidence
+		// (ir/whole_relation_scope_evidence.go:159), so a hand-assembled
+		// plan carrying it would otherwise render with the root-id window
+		// state silently ignored.
 		return fmt.Errorf("%w: preview source windowing and the terminal Pivot window require Pivot terminals and are not registered for CODED_GROUP", ErrUnsupportedPostgresPlan)
 	}
 	if sequence.OutputAuthResourcePathBindKey != "" {

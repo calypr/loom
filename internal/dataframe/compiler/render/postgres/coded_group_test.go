@@ -569,6 +569,20 @@ func TestCodedGroupRefusalRegister(t *testing.T) {
 			pin: "preview source windowing and the terminal Pivot window require Pivot terminals",
 		},
 		{
+			// Review finding r4532120565: the PLAN-level flag
+			// (ir/physical_types.go:27) must be refused HERE, not by the
+			// spine gate at render.go:237 — the hook dispatches coded-group
+			// plans before it, so this door is the only place the check
+			// can fire (the twin graph door keeps the same check at
+			// graph.go:228-231). plan.Validate covers it only under
+			// whole-relation evidence (ir/whole_relation_scope_evidence.go:159).
+			name: "plan_level_preview_source_window_refused",
+			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
+				plan.PreviewSourceWindowByRootID = true
+			},
+			pin: "preview source windowing and the terminal Pivot window require Pivot terminals",
+		},
+		{
 			name: "output_auth_path_composite_gap",
 			mutate: func(t *testing.T, plan *ir.PhysicalPlan) {
 				plan.StageSequence.OutputAuthResourcePathBindKey = "output_auth"
