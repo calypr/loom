@@ -296,9 +296,13 @@ func qRouteCaptureBaseline(t *testing.T, raw string) {
 	}
 	defer admin.Close()
 	var count int64
-	// Static literal; the LIKE pattern is a constant, not built input.
+	// Static literal; the regex is a constant, not built input. The count
+	// covers THIS file's mint shape only: internal/api/graphql/graph/query
+	// lives in the verify_qroute_q sub-namespace with its own registry and
+	// audit, so a parallel package run can never race this census. Foreign
+	// names are still enumerated and classified on mismatch (N-5).
 	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_qroute\\_%' ESCAPE '\\'").
+		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_[0-9]+_[0-9a-f]+$'").
 		Scan(&count); err != nil {
 		qRouteBaselineErr = fmt.Errorf("count baseline: %w", err)
 		return
@@ -752,8 +756,10 @@ func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 	}
 	defer admin.Close()
 	var count int64
+	// Same shape-scoped count as the baseline: this file's mints only; the
+	// query package's verify_qroute_q mints are audited by its own N-5 leg.
 	if err := admin.QueryRow(ctx,
-		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_qroute\\_%' ESCAPE '\\'").
+		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_[0-9]+_[0-9a-f]+$'").
 		Scan(&count); err != nil {
 		t.Fatalf("count leftovers: %s", err)
 	}
