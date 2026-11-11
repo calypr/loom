@@ -1755,7 +1755,7 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// "kept" is exactly representable (two 1e307 → 2e307, mean 1e307);
 	// "seventeen" is the representable-class probe (17x1e307): PG reads
 	// the correctly-rounded double of the exact sum (1.7e+308); the
-	// archived AQL stepped-IEEE SUM probe read the 1-ulp lower
+	// archived AQL stepped-IEEE SUM probe read the two-bit-increment lower
 	// 1.6999999999999995e308 — the D-13i registered refinement in the
 	// assertions covers the split (register, don't mimic).
 	fixture := group13Fixture{
@@ -1801,7 +1801,7 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// any member set whose EXACT sum leaves the double band reads 0/0
 	// (pair 2x1.7e308 → 0/0, crowd 20x1e307 → 0/0 — SUM and MEAN 0/n);
 	// anything representable reads the correctly-rounded double (kept
-	// 2x1e307 → 2e307/1e307; seventeen → 1.7e+308, whose 1-ulp split
+	// 2x1e307 → 2e307/1e307; seventeen → 1.7e+308, whose two-bit-increment split
 	// from the stepped AQL read is the D-13i registered refinement).
 	rows := svc.runRendered(t, rendered)
 	if len(rows) != 4 {
@@ -1811,7 +1811,7 @@ func TestGroupLiveDoubleSumOverflow(t *testing.T) {
 	// this lane's head — PG 1.7e+308 hex b76 correctly rounded; live AQL
 	// 1.6999999999999995e308 hex b74 stepped, Go replica bit-exact —
 	// two bit increments apart; coordinator ruling 2026-11-11):
-	// PG correctly-rounded cast of exact numeric accumulation may read 1 ulp from AQL stepped-IEEE native SUM for non-binary-representable members; PG reading is the higher-precision result; registered refinement per coordinator ruling 2026-11-11.
+	// Correct-rounding of exact numeric accumulation may read a small number of bit increments above AQL stepped-IEEE native SUM for non-binary-representable members (measured: 2 increments on the 17x1e307 fixture, PG b76 vs AQL b74); PG reading is the correctly-rounded result; registered refinement D-13i per coordinator ruling 2026-11-11.
 	// The cell asserts the higher-precision PG reading; the stepped AQL
 	// value is an accumulation artifact, not an exactness target —
 	// register, don't mimic.

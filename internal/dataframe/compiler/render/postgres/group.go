@@ -72,7 +72,7 @@ package postgres
 //     bounded to double by the group band cast (groupDoubleBandCast, the
 //     calls.go band discipline on the same band constants): magnitudes at
 //     or beyond the overflow band read 0, magnitudes below the subnormal
-//     floor read the registered 0 — never a raising arm..
+//     floor read the registered 0 — never a raising arm.
 //     Overflow-band reads 0 matching live ArangoDB 3.12.4-3 native SUM over storable members; oracle probe archived by verifier; coordinator ruling 2026-11-11.
 //     D-13h, ORACLE-ATTESTED PARITY.
 //     bounded double sum by the pool count over all non-null members
@@ -1171,7 +1171,7 @@ func groupDoubleBandCast(numericFragment string) string {
 // for every double-representable member (it sits 10^92 above the band
 // boundary), so representable verdicts are the correctly-rounded double
 // of the exact sum (2x1e307 -> 2e307 exact; the 17x1e307 live cell
-// carries the D-13i registered refinement for the 1-ulp split between
+// carries the D-13i registered refinement for the two-bit-increment split between
 // this exact-then-round reading and AQL's stepped IEEE SUM — PG's is
 // the higher-precision result); any member set
 // whose exact sum leaves the double band reads 0 through the overflow
