@@ -37,7 +37,10 @@ package execution_test
 // Fixture databases and schemas are uniquely owned as verify_exec03v1_* and
 // dropped by the test that created them; the TestZZ audit is
 // ownership-scoped to this file's own prefix, and the pre-snapshot baseline
-// is captured before this process creates anything.
+// is captured before this process creates anything. The rows-package
+// battery owns the distinct verify_exec03v1rw_* prefix (PR #129 review):
+// the packages run as concurrent test binaries, so the escaped-underscore
+// LIKE sweeps never match each other's fixtures.
 
 import (
 	"context"
@@ -998,17 +1001,26 @@ func TestPostgresPostQueryMutationControls(t *testing.T) {
 
 // TestZZPostgresPostQueryZeroLeftoverFixtures is the ownership-scoped
 // audit: every database this file verified into existence must be gone,
-// and no unregistered survivor may remain under this file's own prefix.
+// and no unregistered survivor may remain under this file's own prefix
+// (the rows-package battery owns the distinct verify_exec03v1rw_* prefix
+// so concurrent package runs never sweep each other; PR #129 review).
 // The LIKE pattern is read-only and own-prefix only; cleanup above drops
-// only the exact minted names.
+// only the exact minted names. The baseline capture is repeated here
+// (idempotent via sync.Once) so running this audit alone with -run still
+// compares against the pre-existing databases instead of an empty
+// baseline, which would flag any healthy concurrent run as survivors.
 func TestZZPostgresPostQueryZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
 		t.Skip("set LOOM_TEST_POSTGRES_URL to run the PostgreSQL 18 post-query acceptance tests")
 	}
+	scrub, _ := exec03pqScrubberFor(raw)
+	exec03pqCaptureBaseline(raw)
+	if exec03pqBaselineErr != nil {
+		t.Fatalf("capture pg_database baseline for audit: %s", scrub(exec03pqBaselineErr))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	scrub, _ := exec03pqScrubberFor(raw)
 	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
 		t.Fatalf("connect for audit: %s", scrub(err))

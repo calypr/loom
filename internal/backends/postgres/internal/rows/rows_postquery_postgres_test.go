@@ -17,10 +17,18 @@ package postgres
 // Offline legs drive the same Executor through the package's scripted
 // querier to pin the driver-buffer discipline for marker documents.
 //
-// Fixture databases and schemas are uniquely owned as verify_exec03v1_*
-// (shared ticket prefix; name-spaced by this file's exec03rw identifiers)
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped, reads only its own prefix, and cleanup drops only the
+// Fixture databases and schemas are uniquely owned as verify_exec03v1rw_*
+// — this file's OWN prefix, distinct from the execution-side battery's
+// verify_exec03v1_* (PR #129 review): go test runs the two packages as
+// concurrent test binaries, so one shared prefix would let each TestZZ
+// census sweep the sibling's live fixtures and report false survivors.
+// This follows the one-prefix-per-file precedent of the sibling batteries
+// (verify_exec04_pv_, verify_exec04_pg_, verify_exec04_srv_,
+// verify_exec05_; see the header note in
+// internal/backends/postgres/engine_postgres_pg18_test.go on tolerating
+// concurrent sibling workers via own-prefix-only reads). Names are
+// dropped by the test that created them; the TestZZ audit is
+// ownership-scoped, reads only this prefix, and cleanup drops only the
 // exact minted names.
 
 import (
@@ -44,9 +52,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const exec03rwPrefix = "verify_exec03v1_"
+const exec03rwPrefix = "verify_exec03v1rw_"
 
-var exec03rwNamePattern = regexp.MustCompile(`^verify_exec03v1_[0-9]+_[0-9a-f]+$`)
+var exec03rwNamePattern = regexp.MustCompile(`^verify_exec03v1rw_[0-9]+_[0-9a-f]+$`)
 
 var (
 	exec03rwOwnedMu     sync.Mutex
@@ -85,7 +93,7 @@ func exec03rwCaptureBaseline(raw string) {
 			return
 		}
 		defer admin.Close()
-		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec03v1\\_%' ESCAPE '\\'")
+		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec03v1rw\\_%' ESCAPE '\\'")
 		if err != nil {
 			exec03rwBaselineErr = fmt.Errorf("read baseline: %w", err)
 			return
@@ -536,16 +544,24 @@ func TestExec03RowsVisitedMarkerDoesNotAliasDriverBuffer(t *testing.T) {
 
 // TestZZExec03RowsZeroLeftoverFixtures is the ownership-scoped audit for
 // this file: every exact name this process created must be gone, and no
-// unregistered survivor may remain under the shared ticket prefix. The
-// LIKE read is own-prefix only; nothing here drops by pattern.
+// unregistered survivor may remain under this file's own prefix. The
+// LIKE read is own-prefix only; nothing here drops by pattern. The
+// baseline capture is repeated here (idempotent via sync.Once) so
+// running this audit alone with -run still compares against the
+// pre-existing databases instead of an empty baseline, which would flag
+// any healthy concurrent run as survivors.
 func TestZZExec03RowsZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
 		t.Skip("set LOOM_TEST_POSTGRES_URL to run the PostgreSQL 18 row-adapter post-query tests")
 	}
+	scrub, _ := exec03rwScrubberFor(raw)
+	exec03rwCaptureBaseline(raw)
+	if exec03rwBaselineErr != nil {
+		t.Fatalf("capture pg_database baseline for audit: %s", scrub(exec03rwBaselineErr))
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	scrub, _ := exec03rwScrubberFor(raw)
 	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
 		t.Fatalf("connect for audit: %s", scrub(err))
@@ -565,7 +581,7 @@ func TestZZExec03RowsZeroLeftoverFixtures(t *testing.T) {
 	for _, name := range exec03rwBaselineNames {
 		baseline[name] = true
 	}
-	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec03v1\\_%' ESCAPE '\\'")
+	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE datname LIKE 'verify\\_exec03v1rw\\_%' ESCAPE '\\'")
 	if err != nil {
 		t.Fatalf("audit sweep: %s", scrub(err))
 	}
