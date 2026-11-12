@@ -257,11 +257,46 @@ func (combine PhysicalClickHouseCombine) validate(allowPrivateStage, allowWorksp
 	return nil
 }
 
+// PhysicalPrefixSourceBackend names the storage backend whose renderer
+// compiles and executes a ClickHouse Combine prefix's typed construction
+// stage sequence. The tag is required: the closed typed plan has no default
+// source backend, and an untagged or unknown tag is refused by plan
+// validation before any private artifact can be created. The terminal
+// Combine itself always executes on ClickHouse regardless of this tag; the
+// tag routes only the prefix's source query.
+type PhysicalPrefixSourceBackend string
+
+const (
+	// PhysicalPrefixSourceAQL compiles the prefix through the canonical AQL
+	// renderer for ArangoDB execution.
+	PhysicalPrefixSourceAQL PhysicalPrefixSourceBackend = "AQL"
+	// PhysicalPrefixSourcePostgreSQL compiles the prefix through the
+	// PostgreSQL renderer for execution against the PostgreSQL source store.
+	PhysicalPrefixSourcePostgreSQL PhysicalPrefixSourceBackend = "POSTGRESQL"
+)
+
+// Validate reports whether the tag names a registered prefix source backend.
+// The empty tag is unsupported: callers never receive AQL semantics by
+// omission.
+func (backend PhysicalPrefixSourceBackend) Validate() error {
+	switch backend {
+	case PhysicalPrefixSourceAQL, PhysicalPrefixSourcePostgreSQL:
+		return nil
+	default:
+		return fmt.Errorf("private ClickHouse prefix requires an explicit supported source backend, got %q", string(backend))
+	}
+}
+
 // PhysicalClickHousePrefix binds a terminal ClickHouse Combine input to the
-// exact last typed AQL stage. A restricted prefix is supported only for one
-// immutable authorization path; the renderer emits that bound path as hidden
-// row metadata instead of guessing it from result rows.
+// exact final typed construction stage on the prefix's explicit source
+// backend. A restricted prefix is supported only for one immutable
+// authorization path; the AQL renderer emits that bound path as hidden row
+// metadata instead of guessing it from result rows. Restricted scope is not
+// yet supported on the PostgreSQL source backend because the composed
+// PostgreSQL renderer has no registered bound authorization path column;
+// such prefixes are refused here, before any private artifact exists.
 type PhysicalClickHousePrefix struct {
+	SourceBackend           PhysicalPrefixSourceBackend
 	StageID                 string
 	AuthScopeMode           string
 	AuthResourcePaths       []string
@@ -269,9 +304,45 @@ type PhysicalClickHousePrefix struct {
 	AuthResourcePathBindKey string
 }
 
+// Validate dispatches on the prefix's explicit source backend. Both backends
+// share the closed structural contract over the backend-neutral stage
+// sequence and its scope bindings; unsupported or mismatched tags fail
+// before any private artifact can be created.
 func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	switch prefix.SourceBackend {
+	case PhysicalPrefixSourceAQL:
+		return prefix.validateSourceAQL(sequence, bindVars)
+	case PhysicalPrefixSourcePostgreSQL:
+		return prefix.validateSourcePostgreSQL(sequence, bindVars)
+	default:
+		return prefix.SourceBackend.Validate()
+	}
+}
+
+func (prefix PhysicalClickHousePrefix) validateSourceAQL(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	if err := prefix.validateShared(sequence, bindVars, "AQL"); err != nil {
+		return err
+	}
+	if prefix.AuthResourcePathBindKey == "" {
+		return nil
+	}
+	value, ok := bindVars[prefix.AuthResourcePathBindKey].(string)
+	if !ok || value != prefix.AuthResourcePaths[0] {
+		return fmt.Errorf("private ClickHouse prefix authorization bind does not match its exact scope")
+	}
+	return nil
+}
+
+func (prefix PhysicalClickHousePrefix) validateSourcePostgreSQL(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	if prefix.AuthScopeMode == "restricted" {
+		return fmt.Errorf("restricted private ClickHouse prefixes are unsupported on the PostgreSQL source backend: the composed PostgreSQL renderer has no registered bound authorization path column")
+	}
+	return prefix.validateShared(sequence, bindVars, "PostgreSQL")
+}
+
+func (prefix PhysicalClickHousePrefix) validateShared(sequence *PhysicalStageSequence, bindVars map[string]any, backend string) error {
 	if sequence == nil || strings.TrimSpace(prefix.StageID) == "" || prefix.StageID != sequence.FinalStageID {
-		return fmt.Errorf("private ClickHouse prefix must reference the exact final AQL stage")
+		return fmt.Errorf("private ClickHouse prefix must reference the exact final %s construction stage", backend)
 	}
 	if sequence.CellTraceReturn != nil {
 		return fmt.Errorf("cell-trace plans cannot feed a private ClickHouse Combine")
@@ -286,7 +357,7 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 	unrestricted, unrestrictedOK := bindVars[physicalScopeAuthPathsUnrestrictedBind].(bool)
 	allowed, allowedOK := bindVars[physicalScopeAllowedBind].(bool)
 	if !pathsOK || !samePhysicalStrings(paths, prefix.AuthResourcePaths) || !unrestrictedOK || unrestricted != (prefix.AuthScopeMode == "unrestricted") || !allowedOK || !allowed {
-		return fmt.Errorf("private ClickHouse prefix scope differs from the AQL authorization bindings")
+		return fmt.Errorf("private ClickHouse prefix scope differs from the %s authorization bindings", backend)
 	}
 	for _, column := range sequence.FinalColumns {
 		if column.Name == "auth_resource_path" || column.Name == "project_id" {
@@ -297,13 +368,6 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 		if stage.Kind == PhysicalStageGroupOp || stage.Kind == PhysicalStageCohortGroupOp {
 			return fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
 		}
-	}
-	if prefix.AuthResourcePathBindKey == "" {
-		return nil
-	}
-	value, ok := bindVars[prefix.AuthResourcePathBindKey].(string)
-	if !ok || value != prefix.AuthResourcePaths[0] {
-		return fmt.Errorf("private ClickHouse prefix authorization bind does not match its exact scope")
 	}
 	return nil
 }

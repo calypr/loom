@@ -21,7 +21,7 @@ func TestComposeClickHouseCombineRendersExactUnboundedAQLPrefix(t *testing.T) {
 	prefix := compileCompositePrefixTestOutput(t, constructionTestOutput(), bindings)
 	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
 
-	composite, err := ComposeClickHouseCombine(prefix.Plan, combine, bindings)
+	composite, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings)
 	if err != nil {
 		t.Fatalf("ComposeClickHouseCombine() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestComposeClickHouseCombineRendersExactUnboundedAQLPrefix(t *testing.T) {
 	}
 	mismatchedStage := ir.ClonePhysicalPlan(composite)
 	mismatchedStage.ClickHouseCombine.Inputs[0].PrivateStageID = "different_stage"
-	if _, err := aql.RenderClickHousePrefix(mismatchedStage); err == nil || !strings.Contains(err.Error(), "does not match the exact AQL prefix stage") {
+	if _, err := aql.RenderClickHousePrefix(mismatchedStage); err == nil || !strings.Contains(err.Error(), "does not match the exact prefix stage") {
 		t.Fatalf("mismatched composite stage error = %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestComposeClickHouseCombineRejectsRestrictedMultiPathPrefix(t *testing.T) 
 	prefix := compileCompositePrefixTestOutput(t, constructionTestOutput(), bindings)
 	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
 
-	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, bindings); err == nil || !strings.Contains(err.Error(), "exactly one immutable authorization path") {
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings); err == nil || !strings.Contains(err.Error(), "exactly one immutable authorization path") {
 		t.Fatalf("multi-path restricted prefix error = %v", err)
 	}
 }
@@ -90,7 +90,7 @@ func TestComposeClickHouseCombineRejectsGroupPrefix(t *testing.T) {
 	prefix := compileCompositePrefixTestOutput(t, output, bindings)
 	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
 
-	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, bindings); err == nil || !strings.Contains(err.Error(), "GROUP prefixes cannot feed") {
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings); err == nil || !strings.Contains(err.Error(), "GROUP prefixes cannot feed") {
 		t.Fatalf("GROUP prefix error = %v", err)
 	}
 }
@@ -137,7 +137,7 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 		}
 	}
 	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
-	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, bindings); err == nil || !strings.Contains(err.Error(), "COHORT_GROUP prefixes cannot feed") {
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings); err == nil || !strings.Contains(err.Error(), "COHORT_GROUP prefixes cannot feed") {
 		t.Fatalf("COHORT_GROUP prefix error = %v", err)
 	}
 
@@ -150,7 +150,8 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 	forged.BindVars[authPathKey] = bindings.AuthResourcePaths[0]
 	forged.StageSequence.OutputAuthResourcePathBindKey = authPathKey
 	forged.ClickHousePrefix = &ir.PhysicalClickHousePrefix{
-		StageID: prefix.Plan.StageSequence.FinalStageID, AuthScopeMode: string(bindings.AuthScopeMode),
+		SourceBackend: ir.PhysicalPrefixSourceAQL,
+		StageID:       prefix.Plan.StageSequence.FinalStageID, AuthScopeMode: string(bindings.AuthScopeMode),
 		AuthResourcePaths:       append([]string(nil), bindings.AuthResourcePaths...),
 		IncludeAuthResourcePath: true, AuthResourcePathBindKey: authPathKey,
 	}
@@ -380,5 +381,65 @@ func compositeAppendTestPlan(stageID string) ir.PhysicalClickHouseCombine {
 			{OutputColumnID: "amount", InputIndex: 1, InputColumnID: "right_amount"},
 		},
 		Outputs: []ir.PhysicalCombineOutputColumn{{ID: "amount", Name: "amount", LogicalType: "integer", ClickHouseType: "Int64"}},
+	}
+}
+
+func TestComposeClickHouseCombineStampsExplicitSourceBackendAndClosesCrossRendering(t *testing.T) {
+	bindings := recipe.RuntimeBindings{
+		Project: "project", DatasetGeneration: "generation",
+		AuthScopeMode: authscope.ReadScopeUnrestricted,
+	}
+	prefix := compileCompositePrefixTestOutput(t, constructionTestOutput(), bindings)
+	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
+
+	composite, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourcePostgreSQL, bindings)
+	if err != nil {
+		t.Fatalf("PostgreSQL-tagged compose error = %v", err)
+	}
+	if composite.ClickHousePrefix.SourceBackend != ir.PhysicalPrefixSourcePostgreSQL {
+		t.Fatalf("composer stamped backend %q", string(composite.ClickHousePrefix.SourceBackend))
+	}
+	if _, err := aql.RenderClickHousePrefix(composite); err == nil || !strings.Contains(err.Error(), "cannot compile a ClickHouse prefix tagged source backend") {
+		t.Fatalf("AQL renderer accepted a PostgreSQL-tagged prefix: %v", err)
+	}
+	aqlComposite, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings)
+	if err != nil {
+		t.Fatalf("AQL-tagged compose error = %v", err)
+	}
+	if _, err := aql.RenderClickHousePrefix(aqlComposite); err != nil {
+		t.Fatalf("AQL renderer refused its own tag: %v", err)
+	}
+}
+
+func TestComposeClickHouseCombineRefusesRestrictedPostgreSQLPrefix(t *testing.T) {
+	bindings := recipe.RuntimeBindings{
+		Project: "project", DatasetGeneration: "generation",
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
+		IncludeAuthResourcePath: true,
+	}
+	prefix := compileCompositePrefixTestOutput(t, constructionTestOutput(), bindings)
+	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourcePostgreSQL, bindings); err == nil || !strings.Contains(err.Error(), "unsupported on the PostgreSQL source backend") {
+		t.Fatalf("restricted PostgreSQL prefix error = %v", err)
+	}
+	// The same restricted bindings remain valid for the AQL source backend:
+	// the refusal is a PostgreSQL capability gap, not a scope regression.
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings); err != nil {
+		t.Fatalf("restricted AQL prefix compose error = %v", err)
+	}
+}
+
+func TestComposeClickHouseCombineRequiresExplicitSourceBackend(t *testing.T) {
+	bindings := recipe.RuntimeBindings{
+		Project: "project", DatasetGeneration: "generation",
+		AuthScopeMode: authscope.ReadScopeUnrestricted,
+	}
+	prefix := compileCompositePrefixTestOutput(t, constructionTestOutput(), bindings)
+	combine := compositeAppendTestPlan(prefix.Plan.StageSequence.FinalStageID)
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, "", bindings); err == nil || !strings.Contains(err.Error(), "explicit supported source backend") {
+		t.Fatalf("untagged compose error = %v", err)
+	}
+	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceBackend("CLICKHOUSE"), bindings); err == nil || !strings.Contains(err.Error(), "explicit supported source backend") {
+		t.Fatalf("unknown-tag compose error = %v", err)
 	}
 }

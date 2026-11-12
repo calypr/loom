@@ -138,3 +138,93 @@ func TestPhysicalClickHouseCombineRejectsAQLPayloadAndUnpinnedInputs(t *testing.
 		t.Fatalf("missing ClickHouse payload error = %v", err)
 	}
 }
+
+func prefixDispatchSequence() *PhysicalStageSequence {
+	return &PhysicalStageSequence{
+		SourceStageID: "source_projection", FinalStageID: "final_stage",
+		FinalRowIdentity: "__loom_row_id",
+		Stages:           []PhysicalConstructionStage{{ID: "final_stage", Kind: PhysicalStageFilterOp}},
+		FinalColumns: []PhysicalStageColumn{
+			{ID: "__loom_row_id", Name: "__loom_row_id", Kind: "string", Internal: true},
+			{ID: "value", Name: "value", Kind: "integer"},
+		},
+	}
+}
+
+func prefixDispatchBinds(paths []string, unrestricted bool) map[string]any {
+	return map[string]any{
+		physicalScopeAuthPathsBind:                append([]string(nil), paths...),
+		physicalScopeAuthPathsUnrestrictedBind:    unrestricted,
+		physicalScopeAllowedBind:                  true,
+		"construction_private_auth_resource_path": "/programs/p1",
+	}
+}
+
+func TestPhysicalClickHousePrefixRequiresExplicitSourceBackend(t *testing.T) {
+	sequence := prefixDispatchSequence()
+	binds := prefixDispatchBinds(nil, true)
+	untagged := PhysicalClickHousePrefix{StageID: "final_stage", AuthScopeMode: "unrestricted"}
+	if err := untagged.Validate(sequence, binds); err == nil || !strings.Contains(err.Error(), "explicit supported source backend") {
+		t.Fatalf("untagged prefix error = %v", err)
+	}
+	unknown := untagged
+	unknown.SourceBackend = PhysicalPrefixSourceBackend("CLICKHOUSE")
+	if err := unknown.Validate(sequence, binds); err == nil || !strings.Contains(err.Error(), "explicit supported source backend") {
+		t.Fatalf("unknown-tag prefix error = %v", err)
+	}
+	if err := PhysicalPrefixSourceAQL.Validate(); err != nil {
+		t.Fatalf("AQL tag rejected: %v", err)
+	}
+	if err := PhysicalPrefixSourcePostgreSQL.Validate(); err != nil {
+		t.Fatalf("PostgreSQL tag rejected: %v", err)
+	}
+}
+
+func TestPhysicalClickHousePrefixDispatchesBothBackendsOnSharedContract(t *testing.T) {
+	for _, backend := range []PhysicalPrefixSourceBackend{PhysicalPrefixSourceAQL, PhysicalPrefixSourcePostgreSQL} {
+		prefix := PhysicalClickHousePrefix{SourceBackend: backend, StageID: "final_stage", AuthScopeMode: "unrestricted"}
+		if err := prefix.Validate(prefixDispatchSequence(), prefixDispatchBinds(nil, true)); err != nil {
+			t.Fatalf("%s unrestricted prefix: %v", backend, err)
+		}
+		if backend == PhysicalPrefixSourceAQL {
+			restricted := PhysicalClickHousePrefix{
+				SourceBackend: backend, StageID: "final_stage", AuthScopeMode: "restricted",
+				AuthResourcePaths: []string{"/programs/p1"}, IncludeAuthResourcePath: true,
+				AuthResourcePathBindKey: "construction_private_auth_resource_path",
+			}
+			if err := restricted.Validate(prefixDispatchSequence(), prefixDispatchBinds([]string{"/programs/p1"}, false)); err != nil {
+				t.Fatalf("AQL restricted prefix: %v", err)
+			}
+		}
+	}
+}
+
+func TestPhysicalClickHousePrefixRefusesRestrictedPostgreSQLPrefix(t *testing.T) {
+	// The composed PostgreSQL renderer has no registered bound authorization
+	// path column, so a restricted PostgreSQL-source prefix must fail closed
+	// at IR validation instead of rendering rows without reapplied scope.
+	prefix := PhysicalClickHousePrefix{
+		SourceBackend: PhysicalPrefixSourcePostgreSQL, StageID: "final_stage", AuthScopeMode: "restricted",
+		AuthResourcePaths: []string{"/programs/p1"}, IncludeAuthResourcePath: true,
+		AuthResourcePathBindKey: "construction_private_auth_resource_path",
+	}
+	err := prefix.Validate(prefixDispatchSequence(), prefixDispatchBinds([]string{"/programs/p1"}, false))
+	if err == nil || !strings.Contains(err.Error(), "unsupported on the PostgreSQL source backend") {
+		t.Fatalf("restricted PostgreSQL prefix error = %v", err)
+	}
+	if err := prefix.ValidateScope(); err != nil {
+		t.Fatalf("restricted scope shape must stay well-formed for the AQL backend: %v", err)
+	}
+}
+
+func TestPhysicalClickHousePrefixBackendMismatchUsesBackendNamedContract(t *testing.T) {
+	prefix := PhysicalClickHousePrefix{SourceBackend: PhysicalPrefixSourcePostgreSQL, StageID: "final_stage", AuthScopeMode: "unrestricted"}
+	if err := prefix.Validate(prefixDispatchSequence(), prefixDispatchBinds(nil, false)); err == nil || !strings.Contains(err.Error(), "differs from the PostgreSQL authorization bindings") {
+		t.Fatalf("PostgreSQL scope mismatch error = %v", err)
+	}
+	mismatchedStage := prefix
+	mismatchedStage.StageID = "different_stage"
+	if err := mismatchedStage.Validate(prefixDispatchSequence(), prefixDispatchBinds(nil, true)); err == nil || !strings.Contains(err.Error(), "exact final PostgreSQL construction stage") {
+		t.Fatalf("PostgreSQL stage mismatch error = %v", err)
+	}
+}
