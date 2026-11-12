@@ -123,6 +123,26 @@ func MigrateSchema(ctx context.Context, src pgstore.ConnSource, schema string) (
 	return runner.Migrate(ctx)
 }
 
+// VerifySchema is the read-only counterpart of MigrateSchema for the
+// recipe_chains series: it reports the assigned schema's ledger state
+// against the chain history (pgstore.MigrationRunner.Verify) without taking
+// the migration lock or writing anything. Failures are returned, never
+// absorbed; there is no fallback to another backend.
+func VerifySchema(ctx context.Context, src pgstore.ConnSource, schema string) error {
+	if src == nil {
+		return errors.New("recipe postgres: nil migration connection source")
+	}
+	migrations, err := ChainMigrations()
+	if err != nil {
+		return err
+	}
+	runner, err := pgstore.NewMigrationRunner(src, schema, migrations)
+	if err != nil {
+		return err
+	}
+	return runner.Verify(ctx)
+}
+
 // schemaNamePattern matches a safe lowercase PostgreSQL identifier, the same
 // shape the pg-store-02 runner accepts, so a registry and its runner can
 // never disagree about the target schema.

@@ -94,18 +94,26 @@ const (
 )
 
 var (
-	ErrInvalidConfig                         = control.ErrInvalidConfig
-	ErrSeriesAssignment                      = control.ErrSeriesAssignment
-	ErrBootstrap                             = control.ErrBootstrap
-	ErrRuntimeClosed                         = control.ErrRuntimeClosed
-	ErrConnect                               = control.ErrConnect
-	ErrUnsupportedVersion                    = control.ErrUnsupportedVersion
-	ErrUniqueConflict                        = control.ErrUniqueConflict
-	ErrCommitOutcomeUnknown                  = control.ErrCommitOutcomeUnknown
-	ErrBatchWrite                            = control.ErrBatchWrite
-	ErrManifestAlreadyExists                 = control.ErrManifestAlreadyExists
-	ErrManifestTransitionConflict            = control.ErrManifestTransitionConflict
-	ErrActivationConflict                    = control.ErrActivationConflict
+	ErrInvalidConfig              = control.ErrInvalidConfig
+	ErrSeriesAssignment           = control.ErrSeriesAssignment
+	ErrBootstrap                  = control.ErrBootstrap
+	ErrRuntimeClosed              = control.ErrRuntimeClosed
+	ErrConnect                    = control.ErrConnect
+	ErrUnsupportedVersion         = control.ErrUnsupportedVersion
+	ErrUniqueConflict             = control.ErrUniqueConflict
+	ErrCommitOutcomeUnknown       = control.ErrCommitOutcomeUnknown
+	ErrBatchWrite                 = control.ErrBatchWrite
+	ErrManifestAlreadyExists      = control.ErrManifestAlreadyExists
+	ErrManifestTransitionConflict = control.ErrManifestTransitionConflict
+	ErrActivationConflict         = control.ErrActivationConflict
+	// Schema-state classification for the readiness posture
+	// (pg-runtime-health-readiness): same values as the runner's sentinels.
+	// ErrInvalidSchemaName is already aliased below.
+	ErrMigrationPending                      = control.ErrMigrationPending
+	ErrMigrationChecksumMismatch             = control.ErrMigrationChecksumMismatch
+	ErrFutureSchemaVersion                   = control.ErrFutureSchemaVersion
+	ErrMigrationMissing                      = control.ErrMigrationMissing
+	ErrMigrationOutOfOrder                   = control.ErrMigrationOutOfOrder
 	ConditionAbortedTransaction              = control.ConditionAbortedTransaction
 	ConditionAdminShutdown                   = control.ConditionAdminShutdown
 	ConditionCannotConnectNow                = control.ConditionCannotConnectNow

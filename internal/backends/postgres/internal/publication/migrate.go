@@ -66,3 +66,23 @@ func MigrateSchema(ctx context.Context, src pgstore.ConnSource, schema string) (
 	}
 	return runner.Migrate(ctx)
 }
+
+// VerifySchema is the read-only counterpart of MigrateSchema for the
+// publication_control series: it reports the assigned schema's ledger state
+// against the owner history (pgstore.MigrationRunner.Verify) without taking
+// the migration lock or writing anything. Failures are returned, never
+// absorbed; there is no fallback to another backend.
+func VerifySchema(ctx context.Context, src pgstore.ConnSource, schema string) error {
+	if src == nil {
+		return errors.New("publication postgres: nil migration connection source")
+	}
+	migrations, err := OwnerMigrations()
+	if err != nil {
+		return err
+	}
+	runner, err := pgstore.NewMigrationRunner(src, schema, migrations)
+	if err != nil {
+		return err
+	}
+	return runner.Verify(ctx)
+}

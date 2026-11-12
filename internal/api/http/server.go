@@ -21,6 +21,14 @@ type HTTPConfig struct {
 	CoreReadyCheck       func(context.Context) error
 	ClickHouseReadyCheck func(context.Context) error
 	ClickHouseEnabled    bool
+	// CoreState is an optional, composition-supplied classifier that maps a
+	// CoreReadyCheck failure onto one safe, fixed vocabulary token for the
+	// readiness body's core_state field (for example connectivity_down vs
+	// schema_mismatch on the PostgreSQL backend). It must return only
+	// credential-free tokens, never error text, DSNs, or SQL. Deployments
+	// that do not supply it (the ArangoDB composition arms) get bodies
+	// exactly as before: no core_state key at all.
+	CoreState func(error) string
 }
 
 type HTTPServer struct {
@@ -31,6 +39,7 @@ type HTTPServer struct {
 	coreReadyCheck       func(context.Context) error
 	clickHouseReadyCheck func(context.Context) error
 	clickHouseEnabled    bool
+	coreState            func(error) string
 	healthMu             sync.Mutex
 	lastHealth           time.Time
 	lastHealthResult     healthResult
@@ -38,7 +47,10 @@ type HTTPServer struct {
 
 type healthResult struct {
 	status, core, dataframe string
-	httpStatus              int
+	// coreState is the optional classifier token carried only when the
+	// composition supplied HTTPConfig.CoreState and the core check failed.
+	coreState  string
+	httpStatus int
 }
 
 type errorEnvelope struct {
@@ -75,6 +87,7 @@ func NewHTTPServer(cfg HTTPConfig) (*HTTPServer, error) {
 		coreReadyCheck:       cfg.CoreReadyCheck,
 		clickHouseReadyCheck: cfg.ClickHouseReadyCheck,
 		clickHouseEnabled:    cfg.ClickHouseEnabled,
+		coreState:            cfg.CoreState,
 	}
 	app := fiber.New(fiber.Config{
 		BodyLimit:         cfg.BodyLimit,

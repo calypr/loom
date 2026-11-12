@@ -792,9 +792,16 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		PersistPublishedWorkspace: persistPublishedWorkspace,
 	}
 	server, err = httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
+		// Core readiness is the backend's full probe: reachability + the
+		// PostgreSQL 18 version gate + the read-only ledger probe over every
+		// assigned series (control.Runtime.Readiness). A never-migrated,
+		// migrated-away, or ledger-disagreeing schema is not ready, and
+		// CoreState maps the failure onto a safe token so operators can
+		// tell schema state from connectivity without a DSN in sight.
 		CoreReadyCheck: func(ctx context.Context) error {
-			return runtime.Health(ctx)
+			return runtime.Readiness(ctx)
 		},
+		CoreState: postgreSQLCoreReadinessState,
 		ClickHouseReadyCheck: func(ctx context.Context) error {
 			if clickhouse == nil {
 				return nil

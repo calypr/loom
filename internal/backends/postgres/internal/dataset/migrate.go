@@ -66,3 +66,23 @@ func MigrateSchema(ctx context.Context, src storepostgres.ConnSource, schema str
 	}
 	return runner.Migrate(ctx)
 }
+
+// VerifySchema is the read-only counterpart of MigrateSchema for the
+// dataset_release series: it reports the assigned schema's ledger state
+// against the owner history (store.MigrationRunner.Verify) without taking
+// the migration lock or writing anything. Failures are returned, never
+// absorbed; there is no fallback to another backend.
+func VerifySchema(ctx context.Context, src storepostgres.ConnSource, schema string) error {
+	if src == nil {
+		return errors.New("dataset postgres: nil migration connection source")
+	}
+	migrations, err := OwnerMigrations()
+	if err != nil {
+		return err
+	}
+	runner, err := storepostgres.NewMigrationRunner(src, schema, migrations)
+	if err != nil {
+		return err
+	}
+	return runner.Verify(ctx)
+}

@@ -120,6 +120,14 @@ var (
 	// row could not be written. This is an operator-visible split-brain
 	// window; see the package comment.
 	ErrLedgerRecord = errors.New("postgres: ledger record failed")
+	// ErrMigrationPending reports a ledger that is behind the embedded
+	// history: at least one embedded migration has no ledger row. Verify
+	// (the read-only probe) returns it; readiness uses it, together with
+	// the schema-integrity sentinels, to distinguish a never-migrated or
+	// partially-migrated schema from an edited/future ledger and from a
+	// connectivity failure. Migrate never returns it (it applies pending
+	// migrations instead of reporting them).
+	ErrMigrationPending = errors.New("postgres: schema is behind the embedded migration history")
 )
 
 // Migration is one embedded SQL migration. Checksum is the lowercase hex
@@ -458,6 +466,64 @@ func (r *MigrationRunner) Migrate(ctx context.Context) (result MigrateResult, er
 	return r.migrateLocked(ctx, conn)
 }
 
+// Verify reports the schema's ledger state against the embedded history
+// without mutating anything: no advisory lock is taken, no DDL is applied,
+// and no ledger row is written. It is the read-only counterpart of the
+// refuse-before-apply law Migrate runs under the lock, answering the same
+// questions with the same named errors:
+//
+//   - absent target schema → ErrInvalidSchemaName (the same precondition
+//     migrateLocked refuses to run past; the caller owns schema lifecycle);
+//   - edited applied checksum → *MigrationChecksumMismatchError;
+//   - ledger ahead of the embedded history → *FutureSchemaVersionError;
+//   - ledger row whose file vanished from the history → *MissingEmbeddedMigrationError;
+//   - out-of-order pending file → *OutOfOrderMigrationError;
+//   - pending migrations with no ledger row (including a never-created
+//     ledger table, which readLedger already reads as an empty history) →
+//     ErrMigrationPending.
+//
+// Connection and statement failures on the acquired connection return the
+// pool's own *ConnectError chain (errors.Is(err, ErrConnect)), the same
+// classification Ping gives a dead server, so a caller can tell
+// connectivity down from schema state.
+//
+// Verify deliberately takes no advisory lock: a readiness probe must never
+// queue behind a long migration. Each statement reads the ledger as of its
+// own instant, which is the honest answer for a readiness verdict.
+func (r *MigrationRunner) Verify(ctx context.Context) error {
+	conn, err := r.src.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	var schemaExists bool
+	if err := conn.QueryRow(ctx, "SELECT to_regnamespace($1) IS NOT NULL", r.schema).Scan(&schemaExists); err != nil {
+		return &ConnectError{Op: "verify", Err: err}
+	}
+	if !schemaExists {
+		return fmt.Errorf("%w: schema %q does not exist in this database; the caller owns schema lifecycle",
+			ErrInvalidSchemaName, r.schema)
+	}
+	applied, err := r.readLedger(ctx, conn)
+	if err != nil {
+		return err
+	}
+	if err := r.validateHistory(applied); err != nil {
+		return err
+	}
+	pending, err := r.pending(applied)
+	if err != nil {
+		return err
+	}
+	if len(pending) > 0 {
+		first := pending[0]
+		return fmt.Errorf("%w: %d pending migration(s), first version %d (%s); schema %q",
+			ErrMigrationPending, len(pending), first.Version, first.Name, r.schema)
+	}
+	return nil
+}
+
 // discardPoolConn removes a connection from its pool without returning it
 // and closes it. A session-level advisory lock survives the end of a
 // transaction, so a connection whose release could not be confirmed must
@@ -658,4 +724,25 @@ func MigrateSchema(ctx context.Context, client *Client, schema string) (MigrateR
 		return MigrateResult{}, err
 	}
 	return runner.Migrate(ctx)
+}
+
+// VerifySchema is the read-only production counterpart of MigrateSchema: it
+// reports the schema's ledger state against the embedded history (see
+// MigrationRunner.Verify) and never acquires the migration lock, applies
+// DDL, or records a ledger row. It is the probe behind the server runtime's
+// readiness classification: schema state must be visible to /readyz without
+// any possibility of a probe mutating the store.
+func VerifySchema(ctx context.Context, client *Client, schema string) error {
+	if client == nil {
+		return errors.New("postgres: nil client")
+	}
+	migrations, err := EmbeddedMigrations()
+	if err != nil {
+		return err
+	}
+	runner, err := NewMigrationRunner(client, schema, migrations)
+	if err != nil {
+		return err
+	}
+	return runner.Verify(ctx)
 }
