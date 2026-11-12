@@ -1811,6 +1811,9 @@ func ValidateContributorForCatalog(document Document, catalog CatalogSnapshot, o
 }
 
 func validateEditableSource(document Document, catalog CatalogSnapshot, occurrenceID string, source ColumnSource) error {
+	if document.ImportedRecipe != nil || source.Kind == SourceImported {
+		return fmt.Errorf("imported recipe source columns are immutable")
+	}
 	occurrence := findRoute(&document.Route, occurrenceID)
 	if occurrence == nil {
 		return fmt.Errorf("occurrence %q was not found", occurrenceID)

@@ -29,12 +29,18 @@ import (
 // compiler for a source-only capability probe. The empty document never
 // becomes a receipt or public output; only the compiler-derived source schema,
 // row identity, and operation reasons are returned to lifecycle discovery.
-func compileConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine) (explorer.ReceiptConstructionStage, error) {
+func compileConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine, importedSources ...importedRecipeSources) (explorer.ReceiptConstructionStage, error) {
 	if recipeEngine == nil {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("recipe engine is required")
 	}
 	if request.Document.Output.ID != request.OutputID {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("source-stage document output does not match requested output")
+	}
+	if request.Document.ImportedRecipe != nil {
+		if len(importedSources) == 0 {
+			return explorer.ReceiptConstructionStage{}, fmt.Errorf("imported dataframe source resolution is unavailable")
+		}
+		return importedSources[0].SourceStage(ctx, request)
 	}
 	document := request.Document
 	document.Construction = nil
@@ -100,7 +106,7 @@ func receiptContractFailure(err error) error {
 	}
 }
 
-func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver) (result *explorer.CompilationReceipt, retErr error) {
+func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceiptRequest, capabilityResolver *explorerCapabilityResolver, recipeEngine *dataframeexecution.Engine, explorerService *explorer.Service, logger *slog.Logger, combineResolver combineInputSchemaResolver, importedSources ...importedRecipeSources) (result *explorer.CompilationReceipt, retErr error) {
 	started := time.Now()
 	var outputIDs, stageIDs, columnIDs []string
 	var prepareDuration, compileWorkspaceDuration, compileResolvedDuration, contractBuildDuration, validatePersistDuration time.Duration
@@ -149,6 +155,13 @@ func compileExplorerReceipt(ctx context.Context, request lifecycle.CompileReceip
 	}
 	prepareDuration = time.Since(prepareStarted)
 	compileWorkspaceStarted := time.Now()
+	if len(importedSources) > 0 {
+		sources, resolveErr := importedSources[0].Resolve(ctx, request.Project, workspace, authorized)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		request.ResolvedInputs.ImportedRecipes = sources
+	}
 	translated, err := explorercompilation.CompileWorkspace(ctx, request.Project, request.ExplorerID, workspace, snapshot, request.ResolvedInputs)
 	if err != nil {
 		return nil, err

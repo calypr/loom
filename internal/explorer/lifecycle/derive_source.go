@@ -124,6 +124,10 @@ func (s *Service) constructionDeriveSourceCapability(
 	outputID, stageID string,
 ) (ConstructionDeriveSourceCapability, error) {
 	result := ConstructionDeriveSourceCapability{StageID: stageID, Choices: []ConstructionDeriveSourceChoice{}}
+	if code, reason, unavailable := importedSourceChoiceUnavailable(base.document); unavailable {
+		result.ReasonCode, result.Reason = code, reason
+		return result, nil
+	}
 	if _, found := constructionReceiptStage(base.stages, stageID); !found {
 		result.ReasonCode = "STALE_STAGE_REFERENCE"
 		result.Reason = "the selected stage is not present in the current compiled output"

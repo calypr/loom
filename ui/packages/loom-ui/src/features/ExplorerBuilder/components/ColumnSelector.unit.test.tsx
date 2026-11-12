@@ -116,6 +116,50 @@ const contextFor = (
 });
 
 describe('configured V2 columns', () => {
+  it('shows an imported dataframe column directly without requesting candidate-bound source details', () => {
+    const importedColumn: ExplorerBuilderColumn = {
+      column: 'research_subject_identifier',
+      label: 'Research Subject ID',
+      occurrenceId: 'base',
+      logicalType: 'string',
+      source: { kind: 'imported', imported: { outputColumn: 'research_subject_identifier' } },
+    };
+    const importedTable: DraftTable = {
+      ...table,
+      document: {
+        ...table.document,
+        importedRecipe: {
+          name: 'shared-default',
+          translationVersion: '1',
+          digest: 'a'.repeat(64),
+          output: 'ResearchSubject',
+        },
+        columns: [importedColumn],
+      },
+    };
+    const onInspectSource = vi.fn();
+
+    render(
+      <ColumnSelector
+        catalog={catalog}
+        table={importedTable}
+        occurrenceId="base"
+        disabled={false}
+        onAdd={vi.fn()}
+        onAddAll={vi.fn()}
+        onChange={vi.fn()}
+        onSourceChange={vi.fn()}
+        onRemove={vi.fn()}
+        onInspectSource={onInspectSource}
+      />,
+    );
+
+    expect(screen.getByText(/imported dataframe output: research_subject_identifier/)).toBeInTheDocument();
+    expect(screen.getByText(/Use dataframe operations to transform this imported source/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Column details' })).not.toBeInTheDocument();
+    expect(onInspectSource).not.toHaveBeenCalled();
+  });
+
   it('shows the exact FHIR source and saved route, then hands the column to the graph', async () => {
     const onEditInGraph = vi.fn();
     const height = {

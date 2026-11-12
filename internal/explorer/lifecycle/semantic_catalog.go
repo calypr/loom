@@ -1204,7 +1204,7 @@ func (s *Service) fieldPresentationCurrentContext(
 	if s.store == nil {
 		return current, unavailable("catalog", "AUTHORING_STATE_UNAVAILABLE", "current Explorer drafts are not configured", nil)
 	}
-	owner, err := s.store.Get(ctx, projectid.Canonical(request.Project), request.ExplorerID)
+	owner, err := s.getOwner(ctx, projectid.Canonical(request.Project), request.ExplorerID)
 	if errors.Is(err, explorer.ErrNotFound) {
 		return current, notFound("catalog", "EXPLORER_NOT_FOUND", "Explorer not found", err)
 	}

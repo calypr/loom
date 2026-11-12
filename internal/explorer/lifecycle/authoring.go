@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -153,6 +154,11 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		return nil, conflict("commands", "STALE_DRAFT_SOURCE_CONTEXT", "the authorized source context is incomplete", nil, nil)
 	}
 	catalog := s.config.Capability.Catalog(snapshot, explorerID)
+	if explorerID == DefaultDataframeID {
+		if err := s.seedDefaultDataframeForApply(ctx, project, explorerID, snapshot, catalog, request, actor); err != nil {
+			return nil, err
+		}
+	}
 	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
 	if semanticCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
@@ -283,6 +289,50 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	default:
 		return &ApplyCommandsWithConstructionPreviewResponse{Commands: response, Accepted: acceptedConstruction}, nil
 	}
+}
+
+func (s *Service) seedDefaultDataframeForApply(ctx context.Context, project, explorerID string, snapshot capability.Snapshot, catalog authoringv2.CatalogSnapshot, request authoringv2.ApplyCommandsRequest, actor string) error {
+	_, err := s.store.Get(ctx, project, explorerID)
+	if err == nil {
+		return nil // Persisted state, including a corrupt draft, takes precedence.
+	}
+	if !errors.Is(err, explorer.ErrNotFound) {
+		return err
+	}
+	if request.ExpectedDraftVersion != 1 || strings.TrimSpace(request.ExpectedDraftDigest) == "" {
+		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+	}
+	virtual, err := s.virtualDefaultDataframeOwner(ctx, project, snapshot, catalog)
+	if err != nil {
+		return err
+	}
+	if request.ExpectedDraftDigest != virtual.DraftDigest {
+		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+	}
+	workspace, err := authoringv2.DecodeWorkspace(virtual.DraftConfig)
+	if err != nil {
+		return conflict("commands", "DEFAULT_DATAFRAME_INVALID", "the imported default dataframe workspace is invalid", nil, err)
+	}
+	created, createErr := s.store.CreateSeededDataframe(ctx, project, explorerID, virtual.Title, workspace, actor, authoringv2.DraftSourceContext{SnapshotToken: snapshot.Token, SourceGeneration: snapshot.Identity.Generation, AuthorizationScopeDigest: snapshot.Identity.AuthorizationScopeDigest})
+	if createErr == nil {
+		if created.DraftVersion != 1 || created.DraftDigest != virtual.DraftDigest {
+			return conflict("commands", "DEFAULT_DATAFRAME_SEED_CONFLICT", "the default dataframe seed differs from its imported workspace", nil, explorer.ErrDraftConflict)
+		}
+		return nil
+	}
+	if !errors.Is(createErr, explorer.ErrDraftConflict) {
+		return createErr
+	}
+	// Another first Apply may have inserted the exact seed between Get and
+	// Create. Accept only that seed; normal command CAS decides the winner.
+	created, err = s.store.Get(ctx, project, explorerID)
+	if err != nil {
+		return err
+	}
+	if created.DraftVersion != 1 || created.DraftDigest != virtual.DraftDigest || !bytes.Equal(created.DraftConfig, virtual.DraftConfig) {
+		return conflict("commands", "DRAFT_CONFLICT", "the default dataframe draft changed; reload before applying commands", nil, explorer.ErrDraftConflict)
+	}
+	return nil
 }
 
 func checkRowChangeReplacementResult(workspace authoringv2.Workspace, receipt *explorer.CompilationReceipt, outputID string) error {
@@ -549,7 +599,7 @@ func (s *Service) ReconcileWithWorkspace(ctx context.Context, request ReconcileR
 	if strings.TrimSpace(request.SnapshotToken) == "" || request.DraftVersion < 0 {
 		return ReconcileResult{}, malformed("reconcile", "snapshotToken, draftVersion, and draftDigest are required", nil)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return ReconcileResult{}, err
 	}

@@ -616,7 +616,7 @@ type DynamicColumn struct {
 	Source       Expression  `json:"source"`
 	Key          *Expression `json:"key,omitempty"`
 	Value        *Expression `json:"value,omitempty"`
-	Columns      []string    `json:"columns,omitempty"`
+	Columns      []string    `json:"columns,omitzero"`
 	MaxColumns   int         `json:"maxColumns,omitempty"`
 	// ColumnTypes carries resolver-observed logical types for frozen keys. It
 	// is optional for legacy dynamicColumns and is populated for typed
@@ -637,7 +637,7 @@ type ExtensionColumn struct {
 	Source       Expression               `json:"source"`
 	ColumnPrefix *string                  `json:"columnPrefix,omitempty"`
 	MaxColumns   int                      `json:"maxColumns"`
-	Columns      []ExtensionColumnMapping `json:"columns,omitempty"`
+	Columns      []ExtensionColumnMapping `json:"columns,omitzero"`
 	Discovered   bool                     `json:"-"`
 }
 

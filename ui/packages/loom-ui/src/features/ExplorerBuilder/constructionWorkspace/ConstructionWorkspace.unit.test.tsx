@@ -183,7 +183,7 @@ describe('ConstructionWorkspace', () => {
     ])).toBe('For each current row (one row per distinct combination of Status), one row per matching MedicationAdministration through the same Patient; existing row fields repeat on each match; keep the current row once with an empty MedicationAdministration FHIR resource ID when no match exists.');
   });
 
-  it('keeps row actions in More actions without reopening the reshape menu', () => {
+  it('makes all five operation families reachable and explains unavailable calculations', () => {
     const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
 
     render(<ConstructionActionBar onSelect={onSelect} />);
@@ -200,9 +200,6 @@ describe('ConstructionWorkspace', () => {
       fireEvent.click(button);
       expect(onSelect).toHaveBeenLastCalledWith(family);
     }
-    expect(screen.queryByTestId('construction-action-calculate')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-combine')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
     const moreActions = screen.getByTestId('construction-more-actions');
     fireEvent.click(moreActions);
     expect(moreActions).toHaveAttribute('aria-expanded', 'true');
@@ -211,10 +208,36 @@ describe('ConstructionWorkspace', () => {
     expect(document.activeElement).toBe(moreActions);
     fireEvent.click(moreActions);
     const menu = screen.getByRole('group', { name: 'More table actions' });
-    expect(within(menu).getByTestId('construction-action-combine')).toBeEnabled();
-    expect(within(menu).queryByTestId('construction-action-reshape')).not.toBeInTheDocument();
-    fireEvent.click(within(menu).getByTestId('construction-action-combine'));
+    const calculate = within(menu).getByTestId('construction-action-calculate');
+    const reshape = within(menu).getByTestId('construction-action-reshape');
+    const combine = within(menu).getByTestId('construction-action-combine');
+    expect(calculate).toBeDisabled();
+    expect(calculate).toHaveAttribute('title', 'Calculation is unavailable for the current table stage.');
+    expect(within(menu).getByRole('status')).toHaveTextContent('Calculation is unavailable for the current table stage.');
+    expect(reshape).toBeEnabled();
+    expect(combine).toBeEnabled();
+    fireEvent.click(reshape);
+    expect(onSelect).toHaveBeenLastCalledWith('RESHAPE');
+    fireEvent.click(moreActions);
+    const reopenedMenu = screen.getByRole('group', { name: 'More table actions' });
+    fireEvent.click(within(reopenedMenu).getByTestId('construction-action-combine'));
     expect(onSelect).toHaveBeenLastCalledWith('COMBINE');
+  });
+
+  it('keeps Calculate, Reshape, and Combine reachable when calculation is supported', () => {
+    const onSelect = vi.fn<(family: ConstructionOperationFamily) => void>();
+    render(<ConstructionActionBar onSelect={onSelect} calculateAvailable />);
+
+    fireEvent.click(screen.getByTestId('construction-more-actions'));
+    const menu = screen.getByRole('group', { name: 'More table actions' });
+    const calculate = within(menu).getByTestId('construction-action-calculate');
+    const reshape = within(menu).getByTestId('construction-action-reshape');
+    const combine = within(menu).getByTestId('construction-action-combine');
+    expect(calculate).toBeEnabled();
+    expect(reshape).toBeEnabled();
+    expect(combine).toBeEnabled();
+    fireEvent.click(calculate);
+    expect(onSelect).toHaveBeenCalledWith('CALCULATE');
   });
 
   it('groups only contiguous column adjustments and opens the selected group', () => {

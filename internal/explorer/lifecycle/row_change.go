@@ -19,7 +19,7 @@ func (s *Service) AssessRowChange(ctx context.Context, request AssessRowChangeRe
 	if s.config.Capability.Token == nil || s.config.Capability.Catalog == nil {
 		return AssessRowChangeResult{}, unavailable("row-change", "CAPABILITY_UNAVAILABLE", "Explorer capability lookup is not configured", nil)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return AssessRowChangeResult{}, err
 	}

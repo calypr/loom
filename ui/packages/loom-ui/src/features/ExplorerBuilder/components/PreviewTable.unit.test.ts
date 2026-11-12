@@ -60,6 +60,33 @@ const preview: ExplorerBuilderPreviewResult = {
   rowCount: 1,
   diagnostics: [],
 };
+
+it('shows an empty state for a successful zero-row preview and leaves column controls available', () => {
+  const emptyPreview: ExplorerBuilderPreviewResult = {
+    ...preview,
+    rows: [],
+    rowCount: 0,
+  };
+  render(
+    React.createElement(PreviewTable, {
+      preview: emptyPreview,
+      table,
+      limit: 25,
+      onLimitChange: vi.fn(),
+      onColumnChange: vi.fn(),
+      onColumnsChange: vi.fn(),
+    }),
+  );
+
+  expect(screen.getByTestId('preview-table-empty-state')).toHaveTextContent(
+    'No rows in this table.',
+  );
+  expect(screen.getByRole('columnheader', { name: 'First column' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+  expect(screen.getByRole('textbox', { name: 'Column name for First column' })).toBeEnabled();
+  expect(screen.queryByText('Loading your table…')).not.toBeInTheDocument();
+});
+
 const specimenSourceColumns = [
   { ...column('specimen_id', 'Specimen ID', 0), columnId: 'specimen-id' },
   { ...column('subject_reference', 'Subject reference', 1), columnId: 'subject-reference' },
@@ -395,34 +422,9 @@ describe('PreviewTable construction output order', () => {
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
-    const dataTransfer = {
-      effectAllowed: 'move',
-      setData: vi.fn(),
-      getData: vi.fn(() => 'null_value'),
-    };
-    fireEvent.dragStart(screen.getByLabelText('Drag Null'), { dataTransfer });
-    const firstRow = screen.getByLabelText('Drag Specimen ID').parentElement;
-    expect(firstRow).not.toBeNull();
-    fireEvent.dragOver(firstRow!, { clientY: 0, dataTransfer });
-    fireEvent.drop(firstRow!, { clientY: 0, dataTransfer });
-
-    expect(onColumnsChange).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({
-        kind: 'AUTHORED_COLUMN',
-        column: expect.objectContaining({
-          column: 'specimen_id',
-          table: expect.objectContaining({ order: 1 }),
-        }),
-      }),
-      expect.objectContaining({
-        kind: 'CONSTRUCTION_OUTPUT',
-        stepId: 'pivot',
-        column: expect.objectContaining({
-          id: 'specimen-id',
-          table: expect.objectContaining({ order: 1 }),
-        }),
-      }),
-    ]));
+    expect(screen.queryByLabelText(/Drag /)).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(onColumnsChange).not.toHaveBeenCalled();
   });
 });
 
@@ -1111,7 +1113,7 @@ describe('PreviewTable column controls', () => {
     rendered.rerender(React.createElement(PreviewTable, { ...props, disabled: true }));
     expect(screen.getByRole('textbox', { name: 'Column name for First column' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Remove First column column' })).toBeDisabled();
-    expect(screen.getByRole('checkbox', { name: 'First column' })).toBeDisabled();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
   it('uses the saved authored label when a preview emission still has its default label', () => {
@@ -1199,13 +1201,13 @@ describe('PreviewTable column controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
 
     expect(screen.getAllByRole('listitem')).toHaveLength(5);
-    expect(screen.getAllByRole('checkbox', { name: 'Specimen identifier' })).toHaveLength(1);
-    expect(screen.queryByRole('checkbox', { name: 'Stale stage label' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('listitem').filter((item) => item.getAttribute('data-column-name') === 'specimen_id')).toHaveLength(1);
     expect(screen.getByRole('columnheader', { name: 'Specimen identifier' })).toBeInTheDocument();
     expect(screen.getByText('patient-42')).toBeInTheDocument();
   });
 
-  it('renames, hides, and reorders saved construction outputs through presentation controls', () => {
+  it('renames construction outputs while keeping viewer visibility and order controls absent', () => {
     const outputWithPresentation = (label: string, visible: boolean, order = 4): Construction => ({
       ...relatedPatientConstruction,
       steps: relatedPatientConstruction.steps.map((step) => ({
@@ -1239,40 +1241,21 @@ describe('PreviewTable column controls', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
 
-    expect((screen.getByRole('checkbox', { name: 'Patient ID' }) as HTMLInputElement).checked).toBe(true);
-    const dataTransfer = {
-      effectAllowed: 'move',
-      setData: vi.fn(),
-      getData: vi.fn(() => 'patient_id'),
-    };
-    fireEvent.dragStart(screen.getByLabelText('Drag Patient ID'), { dataTransfer });
-    const firstRow = screen.getByLabelText('Drag Specimen ID').parentElement;
-    expect(firstRow).not.toBeNull();
-    fireEvent.dragOver(firstRow!, { clientY: 0, dataTransfer });
-    fireEvent.drop(firstRow!, { clientY: 0, dataTransfer });
-    expect(onColumnsChange).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({
-        kind: 'CONSTRUCTION_OUTPUT',
-        column: expect.objectContaining({
-          id: 'patient-id',
-          name: 'patient_id',
-          table: expect.objectContaining({ order: 0 }),
-        }),
-      }),
-    ]));
-
-    onColumnsChange.mockClear();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Patient ID' }));
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Drag /)).not.toBeInTheDocument();
+    const outputName = screen.getByRole('textbox', { name: 'Column name for Patient ID' });
+    fireEvent.change(outputName, { target: { value: 'Patient key' } });
+    fireEvent.blur(outputName);
     expect(onColumnChange).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'CONSTRUCTION_OUTPUT',
       stepId: 'related_patient_id',
       column: expect.objectContaining({
         id: 'patient-id',
         name: 'patient_id',
-        label: 'Patient ID',
-        table: { visible: false, order: 4 },
+        label: 'Patient key',
       }),
     }));
+    expect(onColumnsChange).not.toHaveBeenCalled();
 
     rendered.rerender(React.createElement(PreviewTable, {
       preview: relatedPatientPreview,
@@ -1449,7 +1432,7 @@ describe('PreviewTable column controls', () => {
     expect(screen.queryByRole('button', { name: 'Remove Row count column' })).not.toBeInTheDocument();
   });
 
-  it('keeps a same-name row-value visibility control aligned with the preview when source visibility is saved', () => {
+  it('honors saved same-name row-value visibility without exposing a visibility control', () => {
     const sourceColumn = {
       ...column('specimen_type', 'CDA specimen_type values', 0),
       columnId: 'specimen-type-source',
@@ -1509,18 +1492,9 @@ describe('PreviewTable column controls', () => {
     const rendered = render(React.createElement(PreviewTable, props));
 
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
-    const visibility = screen.getByRole('checkbox', { name: 'Renamed specimen type' }) as HTMLInputElement;
-    expect(visibility.checked).toBe(false);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: 'Renamed specimen type' })).not.toBeInTheDocument();
-    fireEvent.click(visibility);
-    expect(onColumnChange).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'CONSTRUCTION_OUTPUT',
-      stepId: 'group-specimen-types',
-      column: expect.objectContaining({
-        id: 'grouped-specimen-types',
-        table: { visible: true, order: 0 },
-      }),
-    }));
+    expect(onColumnChange).not.toHaveBeenCalled();
 
     const visibleConstruction: Construction = {
       ...construction,
@@ -1539,7 +1513,7 @@ describe('PreviewTable column controls', () => {
         document: { ...groupedTable.document, construction: visibleConstruction },
       },
     }));
-    expect((screen.getByRole('checkbox', { name: 'Renamed specimen type' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Renamed specimen type' })).toBeInTheDocument();
 
     const visibleSourceTable: DraftTable = {
@@ -1554,7 +1528,7 @@ describe('PreviewTable column controls', () => {
       ...props,
       table: visibleSourceTable,
     }));
-    expect((screen.getByRole('checkbox', { name: 'Renamed specimen type' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Renamed specimen type' })).toBeInTheDocument();
   });
 
@@ -1690,16 +1664,14 @@ describe('PreviewTable column controls', () => {
     expect(screen.getByRole('list', { name: 'Table columns' })).toHaveClass(
       'overflow-y-auto',
     );
-    expect(
-      screen.getByText(/drag to change its order/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Rename columns or edit their semantic values/)).toBeInTheDocument();
     fireEvent.pointerDown(document.body);
     expect(
       screen.queryByRole('list', { name: 'Table columns' }),
     ).not.toBeInTheDocument();
   });
 
-  it('toggles visibility and drag-reorders columns from the selector', () => {
+  it('keeps preview columns selectable without exposing visibility or ordering controls', () => {
     const onColumnChange = vi.fn();
     const onColumnsChange = vi.fn();
     render(
@@ -1714,49 +1686,10 @@ describe('PreviewTable column controls', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
 
-    fireEvent.click(screen.getByRole('checkbox', { name: 'First column' }));
-    expect(onColumnChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'AUTHORED_COLUMN',
-        column: expect.objectContaining({
-          column: 'first_column',
-          table: { visible: false, order: 0 },
-        }),
-      }),
-    );
-
-    onColumnChange.mockClear();
-    const dataTransfer = {
-      effectAllowed: 'move',
-      setData: vi.fn(),
-      getData: vi.fn(() => 'second_column'),
-    };
-    fireEvent.dragStart(screen.getByLabelText('Drag Second column'), {
-      dataTransfer,
-    });
-    const firstRow = screen.getByLabelText('Drag First column').parentElement;
-    expect(firstRow).not.toBeNull();
-    fireEvent.dragOver(firstRow!, { clientY: 0, dataTransfer });
-    fireEvent.drop(firstRow!, { clientY: 0, dataTransfer });
-
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Drag /)).not.toBeInTheDocument();
     expect(onColumnChange).not.toHaveBeenCalled();
-    expect(onColumnsChange).toHaveBeenCalledTimes(1);
-    expect(onColumnsChange).toHaveBeenCalledWith([
-      expect.objectContaining({
-        kind: 'AUTHORED_COLUMN',
-        column: expect.objectContaining({
-          column: 'second_column',
-          table: expect.objectContaining({ order: 0 }),
-        }),
-      }),
-      expect.objectContaining({
-        kind: 'AUTHORED_COLUMN',
-        column: expect.objectContaining({
-          column: 'first_column',
-          table: expect.objectContaining({ order: 1 }),
-        }),
-      }),
-    ]);
+    expect(onColumnsChange).not.toHaveBeenCalled();
   });
 
   it('renders a bounded cell window for a wide preview', () => {
@@ -1857,10 +1790,7 @@ describe('PreviewTable column controls', () => {
     expect(screen.getByText('Ada')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByRole('checkbox', { name: 'Given names' })).toHaveProperty(
-      'checked',
-      true,
-    );
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
   it('shows a shared count when any authored owner is visible', () => {
@@ -1961,7 +1891,7 @@ it('configures only final Group columns, including hidden outputs, without expos
   }));
   fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
   expect(screen.getAllByRole('textbox', { name: 'Column name for Specimen ID' })).toHaveLength(1);
-  expect(screen.getByRole('checkbox', { name: 'Hidden count', checked: false })).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Remove Specimen ID column' }));
   expect(onRemoveColumn).toHaveBeenCalledWith(carried.column);
 });

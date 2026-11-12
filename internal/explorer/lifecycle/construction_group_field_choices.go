@@ -44,6 +44,9 @@ func (s *Service) constructionGroupFieldChoices(
 		(context.SourceExpansion != nil && context.SourceIdentityColumn != "__loom_expansion_identity") {
 		return nil, false, conflict("construction-capabilities", "INVALID_COMPILATION_RECEIPT", "the Group source shape does not match its row identity", nil, nil)
 	}
+	if importedSourceRootChoiceInventoryMissing(base) {
+		return choices, semanticChoicesIncomplete, nil
+	}
 	index, err := fhirschema.GeneratedIndex()
 	if err != nil {
 		return nil, false, unavailable("construction-capabilities", "FHIR_SCHEMA_UNAVAILABLE", "FHIR field metadata is unavailable", err)

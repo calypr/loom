@@ -2629,6 +2629,7 @@ components:
       required: [kind, output, rootResourceType, route, rows, columns]
       properties:
         kind: {type: string, enum: [ExplorerBuilderDocument]}
+        importedRecipe: {$ref: '#/components/schemas/ImportedRecipeRef'}
         output: {$ref: '#/components/schemas/Output'}
         rootResourceType: {type: string, minLength: 1}
         route: {$ref: '#/components/schemas/RouteNode'}
@@ -2762,6 +2763,21 @@ components:
         children:
           type: array
           items: {$ref: '#/components/schemas/RouteNode'}
+    ImportedRecipeRef:
+      type: object
+      additionalProperties: false
+      required: [name, translationVersion, digest, output]
+      properties:
+        name: {type: string, minLength: 1}
+        translationVersion: {type: string, minLength: 1}
+        digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        output: {type: string, minLength: 1}
+    ImportedSource:
+      type: object
+      additionalProperties: false
+      required: [outputColumn]
+      properties:
+        outputColumn: {type: string, minLength: 1}
     ColumnSource:
       type: object
       additionalProperties: false
@@ -2769,7 +2785,8 @@ components:
       properties:
         kind:
           type: string
-          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId]
+          enum: [field, aggregate, identifierBySystem, extensionByUrl, codedValue, ownerRecords, projectId, imported]
+        imported: {$ref: '#/components/schemas/ImportedSource'}
         field: {$ref: '#/components/schemas/FieldSource'}
         aggregate: {$ref: '#/components/schemas/AggregateSource'}
         lookup: {$ref: '#/components/schemas/LookupSource'}

@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import type { ExplorerBuilderCompileResult, ExplorerBuilderState } from '../../../types';
 import {
   derivedOccurrences,
@@ -70,6 +71,30 @@ const ready: ExplorerBuilderState = {
 };
 
 describe('semantic Builder hydration', () => {
+  it('round trips imported recipe references and source columns unchanged', () => {
+    const workspace = {
+      ...ready.workspace!,
+      documents: ready.workspace!.documents.map((document) => ({
+        ...document,
+        importedRecipe: {
+          name: 'shared-default',
+          translationVersion: '1',
+          digest: 'a'.repeat(64),
+          output: 'Specimen',
+        },
+        columns: document.columns.map((column) => ({
+          ...column,
+          source: { kind: 'imported' as const, imported: { outputColumn: column.column } },
+        })),
+      })),
+    };
+    const state = stateFromBuilder({ ...ready, workspace }, {
+      project: 'project',
+      explorerId: 'dataframe-default',
+    });
+    expect(workspaceFromState(state)).toEqual(workspace);
+  });
+
   it('reopens and recompiles the canonical workspace without reconstructing sources', () => {
     const state = stateFromBuilder(ready, {
       project: 'project',

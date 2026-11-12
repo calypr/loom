@@ -444,6 +444,9 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 			}
 			return nil, nil, "", fmt.Errorf("construction step %q: %w", step.ID, stageErr)
 		}
+		if step.Operation.Kind == recipe.ConstructionFilterOp || step.Operation.Kind == recipe.ConstructionDeriveOp {
+			result = preserveDynamicRuntimeKeys(result, priorSchema)
+		}
 		if result.physical.InputStageID == sequence.SourceStageID && len(result.physical.InputColumns) > len(sequence.SourceColumns) {
 			extra := result.physical.InputColumns[len(sequence.SourceColumns):]
 			sourceProjectionColumns := make([]ir.PhysicalStageColumn, 0, len(extra))
@@ -985,6 +988,11 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 	identityColumn.ID = identityColumn.Name
 	identityColumn.Internal, identityColumn.Identity = true, true
 	resolved = append(resolved, identityColumn)
+	if dynamicKeys, ok := schemaColumn(schema, "__loom_dynamic_runtime_keys"); ok && dynamicKeys.Internal {
+		dynamicKeys.ID = dynamicKeys.Name
+		dynamicKeys.Identity = false
+		resolved = append(resolved, dynamicKeys)
+	}
 	if identity != "_key" {
 		if rootKey, ok := schemaColumn(schema, "_key"); ok && rootKey.Internal && rootKey.Identity &&
 			rootKey.Kind == string(expression.KindString) && rootKey.Cardinality == string(expression.RequiredOne) {
@@ -1003,6 +1011,41 @@ func resolveConstructionSourceSchema(plan *ir.PhysicalPlan, declarations []recip
 		}
 	}
 	return resolved, nil
+}
+
+// preserveDynamicRuntimeKeys carries the hidden key inventory needed by the
+// post-query drift validator across row-preserving construction operations.
+// The inventory remains hidden from the authored/public dataframe schema.
+func preserveDynamicRuntimeKeys(result constructionStageResult, inputSchema []CompiledOutputColumn) constructionStageResult {
+	for _, column := range inputSchema {
+		if !column.Internal || column.Name != "__loom_dynamic_runtime_keys" {
+			continue
+		}
+		if _, exists := schemaColumn(result.schema, column.Name); !exists {
+			result.schema = append(result.schema, column)
+		}
+		if !hasPhysicalStageColumn(result.physical.OutputColumns, column.Name) {
+			result.physical.OutputColumns = append(result.physical.OutputColumns, toPhysicalStageColumns([]CompiledOutputColumn{column})...)
+		}
+		if !hasPhysicalProjectionName(result.physical.OutputProjections, column.Name) {
+			result.physical.OutputProjections = append(result.physical.OutputProjections, ir.PhysicalProjection{
+				Name: column.Name, Hidden: true,
+				Value: ir.PhysicalValue{Variable: result.physical.InputRowVariable, Path: []string{column.Name}},
+			})
+		}
+		result.descriptor.Columns = cloneCompiledSchema(result.schema)
+		break
+	}
+	return result
+}
+
+func hasPhysicalStageColumn(columns []ir.PhysicalStageColumn, name string) bool {
+	for _, column := range columns {
+		if column.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func constructionSourceIdentity(schema []CompiledOutputColumn) string {

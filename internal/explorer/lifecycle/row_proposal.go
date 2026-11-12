@@ -295,7 +295,7 @@ func (s *Service) ProposeRowDefinition(ctx context.Context, request RowDefinitio
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return RowDefinitionProposal{}, conflict("row-definition-proposal", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return RowDefinitionProposal{}, err
 	}

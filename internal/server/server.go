@@ -478,7 +478,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	if err != nil {
 		return fmt.Errorf("create recipe registry: %w", err)
 	}
-	var configuredRecipeName string
+	var configuredRecipeName, configuredRecipeVersion string
 	if serverConfig.Server.ClickHouse.Enabled {
 		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
 		if err != nil {
@@ -489,6 +489,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
 		}
 		configuredRecipeName = defaultBundle.Name
+		configuredRecipeVersion = defaultBundle.TranslationVersion
 		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
 			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
 		}
@@ -822,6 +823,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			return fmt.Errorf("create per-file source loader: %w", err)
 		}
 	}
+	importedSources := importedRecipeSources{registry: recipeRegistry, engine: recipeEngine, capabilities: capabilityResolver, defaultName: configuredRecipeName, defaultVersion: configuredRecipeVersion}
 	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
 		var resolveCombineSchemas combineInputSchemaResolver
 		if materializationReader != nil {
@@ -829,7 +831,7 @@ func run(ctx context.Context, serverConfig Config) error {
 				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
 			}
 		}
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas)
+		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas, importedSources)
 	}
 	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
 	if err != nil {
@@ -863,6 +865,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		return fmt.Errorf("configure table-shape capability repository: %w", err)
 	}
 	lifecycleConfig := lifecycle.Config{
+		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,
 		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
 		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
@@ -878,7 +881,7 @@ func run(ctx context.Context, serverConfig Config) error {
 		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
 		CompileReceipt:                     compileReceipt,
 		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
+			return compileConstructionSourceStage(ctx, request, recipeEngine, importedSources)
 		},
 		Capability: lifecycle.CapabilityResolver{
 			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {

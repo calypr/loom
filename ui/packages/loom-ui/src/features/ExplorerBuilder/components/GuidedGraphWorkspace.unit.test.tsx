@@ -628,4 +628,61 @@ describe('GuidedGraphWorkspace', () => {
     expect(currentHost).toBeInstanceOf(HTMLDivElement);
     expect(currentHost?.isConnected).toBe(true);
   });
+  it.each([false, true])('keeps imported traversal immutable while allowing inspection (imported=%s)', async (imported) => {
+    const current = table('node-patient');
+    const branched: DraftTable = {
+      ...current,
+      document: {
+        ...current.document,
+        ...(imported ? { importedRecipe: {
+          name: 'default', translationVersion: 'v1', digest: 'a'.repeat(64), output: 'documents',
+        } } : {}),
+        route: {
+          ...current.document.route,
+          children: [{ occurrenceId: 'documents', resourceType: 'DocumentReference',
+            relationship: 'has document', catalogEdgeId: 'patient-document', matchMode: 'OPTIONAL' }],
+        },
+      },
+    };
+    const onSelectOccurrence = vi.fn();
+    const callbacks = {
+      onSetBase: vi.fn(), onChangeBase: vi.fn(), onAppendEdge: vi.fn(),
+      onChangeEdge: vi.fn(), onChangeMatchMode: vi.fn(), onTruncate: vi.fn(),
+    };
+    render(<GuidedGraphWorkspace catalog={{ ...catalog, edges: [...catalog.edges, {
+      edgeId: 'patient-document-other', fromNodeId: 'node-patient', toNodeId: 'node-document', label: 'other document',
+    }] }} table={branched} selectedOccurrenceId="base" disabled={false}
+      onSelectOccurrence={onSelectOccurrence} {...callbacks} />);
+    await waitFor(() => expect(mockFitView).toHaveBeenCalled());
+    const edge = screen.getByRole('combobox', { name: 'Relationship for DocumentReference occurrence' });
+    const match = screen.getByRole('button', { name: 'Require DocumentReference match' });
+    const root = screen.getByRole('button', { name: 'Make each DocumentReference one row' });
+    const remove = screen.getByRole('button', { name: 'Remove DocumentReference branch' });
+    for (const control of [edge, match, root, remove]) {
+      if (imported) expect(control).toBeDisabled();
+      else expect(control).toBeEnabled();
+    }
+    fireEvent.click(match);
+    fireEvent.click(root);
+    fireEvent.click(remove);
+    for (const callback of [callbacks.onChangeMatchMode, callbacks.onChangeBase, callbacks.onTruncate]) {
+      expect(callback).toHaveBeenCalledTimes(imported ? 0 : 1);
+    }
+    fireEvent.click(screen.getByTitle('DocumentReference'));
+    expect(onSelectOccurrence).toHaveBeenCalledWith('documents');
+  });
+
+  it('does not append a source route when inspecting a neighboring imported node', async () => {
+    const current = table('node-patient');
+    const onAppendEdge = vi.fn();
+    render(<GuidedGraphWorkspace catalog={catalog} table={{ ...current, document: {
+      ...current.document, importedRecipe: { name: 'default', translationVersion: 'v1', digest: 'a'.repeat(64), output: 'documents' },
+    } }} selectedOccurrenceId="base" disabled={false}
+      onSelectOccurrence={vi.fn()} onSetBase={vi.fn()} onChangeBase={vi.fn()}
+      onAppendEdge={onAppendEdge} onChangeEdge={vi.fn()} onChangeMatchMode={vi.fn()} onTruncate={vi.fn()} />);
+    await waitFor(() => expect(mockFitView).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId('graph-node-node-document'));
+    expect(onAppendEdge).not.toHaveBeenCalled();
+  });
+
 });

@@ -209,7 +209,7 @@ const emptyCatalog = (): ExplorerBuilderCatalog => ({
 });
 const emptyBuilderState = (project: string): BuilderAuthoringState => ({
   project,
-  explorerId: 'default',
+  explorerId: 'dataframe-default',
   catalog: emptyCatalog(),
   workspace: null,
   draftVersion: 0,
@@ -445,7 +445,9 @@ const BuilderWorkspaceContent = ({
   const authResourcePath = organization
     ? `/programs/${organization}/projects/${project}`
     : undefined;
-  const [selectedExplorerId, setSelectedExplorerId] = useState(explorerId || '');
+  const [selectedExplorerId, setSelectedExplorerId] = useState(
+    !explorerId || explorerId === 'default' ? 'dataframe-default' : explorerId,
+  );
   const explorers = useGetExplorerAuthoringExplorersQuery({
     project: projectId,
     authResourcePath,
@@ -453,10 +455,18 @@ const BuilderWorkspaceContent = ({
   const effectiveExplorerId =
     selectedExplorerId && selectedExplorerId !== 'default'
       ? selectedExplorerId
-      : explorers.data?.find((candidate) => candidate.explorerId === 'default')
-          ?.explorerId ??
-        explorers.data?.[0]?.explorerId ??
-        '';
+      : 'dataframe-default';
+  const explorerSummaries = useMemo(() => {
+    const available = explorers.data ?? [];
+    if (available.some((candidate) => candidate.explorerId === 'dataframe-default')) return available;
+    return [{
+      project: projectId,
+      explorerId: 'dataframe-default',
+      title: 'Shared default dataframe',
+      management: 'SYSTEM',
+      updatedAt: '',
+    }, ...available];
+  }, [explorers.data, projectId]);
   const ownerKey = builderOwnerKeyFor(projectId, authResourcePath, effectiveExplorerId);
   const workspaceAttached = useRef(false);
   const workspaceHostRef = useCallback((node: HTMLElement | null) => {
@@ -2520,19 +2530,6 @@ const BuilderWorkspaceContent = ({
     dispatch({ type: 'removeTable', outputId: table.outputId });
     if (fallbackOutputId) rememberSelectedTable(fallbackOutputId);
   };
-  const reorderTable = (outputId: string, before?: string) => {
-    const moving = state.tables.find((candidate) => candidate.outputId === outputId);
-    if (!moving?.document.rootResourceType || incomplete) {
-      dispatch({ type: 'reorderTable', outputId, before });
-      return;
-    }
-    const outputIds = state.tables
-      .filter((candidate) => candidate.outputId !== outputId)
-      .map((candidate) => candidate.outputId);
-    const index = before ? outputIds.indexOf(before) : outputIds.length;
-    outputIds.splice(index < 0 ? outputIds.length : index, 0, outputId);
-    void applyCommands([{ type: 'REORDER_TABLES', outputIds }]);
-  };
   const createCustomExplorer = async (title: string, fromCurrent: boolean) => {
     try {
       const created = await createExplorer({
@@ -2560,7 +2557,7 @@ const BuilderWorkspaceContent = ({
       (explorers.data ?? []).find(
         (explorer) =>
           explorer.explorerId !== effectiveExplorerId &&
-          explorer.explorerId === 'default',
+          explorer.explorerId === 'dataframe-default',
       ) ??
       (explorers.data ?? []).find(
         (explorer) => explorer.explorerId !== effectiveExplorerId,
@@ -3214,7 +3211,7 @@ const BuilderWorkspaceContent = ({
   const emptyExplorerProject = !effectiveExplorerId &&
     !explorers.isLoading &&
     !explorers.error &&
-    explorers.data?.length === 0;
+    false;
 
   if (
     explorers.isLoading ||
@@ -3280,7 +3277,7 @@ const BuilderWorkspaceContent = ({
 
   const toolbar = (
     <BuilderToolbar
-      explorers={explorers.data ?? []}
+      explorers={explorerSummaries}
       selectedExplorerId={effectiveExplorerId}
       onExplorerChange={selectExplorer}
       onCreateExplorer={(title, fromCurrent) =>
@@ -3300,7 +3297,6 @@ const BuilderWorkspaceContent = ({
       onNewTable={addTable}
       onDuplicateTable={duplicateTable}
       onDeleteTable={deleteSelectedTable}
-      onReorderTable={reorderTable}
       onReview={() => {
         const open = !reviewOpen;
         setReviewOpen(open);
@@ -3622,6 +3618,22 @@ const BuilderWorkspaceContent = ({
       constructionLifecycle.capabilities.response.baseConstruction,
       table?.document.rows,
     );
+  const deriveCapability = capabilityStage?.capabilities.find(
+    (candidate) => candidate.kind === 'DERIVE',
+  );
+  const calculateUnavailableReason = !table?.document.rootResourceType
+    ? 'Choose a row source before calculating.'
+    : constructionLifecycle.capabilities.status === 'loading'
+      ? 'Checking calculation support for this table stage…'
+      : constructionLifecycle.capabilities.status === 'error'
+        ? sanitizeReasonText(constructionLifecycle.capabilities.message)
+        : constructionLifecycle.capabilities.status === 'idle'
+          ? 'Calculation support is not available until the table capabilities load.'
+          : !capabilityIsForAppendStage
+            ? 'The table stage changed; reload calculation support.'
+            : deriveCapability?.reason
+              ? sanitizeReasonText(deriveCapability.reason)
+              : 'The current table stage does not support calculated columns.';
   const capabilitiesErrorMessage = constructionLifecycle.capabilities.status === 'error'
     ? constructionLifecycle.capabilities.message
     : '';
@@ -4608,12 +4620,12 @@ const BuilderWorkspaceContent = ({
                 addColumnsDisabled={addColumnsPreviewPending}
                 combineDisabled={!canStartCombine}
                 calculateAvailable={Boolean(
-                  construction?.steps.length &&
                   capabilityIsForAppendStage &&
                   capabilityStage?.capabilities.some(
                     (candidate) => candidate.kind === 'DERIVE' && candidate.supported,
                   ),
                 )}
+                calculateUnavailableReason={calculateUnavailableReason}
                 activeFamily={activeConstructionFamily}
                 onSelectFamily={selectConstructionFamily}
                 preview={
@@ -5097,7 +5109,7 @@ const BuilderWorkspace = (
   const ownerKey = builderOwnerKeyFor(
     projectId,
     authResourcePath,
-    props.explorerId || 'default',
+    !props.explorerId || props.explorerId === 'default' ? 'dataframe-default' : props.explorerId,
   );
   return <BuilderWorkspaceContent key={ownerKey} {...props} />;
 };

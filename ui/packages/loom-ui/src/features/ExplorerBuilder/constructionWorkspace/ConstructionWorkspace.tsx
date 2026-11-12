@@ -91,6 +91,7 @@ export const ConstructionActionBar = ({
   addColumnsDisabled = false,
   combineDisabled = false,
   calculateAvailable = false,
+  calculateUnavailableReason = 'Calculation is unavailable for the current table stage.',
   onSelect,
 }: {
   readonly activeFamily?: ConstructionOperationFamily;
@@ -98,6 +99,7 @@ export const ConstructionActionBar = ({
   readonly addColumnsDisabled?: boolean;
   readonly combineDisabled?: boolean;
   readonly calculateAvailable?: boolean;
+  readonly calculateUnavailableReason?: string;
   readonly onSelect: (family: ConstructionOperationFamily) => void;
 }) => {
   const [moreActionsOpen, setMoreActionsOpen] = useState(false);
@@ -107,8 +109,7 @@ export const ConstructionActionBar = ({
     family === 'ADD_COLUMNS' || family === 'KEEP_ROWS'
   );
   const secondaryFamilies = allOperationFamilies.filter(({ family }) =>
-    family === 'COMBINE' ||
-    (family === 'CALCULATE' && calculateAvailable)
+    family === 'CALCULATE' || family === 'RESHAPE' || family === 'COMBINE'
   );
   const renderAction = (family: ConstructionOperationFamily, inMenu = false) => {
     const operation = allOperationFamilies.find((candidate) => candidate.family === family);
@@ -121,12 +122,12 @@ export const ConstructionActionBar = ({
         aria-label={`${family === 'CALCULATE' ? 'Add a calculated column' : family === 'COMBINE' ? 'Combine tables' : label}: ${description}`}
         aria-pressed={activeFamily === family}
         data-testid={`construction-action-${family.toLowerCase().replace('_', '-')}`}
-        disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled) || (family === 'COMBINE' && combineDisabled)}
+        disabled={disabled || (family === 'ADD_COLUMNS' && addColumnsDisabled) || (family === 'COMBINE' && combineDisabled) || (family === 'CALCULATE' && !calculateAvailable)}
         onClick={() => {
           if (inMenu) setMoreActionsOpen(false);
           onSelect(family);
         }}
-        title={description}
+        title={family === 'CALCULATE' && !calculateAvailable ? calculateUnavailableReason : description}
         className={inMenu
           ? 'rounded px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50'
           : `h-8 min-w-0 rounded-md px-3 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -175,6 +176,11 @@ export const ConstructionActionBar = ({
             className="construction-more-actions-menu absolute right-0 top-full z-30 mt-1 grid min-w-40 rounded-md border border-slate-200 bg-white p-1 shadow-lg"
           >
             {secondaryFamilies.map(({ family }) => renderAction(family, true))}
+            {!calculateAvailable ? (
+              <p role="status" className="px-2.5 py-1 text-[11px] text-slate-500">
+                {calculateUnavailableReason}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -506,6 +512,7 @@ export const ConstructionWorkspace = ({
   addColumnsDisabled = false,
   combineDisabled = false,
   calculateAvailable = false,
+  calculateUnavailableReason,
   onSelectFamily,
   history,
   rowSetup,
@@ -531,6 +538,7 @@ export const ConstructionWorkspace = ({
   readonly addColumnsDisabled?: boolean;
   readonly combineDisabled?: boolean;
   readonly calculateAvailable?: boolean;
+  readonly calculateUnavailableReason?: string;
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
@@ -568,6 +576,7 @@ export const ConstructionWorkspace = ({
           addColumnsDisabled={addColumnsDisabled}
           combineDisabled={combineDisabled}
           calculateAvailable={calculateAvailable}
+          calculateUnavailableReason={calculateUnavailableReason}
           onSelect={onSelectFamily}
         />
         </div> : null}

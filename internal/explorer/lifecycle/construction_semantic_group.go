@@ -41,6 +41,9 @@ func (s *Service) constructionSemanticGroupChoices(
 	stage explorer.ReceiptConstructionStage,
 ) ([]ConstructionSemanticGroupChoice, bool, error) {
 	choices := []ConstructionSemanticGroupChoice{}
+	if importedSourceRootChoiceInventoryMissing(base) {
+		return choices, false, nil
+	}
 	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" || !constructionStageSupportsCodedPivot(stage) ||
 		!constructionStageSupportsGroup(stage) || base.document.Route.OccurrenceID != authoringv2.RootOccurrenceID ||
 		s.config.SemanticInventory == nil {

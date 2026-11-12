@@ -139,6 +139,25 @@ type ConstructionGroupSourceChoice struct {
 	IsPopulated  bool   `json:"isPopulated"`
 }
 
+func importedSourceChoiceUnavailable(document authoringv2.Document) (string, string, bool) {
+	if document.ImportedRecipe == nil {
+		return "", "", false
+	}
+	return "IMPORTED_SOURCE_PROJECTION_UNAVAILABLE", "source-field choices from the live FHIR catalog are not applicable to this pinned recipe; use its resolved output columns", true
+}
+
+func importedSourceRootChoiceInventoryMissing(base constructionBase) bool {
+	if base.document.ImportedRecipe == nil {
+		return false
+	}
+	for _, node := range base.snapshot.Nodes {
+		if node.RowRootEligible && node.ResourceType == base.document.RootResourceType {
+			return false
+		}
+	}
+	return true
+}
+
 type ConstructionPivotSourceCapability struct {
 	Supported  bool                            `json:"supported"`
 	StageID    string                          `json:"stageId"`
@@ -1052,6 +1071,9 @@ func constructionCodedGroupChoices(
 	outputID string,
 	stage explorer.ReceiptConstructionStage,
 ) ([]explorer.ReceiptConstructionCodedGroupChoice, error) {
+	if importedSourceRootChoiceInventoryMissing(base) {
+		return []explorer.ReceiptConstructionCodedGroupChoice{}, nil
+	}
 	if stage.ID != recipe.ConstructionSourceProjectionID || stage.RowIdentityColumn != "_key" ||
 		!constructionStageSupportsCodedGroup(stage) {
 		return nil, nil
@@ -1444,7 +1466,7 @@ func (s *Service) loadConstructionBase(ctx context.Context, project, explorerID,
 	}
 	authorized.Snapshot = snapshot.Clone()
 	catalogSnapshot := s.config.Capability.Catalog(snapshot, explorerID)
-	owner, err := s.store.Get(ctx, project, explorerID)
+	owner, err := s.getOwner(ctx, project, explorerID)
 	if err != nil {
 		return constructionBase{}, err
 	}

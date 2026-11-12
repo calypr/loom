@@ -144,6 +144,9 @@ type ReleasePreparer func(context.Context, string, string, []dataset.DataframeSe
 // Config contains deployment adapters. Lifecycle policy calls these narrow
 // callbacks, but never imports the transport packages that construct them.
 type Config struct {
+	// DefaultDataframeWorkspace returns the lossless imported workspace that
+	// backs the native graphical builder's reserved default dataframe owner.
+	DefaultDataframeWorkspace func(context.Context, string, capability.Snapshot, authoringv2.CatalogSnapshot) (authoringv2.Workspace, error)
 	// SelectionMembersCollection is a deployment-owned runtime binding. It is
 	// never copied into authoring intent, recipes, or receipt identity.
 	SelectionMembersCollection         string

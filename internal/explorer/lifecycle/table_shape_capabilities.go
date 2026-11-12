@@ -190,7 +190,7 @@ func (s *Service) loadTableShapeBaseContext(ctx context.Context, request TableSh
 	if err := validateAuthorizedReadScope(authorized.Scope, snapshot.Identity.AuthorizationScopeDigest); err != nil {
 		return tableShapeBaseContext{}, conflict("table-shape-capabilities", "STALE_AUTHORIZATION_SCOPE", "the authorized catalog scope changed", nil, err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return tableShapeBaseContext{}, err
 	}

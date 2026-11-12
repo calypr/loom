@@ -117,7 +117,7 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	if err != nil {
 		return result, malformed("interpretation-context", err.Error(), err)
 	}
-	owner, err := s.store.Get(ctx, request.Project, request.ExplorerID)
+	owner, err := s.getOwner(ctx, request.Project, request.ExplorerID)
 	if err != nil {
 		return result, err
 	}
@@ -130,7 +130,11 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	}
 	columnCount := 0
 	for _, document := range workspace.Documents {
-		columnCount += len(document.Columns)
+		for _, column := range document.Columns {
+			if column.Source.Kind != authoringv2.SourceImported {
+				columnCount++
+			}
+		}
 	}
 	if columnCount > maxInterpretationContextColumns {
 		return result, unprocessable("interpretation-context", "INTERPRETATION_CONTEXT_LIMIT", fmt.Sprintf("the Explorer has %d configured columns; the limit is %d", columnCount, maxInterpretationContextColumns), nil)
@@ -182,6 +186,9 @@ func (s *Service) ConfiguredColumnContext(ctx context.Context, request Configure
 	headRevisions := interpretationHeadRevisions(libraries, revisions)
 	for _, document := range workspace.Documents {
 		for _, column := range document.Columns {
+			if column.Source.Kind == authoringv2.SourceImported {
+				continue
+			}
 			resolution, resolveErr := explorercompilation.ResolveInterpretationCandidate(document, column, authorized.Snapshot)
 			if resolveErr != nil {
 				return result, conflict("interpretation-context", "STALE_COLUMN_ROUTE", "a configured column route no longer resolves in this authorized snapshot", nil, resolveErr)

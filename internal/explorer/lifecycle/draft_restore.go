@@ -23,7 +23,7 @@ func (s *Service) prepareDraftRevisionRestore(
 		return nil, malformed("commands", "RESTORE_DRAFT_REVISION must be the only command", nil)
 	}
 	command := &commands[0]
-	owner, err := s.store.Get(ctx, project, explorerID)
+	owner, err := s.getOwner(ctx, project, explorerID)
 	if err != nil {
 		return nil, conflict("commands", "STALE_DRAFT_REVISION", "the Explorer draft changed; reload before restoring", nil, err)
 	}

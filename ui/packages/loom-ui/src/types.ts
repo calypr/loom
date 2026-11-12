@@ -536,6 +536,10 @@ export const contributorPredicateSchema = z
   .strict();
 export type ContributorPredicate = z.infer<typeof contributorPredicateSchema>;
 export const explorerColumnSourceSchema = z.union([
+  z.object({
+    kind: z.literal('imported'),
+    imported: z.object({ outputColumn: opaqueIdSchema }).strict(),
+  }).strict(),
   fieldColumnSourceSchema,
   lookupColumnSourceSchema,
   ownerRecordsColumnSourceSchema,
@@ -2234,6 +2238,12 @@ export const explorerBuilderDocumentSchema = z
       })
       .strict(),
     rootResourceType: opaqueIdSchema,
+    importedRecipe: z.object({
+      name: z.string().min(1),
+      translationVersion: z.string().min(1),
+      digest: z.string().regex(/^[a-f0-9]{64}$/),
+      output: z.string().min(1),
+    }).strict().optional(),
     population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
     rows: explorerRowDefinitionSchema,
@@ -2275,6 +2285,14 @@ export const explorerBuilderDocumentSchema = z
   })
   .strict()
   .superRefine((document, context) => {
+    const importedColumns = document.columns.filter((column) => column.source.kind === 'imported');
+    if (importedColumns.length > 0 && !document.importedRecipe) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Imported source columns require an imported recipe reference.',
+        path: ['importedRecipe'],
+      });
+    }
     if (document.construction && document.tableShape) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

@@ -209,6 +209,33 @@ func (s *Service) CreateInteractiveFrom(ctx context.Context, project, id, title,
 	return s.store.Create(ctx, Explorer{Project: projectid.Legacy(project), ExplorerID: id, Title: title, ManagementMode: ManagementInteractive, DraftConfig: canonical, DraftVersion: 1, DraftDigest: digest, UpdatedBy: actor, UpdatedAt: s.now()})
 }
 
+// CreateSeededDataframe creates the first persisted draft for an imported
+// dataframe workspace. The caller supplies the exact canonical workspace that
+// was exposed as the virtual version-one Builder state; SaveDraft then owns
+// the normal version-one compare-and-swap for the first authoring command.
+func (s *Service) CreateSeededDataframe(ctx context.Context, project, id, title string, workspace authoringv2.Workspace, actor string, sourceContext authoringv2.DraftSourceContext) (*Explorer, error) {
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(title) == "" {
+		return nil, fmt.Errorf("seeded dataframe identity and title are required")
+	}
+	canonical, err := workspace.CanonicalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("encode seeded dataframe workspace: %w", err)
+	}
+	workspace, err = authoringv2.DecodeWorkspace(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("decode seeded dataframe workspace: %w", err)
+	}
+	digest, err := workspace.Digest()
+	if err != nil {
+		return nil, fmt.Errorf("digest seeded dataframe workspace: %w", err)
+	}
+	return s.store.Create(ctx, Explorer{
+		Project: projectid.Legacy(project), ExplorerID: id, Title: title,
+		ManagementMode: ManagementInteractive, DraftConfig: canonical,
+		DraftVersion: 1, DraftDigest: digest, DraftSnapshotToken: sourceContext.SnapshotToken, DraftSourceGeneration: sourceContext.SourceGeneration, DraftAuthorizationScopeDigest: sourceContext.AuthorizationScopeDigest, UpdatedBy: actor, UpdatedAt: s.now(),
+	})
+}
+
 // ApplyWorkspaceCommands is the authoritative Builder mutation boundary. It
 // resolves backend-owned identities, applies a command batch atomically, and
 // persists both the new draft and the bounded last-command replay record in

@@ -404,6 +404,12 @@ export const GuidedGraphWorkspace = ({
   const graphIdentity = `${layout.identity ?? 'layout-pending'}:${nodesForViewport.map((node) => node.id).join(',')}`;
   const inspectNode = (nodeId: string) => {
     if (disabled) return;
+    if (table?.document.importedRecipe) {
+      const occurrence = occurrencesByNode.get(nodeId)?.at(-1);
+      updateInspection(nodeId);
+      if (occurrence) onSelectOccurrence(occurrence.occurrenceId);
+      return;
+    }
     if (occurrences.length === 0) {
       updateInspection(nodeId);
       const node = catalogNodeById.get(nodeId);
@@ -446,12 +452,12 @@ export const GuidedGraphWorkspace = ({
     if (routeOccurrence) onSelectOccurrence(routeOccurrence.occurrenceId);
   };
   const useAsRowStart = (nodeId: string) => {
-    if (disabled) return;
+    if (disabled || table?.document.importedRecipe) return;
     onSetBase(nodeId);
     selectEdge(undefined);
   };
   const addRelationship = (edgeId: string, nodeId: string) => {
-    if (disabled || !legalNextEdgeIds.has(edgeId)) return;
+    if (disabled || table?.document.importedRecipe || !legalNextEdgeIds.has(edgeId)) return;
     onAppendEdge(selectedOccurrenceId, edgeId, nodeId);
     updateInspection();
   };
@@ -560,12 +566,17 @@ export const GuidedGraphWorkspace = ({
             inspectedNodeId={activeInspectedNodeId}
             selectedEdgeId={activeSelectedEdgeId}
             allowExistingExtension={activeAllowExistingExtension}
-            disabled={disabled}
+            disabled={disabled || Boolean(table?.document.importedRecipe)}
             onSelectEdge={selectEdge}
             onUseAsRowStart={useAsRowStart}
-            onChangeRowStart={onChangeBase}
-            onAddEdge={addRelationship}
+            onChangeRowStart={table?.document.importedRecipe ? () => undefined : onChangeBase}
+            onAddEdge={table?.document.importedRecipe ? () => undefined : addRelationship}
           />
+          {table?.document.importedRecipe ? (
+            <p role="note" className="absolute bottom-3 left-3 z-10 max-w-sm rounded-md border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs text-amber-900">
+              Based on shared default recipe; edits are saved for this project. Use dataframe operations to transform this imported source.
+            </p>
+          ) : null}
           <nav
             ref={traversalRef}
             aria-label="Current traversal"
@@ -625,7 +636,7 @@ export const GuidedGraphWorkspace = ({
                             className={`block max-w-40 border-x-0 border-b-0 border-t border-current/20 bg-transparent px-1.5 pb-1 pt-0.5 font-mono text-[9px] outline-none ${occurrence.occurrenceId === selectedOccurrenceId ? 'text-white' : 'text-blue-700'}`}
                             value={occurrence.incomingEdgeId ?? ''}
                             disabled={
-                              disabled ||
+                              disabled || Boolean(table?.document.importedRecipe) ||
                               (editableEdgesByOccurrence.get(
                                 occurrence.occurrenceId,
                               )?.length ?? 0) < 2
@@ -652,7 +663,7 @@ export const GuidedGraphWorkspace = ({
                             aria-label={`${occurrence.matchMode === 'REQUIRED' ? 'Keep' : 'Require'} ${occurrence.resourceType} match`}
                             title={occurrence.matchMode === 'REQUIRED' ? 'Keep rows even when this relationship has no match' : 'Keep only rows with a match for this relationship'}
                             className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
-                            disabled={disabled}
+                            disabled={disabled || Boolean(table?.document.importedRecipe)}
                             onClick={() =>
                               onChangeMatchMode(
                                 occurrence.occurrenceId,
@@ -674,7 +685,7 @@ export const GuidedGraphWorkspace = ({
                                 aria-label={`Make each ${occurrence.resourceType} one row`}
                                 title={`Use ${occurrence.resourceType} as the row start`}
                                 className="block w-full border-t border-current/20 px-2 py-1 text-left text-[9px] font-semibold"
-                                disabled={disabled}
+                                disabled={disabled || Boolean(table?.document.importedRecipe)}
                                 onClick={() => onChangeBase(occurrence.nodeId)}
                               >
                                 Make rows
@@ -689,6 +700,7 @@ export const GuidedGraphWorkspace = ({
                         aria-label={`Remove ${occurrence.resourceType} branch`}
                         title={`Remove ${occurrence.resourceType} branch`}
                         className="rounded-full px-1.5 py-0.5 text-base leading-none text-blue-500 hover:bg-blue-100 hover:text-red-600"
+                        disabled={disabled || Boolean(table?.document.importedRecipe)}
                         onClick={() => onTruncate(occurrence.occurrenceId)}
                       >
                         ×

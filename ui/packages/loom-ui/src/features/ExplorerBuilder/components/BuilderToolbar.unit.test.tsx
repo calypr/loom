@@ -45,7 +45,6 @@ describe('BuilderToolbar', () => {
         onNewTable={vi.fn()}
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
-        onReorderTable={vi.fn()}
         onReview={vi.fn()}
         reviewExpanded={false}
         onPublish={vi.fn()}
@@ -98,7 +97,6 @@ describe('BuilderToolbar', () => {
       onNewTable: vi.fn(),
       onDuplicateTable: vi.fn(),
       onDeleteTable: vi.fn(),
-      onReorderTable: vi.fn(),
       onReview: vi.fn(),
       reviewExpanded: false,
       onPublish: vi.fn(),
@@ -130,10 +128,9 @@ describe('BuilderToolbar', () => {
     expect(onDeleteExplorer).not.toHaveBeenCalled();
   });
 
-  it('uses one draggable table menu for selection, naming, and ordering', () => {
+  it('selects and names dataframe outputs without exposing viewer ordering', () => {
     const onSelectTable = vi.fn();
     const onRenameTable = vi.fn();
-    const onReorderTable = vi.fn();
     render(
       <BuilderToolbar
         explorers={[
@@ -160,7 +157,6 @@ describe('BuilderToolbar', () => {
         onNewTable={vi.fn()}
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
-        onReorderTable={onReorderTable}
         onReview={vi.fn()}
         reviewExpanded={false}
         onPublish={vi.fn()}
@@ -183,12 +179,8 @@ describe('BuilderToolbar', () => {
     fireEvent.change(specimenName, { target: { value: 'Samples' } });
     expect(onRenameTable).toHaveBeenCalledWith('Specimen', 'Samples');
 
-    fireEvent.dragStart(screen.getByLabelText('Drag Patient'));
-    const specimenRow = specimenName.closest('li');
-    expect(specimenRow).not.toBeNull();
-    fireEvent.dragOver(specimenRow!);
-    fireEvent.drop(specimenRow!);
-    expect(onReorderTable).toHaveBeenCalledWith('Patient', undefined);
+    expect(screen.queryByLabelText(/Drag /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/reorder/i)).not.toBeInTheDocument();
   });
 
   it('shows publication progress and prevents another publish', () => {
@@ -207,7 +199,6 @@ describe('BuilderToolbar', () => {
         onNewTable={vi.fn()}
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
-        onReorderTable={vi.fn()}
         onReview={vi.fn()}
         reviewExpanded={false}
         onPublish={vi.fn()}
@@ -240,7 +231,6 @@ describe('BuilderToolbar', () => {
         onNewTable={vi.fn()}
         onDuplicateTable={vi.fn()}
         onDeleteTable={vi.fn()}
-        onReorderTable={vi.fn()}
         onReview={onReview}
         reviewExpanded
         onPublish={onPublish}

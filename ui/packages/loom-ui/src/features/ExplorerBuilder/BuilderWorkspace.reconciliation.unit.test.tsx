@@ -1119,6 +1119,77 @@ describe('BuilderWorkspace on-demand reconciliation', () => {
     );
   });
 
+  it('enables Calculate on the initial source stage when its receipt supports DERIVE', async () => {
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    await waitFor(() => expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalledWith(
+      expect.objectContaining({ outputId: 'specimens', stageId: 'source_projection' }),
+      expect.any(AbortSignal),
+    ));
+    fireEvent.click(await screen.findByTestId('construction-more-actions'));
+    const calculate = await screen.findByTestId('construction-action-calculate');
+    expect(calculate).toBeEnabled();
+    fireEvent.click(calculate);
+    expect(await screen.findByTestId('construction-calculate-editor')).toBeInTheDocument();
+  });
+
+  it('keeps Calculate disabled with the server reason when DERIVE is unsupported', async () => {
+    mockLoomClient.getConstructionCapabilities.mockImplementation(async (args: {
+      readonly snapshotToken: string;
+      readonly expectedDraftVersion: number;
+      readonly expectedDraftDigest: string;
+      readonly outputId: string;
+      readonly stageId: string;
+    }) => {
+      const selectedStage = {
+        id: args.stageId,
+        inputStageId: '',
+        rowIdentityColumn: 'source-row-id',
+        columns: [{ id: 'specimen_identifier_id', name: 'specimen_identifier', label: 'Specimen identifier', type: 'string' }],
+        capabilities: [{ kind: 'DERIVE' as const, supported: false, reason: 'No numeric source columns.' }],
+      };
+      return {
+        snapshotToken: args.snapshotToken,
+        draftVersion: args.expectedDraftVersion,
+        draftDigest: args.expectedDraftDigest,
+        outputId: args.outputId,
+        stageId: args.stageId,
+        baseConstruction: { version: 1, steps: [] },
+        stages: [selectedStage],
+        selectedStage,
+        workspaceInputs: [],
+      };
+    });
+    render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    fireEvent.click(await screen.findByTestId('construction-more-actions'));
+    const calculate = await screen.findByTestId('construction-action-calculate');
+    expect(calculate).toBeDisabled();
+    expect(calculate).toHaveAttribute('title', 'No numeric source columns.');
+    expect(within(screen.getByTestId('construction-more-actions-menu')).getByRole('status'))
+      .toHaveTextContent('No numeric source columns.');
+    fireEvent.click(calculate);
+    expect(screen.queryByTestId('construction-calculate-editor')).not.toBeInTheDocument();
+  });
+
+  it('keeps Calculate disabled with a loading reason until source-stage capabilities arrive', async () => {
+    mockLoomClient.getConstructionCapabilities.mockReturnValue(
+      new Promise(() => undefined),
+    );
+    const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+
+    await waitFor(() => expect(mockLoomClient.getConstructionCapabilities).toHaveBeenCalled());
+    fireEvent.click(await screen.findByTestId('construction-more-actions'));
+    const calculate = screen.getByTestId('construction-action-calculate');
+    expect(calculate).toBeDisabled();
+    expect(calculate).toHaveAttribute('title', 'Checking calculation support for this table stage…');
+    expect(within(screen.getByTestId('construction-more-actions-menu')).getByRole('status'))
+      .toHaveTextContent('Checking calculation support for this table stage…');
+    fireEvent.click(calculate);
+    expect(screen.queryByTestId('construction-calculate-editor')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
   it('starts a blank table from the row picker without opening the graph', async () => {
     (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({
       data: {
