@@ -74,7 +74,7 @@ type queryapiBackend struct {
 }
 
 // queryRows blocks for cursorDelay before producing any row, which is the
-// execution service's ArangoQuery span. Inside a synctest bubble that block is
+// execution service's SourceQuery span. Inside a synctest bubble that block is
 // an exact virtual quantum.
 func (b *queryapiBackend) queryRows(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
 	query, bindVars, deriveErr := request.Command.AQLParameters()
@@ -259,14 +259,14 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 		// none of it moved into the per-row materialization span. The two spans
 		// must account for the quantum exactly, so a phase cannot both absorb
 		// and hide it.
-		if heldDiagnostics.ArangoQuery != queryapiCursorDelay {
-			t.Fatalf("held arango query = %v, want exactly the %v held cursor quantum", heldDiagnostics.ArangoQuery, queryapiCursorDelay)
+		if heldDiagnostics.SourceQuery != queryapiCursorDelay {
+			t.Fatalf("held arango query = %v, want exactly the %v held cursor quantum", heldDiagnostics.SourceQuery, queryapiCursorDelay)
 		}
-		if charged := heldDiagnostics.ArangoQuery + heldDiagnostics.RowMaterialization; charged != queryapiCursorDelay {
-			t.Fatalf("cursor quantum %v charged %v across query %v and materialization %v", queryapiCursorDelay, charged, heldDiagnostics.ArangoQuery, heldDiagnostics.RowMaterialization)
+		if charged := heldDiagnostics.SourceQuery + heldDiagnostics.RowMaterialization; charged != queryapiCursorDelay {
+			t.Fatalf("cursor quantum %v charged %v across query %v and materialization %v", queryapiCursorDelay, charged, heldDiagnostics.SourceQuery, heldDiagnostics.RowMaterialization)
 		}
-		if heldDiagnostics.ArangoQuery >= heldDiagnostics.Total {
-			t.Fatalf("held arango query %v is not bounded by total %v", heldDiagnostics.ArangoQuery, heldDiagnostics.Total)
+		if heldDiagnostics.SourceQuery >= heldDiagnostics.Total {
+			t.Fatalf("held arango query %v is not bounded by total %v", heldDiagnostics.SourceQuery, heldDiagnostics.Total)
 		}
 
 		// The same delay must land in the total.
@@ -282,7 +282,7 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 		if owned := diagnostics.InputResolution + diagnostics.RequestPreparation + diagnostics.Compilation; diagnostics.Total < owned {
 			t.Fatalf("total %v is below the sum %v of the Run-owned phases", diagnostics.Total, owned)
 		}
-		if diagnostics.ArangoQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
+		if diagnostics.SourceQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
 			t.Fatalf("negative backend diagnostics: %+v", diagnostics)
 		}
 	}
@@ -295,7 +295,7 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 }
 
 // TestRunChargesCursorQuantumOnceAcrossRows pins the other half of the query
-// diagnostic: the held cursor is one span billed once to ArangoQuery, however
+// diagnostic: the held cursor is one span billed once to SourceQuery, however
 // many rows it delivers, and it never leaks into the per-row materialization
 // span. The quantum is an exact bubble-time constant.
 func TestRunChargesCursorQuantumOnceAcrossRows(t *testing.T) {
@@ -324,8 +324,8 @@ func TestRunChargesCursorQuantumOnceAcrossRows(t *testing.T) {
 			t.Fatalf("row count = %d, want the 3 delivered rows", outcome.result.RowCount)
 		}
 		diagnostics := outcome.result.Diagnostics
-		if diagnostics.ArangoQuery != queryapiCursorDelay {
-			t.Fatalf("arango query = %v, want the single %v cursor quantum, not one per row", diagnostics.ArangoQuery, queryapiCursorDelay)
+		if diagnostics.SourceQuery != queryapiCursorDelay {
+			t.Fatalf("arango query = %v, want the single %v cursor quantum, not one per row", diagnostics.SourceQuery, queryapiCursorDelay)
 		}
 		if diagnostics.RowMaterialization >= queryapiCursorDelay {
 			t.Fatalf("row materialization = %v, want the cursor quantum charged only to the query span", diagnostics.RowMaterialization)
@@ -358,7 +358,7 @@ func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 		t.Fatalf("backend generation bind = %#v, want generation-1", got)
 	}
 	diagnostics := result.Diagnostics
-	if diagnostics.ArangoQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
+	if diagnostics.SourceQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
 		t.Fatalf("negative backend diagnostics: %+v", diagnostics)
 	}
 	if diagnostics.Plan.Fingerprint == "" {
@@ -462,7 +462,10 @@ func TestRunBackendErrorKeepsClassification(t *testing.T) {
 
 // TestQueryDiagnosticsFieldShape pins the diagnostic field set the public
 // response is rendered from, so closing the compile interval cannot smuggle in
-// a reporting expansion.
+// a reporting expansion. SourceQuery is the backend-neutral cursor interval
+// for either source and SourceBackend names the adapter that produced it;
+// there is deliberately no separate ArangoQuery timer — the legacy
+// arangoQueryMs response field is a transport projection of SourceQuery.
 func TestQueryDiagnosticsFieldShape(t *testing.T) {
 	structure := reflect.TypeOf(dataframeexecution.QueryDiagnostics{})
 	got := make([]string, 0, structure.NumField())
@@ -471,7 +474,7 @@ func TestQueryDiagnosticsFieldShape(t *testing.T) {
 	}
 	want := []string{
 		"InputResolution", "RequestPreparation", "Compilation",
-		"ArangoQuery", "RowMaterialization", "ResultAssembly", "Total", "Plan",
+		"SourceQuery", "SourceBackend", "RowMaterialization", "ResultAssembly", "Total", "Plan",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("QueryDiagnostics fields = %#v, want %#v", got, want)

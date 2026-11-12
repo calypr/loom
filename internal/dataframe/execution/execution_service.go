@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// now is the package-wide monotonic clock seam for source diagnostics. The
+// production path always uses time.Now; controlled-clock tests replace it to
+// assert literal sourceQueryMs durations for both adapters. Only the source
+// cursor and per-row materialization timers route through it.
+var now = time.Now
+
 func (s *Service) runQuery(ctx context.Context, compiled compiler.CompiledQuery) (*Result, error) {
 	var rows []map[string]any
 	streamed, err := s.streamQuery(ctx, compiled, func(row map[string]any) error {
@@ -59,7 +65,7 @@ func (s *Service) streamQuery(ctx context.Context, compiled compiler.CompiledQue
 	extraColumns := map[string]struct{}{}
 	rowCount := 0
 	var rowMaterialization time.Duration
-	queryStarted := time.Now()
+	queryStarted := now()
 	if s.sourceRows == nil {
 		return streamResult{}, dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 	}
@@ -69,8 +75,8 @@ func (s *Service) streamQuery(ctx context.Context, compiled compiler.CompiledQue
 		if err := contextError(ctx); err != nil {
 			return err
 		}
-		rowStarted := time.Now()
-		defer func() { rowMaterialization += time.Since(rowStarted) }()
+		rowStarted := now()
+		defer func() { rowMaterialization += now().Sub(rowStarted) }()
 		flatRow := flattenPivotFields(cloneRow(row), compiled.PivotFields)
 		for key := range flatRow {
 			if _, ok := seenColumns[key]; ok {
@@ -85,10 +91,12 @@ func (s *Service) streamQuery(ctx context.Context, compiled compiler.CompiledQue
 		rowCount++
 		return nil
 	})
-	queryElapsed := time.Since(queryStarted)
-	arangoQuery := queryElapsed - rowMaterialization
-	if arangoQuery < 0 {
-		arangoQuery = 0
+	// One cursor timer for either source: the source-query interval is the
+	// cursor wall time minus the per-row Loom materialization already
+	// reported separately, so materialization is never double-counted.
+	sourceQuery := now().Sub(queryStarted) - rowMaterialization
+	if sourceQuery < 0 {
+		sourceQuery = 0
 	}
 	assemblyStarted := time.Now()
 	newColumns := make([]string, 0, len(extraColumns))
@@ -101,7 +109,8 @@ func (s *Service) streamQuery(ctx context.Context, compiled compiler.CompiledQue
 		Columns:  columns,
 		RowCount: rowCount,
 		Diagnostics: QueryDiagnostics{
-			ArangoQuery:        arangoQuery,
+			SourceQuery:        sourceQuery,
+			SourceBackend:      compiled.Command.Backend(),
 			RowMaterialization: rowMaterialization,
 			ResultAssembly:     time.Since(assemblyStarted),
 		},

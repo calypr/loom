@@ -131,6 +131,7 @@ type DataframeQueryDiagnostics struct {
 	InputResolutionMs    float64                           `json:"inputResolutionMs"`
 	RequestPreparationMs float64                           `json:"requestPreparationMs"`
 	CompilationMs        float64                           `json:"compilationMs"`
+	SourceQueryMs        float64                           `json:"sourceQueryMs"`
 	ArangoQueryMs        float64                           `json:"arangoQueryMs"`
 	RowMaterializationMs float64                           `json:"rowMaterializationMs"`
 	ResultAssemblyMs     float64                           `json:"resultAssemblyMs"`

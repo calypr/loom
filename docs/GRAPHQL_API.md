@@ -53,7 +53,7 @@ mutation RunDataframe($input: FhirDataframeInput!, $limit: Int) {
     columns
     rows
     rowCount
-    diagnostics { compilationMs arangoQueryMs totalMs }
+    diagnostics { compilationMs sourceQueryMs arangoQueryMs totalMs }
   }
 }
 ```

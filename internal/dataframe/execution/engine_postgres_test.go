@@ -904,10 +904,13 @@ func TestPostgreSQLStreamWithoutPortNeverFallsBackToAQL(t *testing.T) {
 	}
 }
 
-// The fingerprint of a PostgreSQL-served plan is deterministic over the
-// compiled statement and its rendered scope — and distinguishes every
-// meaningful variation (load-bearing: changing any pinned component must
-// change the digest).
+// The value-bound artifact identity (query.PlanDiagnostics.Fingerprint, the
+// source behind chartifact.Identity.PlanDigest) of a PostgreSQL-served plan
+// is deterministic over the compiled statement and its rendered scope — and
+// distinguishes every meaningful variation (load-bearing: changing any
+// pinned component must change the digest), including bound values. The
+// public, value-free diagnostic shape is covered separately by
+// TestBackendNeutralDiagnosticsAndPlanIdentity.
 func TestPostgreSQLPlanFingerprintIsStableAndSensitivityProbed(t *testing.T) {
 	compile := func(t *testing.T, resolved Resolved) string {
 		t.Helper()

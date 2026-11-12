@@ -165,7 +165,7 @@ func runPreviewCapabilityBoundary(t *testing.T, options previewCapabilityBoundar
 
 func comparablePreviewSummary(summary PreviewSummary) PreviewSummary {
 	summary.LoweringDuration = 0
-	summary.QueryDuration = 0
+	summary.SourceQueryDuration = 0
 	return summary
 }
 
@@ -280,8 +280,22 @@ func TestPreviewCapabilityBoundaryContract(t *testing.T) {
 		if !reflect.DeepEqual(fixture.commands[0].Binds, rowsOnly.commands[0].Binds) {
 			t.Fatalf("optimized command changed the authorization binds: %v vs %v", fixture.commands[0].Binds, rowsOnly.commands[0].Binds)
 		}
-		if !reflect.DeepEqual(comparablePreviewSummary(fixture.summary), comparablePreviewSummary(rowsOnly.summary)) {
+		// The public planFingerprint is the diagnostic shape of the exact
+		// rendered command, so the indexHint legitimately moves it here
+		// while every bounded-delivery fact stays identical. Compare the
+		// delivery contract with the fingerprint stripped, and pin the
+		// fingerprint's own reaction to the rendered-shape change below.
+		optimizedSummary, rowsOnlySummary := fixture.summary, rowsOnly.summary
+		optimizedFingerprint, rowsOnlyFingerprint := optimizedSummary.PlanFingerprint, rowsOnlySummary.PlanFingerprint
+		optimizedSummary.PlanFingerprint, rowsOnlySummary.PlanFingerprint = "", ""
+		if !reflect.DeepEqual(comparablePreviewSummary(optimizedSummary), comparablePreviewSummary(rowsOnlySummary)) {
 			t.Fatalf("optimized preview changed the bounded summary: %+v vs %+v", fixture.summary, rowsOnly.summary)
+		}
+		if optimizedFingerprint == "" || rowsOnlyFingerprint == "" {
+			t.Fatalf("preview summaries must carry a diagnostic plan fingerprint: optimized=%q rowsOnly=%q", optimizedFingerprint, rowsOnlyFingerprint)
+		}
+		if optimizedFingerprint == rowsOnlyFingerprint {
+			t.Fatal("the diagnostic plan fingerprint ignored the indexHint-rendered command change")
 		}
 	})
 

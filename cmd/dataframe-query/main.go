@@ -113,7 +113,7 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 	fmt.Fprintf(stdout, "Response: rows=%d  bytes=%d  rows/sec=%.1f\n\n", responseMetrics.Rows, responseMetrics.Bytes, responseMetrics.RowsPerSecond)
 	if responseMetrics.Diagnostics != nil {
 		d := responseMetrics.Diagnostics
-		fmt.Fprintf(stdout, "Server stages (ms): input_resolution=%.3f  request_preparation=%.3f  compilation=%.3f  arango_query=%.3f  row_materialization=%.3f  result_assembly=%.3f  dataframe_service_total=%.3f\n", d.InputResolutionMs, d.RequestPreparationMs, d.CompilationMs, d.ArangoQueryMs, d.RowMaterializationMs, d.ResultAssemblyMs, d.TotalMs)
+		fmt.Fprintf(stdout, "Server stages (ms): input_resolution=%.3f  request_preparation=%.3f  compilation=%.3f  source_query=%.3f  row_materialization=%.3f  result_assembly=%.3f  dataframe_service_total=%.3f\n", d.InputResolutionMs, d.RequestPreparationMs, d.CompilationMs, d.sourceQueryMs(), d.RowMaterializationMs, d.ResultAssemblyMs, d.TotalMs)
 		fmt.Fprintf(stdout, "Outside dataframe service (GraphQL serialization + HTTP): %.3f ms\n\n", durationMinusMillis(durations[len(durations)-1], d.TotalMs))
 		fmt.Fprintf(stdout, "Compiler plan: traversal_sets=%d  shared_traversals=%d  required_match_reuse=%d  scope_safe_sharing_groups=%d  scope_safe_sharing_sets=%d  potential_sharing_groups=%d  potential_sharing_sets=%d\n", d.Plan.TraversalSets, d.Plan.SharedTraversalCount, d.Plan.RequiredMatchReuseCount, d.Plan.ScopedSharingCandidateGroups, d.Plan.ScopedSharingCandidateSets, d.Plan.PotentialSharingOpportunityGroups, d.Plan.PotentialSharingOpportunitySets)
 		for _, reuse := range d.Plan.RichSourceReuse {
@@ -181,11 +181,27 @@ type dataframeDiagnostics struct {
 	InputResolutionMs    float64                          `json:"inputResolutionMs"`
 	RequestPreparationMs float64                          `json:"requestPreparationMs"`
 	CompilationMs        float64                          `json:"compilationMs"`
-	ArangoQueryMs        float64                          `json:"arangoQueryMs"`
+	SourceQueryMs        *float64                         `json:"sourceQueryMs"`
+	ArangoQueryMs        *float64                         `json:"arangoQueryMs"`
 	RowMaterializationMs float64                          `json:"rowMaterializationMs"`
 	ResultAssemblyMs     float64                          `json:"resultAssemblyMs"`
 	TotalMs              float64                          `json:"totalMs"`
 	Plan                 dataframeCompilerPlanDiagnostics `json:"plan"`
+}
+
+// sourceQueryMs reports the neutral source-query measurement under the
+// agreed schema: the server's sourceQueryMs when present, falling back to
+// the legacy arangoQueryMs only for older servers that predate the field. A
+// modern PostgreSQL server reports arangoQueryMs as an explicit zero, so the
+// legacy field is consulted only when sourceQueryMs is missing entirely.
+func (d dataframeDiagnostics) sourceQueryMs() float64 {
+	if d.SourceQueryMs != nil {
+		return *d.SourceQueryMs
+	}
+	if d.ArangoQueryMs != nil {
+		return *d.ArangoQueryMs
+	}
+	return 0
 }
 
 type dataframeCompilerPlanDiagnostics struct {

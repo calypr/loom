@@ -99,7 +99,11 @@ type PreviewSummary struct {
 	PlanFingerprint  string
 	TraversalCount   int
 	LoweringDuration time.Duration
-	QueryDuration    time.Duration
+	// SourceQueryDuration is the cursor interval for the source query with
+	// Loom's per-row materialization excluded, the same meaning
+	// QueryDiagnostics.SourceQuery carries on the stream path for either
+	// backend. It is never a wall-clock promise on live runs.
+	SourceQueryDuration time.Duration
 	// Complete is true only when the execution naturally exhausted before
 	// reaching its configured row limit. Truncated is explicit when the
 	// bounded preview stopped at errPreviewLimit; callers must not infer full
@@ -282,32 +286,37 @@ type PostgreSQLRootPageSteps struct {
 const maxPostgreSQLRootPageSize = 1 << 20
 
 type OutputStream struct {
-	Name                     string
-	Columns                  []string
-	sourceIdentityMode       string
-	RowIdentity              *spec.RowIdentity
-	DynamicChecks            map[string]map[string]DynamicColumnCheck
-	command                  command.CompiledCommand
-	expectedBackend          command.CompiledBackend
-	commandColumns           []string
-	sourceRows               SourceRows
-	batchSize                int
-	rootPageRows             int
-	initialRootPageRows      int
-	page                     *compiler.CompiledOutputPage
-	pgRootPage               *PostgreSQLRootPageSteps
-	physicalEngine           ir.PhysicalEngine
-	clickHouseCombine        *ir.PhysicalClickHouseCombine
-	project                  string
-	bindings                 recipe.RuntimeBindings
-	clickHouseQueryRows      ClickHouseQueryRows
-	resolveClickHouseInputs  ResolveClickHouseInputs
-	withExecutionReadPins    WithExecutionReadPins
-	queryLimit               int
-	queryMemoryLimit         int64
-	projectionDecisionKey    *groupPreviewRowsKey
-	projectionDecision       *groupPreviewProjectionDecision
-	recipeDigest             string
+	Name                    string
+	Columns                 []string
+	sourceIdentityMode      string
+	RowIdentity             *spec.RowIdentity
+	DynamicChecks           map[string]map[string]DynamicColumnCheck
+	command                 command.CompiledCommand
+	expectedBackend         command.CompiledBackend
+	commandColumns          []string
+	sourceRows              SourceRows
+	batchSize               int
+	rootPageRows            int
+	initialRootPageRows     int
+	page                    *compiler.CompiledOutputPage
+	pgRootPage              *PostgreSQLRootPageSteps
+	physicalEngine          ir.PhysicalEngine
+	clickHouseCombine       *ir.PhysicalClickHouseCombine
+	project                 string
+	bindings                recipe.RuntimeBindings
+	clickHouseQueryRows     ClickHouseQueryRows
+	resolveClickHouseInputs ResolveClickHouseInputs
+	withExecutionReadPins   WithExecutionReadPins
+	queryLimit              int
+	queryMemoryLimit        int64
+	projectionDecisionKey   *groupPreviewRowsKey
+	projectionDecision      *groupPreviewProjectionDecision
+	recipeDigest            string
+	// planFingerprint is the stream's value-BOUND artifact identity: it is
+	// copied verbatim into chartifact.Identity.PlanDigest and is the only
+	// fingerprint authorized for artifact fencing. It is never a public
+	// diagnostic field: public Explain/preview planFingerprint is computed
+	// at projection by SourcePlanFingerprint and must never read this field.
 	planFingerprint          string
 	stageID                  string
 	outputSchema             []lower.CompiledOutputColumn
@@ -1334,7 +1343,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: previewPlanFingerprint(query, stream), TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
@@ -1354,7 +1363,8 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	}
 	count := 0
 	var visitorErr error
-	queryStarted := time.Now()
+	var rowMaterialization time.Duration
+	queryStarted := now()
 	consumeRow := func(row map[string]any) error {
 		if err := contextError(ctx); err != nil {
 			return err
@@ -1362,6 +1372,8 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		if count >= limit {
 			return errPreviewLimit
 		}
+		rowStarted := now()
+		defer func() { rowMaterialization += now().Sub(rowStarted) }()
 		resolvedRow, err := materializePostQueryRowWithChecks(row, stream.DynamicChecks)
 		if err != nil {
 			return err
@@ -1412,7 +1424,14 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		})
 	}
 	summary.RowCount = count
-	summary.QueryDuration = time.Since(queryStarted)
+	// Same cursor-interval meaning as QueryDiagnostics.SourceQuery on the
+	// stream path, for either source: wall time around cursor consumption
+	// minus the per-row materialization the visitor performed, so
+	// materialization is never double-counted into the source time.
+	summary.SourceQueryDuration = now().Sub(queryStarted) - rowMaterialization
+	if summary.SourceQueryDuration < 0 {
+		summary.SourceQueryDuration = 0
+	}
 	if visitorErr != nil {
 		if postgreSQLPreview {
 			// An interrupted PostgreSQL stream never carries a completed

@@ -653,6 +653,7 @@ type ComplexityRoot struct {
 		RequestPreparationMs func(childComplexity int) int
 		ResultAssemblyMs     func(childComplexity int) int
 		RowMaterializationMs func(childComplexity int) int
+		SourceQueryMs        func(childComplexity int) int
 		TotalMs              func(childComplexity int) int
 	}
 
@@ -5730,6 +5731,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.DataframeQueryDiagnostics.RowMaterializationMs(childComplexity), true
+	case "DataframeQueryDiagnostics.sourceQueryMs":
+		if e.ComplexityRoot.DataframeQueryDiagnostics.SourceQueryMs == nil {
+			break
+		}
+
+		return e.ComplexityRoot.DataframeQueryDiagnostics.SourceQueryMs(childComplexity), true
 	case "DataframeQueryDiagnostics.totalMs":
 		if e.ComplexityRoot.DataframeQueryDiagnostics.TotalMs == nil {
 			break
@@ -20389,13 +20396,18 @@ type FhirDataframeResult {
   diagnostics: DataframeQueryDiagnostics!
 }
 
-# Server-side timings for one dataframe request. ` + "`" + `arangoQueryMs` + "`" + ` excludes
-# Loom's per-row flattening/delivery time; together those two fields identify
-# whether the database plan or result materialization is dominant.
+# Server-side timings for one dataframe request. ` + "`" + `sourceQueryMs` + "`" + ` is the
+# backend-neutral source cursor interval for whichever backend serves the
+# query, excluding Loom's per-row flattening/delivery time; together with
+# ` + "`" + `rowMaterializationMs` + "`" + ` those fields identify whether the database plan or
+# result materialization is dominant. ` + "`" + `arangoQueryMs` + "`" + ` is the legacy transport
+# projection of the same measurement: the actual Arango cursor time for AQL
+# and explicitly zero for PostgreSQL.
 type DataframeQueryDiagnostics {
   inputResolutionMs: Float!
   requestPreparationMs: Float!
   compilationMs: Float!
+  sourceQueryMs: Float!
   arangoQueryMs: Float!
   rowMaterializationMs: Float!
   resultAssemblyMs: Float!
@@ -24253,6 +24265,8 @@ func (ec *executionContext) childFields_DataframeQueryDiagnostics(ctx context.Co
 		return ec.fieldContext_DataframeQueryDiagnostics_requestPreparationMs(ctx, field)
 	case "compilationMs":
 		return ec.fieldContext_DataframeQueryDiagnostics_compilationMs(ctx, field)
+	case "sourceQueryMs":
+		return ec.fieldContext_DataframeQueryDiagnostics_sourceQueryMs(ctx, field)
 	case "arangoQueryMs":
 		return ec.fieldContext_DataframeQueryDiagnostics_arangoQueryMs(ctx, field)
 	case "rowMaterializationMs":
