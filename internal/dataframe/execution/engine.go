@@ -451,11 +451,6 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
-// CompileResolvedBundle validates and compiles a bundle that has already been
-// resolved by schema discovery. It never invokes Config.ResolveBundle and
-// therefore performs no catalog or schema discovery. Dynamic declarations
-// with nil Columns are rejected by the semantic boundary; a non-nil empty
-// Columns slice is an explicitly resolved, zero-column family and is valid.
 // CombinePortsConfigured reports whether every port the private workspace
 // artifact Combine path requires is wired: the ClickHouse result executor,
 // the published-input resolver, the execution read-pin runner, and the
@@ -467,6 +462,11 @@ func (e *Engine) CombinePortsConfigured() bool {
 		e.withExecutionReadPins != nil && e.privateClickHouseArtifacts != nil
 }
 
+// CompileResolvedBundle validates and compiles a bundle that has already been
+// resolved by schema discovery. It never invokes Config.ResolveBundle and
+// therefore performs no catalog or schema discovery. Dynamic declarations
+// with nil Columns are rejected by the semantic boundary; a non-nil empty
+// Columns slice is an explicitly resolved, zero-column family and is valid.
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
