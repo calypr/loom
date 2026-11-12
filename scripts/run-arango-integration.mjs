@@ -274,6 +274,30 @@ const pgExec12Exclusions = new Set([
     'TestPostgresExclusionsNoPolicyStatusDistinctLivePG18',
     'TestZZPostgresExclusionsZeroLeftoverFixtures',
 ]);
+// pg-exec-11: the PostgreSQL draft-output private-capture Combine live
+// battery (restricted capture feeding the terminal workspace Combine with
+// real authorization paths, the forged-path refusal, the mid-capture
+// cancellation cell, the evidence-free control, the real-ClickHouse
+// execution leg, and the verify_exec11_* census audit) requires the
+// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
+// Arango; the real-ClickHouse leg additionally requires LOOM_CLICKHOUSE_URL
+// (repo convention, internal/store/clickhouse/integration_test.go). They
+// run against the real PostgreSQL service under the ticket check harness
+// (go test ./internal/dataframe/execution -run Exec11lv); in this
+// Arango-only lane their explicit skips stay visible in the proof summary,
+// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, pg-exec-03,
+// pg-query-route, pg-ir-03, and pg-runtime-server-composition registration
+// precedent. Membership is byte-exact against the offline go test -json
+// skip capture for this package (six cells; the offline capture matrix
+// cells TestPostgreSQLPrivateCapture* never skip).
+const pgExec11Capture = new Set([
+    'TestExec11lvLiveRestrictedCaptureFeedsCombine',
+    'TestExec11lvLiveCaptureRejectsForgedAuthPath',
+    'TestExec11lvLiveCaptureCancellationLeavesNothing',
+    'TestExec11lvLiveEvidenceFreeCaptureRefused',
+    'TestExec11lvLiveCombineExecutesAgainstClickHouse',
+    'TestZZPostgresCaptureZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -294,6 +318,7 @@ const external = new Set([
     ...pgIr03PrefixSeam,
     ...pgRuntimeComposition,
     ...pgExec12Exclusions,
+    ...pgExec11Capture,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],

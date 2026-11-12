@@ -1336,6 +1336,76 @@ func TestCallsRejectOperandContractViolations(t *testing.T) {
 	sql10Reject(t, deep, "deep nesting", "registered bound")
 }
 
+// TestHiddenAuthResourcePathArmShapeLaw pins the coordinator-ratified
+// pg-exec-11 hidden arm: the registered hidden auth_resource_path
+// projection renders exactly the row variable's typed scope column, and
+// every other hidden shape -- including shapes wearing the capture
+// column's own name -- keeps the typed hidden-metadata refusal, exactly
+// as every other hidden shape died before the arm was registered.
+func TestHiddenAuthResourcePathArmShapeLaw(t *testing.T) {
+	registered := func(mutate func(*ir.PhysicalProjection)) ir.PhysicalProjection {
+		projection := ir.PhysicalProjection{Name: "auth_resource_path", Hidden: true,
+			Value: ir.PhysicalValue{Variable: "root", Path: []string{"auth_resource_path"}}}
+		if mutate != nil {
+			mutate(&projection)
+		}
+		return projection
+	}
+	foreign := []struct {
+		context string
+		mutate  func(*ir.PhysicalProjection)
+		irOnly  bool
+	}{
+		{"multi-segment payload path", func(p *ir.PhysicalProjection) {
+			p.Value.Path = []string{"payload", "auth_resource_path"}
+		}, false},
+		{"aliased column path", func(p *ir.PhysicalProjection) {
+			p.Value.Path = []string{"auth_scope_alias"}
+		}, false},
+		{"bind value", func(p *ir.PhysicalProjection) {
+			p.Value = ir.PhysicalValue{BindKey: "a"}
+		}, false},
+		{"bind value with path", func(p *ir.PhysicalProjection) {
+			p.Value.Variable = ""
+			p.Value.BindKey = "scope_path"
+		}, true},
+		{"expression carrier", func(p *ir.PhysicalProjection) {
+			p.Value = ir.PhysicalValue{}
+			p.Expression = sql10Call("coalesce", "", sql10Literal("a"))
+		}, false},
+		{"presence output", func(p *ir.PhysicalProjection) {
+			p.PresenceOutput = true
+		}, true},
+		{"no row variable", func(p *ir.PhysicalProjection) {
+			p.Value.Variable = ""
+		}, true},
+	}
+	for _, cell := range foreign {
+		if cell.irOnly {
+			// Shapes the shared ir contract refuses upstream still die;
+			// the refusal source differs, which these cells record.
+			sql10RejectAny(t, sql10Plan("Patient", map[string]any{"a": int64(1)}, registered(cell.mutate)),
+				"hidden auth_resource_path "+cell.context, "auth_resource_path")
+			continue
+		}
+		sql10Reject(t, sql10Plan("Patient", map[string]any{"a": int64(1)}, registered(cell.mutate)),
+			"hidden auth_resource_path "+cell.context, "hidden executor-side metadata")
+	}
+	rendered := sql10RenderOK(t, sql10Plan("Patient", map[string]any{"a": int64(1)}, registered(nil)))
+	if !strings.Contains(rendered.SQL, `r0."auth_resource_path" AS "c0"`) {
+		t.Fatalf("registered hidden auth_resource_path did not render the typed scope column:\n%s", rendered.SQL)
+	}
+	// The precedent arm is unchanged: the registered preview source identity
+	// column still renders its own typed root-key read, byte-identical to
+	// its pre-pg-exec-11 golden posture.
+	precedent := sql10RenderOK(t, sql10Plan("Patient", map[string]any{"a": int64(1)},
+		ir.PhysicalProjection{Name: ir.PreviewSourceResourceIDColumn, Hidden: true,
+			Value: ir.PhysicalValue{Variable: "root", Path: []string{"_key"}}}))
+	if !strings.Contains(precedent.SQL, `r0."logical_id" AS "c0"`) {
+		t.Fatalf("preview source identity precedent arm drifted:\n%s", precedent.SQL)
+	}
+}
+
 func TestCallsDefenseInDepthShapeWalk(t *testing.T) {
 	// The render-walk re-read is callable directly: arity/TargetKind
 	// shapes ir also refuses must be refused here too, with the typed
