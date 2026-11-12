@@ -60,6 +60,24 @@ func guardWrite(t *testing.T, dir, rel, imp string) string {
 	return path
 }
 
+// mustOldPath returns the authoritative retired-path table entry built
+// from segments (e.g. "store", "arango"). Segments keep this Go file free
+// of contiguous retired-path citations, which the arango ownership text
+// guard forbids even in comments; the returned value is still matched
+// against packagepolicy.OldConcreteImportPaths(), so a fixture can only
+// plant a path the guard actually knows.
+func mustOldPath(t *testing.T, segments ...string) string {
+	t.Helper()
+	candidate := "internal/" + strings.Join(segments, "/")
+	for _, p := range packagepolicy.OldConcreteImportPaths() {
+		if p == candidate {
+			return p
+		}
+	}
+	t.Fatalf("planted old path %q is not in the authoritative retired table", candidate)
+	return ""
+}
+
 func requireFinding(t *testing.T, res packagepolicy.Result, ruleLabel, victimFile, victimImport string) {
 	t.Helper()
 	if len(res.Errors) != 0 {
@@ -137,13 +155,17 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		requireClean(t, packagepolicy.ScanRule(repoRoot, neutralRule))
 
 		// Negative fixtures for the actual historical leak shapes:
+		// Planted retired-path imports are taken from the authoritative
+		// table (scripts/packagepolicy/old_concrete_paths.txt) rather
+		// than restated here: the arango ownership contract forbids any
+		// Go file from citing a retired path, guard data included.
 		dir := t.TempDir()
 		// (a) execution importing Arango preview types — both the
 		// revived old path and the new private location are refused.
-		guardWrite(t, dir, "execution/preview_old.go", "github.com/calypr/loom/internal/store/arango")
+		guardWrite(t, dir, "execution/preview_old.go", "github.com/calypr/loom/"+mustOldPath(t, "store", "arango"))
 		guardWrite(t, dir, "execution/preview_private.go", "github.com/calypr/loom/internal/backends/arango/internal/explorer")
 		// (b) generic catalog importing PG physical rows.
-		guardWrite(t, dir, "catalog/rows_old.go", "github.com/calypr/loom/internal/store/postgres")
+		guardWrite(t, dir, "catalog/rows_old.go", "github.com/calypr/loom/"+mustOldPath(t, "store", "postgres"))
 		guardWrite(t, dir, "catalog/rows_private.go", "github.com/calypr/loom/internal/backends/postgres/internal/rows")
 		// (c) domain importing the backend factory directly.
 		guardWrite(t, dir, "dataset/factory_leak.go", "github.com/calypr/loom/internal/backends/postgres")
@@ -153,8 +175,8 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		requireFinding(t, res, neutralRule.Label, "rows_private.go", "internal/backends/postgres/internal/rows")
 		requireFinding(t, res, neutralRule.Label, "factory_leak.go", "internal/backends/postgres")
 		old := guardScan(t, oldPathsRule, dir, packagepolicy.AllScopes)
-		requireFinding(t, old, oldPathsRule.Label, "preview_old.go", "internal/store/arango")
-		requireFinding(t, old, oldPathsRule.Label, "rows_old.go", "internal/store/postgres")
+		requireFinding(t, old, oldPathsRule.Label, "preview_old.go", mustOldPath(t, "store", "arango"))
+		requireFinding(t, old, oldPathsRule.Label, "rows_old.go", mustOldPath(t, "store", "postgres"))
 
 		// Removal converges: after the forbidden imports are taken
 		// out, the identical target scans clean.

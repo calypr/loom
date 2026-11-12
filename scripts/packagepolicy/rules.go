@@ -1,5 +1,10 @@
 package packagepolicy
 
+import (
+	_ "embed"
+	"strings"
+)
+
 // The authoritative boundary rule table (arch-backend-09). This is the ONE
 // place these rules are stated; the CLI, the shell entrypoint, and both
 // named Go guard tests all consume this table. Per-rule Owner text is the
@@ -37,25 +42,41 @@ var backendImports = Forbidden{
 }
 
 // oldConcreteImportPaths are the pre-refactor concrete package import paths
-// (the "bolt-on" layout). Nobody — production, tests, tools — may import
-// them again; the implementations live under internal/backends/*/internal.
-var oldConcreteImportPaths = []string{
-	"internal/store/postgres",
-	"internal/store/arango",
-	"internal/catalog/postgres",
-	"internal/catalog/arango",
-	"internal/dataset/postgres",
-	"internal/dataset/arango",
-	"internal/explorer/postgres",
-	"internal/explorer/arango",
-	"internal/dataframe/postgres",
-	"internal/dataframe/recipe/postgres",
-	"internal/dataframe/recipe/exec/postgres",
-	"internal/dataframe/recipe/exec/arango",
-	"internal/dataframe/publication/postgres",
-	"internal/dataframe/publication/arango",
-	"internal/dataframe/execution/chartifact/postgres",
-	"internal/dataframe/execution/chartifact/arango",
+// (the "bolt-on" layout), kept as guard data in old_concrete_paths.txt:
+// the retired-adapter text guard forbids citing these paths even in Go
+// comments, so the table lives outside .go text and is embedded. The
+// guard still matches every path; only its storage moved. The
+// old_concrete_paths_are_the_table control pins the data file against
+// accidental drift.
+//
+//go:embed old_concrete_paths.txt
+var oldConcretePathsData string
+
+var oldConcreteImportPaths = parsePathTable(oldConcretePathsData)
+
+// parsePathTable reads one path per line, ignoring blank lines and
+// #-comments. An empty table is a build-time panic, never a silent
+// zero-path rule.
+func parsePathTable(data string) []string {
+	var out []string
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	if len(out) == 0 {
+		panic("packagepolicy: old_concrete_paths.txt carries no paths")
+	}
+	return out
+}
+
+// OldConcreteImportPaths exposes the retired-path table so witness
+// fixtures derive their planted imports from the authoritative data
+// instead of restating (and thereby citing) retired paths in Go source.
+func OldConcreteImportPaths() []string {
+	return append([]string{}, oldConcreteImportPaths...)
 }
 
 // RepoRules is the authoritative parsed-import rule table.

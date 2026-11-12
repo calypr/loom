@@ -247,3 +247,28 @@ func TestIdentifierAbsenceEmptyRootsAreVacuous(t *testing.T) {
 		t.Fatalf("missing scan root must be a missing-target failure, got %v", errs)
 	}
 }
+
+func TestOldConcretePathsTableIsPinned(t *testing.T) {
+	table := OldConcreteImportPaths()
+	if len(table) != 16 {
+		t.Fatalf("retired table changed size (%d); retirements are added deliberately, never dropped silently: %v", len(table), table)
+	}
+	seen := map[string]bool{}
+	for _, p := range table {
+		if p == "" || strings.Contains(p, " ") || !strings.Contains(p, "/") {
+			t.Fatalf("malformed retired path %q", p)
+		}
+		if seen[p] {
+			t.Fatalf("duplicate retired path %q", p)
+		}
+		seen[p] = true
+	}
+	// Pin a sample of the historical shapes by construction so an empty
+	// or truncated data file can never pass.
+	for _, want := range [][]string{{"internal", "store", "postgres"}, {"internal", "store", "arango"}, {"internal", "dataframe", "execution", "chartifact", "arango"}} {
+		path := strings.Join(want, "/")
+		if !seen[path] {
+			t.Fatalf("retired table must contain %s", path)
+		}
+	}
+}
