@@ -339,6 +339,21 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 			return renderGroupedPivotPhysicalPlan(plan, storage)
 		}
 	}
+	// Whole-plan excluded-row evidence delegation (table_shape_exclusions.go
+	// contract, pg-sql-26): a plan mentioning the table-shape evidence
+	// terminal is the authored diagnostic shape and is rendered WHOLE by the
+	// registered slice — the structural twin of the pivot door above, with
+	// validateTableShapeExclusionPlanSurface as the single contract behind
+	// both this door and RenderTableShapeExclusions (entry==dispatch message
+	// equality). It sits directly after the pivot door because the terminal
+	// is the reshape family's second whole-plan renderer and shares its
+	// source-region arms; no other shape carries the operation, so every
+	// other door's voice and the default-arm refusal stay byte-identical.
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalTableShapeExclusionReturnOp {
+			return renderTableShapeExclusionPhysicalPlan(plan, storage)
+		}
+	}
 	// Single-stage composition claim (stage_sequence.go, pg-sql-16): the
 	// former blanket StageSequence refusal, converted per the coordinator
 	// ruling of 2026-11-11 into the SAME door a composed sequence enters.
