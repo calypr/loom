@@ -277,15 +277,21 @@ func importPaths(relatives []string) []string {
 }
 
 // RepoAbsences asserts the old concrete package directories and the
-// removed compatibility surfaces stay absent. The control-facade entries
-// (internal/backends/postgres/control, aliases.go, QuerierAsAny) are added
-// by the facade-collapse wave.
+// removed compatibility surfaces stay absent. The remaining
+// control-facade entries (internal/backends/postgres/control, aliases.go)
+// are added by the facade-collapse wave once it lands.
 func RepoAbsences() []AbsenceRule {
 	return []AbsenceRule{
 		{
 			Label: "old concrete backend package directories (arch-backend-06/07 relocations)",
 			Owner: "internal/backends/{arango,postgres} factories plus their internal/ implementation trees",
 			Paths: append([]string{}, oldConcreteImportPaths...),
+		},
+		{
+			Label:       "removed untyped row-querier bridge (arch-backend-09)",
+			Owner:       "internal/backends/postgres root Querier contract (typed bridges; control Runtime.PoolClient)",
+			Identifiers: []string{"QuerierAsAny"},
+			ScanRoots:   []string{"internal", "cmd"},
 		},
 	}
 }

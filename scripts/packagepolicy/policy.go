@@ -37,6 +37,7 @@ import (
 	"sort"
 	"strings"
 
+	"go/ast"
 	"go/parser"
 	"go/token"
 )
@@ -318,14 +319,22 @@ func ScanAll(repoRoot string) Result {
 }
 
 // AbsenceRule asserts that obsolete paths stay absent (removed by the
-// factory tickets; their return is a remnant regression).
+// factory tickets; their return is a remnant regression). Identifiers
+// asserts that removed API names stay absent from the parsed AST of every
+// Go file under ScanRoots: a deleted bridge or forwarding symbol that
+// reappears anywhere — including in tests — fails the table. Parsed AST
+// matching means comments and string literals can never trip the check,
+// and a parse failure is a verification error, never a detection.
 type AbsenceRule struct {
-	Label string
-	Owner string
-	Paths []string
+	Label       string
+	Owner       string
+	Paths       []string
+	Identifiers []string
+	ScanRoots   []string
 }
 
-// CheckAbsences fails when an obsolete path has been recreated.
+// CheckAbsences fails when an obsolete path has been recreated or a
+// removed identifier has reappeared.
 func CheckAbsences(repoRoot string, rules []AbsenceRule) []ScanError {
 	var errs []ScanError
 	for _, rule := range rules {
@@ -338,6 +347,70 @@ func CheckAbsences(repoRoot string, rules []AbsenceRule) []ScanError {
 				errs = append(errs, ScanError{Kind: ErrWalk, Path: path, Reason: err.Error()})
 			}
 		}
+		if len(rule.Identifiers) > 0 {
+			errs = append(errs, checkIdentifierAbsences(repoRoot, rule)...)
+		}
+	}
+	return errs
+}
+
+// checkIdentifierAbsences parses every Go file under the rule's scan roots
+// and reports removed identifiers found in the AST. Zero scanned files is
+// a vacuity failure, never a silent pass.
+func checkIdentifierAbsences(repoRoot string, rule AbsenceRule) []ScanError {
+	var errs []ScanError
+	wanted := make(map[string]bool, len(rule.Identifiers))
+	for _, id := range rule.Identifiers {
+		wanted[id] = true
+	}
+	scanned := 0
+	for _, root := range rule.ScanRoots {
+		full := filepath.Join(repoRoot, root)
+		if info, err := os.Stat(full); err != nil {
+			errs = append(errs, ScanError{Kind: ErrMissing, Path: root, Reason: err.Error()})
+			continue
+		} else if !info.IsDir() {
+			errs = append(errs, ScanError{Kind: ErrNotDir, Path: root, Reason: "identifier scan root is not a directory"})
+			continue
+		}
+		walkErr := filepath.WalkDir(full, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				errs = append(errs, ScanError{Kind: ErrWalk, Path: path, Reason: err.Error()})
+				return nil
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return nil
+			}
+			fset := token.NewFileSet()
+			file, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+			if perr != nil {
+				errs = append(errs, ScanError{Kind: ErrParse, Path: path, Reason: perr.Error()})
+				return nil
+			}
+			scanned++
+			rel, rerr := filepath.Rel(repoRoot, path)
+			if rerr != nil {
+				rel = path
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				ident, ok := n.(*ast.Ident)
+				if !ok || !wanted[ident.Name] {
+					return true
+				}
+				errs = append(errs, ScanError{Kind: ErrVacuous, Path: rel,
+					Reason: fmt.Sprintf("removed identifier %s reappeared (%s); allowed owner: %s",
+						ident.Name, rule.Label, rule.Owner)})
+				return true
+			})
+			return nil
+		})
+		if walkErr != nil {
+			errs = append(errs, ScanError{Kind: ErrWalk, Path: root, Reason: walkErr.Error()})
+		}
+	}
+	if scanned == 0 && len(errs) == 0 {
+		errs = append(errs, ScanError{Kind: ErrVacuous, Path: strings.Join(rule.ScanRoots, ", "),
+			Reason: fmt.Sprintf("identifier absence scan (%s) inspected zero Go files", rule.Label)})
 	}
 	return errs
 }

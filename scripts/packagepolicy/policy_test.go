@@ -3,6 +3,7 @@ package packagepolicy
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -196,4 +197,53 @@ func indexOf(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+func TestIdentifierAbsenceCatchesReappearance(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "internal", "bridge.go"),
+		"package internalx\n\nfunc QuerierAsAny() any { return nil }\n")
+	rule := AbsenceRule{Label: "bridge", Owner: "typed Querier", Identifiers: []string{"QuerierAsAny"}, ScanRoots: []string{"internal"}}
+	errs := CheckAbsences(root, []AbsenceRule{rule})
+	if len(errs) != 1 || errs[0].Kind != ErrVacuous {
+		t.Fatalf("planted identifier must produce one vacuity-class absence failure, got %v", errs)
+	}
+	if !strings.Contains(errs[0].Reason, "QuerierAsAny") || !strings.Contains(errs[0].Path, "bridge.go") {
+		t.Fatalf("absence failure must name identifier and file: %s", errs[0].Reason)
+	}
+}
+
+func TestIdentifierAbsenceIgnoresCommentsAndStrings(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "internal", "note.go"),
+		"package internalx\n\n// QuerierAsAny was deleted; mentioned here for history.\nvar note = \"QuerierAsAny\"\n")
+	rule := AbsenceRule{Label: "bridge", Owner: "typed Querier", Identifiers: []string{"QuerierAsAny"}, ScanRoots: []string{"internal"}}
+	if errs := CheckAbsences(root, []AbsenceRule{rule}); len(errs) != 0 {
+		t.Fatalf("comment/string mentions are not AST identifiers: %v", errs)
+	}
+}
+
+func TestIdentifierAbsenceMalformedIsVerificationFailureNotDetection(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "internal", "broken.go"), "!!! not go source >>> {{{")
+	rule := AbsenceRule{Label: "bridge", Owner: "typed Querier", Identifiers: []string{"QuerierAsAny"}, ScanRoots: []string{"internal"}}
+	errs := CheckAbsences(root, []AbsenceRule{rule})
+	if len(errs) != 1 || errs[0].Kind != ErrParse {
+		t.Fatalf("malformed source must be a parse failure, got %v", errs)
+	}
+}
+
+func TestIdentifierAbsenceEmptyRootsAreVacuous(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "internal"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rule := AbsenceRule{Label: "bridge", Owner: "typed Querier", Identifiers: []string{"QuerierAsAny"}, ScanRoots: []string{"internal"}}
+	errs := CheckAbsences(root, []AbsenceRule{rule})
+	if len(errs) != 1 || errs[0].Kind != ErrVacuous || !strings.Contains(errs[0].Reason, "zero Go files") {
+		t.Fatalf("zero scanned files must fail as vacuity, got %v", errs)
+	}
+	if errs := CheckAbsences(root, []AbsenceRule{{Label: "bridge", Identifiers: []string{"X"}, ScanRoots: []string{"no-such"}}}); len(errs) == 0 || errs[0].Kind != ErrMissing {
+		t.Fatalf("missing scan root must be a missing-target failure, got %v", errs)
+	}
 }

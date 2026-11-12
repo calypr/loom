@@ -41,12 +41,13 @@ func main() {
 	for _, f := range res.Findings {
 		fmt.Fprintln(os.Stderr, f.String())
 	}
-	for _, e := range packagepolicy.CheckAbsences(*root, packagepolicy.RepoAbsences()) {
+	absences := packagepolicy.CheckAbsences(*root, packagepolicy.RepoAbsences())
+	for _, e := range absences {
 		fmt.Fprintln(os.Stderr, e.String())
 	}
-	if len(res.Findings) > 0 || len(res.Errors) > 0 {
-		fmt.Fprintf(os.Stderr, "dataframe package boundary check failed: %d violation(s), %d verification failure(s) over %d file(s)\n",
-			len(res.Findings), len(res.Errors), res.Scanned)
+	if len(res.Findings) > 0 || len(res.Errors) > 0 || len(absences) > 0 {
+		fmt.Fprintf(os.Stderr, "dataframe package boundary check failed: %d violation(s), %d verification failure(s), %d absence failure(s) over %d file(s)\n",
+			len(res.Findings), len(res.Errors), len(absences), res.Scanned)
 		os.Exit(1)
 	}
 	fmt.Printf("dataframe package boundaries: ok (%d rules, %d files scanned)\n",
@@ -135,6 +136,34 @@ func oldPathsRule() packagepolicy.Rule {
 		panic("authoritative old-concrete-paths rule missing from the table")
 	}
 	return rule
+}
+
+// querierBridgeAbsenceRule pulls the live table row for the removed
+// untyped row-querier bridge so the self-test proves the same entry the
+// repository scan runs, not a restated fixture copy.
+func querierBridgeAbsenceRule() packagepolicy.AbsenceRule {
+	for _, r := range packagepolicy.RepoAbsences() {
+		if r.Label == "removed untyped row-querier bridge (arch-backend-09)" {
+			return r
+		}
+	}
+	panic("authoritative QuerierAsAny absence rule missing from the table")
+}
+
+func expectAbsenceError(errs []packagepolicy.ScanError, kind packagepolicy.ErrorKind, wantSub string) error {
+	for _, e := range errs {
+		if e.Kind == kind && strings.Contains(e.Reason, wantSub) {
+			return nil
+		}
+	}
+	return fmt.Errorf("expected a %s absence failure naming %q; got %v", kind, wantSub, errs)
+}
+
+func expectAbsencesClean(errs []packagepolicy.ScanError) error {
+	if len(errs) != 0 {
+		return fmt.Errorf("expected clean absences; got %v", errs)
+	}
+	return nil
 }
 
 func scanPath(rule packagepolicy.Rule, path string) packagepolicy.Result {
@@ -292,6 +321,37 @@ func controls() []control {
 			f.write("adapter/reads_execution_ports.go", goFile("adapter", runtimeImport))
 		}, func(f *fixture) error {
 			return expectClean(scanPath(neutralDomainRule(), f.dir))
+		}},
+		{"removed-bridge-identifier-reappearance-caught", func(f *fixture) {
+			f.write("internal/bridge.go", "package internalx\n\n// QuerierAsAny in a comment must never trip the AST scan.\nfunc QuerierAsAny() any { return nil }\n")
+			f.write("cmd/tool/tool.go", "package tool\n")
+		}, func(f *fixture) error {
+			return expectAbsenceError(packagepolicy.CheckAbsences(f.dir, []packagepolicy.AbsenceRule{querierBridgeAbsenceRule()}),
+				packagepolicy.ErrVacuous, "QuerierAsAny")
+		}},
+		{"removed-bridge-identifier-absent-passes", func(f *fixture) {
+			f.write("internal/bridge.go", "package internalx\n\n// mentions QuerierAsAny only in a comment and a string\nvar note = \"QuerierAsAny\"\n")
+			f.write("cmd/tool/tool.go", "package tool\n")
+		}, func(f *fixture) error {
+			return expectAbsencesClean(packagepolicy.CheckAbsences(f.dir, []packagepolicy.AbsenceRule{querierBridgeAbsenceRule()}))
+		}},
+		{"removed-bridge-scan-malformed-is-verification-failure", func(f *fixture) {
+			f.write("internal/broken.go", "!!! not go source >>> {{{")
+			f.write("cmd/tool/tool.go", "package tool\n")
+		}, func(f *fixture) error {
+			return expectAbsenceError(packagepolicy.CheckAbsences(f.dir, []packagepolicy.AbsenceRule{querierBridgeAbsenceRule()}),
+				packagepolicy.ErrParse, "broken.go")
+		}},
+		{"removed-bridge-scan-vacuous-roots-fail", func(f *fixture) {
+			if err := os.MkdirAll(filepath.Join(f.dir, "internal"), 0o755); err != nil {
+				panic(err)
+			}
+			if err := os.MkdirAll(filepath.Join(f.dir, "cmd"), 0o755); err != nil {
+				panic(err)
+			}
+		}, func(f *fixture) error {
+			return expectAbsenceError(packagepolicy.CheckAbsences(f.dir, []packagepolicy.AbsenceRule{querierBridgeAbsenceRule()}),
+				packagepolicy.ErrVacuous, "zero Go files")
 		}},
 	}
 }
