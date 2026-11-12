@@ -47,8 +47,14 @@ var (
 	// ErrNilConnSource reports construction without a connection source.
 	ErrNilConnSource = errors.New("dataset postgres: generation store connection source is required")
 	// ErrInvalidSchemaName reports a target schema that is not a safe
-	// lowercase identifier.
-	ErrInvalidSchemaName = errors.New("dataset postgres: invalid schema name")
+	// lowercase identifier. It is an alias of the store's sentinel, not a
+	// copy: one public name, one identity, so a consumer that classifies
+	// schema-name faults through the backend facade matches BOTH this
+	// package's config-time validation and the shared MigrationRunner's
+	// name/absent-schema emissions (store/migrate.go). PR #148 verifier
+	// finding F1: a duplicate errors.New here made the facade alias
+	// unreachable for probe-emitted errors.
+	ErrInvalidSchemaName = storepostgres.ErrInvalidSchemaName
 	// ErrManifestAlreadyExists reports a second CreateManifest for the same
 	// (project, generation).
 	ErrManifestAlreadyExists = errors.New("generation manifest already exists")

@@ -1118,6 +1118,53 @@ func configuredPostgreSQLSourceRows(logger *slog.Logger, phase string, execute d
 	}
 }
 
+// PostgreSQL readiness-state tokens (pg-runtime-health-readiness): the
+// fixed, credential-free vocabulary the CoreState classifier maps a
+// control.Runtime.Readiness failure onto. The vocabulary is closed: an
+// unclassified failure reports core_state_unknown, never the raw error text,
+// so no DSN, SQL, driver echo, or credential can reach the readiness body.
+const (
+	pgReadinessStateClosed           = "runtime_closed"
+	pgReadinessStateConnectivityDown = "connectivity_down"
+	pgReadinessStateUnsupportedVer   = "unsupported_version"
+	pgReadinessStateSchemaMissing    = "schema_missing"
+	pgReadinessStateSchemaUnmigrated = "schema_unmigrated"
+	pgReadinessStateSchemaMismatch   = "schema_mismatch"
+	pgReadinessStateUnknown          = "core_state_unknown"
+)
+
+// postgreSQLCoreReadinessState classifies a Readiness failure into one of
+// the fixed tokens above via the backend's published sentinel taxonomy
+// (errors.Is only). Connectivity failures (ErrConnect, which the
+// readiness-checked pool returns for acquire and statement faults), the
+// PostgreSQL 18 version gate, a caller-never-created schema, a schema behind
+// the embedded history, and an edited/future/vanished/out-of-order ledger
+// are each distinguishable from one another and from each other's causes
+// without any string matching and without leaking error text.
+func postgreSQLCoreReadinessState(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, backendspostgres.ErrRuntimeClosed):
+		return pgReadinessStateClosed
+	case errors.Is(err, backendspostgres.ErrConnect):
+		return pgReadinessStateConnectivityDown
+	case errors.Is(err, backendspostgres.ErrUnsupportedVersion):
+		return pgReadinessStateUnsupportedVer
+	case errors.Is(err, backendspostgres.ErrInvalidSchemaName):
+		return pgReadinessStateSchemaMissing
+	case errors.Is(err, backendspostgres.ErrMigrationPending):
+		return pgReadinessStateSchemaUnmigrated
+	case errors.Is(err, backendspostgres.ErrMigrationChecksumMismatch),
+		errors.Is(err, backendspostgres.ErrFutureSchemaVersion),
+		errors.Is(err, backendspostgres.ErrMigrationMissing),
+		errors.Is(err, backendspostgres.ErrMigrationOutOfOrder):
+		return pgReadinessStateSchemaMismatch
+	default:
+		return pgReadinessStateUnknown
+	}
+}
+
 // postgreSQLGenerationStatusReader answers generation status reads from the
 // runtime's manifest lifecycle port — a real PostgreSQL read, never an
 // ArangoDB one — and refuses server-side activation: the activation CAS is
@@ -1350,9 +1397,14 @@ func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, 
 		Authenticator: authenticator,
 		Authorizer:    authorizer,
 		Logger:        logger,
+		// Same full probe as the full runtime: reachability + version gate +
+		// read-only ledger probe over the two assigned series. The route
+		// serves reads only from schemas whose ledger agrees with the
+		// embedded history; CoreState classifies failures safely.
 		CoreReadyCheck: func(ctx context.Context) error {
-			return runtime.Health(ctx)
+			return runtime.Readiness(ctx)
 		},
+		CoreState:            postgreSQLCoreReadinessState,
 		ClickHouseReadyCheck: nil,
 		ClickHouseEnabled:    false,
 	})
