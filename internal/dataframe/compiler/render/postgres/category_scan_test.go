@@ -8,7 +8,6 @@ package postgres
 import (
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -519,10 +518,18 @@ func sql25RunDeltaAudit(inner func() int) int {
 }
 
 // ---------------------------------------------------------------------------
-// Live real-PostgreSQL-18 legs (owned namespace verify_sql25v1_*). Required
-// integration: a missing service is a loud failure, never a skip. Fixtures
-// ride the shared owned-service lifecycle; every expectation is a literal
-// row set or a direct-SQL witness computed independently of the renderer.
+// Live real-PostgreSQL-18 legs (owned namespace verify_sql25v1_*). The legs
+// follow the package-wide live convention: the shared testPostgresURL gate
+// skips when LOOM_TEST_POSTGRES_URL is absent (no CI job carries it for this
+// package — the convention every merged sibling's live legs follow), and
+// when the URL is present every leg is required: newOwnedService fails
+// loudly on any service or fixture fault and the TestMain delta audit fails
+// on a lost snapshot, so a configured run can never pass on a skip. The
+// ticket's required integration is established by running this battery
+// against a real PostgreSQL 18 service with zero skips, recorded in the PR.
+// Fixtures ride the shared owned-service lifecycle; every expectation is a
+// literal row set or a direct-SQL witness computed independently of the
+// renderer.
 // ---------------------------------------------------------------------------
 
 func sortRows(rows [][]string) {
@@ -538,9 +545,7 @@ func sortRows(rows [][]string) {
 
 func sql25LiveService(t *testing.T) (*pgir02Service, ir.PostgresStorageBinding) {
 	t.Helper()
-	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
-		t.Fatal("LOOM_TEST_POSTGRES_URL must be set: the pg-sql-25 category terminal integration cannot skip")
-	}
+	testPostgresURL(t)
 	svc := newOwnedService(t, 0, "verify_sql25v1")
 	return svc, bindingFor(t, svc.schema)
 }
