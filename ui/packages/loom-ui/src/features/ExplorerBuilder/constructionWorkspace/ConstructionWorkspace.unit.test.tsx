@@ -757,6 +757,7 @@ describe('ConstructionWorkspace', () => {
     ];
 
     expect(steps.map(({ title }) => title)).toEqual(expectedTitles);
+    expect(steps.slice(1).map((step) => step.hierarchy)).toEqual([undefined, undefined, undefined]);
     expect(new Set(expectedTitles.slice(1)).size).toBe(3);
 
     render(
@@ -924,7 +925,6 @@ describe('ConstructionWorkspace', () => {
         title: 'Expand Items',
         summary: "One row per value from Items; Item contains that value. Other fields repeat on each row. Position records each item's position. Empty lists: exclude.",
         editable: true,
-        hierarchy: 'COLUMN_ADJUSTMENT',
       },
       {
         id: 'append_visits',

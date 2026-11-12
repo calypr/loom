@@ -351,3 +351,45 @@
     transition-delay: 0ms !important;
   }
 }
+
+/* Fit the routine Builder workspace below its embedding application's navigation.
+   Long catalogs, editors and tables retain their own deliberate navigation. */
+@media (min-width: 1024px) and (min-height: 700px) {
+  .loom-ui-root .construction-workspace {
+    height: calc(100dvh - var(--construction-top, 100px) - var(--construction-bottom, 12px));
+    min-height: 20rem;
+  }
+  .loom-ui-root .construction-query-toolbar {
+    flex: 0 1 auto;
+    max-height: 60%;
+    overflow: auto;
+  }
+  .loom-ui-root .construction-result-region {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .loom-ui-root .construction-active-editor {
+    flex-shrink: 0;
+    max-height: 50%;
+    overflow: auto;
+  }
+  .loom-ui-root [data-testid="construction-preview"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .loom-ui-root .construction-preview-surface {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .loom-ui-root [data-testid="preview-table-scroll"] {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+}

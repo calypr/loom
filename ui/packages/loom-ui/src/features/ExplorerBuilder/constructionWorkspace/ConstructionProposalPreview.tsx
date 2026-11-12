@@ -32,9 +32,11 @@ export const ConstructionProposalPreview = ({
   preview,
   presentationTable,
   partialValidationMessage = 'Only displayed groups were checked in this preview. Publishing runs Pivot rules over the full source.',
+  presentation = 'proposed',
 }: {
   readonly preview: ExplorerBuilderPreviewResult;
   readonly presentationTable?: DraftTable;
+  readonly presentation?: 'saved' | 'proposed';
   readonly partialValidationMessage?: string;
 }) => {
   const outputs = presentationTable?.document.construction?.steps.at(-1)?.outputs ?? [];
@@ -56,7 +58,7 @@ export const ConstructionProposalPreview = ({
         }));
 
   return <div
-    data-testid="construction-proposal-preview"
+    data-testid={presentation === 'saved' ? 'construction-saved-preview' : 'construction-proposal-preview'}
     data-preview-status="ready"
     data-preview-receipt-id={preview.receiptId}
     data-preview-output-id={preview.outputId}

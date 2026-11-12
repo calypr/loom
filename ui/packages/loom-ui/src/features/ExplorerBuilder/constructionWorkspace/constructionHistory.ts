@@ -283,7 +283,6 @@ const formatStep = (
 
 const isColumnAdjustment = (operation: Construction['steps'][number]['operation']): boolean => {
   switch (operation.kind) {
-    case 'EXPAND':
     case 'RELATED_SOURCE':
     case 'RELATED_FIELD':
     case 'DERIVE':

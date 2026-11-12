@@ -30,6 +30,34 @@ const isSupportedValueMode = (
 ): value is ValueMode =>
   value !== undefined && supportedModes?.some((candidate) => candidate === value) === true;
 
+const sourceStepLabel = (step: ImportedSourceStep): string => {
+  if (step.kind !== 'TRAVERSAL') return step.title;
+  const target = /^Traversal to (.+?)(?: via .+)?$/.exec(step.title)?.[1];
+  // The plan supplies resource names, not clinical relationship descriptions.
+  // Keep unfamiliar names literal; never infer a clinical meaning from a path.
+  return target ? `Related ${target.replace(/([a-z])([A-Z])/g, '$1 $2')} records` : step.title;
+};
+
+type SourceStepEntry = { readonly step: ImportedSourceStep; readonly number: number };
+type SourceStepGroup = { readonly id: string; readonly columns: boolean; readonly entries: SourceStepEntry[] };
+
+// Group only adjacent projections in the same source scope. Traversals and row
+// operations remain boundaries; flattening these groups preserves recipe order.
+export const groupSourceSteps = (steps: ReadonlyArray<ImportedSourceStep>): SourceStepGroup[] => {
+  const groups: SourceStepGroup[] = [];
+  const columnKinds = new Set(['FIELD_GROUP', 'CATALOG_PROJECTION', 'DYNAMIC_COLUMN', 'EXTENSION_COLUMN', 'PIVOT']);
+  for (const [index, step] of steps.entries()) {
+    const columns = columnKinds.has(step.kind);
+    const previous = groups.at(-1);
+    if (columns && previous?.columns && previous.entries[0]?.step.parentId === step.parentId) {
+      previous.entries.push({ step, number: index + 1 });
+    } else {
+      groups.push({ id: step.id, columns, entries: [{ step, number: index + 1 }] });
+    }
+  }
+  return groups;
+};
+
 interface ImportedSourceStepEditorState {
   readonly stepId: string;
   readonly enabled: boolean;
@@ -67,6 +95,7 @@ export const ImportedSourceSteps = ({
   const stepsById = new Map<string, ImportedSourceStep>();
   for (const step of steps ?? []) stepsById.set(step.id, step);
   const selectedStep = steps?.find((step) => step.id === editor?.stepId);
+  const selectedParent = selectedStep?.parentId ? stepsById.get(selectedStep.parentId) : undefined;
   const valueModes = selectedStep ? valueModesForStep(selectedStep) : undefined;
   const disabledAncestorFor = (step: ImportedSourceStep): ImportedSourceStep | undefined => {
     const visited = new Set<string>([step.id]);
@@ -141,13 +170,11 @@ export const ImportedSourceSteps = ({
       aria-label="Imported source steps"
       aria-busy={refreshing || applying}
       data-testid="imported-source-steps"
-      className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3"
+      className="min-w-0"
     >
-      <header className="mb-2">
-        <h2 className="text-sm font-semibold text-slate-950">Imported source</h2>
-        <p className="mt-0.5 text-xs text-slate-600">
-          These recipe steps run before the table’s construction steps.
-        </p>
+      <header className="mb-1 flex items-baseline gap-2">
+        <h3 className="m-0 text-xs font-medium text-slate-500">Recipe steps</h3>
+        <span className="text-xs text-slate-500">{steps ? `${steps.length} steps · select to edit` : 'Imported source'}</span>
       </header>
       {actionError ? <p className="mb-2 text-sm text-red-700" role="alert">{actionError}</p> : null}
       {steps === undefined ? (
@@ -165,8 +192,9 @@ export const ImportedSourceSteps = ({
       ) : steps.length === 0 ? (
         <p className="text-sm text-slate-600">This imported recipe has no source steps.</p>
       ) : (
-        <ol className="m-0 flex min-w-0 list-none items-stretch gap-1.5 overflow-x-auto p-0 pb-1" data-testid="imported-source-step-list">
-          {steps.map((step, index) => {
+        <ol className="m-0 flex min-w-0 list-none flex-wrap items-start gap-1 p-0" data-testid="imported-source-step-list">
+          {groupSourceSteps(steps).map((group) => {
+            const renderStep = ({ step, number }: SourceStepEntry) => {
             const disabledAncestor = disabledAncestorFor(step);
             const parent = step.parentId ? stepsById.get(step.parentId) : undefined;
             const statusLabel = !step.enabled
@@ -174,19 +202,11 @@ export const ImportedSourceSteps = ({
               : disabledAncestor
                 ? 'Inactive · parent off'
                 : 'Enabled';
-            const currentSettings = [
-              ...(step.maxColumns === undefined ? [] : [`Max columns: ${step.maxColumns}`]),
-              ...(step.valueMode === undefined ? [] : [
-                `Value mode: ${isSupportedValueMode(step.valueMode, valueModesForStep(step))
-                  ? valueModeLabels[step.valueMode]
-                  : step.valueMode}`,
-              ]),
-            ];
             return (
-              <li key={step.id} data-parent-id={step.parentId} className="w-64 shrink-0">
+              <li key={step.id} data-parent-id={step.parentId} className="min-w-0 max-w-full">
                 <button
                   type="button"
-                  aria-label={`Source step ${index + 1}: ${step.title}`}
+                  aria-label={`Source step ${number}: ${sourceStepLabel(step)}`}
                   aria-expanded={editor?.stepId === step.id}
                   aria-pressed={editor?.stepId === step.id}
                   data-testid={`imported-source-step-${step.id}`}
@@ -196,36 +216,47 @@ export const ImportedSourceSteps = ({
                     setActionError(undefined);
                     setEditor(editor?.stepId === step.id ? undefined : editorStateFor(step));
                   }}
-                  className={`grid h-full w-full grid-cols-[auto_1fr_auto] items-start gap-x-2 rounded-md border px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  title={[step.title, parent ? `Under ${parent.title}` : undefined, statusLabel].filter(Boolean).join(' · ')}
+                  className={`inline-flex max-w-full items-baseline gap-1.5 rounded px-2 py-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     editor?.stepId === step.id
-                      ? 'border-indigo-400 bg-white'
-                      : 'border-slate-200 bg-white hover:border-indigo-300'
+                      ? 'bg-blue-100 text-blue-950 ring-1 ring-blue-400'
+                      : 'bg-slate-100 text-slate-700 hover:bg-blue-50'
                   }`}
                 >
                   <span aria-hidden="true" className="pt-0.5 text-xs font-semibold text-indigo-800">
-                    {index + 1}.
+                    {number}.
                   </span>
-                  <span className="min-w-0 break-words">
-                    <span className="block text-sm font-medium text-slate-900">{step.title}</span>
-                    {parent ? (
-                      <span className="mt-0.5 block text-xs text-indigo-800" data-source-parent-label={parent.title}>
-                        Under {parent.title}
-                      </span>
-                    ) : null}
-                    <span className="mt-0.5 block text-xs text-slate-600">{step.summary}</span>
-                    {currentSettings.length > 0 ? (
-                      <span className="mt-0.5 block text-xs font-medium text-slate-700" data-testid={`imported-source-step-settings-${step.id}`}>
-                        {currentSettings.join(' · ')}
-                      </span>
-                    ) : null}
-                  </span>
+                  <span className="min-w-0 break-words text-sm">{sourceStepLabel(step)}</span>
                   <span
-                    title={disabledAncestor ? `Inactive because ${disabledAncestor.title} is disabled` : undefined}
-                    className={`rounded px-1.5 py-0.5 text-xs ${step.enabled && !disabledAncestor ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-100 text-slate-600'}`}
+                    title={disabledAncestor ? `Inactive because ${sourceStepLabel(disabledAncestor)} is disabled` : undefined}
+                    className={step.enabled && !disabledAncestor ? 'sr-only' : 'shrink-0 text-xs text-slate-500'}
                   >
                     {statusLabel}
                   </span>
                 </button>
+              </li>
+            );
+            };
+            if (!group.columns) return group.entries.map(renderStep);
+            const first = group.entries[0];
+            const last = group.entries.at(-1);
+            if (!first || !last) return null;
+            const parent = first.step.parentId ? stepsById.get(first.step.parentId) : undefined;
+            const containsSelection = group.entries.some(({ step }) => step.id === selectedStep?.id);
+            const inactiveCount = group.entries.filter(({ step }) => !step.enabled || disabledAncestorFor(step)).length;
+            return (
+              <li key={group.id} className="min-w-0 max-w-full">
+                <details data-testid={`source-step-group-${group.id}`} className="min-w-0">
+                  <summary className={`cursor-pointer rounded px-2 py-1 text-sm text-slate-700 hover:bg-blue-50 ${containsSelection ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                    <span className="font-medium">Columns</span> · {group.entries.length}
+                    <span className="ml-1 text-xs text-slate-500">({first.number}–{last.number})</span>
+                    {parent ? <span className="ml-1 text-xs text-slate-600">· {sourceStepLabel(parent)}</span> : null}
+                    {inactiveCount ? <span className="ml-1 text-xs text-slate-500">· {inactiveCount} inactive</span> : null}
+                  </summary>
+                  <ol className="m-0 mt-1 flex list-none flex-wrap gap-1 border-l-2 border-blue-200 pl-2">
+                    {group.entries.map(renderStep)}
+                  </ol>
+                </details>
               </li>
             );
           })}
@@ -233,23 +264,36 @@ export const ImportedSourceSteps = ({
       )}
       {selectedStep && editor ? (
         <form
-          aria-label={`Source step ${selectedStep.title} editor`}
+          aria-label={`Source step ${sourceStepLabel(selectedStep)} editor`}
           data-testid="imported-source-step-editor"
-          className="mt-3 rounded-lg border border-indigo-200 bg-white p-3"
+          className="mt-2 border-t border-slate-200 pt-2"
           onSubmit={(event) => {
             event.preventDefault();
             void apply();
           }}
         >
-          <h3 className="text-sm font-semibold text-slate-900">{selectedStep.title}</h3>
+          <h3 className="m-0 text-sm font-semibold text-slate-900">{sourceStepLabel(selectedStep)}</h3>
+          {selectedParent ? <p className="m-0 text-xs text-indigo-800">Under {sourceStepLabel(selectedParent)}</p> : null}
+          <p className="m-0 mt-1 text-xs text-slate-600">{selectedStep.kind === 'TRAVERSAL'
+            ? selectedStep.summary === 'Optional relationship with nested source steps.'
+              ? 'Use fields from these related records. A match is optional.'
+              : selectedStep.summary === 'Required relationship with nested source steps.'
+                ? 'Use fields from these related records. A match is required.'
+                : selectedStep.summary
+            : selectedStep.summary}</p>
+          {selectedStep.kind === 'TRAVERSAL' ? <details className="mt-1 text-xs text-slate-500">
+            <summary className="cursor-pointer">Relationship details</summary>
+            <p className="m-0 break-words">{selectedStep.title}</p>
+            <p className="m-0">{selectedStep.summary}</p>
+          </details> : null}
           {selectedDisabledAncestor ? (
             <p role="status" className="mt-1 text-xs text-slate-600">
-              Inactive because {selectedDisabledAncestor.title} is disabled. This step’s settings are retained and do not run until the parent is enabled.
+              Inactive because {sourceStepLabel(selectedDisabledAncestor)} is disabled. This step’s settings are retained and do not run until the parent is enabled.
             </p>
           ) : null}
           {selectedStep.editable ? (
-            <div className="mt-2 grid gap-3 sm:grid-cols-2">
-              <label className="flex items-center gap-2 text-sm text-slate-800 sm:col-span-2">
+            <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+              <label className="flex items-center gap-2 text-sm text-slate-800">
                 <input
                   type="checkbox"
                   checked={editor.enabled}
@@ -292,7 +336,7 @@ export const ImportedSourceSteps = ({
           ) : (
             <p className="mt-2 text-sm text-slate-600">This source step is read-only.</p>
           )}
-          <div className="mt-3 flex justify-end gap-2">
+          <div className="mt-2 flex justify-end gap-2">
             <button
               type="button"
               disabled={isDisabled}

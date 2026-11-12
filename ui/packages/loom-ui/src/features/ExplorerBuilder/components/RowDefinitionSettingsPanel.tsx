@@ -855,27 +855,27 @@ export const RowDefinitionSettingsPanel = ({
       </button>
       {settings.kind !== 'closed' ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-white">
-          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="min-h-dvh w-full px-4 py-4 sm:px-6 lg:px-8">
+          <div role="dialog" aria-modal="true" aria-label="Row definition settings" className="mx-auto min-h-dvh w-full max-w-[1600px] px-4 py-3 sm:px-6">
             <header className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h3 className="text-xl font-semibold text-slate-900">Change current rows</h3>
-                <p className="mt-1 text-sm text-slate-700">{currentRowMeaning}</p>
+                <h3 className="m-0 text-base font-semibold text-slate-900">Change current rows</h3>
+                <p className="m-0 mt-1 text-sm text-slate-700">{currentRowMeaning}</p>
               </div>
               <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" onClick={cancel}>Back to table</button>
             </header>
-            <section aria-label="Choose a row intent" className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            <section aria-label="Choose a row intent" className="mt-2 flex flex-wrap items-start gap-1 border-b border-slate-200 pb-2">
               <button type="button" data-testid="construction-row-intent-records" aria-pressed={rowChangeIntent === 'records'}
                 onClick={() => switchRowIntent('records')}
-                className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'records' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                className={`flex min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'records' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold text-slate-900">Use different records</span>
-                <span className="block text-xs text-slate-600">Choose a starting record type, row shape, or related records.</span>
+                <span className="sr-only">Choose a starting record type, row shape, or related records.</span>
               </button>
-              <div className={`min-w-0 rounded-lg border ${rowChangeIntent === 'group' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+              <div className={`min-w-0 rounded ${rowChangeIntent === 'group' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <button type="button" data-testid="construction-action-group-rows" aria-pressed={rowChangeIntent === 'group'} disabled={disabled || !reshapeRows.group.supported}
                   onClick={() => chooseReshape(reshapeRows.groupEntry)}
-                  className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                   <span className="block text-sm font-semibold text-slate-900">Group and summarize</span>
-                  <span className={`block text-xs text-slate-600 ${reshapeRows.group.supported ? 'truncate' : 'whitespace-normal'}`} title={reshapeRows.group.supported
+                  <span className={reshapeRows.group.supported ? "sr-only" : "block text-xs text-slate-600"} title={reshapeRows.group.supported
                     ? 'Make one row for each unique combination of the fields you choose.'
                     : reshapeRows.group.reason}>{reshapeRows.group.supported
                     ? 'Choose fields that define each output row.'
@@ -899,9 +899,9 @@ export const RowDefinitionSettingsPanel = ({
               </div>
               <button type="button" data-testid="construction-row-intent-reshape" aria-pressed={rowChangeIntent === 'reshape'}
                 onClick={() => switchRowIntent('reshape')}
-                className={`flex min-h-[4.5rem] min-w-0 flex-col justify-center rounded-lg border px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'reshape' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+                className={`flex min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 ${rowChangeIntent === 'reshape' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}>
                 <span className="block text-sm font-semibold text-slate-900">Reshape table</span>
-                <span className="block text-xs text-slate-600">Pivot categories into columns or stack columns into rows.</span>
+                <span className="sr-only">Pivot categories into columns or stack columns into rows.</span>
               </button>
             </section>
             {rowChangeIntent === 'records' ? (
@@ -982,7 +982,7 @@ export const RowDefinitionSettingsPanel = ({
                 <div className="min-w-0 rounded-lg border border-slate-200 bg-white">
                   <button type="button" data-testid="construction-action-pivot-rows" disabled={disabled || reshapeRows.pivotPending === true}
                     onClick={() => chooseReshape('categories')}
-                    className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Pivot categories</span>
                     <span className="block text-xs text-slate-600">Make a column for each category. Choose which values fill those columns.</span>
                   </button>
@@ -1004,7 +1004,7 @@ export const RowDefinitionSettingsPanel = ({
                   <button type="button" data-testid="construction-action-unpivot-rows" disabled={disabled}
                     onClick={() => chooseReshape('unpivot')}
                     title="Move selected columns into a field-name column and a value column. Other columns repeat on each new row."
-                    className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                    className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                     <span className="block text-sm font-semibold text-slate-900">Stack columns</span>
                     <span className="block text-xs text-slate-600">Move selected columns into field and value rows.</span>
                   </button>
@@ -1012,7 +1012,7 @@ export const RowDefinitionSettingsPanel = ({
                     <button type="button" data-testid="construction-action-expand-signed-rows" disabled={disabled}
                       onClick={() => chooseReshape('expand-signed')}
                       title="Turn one repeated FHIR field into one row per value."
-                      className="flex min-h-[4.5rem] w-full min-w-0 flex-col justify-center rounded-lg px-3 py-2 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
+                      className="flex w-full min-w-0 flex-col justify-center rounded px-3 py-1.5 text-left transition-colors hover:border-blue-400 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">
                       <span className="block text-sm font-semibold text-slate-900">Expand repeated field</span>
                       <span className="block text-xs text-slate-600">One row per value of a repeated source field.</span>
                     </button>

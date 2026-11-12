@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useDismissibleLayer } from '../components/useDismissibleLayer';
 
 export type ConstructionOperationFamily =
@@ -413,7 +413,7 @@ export const ConstructionHistory = ({
     const isSelected = selected.kind === 'step' && selected.stepId === step.id;
     return (
       <li key={step.id} className="min-w-0">
-        <div className={`construction-query-step flex min-w-0 flex-wrap items-start gap-2 rounded-md border p-2 ${isSelected ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+        <div className={`construction-query-step flex min-w-0 flex-wrap items-center gap-1 rounded px-2 py-1 ${isSelected ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
           <span aria-hidden="true" className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
             {number}
           </span>
@@ -433,7 +433,7 @@ export const ConstructionHistory = ({
             className={`min-w-0 flex-1 rounded px-1 py-0.5 text-left ${isSelected ? 'text-blue-950' : 'text-slate-800 hover:text-blue-950'}`}
           >
             <span className="block break-words text-sm font-medium">{step.title}</span>
-            <span className="mt-0.5 block break-words text-xs leading-5 text-slate-600">{step.summary}</span>
+            <span className={isSelected ? "mt-0.5 block break-words text-xs text-slate-600" : "sr-only"}>{step.summary}</span>
           </button>
           {isSelected && ((onEditStep && step.editable) || onRemoveStep) ? (
             <div className="flex shrink-0 flex-wrap gap-1 border-l border-slate-200 pl-2">
@@ -462,25 +462,30 @@ export const ConstructionHistory = ({
       <li
         key={`column-adjustments-${group.firstStepId}`}
         data-testid={`construction-history-adjustment-group-${group.firstStepId}`}
-        className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-2"
+        className="min-w-0"
       >
-        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          Column adjustments <span className="font-normal normal-case">({group.steps.length})</span>
-        </h4>
-        <ol start={firstStepNumber} className="m-0 grid min-w-0 list-none grid-cols-1 gap-2 p-0">
-          {group.steps.map((step, index) => renderStep(step, firstStepNumber + index))}
-        </ol>
+        <details open={selected.kind === 'step' && group.steps.some((step) => step.id === selected.stepId)}>
+          <summary className="cursor-pointer rounded bg-slate-100 px-2 py-1 text-sm text-slate-700 hover:bg-blue-50">
+            <h4 className="m-0 inline text-sm font-medium">
+              Column adjustments <span className="font-normal">({group.steps.length})</span>
+            </h4>
+            <span className="ml-1 text-xs text-slate-500">{firstStepNumber}–{firstStepNumber + group.steps.length - 1}</span>
+          </summary>
+          <ol start={firstStepNumber} className="m-0 mt-1 flex min-w-0 list-none flex-wrap gap-1 border-l-2 border-blue-200 pl-2">
+            {group.steps.map((step, index) => renderStep(step, firstStepNumber + index))}
+          </ol>
+        </details>
       </li>
     );
   });
 
   return (
-    <section aria-label="Dataframe steps" data-testid="construction-history" className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
-      <header className="mb-3 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="text-sm font-semibold text-slate-950">Dataframe steps</h2>
-        <p className="text-xs text-slate-500">Applied in order from the source to the output.</p>
+    <section aria-label="Dataframe steps" data-testid="construction-history" className="construction-history min-w-0 bg-white px-2 py-2">
+      <header className="mb-1 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 className="m-0 text-sm font-semibold text-slate-950">Dataframe steps</h2>
+        <p className="m-0 text-xs text-slate-500">Source → recipe → transformations</p>
       </header>
-      <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="mb-1 flex min-w-0 flex-wrap items-center gap-2">
         <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Source</span>
         {sourceControl ? (
           <div className="min-w-0 max-w-full" onClickCapture={(event) => {
@@ -505,13 +510,13 @@ export const ConstructionHistory = ({
       </div>
       {sourceSteps}
       {steps.length === 0 ? (
-        <p data-testid="construction-history-empty" className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <p data-testid="construction-history-empty" className="m-0 mt-1 text-xs text-slate-500">
           {sourceSteps ? 'Add another step to transform this dataframe.' : 'Add a step to shape this dataframe.'}
         </p>
       ) : (
         <>
-          <h3 className="mb-2 mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Transformations</h3>
-          <ol className="m-0 grid min-w-0 list-none grid-cols-1 gap-2 p-0">
+          <h3 className="mb-1 mt-2 text-xs font-medium text-slate-500">Transformations</h3>
+          <ol className="m-0 flex min-w-0 list-none flex-wrap gap-1 p-0">
             {renderedHistoryGroups}
           </ol>
         </>
@@ -572,12 +577,32 @@ export const ConstructionWorkspace = ({
   readonly proposalId?: string;
   readonly draftVersion: number;
   readonly draftDigest: string;
-}) => (
+}) => {
+  const viewportRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return;
+    const measure = () => {
+      const bounds = node.getBoundingClientRect();
+      const top = Math.max(0, bounds.top + window.scrollY);
+      const trailing = Math.max(12, Math.ceil(document.documentElement.scrollHeight - bounds.bottom - window.scrollY));
+      node.style.setProperty('--construction-top', `${top}px`);
+      node.style.setProperty('--construction-bottom', `${trailing}px`);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    observer?.observe(document.body);
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer?.disconnect();
+    };
+  }, []);
+  return (
   <div
+    ref={viewportRef}
     data-testid="construction-workspace"
     data-draft-version={draftVersion}
     data-draft-digest={draftDigest}
-    className="mx-auto grid w-full max-w-[1920px] grid-cols-1 gap-2"
+    className="construction-workspace mx-auto flex w-full max-w-[1920px] flex-col gap-2"
   >
     {!editor ? <ConstructionTableNavigation
         tables={tables}
@@ -603,8 +628,8 @@ export const ConstructionWorkspace = ({
         </div> : null}
         {history ? <div className="min-w-0"><ConstructionHistory {...history} sourceControl={rowSetup} /></div> : null}
       </div> : null}
-      <div className="min-w-0">
-        {editor ? <section aria-label="Change editor" className="min-w-0">{editor}</section> : null}
+      <div className="construction-result-region min-w-0">
+        {editor ? <section aria-label="Change editor" className="construction-active-editor min-w-0">{editor}</section> : null}
         <section
           aria-label="Table result"
           data-testid="construction-preview"
@@ -620,4 +645,5 @@ export const ConstructionWorkspace = ({
         </section>
       </div>
   </div>
-);
+  );
+};

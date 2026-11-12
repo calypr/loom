@@ -3777,7 +3777,7 @@ const BuilderWorkspaceContent = ({
       data-testid="construction-operation-editor"
       data-operation-family={activeOperation.family}
       data-output-id={table.outputId}
-      className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"
+      className={rowIntentSession ? "min-w-0 bg-white" : "overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm"}
     >
       {!rowIntentSession ? <header className="border-b border-slate-200 px-3 py-2.5">
         <div className="flex items-center justify-between gap-3">
@@ -3823,7 +3823,7 @@ const BuilderWorkspaceContent = ({
         ) : null}
       </header> : null}
 
-      <div className="p-3">
+      <div className={rowIntentSession ? "py-2" : "p-3"}>
         {activeOperation.family === 'ADD_COLUMNS' ? (
           <div className="grid gap-4">
             {editingConstructionStep?.operation.kind === 'GROUP' && constructionLifecycle.capabilities.status === 'ready' ? (
@@ -4215,7 +4215,17 @@ const BuilderWorkspaceContent = ({
     />
   ) : undefined;
   const rowIntentEditor = rowIntentSession
-    ? <>{workspaceEditor}{candidatePreviewElement}</>
+    ? <>
+        {workspaceEditor}
+        {candidatePreviewElement || (previewIsCurrent && tablePreview) ? (
+          <section aria-label={candidatePreviewElement ? 'Proposed result' : 'Current saved result'} className="mt-2 border-t border-slate-200 pt-2">
+            <h3 className="m-0 mb-1 text-sm font-semibold text-slate-800">{candidatePreviewElement ? 'Proposed result' : 'Current saved result'}</h3>
+            <div className="max-h-[30dvh] overflow-auto">
+              {candidatePreviewElement ?? (tablePreview ? <ConstructionProposalPreview preview={tablePreview} presentationTable={table} presentation="saved" /> : null)}
+            </div>
+          </section>
+        ) : null}
+      </>
     : undefined;
   const externalWorkspaceEditor = rowIntentSession ? undefined : workspaceEditor;
   const workspaceCandidatePreview = rowIntentSession ? undefined : candidatePreview;
@@ -4309,7 +4319,7 @@ const BuilderWorkspaceContent = ({
     sameRootChangeRequestIdentity(pendingRowChangePreview.identity, currentRootChangeIdentity);
 
   return (
-    <main ref={workspaceHostRef} className="min-h-screen bg-slate-50 p-2 pb-10 text-slate-900 sm:p-3">
+    <main ref={workspaceHostRef} className="min-h-full bg-slate-50 p-2 text-slate-900 sm:p-3">
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {reviewOpen ? (
         <DatasetReviewPanel
