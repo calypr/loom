@@ -36,14 +36,14 @@ func (p PhysicalPlan) Validate() error {
 			return nil
 		}
 		if len(p.DeferredExpressionLets) != 0 || p.StageSequence == nil {
-			return fmt.Errorf("composite ClickHouse combine requires a typed AQL stage sequence and no deferred expressions")
+			return fmt.Errorf("composite ClickHouse combine requires a typed construction stage sequence and no deferred expressions")
 		}
 		if p.StageSequence.PreviewLimitBindKey != "" {
-			return fmt.Errorf("bounded AQL preview cannot feed a private ClickHouse artifact")
+			return fmt.Errorf("bounded preview cannot feed a private ClickHouse artifact")
 		}
 		for _, operation := range p.Operations {
 			if operation.Kind == PhysicalLimitOp {
-				return fmt.Errorf("bounded AQL prefix cannot feed a private ClickHouse artifact")
+				return fmt.Errorf("bounded prefix cannot feed a private ClickHouse artifact")
 			}
 			if operation.Kind == PhysicalGroupRowsOp {
 				return fmt.Errorf("GROUP prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping")
@@ -71,7 +71,7 @@ func (p PhysicalPlan) Validate() error {
 			privateStageID = input.PrivateStageID
 		}
 		if privateStageID != p.ClickHousePrefix.StageID {
-			return fmt.Errorf("composite ClickHouse input does not match the exact AQL prefix stage")
+			return fmt.Errorf("composite ClickHouse input does not match the exact prefix stage")
 		}
 	default:
 		return fmt.Errorf("unsupported physical engine %q", p.Engine)

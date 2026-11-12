@@ -14,8 +14,10 @@ type PhysicalPlan struct {
 	// plan. It is immutable after lowering and executed by the ClickHouse
 	// renderer/stream path, never by the AQL renderer.
 	ClickHouseCombine *PhysicalClickHouseCombine
-	// ClickHousePrefix is present only when a typed AQL stage sequence feeds one
-	// private ClickHouse artifact input at the terminal Combine boundary.
+	// ClickHousePrefix is present only when a typed construction stage sequence
+	// on an explicit prefix source backend (see PhysicalPrefixSourceBackend)
+	// feeds one private ClickHouse artifact input at the terminal Combine
+	// boundary.
 	ClickHousePrefix *PhysicalClickHousePrefix
 	// StageSequence composes typed operators over materialized intermediate
 	// rows. The ordinary operations form the source projection; stage execution
