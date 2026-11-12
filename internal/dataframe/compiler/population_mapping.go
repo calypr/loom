@@ -9,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
@@ -35,9 +36,6 @@ func CompilePopulationMappingOutput(target Target, output lower.CompiledRecipeOu
 	if err := target.validate(); err != nil {
 		return CompiledPopulationMappingQuery{}, err
 	}
-	if err := target.rejectPostgreSQL("population mapping compilation"); err != nil {
-		return CompiledPopulationMappingQuery{}, err
-	}
 	if output.RowIdentity == nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("population mapping requires a row identity")
 	}
@@ -57,11 +55,47 @@ func CompilePopulationMappingOutput(target Target, output lower.CompiledRecipeOu
 		}
 		rowIdentity = effectiveIdentity
 	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePopulationMappingPostgreSQL(target, physical, rowIdentity)
+	}
 	rendered, err := aql.RenderPhysicalPlan(physical)
 	if err != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("render population mapping physical plan: %w", err)
 	}
 	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+	if commandErr != nil {
+		return CompiledPopulationMappingQuery{}, fmt.Errorf("tag population mapping command: %w", commandErr)
+	}
+	return CompiledPopulationMappingQuery{
+		Command:                compiledCommand,
+		MemberColumn:           ir.PhysicalPopulationMappingMemberField,
+		IdentityPartsColumn:    mappingIdentityPartsColumn(physical),
+		ExplicitIdentityColumn: mappingExplicitIdentityColumn(physical),
+		RowIdentity:            rowIdentity,
+		Diagnostics:            physicalPlanDiagnostics(physical),
+	}, nil
+}
+
+// compilePopulationMappingPostgreSQL is the PostgreSQL dispatch arm (ticket
+// pg-sql-22): the same dialect-neutral mapping physical plan the AQL path
+// builds, rendered through the registered mapping entry with the membership
+// binding derived from the target's own validated storage schema (the
+// co-located control plane of the population.go deployment ruling — the
+// membership relations live in the same schema as the resource/edge tables,
+// so a target cannot pair storage from one schema with membership from
+// another). Rejections carry the renderer's typed ErrUnsupportedPostgresPlan
+// and never fall back to AQL; the proof metadata contract is identical to
+// the AQL entry.
+func compilePopulationMappingPostgreSQL(target Target, physical ir.PhysicalPlan, rowIdentity *spec.RowIdentity) (CompiledPopulationMappingQuery, error) {
+	membership, err := postgresrender.NewPostgresPopulationRootBinding(target.postgres.Resource.Identifier().Schema())
+	if err != nil {
+		return CompiledPopulationMappingQuery{}, fmt.Errorf("bind population mapping membership schema: %w", err)
+	}
+	rendered, err := postgresrender.RenderPopulationMappingPlan(physical, target.postgres, membership)
+	if err != nil {
+		return CompiledPopulationMappingQuery{}, fmt.Errorf("render population mapping postgresql plan: %w", err)
+	}
+	compiledCommand, commandErr := command.NewPostgreSQLCommand(rendered.SQL, rendered.Args)
 	if commandErr != nil {
 		return CompiledPopulationMappingQuery{}, fmt.Errorf("tag population mapping command: %w", commandErr)
 	}

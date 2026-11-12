@@ -815,6 +815,37 @@ func (r *planRenderer) renderGroupAggregateRegion(
 		})
 	}
 
+	// --- root-contributor set (pg-sql-22, mapping-witness gated). ---
+	// The AQL twin is render/aql/construction_group.go:748-769
+	// renderRootContributorSet: SORTED_UNIQUE(FLATTEN((FOR row IN groupRows
+	// FILTER row.present RETURN is_array ? x : [x]), 1)) — the group's
+	// distinct contributor texts in byte order. The gate is the second
+	// voice of the composition door's L-13.6 arm (stage_sequence.go
+	// validateStageKindPayload): a non-mapping renderer reaching the emitter
+	// keeps the registered refusal byte-identically. The AQL FILTER
+	// row.present maps to the rows the g_rows policy conjuncts already
+	// kept; a null scalar contributor joins nothing through the terminal's
+	// materialized "_key" text equality, so ARRAY_AGG's NULL exclusion is
+	// unobservable there (its only reader is the mapping terminal).
+	var contributorColumn *groupColumn
+	contributorAlias := ""
+	if group.RootContributorInputColumn != "" {
+		if r.mapping == nil || !r.mapping.witness {
+			return groupRegionResult{}, fmt.Errorf("%w: the root-contributor set is production-unreachable through the PostgreSQL compile target (L-13.6) and is refused, never partially rendered",
+				ErrUnsupportedPostgresPlan)
+		}
+		if group.RootContributorOutputColumn != populationMappingContributorColumn || group.RootContributorVariable == "" {
+			return groupRegionResult{}, fmt.Errorf("%w: the composed root-contributor set must materialize the compiler-owned mapping contributor column %q with its compiled variable",
+				ErrUnsupportedPostgresPlan, populationMappingContributorColumn)
+		}
+		resolved, err := groupResolveColumn(nameToColumn, group.RootContributorInputColumn)
+		if err != nil {
+			return groupRegionResult{}, fmt.Errorf("group root contributors: %w", err)
+		}
+		contributorColumn = resolved
+		contributorAlias = prefix + "rc"
+	}
+
 	dollar := func(index int) string { return "$" + strconv.Itoa(index) }
 
 	// --- semantic family key (pg-sql-16 G2, L-13.3 closed). ---
@@ -854,6 +885,9 @@ func (r *planRenderer) renderGroupAggregateRegion(
 				"(CASE WHEN "+typedRead+" IS NOT NULL THEN 1 ELSE "+guardCast(groupMissingKeyTag)+" END) > 0")
 		}
 	}
+	// The contributor pool groups by the ORDINARY keys only — a snapshot
+	// taken before the semantic tuple members are appended to keyReads.
+	baseKeyReads := append([]string(nil), keyReads...)
 	for _, item := range aggregates {
 		if item.column == nil {
 			continue
@@ -990,6 +1024,65 @@ func (r *planRenderer) renderGroupAggregateRegion(
 		}
 		grpSelects = append(grpSelects, expression+" AS "+item.alias)
 	}
+	// The contributor pool is its own relation, the same law as the
+	// InputMany row-value pool (groupManyRowValuePoolFor): the per-row
+	// array expansion multiplies rows and would inflate COUNT_ROWS/COUNT_
+	// NON_NULL if folded into g_grp's aggregate context. LEFT JOIN LATERAL
+	// ... ON true keeps a row with an empty/absent array (elem NULL, which
+	// ARRAY_AGG excludes), so the pool sees exactly the AQL FLATTEN set.
+	if contributorColumn != nil {
+		pool := prefix + "rcpool"
+		from := prefix + "rows"
+		memberRead := ""
+		if group.RootContributorInputMany {
+			if !contributorColumn.jsonb {
+				return groupRegionResult{}, fmt.Errorf("%w: a many-cardinality root-contributor input requires a jsonb source column", ErrUnsupportedPostgresPlan)
+			}
+			nullRead := groupNullRead(contributorColumn)
+			guard := "CASE WHEN " + nullRead + " IS NULL OR jsonb_typeof(" + nullRead + ") <> 'array' THEN '[]'::jsonb ELSE " + nullRead + " END"
+			from = prefix + "rows LEFT JOIN LATERAL jsonb_array_elements_text(" + guard + ") AS rcx(elem) ON true"
+			memberRead = "rcx.elem"
+		} else {
+			typedRead, _, err := r.groupColumnRead(contributorColumn, "STRING", groupValueTypeTag, dollar)
+			if err != nil {
+				return groupRegionResult{}, fmt.Errorf("group root contributors: %w", err)
+			}
+			memberRead = typedRead
+		}
+		poolSelects := make([]string, 0, len(baseKeyReads)+1)
+		for i, keyRead := range baseKeyReads {
+			poolSelects = append(poolSelects, keyRead+" AS m_k"+strconv.Itoa(i))
+		}
+		distinct := memberRead + ` COLLATE "C"`
+		poolSelects = append(poolSelects, "to_jsonb(COALESCE(ARRAY_AGG(DISTINCT "+distinct+" ORDER BY "+distinct+"), '{}'::text[])) AS m_pool")
+		poolSelect := "SELECT " + strings.Join(poolSelects, ", ") + " FROM " + from
+		if len(baseKeyReads) > 0 {
+			positions := make([]string, len(baseKeyReads))
+			for i := range positions {
+				positions[i] = strconv.Itoa(i + 1)
+			}
+			poolSelect += " GROUP BY " + strings.Join(positions, ", ")
+		}
+		manyCTEs = append(manyCTEs, pool+" AS ("+poolSelect+")")
+		conditions := make([]string, 0, len(baseKeyReads))
+		for j := range baseKeyReads {
+			conditions = append(conditions, baseKeyReads[j]+" IS NOT DISTINCT FROM "+pool+".m_k"+strconv.Itoa(j))
+		}
+		on := "TRUE"
+		if len(conditions) > 0 {
+			on = strings.Join(conditions, " AND ")
+		}
+		manyJoins = append(manyJoins, "LEFT JOIN "+pool+" ON "+on)
+		// The pool is GROUP BY'd on the same key reads, so it holds at most
+		// one row per group; the join value is extracted through MAX's text
+		// round trip because the functional dependency is not inferable
+		// through a CTE (42803) and jsonb has no max aggregate (42883) —
+		// the registered row-value-pool readings. A group absent from the
+		// pool (the missing-key GROUP's zero rows) reads '[]', the AQL
+		// SORTED_UNIQUE of nothing.
+		grpSelects = append(grpSelects, "COALESCE(MAX("+pool+".m_pool::text)::jsonb, '[]'::jsonb) AS "+contributorAlias)
+	}
+
 	grouped := "SELECT " + strings.Join(grpSelects, ", ") + " FROM " + prefix + "rows"
 	if len(manyJoins) > 0 {
 		grouped += " " + strings.Join(manyJoins, " ")
@@ -1059,6 +1152,9 @@ func (r *planRenderer) renderGroupAggregateRegion(
 		// non-null displays, else the tuple's code.
 		expressions[group.SemanticKey.OutputColumn] = "g." + prefix + "slb"
 	}
+	if contributorColumn != nil {
+		expressions[group.RootContributorOutputColumn] = "g." + contributorAlias
+	}
 	expressions[identityColumn] = identity
 	selects := make([]string, 0, len(outputColumns))
 	names := make([]string, 0, len(outputColumns))
@@ -1080,6 +1176,11 @@ func (r *planRenderer) renderGroupAggregateRegion(
 	if semantic != nil {
 		// The semantic label is one more emitted column, beside the ordinary
 		// keys, reducers, row values, and the hidden stable identity.
+		emitted++
+	}
+	if contributorColumn != nil {
+		// The mapping contributor set is the one further column the
+		// witness posture emits (pg-sql-22).
 		emitted++
 	}
 	if len(names) != emitted {
