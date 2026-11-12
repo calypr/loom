@@ -20,7 +20,12 @@ package postgres
 //	value  = CASE WHEN present THEN <selector value> END
 //	                          -- AQL: present ? row[column] : null
 //	group  = GROUP BY present, value  -- AQL: COLLECT present, value
-//	order  = present, TYPENAME(value), value  -- AQL: categoryScanDistinctSuffix
+//	order  = present, TYPENAME(value), string bytes (COLLATE "C"), value
+//	                          -- AQL: categoryScanDistinctSuffix; the string
+//	                             bucket is byte-pinned so the page order is
+//	                             cluster-collation-independent, matching
+//	                             AQL's byte comparison (see
+//	                             categoryStringValueKeyExpression)
 //	bound  = LIMIT maxValues+1        -- AQL: LIMIT @__loom_category_limit
 //
 // The three states null_semantics.go defines survive the aggregation because
@@ -370,7 +375,8 @@ func composeCategoryStatement(inner command.RenderedPostgresPhysicalPlan, valueI
 		" GROUP BY " + presentColumn + ", " + valueColumn + ") " +
 		"SELECT " + presentColumn + " AS \"c0\", " + valueColumn + " AS \"c1\" FROM " + categoryDistinctCTE
 	if ordered {
-		statement += " ORDER BY " + presentColumn + " ASC, " + categoryValueRankExpression + " ASC, " + valueColumn + " ASC"
+		statement += " ORDER BY " + presentColumn + " ASC, " + categoryValueRankExpression + " ASC, " +
+			categoryStringValueKeyExpression + " ASC, " + valueColumn + " ASC"
 	}
 	statement += " LIMIT " + boundParameter
 	result, err := command.NewRenderedPostgresPhysicalPlan(statement, args,
@@ -394,3 +400,15 @@ func innerColumnAlias(index int) string {
 const categoryValueRankExpression = `CASE WHEN "value" IS NULL THEN 2 ELSE CASE COALESCE(jsonb_typeof("value"), 'null')` +
 	` WHEN 'array' THEN 0 WHEN 'boolean' THEN 1 WHEN 'null' THEN 2 WHEN 'number' THEN 3` +
 	` WHEN 'object' THEN 4 WHEN 'string' THEN 5 ELSE 6 END END`
+
+// categoryStringValueKeyExpression is the byte-pin for the ORDER BY's string
+// bucket (the coded_group.go / graph.go COLLATE "C" precedent). Raw
+// "value" ASC compares jsonb strings with varstr_cmp under the database
+// default collation, which is deployment-dependent and diverges from AQL's
+// byte comparison for mixed-case or non-ASCII values. jsonb strings order by
+// their raw UTF-8 bytes here; every non-string value yields SQL NULL in this
+// key, so within the remaining type buckets the trailing "value" ASC stays
+// the tiebreak and is collation-independent for scalars (jsonb numbers
+// compare numerically, booleans by false/true, and SQL NULL ranks last).
+// Array and object buckets keep jsonb's documented structural comparison.
+const categoryStringValueKeyExpression = `CASE WHEN jsonb_typeof("value") = 'string' THEN "value" #>> '{}' END COLLATE "C"`

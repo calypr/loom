@@ -92,7 +92,9 @@ func TestRenderCategoryScanComposesBoundedDistinctPage(t *testing.T) {
 		`SELECT "present" AS "c0", "value" AS "c1" FROM __loom_category_distinct ` +
 		`ORDER BY "present" ASC, CASE WHEN "value" IS NULL THEN 2 ELSE CASE COALESCE(jsonb_typeof("value"), 'null')` +
 		` WHEN 'array' THEN 0 WHEN 'boolean' THEN 1 WHEN 'null' THEN 2 WHEN 'number' THEN 3` +
-		` WHEN 'object' THEN 4 WHEN 'string' THEN 5 ELSE 6 END END ASC, "value" ASC LIMIT $6`
+		` WHEN 'object' THEN 4 WHEN 'string' THEN 5 ELSE 6 END END ASC, ` +
+		`CASE WHEN jsonb_typeof("value") = 'string' THEN "value" #>> '{}' END COLLATE "C" ASC, ` +
+		`"value" ASC LIMIT $6`
 	if rendered.Values.SQL != want {
 		t.Fatalf("category page SQL\ngot:  %s\nwant: %s", rendered.Values.SQL, want)
 	}
@@ -445,7 +447,10 @@ func TestRenderCategoryScanGuardsAreLoadBearing(t *testing.T) {
 		if strings.Contains(rendered.Values.SQL, `ORDER BY r0."logical_id"`) {
 			t.Fatalf("the plan sort survived into the inner read:\n%s", rendered.Values.SQL)
 		}
-		for _, key := range []string{`ORDER BY "present" ASC`, `END END ASC, "value" ASC`} {
+		for _, key := range []string{
+			`ORDER BY "present" ASC`, `END END ASC,`,
+			`CASE WHEN jsonb_typeof("value") = 'string' THEN "value" #>> '{}' END COLLATE "C" ASC, "value" ASC`,
+		} {
 			if !strings.Contains(rendered.Values.SQL, key) {
 				t.Fatalf("page order key %q missing:\n%s", key, rendered.Values.SQL)
 			}
@@ -693,5 +698,40 @@ func TestCategoryScanLiveOmitNullsReadsJSONNullAsSQLNull(t *testing.T) {
 	want := [][]string{{"false", "<null>"}, {"true", "<null>"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("omit-nulls readings\ngot:  %v\nwant: %v", got, want)
+	}
+}
+
+func TestCategoryScanLivePageOrderIsBytePinnedNotCollationDependent(t *testing.T) {
+	svc, binding := sql25LiveService(t)
+	// The fixture is collation-sensitive: raw UTF-8 bytes order "Zebra"
+	// (0x5A) before "apple" (0x61) before "zeta" (0x7A) before "Äpfel"
+	// (0xC3..), while an English ICU/default cluster collation interleaves
+	// case-insensitively and pulls the accented value next to "a".
+	for _, gender := range []string{"zeta", "apple", "Äpfel", "Zebra"} {
+		svc.insertResource(t, svc.schema, itProject, itGeneration, "Patient", "p-"+gender, "FHIR/Patient", map[string]any{"gender": gender})
+	}
+	collation := svc.witness(t, `SELECT datcollate FROM pg_database WHERE datname = current_database()`)[0][0]
+
+	rendered := sql25RenderLive(t, sql25PatientPlan("FHIR/Patient"), binding, 8)
+	got := svc.runRendered(t, rendered.Values)
+	want := [][]string{{"true", "Zebra"}, {"true", "apple"}, {"true", "zeta"}, {"true", "Äpfel"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("string page order is not byte-pinned (cluster datcollate = %s)\ngot:  %v\nwant: %v\nsql: %s", collation, got, want, rendered.Values.SQL)
+	}
+	if collation != "C" && collation != "POSIX" && collation != "C.UTF-8" {
+		// On a non-C cluster the cell must discriminate: the same rows
+		// ordered under the cluster collation alone differ from the pinned
+		// order, so a regression to a bare "value" ASC would fail above.
+		unpinned := svc.witness(t, `SELECT payload #>> '{gender}' FROM "`+svc.schema+`"."fhir_resource" `+
+			`WHERE project = $1 AND dataset_generation = $2 AND resource_type = 'Patient' `+
+			`AND auth_resource_path = ANY($3::text[]) GROUP BY 1 ORDER BY 1 ASC`,
+			itProject, itGeneration, []string{"FHIR/Patient"})
+		plain := make([]string, len(unpinned))
+		for index, row := range unpinned {
+			plain[index] = row[0]
+		}
+		if reflect.DeepEqual(plain, []string{"Zebra", "apple", "zeta", "Äpfel"}) {
+			t.Fatalf("the cluster collation orders like raw bytes; this cell cannot discriminate (datcollate = %s)", collation)
+		}
 	}
 }

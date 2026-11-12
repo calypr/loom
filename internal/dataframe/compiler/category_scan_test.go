@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -897,5 +898,65 @@ func TestCompileCategoryScanStageForPostgreSQLKeepsTheSourceProjectionAndRefuses
 		if strings.Contains(strings.ToLower(stageErr.Error()), "aql") {
 			t.Fatalf("composed stage refusal must not offer an AQL fallback: %v", stageErr)
 		}
+	}
+}
+
+// TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSourceRead
+// is the positive cell for the source-preserving proof arm: a stage whose
+// prefix is a parent-preserving RELATED_EXPAND plus a row-preserving
+// RELATED_FIELD arrives with a StageSequence, passes the shared
+// categoryScanPreservesSourceCategories proof, and is narrowed to the source
+// read before the PostgreSQL terminal renders. The AQL twin is
+// TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategories.
+func TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSourceRead(t *testing.T) {
+	compiled := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, false))
+	if _, found := compiledStageByID(compiled.Stages, "add_status"); !found {
+		t.Fatal("compiled output lost the terminal related-field stage")
+	}
+
+	scanned, err := CompileCategoryScanStage(mustPostgreSQLCategoryTarget(t), compiled, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("proof-accepted related prefix must render, not refuse: %v", err)
+	}
+	sql, args := mustPostgreSQLCategorySQL(t, scanned.Command)
+	for _, want := range []string{
+		"__loom_category_source AS", "__loom_category_rows AS", "__loom_category_distinct AS",
+		`GROUP BY "present", "value"`, `ORDER BY "present" ASC`,
+		`END COLLATE "C" ASC, "value" ASC`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("collapsed related-prefix page is not the registered composed statement (missing %q):\n%s", want, sql)
+		}
+	}
+	if !strings.HasSuffix(sql, "LIMIT $"+fmt.Sprint(len(args))) {
+		t.Fatalf("the bound parameter must be the final placeholder:\n%s\n%#v", sql, args)
+	}
+	if scanned.Proof.Version != 2 || scanned.Proof.StageID != "add_status" ||
+		scanned.Proof.ColumnID != "category_id" || scanned.Proof.ValueColumnID != "value_id" ||
+		scanned.Proof.Column != "category" || scanned.Proof.MaxValues != 256 || !scanned.Proof.PresenceTracked {
+		t.Fatalf("collapsed scan lost its Version-2 stage/pair proof: %#v", scanned.Proof)
+	}
+	if terminalStage, _ := compiledStageByID(compiled.Stages, "add_status"); true {
+		wantDigest, hashErr := categoryHash(terminalStage.Columns)
+		if hashErr != nil {
+			t.Fatal(hashErr)
+		}
+		if scanned.Proof.OutputSchemaDigest != wantDigest || scanned.Proof.PlanFingerprint == "" ||
+			scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
+			t.Fatalf("collapsed scan lost its proof identity: %#v", scanned.Proof)
+		}
+	}
+	if scanned.CategoryIndex != nil || scanned.PreviewCoveringIndex != nil || scanned.OverflowWitness != nil {
+		t.Fatalf("Arango-only execution aids reached the collapsed PostgreSQL scan: %#v %#v %#v",
+			scanned.CategoryIndex, scanned.PreviewCoveringIndex, scanned.OverflowWitness)
+	}
+
+	// The arm is proof-gated, not blanket-accepted: inserting a FILTER into
+	// the same prefix invalidates the source-category proof and the same
+	// stage scan refuses with the typed capability gap.
+	filtered := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, true, false))
+	_, refusalErr := CompileCategoryScanStage(mustPostgreSQLCategoryTarget(t), filtered, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if !errors.Is(refusalErr, postgresrender.ErrUnsupportedPostgresPlan) {
+		t.Fatalf("unproven related prefix must refuse with the typed capability gap: %v", refusalErr)
 	}
 }
