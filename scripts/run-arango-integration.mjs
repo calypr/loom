@@ -167,6 +167,29 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
+// pg-exec-12: the table-shape exclusion-evidence live battery (exact
+// seven-term evidence, bounded paging, identity omission, the category
+// three-state, cancellation, the renderer-unsupported refusal, the auth
+// scope leg, the no-policy status distinctness leg, and the N-5 census
+// audit) requires the separate PostgreSQL 18 fixture service
+// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
+// server under the ticket check-2 harness (go test
+// ./internal/dataframe/execution -run 'TestPostgresExclusions|TestZZPostgresExclusions');
+// in this Arango-only lane their explicit skips stay visible in the proof
+// summary, following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
+// pg-exec-10 registration precedent. All nine cells are parent-level and
+// skip before any fixture write, so no slash-qualified names.
+const pgExec12Exclusions = new Set([
+    'TestPostgresExclusionsExactEvidenceLivePG18',
+    'TestPostgresExclusionsBoundedPagingLivePG18',
+    'TestPostgresExclusionsIdentityOmissionLivePG18',
+    'TestPostgresExclusionsCategoryThreeStateLivePG18',
+    'TestPostgresExclusionsCancellationLivePG18',
+    'TestPostgresExclusionsUnsupportedShapeLivePG18',
+    'TestPostgresExclusionsAuthScopeLivePG18',
+    'TestPostgresExclusionsNoPolicyStatusDistinctLivePG18',
+    'TestZZPostgresExclusionsZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -183,6 +206,7 @@ const external = new Set([
     ...pgQueryRoute,
     ...pgIr03PrefixSeam,
     ...pgRuntimeComposition,
+    ...pgExec12Exclusions,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
