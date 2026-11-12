@@ -875,7 +875,9 @@ func run(ctx context.Context, serverConfig Config) error {
 		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
+	// Typed route composition contract (arch-backend-08): named fields,
+	// validated complete before any route installs.
+	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, routeDependencies{releases: publishedRegistry, scopes: auth.scopePolicy}); err != nil {
 		return fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {
@@ -1335,7 +1337,11 @@ func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, 
 	// route already returns its typed AUTHORING_UNAVAILABLE/TRACE_UNAVAILABLE/
 	// ROW_LINEAGE_UNAVAILABLE refusal through the nil-handler guards, and the
 	// route census test pins that none of them ever serves Arango-backed data.
-	if err := registerRoutes(server, generationService, authorizer, resolver, nil, scopeResolver); err != nil {
+	// The read-only first-query lane deliberately carries no releases
+	// port (nil is this lane's pinned posture, asserted by the route-census
+	// test) and the auth-mode-derived explicit scope policy. Typed route
+	// composition contract (arch-backend-08).
+	if err := registerRoutes(server, generationService, authorizer, resolver, nil, routeDependencies{scopes: auth.scopePolicy}); err != nil {
 		_ = closeRuntime()
 		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
 	}

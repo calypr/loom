@@ -774,7 +774,10 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		reader: materializationReader, catalog: runtime.Bundles, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
 	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, runtime.Bundles, scopeResolver); err != nil {
+	// Typed route composition contract (arch-backend-08): the releases port
+	// and the explicit scoped-auth policy arrive as named fields, validated
+	// complete before any route installs.
+	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, routeDependencies{releases: runtime.Bundles, scopes: auth.scopePolicy}); err != nil {
 		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
 	if privateClickHouseArtifacts != nil {
