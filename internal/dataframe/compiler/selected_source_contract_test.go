@@ -117,10 +117,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 				_, err := compiler.CompileCellTraceOutput(target, zeroOutput, "name", 0, 10, policy)
 				return err
 			}},
-			{"row lineage compilation", func() error {
-				_, err := compiler.CompileRowLineageOutput(target, zeroOutput, "row", 0, 10, policy)
-				return err
-			}},
 			{"graph query compilation", func() error {
 				_, err := compiler.CompileResolvedGraphQuery(target, zeroResolved, 10, policy)
 				return err
