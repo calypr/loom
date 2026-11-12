@@ -10,70 +10,53 @@ package postgres
 // github.com/calypr/loom/internal/backends/postgres, whose data-plane
 // types (Runtime, Open) live in open.go. Aliases, not copies: same types,
 // same error identities, zero drift risk.
+//
+// arch-backend-09 deleted every forwarding alias with zero references
+// anywhere in the repository (52 dead-leaf entries, aliased-import and
+// same-package references included in the census); unreferenced
+// forwarding APIs must stay deleted. The facade-collapse ruling decides
+// whether the remaining referenced entries migrate to direct control
+// imports at the consumers.
 
 import (
 	"github.com/calypr/loom/internal/backends/postgres/control"
 )
 
 type (
-	BatchEdgeConflictError         = control.BatchEdgeConflictError
-	BatchIdentityConflictError     = control.BatchIdentityConflictError
-	BatchResourceConflictError     = control.BatchResourceConflictError
-	CatalogStore                   = control.CatalogStore
-	Config                         = control.Config
-	ConnSource                     = control.ConnSource
-	ConnectError                   = control.ConnectError
-	DriverCondition                = control.DriverCondition
-	EdgeBatch                      = control.EdgeBatch
-	EdgeBatchResult                = control.EdgeBatchResult
-	EdgeOccurrenceRow              = control.EdgeOccurrenceRow
-	EdgeRepository                 = control.EdgeRepository
-	EdgeScope                      = control.EdgeScope
-	EdgeSourceMissingError         = control.EdgeSourceMissingError
-	EdgeWriter                     = control.EdgeWriter
-	FieldProfileCoverage           = control.FieldProfileCoverage
-	FieldProfileFilter             = control.FieldProfileFilter
-	FieldProfileRepository         = control.FieldProfileRepository
-	FieldProfileScope              = control.FieldProfileScope
-	FieldProfileStore              = control.FieldProfileStore
-	InventoryCountScope            = control.InventoryCountScope
-	InventoryRepository            = control.InventoryRepository
-	InventorySourceGroup           = control.InventorySourceGroup
-	InventoryStore                 = control.InventoryStore
-	MigrateResult                  = control.MigrateResult
-	RelationshipOccurrenceGroup    = control.RelationshipOccurrenceGroup
-	RelationshipScope              = control.RelationshipScope
-	RelationshipStore              = control.RelationshipStore
-	ResourceBatch                  = control.ResourceBatch
-	ResourceBatchResult            = control.ResourceBatchResult
-	ResourceRepository             = control.ResourceRepository
-	ResourceWriter                 = control.ResourceWriter
-	Row                            = control.Row
-	Rows                           = control.Rows
-	SemanticContributionRepository = control.SemanticContributionRepository
-	SemanticReadRepository         = control.SemanticReadRepository
-	Series                         = control.Series
-	SeriesSchemas                  = control.SeriesSchemas
-	SetupPolicy                    = control.SetupPolicy
-	TranslatedError                = control.TranslatedError
-	UniqueConflictError            = control.UniqueConflictError
-	Client                         = control.Client
-	ClientConfig                   = control.ClientConfig
-	ExplorerStore                  = control.ExplorerStore
-	ExplicitGroupStore             = control.ExplicitGroupStore
-	PublishStore                   = control.PublishStore
-	InterpretationStore            = control.InterpretationStore
-	CapabilitySnapshotStore        = control.CapabilitySnapshotStore
-	TableShapeCapabilityStore      = control.TableShapeCapabilityStore
-	DatasetReleaseStore            = control.DatasetReleaseStore
-	BundleCatalog                  = control.BundleCatalog
-	BundleRegistry                 = control.BundleRegistry
-	BundleReadPins                 = control.BundleReadPins
-	PublicationReconciler          = control.PublicationReconciler
-	PhysicalDropTable              = control.PhysicalDropTable
-	RecipeExecRegistry             = control.RecipeExecRegistry
-	RecipeRevisionRegistry         = control.RecipeRevisionRegistry
-	ChartifactCatalog              = control.ChartifactCatalog
+	BatchEdgeConflictError      = control.BatchEdgeConflictError
+	BatchIdentityConflictError  = control.BatchIdentityConflictError
+	BatchResourceConflictError  = control.BatchResourceConflictError
+	Config                      = control.Config
+	ConnSource                  = control.ConnSource
+	ConnectError                = control.ConnectError
+	EdgeBatch                   = control.EdgeBatch
+	EdgeBatchResult             = control.EdgeBatchResult
+	EdgeOccurrenceRow           = control.EdgeOccurrenceRow
+	EdgeScope                   = control.EdgeScope
+	EdgeSourceMissingError      = control.EdgeSourceMissingError
+	FieldProfileCoverage        = control.FieldProfileCoverage
+	FieldProfileFilter          = control.FieldProfileFilter
+	FieldProfileScope           = control.FieldProfileScope
+	FieldProfileStore           = control.FieldProfileStore
+	InventoryCountScope         = control.InventoryCountScope
+	InventorySourceGroup        = control.InventorySourceGroup
+	InventoryStore              = control.InventoryStore
+	RelationshipOccurrenceGroup = control.RelationshipOccurrenceGroup
+	RelationshipScope           = control.RelationshipScope
+	RelationshipStore           = control.RelationshipStore
+	ResourceBatch               = control.ResourceBatch
+	ResourceBatchResult         = control.ResourceBatchResult
+	Rows                        = control.Rows
+	Series                      = control.Series
+	SeriesSchemas               = control.SeriesSchemas
+	SetupPolicy                 = control.SetupPolicy
+	TranslatedError             = control.TranslatedError
+	Client                      = control.Client
+	ClientConfig                = control.ClientConfig
+	ExplorerStore               = control.ExplorerStore
+	ExplicitGroupStore          = control.ExplicitGroupStore
+	PublishStore                = control.PublishStore
+	BundleCatalog               = control.BundleCatalog
 )
 
 const (
@@ -90,7 +73,6 @@ const (
 	SeriesRecipeExecRegistries = control.SeriesRecipeExecRegistries
 	SetupMigrate               = control.SetupMigrate
 	SetupNone                  = control.SetupNone
-	ApplicationNamePrefix      = control.ApplicationNamePrefix
 )
 
 var (
@@ -114,21 +96,7 @@ var (
 	ErrFutureSchemaVersion                   = control.ErrFutureSchemaVersion
 	ErrMigrationMissing                      = control.ErrMigrationMissing
 	ErrMigrationOutOfOrder                   = control.ErrMigrationOutOfOrder
-	ConditionAbortedTransaction              = control.ConditionAbortedTransaction
-	ConditionAdminShutdown                   = control.ConditionAdminShutdown
-	ConditionCannotConnectNow                = control.ConditionCannotConnectNow
-	ConditionCommitRejected                  = control.ConditionCommitRejected
-	ConditionConnectionFailure               = control.ConditionConnectionFailure
-	ConditionConnectionLost                  = control.ConditionConnectionLost
-	ConditionCrashShutdown                   = control.ConditionCrashShutdown
-	ConditionDeadlockDetected                = control.ConditionDeadlockDetected
-	ConditionQueryCanceled                   = control.ConditionQueryCanceled
-	ConditionRequestCanceled                 = control.ConditionRequestCanceled
-	ConditionSerializationFailure            = control.ConditionSerializationFailure
 	ConditionServerRejected                  = control.ConditionServerRejected
-	ConditionSessionTerminated               = control.ConditionSessionTerminated
-	ConditionTransactionClosed               = control.ConditionTransactionClosed
-	ConditionUniqueViolation                 = control.ConditionUniqueViolation
 	TranslateError                           = control.TranslateError
 	TranslateCommitError                     = control.TranslateCommitError
 	AsUniqueConflict                         = control.AsUniqueConflict
@@ -157,7 +125,6 @@ var (
 	NewSemanticReadRepository                = control.NewSemanticReadRepository
 	CommitOutcomeUnknown                     = control.CommitOutcomeUnknown
 	OpenPool                                 = control.OpenPool
-	OwnerMigrations                          = control.OwnerMigrations
 	MigrateSchema                            = control.MigrateSchema
 	MigrateDatasetReleaseSchema              = control.MigrateDatasetReleaseSchema
 	VerifySchema                             = control.VerifySchema
@@ -166,16 +133,4 @@ var (
 	VerifyDatasetReleaseSchema               = control.VerifyDatasetReleaseSchema
 	VerifyRecipeChainsSchema                 = control.VerifyRecipeChainsSchema
 	VerifyRecipeExecRegistriesSchema         = control.VerifyRecipeExecRegistriesSchema
-	NewExplorerStore                         = control.NewExplorerStore
-	NewExplicitGroupStore                    = control.NewExplicitGroupStore
-	NewPublishStore                          = control.NewPublishStore
-	NewInterpretationStore                   = control.NewInterpretationStore
-	NewCapabilitySnapshotStore               = control.NewCapabilitySnapshotStore
-	NewTableShapeCapabilityStore             = control.NewTableShapeCapabilityStore
-	NewDatasetReleaseStore                   = control.NewDatasetReleaseStore
-	NewBundleCatalog                         = control.NewBundleCatalog
-	NewPublicationReconciler                 = control.NewPublicationReconciler
-	NewRecipeExecRegistry                    = control.NewRecipeExecRegistry
-	NewRecipeRevisionRegistry                = control.NewRecipeRevisionRegistry
-	NewChartifactCatalog                     = control.NewChartifactCatalog
 )
