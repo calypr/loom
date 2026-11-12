@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 )
 
 const (
@@ -645,41 +647,37 @@ func rowLineageHasDirectRootSource(operations []ir.PhysicalOperation) bool {
 }
 
 func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, rowID string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledRowLineageQuery, error) {
-	// Row lineage is an AQL-rendered auxiliary surface: its cohort and
-	// group contributor renderers have no PostgreSQL source, so a
-	// PostgreSQL-selected target is refused by name instead of letting an
-	// AQL-tagged command reach the PostgreSQL row port.
+	// Row lineage is a per-dialect auxiliary surface. The PostgreSQL target
+	// renders its bounded contributor pages through the registered terminal
+	// slice (render/postgres/row_lineage.go, pg-sql-23); the surfaces that
+	// still have no PostgreSQL source — the cohort and explicit-group-rows
+	// membership renderers, and every traced or coded contributor page —
+	// refuse by name inside that path. There is no AQL-to-SQL translation:
+	// neither dialect can produce the other's command.
 	if err := target.validate(); err != nil {
 		return CompiledRowLineageQuery{}, err
+	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compileRowLineagePostgreSQL(target, output, rowID, offset, limit)
 	}
 	if err := target.rejectPostgreSQL("row lineage compilation"); err != nil {
 		return CompiledRowLineageQuery{}, err
 	}
-	rowID = strings.TrimSpace(rowID)
-	if rowID == "" {
-		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage row ID is required")
-	}
-	if offset < 0 {
-		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage offset cannot be negative")
-	}
-	if limit == 0 {
-		limit = DefaultRowLineageLimit
-	}
-	if limit < 1 || limit > MaxRowLineageContributors {
-		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage limit must be between 1 and %d", MaxRowLineageContributors)
+	var err error
+	if rowID, offset, limit, err = normalizeRowLineagePage(rowID, offset, limit); err != nil {
+		return CompiledRowLineageQuery{}, err
 	}
 	capability := RowLineageCapabilityForOutput(output)
 	if !capability.Available {
 		return CompiledRowLineageQuery{}, &RowLineageUnsupportedError{Capability: capability}
 	}
-	expandedCodingGroup := rowLineageExpandedCodingGroup(output)
-	relatedCodingGroup := rowLineageRelatedCodingGroup(output)
 	if output.RootResourceType == "" {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source resource type is required")
 	}
 	if output.RowIdentity == nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires stable output row identity")
 	}
+	_ = policy // Row lineage uses the canonical pre-optimization stage semantics.
 	if rowLineageCohortGroupFilterSuffix(output) {
 		sequence := output.Plan.StageSequence
 		groupStage := sequence.Stages[0]
@@ -724,14 +722,116 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 			FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
 		}, nil
 	}
+	physical, err := prepareRowLineagePhysicalPlan(output, rowID, offset, limit)
+	if err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
+	rendered, err := aql.RenderPhysicalPlan(physical)
+	if err != nil {
+		return CompiledRowLineageQuery{}, fmt.Errorf("render row lineage physical plan: %w", err)
+	}
+	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+	if commandErr != nil {
+		return CompiledRowLineageQuery{}, fmt.Errorf("tag row lineage command: %w", commandErr)
+	}
+	return CompiledRowLineageQuery{
+		Command: compiledCommand, Offset: offset, Limit: limit,
+		FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+	}, nil
+}
+
+// compileRowLineagePostgreSQL compiles one bounded exact-row lineage
+// contributor page for the PostgreSQL compile target. It shares every
+// admission step with the AQL path — the same page bounds, the same
+// capability decision, and the same physical-plan preparation, including the
+// hidden resource-id and occurrence-key projections and the request/output
+// proof metadata the terminal carries — and then renders through the
+// PostgreSQL terminal slice and tags a PostgreSQL command. Shapes the
+// terminal slice does not register refuse with the renderer's typed
+// unsupported-plan error; there is no AQL fallback and no AQL-to-SQL
+// translation anywhere on this path.
+func compileRowLineagePostgreSQL(target Target, output lower.CompiledRecipeOutput, rowID string, offset, limit int) (CompiledRowLineageQuery, error) {
+	rowID, offset, limit, err := normalizeRowLineagePage(rowID, offset, limit)
+	if err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
+	capability := RowLineageCapabilityForOutput(output)
+	if !capability.Available {
+		// The sealed contract (selected_source_contract_test.go) requires a
+		// PostgreSQL target's refusal of an uncompilable lineage shape to
+		// name its surface and carry the renderer's typed unsupported-plan
+		// error, exactly like every other PostgreSQL-refused surface. The
+		// capability error stays in the chain: the reason code remains the
+		// diagnostic authority for why the shape has no lineage at all.
+		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage compilation is unsupported on the PostgreSQL compile target: %w", errors.Join(
+			&RowLineageUnsupportedError{Capability: capability}, postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	// The two membership-row lineage surfaces render through dedicated AQL
+	// entry points over the group-membership collections, which have no
+	// PostgreSQL source at all (population.go owns those roots); they refuse
+	// here by name rather than reach a renderer that cannot bind them.
+	if rowLineageStandaloneGroupRows(output) {
+		return CompiledRowLineageQuery{}, fmt.Errorf("explicit group row lineage is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
+	}
+	if rowLineageCohortGroupFilterSuffix(output) {
+		return CompiledRowLineageQuery{}, fmt.Errorf("composed cohort row lineage is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
+	}
+	if output.RootResourceType == "" {
+		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source resource type is required")
+	}
+	if output.RowIdentity == nil {
+		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires stable output row identity")
+	}
+	physical, err := prepareRowLineagePhysicalPlan(output, rowID, offset, limit)
+	if err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
+	compiledCommand, _, err := target.renderPostgreSQLFinalPlan(physical)
+	if err != nil {
+		return CompiledRowLineageQuery{}, err
+	}
+	return CompiledRowLineageQuery{
+		Command: compiledCommand, Offset: offset, Limit: limit,
+		FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
+	}, nil
+}
+
+// normalizeRowLineagePage is the single page-boundary contract shared by both
+// dialects: a trimmed non-empty row identity, a non-negative offset, and a
+// limit in [1, MaxRowLineageContributors] with the default applied.
+func normalizeRowLineagePage(rowID string, offset, limit int) (string, int, int, error) {
+	rowID = strings.TrimSpace(rowID)
+	if rowID == "" {
+		return "", 0, 0, fmt.Errorf("row lineage row ID is required")
+	}
+	if offset < 0 {
+		return "", 0, 0, fmt.Errorf("row lineage offset cannot be negative")
+	}
+	if limit == 0 {
+		limit = DefaultRowLineageLimit
+	}
+	if limit < 1 || limit > MaxRowLineageContributors {
+		return "", 0, 0, fmt.Errorf("row lineage limit must be between 1 and %d", MaxRowLineageContributors)
+	}
+	return rowID, offset, limit, nil
+}
+
+// prepareRowLineagePhysicalPlan is the single preparation both dialects
+// render: it clones the canonical pre-optimization plan, applies the
+// execution window, anchors the direct root source (the authored RELATED
+// owner chain or the Pivot preimage identities, when the capability gate
+// admitted one), mints the two hidden contributor identity columns on the
+// terminal projection, binds the page coordinates, and attaches the typed
+// PhysicalRowLineageReturn that carries the request/output proof metadata.
+// Neither dialect mutates the request contract after this point.
+func prepareRowLineagePhysicalPlan(output lower.CompiledRecipeOutput, rowID string, offset, limit int) (ir.PhysicalPlan, error) {
 	physical := ir.ClonePhysicalPlan(output.Plan)
-	_ = policy // Row lineage uses the canonical pre-optimization stage semantics.
 	if physical.StageSequence == nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires a construction stage sequence")
+		return ir.PhysicalPlan{}, fmt.Errorf("row lineage requires a construction stage sequence")
 	}
 	physical, err := withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("apply row lineage execution window: %w", err)
+		return ir.PhysicalPlan{}, fmt.Errorf("apply row lineage execution window: %w", err)
 	}
 	root := ""
 	for _, operation := range physical.Operations {
@@ -741,8 +841,10 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 		}
 	}
 	if root == "" {
-		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires a direct root source")
+		return ir.PhysicalPlan{}, fmt.Errorf("row lineage requires a direct root source")
 	}
+	expandedCodingGroup := rowLineageExpandedCodingGroup(output)
+	relatedCodingGroup := rowLineageRelatedCodingGroup(output)
 	var lineageTrace *ir.PhysicalRowLineageTrace
 	if rowLineageHasRelatedExpand(physical.StageSequence) {
 		rootKeyBindKey := "row_lineage_root_key"
@@ -781,14 +883,14 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 			}},
 		}
 		if len(physical.Operations) == 0 || physical.Operations[0].Kind != ir.PhysicalRootScanOp {
-			return CompiledRowLineageQuery{}, fmt.Errorf("row lineage could not anchor its direct root source")
+			return ir.PhysicalPlan{}, fmt.Errorf("row lineage could not anchor its direct root source")
 		}
 		if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
-			return CompiledRowLineageQuery{}, fmt.Errorf("validate row lineage source scopes before anchoring: %w", err)
+			return ir.PhysicalPlan{}, fmt.Errorf("validate row lineage source scopes before anchoring: %w", err)
 		}
 		anchorIndex := ir.PhysicalScopeWindowEnd(physical.Operations, 1)
 		if anchorIndex <= 1 || anchorIndex >= len(physical.Operations) {
-			return CompiledRowLineageQuery{}, fmt.Errorf("row lineage source has no validated root scope before its projection")
+			return ir.PhysicalPlan{}, fmt.Errorf("row lineage source has no validated root scope before its projection")
 		}
 		physical.Operations = append(physical.Operations[:anchorIndex], append([]ir.PhysicalOperation{rootFilter}, physical.Operations[anchorIndex:]...)...)
 	} else if rowLineageConstructionGroupPivotPreimage(output) {
@@ -851,7 +953,7 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 				}
 			}
 			if !found {
-				return CompiledRowLineageQuery{}, fmt.Errorf("expanded Group source is missing exact occurrence projection %q", occurrenceKeyColumn)
+				return ir.PhysicalPlan{}, fmt.Errorf("expanded Group source is missing exact occurrence projection %q", occurrenceKeyColumn)
 			}
 		} else if !relatedCodingGroup {
 			operation.Return.Projections = appendUniqueProjection(operation.Return.Projections,
@@ -860,7 +962,7 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 		}
 	}
 	if returnCount != 1 {
-		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage direct source requires one terminal projection")
+		return ir.PhysicalPlan{}, fmt.Errorf("row lineage direct source requires one terminal projection")
 	}
 	physical.BindVars[rowLineageRowIDBind] = rowID
 	physical.BindVars[rowLineageOffsetBind] = offset
@@ -874,23 +976,12 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 		OccurrenceKeyColumn: occurrenceKeyColumn,
 	}
 	if err := physical.Validate(); err != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("validate row lineage physical plan: %w", err)
+		return ir.PhysicalPlan{}, fmt.Errorf("validate row lineage physical plan: %w", err)
 	}
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("verify row lineage physical scope: %w", err)
+		return ir.PhysicalPlan{}, fmt.Errorf("verify row lineage physical scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
-	if err != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("render row lineage physical plan: %w", err)
-	}
-	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
-	if commandErr != nil {
-		return CompiledRowLineageQuery{}, fmt.Errorf("tag row lineage command: %w", commandErr)
-	}
-	return CompiledRowLineageQuery{
-		Command: compiledCommand, Offset: offset, Limit: limit,
-		FoundColumn: "found", ContributorsColumn: "contributors", HasMoreColumn: "hasMore",
-	}, nil
+	return physical, nil
 }
 
 func decodeConstructionPivotLineageIdentity(rowID string, pivot ir.PhysicalGroupedPivot) ([]any, bool) {
