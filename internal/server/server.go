@@ -391,17 +391,15 @@ func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseServ
 
 // ErrPostgreSQLRuntimeNotWired is the named, proven-closed startup gate for
 // the explicitly selected PostgreSQL source backend (arch-backend-06 D1).
-// The PostgreSQL factory lives at internal/backends/postgres; this sentinel
-// is the gate its composition (pg-runtime-server-composition) must retarget,
-// and TestPostgresFactoryOwnershipContract asserts it stays closed for
-// configurations the first query route cannot consume. Since
-// pg-runtime-first-query-route, only configurations that do NOT carry the
-// consumable first-query-route series assignment (server.postgresql.schemas
-// with exactly the source and dataset_release entries) reach the full
-// composition; every other postgres selection still receives this sentinel
-// before any store connection is opened, so selecting postgres can never
-// silently fall through to the ArangoDB stores below. The sentinel text is
-// byte-stable and pinned by postgres_refusal_contract_test.go.
+// The PostgreSQL factory lives at internal/backends/postgres. Since
+// pg-runtime-server-composition, the postgres backend has two consumable
+// shapes: the complete six-series placement ladder (runPostgreSQLFullRuntime
+// in runtime.go) and the first-query-route pair (server.postgresql.schemas
+// with exactly the source and dataset_release entries). Every configuration
+// that carries neither shape receives this sentinel before any store
+// connection is opened, so selecting postgres can never silently fall
+// through to the ArangoDB stores below. The sentinel text is byte-stable and
+// pinned by postgres_refusal_contract_test.go.
 var ErrPostgreSQLRuntimeNotWired = errors.New("server.backend postgres is configured, but the PostgreSQL source runtime is not wired yet; refusing to start on the ArangoDB backend")
 
 // RunWithConfig executes the server composition for an already-parsed
@@ -422,13 +420,19 @@ func run(ctx context.Context, serverConfig Config) error {
 		return err
 	}
 	if backend == sourceBackendPostgres {
-		// pg-runtime-first-query-route owns the explicitly selected PostgreSQL
-		// source backend. The branch's first statement is the consumability
-		// gate: configurations without the consumable series assignment still
-		// receive ErrPostgreSQLRuntimeNotWired before any dial, keeping the
-		// pinned startup-refusal contract byte-stable, while a consumable
-		// configuration composes the scoped PostgreSQL scalar read over the
-		// backend factory. Nothing in this branch reaches an ArangoDB store.
+		// pg-runtime-server-composition owns the explicitly selected
+		// PostgreSQL source backend. A configuration carrying the complete
+		// six-series placement ladder composes the full PostgreSQL runtime
+		// over the backend factory (runtime.go) -- no ArangoDB store, client,
+		// or AQL surface is constructed on that branch. Every other shape
+		// falls through to the first-query route, whose own consumability
+		// gate keeps the pinned startup-refusal contract byte-stable:
+		// configurations it cannot consume still receive
+		// ErrPostgreSQLRuntimeNotWired before any dial. Nothing in either
+		// PostgreSQL branch reaches an ArangoDB store.
+		if _, _, err := postgresRuntimeAssignment(serverConfig.Server.PostgreSQL); err == nil {
+			return runPostgreSQLFullRuntime(ctx, serverConfig, logger)
+		}
 		return runPostgreSQLFirstQueryRoute(ctx, serverConfig, logger)
 	}
 	// The factory owns the lifecycle client: one connection, the required
