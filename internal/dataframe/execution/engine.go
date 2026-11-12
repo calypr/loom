@@ -456,6 +456,17 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 // therefore performs no catalog or schema discovery. Dynamic declarations
 // with nil Columns are rejected by the semantic boundary; a non-nil empty
 // Columns slice is an explicitly resolved, zero-column family and is valid.
+// CombinePortsConfigured reports whether every port the private workspace
+// artifact Combine path requires is wired: the ClickHouse result executor,
+// the published-input resolver, the execution read-pin runner, and the
+// private artifact manager. A composition that enables ClickHouse and then
+// silently drops one of these ports must fail at boot, not at the first
+// Combine.
+func (e *Engine) CombinePortsConfigured() bool {
+	return e.clickHouseQueryRows != nil && e.resolveClickHouseInputs != nil &&
+		e.withExecutionReadPins != nil && e.privateClickHouseArtifacts != nil
+}
+
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")

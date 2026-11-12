@@ -494,6 +494,13 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	if err != nil {
 		return nil, nil, fmt.Errorf("create dataframe recipe engine: %w", err)
 	}
+	// pg-exec-11: with ClickHouse enabled, the PostgreSQL engine must carry
+	// the full private workspace Combine port set (capture manager, result
+	// executor, published resolver, read pins). Silent config drift here
+	// would surface only as a first-Combine failure, so refuse at boot.
+	if serverConfig.Server.ClickHouse.Enabled && !recipeEngine.CombinePortsConfigured() {
+		return nil, nil, fmt.Errorf("PostgreSQL runtime has ClickHouse enabled but the recipe engine is missing a private workspace Combine port")
+	}
 
 	var bundleTarget publication.Target
 	if serverConfig.Server.ClickHouse.Enabled && publicationReady {

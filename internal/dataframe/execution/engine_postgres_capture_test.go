@@ -24,6 +24,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/store/clickhouse"
@@ -128,6 +129,61 @@ func exec11IdentityDigest(project, key string) string {
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
+}
+
+// L5-guard: the server composition relies on CombinePortsConfigured to
+// refuse a ClickHouse-enabled runtime whose engine is missing any one of
+// the four private workspace Combine ports.
+func TestPostgreSQLPrivateCaptureCombinePortsPredicate(t *testing.T) {
+	catalog := &testArtifactCatalog{items: map[string]chartifact.Manifest{}}
+	ch := &testArtifactClickHouse{columns: map[string][]clickhouse.Column{}, rows: map[string][]map[string]any{}}
+	manager, err := chartifact.New(chartifact.Config{Catalog: catalog, ClickHouse: ch, BatchRows: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func(withManager, withQueryRows, withResolve, withPins bool) *Engine {
+		config := Config{
+			CompileTarget: exec02PostgreSQLTarget(t),
+			Registry:      invalidRecipeRegistry{},
+			SourceRows:    func(context.Context, RowsRequest, RowVisitor) error { return nil },
+		}
+		if withQueryRows {
+			config.ClickHouseQueryRows = func(context.Context, string, []string, func(map[string]any) error, ...any) error { return nil }
+		}
+		if withResolve {
+			config.ResolveClickHouseInputs = func(context.Context, ir.PhysicalClickHouseCombine, recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error) {
+				return nil, nil
+			}
+		}
+		if withPins {
+			config.WithExecutionReadPins = func(_ context.Context, _ []string, visit func(context.Context) error) error {
+				return visit(context.Background())
+			}
+		}
+		if withManager {
+			config.PrivateClickHouseArtifacts = manager
+		}
+		engine, err := New(config)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		return engine
+	}
+	if !build(true, true, true, true).CombinePortsConfigured() {
+		t.Fatal("fully wired combine engine must report configured ports")
+	}
+	for _, missing := range []struct {
+		name string
+		skip int
+	}{
+		{"manager", 0}, {"query-rows", 1}, {"resolve", 2}, {"pins", 3},
+	} {
+		with := []bool{true, true, true, true}
+		with[missing.skip] = false
+		if build(with[0], with[1], with[2], with[3]).CombinePortsConfigured() {
+			t.Fatalf("engine missing the %s port must report unconfigured", missing.name)
+		}
+	}
 }
 
 func exec11Refusal(t *testing.T, fixture exec11CaptureFixture, wantPhrase string) {
