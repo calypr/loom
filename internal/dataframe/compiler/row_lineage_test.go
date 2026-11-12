@@ -4,15 +4,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	renderpostgres "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
@@ -1671,4 +1674,236 @@ func relatedExpandEmptyRowID(t *testing.T, parentKey, constructionID string) str
 		t.Fatal(err)
 	}
 	return string(encoded)
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL compile target (pg-sql-23): the bounded contributor page
+// renders through the registered terminal slice; nothing falls back to AQL.
+// ---------------------------------------------------------------------------
+
+func pg23LineageTarget(t *testing.T) Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("loom")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+func TestCompileRowLineagePostgreSQLBoundedGroupPage(t *testing.T) {
+	output := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), recipe.RuntimeBindings{
+		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+	})
+	compiled, err := CompileRowLineageOutput(pg23LineageTarget(t), output, "opaque-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("postgresql lineage compile: %v", err)
+	}
+	if compiled.Command.Backend() != command.CompiledBackendPostgreSQL {
+		t.Fatalf("selected PostgreSQL target produced %q", compiled.Command.Backend())
+	}
+	if _, _, err := compiled.Command.AQLParameters(); err == nil {
+		t.Fatal("the AQL adapter must refuse the PostgreSQL lineage command")
+	}
+	sqlText, args, err := compiled.Command.PostgreSQLParameters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"WITH __loom_l_src AS (", "__loom_l_rows AS (", "__loom_l_grp AS (",
+		"__loom_l_sel AS (", "__loom_l_page AS (",
+		`IS NOT DISTINCT FROM`, `COLLATE "C" ASC`,
+		`"found"`, `"contributors"`, `"hasMore"`,
+		"'resourceType'", "'resourceId'", "'occurrenceKey'",
+		`["operation","GROUP"]`,
+	} {
+		if !strings.Contains(sqlText, want) {
+			t.Errorf("contributor-page SQL is missing %q:\n%s", want, sqlText)
+		}
+	}
+	for _, forbidden := range []string{"COLLECT", "@row_lineage", "OFFSET @", " FOR "} {
+		if strings.Contains(sqlText, forbidden) {
+			t.Errorf("contributor-page SQL carries %q (AQL leaked):\n%s", forbidden, sqlText)
+		}
+	}
+	if compiled.FoundColumn != "found" || compiled.ContributorsColumn != "contributors" ||
+		compiled.HasMoreColumn != "hasMore" || compiled.Offset != 25 || compiled.Limit != 10 {
+		t.Fatalf("compiled page contract = %#v", compiled)
+	}
+	// The row id and the page coordinates cross as typed parameters.
+	var sawRowID bool
+	var bigints []int64
+	for _, parameter := range args {
+		switch parameter.Type {
+		case command.PostgreSQLParameterText:
+			if parameter.Value == "opaque-group-row" {
+				sawRowID = true
+			}
+		case command.PostgreSQLParameterBigint:
+			bigints = append(bigints, parameter.Value.(int64))
+		}
+	}
+	if !sawRowID {
+		t.Fatalf("row id parameter missing from %v", args)
+	}
+	if len(bigints) != 3 || bigints[0] != 25 || bigints[1] != 11 || bigints[2] != 10 {
+		t.Fatalf("page coordinates = %v, want [25 11 10]", bigints)
+	}
+	// The AQL twin is untouched: the same output on the AQL target still
+	// renders AQL with the canonical bounded collector shape.
+	aqlCompiled, err := CompileRowLineageOutput(ArangoTarget(), output, "opaque-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("aql twin: %v", err)
+	}
+	if aqlCompiled.Command.Backend() != command.CompiledBackendAQL {
+		t.Fatalf("aql twin produced %q", aqlCompiled.Command.Backend())
+	}
+}
+
+func TestCompileRowLineagePostgreSQLPageSeal(t *testing.T) {
+	output := lowerConstructionOutput(t, constructionMissingKeyPolicyOutput(recipe.ConstructionGroupMissingKeyGroup), recipe.RuntimeBindings{
+		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+	})
+	target := pg23LineageTarget(t)
+	// Unselected target refuses with the named sentinel, before lowering.
+	if _, err := CompileRowLineageOutput(Target{}, output, "row", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!errorsIsTargetNotSelected(err) {
+		t.Fatalf("unselected target: %v", err)
+	}
+	for name, rowID := range map[string]string{"empty": "", "blank": "   "} {
+		if _, err := CompileRowLineageOutput(target, output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+			!strings.Contains(err.Error(), "row lineage row ID is required") {
+			t.Fatalf("%s row id: %v", name, err)
+		}
+	}
+	if _, err := CompileRowLineageOutput(target, output, "row", -1, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "offset cannot be negative") {
+		t.Fatalf("negative offset: %v", err)
+	}
+	if _, err := CompileRowLineageOutput(target, output, "row", 0, MaxRowLineageContributors+1, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "between 1 and") {
+		t.Fatalf("over-limit: %v", err)
+	}
+	// limit 0 takes the registered default and the fetch lookahead follows.
+	compiled, err := CompileRowLineageOutput(target, output, "row", 0, 0, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("default limit: %v", err)
+	}
+	if compiled.Limit != DefaultRowLineageLimit {
+		t.Fatalf("default limit = %d", compiled.Limit)
+	}
+	_, args, err := compiled.Command.PostgreSQLParameters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawFetch bool
+	for _, parameter := range args {
+		if parameter.Type == command.PostgreSQLParameterBigint && parameter.Value == int64(DefaultRowLineageLimit+1) {
+			sawFetch = true
+		}
+	}
+	if !sawFetch {
+		t.Fatalf("fetch-limit lookahead parameter %d missing", DefaultRowLineageLimit+1)
+	}
+}
+
+func errorsIsTargetNotSelected(err error) bool {
+	return errors.Is(err, ErrTargetNotSelected)
+}
+
+func TestCompileRowLineagePostgreSQLRefusals(t *testing.T) {
+	pipelineBindings := recipe.RuntimeBindings{
+		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+	}
+	cohortBindings := recipe.RuntimeBindings{
+		Project: "row-lineage-project", SelectionProject: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
+		AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/programs/p1"},
+	}
+	target := pg23LineageTarget(t)
+	cases := []struct {
+		name   string
+		output func(t *testing.T) lower.CompiledRecipeOutput
+		rowID  string
+		want   string
+	}{
+		{"zero-output-names-its-surface", func(t *testing.T) lower.CompiledRecipeOutput {
+			return lower.CompiledRecipeOutput{}
+		}, "row", "row lineage compilation is unsupported on the PostgreSQL compile target"},
+		{"explicit-group-rows", func(t *testing.T) lower.CompiledRecipeOutput {
+			return lowerConstructionOutput(t, recipe.Output{
+				Name: "NamedCohort", RootResourceType: "Observation", RowGrain: "groups",
+				GroupRows: &recipe.GroupRows{RevisionID: "grouprev_row_lineage", UnassignedMemberPolicy: "GROUP_AS_UNASSIGNED"},
+			}, cohortBindings)
+		}, `{"group_revision_id":"grouprev_row_lineage","group_id":"cohort-a"}`, "explicit group row lineage is unsupported on the PostgreSQL compile target"},
+		{"composed-cohort-membership", func(t *testing.T) lower.CompiledRecipeOutput {
+			filterValue := "Cohort"
+			return lowerConstructionOutput(t, recipe.Output{
+				Name: "NamedCohort", RootResourceType: "Observation", RowGrain: "groups",
+				Fields: []recipe.Field{{Name: "specimen_id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}},
+				Construction: &recipe.Construction{Version: 1, SourceColumns: []recipe.StageColumn{{ID: "specimen_id", Name: "specimen_id", Type: "string"}},
+					Steps: []recipe.ConstructionStep{{
+						ID: "filter_group_rows", Inputs: []recipe.ConstructionInputRef{{Kind: recipe.ConstructionStepOutputInput, StepID: recipe.ConstructionCohortGroupStageID}},
+						Operation: recipe.ConstructionOperation{Kind: recipe.ConstructionFilterOp, Filter: &recipe.ConstructionFilter{
+							ColumnID: "group_label", Operator: recipe.FilterEquals,
+							Values: []recipe.FilterValue{{Kind: recipe.FilterString, String: &filterValue}},
+						}},
+						Outputs: []recipe.StageColumn{
+							{ID: "group_id", Name: "group_id", Type: "string"},
+							{ID: "group_label", Name: "group_label", Type: "string"},
+							{ID: "group_ordinal", Name: "group_ordinal", Type: "integer"},
+							{ID: "members", Name: "members", Type: "array"},
+							{ID: "specimen_id", Name: "specimen_id", Type: "array"},
+						},
+					}}},
+				GroupRows: &recipe.GroupRows{
+					RevisionID: "grouprev_cohort_row_lineage", UnassignedMemberPolicy: "EXCLUDE",
+					RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "specimen_id", Policy: recipe.ConstructionRowValueAll}},
+				},
+			}, cohortBindings)
+		}, `{"group_revision_id":"grouprev_cohort_row_lineage","group_id":"cohort-a"}`, "composed cohort row lineage is unsupported on the PostgreSQL compile target"},
+		{"semantic-family", func(t *testing.T) lower.CompiledRecipeOutput {
+			return lowerConstructionOutput(t, semanticGroupOutputForLineageTest(), pipelineBindings)
+		}, "semantic-row-id", "semantic-family contributor page"},
+		// The expanded CodingKey fixture lowers to a CODED_GROUP stage, so
+		// the registered coded-group door claims it and raises its own
+		// merged closed-surface voice (coded_group.go:455); the row-lineage
+		// door only claims single GROUP-stage terminals.
+		{"coded-group-fixture-uses-the-coded-group-door-voice", func(t *testing.T) lower.CompiledRecipeOutput {
+			return expandedCodingGroupFixtureLineageOutput(t)
+		}, "fixture-expanded-coded-group-row", "row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route (compiler/row_lineage.go:655, cell_trace.go:54, population_mapping.go:38)"},
+		{"related-coding-traced", func(t *testing.T) lower.CompiledRecipeOutput {
+			return relatedCodingGroupLineageOutput(t)
+		}, "opaque-row", "row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route"},
+		{"pivot-preimage-traced", func(t *testing.T) lower.CompiledRecipeOutput {
+			return lowerConstructionOutput(t, constructionPivotLineageOutput(), pipelineBindings)
+		}, "not-json", "row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route"},
+		{"group-filter-suffix", func(t *testing.T) lower.CompiledRecipeOutput {
+			return lowerConstructionOutput(t, constructionGroupFilterLineageOutput(104, 103), pipelineBindings)
+		}, "opaque-filtered-group-row", "row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			output := testCase.output(t)
+			_, err := CompileRowLineageOutput(target, output, testCase.rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+			if err == nil {
+				t.Fatalf("must refuse with the registered voice %q", testCase.want)
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("refusal %q lacks %q", err, testCase.want)
+			}
+			if !errorsIsUnsupportedPlan(err) {
+				t.Fatalf("refusal must carry the typed unsupported-plan error: %v", err)
+			}
+			if strings.Contains(strings.ToLower(err.Error()), "fallback") {
+				t.Fatalf("refusal must not offer a fallback: %v", err)
+			}
+		})
+	}
+}
+
+func errorsIsUnsupportedPlan(err error) bool {
+	return errors.Is(err, renderpostgres.ErrUnsupportedPostgresPlan)
 }
