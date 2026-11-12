@@ -1623,16 +1623,26 @@ func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResul
 		return StreamResult{}, fmt.Errorf("row visitor is required")
 	}
 	// The stable-identity bind fallback reads named binds only from an
-	// AQL-tagged command through closed dispatch; PostgreSQL statements bind
-	// positionally and expose no named binds, and a ClickHouse stream carries
-	// no compiled command at all, so both keep a nil fallback.
+	// AQL-tagged command through closed dispatch; a ClickHouse stream carries
+	// no compiled command at all and keeps a nil fallback. PostgreSQL
+	// statements bind positionally and expose no named binds, so a
+	// PostgreSQL-tagged stream instead supplies the stream's own Loom-owned
+	// scope bindings: the exact authoritative values its positional command
+	// arguments filtered the query by. Row-supplied columns are still read
+	// from the row first; only a scope field the row cannot carry falls back.
 	var identityBinds map[string]any
-	if s.command.Backend() == command.CompiledBackendAQL {
+	switch s.command.Backend() {
+	case command.CompiledBackendAQL:
 		_, binds, dispatchErr := s.command.AQLParameters()
 		if dispatchErr != nil {
 			return StreamResult{}, dispatchErr
 		}
 		identityBinds = binds
+	case command.CompiledBackendPostgreSQL:
+		identityBinds = map[string]any{
+			"project":            s.bindings.Project,
+			"dataset_generation": s.bindings.DatasetGeneration,
+		}
 	}
 	count := 0
 	err := s.streamRaw(ctx, func(row map[string]any) error {

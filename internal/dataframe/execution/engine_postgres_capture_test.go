@@ -16,6 +16,9 @@ package execution
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -98,16 +101,33 @@ func newExec11Capture(t *testing.T, rows []map[string]any) exec11CaptureFixture 
 	}
 }
 
+// exec11PortRows returns rows in the exact shape the real PostgreSQL row
+// port serves for the compiled capture command: the declared contract
+// columns only (_key, value, auth_resource_path). A stable __loom_row_id is
+// derived by the engine from the row's _key plus the Loom-owned scope
+// bindings; a port that supplied one would be fabricating identity.
 func exec11PortRows(values ...string) []map[string]any {
 	rows := make([]map[string]any, 0, len(values))
 	for index, value := range values {
 		rows = append(rows, map[string]any{
-			"__loom_row_id":      []string{"pg-row-one", "pg-row-two"}[index],
+			"_key":               []string{"generation-2/exec11-row-one", "generation-2/exec11-row-two"}[index],
 			"value":              value,
 			"auth_resource_path": "/programs/a",
 		})
 	}
 	return rows
+}
+
+// exec11IdentityDigest re-derives the engine's scope-bound row identity:
+// the SHA-256 (hex) of the JSON array of the identity field values in
+// declaration order, here the Loom-owned project binding then the row key.
+func exec11IdentityDigest(project, key string) string {
+	encoded, err := json.Marshal([]any{project, key})
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 func exec11Refusal(t *testing.T, fixture exec11CaptureFixture, wantPhrase string) {
@@ -150,11 +170,22 @@ func TestPostgreSQLPrivateCaptureServesRestrictedRows(t *testing.T) {
 		t.Fatalf("artifact rows = %d, want 2", len(written))
 	}
 	for index, row := range written {
-		if row["__loom_row_id"] != exec11PortRows("Ada", "Grace")[index]["__loom_row_id"] ||
-			row["value"] != exec11PortRows("Ada", "Grace")[index]["value"] ||
+		identity, _ := row["__loom_row_id"].(string)
+		if len(identity) != 64 {
+			t.Fatalf("PostgreSQL capture row %d lacks a derived 64-hex stable identity: %v", index, row)
+		}
+		if row["value"] != exec11PortRows("Ada", "Grace")[index]["value"] ||
 			row["auth_resource_path"] != "/programs/a" || row["project_id"] != "project-a" {
 			t.Fatalf("PostgreSQL capture row %d drifted or lost its authorization path: %v", index, row)
 		}
+	}
+	if written[0]["__loom_row_id"] == written[1]["__loom_row_id"] {
+		t.Fatalf("distinct _key rows collapsed to one stable identity")
+	}
+	// The identity is bound to the Loom-owned project: the same _key under a
+	// different project scope must not reproduce this digest.
+	if digest := exec11IdentityDigest("project-a", "generation-2/exec11-row-one"); written[0]["__loom_row_id"] != digest {
+		t.Fatalf("stable identity is not the scope-bound digest of the row key")
 	}
 	if fixture.spies.clickHouseQueries != 0 || len(fixture.spies.aqlQueries) != 0 || len(fixture.spies.aqlPreviewQueries) != 0 || len(fixture.spies.controlSnapshot()) != 0 {
 		t.Fatalf("PostgreSQL capture leaked into AQL/ClickHouse callbacks: clickhouse=%d aql=%v preview=%v controls=%v",
@@ -210,6 +241,13 @@ func TestPostgreSQLPrivateCaptureRestrictedContractFailClosed(t *testing.T) {
 		if len(fixture.catalog.items) != 0 {
 			t.Fatalf("refused capture created %d artifacts", len(fixture.catalog.items))
 		}
+	})
+	t.Run("MissingRowKeyColumn", func(t *testing.T) {
+		// The real PostgreSQL row port serves only the declared contract
+		// columns; a row that cannot supply its _key has no stable identity
+		// even though the scope bindings supply the project component.
+		fixture := newExec11Capture(t, []map[string]any{{"value": "Ada", "auth_resource_path": "/programs/a"}})
+		exec11Refusal(t, fixture, `stable row identity field "_key" is missing`)
 	})
 	t.Run("ScopeEvidenceMissing", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
