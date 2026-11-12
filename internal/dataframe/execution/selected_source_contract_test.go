@@ -418,6 +418,46 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 			t.Fatalf("PostgreSQL command touched the AQL adapters: preview=%v full=%v", spies.aqlPreviewQueries, spies.aqlQueries)
 		}
 	})
+	// pg-exec-11: the private workspace artifact capture reads through the
+	// same selected target and one source row port. The stream must run
+	// exactly the command the selected PostgreSQL target compiled for the
+	// capture bindings (row-level authorization path included), with the
+	// compiled declared column contract forwarded unchanged.
+	t.Run("PrivateCaptureRunsExactlyTheSelectedTargetCompiledCommand", func(t *testing.T) {
+		fixture := newExec11Capture(t, exec11PortRows("Ada"))
+		captureBindings := exec11RestrictedBindings()
+		captureBindings.IncludeAuthResourcePath = true
+		reference, err := compiler.CompileRecipeOutput(exec02PostgreSQLTarget(t),
+			fixture.resolved.Compiled.Outputs[0], captureBindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatalf("reference capture compile: %v", err)
+		}
+		artifact, err := fixture.stream.MaterializeClickHouseArtifact(context.Background(), fixture.manager, "exec11-contract", fixture.stream.stageID, fixture.columns)
+		if err != nil {
+			t.Fatalf("materialize PostgreSQL capture: %v", err)
+		}
+		defer func() {
+			if err := artifact.Release(context.Background()); err != nil {
+				t.Fatalf("release: %v", err)
+			}
+		}()
+		if len(fixture.spies.pgFull) != 1 {
+			t.Fatalf("capture port calls = %d, want 1", len(fixture.spies.pgFull))
+		}
+		wantSQL, wantArgs, err := reference.Command.PostgreSQLParameters()
+		if err != nil {
+			t.Fatalf("reference command: %v", err)
+		}
+		if fixture.spies.pgFull[0].SQL != wantSQL || len(fixture.spies.pgFull[0].Args) != len(wantArgs) {
+			t.Fatalf("capture ran a command other than the selected target compiled")
+		}
+		if strings.Join(fixture.spies.pgFull[0].Columns, ",") != strings.Join(reference.Columns, ",") {
+			t.Fatalf("capture port declared columns %v, want the compiled contract %v", fixture.spies.pgFull[0].Columns, reference.Columns)
+		}
+		if !strings.Contains(wantSQL, "auth_resource_path") {
+			t.Fatalf("restricted capture reference must read the typed authorization column: %q", wantSQL)
+		}
+	})
 }
 
 // mustExec11PostgreSQLCommand renders the canonical fixture through the
