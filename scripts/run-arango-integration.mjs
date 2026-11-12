@@ -216,15 +216,14 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeFullLadderServesProductionReads',
     'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
     // pg-runtime-health-readiness: the readiness battery (independence +
-    // corrupt-ledger schema_mismatch/repair, never-migrated schema_unmigrated)
-    // and the read-only probe proof all drive the real PostgreSQL service
-    // under LOOM_TEST_POSTGRES_URL, never Arango; in this Arango-only lane
-    // their explicit skips stay visible in the proof summary, following the
+    // corrupt-ledger schema_mismatch/repair, never-migrated schema_unmigrated,
+    // never-created schema_missing on a non-source series, and the read-only
+    // probe proof) all drive the real PostgreSQL service under
+    // LOOM_TEST_POSTGRES_URL, never Arango; in this Arango-only lane their
+    // explicit skips stay visible in the proof summary, following the
     // pg-runtime-server-composition registration precedent above.
     'TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware',
     'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
-    // F1 regression cell: never-created schema on a non-source series ->
-    // schema_missing; drives the real PostgreSQL service, never Arango.
     'TestPostgresRuntimeReadinessReportsMissingSchema',
     'TestPostgresRuntimeVerifySchemaIsReadOnly',
     'TestZZPgCompZeroLeftoverFixtures',
