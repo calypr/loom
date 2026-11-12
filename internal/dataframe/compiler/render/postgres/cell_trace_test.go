@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -26,7 +28,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -282,14 +283,33 @@ func TestCellTracePostgresRootExtractContract(t *testing.T) {
 		`jsonb_build_array(to_jsonb($1::text), r0."logical_id") AS "__loom_trace_identity_parts"`,
 		`= 0 THEN 'NO_MATCH' WHEN`, `THEN 'RECORDED_NULL' ELSE 'VALUE' END AS "__loom_trace_status"`,
 		`false AS "__loom_trace_has_more"`,
-		`$6::text AS "__loom_trace_omission"`,
+		`$7::text AS "__loom_trace_omission"`,
 	} {
 		if !strings.Contains(sql, fragment) {
 			t.Fatalf("arm B statement missing %q:\n%s", fragment, sql)
 		}
 	}
+	// The AQL twin page is `LIMIT @cell_trace_offset, @fetch` over the
+	// one-item relation then SLICE(page, 0, @limit)
+	// (render/aql/cell_trace.go:552): an offset >= 1 skips the sole
+	// candidate, so the record publishes only when the sealed offset bind
+	// is zero — while the offset-free LIMIT-2 candidate reading still
+	// answers the status. There are no OFFSET/LIMIT page clauses: D-24b
+	// collapses the page to its provable bounds, the gate is the bind
+	// comparison itself.
+	gate := regexp.MustCompile(`AND \$(\d+) = 0 THEN jsonb_build_array\(`).FindStringSubmatch(sql)
+	if gate == nil {
+		t.Fatalf("arm B must gate the record on the sealed offset bind:\n%s", sql)
+	}
+	gateIndex, convErr := strconv.Atoi(gate[1])
+	if convErr != nil || gateIndex < 1 || gateIndex > len(rendered.Args) {
+		t.Fatalf("offset gate parameter $%s is not a registered arg: %v", gate[1], convErr)
+	}
+	if fmt.Sprint(rendered.Args[gateIndex-1].Value) != "2" {
+		t.Fatalf("offset gate arg = %v, want the sealed offset 2", rendered.Args[gateIndex-1].Value)
+	}
 	if strings.Contains(sql, "OFFSET") || strings.Contains(sql, "LIMIT") {
-		t.Fatalf("arm B has provable zero-or-one bounds (D-24b), no page cap may appear:\n%s", sql)
+		t.Fatalf("arm B has provable zero-or-one bounds (D-24b): no OFFSET/LIMIT page clause may appear — the offset law rides the sealed bind gate:\n%s", sql)
 	}
 	if strings.Contains(sql, "'AMBIGUOUS'") {
 		t.Fatalf("arm B is never lossy; no AMBIGUOUS branch may appear:\n%s", sql)
@@ -298,6 +318,62 @@ func TestCellTracePostgresRootExtractContract(t *testing.T) {
 		t.Fatalf("arm B must keep the stable execution-window order:\n%s", sql)
 	}
 	sql24ContractCells(t, rendered)
+}
+
+// The mint law (compiler/population_mapping.go finalPopulationMappingIdentity)
+// mints the ordered identity parts from RowIdentity.Fields and attaches an
+// explicit row identity only beside them; the shared pick law
+// (compiler/cell_trace.go cellTraceQuery) then names the explicit column in
+// the compiled contract. The patient fixtures mint the parts spelling only,
+// so this cell pins the other side — the only explicit spelling the IR
+// validator can admit: a terminal carrying ExplicitIdentity beside its
+// parts, publishing __loom_trace_explicit_identity in both the select list
+// and OutputColumns with the parts spelling absent from the statement.
+func TestCellTracePostgresExplicitIdentityContract(t *testing.T) {
+	plan := sql24ArmBPlan(t, "gender", 0, 5)
+	terminal := sql24Terminal(t, plan)
+	if terminal.ExplicitIdentity != nil || len(terminal.IdentityParts) == 0 {
+		t.Fatal("fixture must mint the identity-parts spelling only")
+	}
+	explicit := ir.ClonePhysicalExpression(terminal.Value)
+	terminal.ExplicitIdentity = &explicit
+	rendered := sql24Render(t, plan)
+	want := sql24WantColumns(ir.PhysicalCellTraceExplicitIdentityField)
+	if strings.Join(rendered.OutputColumns, ",") != strings.Join(want, ",") {
+		t.Fatalf("output columns = %v, want %v", rendered.OutputColumns, want)
+	}
+	sql := rendered.SQL
+	if !strings.Contains(sql, ` AS "`+ir.PhysicalCellTraceExplicitIdentityField+`"`) {
+		t.Fatalf("the explicit identity must be published as its contract column in the select list:\n%s", sql)
+	}
+	if strings.Contains(sql, ir.PhysicalCellTraceIdentityPartsField) || strings.Contains(sql, "jsonb_build_array(to_jsonb") {
+		t.Fatalf("the identity-parts spelling must stay unpublished while the explicit identity is the contract column:\n%s", sql)
+	}
+	sql24ContractCells(t, rendered)
+}
+
+// The parts-less spelling is not a state the IR validator admits
+// (ir/physical_validation.go:1531-1532 refuses it for the preview too); the
+// surface seal names it typed, before plan validation can speak with an
+// off-type voice, exactly as every other unregistered terminal state does.
+func TestCellTracePostgresRefusesIdentityWithoutParts(t *testing.T) {
+	plan := sql24ArmBPlan(t, "gender", 0, 5)
+	terminal := sql24Terminal(t, plan)
+	explicit := ir.ClonePhysicalExpression(terminal.Value)
+	terminal.ExplicitIdentity = &explicit
+	terminal.IdentityParts = nil
+	sql24Refuse(t, plan, "no ordered identity parts")
+}
+
+func sql24Terminal(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalCellTraceReturn {
+	t.Helper()
+	for index := range plan.Operations {
+		if terminal := plan.Operations[index].CellTraceReturn; terminal != nil {
+			return terminal
+		}
+	}
+	t.Fatal("fixture lost its cell-trace terminal")
+	return nil
 }
 
 func TestCellTracePostgresReducedSetContract(t *testing.T) {
@@ -424,16 +500,15 @@ func TestCellTracePostgresSurfaceRefusals(t *testing.T) {
 	omission.Operations[len(omission.Operations)-1].CellTraceReturn.OmissionCode = "TABLE_SHAPE_OMITTED_ROW"
 	sql24Refuse(t, omission, "mints no omission code")
 
-	bothIdentities := ir.ClonePhysicalPlan(base)
-	extract := ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression, Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull,
-		Extract: &ir.PhysicalExtract{Source: ir.PhysicalValue{Variable: "root"}, Selector: spec.Selector{Steps: []spec.SelectorStep{{Field: "id"}}}}}
-	both := bothIdentities.Operations[len(bothIdentities.Operations)-1].CellTraceReturn
-	both.ExplicitIdentity = &extract
-	sql24Refuse(t, bothIdentities, "both an explicit identity and identity parts")
-
+	// The mint mints the ordered parts first and the explicit row identity
+	// only beside them, so the parts are the mandatory half: a terminal
+	// without parts is refused by name (its explicit-only counterpart is
+	// pinned by TestCellTracePostgresRefusesIdentityWithoutParts, and the
+	// both spelling — the only explicit spelling the IR validator admits —
+	// is the positive coverage in TestCellTracePostgresExplicitIdentityContract).
 	neither := ir.ClonePhysicalPlan(base)
 	neither.Operations[len(neither.Operations)-1].CellTraceReturn.IdentityParts = nil
-	sql24Refuse(t, neither, "neither an explicit identity nor identity parts")
+	sql24Refuse(t, neither, "no ordered identity parts")
 
 	badBind := ir.ClonePhysicalPlan(base)
 	badBind.BindVars["cell_trace_offset"] = "5"
@@ -662,14 +737,24 @@ type sql24PageRow struct {
 func sql24RunPage(t *testing.T, svc *pgir02Service, plan ir.PhysicalPlan) []sql24PageRow {
 	t.Helper()
 	rendered := group13RenderSvc(t, svc, plan)
+	if len(rendered.OutputColumns) != 6 {
+		t.Fatalf("contract columns = %v, want the six registered names", rendered.OutputColumns)
+	}
+	// The identity column is whichever spelling the compiled contract
+	// names — identity parts or the explicit row identity — so live cells
+	// cover both spellings through the same cast.
+	identityColumn := rendered.OutputColumns[2]
+	if identityColumn != ir.PhysicalCellTraceIdentityPartsField && identityColumn != ir.PhysicalCellTraceExplicitIdentityField {
+		t.Fatalf("third contract column = %q, want an identity spelling", identityColumn)
+	}
 	args := make([]any, len(rendered.Args))
 	for index, parameter := range rendered.Args {
 		args[index] = parameter.Value
 	}
 	rows, err := svc.iso.Query(svc.ctx,
-		`SELECT w."__loom_trace_value"::text, w."__loom_trace_contributions"::text,`+
-			` w."__loom_trace_identity_parts"::text, w."__loom_trace_status"::text,`+
-			` w."__loom_trace_has_more"::text, w."__loom_trace_omission"::text FROM (`+rendered.SQL+`) AS w`, args...)
+		`SELECT w."`+ir.PhysicalCellTraceValueField+`"::text, w."`+ir.PhysicalCellTraceContributionsField+`"::text,`+
+			` w."`+identityColumn+`"::text, w."`+ir.PhysicalCellTraceStatusField+`"::text,`+
+			` w."`+ir.PhysicalCellTraceHasMoreField+`"::text, w."`+ir.PhysicalCellTraceOmissionField+`"::text FROM (`+rendered.SQL+`) AS w`, args...)
 	if err != nil {
 		t.Fatalf("execute contributor page: %v", err)
 	}

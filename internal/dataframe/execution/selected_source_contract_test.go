@@ -256,7 +256,7 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	t.Run("CellTracePostgreSQLRunArmServesEvidenceThroughTheSharedPort", func(t *testing.T) {
 		resolved := exec02TestResolved()
 		compiled, err := compiler.CompileCellTraceOutput(exec02PostgreSQLTarget(t),
-			resolved.Compiled.Outputs[0], "name", 1, 2, ir.DefaultPhysicalOptimizationPolicy())
+			resolved.Compiled.Outputs[0], "name", 0, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("registered arm B cell trace must compile on the PostgreSQL target: %v", err)
 		}
@@ -286,7 +286,7 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 				}},
 		})
 		result, err := engine.CellTrace(context.Background(), resolved,
-			CellTraceRequest{Output: "resources", RowID: rowID, Column: "name", Offset: 1, Limit: 1})
+			CellTraceRequest{Output: "resources", RowID: rowID, Column: "name", Offset: 0, Limit: 1})
 		if err != nil {
 			t.Fatalf("CellTrace on the registered arm B shape: %v", err)
 		}

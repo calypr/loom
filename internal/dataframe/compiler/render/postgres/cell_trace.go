@@ -324,15 +324,18 @@ func validateCellTracePlanSurface(plan ir.PhysicalPlan) error {
 	return nil
 }
 
+// validateCellTraceIdentity mirrors the compiler's mint law
+// (compiler/population_mapping.go finalPopulationMappingIdentity): the
+// ordered identity parts are minted first, from RowIdentity.Fields, and the
+// explicit row identity is minted only beside them (a __loom_row_id
+// projection). The IR validator refuses a parts-less terminal
+// (ir/physical_validation.go:1531-1532), so the parts spelling is the
+// mandatory half; the explicit spelling, when present, is the published
+// contract column by the shared pick law in renderCellTraceColumns
+// (compiler/cell_trace.go cellTraceQuery names the same column).
 func validateCellTraceIdentity(terminal *ir.PhysicalCellTraceReturn) error {
-	if terminal.ExplicitIdentity != nil && len(terminal.IdentityParts) > 0 {
-		return fmt.Errorf("%w: the terminal carries both an explicit identity and identity parts", ErrUnsupportedPostgresPlan)
-	}
-	if terminal.ExplicitIdentity != nil {
-		return validateCellTraceIdentityExpression(*terminal.ExplicitIdentity, "explicit identity")
-	}
 	if len(terminal.IdentityParts) == 0 {
-		return fmt.Errorf("%w: the terminal carries neither an explicit identity nor identity parts", ErrUnsupportedPostgresPlan)
+		return fmt.Errorf("%w: the terminal carries no ordered identity parts; the mint mints them first and the IR validator never admits a parts-less terminal", ErrUnsupportedPostgresPlan)
 	}
 	for _, part := range terminal.IdentityParts {
 		if part.Name == "" {
@@ -341,6 +344,9 @@ func validateCellTraceIdentity(terminal *ir.PhysicalCellTraceReturn) error {
 		if err := validateCellTraceIdentityExpression(part.Expression, "identity part "+strconv.Quote(part.Name)); err != nil {
 			return err
 		}
+	}
+	if terminal.ExplicitIdentity != nil {
+		return validateCellTraceIdentityExpression(*terminal.ExplicitIdentity, "explicit identity")
 	}
 	return nil
 }
@@ -557,7 +563,7 @@ func (r *planRenderer) renderCellTraceColumns(plan ir.PhysicalPlan, terminal *ir
 	if terminal.Contribution != nil {
 		contributors, status, hasMore, err = r.renderCellTraceSetArms(plan, terminal, valueText, dollar)
 	} else {
-		contributors, status, hasMore, err = r.renderCellTraceRootArms(rootVariable, valueText)
+		contributors, status, hasMore, err = r.renderCellTraceRootArms(plan, terminal, rootVariable, valueText, dollar)
 	}
 	if err != nil {
 		return "", err
@@ -566,6 +572,12 @@ func (r *planRenderer) renderCellTraceColumns(plan ir.PhysicalPlan, terminal *ir
 		status = "CASE WHEN " + cellTraceIsNullForm(valueText) + " THEN 'RECORDED_NULL' ELSE 'VALUE' END"
 	}
 
+	// Identity pick law, shared with the compiled contract (compiler/
+	// cell_trace.go cellTraceQuery): a minted explicit row identity is the
+	// published contract column — the mint always keeps it beside the
+	// ordered parts (validateCellTraceIdentity pins that) — and otherwise
+	// the ordered identity-parts array is. Both halves render through the
+	// same closed expression dispatcher as the traced value.
 	identityText := ""
 	identityColumn := ir.PhysicalCellTraceIdentityPartsField
 	if terminal.ExplicitIdentity != nil {
@@ -677,8 +689,14 @@ func (r *planRenderer) renderCellTraceSetArms(plan ir.PhysicalPlan, terminal *ir
 // single contributor, so the page collapses to its provable bounds (D-24b):
 // the record renders over the statement's own root alias — the same row the
 // statement's registered scope conjuncts already bound — the published array
-// is zero or one record, and hasMore is the constant false.
-func (r *planRenderer) renderCellTraceRootArms(rootVariable string, valueText string) (contributors, status, hasMore string, err error) {
+// is zero or one record, and hasMore is the constant false. The collapse
+// does not erase the offset: the AQL twin renders the page as
+// `LIMIT @cell_trace_offset, @cell_trace_fetch_limit` over the one-item
+// relation then `SLICE(page, 0, @limit)` (render/aql/cell_trace.go:552), so
+// an offset >= 1 skips the sole candidate and publishes an empty array while
+// the offset-free LIMIT-2 candidate query still reads VALUE. The sealed
+// offset bind gates the record here with the same law.
+func (r *planRenderer) renderCellTraceRootArms(plan ir.PhysicalPlan, terminal *ir.PhysicalCellTraceReturn, rootVariable string, valueText string, dollar func(int) string) (contributors, status, hasMore string, err error) {
 	scope, ok := r.rows[rootVariable]
 	if !ok || scope.derivedValue != "" {
 		return "", "", "", fmt.Errorf("%w: cell-trace root %q does not bind a stored row", ErrUnsupportedPostgresPlan, rootVariable)
@@ -693,7 +711,8 @@ func (r *planRenderer) renderCellTraceRootArms(rootVariable string, valueText st
 	record := "jsonb_build_object('resourceType', " + r.rootAlias + "." + resourceTypeColumn +
 		", 'resourceId', " + r.rootAlias + "." + logicalIDColumn +
 		", 'value', " + valueText + ")"
-	contributors = "CASE WHEN " + itemExists + " THEN jsonb_build_array(" + record + ") ELSE '[]'::jsonb END"
+	offsetIndex := r.integerParameter(plan.BindVars[terminal.OffsetBindKey].(int))
+	contributors = "CASE WHEN " + itemExists + " AND " + dollar(offsetIndex) + " = 0 THEN jsonb_build_array(" + record + ") ELSE '[]'::jsonb END"
 	candidateCount := "(CASE WHEN " + itemExists + " THEN 1 ELSE 0 END)"
 	status = cellTraceStatusCase(candidateCount, valueText, false)
 	hasMore = "false"
