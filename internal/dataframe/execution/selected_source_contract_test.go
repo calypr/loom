@@ -423,6 +423,48 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		exec02AssertUntouchedArango(t, spies)
 	})
 
+	t.Run("PopulationMappingPostgreSQLRunArmServesWitnessContractThroughTheSharedPort", func(t *testing.T) {
+		// pg-exec-07: the population mapping witness terminal (pg-sql-22)
+		// compiles on the selected target and runs on the one shared source
+		// row port, carrying the two-positional-column witness contract
+		// (compiler-owned member field, then the single identity column) the
+		// PostgreSQL row adapter enforces. Exact membership is reported from
+		// the streamed witnesses; the Arango surface stays dark.
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, []map[string]any{
+			{ir.PhysicalPopulationMappingMemberField: "obs-1", ir.PhysicalPopulationMappingIdentityPartsField: []any{"P1", "obs-1"}},
+			{ir.PhysicalPopulationMappingMemberField: "obs-2", ir.PhysicalPopulationMappingIdentityPartsField: []any{"P1", "obs-2"}},
+		})
+		resolved, err := engine.CompileResolvedBundle(context.Background(), exec07FlatBundle("exec07-contract"), recipe.RuntimeBindings{
+			Project: "P1", DatasetGeneration: "G1",
+			SelectionProject:           "P1",
+			SelectionMembersCollection: "loom_explorer_selection_members",
+			AuthResourcePaths:          []string{"FHIR/Observation"},
+		})
+		if err != nil {
+			t.Fatalf("CompileResolvedBundle: %v", err)
+		}
+		result, err := engine.PopulationMapping(context.Background(), resolved,
+			PopulationMappingRequest{Output: "observations", MaxUnmapped: 10},
+			exec07Members("obs-1", "obs-2", "obs-3"))
+		if err != nil {
+			t.Fatalf("PopulationMapping: %v", err)
+		}
+		if spies.pgRequests != 1 || len(spies.pgFull) != 1 {
+			t.Fatalf("PostgreSQL mapping port calls = %d (records %d), want exactly one", spies.pgRequests, len(spies.pgFull))
+		}
+		if want := ir.PhysicalPopulationMappingMemberField + "," + ir.PhysicalPopulationMappingIdentityPartsField; strings.Join(spies.pgFull[0].Columns, ",") != want {
+			t.Fatalf("declared witness contract = %v, want %s", spies.pgFull[0].Columns, want)
+		}
+		if result.Status != PopulationMappingComplete || result.SelectedCount != 3 || result.MappedCount != 2 || result.UnmappedCount != 1 || result.EmittedRows != 2 {
+			t.Fatalf("typed mapping result = %#v", result)
+		}
+		if len(result.UnmappedMemberIDs) != 1 || result.UnmappedMemberIDs[0] != "obs-3" {
+			t.Fatalf("unmapped member IDs = %#v", result.UnmappedMemberIDs)
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+
 	t.Run("MisTaggedPostgreSQLCommandThroughAQLFakeFailsClosed", func(t *testing.T) {
 		spies := &dispatchSpies{}
 		// An AQL-target engine handing a PostgreSQL-tagged command to the
