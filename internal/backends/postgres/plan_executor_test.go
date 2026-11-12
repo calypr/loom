@@ -44,9 +44,10 @@ func TestPostgreSQLPlanJSONExecutorConstructionFailsClosed(t *testing.T) {
 	if querierCalled {
 		t.Fatal("cross-tag command reached the querier")
 	}
-	// The public seam applies the same Querier contract to an untyped
-	// value and fails closed on anything that does not satisfy it.
-	if _, err := NewPlanJSONExecutor(struct{}{}); err == nil {
-		t.Fatal("non-querier value must fail closed at the public seam")
+	// The public seam enforces the Querier contract in its parameter
+	// type (a non-querier no longer compiles) and still fails closed on
+	// absence.
+	if _, err := NewPlanJSONExecutor(nil); err == nil {
+		t.Fatal("nil querier must fail closed at the public seam")
 	}
 }
