@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -52,9 +53,25 @@ func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.Compi
 	if compiled.FoundColumn == "" || compiled.ContributorsColumn == "" || compiled.HasMoreColumn == "" || compiled.Limit < 1 || compiled.Limit > compiler.MaxRowLineageContributors {
 		return RowLineageResult{}, fmt.Errorf("row lineage query is missing its bounded result contract")
 	}
+	// The bounded result contract travels on the request as the declared
+	// column contract the PostgreSQL row adapter enforces against the
+	// server's field descriptions (count, order, name) before the first row
+	// is visited. Both dialects' lineage terminals publish exactly
+	// {found, contributors, hasMore} in this order; the AQL adapter ignores
+	// the contract, so carrying it is dialect-neutral. A duplicated name
+	// would make the adapter's positional check meaningless, so the
+	// contract must also be pairwise distinct.
+	declaredColumns := []string{compiled.FoundColumn, compiled.ContributorsColumn, compiled.HasMoreColumn}
+	for i := range declaredColumns {
+		for j := i + 1; j < len(declaredColumns); j++ {
+			if declaredColumns[i] == declaredColumns[j] {
+				return RowLineageResult{}, fmt.Errorf("row lineage query is missing its bounded result contract")
+			}
+		}
+	}
 	var result RowLineageResult
 	found := false
-	if err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
+	if err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, DeclaredColumns: declaredColumns, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -66,9 +83,9 @@ func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.Compi
 			return nil
 		}
 		found = true
-		contributors, ok := row[compiled.ContributorsColumn].([]any)
-		if !ok {
-			return fmt.Errorf("row lineage query returned an invalid contributor page")
+		contributors, err := rowLineageContributors(row[compiled.ContributorsColumn])
+		if err != nil {
+			return err
 		}
 		if len(contributors) > compiled.Limit {
 			return fmt.Errorf("row lineage query exceeded the requested contributor page size")
@@ -107,6 +124,40 @@ func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.Compi
 		result.Contributors = []RowLineageContributor{}
 	}
 	return result, nil
+}
+
+// rowLineageContributors reads the published contributor page from one
+// result row. Both dialects hand back a JSON array of contributor objects,
+// but through different driver shapes: the AQL adapter delivers a native
+// []any, while the PostgreSQL adapter decodes the jsonb column to
+// json.RawMessage (adapter decodeColumn), so the array arrives as raw JSON
+// bytes. A published contributor page is always a JSON array — the terminal
+// COALESCEs the aggregate to an empty array — so empty bytes, malformed
+// JSON, the JSON null scalar, and any non-array value are contract
+// violations refused fail-closed with no value, never a silent empty page.
+// SQL NULL (adapter decodeColumn nil) is likewise refused: a published page
+// is never SQL NULL. The decoded array re-enters the same per-contributor
+// validation as the native arm.
+func rowLineageContributors(value any) ([]any, error) {
+	switch typed := value.(type) {
+	case []any:
+		return typed, nil
+	case json.RawMessage:
+		if len(typed) == 0 || !json.Valid(typed) {
+			return nil, fmt.Errorf("row lineage query returned an invalid contributor page")
+		}
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return nil, fmt.Errorf("row lineage query returned an invalid contributor page: %w", err)
+		}
+		items, ok := decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("row lineage query returned an invalid contributor page")
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("row lineage query returned an invalid contributor page")
+	}
 }
 
 func rowLineageString(value any) (string, bool) {
