@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   EXPLORER_AUTHORING_SEMANTICS_VERSION,
@@ -34,8 +35,11 @@ import {
 } from './types';
 
 describe('Explorer authoring contract version', () => {
-  it('bumps for the contributor-window aggregate wire contract', () => {
-    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(10);
+  it('sends the semantics version required by the Go command decoder', () => {
+    const source = readFileSync(new URL('../../../../internal/explorer/authoringv2/types.go', import.meta.url), 'utf8');
+    const match = source.match(/CurrentSemanticsVersion\s*=\s*(\d+)/);
+    expect(match, 'Go authoring semantics version must be declared').not.toBeNull();
+    expect(EXPLORER_AUTHORING_SEMANTICS_VERSION).toBe(Number(match?.[1]));
   });
 });
 
