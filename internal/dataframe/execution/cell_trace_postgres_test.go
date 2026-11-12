@@ -205,6 +205,14 @@ func TestPostgresCellTraceOfflinePoisonMatrixRefusesFailClosed(t *testing.T) {
 			if err == nil {
 				t.Fatalf("poison shape %s was accepted: %#v", label, result)
 			}
+			// The refusal must be the shape violation itself, never the
+			// not-found the scan reports when a malformed row is silently
+			// skipped instead of refused: a skipped row leaves the published
+			// identity unmatched and answers "no such row", which would hide
+			// a decode arm that stopped refusing at all.
+			if errors.Is(err, ErrCellTraceRowNotFound) {
+				t.Fatalf("poison shape %s was skipped as row absence, not refused: %v", label, err)
+			}
 			if result.Status != "" || result.Complete || result.Value != nil || result.Contributions != nil {
 				t.Fatalf("poison shape %s returned a partial result: %#v", label, result)
 			}
