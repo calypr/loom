@@ -51,6 +51,26 @@ jobs:
         with:
           go-version: 1.26.5
           cache: true
+      - name: Run Go package boundary check
+        run: bash scripts/check_dataframe_package_boundaries.sh
+      - name: Backend ownership guard named gates
+        run: |
+          set -o pipefail
+          go test -json -count=1 -timeout=600s ./internal/dataframe/compiler \
+            -run '^(TestBackendOwnershipGuardContract|TestCompilerProductionFilesNeverImportBackendsOrDrivers)$' \
+            | node scripts/lib/check-go-test-events.mjs \
+                TestBackendOwnershipGuardContract \
+                TestBackendOwnershipGuardContract/compiler_backends_and_drivers \
+                TestBackendOwnershipGuardContract/neutral_domain_backend_import \
+                TestBackendOwnershipGuardContract/renderer_runtime_import \
+                TestBackendOwnershipGuardContract/legitimate_adapter_domain_import \
+                TestBackendOwnershipGuardContract/actual_relocated_adapter_import \
+                TestBackendOwnershipGuardContract/missing_or_malformed_input_is_error \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_named_victims_bleed \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_fires_on_a_real_postgres_adapter \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_fires_on_a_real_arango_adapter \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_malformed_input_is_verification_failure
       - name: Run all ordinary Go packages and catalog witnesses
         run: |
           package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./conformance/...)
