@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -482,4 +483,217 @@ func compilePopulationMappingOutput(t *testing.T, output recipe.Output) lower.Co
 		t.Fatal(err)
 	}
 	return compiled.Outputs[0]
+}
+
+// ---------------------------------------------------------------------------
+// pg-sql-22: the PostgreSQL dispatch arm.
+// ---------------------------------------------------------------------------
+
+func populationMappingPostgreSQLTarget(t *testing.T) Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("loom")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+func populationMappingPostgreSQLSQL(t *testing.T, compiled CompiledPopulationMappingQuery) (string, []command.PostgreSQLParameter) {
+	t.Helper()
+	if compiled.Command.Backend() != command.CompiledBackendPostgreSQL {
+		t.Fatalf("mapping command backend = %q, want postgresql", string(compiled.Command.Backend()))
+	}
+	sql, args, err := compiled.Command.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("PostgreSQLParameters: %v", err)
+	}
+	if sql == "" {
+		t.Fatal("mapping statement SQL is empty")
+	}
+	return sql, args
+}
+
+func TestCompilePopulationMappingPostgreSQLDefaultIdentityWitnesses(t *testing.T) {
+	output := recipe.Output{
+		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+			ResourceType: "Specimen",
+		},
+	}
+	compiledOutput := compilePopulationMappingOutput(t, output)
+	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
+	postgresQuery, err := CompilePopulationMappingOutput(populationMappingPostgreSQLTarget(t), compiledOutput, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("postgresql population mapping compile: %v", err)
+	}
+	sql, args := populationMappingPostgreSQLSQL(t, postgresQuery)
+	for _, want := range []string{
+		`CROSS JOIN LATERAL jsonb_array_elements_text(`,
+		`jsonb_typeof(`,
+		`'[]'::jsonb`,
+		`jsonb_build_array(`,
+		`ARRAY_AGG(`,
+		`COLLATE "C"`,
+		`"loom"."selection_members"`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("mapping SQL is missing %q:\n%s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "@") {
+		t.Fatalf("mapping SQL carries AQL bind syntax:\n%s", sql)
+	}
+	if len(args) == 0 {
+		t.Fatal("mapping statement is not parameterized")
+	}
+	// Every value stays a $n placeholder: no quoted plan string leaks in.
+	if strings.Contains(sql, "fixture_program") {
+		t.Fatalf("mapping SQL inlines bind values:\n%s", sql)
+	}
+	// The AQL control proves the dialect-neutral proof metadata is shared:
+	// same output, both targets, identical metadata contract.
+	aqlQuery, err := CompilePopulationMappingOutput(ArangoTarget(), compiledOutput, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("aql population mapping control: %v", err)
+	}
+	if postgresQuery.MemberColumn != aqlQuery.MemberColumn ||
+		postgresQuery.IdentityPartsColumn != aqlQuery.IdentityPartsColumn ||
+		postgresQuery.ExplicitIdentityColumn != aqlQuery.ExplicitIdentityColumn ||
+		!reflect.DeepEqual(postgresQuery.RowIdentity, aqlQuery.RowIdentity) ||
+		!reflect.DeepEqual(postgresQuery.Diagnostics, aqlQuery.Diagnostics) {
+		t.Fatalf("postgresql proof metadata drifted from the AQL control:\n pg: %#v\n aql: %#v", postgresQuery, aqlQuery)
+	}
+	if postgresQuery.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || postgresQuery.ExplicitIdentityColumn != "" {
+		t.Fatalf("default mapping identity columns = (%q, %q)", postgresQuery.IdentityPartsColumn, postgresQuery.ExplicitIdentityColumn)
+	}
+	// Determinism: one plan and bindings render byte-identical SQL and
+	// value-identical ordered arguments.
+	second, err := CompilePopulationMappingOutput(populationMappingPostgreSQLTarget(t), compiledOutput, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("second postgresql compile: %v", err)
+	}
+	sql2, args2 := populationMappingPostgreSQLSQL(t, second)
+	if sql2 != sql || !reflect.DeepEqual(args2, args) {
+		t.Fatal("population mapping rendering is not deterministic")
+	}
+}
+
+func TestCompilePopulationMappingPostgreSQLExplicitIdentity(t *testing.T) {
+	compiled := compilePopulationMappingRecipePostgreSQL(t, recipe.Output{
+		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields:   []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Identity: &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+			ResourceType: "Specimen",
+		},
+	})
+	sql, _ := populationMappingPostgreSQLSQL(t, compiled)
+	if compiled.IdentityPartsColumn != "" || compiled.ExplicitIdentityColumn != ir.PhysicalPopulationMappingExplicitIdentityField {
+		t.Fatalf("explicit mapping identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+	// The compiled explicit identity expression is preserved through the
+	// registered selector reading, not re-spelled as a parts array.
+	if !strings.Contains(sql, "#>") {
+		t.Fatalf("explicit identity did not render through the registered payload path:\n%s", sql)
+	}
+}
+
+// populationMappingSummaryOutput is a pure registered composition (the
+// summary GROUP) under a population constraint; the keyed variant drives
+// the contributor pool's GROUP BY/join path. RELATED_* stages stay outside
+// the registered composition surface (their own slice), so they are not
+// used here.
+func populationMappingSummaryOutput(keyed bool) recipe.Output {
+	output := constructionSummaryOutput()
+	if keyed {
+		group := output.Construction.Steps[0].Operation.Group
+		group.Keys = []recipe.ConstructionGroupKey{{InputColumnID: "status_id", OutputColumnID: "status_key_id"}}
+		output.Construction.Steps[0].Outputs = append([]recipe.StageColumn{{ID: "status_key_id", Name: "status_key"}}, output.Construction.Steps[0].Outputs...)
+	}
+	output.Population = &recipe.PopulationConstraint{
+		SelectionRevisionID: "selection-summary", MembershipDigest: "sha256:summary-members", MemberCount: 2,
+		ResourceType: "Observation",
+	}
+	return output
+}
+
+func TestCompilePopulationMappingPostgreSQLConstructionTerminal(t *testing.T) {
+	for _, keyed := range []bool{false, true} {
+		name := "grand-total"
+		if keyed {
+			name = "keyed"
+		}
+		t.Run(name, func(t *testing.T) {
+			compiledOutput := compilePopulationMappingOutput(t, populationMappingSummaryOutput(keyed))
+			postgresQuery, err := CompilePopulationMappingOutput(populationMappingPostgreSQLTarget(t), compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("postgresql construction mapping compile: %v", err)
+			}
+			sql, _ := populationMappingPostgreSQLSQL(t, postgresQuery)
+			// The contributor set is a renderer-owned pool relation joined
+			// to the group aggregate, and the terminal expands it into the
+			// source rows on the materialized "_key" text, then the member
+			// array, then de-duplicates on (identity, member). The plan-
+			// internal contributor column name never reaches SQL text.
+			for _, want := range []string{
+				"WITH ",
+				`"loom"."selection_members"`,
+				"rcpool AS (",
+				"ARRAY_AGG(DISTINCT",
+				"INNER JOIN __loom_src AS ps ON",
+				"CROSS JOIN LATERAL jsonb_array_elements_text(",
+				`GROUP BY s."`,
+				`COLLATE "C" ASC, mn0.member COLLATE "C" ASC`,
+			} {
+				if !strings.Contains(sql, want) {
+					t.Fatalf("construction mapping SQL is missing %q:\n%s", want, sql)
+				}
+			}
+			if strings.Contains(sql, "@") {
+				t.Fatalf("construction mapping SQL carries AQL bind syntax:\n%s", sql)
+			}
+			if postgresQuery.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField {
+				t.Fatalf("construction mapping identity column = %q", postgresQuery.IdentityPartsColumn)
+			}
+			aqlQuery, err := CompilePopulationMappingOutput(ArangoTarget(), compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy())
+			if err != nil {
+				t.Fatalf("aql construction control: %v", err)
+			}
+			if !reflect.DeepEqual(postgresQuery.RowIdentity, aqlQuery.RowIdentity) || !reflect.DeepEqual(postgresQuery.Diagnostics, aqlQuery.Diagnostics) {
+				t.Fatalf("construction proof metadata drifted from the AQL control")
+			}
+		})
+	}
+}
+
+func TestCompilePopulationMappingPostgreSQLRefusesMissingRowIdentity(t *testing.T) {
+	compiledOutput := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
+		Population: &recipe.PopulationConstraint{
+			SelectionRevisionID: "selection-1", MembershipDigest: "sha256:members", MemberCount: 3,
+			ResourceType: "Specimen",
+		},
+	})
+	compiledOutput.RowIdentity = nil
+	if _, err := CompilePopulationMappingOutput(populationMappingPostgreSQLTarget(t), compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy()); err == nil || !strings.Contains(err.Error(), "requires a row identity") {
+		t.Fatalf("missing row identity error = %v", err)
+	}
+}
+
+func compilePopulationMappingRecipePostgreSQL(t *testing.T, output recipe.Output) CompiledPopulationMappingQuery {
+	t.Helper()
+	compiled := compilePopulationMappingOutput(t, output)
+	mapping, err := CompilePopulationMappingOutput(populationMappingPostgreSQLTarget(t), compiled, recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mapping
 }

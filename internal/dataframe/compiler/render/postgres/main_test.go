@@ -74,25 +74,35 @@ import (
 // (pivot_test.go, pg-sql-14), verify_sql16v1_ (stage_sequence_test.go,
 // pg-sql-16), verify_sql25v1_ (category_scan_test.go, pg-sql-25),
 // verify_sql26v1_ (table_shape_exclusions_live_test.go, pg-sql-26),
-// verify_sql23v1_ (row_lineage_test.go, pg-sql-23), and verify_sql24v1_
+// verify_sql23v1_ (row_lineage_test.go, pg-sql-23), verify_sql22v1_
+// (population_mapping_test.go, pg-sql-22), and verify_sql24v1_
 // (cell_trace_test.go, pg-sql-24).
+// pg-sql-22's delta-scoped audit (population_mapping_test.go
+// sql22RunDeltaAudit) wraps the whole chain around the run over its own
+// disjoint verify_sql22v1_* namespace — the 14th hook — and pg-sql-24's
+// (cell_trace_test.go sql24RunDeltaAudit) wraps that chain over its own
+// disjoint verify_sql24v1_* namespace — the 15th hook, outermost (merge
+// order
+// sets08→unp→graph20→obj11→coded19→sql21→group13→pivot14→sql16→sql25→sql26→sql23→sql22→sql24).
 func TestMain(m *testing.M) {
 	// pg-sql-24's delta-scoped audit (cell_trace_test.go
 	// sql24RunDeltaAudit) wraps the whole chain around the run over its
-	// own disjoint verify_sql24v1_* namespace, outermost above pg-sql-23's
-	// sql23RunDeltaAudit (nesting order is seam-only — each hook snapshots
+	// own disjoint verify_sql24v1_* namespace, outermost above pg-sql-22's
+	// sql22RunDeltaAudit (nesting order is seam-only — each hook snapshots
 	// only its own namespace).
 	code := sql24RunDeltaAudit(func() int {
-		return sql23RunDeltaAudit(func() int {
-			return excl26RunDeltaAudit(func() int {
-				return sql25RunDeltaAudit(func() int {
-					return sql16RunDeltaAudit(func() int {
-						return pivot14RunDeltaAudit(func() int {
-							return group13RunDeltaAudit(func() int {
-								return sql21RunDeltaAudit(func() int {
-									return coded19RunDeltaAudit(func() int {
-										return obj11RunDeltaAudit(func() int {
-											return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+		return sql22RunDeltaAudit(func() int {
+			return sql23RunDeltaAudit(func() int {
+				return excl26RunDeltaAudit(func() int {
+					return sql25RunDeltaAudit(func() int {
+						return sql16RunDeltaAudit(func() int {
+							return pivot14RunDeltaAudit(func() int {
+								return group13RunDeltaAudit(func() int {
+									return sql21RunDeltaAudit(func() int {
+										return coded19RunDeltaAudit(func() int {
+											return obj11RunDeltaAudit(func() int {
+												return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+											})
 										})
 									})
 								})
@@ -103,7 +113,7 @@ func TestMain(m *testing.M) {
 			})
 		})
 	})
-	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_", "verify_sql21v1_", "verify_sql13v1_", "verify_sql14v1_", "verify_sql16v1_", "verify_sql25v1_", "verify_sql26v1_", "verify_sql23v1_", "verify_sql24v1_"} {
+	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_", "verify_sql21v1_", "verify_sql13v1_", "verify_sql14v1_", "verify_sql16v1_", "verify_sql25v1_", "verify_sql26v1_", "verify_sql23v1_", "verify_sql22v1_", "verify_sql24v1_"} {
 		if err := auditNoLeftoverVerifyNamespace(prefix); err != nil {
 			fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 			if code == 0 {
