@@ -1,14 +1,18 @@
 package compiler
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/columntransform"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
@@ -692,5 +696,265 @@ func TestCompileCellTraceRejectsUnknownOrHiddenColumn(t *testing.T) {
 	}
 	if _, err := CompileCellTraceOutput(ArangoTarget(), output, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
 		t.Fatal("internal row identity was accepted as a trace column")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PostgreSQL compile target (pg-sql-24): the same CompileCellTraceOutput
+// entry compiles the registered arms for the PostgreSQL target through the
+// render/postgres terminal slice, refuses unregistered shapes by name, and
+// leaves the Arango voice byte-identical (the AQL control cells below).
+// ---------------------------------------------------------------------------
+
+func mustPostgresCellTraceTarget(t *testing.T) Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("pgir02_it_unit")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+func compilePopulationMappingOutputWithPolicy(t *testing.T, output recipe.Output, policy ir.PhysicalOptimizationPolicy) lower.CompiledRecipeOutput {
+	t.Helper()
+	bundle := recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                "population-mapping-test",
+		TranslationVersion:  "population-mapping-test",
+		Outputs:             []recipe.Output{output},
+	}
+	bindings := recipe.RuntimeBindings{Project: "fixture_program-project-a", SelectionProject: "fixture_program/project-a", DatasetGeneration: "generation-a", SelectionMembersCollection: "loom_explorer_selection_members"}
+	plan, err := semantic.BuildRecipePlan(bundle, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := semantic.ResolveRecipePlan(plan, "scope-a", "generation-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := lower.CompileResolvedRecipePlan(resolved, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled.Outputs[0]
+}
+
+func sql24PostgreSQLOutput() recipe.Output {
+	return recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "gender", Expr: recipe.Expression{Select: "root.gender"}},
+		},
+	}
+}
+
+func sql24TraversalOutput() recipe.Output {
+	return recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Condition", Alias: "condition",
+			Fields: []recipe.Field{{Name: "condition_id", Expr: recipe.Expression{Select: "id"}, ValueMode: recipe.ValueModeFirst}},
+		}},
+	}
+}
+
+func sql24PostgresSQL(t *testing.T, compiled CompiledCellTraceQuery) (string, []command.PostgreSQLParameter) {
+	t.Helper()
+	sqlText, parameters, err := compiled.Command.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("compiled cell trace command is not a PostgreSQL command: %v", err)
+	}
+	return sqlText, parameters
+}
+
+func TestCompileCellTracePostgreSQLRootExtract(t *testing.T) {
+	output := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
+	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "gender", 2, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("PostgreSQL root-extract cell trace compile: %v", err)
+	}
+	sqlText, parameters := sql24PostgresSQL(t, compiled)
+	for _, want := range []string{
+		`AS "__loom_trace_value"`, `AS "__loom_trace_contributions"`,
+		`AS "__loom_trace_identity_parts"`, `AS "__loom_trace_status"`,
+		`AS "__loom_trace_has_more"`, `AS "__loom_trace_omission"`,
+		`'NO_MATCH'`, `'RECORDED_NULL'`, `'VALUE'`, `false AS "__loom_trace_has_more"`,
+		`jsonb_build_object('resourceType',`,
+	} {
+		if !strings.Contains(sqlText, want) {
+			t.Fatalf("PostgreSQL root-extract trace is missing %q:\n%s", want, sqlText)
+		}
+	}
+	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField || compiled.ExplicitIdentityColumn != "" {
+		t.Fatalf("trace identity columns = (%q, %q)", compiled.IdentityPartsColumn, compiled.ExplicitIdentityColumn)
+	}
+	if compiled.ValueColumn != ir.PhysicalCellTraceValueField || compiled.StatusColumn != ir.PhysicalCellTraceStatusField ||
+		compiled.ContributionsColumn != ir.PhysicalCellTraceContributionsField ||
+		compiled.HasMoreColumn != ir.PhysicalCellTraceHasMoreField || compiled.OmissionColumn != ir.PhysicalCellTraceOmissionField {
+		t.Fatalf("contract columns do not match the registered field names: %#v", compiled)
+	}
+	if compiled.ContributionOffset != 2 || compiled.ContributionLimit != 5 {
+		t.Fatalf("trace page = %d/%d", compiled.ContributionOffset, compiled.ContributionLimit)
+	}
+	if len(parameters) == 0 {
+		t.Fatal("every scope and page fact must travel as an ordered parameter")
+	}
+	if output.Plan.Operations[terminalIndexOf(t, output.Plan)].CellTraceReturn != nil {
+		t.Fatal("compiling a diagnostic terminal mutated the canonical Preview plan")
+	}
+}
+
+func terminalIndexOf(t *testing.T, plan ir.PhysicalPlan) int {
+	t.Helper()
+	for _, operation := range plan.Operations {
+		if operation.Kind == ir.PhysicalCellTraceReturnOp {
+			t.Fatalf("canonical preview plan already carries the evidence terminal")
+		}
+		_ = operation
+	}
+	return len(plan.Operations) - 1
+}
+
+func TestCompileCellTracePostgreSQLReducedSetContributors(t *testing.T) {
+	// The registered-surface lowering: the endpoint-lookup planner label
+	// has no PostgreSQL storage counterpart, so the registered shape is
+	// the native typed-identity join (the spine refuses the other spelling
+	// fail-closed — see the endpoint control cell below).
+	output := compilePopulationMappingOutputWithPolicy(t, sql24TraversalOutput(),
+		ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, false))
+	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("PostgreSQL reduced-set cell trace compile: %v", err)
+	}
+	sqlText, parameters := sql24PostgresSQL(t, compiled)
+	for _, want := range []string{
+		`jsonb_agg(jsonb_build_object('resourceType',`, `'resourceId',`, `'value',`,
+		`AS capped`, `OFFSET $`, `WITH ORDINALITY`,
+		`'AMBIGUOUS'`, `'NO_MATCH'`, `AS "__loom_trace_has_more"`,
+	} {
+		if !strings.Contains(sqlText, want) {
+			t.Fatalf("PostgreSQL reduced-set trace is missing %q:\n%s", want, sqlText)
+		}
+	}
+	if compiled.ContributionOffset != 5 || compiled.ContributionLimit != 10 {
+		t.Fatalf("trace page = %d/%d", compiled.ContributionOffset, compiled.ContributionLimit)
+	}
+	if compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField {
+		t.Fatalf("identity column = %q", compiled.IdentityPartsColumn)
+	}
+	_ = parameters
+}
+
+// Fail-closed control: the default-policy lowering carries the
+// endpoint-lookup planner label; the PostgreSQL target refuses it typed,
+// exactly where the spine refuses it for the preview — no AQL fallback, no
+// silent translation.
+func TestCompileCellTracePostgreSQLRefusesEndpointLookupTyped(t *testing.T) {
+	output := compilePopulationMappingOutput(t, sql24TraversalOutput())
+	_, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err == nil || !strings.Contains(err.Error(), "endpoint-lookup") {
+		t.Fatalf("endpoint-lookup shape must refuse with the spine's typed voice, got: %v", err)
+	}
+	if !errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
+		t.Fatalf("refusal must be the typed unsupported-plan error: %v", err)
+	}
+}
+
+func TestCompileCellTracePostgreSQLNamedRefusals(t *testing.T) {
+	target := mustPostgresCellTraceTarget(t)
+
+	groupRows := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "GroupedSpecimens", RootResourceType: "Specimen", RowGrain: "groups",
+		RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields:           []recipe.Field{{Name: "resourceType", ColumnID: "resource_type", Expr: recipe.Expression{Select: "root.resourceType"}}},
+		GroupRows: &recipe.GroupRows{
+			RevisionID: "grouprev_1", UnassignedMemberPolicy: "EXCLUDE",
+			RowValues: []recipe.GroupRowValuePolicy{{ColumnID: "resource_type", Policy: recipe.ConstructionRowValueOne}},
+		},
+	})
+	if _, err := CompileCellTraceOutput(target, groupRows, "resourceType", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "explicit group rows cell trace is unsupported on the PostgreSQL compile target") {
+		t.Fatalf("group-rows trace must refuse by name: %v", err)
+	}
+
+	construction := compilePopulationMappingOutput(t, constructionCellTraceRecipeOutput())
+	if construction.Plan.StageSequence == nil {
+		t.Fatal("construction fixture lost its stage sequence")
+	}
+	if _, err := CompileCellTraceOutput(target, construction, "total", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "composed construction cell trace is unsupported on the PostgreSQL compile target") {
+		t.Fatalf("composed-construction trace must refuse by name: %v", err)
+	}
+
+	aggregateValue := recipe.Expression{Select: "valueQuantity.value"}
+	aggregate := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient",
+		RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+		Fields: []recipe.Field{{Name: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+		Traversals: []recipe.Traversal{{
+			Name: "subject_Patient", ToResourceType: "Observation", Alias: "observation",
+			Aggregates: []recipe.Aggregate{{Name: "maximum_value", Operation: recipe.AggregateMax, Expr: &aggregateValue}},
+		}},
+	})
+	if _, err := CompileCellTraceOutput(target, aggregate, "maximum_value", 0, 25, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "aggregate, owner-records, call-recode, and prepared-extract values") {
+		t.Fatalf("aggregate trace must refuse with the terminal-surface voice: %v", err)
+	}
+
+	root := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
+	if _, err := CompileCellTraceOutput(target, root, "missing", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+		t.Fatal("unknown trace column was accepted on the PostgreSQL target")
+	}
+	if _, err := CompileCellTraceOutput(target, root, "__loom_row_id", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil {
+		t.Fatal("internal row identity was accepted as a trace column on the PostgreSQL target")
+	}
+	if _, err := CompileCellTraceOutput(target, root, "gender", -1, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "cell trace offset cannot be negative") {
+		t.Fatalf("negative offset must refuse with the shared page voice: %v", err)
+	}
+	if defaulted, err := CompileCellTraceOutput(target, root, "gender", 0, 0, ir.DefaultPhysicalOptimizationPolicy()); err != nil ||
+		defaulted.ContributionLimit != 25 {
+		t.Fatalf("limit <= 0 must take the registered default 25 on the shared page contract: %v / %+v", err, defaulted)
+	}
+	if _, err := CompileCellTraceOutput(target, root, "gender", 0, MaxCellTraceContributions+1, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
+		!strings.Contains(err.Error(), "cell trace contribution limit exceeds") {
+		t.Fatalf("over-max limit must refuse with the shared page voice: %v", err)
+	}
+}
+
+// AQL control cells: the shared preparation refactor left the Arango voice
+// untouched for exactly the fixtures the PostgreSQL arm compiles.
+func TestCompileCellTraceArangoVoiceUnchangedForPostgresArms(t *testing.T) {
+	root := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
+	compiled, err := CompileCellTraceOutput(ArangoTarget(), root, "gender", 2, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"root.payload.gender", "@cell_trace_offset", "@cell_trace_limit", "LENGTH(__loom_physical_trace_status_candidates) == 0"} {
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("AQL root-extract voice lost %q:\n%s", want, testAQLText(t, compiled.Command))
+		}
+	}
+
+	traversal := compilePopulationMappingOutput(t, sql24TraversalOutput())
+	compiled, err = CompileCellTraceOutput(ArangoTarget(), traversal, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FOR __loom_physical_trace_contributor", "IN child_set_1", "LENGTH(__loom_physical_trace_status_candidates) > 1 ? \"AMBIGUOUS\"", "SLICE("} {
+		if !strings.Contains(testAQLText(t, compiled.Command), want) {
+			t.Fatalf("AQL reduced-set voice lost %q:\n%s", want, testAQLText(t, compiled.Command))
+		}
+	}
+	if compiled.ContributionOffset != 5 || compiled.ContributionLimit != 10 {
+		t.Fatalf("AQL trace page = %d/%d", compiled.ContributionOffset, compiled.ContributionLimit)
 	}
 }

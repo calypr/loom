@@ -105,10 +105,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 			surface string
 			call    func() error
 		}{
-			{"cell trace compilation", func() error {
-				_, err := compiler.CompileCellTraceOutput(target, zeroOutput, "name", 0, 10, policy)
-				return err
-			}},
 			{"graph query compilation", func() error {
 				_, err := compiler.CompileResolvedGraphQuery(target, zeroResolved, 10, policy)
 				return err

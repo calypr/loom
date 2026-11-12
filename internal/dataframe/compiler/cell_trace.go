@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -51,28 +53,26 @@ func CompileCellTraceOutput(target Target, output lower.CompiledRecipeOutput, co
 	if err := target.validate(); err != nil {
 		return CompiledCellTraceQuery{}, err
 	}
+	// Cell trace is a per-dialect auxiliary surface. The PostgreSQL target
+	// renders its typed cell evidence through the registered terminal slice
+	// (render/postgres/cell_trace.go, pg-sql-24); the surfaces that still
+	// have no PostgreSQL source — composed construction traces, group-row
+	// member traces, and every unregistered value kind — refuse by name
+	// inside that path. There is no AQL-to-SQL translation: neither dialect
+	// can produce the other's command.
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compileCellTracePostgreSQL(target, output, column, offset, limit)
+	}
 	if err := target.rejectPostgreSQL("cell trace compilation"); err != nil {
 		return CompiledCellTraceQuery{}, err
 	}
-	column = strings.TrimSpace(column)
-	if column == "" {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace column is required")
-	}
-	if output.RowIdentity == nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace requires a row identity")
-	}
-	if offset < 0 {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace offset cannot be negative")
-	}
-	if limit <= 0 {
-		limit = 25
-	}
-	if limit > MaxCellTraceContributions {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace contribution limit exceeds %d", MaxCellTraceContributions)
+	column, offset, limit, err := normalizeCellTracePage(output, column, offset, limit)
+	if err != nil {
+		return CompiledCellTraceQuery{}, err
 	}
 	physical := ir.ClonePhysicalPlan(output.Plan)
 	_ = policy // The trace deliberately uses the canonical pre-optimization plan.
-	physical, err := withGenericPhysicalExecutionWindow(physical, 0)
+	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("apply cell trace execution window: %w", err)
 	}
@@ -82,17 +82,72 @@ func CompileCellTraceOutput(target Target, output lower.CompiledRecipeOutput, co
 	if len(physical.Operations) == 1 && physical.Operations[0].Kind == ir.PhysicalGroupRowsOp && physical.Operations[0].GroupRows != nil {
 		return compileGroupRowsCellTrace(output, &physical, column, offset, limit)
 	}
-	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
+	prepared, facts, err := prepareCellTracePhysicalPlan(physical, output, column, offset, limit)
 	if err != nil {
 		return CompiledCellTraceQuery{}, err
+	}
+	rendered, err := aql.RenderPhysicalPlan(prepared)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
+	}
+	compiledCommand, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
+	return cellTraceQuery(compiledCommand, output, prepared, facts, offset, limit), nil
+}
+
+// normalizeCellTracePage is the single page-boundary contract shared by both
+// dialects: a trimmed non-empty column, a required stable row identity, a
+// non-negative offset, and a limit in [1, MaxCellTraceContributions] with
+// the registered default applied.
+func normalizeCellTracePage(output lower.CompiledRecipeOutput, column string, offset, limit int) (string, int, int, error) {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		return "", 0, 0, fmt.Errorf("cell trace column is required")
+	}
+	if output.RowIdentity == nil {
+		return "", 0, 0, fmt.Errorf("cell trace requires a row identity")
+	}
+	if offset < 0 {
+		return "", 0, 0, fmt.Errorf("cell trace offset cannot be negative")
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > MaxCellTraceContributions {
+		return "", 0, 0, fmt.Errorf("cell trace contribution limit exceeds %d", MaxCellTraceContributions)
+	}
+	return column, offset, limit, nil
+}
+
+// cellTraceTerminalFacts carries the one mint input that the shared query
+// assembly re-reads: whether the compiler proved an explicit identity.
+type cellTraceTerminalFacts struct {
+	explicitIdentity *ir.PhysicalExpression
+}
+
+// prepareCellTracePhysicalPlan is the shared physical preparation for both
+// dialects (prepareRowLineagePhysicalPlan parity): it resolves the final
+// population-mapping identity, the requested public projection, the
+// reduced-set contribution the lowering proved for it, and the three page
+// binds over the windowed clone of the canonical plan, then mints the
+// evidence terminal in place of the final RETURN and re-validates. The AQL
+// path feeds the result to the AQL renderer; the PostgreSQL path hands it to
+// renderPostgreSQLFinalPlan. The minted plan is byte-identical to what the
+// pre-pg-sql-24 inline code produced — the AQL command bytes are pinned.
+func prepareCellTracePhysicalPlan(physical ir.PhysicalPlan, output lower.CompiledRecipeOutput, column string, offset, limit int) (ir.PhysicalPlan, cellTraceTerminalFacts, error) {
+	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
+	if err != nil {
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, err
 	}
 	projection, err := traceProjection(physical.Operations[terminalIndex].Return, column)
 	if err != nil {
-		return CompiledCellTraceQuery{}, err
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, err
 	}
 	value, err := physicalProjectionExpression(projection)
 	if err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("trace column %q: %w", column, err)
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, fmt.Errorf("trace column %q: %w", column, err)
 	}
 	contribution := traceContributionForProjection(physical, value)
 	const offsetBind, limitBind, fetchLimitBind = "cell_trace_offset", "cell_trace_limit", "cell_trace_fetch_limit"
@@ -108,32 +163,76 @@ func CompileCellTraceOutput(target Target, output lower.CompiledRecipeOutput, co
 		},
 	}
 	if err := physical.Validate(); err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("validate cell trace physical plan: %w", err)
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, fmt.Errorf("validate cell trace physical plan: %w", err)
 	}
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("verify cell trace physical scope: %w", err)
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, fmt.Errorf("verify cell trace physical scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
-	if err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
-	}
-	compiledCommand, commandErr := cellTraceCommand(rendered)
-	if commandErr != nil {
-		return CompiledCellTraceQuery{}, commandErr
-	}
+	return physical, cellTraceTerminalFacts{explicitIdentity: explicitIdentity}, nil
+}
+
+// cellTraceQuery is the single compiled-query contract of both dialects:
+// the same typed column names, the identity-column choice the mint proved,
+// the row identity clone, the page coordinates, and the diagnostics over
+// the prepared plan.
+func cellTraceQuery(compiledCommand command.CompiledCommand, output lower.CompiledRecipeOutput, prepared ir.PhysicalPlan, facts cellTraceTerminalFacts, offset, limit int) CompiledCellTraceQuery {
 	query := CompiledCellTraceQuery{
 		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),
-		ContributionOffset: offset, ContributionLimit: limit, Diagnostics: physicalPlanDiagnostics(physical),
+		ContributionOffset: offset, ContributionLimit: limit, Diagnostics: physicalPlanDiagnostics(prepared),
 	}
-	if explicitIdentity != nil {
+	if facts.explicitIdentity != nil {
 		query.ExplicitIdentityColumn = ir.PhysicalCellTraceExplicitIdentityField
 	} else {
 		query.IdentityPartsColumn = ir.PhysicalCellTraceIdentityPartsField
 	}
-	return query, nil
+	return query
+}
+
+// compileCellTracePostgreSQL compiles one typed cell-evidence request for
+// the PostgreSQL compile target. It shares every admission step with the
+// AQL path — the same page bounds and the same shared physical preparation,
+// including the minted evidence terminal — and then renders through the
+// PostgreSQL terminal slice (render/postgres/cell_trace.go) and tags a
+// PostgreSQL command. Shapes the terminal slice does not register refuse
+// with the renderer's typed unsupported-plan error named to this surface;
+// there is no AQL fallback and no AQL-to-SQL translation anywhere on this
+// path.
+func compileCellTracePostgreSQL(target Target, output lower.CompiledRecipeOutput, column string, offset, limit int) (CompiledCellTraceQuery, error) {
+	column, offset, limit, err := normalizeCellTracePage(output, column, offset, limit)
+	if err != nil {
+		return CompiledCellTraceQuery{}, err
+	}
+	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace compilation is unsupported on the PostgreSQL compile target: %w",
+			errors.Join(fmt.Errorf("apply cell trace execution window: %w", err), postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	// The composed-construction and group-rows trace shapes mint through
+	// dedicated renderers over the construction stage sequence and the
+	// group-membership collections, which have no PostgreSQL source at all
+	// (stage_sequence.go and the group surfaces own those roots); they
+	// refuse here by name rather than reach a renderer that cannot bind
+	// them.
+	if physical.StageSequence != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("composed construction cell trace is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
+	}
+	if len(physical.Operations) == 1 && physical.Operations[0].Kind == ir.PhysicalGroupRowsOp && physical.Operations[0].GroupRows != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("explicit group rows cell trace is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
+	}
+	prepared, facts, err := prepareCellTracePhysicalPlan(physical, output, column, offset, limit)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace compilation is unsupported on the PostgreSQL compile target: %w",
+			errors.Join(err, postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	compiledCommand, _, err := target.renderPostgreSQLFinalPlan(prepared)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace compilation is unsupported on the PostgreSQL compile target: %w",
+			errors.Join(err, postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	return cellTraceQuery(compiledCommand, output, prepared, facts, offset, limit), nil
 }
 
 func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.PhysicalPlan, column string, offset, limit int) (CompiledCellTraceQuery, error) {

@@ -201,6 +201,23 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
+	// Whole-plan cell-trace delegation (cell_trace.go contract, pg-sql-24):
+	// an inline plan mentioning the compiler-minted typed cell-evidence
+	// terminal is rendered WHOLE by the registered slice — the structural
+	// twin of the graph door below, with validateCellTracePlanSurface as the
+	// single contract behind the door (and behind
+	// renderCellTracePhysicalPlan, entry==dispatch message equality). The
+	// door sits at the HEAD of the
+	// whole-plan region (coordinator ruling 2026-11-12): the graph and every
+	// later door have never seen this companion, so claiming all
+	// terminal-carrying inline plans here keeps an unregistered shape
+	// fail-closed with a named refusal instead of silently dropping the
+	// trace columns; every plan without the terminal routes byte-identically
+	// to the doors that claimed it before this arm existed (door-claims-
+	// nothing-else cells, cell_trace_test.go).
+	if cellTraceTerminalMentions(plan) {
+		return renderCellTracePhysicalPlan(plan, storage)
+	}
 	// Whole-plan graph delegation (graph.go contract, pg-sql-20): a plan
 	// mentioning PATH_SEED/PATH_EXTEND/GRAPH_RETURN is the authored graph
 	// shape and is rendered WHOLE by the registered graph slice — the
