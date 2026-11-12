@@ -276,6 +276,18 @@ func hiddenRootKeyRead(projection ir.PhysicalProjection) bool {
 		len(projection.Value.Path) == 1 && (projection.Value.Path[0] == "id" || projection.Value.Path[0] == "_key")
 }
 
+// hiddenAuthResourcePathRead is the shape law for the capture contract's
+// hidden authorization-path projection: a direct single-segment read of the
+// typed auth_resource_path column from one row variable. resolveValueInRows
+// maps that exact path onto the storage binding's auth_resource_path column
+// (resourceFilterColumns), so the rendered value is the stored scope column,
+// never a payload path and never a bind value.
+func hiddenAuthResourcePathRead(projection ir.PhysicalProjection) bool {
+	return projection.Expression == nil && !projection.PresenceOutput && projection.Presence == nil &&
+		projection.Value.Variable != "" && projection.Value.BindKey == "" &&
+		len(projection.Value.Path) == 1 && projection.Value.Path[0] == "auth_resource_path"
+}
+
 // classifyExtractionProjection enforces the structural half of the
 // projection contract (everything checkable without plan context).
 func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedExtractionProjection, error) {
@@ -290,6 +302,17 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 		// exactly the root row's logical id, published through the internal
 		// column contract and never as public output.
 		if projection.Name == ir.PreviewSourceResourceIDColumn && hiddenRootKeyRead(projection) {
+			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
+		}
+		// The private workspace artifact capture's row authorization path
+		// (recipe_execution.appendAuthResourcePathProjection attaches it when
+		// the capture bindings set IncludeAuthResourcePath) is the second
+		// registered hidden projection (pg-exec-11): exactly one row variable's
+		// typed auth_resource_path column, published through the internal
+		// column contract and never as public output. Any other hidden shape
+		// -- an expression, a presence proof, a bind value, a multi-segment
+		// path, or a reshape-carried alias -- stays refused.
+		if projection.Name == "auth_resource_path" && hiddenAuthResourcePathRead(projection) {
 			return classifiedExtractionProjection{kind: extractionDirectValue, projection: projection}, nil
 		}
 		return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q is hidden executor-side metadata with no registered PostgreSQL rendering",

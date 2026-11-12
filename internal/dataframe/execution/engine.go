@@ -741,10 +741,13 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 	// selection never renders (and never reaches) a command. These are
 	// selection-level guarantees, not renderer accidents: the checked
 	// messages are the same the PostgreSQL route asserts post-compile.
+	// A PostgreSQL-served output is a legitimate private-artifact capture
+	// source (pg-exec-11): its rows stream through the source row port into
+	// the writer, and the capture contract (scope evidence, digests, row
+	// identity, authorization path) is enforced in materializeClickHouseArtifact.
+	// A PostgreSQL-served output may still never itself carry a ClickHouse
+	// combine payload: that is a plan-shape contradiction, not a source choice.
 	if e.compileTarget.Backend() == command.CompiledBackendPostgreSQL {
-		if privateArtifactCapture {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
-		}
 		if output.Plan.ClickHouseCombine != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 		}
@@ -932,10 +935,13 @@ func (e *Engine) clickHouseStreamForOutput(ctx context.Context, resolved Resolve
 // until a parent-compiler ticket supplies a PostgreSQL page producer (the
 // compiler still refuses root-key output paging for PostgreSQL), no
 // production path can attach them.
+//
+// A capture build (privateArtifactCapture) is a legitimate PostgreSQL
+// request (pg-exec-11): the same compiler-attested artifact scope the AQL
+// builder attaches is computed here, and the capture contract itself is
+// enforced in materializeClickHouseArtifact. Non-capture PostgreSQL streams
+// keep the exact fields they carried before capture was offered.
 func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, query compiler.CompiledQuery, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
-	if privateArtifactCapture {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
-	}
 	if output.Plan.ClickHouseCombine != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 	}
@@ -963,6 +969,19 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 		command:         query.Command,
 		expectedBackend: command.CompiledBackendPostgreSQL,
 		commandColumns:  append([]string(nil), query.Columns...),
+	}
+	if privateArtifactCapture {
+		// The same compiler-attested artifact scope the AQL builder attaches
+		// (engine artifact-scope block): rows later captured into a private
+		// ClickHouse artifact are only accepted with this exact evidence.
+		scopeMode, scopeEvidence, scopeIdentity, err := compiledArtifactScope(output, bindings, query.PhysicalPlan)
+		if err != nil {
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q artifact scope: %w", output.Name, err)
+		}
+		stream.artifactScopeMode, stream.scopeEvidence, stream.scopeEvidenceIdentity = scopeMode, scopeEvidence, scopeIdentity
+		if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
+			stream.artifactScopeEvidence = scopeEvidence.Digest()
+		}
 	}
 	return stream, query, nil
 }
