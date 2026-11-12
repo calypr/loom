@@ -61,6 +61,19 @@ type (
 	ClientConfig                   = control.ClientConfig
 	ExplorerStore                  = control.ExplorerStore
 	ExplicitGroupStore             = control.ExplicitGroupStore
+	PublishStore                   = control.PublishStore
+	InterpretationStore            = control.InterpretationStore
+	CapabilitySnapshotStore        = control.CapabilitySnapshotStore
+	TableShapeCapabilityStore      = control.TableShapeCapabilityStore
+	DatasetReleaseStore            = control.DatasetReleaseStore
+	BundleCatalog                  = control.BundleCatalog
+	BundleRegistry                 = control.BundleRegistry
+	BundleReadPins                 = control.BundleReadPins
+	PublicationReconciler          = control.PublicationReconciler
+	PhysicalDropTable              = control.PhysicalDropTable
+	RecipeExecRegistry             = control.RecipeExecRegistry
+	RecipeRevisionRegistry         = control.RecipeRevisionRegistry
+	ChartifactCatalog              = control.ChartifactCatalog
 )
 
 const (
@@ -141,4 +154,14 @@ var (
 	MigrateDatasetReleaseSchema              = control.MigrateDatasetReleaseSchema
 	NewExplorerStore                         = control.NewExplorerStore
 	NewExplicitGroupStore                    = control.NewExplicitGroupStore
+	NewPublishStore                          = control.NewPublishStore
+	NewInterpretationStore                   = control.NewInterpretationStore
+	NewCapabilitySnapshotStore               = control.NewCapabilitySnapshotStore
+	NewTableShapeCapabilityStore             = control.NewTableShapeCapabilityStore
+	NewDatasetReleaseStore                   = control.NewDatasetReleaseStore
+	NewBundleCatalog                         = control.NewBundleCatalog
+	NewPublicationReconciler                 = control.NewPublicationReconciler
+	NewRecipeExecRegistry                    = control.NewRecipeExecRegistry
+	NewRecipeRevisionRegistry                = control.NewRecipeRevisionRegistry
+	NewChartifactCatalog                     = control.NewChartifactCatalog
 )
