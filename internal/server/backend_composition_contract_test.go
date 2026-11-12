@@ -298,8 +298,15 @@ func TestBackendCompositionContract(t *testing.T) {
 		if err := closeRuntime(); err != nil {
 			t.Errorf("production closer: %s", fixture.scrub(err))
 		}
-		// The closer is idempotently single-owner: a second call must not
-		// reopen anything.
 		assertLedger(t, "live close", ledger, 0, 1, 0)
+		// The closer law is single-owner and re-entry safe: a second call
+		// tears down the same stack (the backend factory Close is once-
+		// guarded, reconciler stops are idempotent), reports no new error,
+		// and -- the ledger point a closer-law regression would surface --
+		// performs no open.
+		if err := closeRuntime(); err != nil {
+			t.Errorf("second production closer call: %s", fixture.scrub(err))
+		}
+		assertLedger(t, "second live close", ledger, 0, 1, 0)
 	})
 }
