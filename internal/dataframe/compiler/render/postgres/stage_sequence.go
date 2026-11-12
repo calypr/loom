@@ -204,7 +204,7 @@ func renderStageSequencePhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresSt
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
-	if err := validateStageSequencePlanSurface(plan); err != nil {
+	if err := validateStageSequencePlanSurface(plan, false); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
 	if err := plan.Validate(); err != nil {
@@ -245,7 +245,12 @@ func renderStageSequencePhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresSt
 // any rendering can reject with an off-type error, and it reproduces the
 // registered voices of shapes whose ownership stays in another slice
 // (#132 register-split voice law).
-func validateStageSequencePlanSurface(plan ir.PhysicalPlan) error {
+//
+// mappingTerminal is set ONLY by the pg-sql-22 population-mapping entry:
+// it admits the PopulationMappingReturn terminal and the compiler-owned
+// member-collecting population root that feeds it. Every registered door
+// calls with false, keeping every registered refusal voice byte-identical.
+func validateStageSequencePlanSurface(plan ir.PhysicalPlan, mappingTerminal bool) error {
 	if plan.StageSequence == nil {
 		return fmt.Errorf("%w: composition dispatch requires a stage sequence", ErrUnsupportedPostgresPlan)
 	}
@@ -258,9 +263,17 @@ func validateStageSequencePlanSurface(plan ir.PhysicalPlan) error {
 	}
 	// L-16.4 first: diagnostic returns and windowing refuse with the
 	// registered citations regardless of stage kinds (acceptance battery
-	// classes C-16/C-17; plan-level and sequence-level flags).
-	if sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil || sequence.PopulationMappingReturn != nil {
+	// classes C-16/C-17; plan-level and sequence-level flags). The
+	// population-mapping return stays in this voice for every registered
+	// door (mappingTerminal false); the pg-sql-22 mapping entry admits it
+	// and must carry it (added arm — the registered voice is untouched).
+	if sequence.CellTraceReturn != nil || sequence.RowLineageReturn != nil ||
+		(sequence.PopulationMappingReturn != nil && !mappingTerminal) {
 		return fmt.Errorf("%w: row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route (compiler/row_lineage.go:655, cell_trace.go:54, population_mapping.go:38)",
+			ErrUnsupportedPostgresPlan)
+	}
+	if mappingTerminal && sequence.PopulationMappingReturn == nil {
+		return fmt.Errorf("%w: the population-mapping surface requires the stage sequence's PopulationMappingReturn payload",
 			ErrUnsupportedPostgresPlan)
 	}
 	if plan.PreviewSourceWindowByRootID || sequence.PreviewSourceWindowByRootID || sequence.PreviewTerminalPivotWindow {
@@ -303,10 +316,10 @@ func validateStageSequencePlanSurface(plan ir.PhysicalPlan) error {
 				ErrUnsupportedPostgresPlan, index)
 		}
 	}
-	if err := validateStageSequenceOperations(plan); err != nil {
+	if err := validateStageSequenceOperations(plan, mappingTerminal); err != nil {
 		return err
 	}
-	return validateStageSequenceChain(plan)
+	return validateStageSequenceChain(plan, mappingTerminal)
 }
 
 // validateStageSequenceOperations enforces the closed source-region
@@ -317,7 +330,13 @@ func validateStageSequencePlanSurface(plan ir.PhysicalPlan) error {
 // sabotage lesson forbids (S5). EXPRESSION_LET stays the probe-attested
 // unreachable fail-closed arm (L-16.5, the pivot.go C6 twin): the source
 // builder has no dispatch for it.
-func validateStageSequenceOperations(plan ir.PhysicalPlan) error {
+//
+// mappingTerminal (pg-sql-22, added parameter) admits only the
+// compiler-owned member-collecting population root for the mapping entry;
+// every registered door passes false and the refusal voice below stays
+// byte-identical, cohort sources and candidate seeds stay refused either
+// way.
+func validateStageSequenceOperations(plan ir.PhysicalPlan, mappingTerminal bool) error {
 	if len(plan.Operations) == 0 {
 		return fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
 	}
@@ -326,9 +345,14 @@ func validateStageSequenceOperations(plan ir.PhysicalPlan) error {
 		return fmt.Errorf("%w: the composition source requires exactly one leading ROOT_SCAN", ErrUnsupportedPostgresPlan)
 	}
 	scan := first.RootScan
-	if scan.Population != nil || scan.CohortSource != nil || scan.PageCandidateSeed != nil {
+	membershipRoot := scan.Population != nil || scan.CohortSource != nil || scan.PageCandidateSeed != nil
+	if membershipRoot && !(mappingTerminal && scan.Population != nil && scan.CohortSource == nil && scan.PageCandidateSeed == nil) {
 		return fmt.Errorf("%w: population, cohort, and candidate-seed roots are bound only by RenderPopulationRootScan (population.go); the composition door refuses them",
 			ErrUnsupportedPostgresPlan)
+	}
+	if mappingTerminal && scan.Population != nil && scan.Population.CollectMembersVariable != ir.PopulationMappingMembersVariable {
+		return fmt.Errorf("%w: the composition member-collecting root is registered only for CollectMembersVariable %q (compiler/population_mapping.go); got %q",
+			ErrUnsupportedPostgresPlan, ir.PopulationMappingMembersVariable, scan.Population.CollectMembersVariable)
 	}
 	sawSort, sawLimit, sawReturn := false, false, false
 	for index, operation := range plan.Operations {
@@ -422,7 +446,12 @@ func validateStageSequenceOperations(plan ir.PhysicalPlan) error {
 // group-extend rule); per-stage OutputColumns schema vs RowIdentityColumn;
 // FinalStageID/FinalRowIdentity match the last stage; FinalColumns == the
 // last OutputColumns; per-kind payload exclusivity.
-func validateStageSequenceChain(plan ir.PhysicalPlan) error {
+//
+// mappingTerminal (pg-sql-22, added parameter) admits the composed
+// root-contributor set (the mapping entry's group stages stamp
+// RootContributorInputColumn); every registered door passes false and the
+// L-13.6 refusal voice below stays byte-identical.
+func validateStageSequenceChain(plan ir.PhysicalPlan, mappingTerminal bool) error {
 	sequence := plan.StageSequence
 	if sequence.SourceStageID == "" || sequence.SourceRowIdentity == "" || sequence.FinalStageID == "" || sequence.FinalRowIdentity == "" {
 		return fmt.Errorf("%w: source/final stage IDs and row identity columns are required (ir/physical_stage_validation.go:12 re-read at the door)",
@@ -473,7 +502,7 @@ func validateStageSequenceChain(plan ir.PhysicalPlan) error {
 		if err := validateStageColumns(stage.OutputColumns, stage.RowIdentityColumn); err != nil {
 			return fmt.Errorf("%w: %s output schema: %v", ErrUnsupportedPostgresPlan, path, err)
 		}
-		if err := validateStageKindPayload(stage); err != nil {
+		if err := validateStageKindPayload(stage, mappingTerminal); err != nil {
 			return fmt.Errorf("%w: %s: %v", ErrUnsupportedPostgresPlan, path, err)
 		}
 		priorStageID = stage.ID
@@ -614,7 +643,11 @@ func groupInputColumnsExtendSource(stage ir.PhysicalConstructionStage, prior []i
 // validateStageKindPayload re-reads the per-kind payload exclusivity table
 // (ir/physical_stage_validation.go:80-190 parity for the registered kinds)
 // so no kind/payload mismatch reaches the builder (battery class C-18).
-func validateStageKindPayload(stage ir.PhysicalConstructionStage) error {
+//
+// mappingTerminal is set ONLY by the pg-sql-22 mapping entry: it admits the
+// composed root-contributor set (the group arm below), whose registered
+// L-13.6 refusal stays byte-identical for every false caller.
+func validateStageKindPayload(stage ir.PhysicalConstructionStage, mappingTerminal bool) error {
 	switch stage.Kind {
 	case ir.PhysicalStageDeriveOp:
 		if stage.Filter != nil || stage.Group != nil || stage.Expand != nil || stage.GroupedPivot != nil ||
@@ -686,7 +719,7 @@ func validateStageKindPayload(stage ir.PhysicalConstructionStage) error {
 		if stage.Group.CodingKey != nil {
 			return fmt.Errorf("CodingKey group keys are refused at the composition payload gate until their registered arm lands (group.go:444 twin, wave law)")
 		}
-		if stage.Group.RootContributorInputColumn != "" {
+		if stage.Group.RootContributorInputColumn != "" && !mappingTerminal {
 			return fmt.Errorf("the root-contributor set is production-unreachable through the PostgreSQL compile target (L-13.6) and is refused, never partially rendered")
 		}
 	case ir.PhysicalStagePivotOp:
@@ -811,17 +844,29 @@ func guardCastJSONB(tag string) string {
 	return "CAST(" + guardCast(tag) + "::text AS jsonb)"
 }
 
-// renderStageSequenceStatement renders the whole composed plan: the source
-// CTE, one CTE per construction stage over the immediately prior relation,
-// and the terminal positional projection with the registered order and
-// preview limit. AQL ground truth is render/aql/stage_sequence.go:264-533
-// ported branch-for-branch (the LET chain becomes the WITH chain, stage N+1
-// reads only stage N).
-func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (string, error) {
+// stageSequenceChain is the materialized composition CTE chain: the source
+// CTE plus one CTE per construction stage, with the fact maps the terminals
+// read. The single composition emitter (pg-sql-16 law) produces it once;
+// the registered terminal below and the pg-sql-22 population-mapping
+// terminal (population_mapping.go) both consume this one value, so the
+// chain can never drift between the two doors.
+type stageSequenceChain struct {
+	ctes        []string
+	relation    string
+	facts       map[string]stageColumnFact
+	sourceFacts map[string]stageColumnFact
+	last        *ir.PhysicalConstructionStage
+}
+
+// renderStageSequenceCTEChain emits the source CTE and one CTE per
+// construction stage over the immediately prior relation (stage N+1 reads
+// only stage N, the L-16.1 chain law re-read by validateStageSequenceChain
+// at the door).
+func (r *planRenderer) renderStageSequenceCTEChain(plan ir.PhysicalPlan) (stageSequenceChain, error) {
 	sequence := plan.StageSequence
 	source, sourceFacts, err := r.renderStageSequenceSource(plan)
 	if err != nil {
-		return "", err
+		return stageSequenceChain{}, err
 	}
 	ctes := []string{stageSourceRelation + " AS (" + source + ")"}
 	relation := stageSourceRelation
@@ -831,7 +876,7 @@ func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (strin
 		stage := sequence.Stages[index]
 		body, stageCTEs, stageFacts, err := r.renderStageCTE(plan, stage, index, relation, facts)
 		if err != nil {
-			return "", err
+			return stageSequenceChain{}, err
 		}
 		ctes = append(ctes, stageCTEs...)
 		relation = stageRelationPrefix + strconv.Itoa(index)
@@ -840,8 +885,24 @@ func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (strin
 		last = &sequence.Stages[index]
 	}
 	if last == nil {
-		return "", fmt.Errorf("%w: the composition builder requires at least one stage", ErrUnsupportedPostgresPlan)
+		return stageSequenceChain{}, fmt.Errorf("%w: the composition builder requires at least one stage", ErrUnsupportedPostgresPlan)
 	}
+	return stageSequenceChain{ctes: ctes, relation: relation, facts: facts, sourceFacts: sourceFacts, last: last}, nil
+}
+
+// renderStageSequenceStatement renders the whole composed plan: the source
+// CTE, one CTE per construction stage over the immediately prior relation,
+// and the terminal positional projection with the registered order and
+// preview limit. AQL ground truth is render/aql/stage_sequence.go:264-533
+// ported branch-for-branch (the LET chain becomes the WITH chain, stage N+1
+// reads only stage N).
+func (r *planRenderer) renderStageSequenceStatement(plan ir.PhysicalPlan) (string, error) {
+	sequence := plan.StageSequence
+	chain, err := r.renderStageSequenceCTEChain(plan)
+	if err != nil {
+		return "", err
+	}
+	ctes, relation, facts, last := chain.ctes, chain.relation, chain.facts, chain.last
 
 	// --- terminal: the AQL stage_sequence.go:435-528 twin. ---
 	selects := make([]string, 0, len(sequence.FinalColumns))
@@ -1006,8 +1067,36 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 	// absent property would silently render SQL NULL.
 	keyExprs := map[string]string{}
 	setExprs := map[string]string{}
+	// The pg-sql-22 member witness projection: the compiler appends the
+	// hidden __loom_population_member_ids read of the population member
+	// variable to the source RETURN (compiler/population_mapping.go:195-204);
+	// it is NOT a declared StageSequence.SourceColumn, so the addressed skip
+	// below would drop it. The composition mapping terminal consumes it from
+	// the source fact set, so the mapping posture materializes it exactly
+	// once, reading the witness member array the member-collecting
+	// population root bound (population.go renderPopulationRootSource).
+	memberWitnessExpr := ""
+	memberWitnessSeen := false
 	filtered := ir.PhysicalReturn{}
 	for _, projection := range returnOp.Projections {
+		if projection.Name == ir.PhysicalPopulationMappingMembersColumn && r.mapping != nil && r.mapping.witness {
+			if memberWitnessSeen {
+				return "", nil, fmt.Errorf("%w: the source RETURN projects the member witness column twice",
+					ErrUnsupportedPostgresPlan)
+			}
+			if !projection.Hidden || projection.Expression != nil ||
+				projection.Value.Variable != ir.PopulationMappingMembersVariable || len(projection.Value.Path) != 0 {
+				return "", nil, fmt.Errorf("%w: source projection %q is not the collected selected member IDs",
+					ErrUnsupportedPostgresPlan, projection.Name)
+			}
+			if r.mapping.membersColumnRef == "" {
+				return "", nil, fmt.Errorf("%w: the member witness projection reads a member variable the member-collecting population root did not bind",
+					ErrUnsupportedPostgresPlan)
+			}
+			memberWitnessExpr = r.mapping.membersColumnRef
+			memberWitnessSeen = true
+			continue
+		}
 		if !addressed[projection.Name] {
 			continue
 		}
@@ -1142,7 +1231,7 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 			continue
 		}
 		if composite, ok := setExprs[column.Name]; ok {
-			if err := validateStageColumnClass(column, true); err != nil {
+			if err := r.validateStageColumnClass(column, true); err != nil {
 				return "", nil, fmt.Errorf("%w: source column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
 			}
 			selects = append(selects, composite+` AS "`+alias+`"`)
@@ -1150,7 +1239,7 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 			continue
 		}
 		if key, ok := keyExprs[column.Name]; ok {
-			if err := validateStageColumnClass(column, false); err != nil {
+			if err := r.validateStageColumnClass(column, false); err != nil {
 				return "", nil, fmt.Errorf("%w: source column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
 			}
 			selects = append(selects, key+` AS "`+alias+`"`)
@@ -1179,10 +1268,24 @@ func (r *planRenderer) renderStageSequenceSource(plan ir.PhysicalPlan) (string, 
 		// _key scalar too, and a fact must describe what the SQL actually
 		// stores, or later reads would wrap a bare scalar in jsonb casts.
 		class := isPayloadExpression(source.expr)
-		if err := validateStageColumnClass(column, class); err != nil {
+		if err := r.validateStageColumnClass(column, class); err != nil {
 			return "", nil, fmt.Errorf("%w: source column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
 		}
 		facts[column.Name] = stageColumnFact{alias: alias, jsonb: class}
+	}
+	if r.mapping != nil && r.mapping.witness {
+		// The member witness column rides the source CTE beside the
+		// declared columns (pg-sql-22): its fact is what
+		// renderStageSequenceMappingStatement joins the expanded members
+		// against. The alias continues the declared positional series, so
+		// no declared column can collide with it.
+		if !memberWitnessSeen {
+			return "", nil, fmt.Errorf("%w: the composition mapping source RETURN omits the compiler-owned member witness projection %q (compiler/population_mapping.go adds it)",
+				ErrUnsupportedPostgresPlan, ir.PhysicalPopulationMappingMembersColumn)
+		}
+		memberAlias := "c" + strconv.Itoa(len(plan.StageSequence.SourceColumns))
+		selects = append(selects, memberWitnessExpr+` AS "`+memberAlias+`"`)
+		facts[ir.PhysicalPopulationMappingMembersColumn] = stageColumnFact{alias: memberAlias, jsonb: true}
 	}
 	resource := r.storage.Resource
 	sql := "SELECT " + strings.Join(selects, ", ") + " FROM " + resource.Identifier().SQLText() + " AS " + r.rootAlias
@@ -1307,7 +1410,7 @@ func mapSlice(input []string, mapFn func(string) string) []string {
 // cardinality must agree with the storage class the emitter minted, so a
 // many-cardinality column can never be read as a scalar and a required
 // scalar can never arrive as an unguarded jsonb blob.
-func validateStageColumnClass(column ir.PhysicalStageColumn, jsonb bool) error {
+func (r *planRenderer) validateStageColumnClass(column ir.PhysicalStageColumn, jsonb bool) error {
 	cardinality := strings.ToUpper(strings.TrimSpace(column.Cardinality))
 	if cardinality == "MANY" && !jsonb {
 		return fmt.Errorf("cardinality %q needs the jsonb storage class but the emitter rendered a SQL scalar", column.Cardinality)
@@ -1319,11 +1422,18 @@ func validateStageColumnClass(column ir.PhysicalStageColumn, jsonb bool) error {
 		// registered scalar the spine already renders — and the population
 		// root-contributor SET column (__loom_root_contributor_keys, MANY),
 		// whose values are bound only by RenderPopulationRootScan
-		// (population.go). The composition renders the scalar identity and
-		// refuses the set: a population-bound contributor column read over
-		// the spine would silently substitute spine rows for population
-		// rows, the exact identity-injection class the population contract
-		// isolates.
+		// (population.go). The composition renders the scalar identity; the
+		// set column renders ONLY in the pg-sql-22 mapping witness posture
+		// (population_mapping.go owns its emission), and every non-mapping
+		// renderer keeps the registered refusal byte-identically: a
+		// population-bound contributor column read over the spine would
+		// silently substitute spine rows for population rows, the exact
+		// identity-injection class the population contract isolates.
+		if r.mapping != nil && r.mapping.witness &&
+			column.Internal && column.Name == populationMappingContributorColumn &&
+			strings.EqualFold(strings.TrimSpace(column.Kind), "string") && cardinality == "MANY" {
+			return nil
+		}
 		if !(column.Internal && column.Name == "_key" &&
 			strings.EqualFold(strings.TrimSpace(column.Kind), "string") &&
 			(strings.EqualFold(strings.TrimSpace(column.Cardinality), "required_one") ||
@@ -1686,6 +1796,11 @@ func (r *planRenderer) renderStageGroup(
 		// actually emits per policy (groupRowValueExpressionFor).
 		jsonbOutputs[rowValue.Output] = rowValue.Policy == "ALL"
 	}
+	if stage.Group.RootContributorOutputColumn != "" {
+		// The pg-sql-22 contributor set is emitted as a jsonb array
+		// (group.go's mapping-witness pool), the AQL SORTED_UNIQUE array.
+		jsonbOutputs[stage.Group.RootContributorOutputColumn] = true
+	}
 	region, err := r.renderGroupAggregateRegion(plan, stage, columns,
 		source, "__loom_g"+strconv.Itoa(index)+"_",
 		stage.OutputColumns, stage.RowIdentityColumn)
@@ -1791,7 +1906,7 @@ func (r *planRenderer) renderStageOutputSelects(
 				expression, isJSONB = read, isPayloadExpression(read)
 			}
 		}
-		if err := validateStageColumnClass(column, isJSONB); err != nil {
+		if err := r.validateStageColumnClass(column, isJSONB); err != nil {
 			return nil, nil, fmt.Errorf("%w: stage output column %q: %v", ErrUnsupportedPostgresPlan, column.Name, err)
 		}
 		alias := "c" + strconv.Itoa(index)

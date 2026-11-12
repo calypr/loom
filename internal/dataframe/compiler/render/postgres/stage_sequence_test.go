@@ -1202,21 +1202,21 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		}
 	}
 	t.Run("extend-shape-passes", func(t *testing.T) {
-		if err := validateStageSequenceChain(chain(extension(), true)); err != nil {
+		if err := validateStageSequenceChain(chain(extension(), true), false); err != nil {
 			t.Fatalf("the production extension shape must pass the door mirror (ir :2659 twin): %v", err)
 		}
 	})
 	t.Run("renamed-extension-refuses", func(t *testing.T) {
 		columns := extension()
 		columns[2].Name = "membershp"
-		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, true), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("renamed adapter column must die at the door: %v", err)
 		}
 	})
 	t.Run("fourth-extension-refuses", func(t *testing.T) {
 		columns := append(extension(), ir.PhysicalStageColumn{ID: "extra", Name: "extra", Kind: "object", Cardinality: "optional_one", Internal: true})
-		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, true), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("a fourth extension column proves the arm is exact-set, not superset: %v", err)
 		}
@@ -1224,7 +1224,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 	t.Run("non-internal-extension-refuses", func(t *testing.T) {
 		columns := extension()
 		columns[3].Internal = false
-		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, true), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("an adapter column that is not Internal must die at the door: %v", err)
 		}
@@ -1232,7 +1232,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 	t.Run("id-drift-extension-refuses", func(t *testing.T) {
 		columns := extension()
 		columns[2].ID = "membership_alias"
-		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, true), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("extension columns carry ID==Name (sidecar law); drift must die at the door: %v", err)
 		}
@@ -1240,7 +1240,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 	t.Run("prefix-drift-refuses", func(t *testing.T) {
 		columns := extension()
 		columns[1].Kind = "required_one"
-		if err := validateStageSequenceChain(chain(columns, true)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, true), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("the prior prefix must be schema-identical: %v", err)
 		}
@@ -1250,7 +1250,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		// still dies (no RelatedOccurrence extension is invented).
 		columns := append(append([]ir.PhysicalStageColumn{}, prior...),
 			ir.PhysicalStageColumn{ID: "ghost", Name: "ghost", Kind: "object", Cardinality: "optional_one", Internal: true})
-		if err := validateStageSequenceChain(chain(columns, false)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, false), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("plain GROUP may not extend the prior schema: %v", err)
 		}
@@ -1261,7 +1261,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		// samePhysicalStageColumns, which is positional. The removed
 		// name-subset plain arm accepted this reordered name-bijection.
 		reordered := []ir.PhysicalStageColumn{prior[1], prior[0]}
-		if err := validateStageSequenceChain(chain(reordered, false)); err == nil ||
+		if err := validateStageSequenceChain(chain(reordered, false), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("a reordered plain GROUP input must die at the door (ir :65 is positional): %v", err)
 		}
@@ -1272,7 +1272,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		// anchor must die at the door.
 		columns := append([]ir.PhysicalStageColumn{}, prior...)
 		columns[0].RelatedRecordAnchor = &ir.PhysicalStageRelatedRecordAnchor{ResourceType: "Patient"}
-		if err := validateStageSequenceChain(chain(columns, false)); err == nil ||
+		if err := validateStageSequenceChain(chain(columns, false), false); err == nil ||
 			!strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("RelatedRecordAnchor drift must die at the door (ir DeepEqual leg): %v", err)
 		}
@@ -1284,7 +1284,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		// hardening is a deliberate ir-changing decision, not door drift.
 		columns := append([]ir.PhysicalStageColumn{}, prior...)
 		columns[1].PresenceCompanionName = "status_present"
-		if err := validateStageSequenceChain(chain(columns, false)); err != nil {
+		if err := validateStageSequenceChain(chain(columns, false), false); err != nil {
 			t.Fatalf("PresenceCompanionName drift must pass (ir does not compare it): %v", err)
 		}
 	})
@@ -1301,7 +1301,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		if err := validateStageSequenceChain(ir.PhysicalPlan{
 			Operations:    chain(extension(), true).Operations,
 			StageSequence: stages,
-		}); err == nil || !strings.Contains(err.Error(), "input schema differs from preceding stage output") {
+		}, false); err == nil || !strings.Contains(err.Error(), "input schema differs from preceding stage output") {
 			t.Fatalf("empty projection InputColumn must refuse (ir rejects, not skips): %v", err)
 		}
 	})
@@ -1317,7 +1317,7 @@ func TestSQL16RelatedOccurrenceDoorExtend(t *testing.T) {
 		group := &ir.PhysicalStageGroup{ConstructionIDBindKey: "ro_cid", RelatedOccurrence: noCoding}
 		base := chain(columns, true)
 		base.StageSequence.Stages[0].Group = group
-		if err := validateStageSequenceChain(base); err != nil {
+		if err := validateStageSequenceChain(base, false); err != nil {
 			t.Fatalf("empty Coding column names must be treated as absent (ir skip arms): %v", err)
 		}
 	})
@@ -1503,7 +1503,7 @@ func TestSQL16CompositionKindSweep(t *testing.T) {
 			}
 			// Door level (dispatch): the chain re-reads must accept the
 			// production-lowered shape with zero hand-shaping.
-			if err := validateStageSequenceChain(ir.ClonePhysicalPlan(plan)); err != nil {
+			if err := validateStageSequenceChain(ir.ClonePhysicalPlan(plan), false); err != nil {
 				t.Fatalf("door refuses the production-lowered %s plan (door/ir drift class): %v", string(kind), err)
 			}
 			// Entry level: the full entry render agrees with the door.
