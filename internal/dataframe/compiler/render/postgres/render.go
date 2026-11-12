@@ -463,6 +463,15 @@ type planRenderer struct {
 	// capability gap on the plain spine.
 	membership *PostgresPopulationRootBinding
 
+	// mapping is the population-mapping render state (population_mapping.go,
+	// pg-sql-22): set ONLY by RenderPopulationMappingPlan. nil keeps the
+	// member witness unregistered — the D2 refusal in validatePopulationPayload
+	// and the composition source region's member-column arm stay exactly as
+	// merged — while a bound value switches the population root into the
+	// member-witness posture the mapping terminals consume. All state is
+	// renderer-owned; no plan string reaches SQL text through it.
+	mapping *populationMappingRender
+
 	// Composite state (objects.go, pg-sql-11): rootVariable names the
 	// SPINE root-scan variable — the only registered singleton slice
 	// source — set exactly where renderRootScan binds the direct-scan row
@@ -618,6 +627,26 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 				return fmt.Errorf("%w: RETURN must be the final operation", ErrUnsupportedPostgresPlan)
 			}
 			if err := r.renderReturn(plan, *operation.Return); err != nil {
+				return err
+			}
+			phase = 2
+		case ir.PhysicalPopulationMappingReturnOp:
+			// The pg-sql-22 mapping terminal (population_mapping.go). The
+			// arm is gated on the renderer-owned mapping state that ONLY
+			// RenderPopulationMappingPlan sets, so the plain
+			// RenderPhysicalPlan default-arm refusal for this operation
+			// stays byte-identical (same typed message as the arm below).
+			if r.mapping == nil {
+				return fmt.Errorf("%w: operation %q is not part of the v1 PostgreSQL render surface",
+					ErrUnsupportedPostgresPlan, string(operation.Kind))
+			}
+			if !last || phase > 1 {
+				return fmt.Errorf("%w: POPULATION_MAPPING_RETURN must be the single final operation", ErrUnsupportedPostgresPlan)
+			}
+			if operation.PopulationMappingReturn == nil {
+				return fmt.Errorf("%w: operation %d: population-mapping payload is missing", ErrUnsupportedPostgresPlan, index)
+			}
+			if err := r.renderPopulationMappingTerminal(plan, *operation.PopulationMappingReturn); err != nil {
 				return err
 			}
 			phase = 2

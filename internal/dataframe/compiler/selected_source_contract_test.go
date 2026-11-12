@@ -125,10 +125,12 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 				_, err := compiler.CompileResolvedGraphQuery(target, zeroResolved, 10, policy)
 				return err
 			}},
-			{"population mapping compilation", func() error {
-				_, err := compiler.CompilePopulationMappingOutput(target, zeroOutput, zeroBindings, policy)
-				return err
-			}},
+			// "population mapping compilation" left this list with
+			// pg-sql-22: the PostgreSQL target compiles it through the
+			// registered mapping entry (compiler/population_mapping.go
+			// compilePopulationMappingPostgreSQL), so it is no longer an
+			// AQL-only surface. The unselected-target refusal for the
+			// entry stays sealed above.
 			{"root-key output paging", func() error {
 				_, err := compiler.CompileRecipeOutputPage(target, zeroOutput, zeroBindings, 50, policy)
 				return err
