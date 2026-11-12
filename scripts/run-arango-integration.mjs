@@ -120,6 +120,36 @@ const pgExec08RowLineage = new Set([
     'TestPostgresRowLineageMalformedContributorIdentityIsContractError',
     'TestPostgresRowLineageStaleReceiptRejectsBeforeExecution',
 ]);
+// pg-exec-09: the cell-value trace live battery (arm B preview round trip
+// through the sealed six-column port contract, the null-state distinctness,
+// the sealed offset gate, the authored-Identity explicit-identity spelling,
+// the forged-identity typed not-found, the witness-cap INCOMPLETE, the
+// foreign-witness exclusion, the arm A reduced-set pages and the lossy
+// FIRST AMBIGUOUS reading through the public CellTraceCompiled seam, and
+// the live stale-receipt statement-count-0 leg) requires the separate
+// PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It
+// runs against the real PG18 server under the ticket check-2 harness
+// (go test ./internal/dataframe/execution -run PostgresCellTrace); in this
+// Arango-only lane their explicit skips stay visible in the proof summary,
+// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
+// pg-exec-08 registration precedent. Membership is byte-exact against the
+// offline go test -json skip capture for this package. The offline cells in
+// the same files never skip and are therefore not registered here:
+// TestPostgresCellTraceStaleReceiptClassification runs its stale-receipt
+// classification in every profile, and TestZZPostgresCellTraceZeroLeftover
+// Fixtures returns without a skip when no service was used.
+export const pgExec09CellTrace = new Set([
+    'TestPostgresCellTracePreviewRoundTripServesEvidenceThroughThePort',
+    'TestPostgresCellTraceNullValueStatesStayDistinctFromAValue',
+    'TestPostgresCellTraceOffsetGateSkipsTheSoleCandidateWithoutChangingStatus',
+    'TestPostgresCellTraceAuthoredIdentityResolvesThroughTheExplicitIdentityColumn',
+    'TestPostgresCellTraceForgedIdentityIsTypedNotFoundAndRealIdentityResolves',
+    'TestPostgresCellTraceWitnessCapIsIncompleteNotAbsence',
+    'TestPostgresCellTraceForeignWitnessesAreExcluded',
+    'TestPostgresCellTraceArmAReducedSetPagesThroughThePublicSeam',
+    'TestPostgresCellTraceArmALossyFirstReadsAmbiguous',
+    'TestPostgresCellTraceStaleReceiptRejectsBeforeExecution',
+]);
 // pg-exec-07: the population-mapping witness-terminal live battery (exact
 // membership and unmapped reporting, group dedupe over real PostgreSQL
 // state, cap/cancellation INCOMPLETE-at-request, the hard-error port
@@ -326,6 +356,7 @@ const external = new Set([
     ...pgExec04Preview,
     ...pgExec08RowLineage,
     ...pgExec07PopulationMapping,
+    ...pgExec09CellTrace,
     ...pgExec03PostQuery,
     ...pgExec06Category,
     ...pgQueryRoute,
