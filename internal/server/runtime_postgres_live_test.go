@@ -91,6 +91,7 @@ var pgCompMintInventory = map[string]int{
 	// pg-runtime-health-readiness legs (each mints one database).
 	"TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware": 1,
 	"TestPostgresRuntimeReadinessReportsNeverMigratedSchema":        1,
+	"TestPostgresRuntimeVerifySchemaIsReadOnly":                     1,
 }
 
 func pgCompTestPostgresURL(t *testing.T) string {
@@ -820,6 +821,99 @@ func TestPostgresRuntimeReadinessReportsNeverMigratedSchema(t *testing.T) {
 	live := requestJSON(t, app, http.MethodGet, "/livez", "")
 	if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
 		t.Fatalf("livez on never-migrated schemas = %d %s; liveness is dependency-free", live.StatusCode, fixture.scrub(live.Body))
+	}
+}
+
+// TestPostgresRuntimeVerifySchemaIsReadOnly is the read-only proof for the
+// readiness ledger probe (coordinator condition 1): for every assigned
+// series it calls the exact per-series VerifySchema the production probe
+// dispatches to, and pins that the ledger rows (version, name, checksum,
+// applied_at), the schema's tables, columns, and index definitions are
+// byte-identical across the call. The lock-free half is pinned offline in
+// the store package (TestVerifyIsReadOnlyAndLockFree).
+func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
+	fixture := newPgCompFixture(t)
+	fixture.migrate(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	client, err := backendspostgres.OpenPool(ctx, backendspostgres.ClientConfig{DSN: fixture.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("open store client for read-only proof: %s", fixture.scrub(err))
+	}
+	defer client.Close()
+	pool, err := pgxpool.New(ctx, fixture.dsn)
+	if err != nil {
+		t.Fatalf("connect fingerprint reader: %s", fixture.scrub(err))
+	}
+	defer pool.Close()
+
+	fingerprint := func(schema string) map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		queries := map[string]string{
+			"ledger": "SELECT COALESCE(md5(string_agg(version::text || '|' || name || '|' || checksum || '|' || applied_at::text, E'\n' ORDER BY version)), 'empty') " +
+				`FROM "` + schema + `".schema_migrations`,
+			"tables": "SELECT COALESCE(md5(string_agg(c.relkind::text || ':' || c.relname, ',' ORDER BY c.relkind, c.relname)), 'empty') " +
+				"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
+				"WHERE n.nspname = $1 AND c.relkind IN ('r','p','i','S')",
+			"columns": "SELECT COALESCE(md5(string_agg(t.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text || ':' || a.attgenerated::text, ',' ORDER BY t.relname, a.attnum)), 'empty') " +
+				"FROM pg_attribute a JOIN pg_class t ON t.oid = a.attrelid JOIN pg_namespace n ON n.oid = t.relnamespace " +
+				"WHERE n.nspname = $1 AND a.attnum > 0 AND NOT a.attisdropped AND t.relkind IN ('r','p')",
+			"indexes": "SELECT COALESCE(md5(string_agg(tablename || '.' || indexname || ':' || indexdef, ',' ORDER BY tablename, indexname)), 'empty') " +
+				"FROM pg_indexes WHERE schemaname = $1",
+		}
+		for _, key := range []string{"ledger", "tables", "columns", "indexes"} {
+			var fp string
+			var err error
+			if key == "ledger" {
+				err = pool.QueryRow(ctx, queries[key]).Scan(&fp)
+			} else {
+				err = pool.QueryRow(ctx, queries[key], schema).Scan(&fp)
+			}
+			if err != nil {
+				t.Fatalf("fingerprint %s of schema %s: %s", key, schema, fixture.scrub(err))
+			}
+			out[key] = fp
+		}
+		return out
+	}
+
+	for _, series := range backendspostgres.AllSeries() {
+		schema, assigned := fixture.schemas[series]
+		if !assigned {
+			continue
+		}
+		series, schema := series, schema
+		t.Run(string(series), func(t *testing.T) {
+			pre := fingerprint(schema)
+			var err error
+			switch series {
+			case backendspostgres.SeriesSource:
+				err = backendspostgres.VerifySchema(ctx, client, schema)
+			case backendspostgres.SeriesExplorerControl:
+				err = backendspostgres.VerifyExplorerControlSchema(ctx, client, schema)
+			case backendspostgres.SeriesPublicationControl:
+				err = backendspostgres.VerifyPublicationControlSchema(ctx, client, schema)
+			case backendspostgres.SeriesDatasetRelease:
+				err = backendspostgres.VerifyDatasetReleaseSchema(ctx, client, schema)
+			case backendspostgres.SeriesRecipeChains:
+				err = backendspostgres.VerifyRecipeChainsSchema(ctx, client, schema)
+			case backendspostgres.SeriesRecipeExecRegistries:
+				err = backendspostgres.VerifyRecipeExecRegistriesSchema(ctx, client, schema)
+			default:
+				t.Fatalf("series %q is assigned but outside the probe dispatch", series)
+			}
+			if err != nil {
+				t.Fatalf("VerifySchema on a migrated %s schema must pass: %s", series, fixture.scrub(err))
+			}
+			post := fingerprint(schema)
+			for key, before := range pre {
+				if post[key] != before {
+					t.Fatalf("VerifySchema on series %q mutated %s of schema %s: fingerprint %s -> %s", series, key, schema, before, post[key])
+				}
+			}
+		})
 	}
 }
 

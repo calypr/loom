@@ -160,6 +160,12 @@ var (
 	OwnerMigrations                          = control.OwnerMigrations
 	MigrateSchema                            = control.MigrateSchema
 	MigrateDatasetReleaseSchema              = control.MigrateDatasetReleaseSchema
+	VerifySchema                             = control.VerifySchema
+	VerifyExplorerControlSchema              = control.VerifyExplorerControlSchema
+	VerifyPublicationControlSchema           = control.VerifyPublicationControlSchema
+	VerifyDatasetReleaseSchema               = control.VerifyDatasetReleaseSchema
+	VerifyRecipeChainsSchema                 = control.VerifyRecipeChainsSchema
+	VerifyRecipeExecRegistriesSchema         = control.VerifyRecipeExecRegistriesSchema
 	NewExplorerStore                         = control.NewExplorerStore
 	NewExplicitGroupStore                    = control.NewExplicitGroupStore
 	NewPublishStore                          = control.NewPublishStore

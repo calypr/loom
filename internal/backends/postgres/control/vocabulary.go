@@ -19,6 +19,9 @@ import (
 
 	datasetstore "github.com/calypr/loom/internal/backends/postgres/internal/dataset"
 	explorerstore "github.com/calypr/loom/internal/backends/postgres/internal/explorer"
+	publicationstore "github.com/calypr/loom/internal/backends/postgres/internal/publication"
+	recipeexecstore "github.com/calypr/loom/internal/backends/postgres/internal/recipeexec"
+	recipesstore "github.com/calypr/loom/internal/backends/postgres/internal/recipes"
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 
 	"github.com/calypr/loom/internal/catalog"
@@ -130,6 +133,48 @@ func MigrateSchema(ctx context.Context, client *Client, schema string) (MigrateR
 // ahead of a load) use this one.
 func MigrateDatasetReleaseSchema(ctx context.Context, client *Client, schema string) (MigrateResult, error) {
 	return datasetstore.MigrateSchema(ctx, client, schema)
+}
+
+// The Verify* family is the read-only mirror of the Migrate* family: each
+// is the exact per-series probe Runtime.Readiness dispatches to
+// (store.MigrationRunner.Verify over the series' owned history), exposed
+// for witnesses that must pin the probe's read-only behaviour directly.
+// None acquires the migration lock, applies DDL, or writes a ledger row.
+
+// VerifySchema checks the source series' ledger against the embedded
+// history without mutating anything.
+func VerifySchema(ctx context.Context, client *Client, schema string) error {
+	return pgstore.VerifySchema(ctx, client, schema)
+}
+
+// VerifyExplorerControlSchema is the explorer_control series' read-only
+// ledger probe.
+func VerifyExplorerControlSchema(ctx context.Context, client *Client, schema string) error {
+	return explorerstore.VerifySchema(ctx, client, schema)
+}
+
+// VerifyPublicationControlSchema is the publication_control series'
+// read-only ledger probe.
+func VerifyPublicationControlSchema(ctx context.Context, client *Client, schema string) error {
+	return publicationstore.VerifySchema(ctx, client, schema)
+}
+
+// VerifyDatasetReleaseSchema is the dataset_release series' read-only
+// ledger probe.
+func VerifyDatasetReleaseSchema(ctx context.Context, client *Client, schema string) error {
+	return datasetstore.VerifySchema(ctx, client, schema)
+}
+
+// VerifyRecipeChainsSchema is the recipe_chains series' read-only ledger
+// probe.
+func VerifyRecipeChainsSchema(ctx context.Context, client *Client, schema string) error {
+	return recipesstore.VerifySchema(ctx, client, schema)
+}
+
+// VerifyRecipeExecRegistriesSchema is the recipe_exec_registries series'
+// read-only ledger probe.
+func VerifyRecipeExecRegistriesSchema(ctx context.Context, client *Client, schema string) error {
+	return recipeexecstore.VerifySchema(ctx, client, schema)
 }
 
 var ErrResourceConflict = pgstore.ErrResourceConflict
