@@ -251,6 +251,20 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeVerifySchemaIsReadOnly',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
+// arch-backend-08: the backend-composition contract matrix's single live leg
+// boots the production full-runtime compose over pass-through open-seam
+// spies against the real PostgreSQL 18 fixture (LOOM_TEST_POSTGRES_URL),
+// never Arango; it runs against the real PostgreSQL service under the
+// ticket check-2 harness (go test ./internal/server), following the
+// pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and pg-runtime-server-
+// composition registration precedent. The identity is slash-qualified
+// because the parent TestBackendCompositionContract never skips in this
+// lane: its seven offline spy cells (open ledgers, sentinel pre-dial,
+// no-fallthrough, liveness) execute against Arango-less, PG-less offline,
+// and only the liveProductionCompose_ledgerHolds sub-leg skips.
+const archBackend08Matrix = new Set([
+    'TestBackendCompositionContract/liveProductionCompose_ledgerHolds',
+]);
 // pg-exec-12: the table-shape exclusion-evidence live battery (exact
 // seven-term evidence, bounded paging, identity omission, the category
 // three-state, cancellation, the renderer-unsupported refusal, the auth
@@ -317,6 +331,7 @@ const external = new Set([
     ...pgQueryRoute,
     ...pgIr03PrefixSeam,
     ...pgRuntimeComposition,
+    ...archBackend08Matrix,
     ...pgExec12Exclusions,
     ...pgExec11Capture,
 ]);
