@@ -223,6 +223,9 @@ const pgRuntimeComposition = new Set([
     // pg-runtime-server-composition registration precedent above.
     'TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware',
     'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
+    // F1 regression cell: never-created schema on a non-source series ->
+    // schema_missing; drives the real PostgreSQL service, never Arango.
+    'TestPostgresRuntimeReadinessReportsMissingSchema',
     'TestPostgresRuntimeVerifySchemaIsReadOnly',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
