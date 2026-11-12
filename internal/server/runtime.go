@@ -47,7 +47,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/lifecycle"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
-	"github.com/calypr/loom/internal/projectid"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -149,63 +148,6 @@ type pgExplorerReads struct {
 }
 
 var _ explorer.ExplicitGroupRepository = pgExplorerReads{}
-
-// pgRecipeAuthorization is the PostgreSQL sibling of recipeAuthorization. It
-// is identical except for one honest omission: SelectionMembersCollection is
-// the Arango-only runtime binding consumed exclusively by the AQL group-rows
-// renderer, so the PostgreSQL runtime leaves it empty instead of stamping an
-// Arango collection name onto every PostgreSQL binding. The PostgreSQL
-// renderer never consumes the field, and a PostgreSQL-tagged command never
-// reaches an AQL renderer (closed dispatch rejects it at the compiler
-// boundary).
-type pgRecipeAuthorization struct {
-	resolver *authscope.ScopeResolver
-}
-
-var _ graphresolver.RecipeAuthorizer = pgRecipeAuthorization{}
-
-func (a pgRecipeAuthorization) AuthorizeRead(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
-	}
-	bindings.Project = strings.TrimSpace(bindings.Project)
-	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	if a.resolver == nil {
-		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
-		return bindings, nil
-	}
-	principal, _ := authscope.PrincipalFromContext(ctx)
-	scope, err := a.resolver.ResolveReadScopeForGeneration(ctx, principal, bindings.Project, bindings.DatasetGeneration, bindings.AuthResourcePaths)
-	if err != nil {
-		return recipe.RuntimeBindings{}, recipeAuthorizationError(err)
-	}
-	if scope.Mode == authscope.ReadScopeRestricted && len(scope.AuthResourcePaths) == 0 {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeUnauthorizedProject, "")
-	}
-	bindings.AuthResourcePaths = append([]string(nil), scope.AuthResourcePaths...)
-	bindings.AuthScopeMode = scope.Mode
-	return bindings, nil
-}
-
-func (a pgRecipeAuthorization) AuthorizeWrite(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
-	}
-	bindings.Project = strings.TrimSpace(bindings.Project)
-	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	if a.resolver == nil {
-		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
-		return bindings, nil
-	}
-	principal, _ := authscope.PrincipalFromContext(ctx)
-	scope, err := a.resolver.ResolveWriteScopeForGeneration(ctx, principal, bindings.Project, bindings.DatasetGeneration, bindings.AuthResourcePaths)
-	if err != nil {
-		return recipe.RuntimeBindings{}, recipeAuthorizationError(err)
-	}
-	bindings.AuthResourcePaths = append([]string(nil), scope.AuthResourcePaths...)
-	bindings.AuthScopeMode = scope.Mode
-	return bindings, nil
-}
 
 // pgIngestRunner drives a server-side PostgreSQL generation load through the
 // ingest lane's own PostgreSQL entry point -- the same production path the
@@ -594,7 +536,11 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 				return explainPostgreSQLCompiledQuery(ctx, runtime.PlanJSON, compiled)
 			},
 		},
-		RecipeAuthorizer: pgRecipeAuthorization{resolver: scopeResolver},
+		// The PostgreSQL lane's authorizer leaves SelectionMembersCollection
+		// empty: the zero value is the explicit PostgreSQL stamp policy (the
+		// AQL group-rows renderer is that binding's only consumer, and the
+		// PostgreSQL renderer never consumes it).
+		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
 		RecipeRevisions:  runtime.RecipeRevisions,
 		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(runtime.Bundles, scopeResolver),
 	})

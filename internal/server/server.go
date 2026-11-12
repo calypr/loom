@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -78,43 +76,6 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 		logger.Error("dataframe startup degraded", "stage", stage, "error", cause)
 	}
 	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
-}
-
-func configuredAQLSourceRows(logger *slog.Logger, phase string, execute dataframeexecution.SourceRows) dataframeexecution.SourceRows {
-	return func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
-		// This deployment selected the Arango target, so the source row port
-		// serves AQL-tagged commands only. The logging and hash policy
-		// derives the AQL view through closed dispatch: a command that is
-		// not AQL-tagged is rejected here, before execute and long before
-		// any driver call, and PostgreSQL statement SQL is never logged or
-		// hashed as if it were AQL.
-		query, bindVars, dispatchErr := request.Command.AQLParameters()
-		if dispatchErr != nil {
-			return dispatchErr
-		}
-		batchSize := request.BatchSize
-		// Composition wires execution's neutral query-memory budget into the
-		// Arango adapter's own mechanism. Vendor interpretation of failures
-		// stays inside the adapter; this only requests a capability.
-		if budget, ok := dataframeexecution.QueryMemoryBudgetFromContext(ctx); ok && budget > 0 {
-			ctx = arangofactory.WithQueryMemoryLimit(ctx, budget)
-		}
-		started := time.Now()
-		digest := sha256.Sum256([]byte(query))
-		queryHash := hex.EncodeToString(digest[:])
-		if logger != nil {
-			logger.Info("dataframe AQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
-				"query_hash", queryHash, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
-		}
-		err := preserveConfiguredQueryError(execute(ctx, request, visit))
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelError
-		}
-		logServerDiagnostic(logger, level, "dataframe AQL execution", requestIDFromContext(ctx), phase, time.Since(started), err,
-			"query_hash", queryHash)
-		return err
-	}
 }
 
 // preserveConfiguredQueryError maps already-classified adapter failures onto
@@ -488,13 +449,12 @@ func run(ctx context.Context, serverConfig Config) error {
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
-		query, binds, dispatchErr := request.Command.AQLParameters()
-		if dispatchErr != nil {
-			return dispatchErr
-		}
-		return lifecycleClient.QueryRows(ctx, query, request.BatchSize, binds, arangofactory.RowVisitor(visit))
-	}})
+	// The Arango lane's one selected AQL row-execution adapter core
+	// (arch-backend-08): every FHIR/recipe row lane composes over this single
+	// adapter, so a request carries exactly one closed-dispatch unwrap and
+	// one dispatch site, with each lane keeping its own instrumentation.
+	aqlRows := selectedAQLAdapter{exec: lifecycleClient}
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{SourceRows: aqlRows.serviceRows})
 	// The lifecycle client already owns this Arango database. Reusing it avoids
 	// a second connection that can fail independently during optional startup.
 	// The compile target is selected once here, from the source store
@@ -597,27 +557,15 @@ func run(ctx context.Context, serverConfig Config) error {
 			}
 			return PreviewCollectionScanEvidenceFromExplain(result, collection), nil
 		},
-		PreviewCollectionCount: lifecycleClient.CollectionCount,
-		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewSourceRows: configuredAQLSourceRows(logger, "preview_query_rows", func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
-			query, bindVars, dispatchErr := request.Command.AQLParameters()
-			if dispatchErr != nil {
-				return dispatchErr
-			}
-			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, request.BatchSize, bindVars, previewQueryMaxRuntime(ctx), arangofactory.RowVisitor(visit))
-		}),
+		PreviewCollectionCount:     lifecycleClient.CollectionCount,
+		ClickHouseQueryRows:        clickHouseQueryRows,
+		PreviewSourceRows:          withConfiguredAQLRows(logger, "preview_query_rows", aqlRows.dispatchPreviewRows),
 		ResolveClickHouseInputs:    resolveClickHouseInputs,
 		WithExecutionReadPins:      withExecutionReadPins,
 		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		SourceRows: configuredAQLSourceRows(logger, "query_rows", func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
-			query, bindVars, dispatchErr := request.Command.AQLParameters()
-			if dispatchErr != nil {
-				return dispatchErr
-			}
-			return lifecycleClient.QueryRows(ctx, query, request.BatchSize, bindVars, arangofactory.RowVisitor(visit))
-		}),
-		ScopeDigest:  recipeScopeDigest,
-		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
+		SourceRows:                 withConfiguredAQLRows(logger, "query_rows", aqlRows.dispatchRows),
+		ScopeDigest:                recipeScopeDigest,
+		RootPageRows:               serverConfig.Server.RecipeQueryPageRows,
 	})
 	if err != nil {
 		return fmt.Errorf("create dataframe recipe engine: %w", err)
@@ -712,7 +660,7 @@ func run(ctx context.Context, serverConfig Config) error {
 			// readiness-checked pool instead of nil.
 			return explainPostgreSQLCompiledQuery(ctx, nil, compiled)
 		}},
-		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
+		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver, selectionMembersCollection: arangofactory.SelectionMembersCollection},
 		RecipeRevisions:  recipeRevisions,
 		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
 	})
@@ -1085,39 +1033,6 @@ func postgresFirstQueryRouteError(err error, pg PostgreSQLConfig, dsn string) er
 	return &redactedRouteError{msg: text, cause: err}
 }
 
-// configuredPostgreSQLSourceRows is the PostgreSQL sibling of
-// configuredAQLSourceRows for the deployment that selected the PostgreSQL
-// target. The dispatch guard derives the SQL view through closed dispatch:
-// a command that is not PostgreSQL-tagged is rejected here, before execute
-// and long before any driver call, with the compiler's typed routing
-// sentinel. The logging and hash policy records only the SHA-256 of the
-// statement text plus its byte length and bind-value count; SQL text and
-// bound values are never logged, hashed as if they were AQL, or routed to
-// any AQL surface (this branch constructs no ArangoDB adapter at all).
-func configuredPostgreSQLSourceRows(logger *slog.Logger, phase string, execute dataframeexecution.SourceRows) dataframeexecution.SourceRows {
-	return func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
-		sqlText, bindValues, dispatchErr := request.Command.PostgreSQLParameters()
-		if dispatchErr != nil {
-			return dispatchErr
-		}
-		started := time.Now()
-		digest := sha256.Sum256([]byte(sqlText))
-		queryHash := hex.EncodeToString(digest[:])
-		if logger != nil {
-			logger.Info("dataframe SQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
-				"query_hash", queryHash, "statement_bytes", len(sqlText), "bind_values", len(bindValues))
-		}
-		err := preserveConfiguredQueryError(execute(ctx, request, visit))
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelError
-		}
-		logServerDiagnostic(logger, level, "dataframe SQL execution", requestIDFromContext(ctx), phase, time.Since(started), err,
-			"query_hash", queryHash)
-		return err
-	}
-}
-
 // PostgreSQL readiness-state tokens (pg-runtime-health-readiness): the
 // fixed, credential-free vocabulary the CoreState classifier maps a
 // control.Runtime.Readiness failure onto. The vocabulary is closed: an
@@ -1375,6 +1290,10 @@ func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, 
 				return explainPostgreSQLCompiledQuery(ctx, runtime.PlanJSON, compiled)
 			},
 		}},
+		// The PostgreSQL lane's authorizer leaves SelectionMembersCollection
+		// empty (the zero value is the explicit PostgreSQL stamp policy: the
+		// AQL group-rows renderer is its only consumer and this lane never
+		// reaches one).
 		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
 		RecipeRevisions:  nil,
 		RecipeExecutions: nil,

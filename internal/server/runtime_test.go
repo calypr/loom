@@ -194,8 +194,15 @@ func isTypedExplicitUnavailable(err error, operationSubstring string) bool {
 // wired-not-vacuous contrast: the Arango lane's authorizer stamps the Arango
 // selection-members collection onto every binding; the PostgreSQL authorizer
 // must leave the field empty on both read and write.
+//
+// Witness migrated by arch-backend-08: the dedicated pgRecipeAuthorization
+// type (runtime.go) was retired into the shared recipeAuthorization core
+// (recipe_authorization.go), so the PostgreSQL posture is now the zero value
+// of that core and the Arango half is the explicit collection argument, the
+// same value the Arango lane passes at construction. The contrast itself is
+// unchanged.
 func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
-	pgRead, err := pgRecipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
+	pgRead, err := recipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("unrestricted read authorization: %v", err)
 	}
@@ -205,7 +212,7 @@ func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	if pgRead.SelectionProject != "p1" {
 		t.Fatalf("SelectionProject must be the canonical project, got %q", pgRead.SelectionProject)
 	}
-	pgWrite, err := pgRecipeAuthorization{}.AuthorizeWrite(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
+	pgWrite, err := recipeAuthorization{}.AuthorizeWrite(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("unrestricted write authorization: %v", err)
 	}
@@ -215,7 +222,7 @@ func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	// The contrast half: same package, same input, Arango lane stamps the
 	// collection. Without this half the assertion above could pass on a
 	// broken authorizer that simply drops every binding field.
-	arangoRead, err := recipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
+	arangoRead, err := recipeAuthorization{selectionMembersCollection: backendsarango.SelectionMembersCollection}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("arango-lane read authorization: %v", err)
 	}
