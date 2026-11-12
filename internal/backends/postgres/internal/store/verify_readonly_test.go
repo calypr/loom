@@ -31,6 +31,9 @@ func TestVerifyIsReadOnlyAndLockFree(t *testing.T) {
 	allowed := map[string]bool{
 		"Acquire": true, "Release": true, "QueryRow": true, "Query": true, "Scan": true,
 		"readLedger": true, "validateHistory": true, "pending": true,
+		// verifyStatementError is the fault classifier: errors.As plus
+		// ConnectError construction, no I/O (asserted by its own tests).
+		"verifyStatementError": true,
 		"Errorf": true, "Sprintf": true, "len": true,
 		// Close here is the read-rows cursor cleanup only; pool teardown
 		// lives outside these callees, and Hijack (the discard path) stays

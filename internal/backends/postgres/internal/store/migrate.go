@@ -482,10 +482,17 @@ func (r *MigrationRunner) Migrate(ctx context.Context) (result MigrateResult, er
 //     ledger table, which readLedger already reads as an empty history) →
 //     ErrMigrationPending.
 //
-// Connection and statement failures on the acquired connection return the
-// pool's own *ConnectError chain (errors.Is(err, ErrConnect)), the same
-// classification Ping gives a dead server, so a caller can tell
-// connectivity down from schema state.
+// Fault classification is deliberate and exact: a failure with no server
+// answer — pool acquire, a dead connection, or a transport/protocol fault
+// while running or reading either statement — returns the pool's own
+// *ConnectError chain (errors.Is(err, ErrConnect)), the same classification
+// Ping gives a dead server, so a caller can tell connectivity down from
+// schema state. A fault the server itself answered (a *pgconn.PgError)
+// proves the connection was alive, so it is reported verbatim without
+// ErrConnect: it is neither connectivity nor a named schema state, and a
+// readiness classifier must not report a live connection as
+// connectivity_down. (The shared readLedger wrap stays untouched for
+// Migrate's use; Verify owns this boundary.)
 //
 // Verify deliberately takes no advisory lock: a readiness probe must never
 // queue behind a long migration. Each statement reads the ledger as of its
@@ -499,7 +506,7 @@ func (r *MigrationRunner) Verify(ctx context.Context) error {
 
 	var schemaExists bool
 	if err := conn.QueryRow(ctx, "SELECT to_regnamespace($1) IS NOT NULL", r.schema).Scan(&schemaExists); err != nil {
-		return &ConnectError{Op: "verify", Err: err}
+		return verifyStatementError("verify", err)
 	}
 	if !schemaExists {
 		return fmt.Errorf("%w: schema %q does not exist in this database; the caller owns schema lifecycle",
@@ -507,7 +514,7 @@ func (r *MigrationRunner) Verify(ctx context.Context) error {
 	}
 	applied, err := r.readLedger(ctx, conn)
 	if err != nil {
-		return err
+		return verifyStatementError("verify ledger", err)
 	}
 	if err := r.validateHistory(applied); err != nil {
 		return err
@@ -522,6 +529,21 @@ func (r *MigrationRunner) Verify(ctx context.Context) error {
 			ErrMigrationPending, len(pending), first.Version, first.Name, r.schema)
 	}
 	return nil
+}
+
+// verifyStatementError is Verify's fault-classification boundary for a
+// statement issued on the acquired connection: a server-answered fault
+// (*pgconn.PgError) means the connection was alive and is returned
+// verbatim, carrying no ErrConnect; anything else (no server answer: dead
+// connection, transport/protocol fault) is a connectivity fault and joins
+// the pool's ErrConnect chain. It is Verify-owned on purpose: the shared
+// readLedger wrap stays exactly as Migrate depends on it.
+func verifyStatementError(op string, err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return err
+	}
+	return &ConnectError{Op: op, Err: err}
 }
 
 // discardPoolConn removes a connection from its pool without returning it
