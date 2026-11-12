@@ -29,6 +29,7 @@ export interface ConstructionHistoryStep {
 export interface ConstructionHistoryProps {
   readonly resourceType: string;
   readonly sourceControl?: React.ReactNode;
+  readonly sourceSteps?: React.ReactNode;
   readonly steps: ReadonlyArray<ConstructionHistoryStep>;
   readonly selected: ConstructionHistorySelection;
   readonly disabled?: boolean;
@@ -365,6 +366,7 @@ export const ConstructionTableNavigation = ({
 export const ConstructionHistory = ({
   resourceType,
   sourceControl,
+  sourceSteps,
   steps,
   selected,
   disabled = false,
@@ -407,93 +409,113 @@ export const ConstructionHistory = ({
     });
   }
 
-  const renderStep = (step: ConstructionHistoryStep, showArrow: boolean) => (
-    <li key={step.id} className="flex shrink-0 items-center gap-1">
-      {showArrow ? <span aria-hidden="true" className="px-1 text-xs text-slate-400">→</span> : null}
-      <div className={`construction-query-step flex items-center border-b-2 ${selected.kind === 'step' && selected.stepId === step.id ? 'border-blue-700' : 'border-transparent'}`}>
-        <button
-          type="button"
-          aria-pressed={selected.kind === 'step' && selected.stepId === step.id}
-          data-testid={`construction-history-step-${step.id}`}
-          disabled={disabled}
-          title={step.summary}
-          onClick={() => {
-            if (onEditStep && step.editable) {
-              onEditStep(step.id);
-            } else {
-              onSelect({ kind: 'step', stepId: step.id });
-            }
-          }}
-          className={`rounded px-2 py-1 text-left text-xs whitespace-nowrap ${
-            selected.kind === 'step' && selected.stepId === step.id
-              ? 'bg-blue-100 font-semibold text-blue-950'
-              : 'bg-transparent text-slate-700 hover:bg-blue-50 hover:text-slate-950'
-          }`}
-        >
-          <span className="block max-w-48 truncate font-medium">{step.title}</span>
-          {selected.kind === 'step' && selected.stepId === step.id ? <span className="sr-only">{step.summary}</span> : null}
-        </button>
-        {selected.kind === 'step' && selected.stepId === step.id && ((onEditStep && step.editable) || onRemoveStep) ? (
-          <div className="flex gap-1 border-l border-slate-200 px-1">
-            {onEditStep && step.editable ? (
-              <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
-            ) : null}
-            {onRemoveStep ? (
-              <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} aria-label={step.removeActionLabel} title={step.removeActionLabel} onClick={() => onRemoveStep(step.id)} className="rounded px-1.5 py-1 text-[11px] text-red-700 hover:bg-red-50 disabled:opacity-45">{step.removeActionLabel ? 'Remove connection' : 'Remove'}</button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </li>
-  );
+  const renderStep = (step: ConstructionHistoryStep, number: number) => {
+    const isSelected = selected.kind === 'step' && selected.stepId === step.id;
+    return (
+      <li key={step.id} className="min-w-0">
+        <div className={`construction-query-step flex min-w-0 flex-wrap items-start gap-2 rounded-md border p-2 ${isSelected ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
+          <span aria-hidden="true" className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
+            {number}
+          </span>
+          <button
+            type="button"
+            aria-pressed={isSelected}
+            data-testid={`construction-history-step-${step.id}`}
+            disabled={disabled}
+            title={step.summary}
+            onClick={() => {
+              if (onEditStep && step.editable) {
+                onEditStep(step.id);
+              } else {
+                onSelect({ kind: 'step', stepId: step.id });
+              }
+            }}
+            className={`min-w-0 flex-1 rounded px-1 py-0.5 text-left ${isSelected ? 'text-blue-950' : 'text-slate-800 hover:text-blue-950'}`}
+          >
+            <span className="block break-words text-sm font-medium">{step.title}</span>
+            <span className="mt-0.5 block break-words text-xs leading-5 text-slate-600">{step.summary}</span>
+          </button>
+          {isSelected && ((onEditStep && step.editable) || onRemoveStep) ? (
+            <div className="flex shrink-0 flex-wrap gap-1 border-l border-slate-200 pl-2">
+              {onEditStep && step.editable ? (
+                <button type="button" disabled={disabled} data-testid={`construction-edit-step-${step.id}`} onClick={() => onEditStep(step.id)} className="rounded px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-45">Edit</button>
+              ) : null}
+              {onRemoveStep ? (
+                <button type="button" disabled={disabled} data-testid={`construction-remove-step-${step.id}`} aria-label={step.removeActionLabel} title={step.removeActionLabel} onClick={() => onRemoveStep(step.id)} className="rounded px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-45">{step.removeActionLabel ? 'Remove connection' : 'Remove'}</button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </li>
+    );
+  };
+  let nextStepNumber = 1;
+  const renderedHistoryGroups = historyGroups.map((group) => {
+    if (group.kind === 'step') {
+      const number = nextStepNumber;
+      nextStepNumber += 1;
+      return renderStep(group.step, number);
+    }
+    const firstStepNumber = nextStepNumber;
+    nextStepNumber += group.steps.length;
+    return (
+      <li
+        key={`column-adjustments-${group.firstStepId}`}
+        data-testid={`construction-history-adjustment-group-${group.firstStepId}`}
+        className="min-w-0 rounded-md border border-slate-200 bg-slate-50 p-2"
+      >
+        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Column adjustments <span className="font-normal normal-case">({group.steps.length})</span>
+        </h4>
+        <ol start={firstStepNumber} className="m-0 grid min-w-0 list-none grid-cols-1 gap-2 p-0">
+          {group.steps.map((step, index) => renderStep(step, firstStepNumber + index))}
+        </ol>
+      </li>
+    );
+  });
 
   return (
-    <section aria-label="Row operations" data-testid="construction-history" className="min-w-0">
-      <h2 className="sr-only">Row operations</h2>
-      <ol className="m-0 flex list-none items-center gap-1 overflow-x-auto p-0">
-        <li className="shrink-0">
-          {sourceControl ? (
-            <div onClickCapture={(event) => {
-              if (event.target instanceof Element && event.target.closest('[data-construction-source-selection-trigger]')) {
-                onSelect({ kind: 'source' });
-              }
-            }}>
-              {sourceControl}
-            </div>
-          ) : <button
+    <section aria-label="Dataframe steps" data-testid="construction-history" className="min-w-0 rounded-lg border border-slate-200 bg-white p-3">
+      <header className="mb-3 flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold text-slate-950">Dataframe steps</h2>
+        <p className="text-xs text-slate-500">Applied in order from the source to the output.</p>
+      </header>
+      <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Source</span>
+        {sourceControl ? (
+          <div className="min-w-0 max-w-full" onClickCapture={(event) => {
+            if (event.target instanceof Element && event.target.closest('[data-construction-source-selection-trigger]')) {
+              onSelect({ kind: 'source' });
+            }
+          }}>
+            {sourceControl}
+          </div>
+        ) : <button
             type="button"
             aria-pressed={selected.kind === 'source'}
             data-testid="construction-history-source"
             disabled={disabled}
             onClick={() => onSelect({ kind: 'source' })}
-            className={`rounded px-2 py-1 text-left text-xs whitespace-nowrap ${
+            className={`min-w-0 max-w-full break-words rounded px-2 py-1 text-left text-sm ${
               selected.kind === 'source' ? 'bg-blue-100 font-semibold text-blue-950' : 'text-slate-700 hover:bg-blue-50'
             }`}
           >
-            {resourceType}
+            {resourceType || 'Source records'}
           </button>}
-        </li>
-        {historyGroups.map((group) => group.kind === 'step'
-          ? renderStep(group.step, true)
-          : (
-            <li key={`column-adjustments-${group.firstStepId}`} className="flex shrink-0 items-start gap-1">
-              <span aria-hidden="true" className="px-1 pt-1 text-xs text-slate-400">→</span>
-              <details
-                open={group.steps.some((step) => selected.kind === 'step' && selected.stepId === step.id) || undefined}
-                data-testid={`construction-history-adjustment-group-${group.firstStepId}`}
-                className="group min-w-0"
-              >
-                <summary className="cursor-pointer list-none rounded px-2 py-1 text-left text-xs font-medium text-slate-700 hover:bg-blue-50">
-                  <span aria-hidden="true" className="mr-1 inline-block text-slate-500 transition-transform group-open:rotate-90">▸</span>
-                  Column adjustments ({group.steps.length})
-                </summary>
-                <ol className="m-0 flex list-none items-center gap-1 p-0">
-                  {group.steps.map((step, index) => renderStep(step, index > 0))}
-                </ol>
-              </details>
-            </li>
-          ))}
-      </ol>
+      </div>
+      {sourceSteps}
+      {steps.length === 0 ? (
+        <p data-testid="construction-history-empty" className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          {sourceSteps ? 'Add another step to transform this dataframe.' : 'Add a step to shape this dataframe.'}
+        </p>
+      ) : (
+        <>
+          <h3 className="mb-2 mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Transformations</h3>
+          <ol className="m-0 grid min-w-0 list-none grid-cols-1 gap-2 p-0">
+            {renderedHistoryGroups}
+          </ol>
+        </>
+      )}
     </section>
   );
 };
@@ -567,8 +589,7 @@ export const ConstructionWorkspace = ({
         onDeleteTable={onDeleteTable}
         onRenameTable={onRenameTable}
       /> : null}
-      {(history || !editor) ? <div className="construction-query-toolbar flex min-w-0 flex-wrap items-center gap-3 py-2">
-        {history ? <div className="min-w-0 flex-1"><ConstructionHistory {...history} sourceControl={rowSetup} /></div> : null}
+      {(history || !editor) ? <div className="construction-query-toolbar flex min-w-0 flex-col items-stretch gap-2 py-2">
         {!editor ? <div className="ml-auto shrink-0" role="group" aria-label="Configure table">
         <ConstructionActionBar
           activeFamily={activeFamily}
@@ -580,6 +601,7 @@ export const ConstructionWorkspace = ({
           onSelect={onSelectFamily}
         />
         </div> : null}
+        {history ? <div className="min-w-0"><ConstructionHistory {...history} sourceControl={rowSetup} /></div> : null}
       </div> : null}
       <div className="min-w-0">
         {editor ? <section aria-label="Change editor" className="min-w-0">{editor}</section> : null}

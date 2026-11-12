@@ -42,6 +42,8 @@ const (
 	CommandApplyConstructionProposal     = "APPLY_CONSTRUCTION_PROPOSAL"
 	CommandApplyPopulationMemberProposal = "APPLY_POPULATION_MEMBER_PROPOSAL"
 	CommandRestoreDraftRevision          = "RESTORE_DRAFT_REVISION"
+	CommandUpdateImportedSourceStep      = "UPDATE_IMPORTED_SOURCE_STEP"
+	CommandRefreshImportedSource         = "REFRESH_IMPORTED_SOURCE"
 	CommandUpdateColumnSource            = "UPDATE_COLUMN_SOURCE"
 	CommandRemoveColumn                  = "REMOVE_COLUMN"
 	CommandAddSemanticSelections         = "ADD_SEMANTIC_SELECTIONS"
@@ -147,8 +149,10 @@ type Command struct {
 	FrameForm                capability.ConstructionChoiceForm `json:"form,omitempty"`
 	ResolvedChoice           *ResolvedConstructionChoice       `json:"-"`
 	resolvedFrame            *FrameDefinition
-	ResolvedPopulationRoute  []PopulationRouteStep `json:"-"`
-	OutputIDs                []string              `json:"outputIds,omitempty"`
+	ResolvedPopulationRoute  []PopulationRouteStep     `json:"-"`
+	OutputIDs                []string                  `json:"outputIds,omitempty"`
+	SourceStep               *ImportedSourceStepChange `json:"sourceStep,omitempty"`
+	resolvedImportedDocument *Document
 	resolvedRowDefinition    *RowDefinition
 	resolvedTableShape       *TableShape
 	resolvedTableShapeSet    bool
@@ -316,6 +320,17 @@ func (c *Command) UnmarshalJSON(raw []byte) error {
 	var decoded wire
 	if err := strictDecode(raw, &decoded); err != nil {
 		return err
+	}
+	if decoded.Type == CommandUpdateImportedSourceStep || decoded.Type == CommandRefreshImportedSource {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return err
+		}
+		for name := range fields {
+			if name != "type" && name != "outputId" && !(decoded.Type == CommandUpdateImportedSourceStep && name == "sourceStep") {
+				return fmt.Errorf("%s does not accept field %q", decoded.Type, name)
+			}
+		}
 	}
 	if decoded.Type == CommandApplyConstructionChoice {
 		var fields map[string]json.RawMessage
@@ -541,6 +556,11 @@ func (r ApplyCommandsRequest) Validate() error {
 	proposalCommandCount := 0
 	restoreCommandCount := 0
 	for i, command := range r.Commands {
+		if command.Type == CommandUpdateImportedSourceStep || command.Type == CommandRefreshImportedSource {
+			if len(r.Commands) != 1 || r.ExpectedDraftVersion < 1 || strings.TrimSpace(r.ExpectedDraftDigest) == "" {
+				return fmt.Errorf("source changes require one command and an exact expected draft version and digest")
+			}
+		}
 		if command.Type == CommandAddSemanticSelections {
 			semanticCommandCount++
 		}
@@ -613,7 +633,23 @@ func (c Command) validate() error {
 	if c.Type != CommandUpdateColumnRowValuePolicy && c.RowValuePolicy != "" {
 		return fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
+	if c.Type != CommandUpdateImportedSourceStep && c.SourceStep != nil {
+		return fmt.Errorf("sourceStep is only accepted by UPDATE_IMPORTED_SOURCE_STEP")
+	}
 	switch c.Type {
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource:
+		if !required(c.OutputID) || c.OutputID != strings.TrimSpace(c.OutputID) {
+			return fmt.Errorf("%s requires an exact outputId", c.Type)
+		}
+		if c.Type == CommandUpdateImportedSourceStep {
+			if c.SourceStep == nil {
+				return fmt.Errorf("sourceStep is required")
+			}
+			return c.SourceStep.Validate()
+		}
+		if c.SourceStep != nil {
+			return fmt.Errorf("REFRESH_IMPORTED_SOURCE accepts only outputId")
+		}
 	case CommandCreateTable:
 		if !required(c.Title, c.RootNodeID) {
 			return fmt.Errorf("CREATE_TABLE requires title and rootNodeId")
@@ -871,6 +907,18 @@ func applyCommand(workspace *Workspace, catalog CatalogSnapshot, commandID strin
 		return result, fmt.Errorf("rowValuePolicy is only accepted by UPDATE_COLUMN_ROW_VALUE_POLICY")
 	}
 	switch command.Type {
+	case CommandUpdateImportedSourceStep, CommandRefreshImportedSource:
+		position := documentIndex(workspace, command.OutputID)
+		if position < 0 || command.resolvedImportedDocument == nil {
+			return result, fmt.Errorf("source change requires a lifecycle-resolved imported document")
+		}
+		current := workspace.Documents[position]
+		resolved := *command.resolvedImportedDocument
+		if current.ImportedRecipe == nil || resolved.ImportedRecipe == nil || *current.ImportedRecipe != *resolved.ImportedRecipe || resolved.Output.ID != current.Output.ID {
+			return result, fmt.Errorf("source change does not match its pinned output")
+		}
+		workspace.Documents[position] = resolved
+		return CommandResult{Type: CommandResultTableChanged, OutputID: command.OutputID}, nil
 	case CommandSetFrameSource, CommandReplaceFrameSource, CommandRemoveFrameSource:
 		return applyFrameSourceCommand(workspace, command)
 	case CommandCreateTable:

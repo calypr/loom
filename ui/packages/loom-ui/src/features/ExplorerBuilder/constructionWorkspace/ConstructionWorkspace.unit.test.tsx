@@ -265,21 +265,17 @@ describe('ConstructionWorkspace', () => {
     );
 
     const adjustmentGroups = screen.getAllByTestId(/^construction-history-adjustment-group-/);
-    expect(adjustmentGroups.map((group) => group.querySelector('summary')?.textContent?.replace('▸', '').trim())).toEqual([
+    expect(adjustmentGroups.map((group) => group.querySelector('h4')?.textContent?.trim())).toEqual([
       'Column adjustments (2)',
       'Column adjustments (1)',
       'Column adjustments (1)',
     ]);
-    const marker = adjustmentGroups[0]?.querySelector('summary > [aria-hidden="true"]');
-    expect(marker).toHaveTextContent('▸');
-    expect(marker).toHaveClass('group-open:rotate-90');
-    expect(adjustmentGroups[0]).not.toHaveAttribute('open');
-    expect(adjustmentGroups[1]).toHaveAttribute('open');
-    expect(adjustmentGroups[2]).not.toHaveAttribute('open');
+    expect(adjustmentGroups[0]).toHaveTextContent('Expand summary');
+    expect(adjustmentGroups[1]).toHaveTextContent('Related field summary');
+    expect(adjustmentGroups[2]).toHaveTextContent('Related source summary');
 
-    const renderedStepIds = screen.getAllByTestId(/^construction-history-step-/)
-      .map((button) => button.getAttribute('data-testid'));
-    expect(renderedStepIds).toEqual([
+    const renderedSteps = screen.getAllByTestId(/^construction-history-step-/);
+    expect(renderedSteps.map((button) => button.getAttribute('data-testid'))).toEqual([
       'construction-history-step-expand-first',
       'construction-history-step-derive-first',
       'construction-history-step-group-rows',
@@ -287,11 +283,16 @@ describe('ConstructionWorkspace', () => {
       'construction-history-step-pivot-rows',
       'construction-history-step-related-source',
     ]);
+    expect(renderedSteps.map((button) => button.parentElement?.querySelector('[aria-hidden="true"]')?.textContent))
+      .toEqual(['1', '2', '3', '4', '5', '6']);
+    expect(screen.getByText('Source')).toBeInTheDocument();
+    expect(screen.getByText('Transformations')).toBeInTheDocument();
     for (const majorStepId of ['group-rows', 'pivot-rows']) {
       expect(screen.getByTestId(`construction-history-step-${majorStepId}`).closest('details')).toBeNull();
     }
 
     const selectedStep = screen.getByTestId('construction-history-step-related-field');
+    expect(selectedStep).toHaveTextContent('Related field summary');
     expect(selectedStep).toHaveAttribute('title', 'Related field summary');
     expect(selectedStep).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(selectedStep);
@@ -432,8 +433,9 @@ describe('ConstructionWorkspace', () => {
     const onEditStep = vi.fn();
     const onRemoveStep = vi.fn();
     const view = render(<ConstructionHistory resourceType="Patient" steps={[step]} selected={{ kind: 'source' }} onSelect={onSelect} onEditStep={onEditStep} onRemoveStep={onRemoveStep} />);
-    expect(screen.getByRole('region', { name: 'Row operations' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Dataframe steps' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Filter rows');
+    expect(screen.getByTestId('construction-history-step-filter')).toHaveTextContent('Keep matching observations.');
     expect(screen.queryByTestId('construction-edit-step-filter')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('construction-history-step-filter'));
     expect(onSelect).not.toHaveBeenCalled();
@@ -488,7 +490,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Current rows')).toBeInTheDocument();
   });
 
-  it('places the horizontal row-operation strip beside the table result instead of Tables', () => {
+  it('places the full-width step tracker between the actions and table result', () => {
     render(<ConstructionWorkspace
       tables={[{ outputId: 'patients', title: 'Patients' }]}
       selectedOutputId="patients"
@@ -513,8 +515,36 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history')).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-source')).toHaveTextContent('Patient');
     expect(within(screen.getByRole('navigation', { name: 'Tables' })).queryByTestId('construction-history')).not.toBeInTheDocument();
-    expect(screen.getByTestId('construction-history').compareDocumentPosition(screen.getByTestId('construction-action-add-columns')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('construction-action-add-columns').compareDocumentPosition(screen.getByTestId('construction-history')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('construction-history').compareDocumentPosition(screen.getByTestId('construction-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps the dataframe step tracker visible while an operation editor is open', () => {
+    render(<ConstructionWorkspace
+      tables={[{ outputId: 'patients', title: 'Patients' }]}
+      selectedOutputId="patients"
+      onSelectTable={vi.fn()}
+      onNewTable={vi.fn()}
+      onDuplicateTable={vi.fn()}
+      onDeleteTable={vi.fn()}
+      onRenameTable={vi.fn()}
+      onSelectFamily={vi.fn()}
+      history={{
+        resourceType: 'Patient',
+        steps: [{ id: 'filter-current', title: 'Filter rows', summary: 'Keep adults.', editable: true }],
+        selected: { kind: 'source' },
+        onSelect: vi.fn(),
+      }}
+      editor={<div>Filter editor</div>}
+      preview={<div>Preview table</div>}
+      previewStatus="ready"
+      draftVersion={1}
+      draftDigest="digest-1"
+    />);
+
+    expect(screen.getByRole('heading', { name: 'Dataframe steps' })).toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-step-filter-current')).toHaveTextContent('Keep adults.');
+    expect(screen.getByText('Filter editor')).toBeInTheDocument();
   });
 
   it('keeps the starting-record source chip visible when there are no saved row operations', () => {
@@ -538,6 +568,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history')).toBeInTheDocument();
     expect(screen.getByTestId('source-settings')).toHaveTextContent('Patient');
     expect(screen.queryByTestId(/^construction-history-step-/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('construction-history-empty')).toHaveTextContent('Add a step to shape this dataframe.');
   });
 
   it('summarizes actual typed construction steps using stable source and stage column identities', () => {
@@ -738,13 +769,13 @@ describe('ConstructionWorkspace', () => {
     );
 
     for (const step of steps) {
-      const button = screen.getByRole('button', { name: step.title });
+      const button = screen.getByTestId(`construction-history-step-${step.id}`);
       expect(button).toHaveAttribute('data-testid', `construction-history-step-${step.id}`);
     }
 
     const longTitleButton = screen.getByTestId('construction-history-step-expand-allowed-value');
     expect(within(longTitleButton).getByText(`Expand ${longFieldLabel}`))
-      .toHaveClass('block', 'max-w-48', 'truncate');
+      .toHaveClass('block', 'break-words');
     expect(longTitleButton).toHaveAttribute(
       'title',
       `One row per value from ${longFieldLabel}; Identifier Value contains that value. Other fields repeat on each row.`,

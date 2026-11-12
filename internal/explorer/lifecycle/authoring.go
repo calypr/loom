@@ -54,6 +54,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	populationMemberProposalCommand := request.Commands[0].Type == authoringv2.CommandApplyPopulationMemberProposal
 	restoreDraftRevisionCommand := request.Commands[0].Type == authoringv2.CommandRestoreDraftRevision
 	rowValuePolicyCommand := request.Commands[0].Type == authoringv2.CommandUpdateColumnRowValuePolicy
+	importedSourceCommand := request.Commands[0].Type == authoringv2.CommandUpdateImportedSourceStep || request.Commands[0].Type == authoringv2.CommandRefreshImportedSource
 	for _, command := range request.Commands {
 		if command.Type == authoringv2.CommandUpdateColumnRowValuePolicy && len(request.Commands) != 1 {
 			return nil, malformed("commands", "UPDATE_COLUMN_ROW_VALUE_POLICY must be the only command in its atomic request", nil)
@@ -120,7 +121,7 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 	var snapshot capability.Snapshot
 	var authorized AuthorizedCapability
 	var err error
-	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand {
+	if semanticCommand || constructionChoiceCommand || populationRouteCommand || constructionProposalCommand || populationMemberProposalCommand || restoreDraftRevisionCommand || frameSourceCommand || rowValuePolicyCommand || rowChangeReplacementCommand || importedSourceCommand {
 		if s.config.Capability.ForCompilation == nil {
 			return nil, unavailable("commands", "CAPABILITY_UNAVAILABLE", "authorized capability resolution is not configured", nil)
 		}
@@ -160,7 +161,11 @@ func (s *Service) applyCommandsWithConstructionPreview(ctx context.Context, proj
 		}
 	}
 	var prepare func(context.Context, authoringv2.Workspace, []authoringv2.Command) ([]authoringv2.Command, error)
-	if semanticCommand {
+	if importedSourceCommand {
+		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
+			return s.prepareImportedSource(ctx, project, explorerID, authorized, workspace, catalog, commands)
+		}
+	} else if semanticCommand {
 		prepare = func(ctx context.Context, workspace authoringv2.Workspace, commands []authoringv2.Command) ([]authoringv2.Command, error) {
 			return s.prepareSemanticSelections(ctx, project, explorerID, authorized, workspace, catalog, commands)
 		}

@@ -126,6 +126,7 @@ import {
   ConstructionProposalPanel,
 } from './constructionWorkspace/ConstructionProposalPanel';
 import { ConstructionProposalPreview } from './constructionWorkspace/ConstructionProposalPreview';
+import { ImportedSourceSteps } from './ImportedSourceSteps';
 import {
   constructionHistorySteps,
   constructionRowMeaning,
@@ -4608,6 +4609,27 @@ const BuilderWorkspaceContent = ({
                   onSelect: selectConstructionHistory,
                   onEditStep: editConstructionStep,
                   onRemoveStep: removeConstructionStep,
+                  ...(table.document.importedRecipe ? {
+                    sourceSteps: (
+                      <ImportedSourceSteps
+                        key={JSON.stringify([
+                          builderDataKey,
+                          state.explorerId,
+                          table.outputId,
+                          state.draftVersion,
+                          state.draftDigest,
+                        ])}
+                        outputId={table.outputId}
+                        importedSource={table.document.importedSource}
+                        disabled={pendingCommands > 0 || state.reconciliation === 'pending' || publishing}
+                        onRefresh={() => applyCommands([{
+                          type: 'REFRESH_IMPORTED_SOURCE',
+                          outputId: table.outputId,
+                        }])}
+                        onApply={(command) => applyCommands([command])}
+                      />
+                    ),
+                  } : {}),
                 }}
                 actionsDisabled={
                   !table.document.rootResourceType ||

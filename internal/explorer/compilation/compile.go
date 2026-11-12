@@ -655,6 +655,10 @@ func compileImportedDocument(document authoringv2.Document, catalog authoringv2.
 	if !ok {
 		return Result{}, fmt.Errorf("pinned source output %q was not found", imported.Reference.Output)
 	}
+	sourceOutput, err := recipeimport.ApplySourcePlan(sourceOutput, document.ImportedSource)
+	if err != nil {
+		return Result{}, fmt.Errorf("imported source plan: %w", err)
+	}
 	if document.TableShape != nil || document.Population != nil || !reflect.DeepEqual(document.Rows, recipeimport.ImportRows(sourceOutput)) || len(document.FixedFilters) != 0 || len(document.Actions) != 0 || len(document.Frames) != 0 {
 		return Result{}, fmt.Errorf("imported recipe route, rows, and current overlay are not supported by this compile path")
 	}

@@ -42,10 +42,11 @@ type Document struct {
 	// present, Route/Rows/Columns describe only the source projection and
 	// TableShape must be nil. A nil value preserves the existing V2 document
 	// semantics and compiler path.
-	Construction   *Construction      `json:"construction,omitempty"`
-	FixedFilters   []FixedFilter      `json:"fixedFilters,omitempty"`
-	Actions        []Action           `json:"actions,omitempty"`
-	ImportedRecipe *ImportedRecipeRef `json:"importedRecipe,omitempty"`
+	Construction   *Construction       `json:"construction,omitempty"`
+	FixedFilters   []FixedFilter       `json:"fixedFilters,omitempty"`
+	Actions        []Action            `json:"actions,omitempty"`
+	ImportedRecipe *ImportedRecipeRef  `json:"importedRecipe,omitempty"`
+	ImportedSource *ImportedSourcePlan `json:"importedSource,omitempty"`
 }
 
 // ImportedRecipeRef pins one immutable, registered recipe output. The server

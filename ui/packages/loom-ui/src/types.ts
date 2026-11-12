@@ -2244,6 +2244,19 @@ export const explorerBuilderDocumentSchema = z
       digest: z.string().regex(/^[a-f0-9]{64}$/),
       output: z.string().min(1),
     }).strict().optional(),
+    importedSource: z.object({
+      steps: z.array(z.object({
+        id: opaqueIdSchema,
+        parentId: opaqueIdSchema.optional(),
+        kind: z.string().min(1),
+        title: z.string().min(1),
+        summary: z.string().min(1),
+        enabled: z.boolean(),
+        editable: z.boolean(),
+        maxColumns: z.number().int().positive().optional(),
+        valueMode: z.string().min(1).optional(),
+      }).strict()),
+    }).strict().optional(),
     population: explorerPopulationSchema.optional(),
     route: explorerBuilderRouteNodeSchema,
     rows: explorerRowDefinitionSchema,
@@ -3140,6 +3153,13 @@ export const semanticSelectionResultSchema = z
   .strict();
 export type SemanticSelectionResult = z.infer<typeof semanticSelectionResultSchema>;
 
+const importedSourceStepChangeSchema = z.object({
+  stepId: opaqueIdSchema,
+  enabled: z.boolean(),
+  maxColumns: z.number().int().positive().optional(),
+  valueMode: z.string().min(1).optional(),
+}).strict();
+
 export const explorerBuilderCommandSchema = z
   .object({
     type: z.enum([
@@ -3176,6 +3196,8 @@ export const explorerBuilderCommandSchema = z
       'APPLY_ROW_DEFINITION_PROPOSAL',
       'APPLY_CONSTRUCTION_PROPOSAL',
       'APPLY_TABLE_SHAPE_PROPOSAL',
+      'UPDATE_IMPORTED_SOURCE_STEP',
+      'REFRESH_IMPORTED_SOURCE',
       'RESTORE_DRAFT_REVISION',
     ]),
     outputId: opaqueIdSchema.optional(),
@@ -3221,9 +3243,35 @@ export const explorerBuilderCommandSchema = z
     semanticSelections: z.array(semanticSelectionIntentSchema).min(1).max(100).optional(),
     constructionChoice: constructionChoiceSelectionSchema.optional(),
     outputIds: z.array(opaqueIdSchema).optional(),
+    sourceStep: importedSourceStepChangeSchema.optional(),
   })
   .strict()
   .superRefine((command, context) => {
+    if (command.type === 'UPDATE_IMPORTED_SOURCE_STEP') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires an output ID.' });
+      }
+      if (!command.sourceStep) {
+        context.addIssue({ code: 'custom', path: ['sourceStep'], message: 'UPDATE_IMPORTED_SOURCE_STEP requires a source step change.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId', 'sourceStep'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'UPDATE_IMPORTED_SOURCE_STEP accepts only outputId and sourceStep.' });
+        }
+      }
+      return;
+    }
+    if (command.type === 'REFRESH_IMPORTED_SOURCE') {
+      if (!command.outputId) {
+        context.addIssue({ code: 'custom', path: ['outputId'], message: 'REFRESH_IMPORTED_SOURCE requires an output ID.' });
+      }
+      for (const [key, value] of Object.entries(command)) {
+        if (!['type', 'outputId'].includes(key) && value !== undefined) {
+          context.addIssue({ code: 'custom', path: [key], message: 'REFRESH_IMPORTED_SOURCE accepts only an output ID.' });
+        }
+      }
+      return;
+    }
     if (command.type === 'APPLY_POPULATION_MEMBER_PROPOSAL') {
       if (!command.outputId) {
         context.addIssue({ code: 'custom', path: ['outputId'], message: 'APPLY_POPULATION_MEMBER_PROPOSAL requires an output ID.' });

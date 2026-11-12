@@ -80,6 +80,7 @@ func ImportWorkspace(bundle recipe.Bundle, catalog authoringv2.CatalogSnapshot, 
 			})
 		}
 		rows := importedRows(output)
+		sourcePlan := SourcePlan(output)
 		document := authoringv2.Document{
 			Kind:             authoringv2.Kind,
 			Output:           authoringv2.Output{ID: outputID, Title: output.Name},
@@ -88,6 +89,7 @@ func ImportWorkspace(bundle recipe.Bundle, catalog authoringv2.CatalogSnapshot, 
 			Rows:             rows,
 			Columns:          columns,
 			ImportedRecipe:   &authoringv2.ImportedRecipeRef{Name: bundle.Name, TranslationVersion: bundle.TranslationVersion, Digest: digest, Output: output.Name},
+			ImportedSource:   &sourcePlan,
 		}
 		workspace.Documents = append(workspace.Documents, document)
 		tabID := "tab_" + outputID

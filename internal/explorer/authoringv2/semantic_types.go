@@ -872,6 +872,14 @@ func (d Document) validateSemantic() error {
 			return fmt.Errorf("importedRecipe: %w", err)
 		}
 	}
+	if d.ImportedSource != nil {
+		if d.ImportedRecipe == nil {
+			return fmt.Errorf("importedSource requires an importedRecipe reference")
+		}
+		if err := d.ImportedSource.Validate(); err != nil {
+			return fmt.Errorf("importedSource: %w", err)
+		}
+	}
 	for i, column := range d.Columns {
 		path := fmt.Sprintf("columns[%d]", i)
 		if !physicalColumnPattern.MatchString(column.Column) {

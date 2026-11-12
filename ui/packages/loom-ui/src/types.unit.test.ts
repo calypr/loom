@@ -205,6 +205,72 @@ describe('explorerBuilderDocumentSchema', () => {
       }).success).toBe(false);
     }
   });
+
+  it('preserves strict imported source-step metadata and validates advertised bounds', () => {
+    const importedDocument = {
+      ...document,
+      rows: { kind: 'RECORDS', records: {} },
+      importedRecipe: {
+        name: 'research_subject',
+        translationVersion: '1',
+        digest: 'a'.repeat(64),
+        output: 'ResearchSubject',
+      },
+      importedSource: {
+        steps: [{
+          id: 'traversals[0].pivots[0]',
+          parentId: 'traversals[0]',
+          kind: 'PIVOT',
+          title: 'Observation values',
+          summary: 'Discover columns for Observation values',
+          enabled: true,
+          editable: true,
+          maxColumns: 128,
+          valueMode: 'FIRST',
+        }],
+      },
+    };
+
+    expect(explorerBuilderDocumentSchema.parse(importedDocument).importedSource)
+      .toEqual(importedDocument.importedSource);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], maxColumns: 0 }] },
+    }).success).toBe(false);
+    expect(explorerBuilderDocumentSchema.safeParse({
+      ...importedDocument,
+      importedSource: { steps: [{ ...importedDocument.importedSource.steps[0], unknown: true }] },
+    }).success).toBe(false);
+  });
+});
+
+describe('imported source step authoring commands', () => {
+  it('accepts only scoped refresh and source-step update payloads', () => {
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'REFRESH_IMPORTED_SOURCE',
+      outputId: 'patients',
+    })).toEqual({ type: 'REFRESH_IMPORTED_SOURCE', outputId: 'patients' });
+    expect(explorerBuilderCommandSchema.parse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'traversals[0].pivots[0]', enabled: true, maxColumns: 64, valueMode: 'ALL' },
+    })).toMatchObject({ type: 'UPDATE_IMPORTED_SOURCE_STEP', outputId: 'patients' });
+
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      outputId: 'patients',
+      sourceStep: { stepId: 'pivot', enabled: true, maxColumns: 0 },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'REFRESH_IMPORTED_SOURCE',
+      outputId: 'patients',
+      sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
+    expect(explorerBuilderCommandSchema.safeParse({
+      type: 'UPDATE_IMPORTED_SOURCE_STEP',
+      sourceStep: { stepId: 'pivot', enabled: true },
+    }).success).toBe(false);
+  });
 });
 
 describe('population route storage direction contract', () => {

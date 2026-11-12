@@ -47,6 +47,27 @@ them.
 
 ## Compile and receipts
 
+### Imported dataframe steps
+
+Imported default outputs retain their exact `importedRecipe` pin. Their
+`importedSource.steps` describe the source fields, relationships, discovery
+families, and pivots before the existing `construction.steps` transformations.
+Source expressions remain on the server. Source-step IDs refer to positions in
+the original pinned output, including children of disabled relationships.
+
+`UPDATE_IMPORTED_SOURCE_STEP` changes an advertised step's enablement, column
+limit, or value policy. Limits cannot exceed the pinned recipe's limit.
+Expansion and row identity steps are visible but read-only. The server rebuilds
+the source schema and compiles the whole candidate workspace before saving.
+A broken downstream dependency rejects the edit without changing the draft.
+
+Older drafts without `importedSource` use `REFRESH_IMPORTED_SOURCE` to populate
+the tracker. Both commands require the exact draft version, draft digest, and
+catalog snapshot. Source settings persist in the project draft and its history;
+they do not modify the shared registered recipe.
+
+### Receipt compilation
+
 Compile validates the exact active snapshot and authorization scope, translates
 the document directly to a resolved Loom recipe, persists an immutable receipt,
 and returns the receipt ID plus compiler-owned emitted columns. The same

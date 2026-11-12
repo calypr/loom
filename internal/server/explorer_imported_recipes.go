@@ -37,7 +37,7 @@ type importedRecipeResolution struct {
 	digest   string
 }
 
-func (r importedRecipeSources) load(ctx context.Context, project, name, version, digest string, authorized lifecycle.AuthorizedCapability) (importedRecipeResolution, error) {
+func (r importedRecipeSources) load(ctx context.Context, project, name, version, digest string, authorized lifecycle.AuthorizedCapability, documents ...authoringv2.Document) (importedRecipeResolution, error) {
 	if r.registry == nil || r.engine == nil || name == "" || name != r.defaultName {
 		return importedRecipeResolution{}, fmt.Errorf("the imported recipe is not a configured dataframe source")
 	}
@@ -63,7 +63,36 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 		return importedRecipeResolution{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(project), SelectionProject: projectid.Canonical(project), DatasetGeneration: authorized.Snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
-	resolved, err := r.engine.ResolveBundle(ctx, bundle, bindings)
+	effective := bundle
+	if len(documents) > 0 {
+		effective.Outputs = append([]recipe.Output(nil), bundle.Outputs...)
+		seen := make(map[string]bool, len(documents))
+		for _, document := range documents {
+			if document.ImportedRecipe == nil || document.ImportedRecipe.Name != name || document.ImportedRecipe.TranslationVersion != version || document.ImportedRecipe.Digest != actual {
+				return importedRecipeResolution{}, fmt.Errorf("source document requires a matching exact recipe pin")
+			}
+			if seen[document.ImportedRecipe.Output] {
+				return importedRecipeResolution{}, fmt.Errorf("duplicate imported source output")
+			}
+			seen[document.ImportedRecipe.Output] = true
+			found := false
+			for i := range effective.Outputs {
+				if effective.Outputs[i].Name != document.ImportedRecipe.Output {
+					continue
+				}
+				output, applyErr := recipeimport.ApplySourcePlan(effective.Outputs[i], document.ImportedSource)
+				if applyErr != nil {
+					return importedRecipeResolution{}, applyErr
+				}
+				effective.Outputs[i] = output
+				found = true
+			}
+			if !found {
+				return importedRecipeResolution{}, fmt.Errorf("pinned source output was not found")
+			}
+		}
+	}
+	resolved, err := r.engine.ResolveBundle(ctx, effective, bindings)
 	if err != nil {
 		return importedRecipeResolution{}, fmt.Errorf("resolve imported dataframe source: %w", err)
 	}
@@ -121,7 +150,14 @@ func (r importedRecipeSources) Resolve(ctx context.Context, project string, work
 		source, ok := cache[key]
 		if !ok {
 			var err error
-			source, err = r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized)
+			var documents []authoringv2.Document
+			for _, candidate := range workspace.Documents {
+				pin := candidate.ImportedRecipe
+				if pin != nil && pin.Name == ref.Name && pin.TranslationVersion == ref.TranslationVersion && pin.Digest == ref.Digest {
+					documents = append(documents, candidate)
+				}
+			}
+			source, err = r.load(ctx, project, ref.Name, ref.TranslationVersion, ref.Digest, authorized, documents...)
 			if err != nil {
 				return nil, err
 			}
@@ -181,7 +217,7 @@ func (r importedRecipeSources) SourceStage(ctx context.Context, request lifecycl
 	if err := ref.Validate(); err != nil {
 		return explorer.ReceiptConstructionStage{}, err
 	}
-	source, err := r.load(ctx, request.Project, ref.Name, ref.TranslationVersion, ref.Digest, request.Authorized)
+	source, err := r.load(ctx, request.Project, ref.Name, ref.TranslationVersion, ref.Digest, request.Authorized, request.Document)
 	if err != nil {
 		return explorer.ReceiptConstructionStage{}, err
 	}

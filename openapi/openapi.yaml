@@ -2630,6 +2630,7 @@ components:
       properties:
         kind: {type: string, enum: [ExplorerBuilderDocument]}
         importedRecipe: {$ref: '#/components/schemas/ImportedRecipeRef'}
+        importedSource: {$ref: '#/components/schemas/ImportedSourcePlan'}
         output: {$ref: '#/components/schemas/Output'}
         rootResourceType: {type: string, minLength: 1}
         route: {$ref: '#/components/schemas/RouteNode'}
@@ -2772,6 +2773,28 @@ components:
         translationVersion: {type: string, minLength: 1}
         digest: {type: string, pattern: '^[0-9a-f]{64}$'}
         output: {type: string, minLength: 1}
+    ImportedSourcePlan:
+      type: object
+      additionalProperties: false
+      required: [steps]
+      properties:
+        steps:
+          type: array
+          items: {$ref: '#/components/schemas/ImportedSourceStep'}
+    ImportedSourceStep:
+      type: object
+      additionalProperties: false
+      required: [id, kind, title, summary, enabled, editable]
+      properties:
+        id: {type: string, minLength: 1}
+        parentId: {type: string, minLength: 1}
+        kind: {type: string, minLength: 1}
+        title: {type: string, minLength: 1}
+        summary: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        editable: {type: boolean}
+        maxColumns: {type: integer, minimum: 1}
+        valueMode: {type: string, minLength: 1}
     ImportedSource:
       type: object
       additionalProperties: false
@@ -3167,7 +3190,7 @@ components:
       properties:
         type:
           type: string
-          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, RESTORE_DRAFT_REVISION]
+          enum: [CREATE_TABLE, DUPLICATE_TABLE, DELETE_TABLE, RENAME_TABLE, REORDER_TABLES, SET_TABLE_ROOT, APPLY_TABLE_ROOT_REBASE, SET_TABLE_POPULATION, CLEAR_TABLE_POPULATION, ADD_ROUTE, UPDATE_ROUTE_EDGE, SET_ROUTE_MATCH_MODE, REMOVE_ROUTE, ADD_COLUMN, ADD_COLUMN_SOURCE, UPDATE_COLUMN, UPDATE_CONSTRUCTION_OUTPUT, UPDATE_COLUMN_TRANSFORMATION, SET_COLUMN_CONTRIBUTOR, CLEAR_COLUMN_CONTRIBUTOR, APPLY_INTERPRETATION_CANDIDATE, UPDATE_COLUMN_SOURCE, UPDATE_COLUMN_ROW_VALUE_POLICY, REMOVE_COLUMN, ADD_SEMANTIC_SELECTIONS, APPLY_CONSTRUCTION_CHOICE, SET_FRAME_SOURCE, REPLACE_FRAME_SOURCE, REMOVE_FRAME_SOURCE, APPLY_ROW_DEFINITION_PROPOSAL, APPLY_CONSTRUCTION_PROPOSAL, APPLY_POPULATION_MEMBER_PROPOSAL, UPDATE_IMPORTED_SOURCE_STEP, REFRESH_IMPORTED_SOURCE, RESTORE_DRAFT_REVISION]
         outputId: {type: string, minLength: 1}
         proposalId: {type: string, minLength: 1}
         draftRevisionId: {type: string, minLength: 1}
@@ -3199,12 +3222,26 @@ components:
           maxItems: 100
           items: {$ref: '#/components/schemas/SemanticSelectionIntent'}
         constructionChoice: {$ref: '#/components/schemas/ConstructionChoiceSelection'}
+        sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
         frameChoiceId: {type: string, minLength: 1, maxLength: 16384}
         frameId: {type: string, minLength: 1}
         form: {type: string, enum: [VALUE, FIRST, ALL, DISTINCT]}
         outputIds:
           type: array
           items: {type: string, minLength: 1}
+    ImportedSourceStepChange:
+      type: object
+      x-go-type: authoringv2.ImportedSourceStepChange
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+      additionalProperties: false
+      required: [stepId, enabled]
+      properties:
+        stepId: {type: string, minLength: 1}
+        enabled: {type: boolean}
+        maxColumns: {type: integer, minimum: 1}
+        valueMode: {type: string, minLength: 1}
     ConstructionChoiceSelection:
       type: object
       additionalProperties: false
