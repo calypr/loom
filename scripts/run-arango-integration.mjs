@@ -138,6 +138,19 @@ const pgQueryRoute = new Set([
     'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
     'TestZZQRouteZeroLeftoverFixtures',
 ]);
+// pg-ir-03: the ClickHouse prefix seam's PostgreSQL-arm live leg executes
+// the tagged prefix command against the real PostgreSQL 18 source store
+// (LOOM_TEST_POSTGRES_URL), never Arango. It runs against the real
+// PostgreSQL service under the ticket check harness (go test
+// ./internal/dataframe/compiler with LOOM_TEST_POSTGRES_URL); in this
+// Arango-only lane its explicit skip stays visible in the proof summary,
+// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, pg-exec-03,
+// and pg-query-route registration precedent. The package's TestMain census
+// exits without touching a server when the URL is unset, so no census
+// identity skips in this lane.
+const pgIr03PrefixSeam = new Set([
+    'TestCompileClickHousePrefixPostgreSQLExecutesExactRows',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -152,6 +165,7 @@ const external = new Set([
     ...pgExec04Preview,
     ...pgExec03PostQuery,
     ...pgQueryRoute,
+    ...pgIr03PrefixSeam,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
