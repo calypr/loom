@@ -65,20 +65,25 @@ import (
 // (pivot_test.go, pg-sql-14), and verify_sql16v1_ (stage_sequence_test.go,
 // pg-sql-16).
 func TestMain(m *testing.M) {
-	code := sql16RunDeltaAudit(func() int {
-		return pivot14RunDeltaAudit(func() int {
-			return group13RunDeltaAudit(func() int {
-				return sql21RunDeltaAudit(func() int {
-					return coded19RunDeltaAudit(func() int {
-						return obj11RunDeltaAudit(func() int {
-							return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	// pg-sql-23's delta-scoped audit (row_lineage_test.go
+	// sql23RunDeltaAudit) wraps the whole chain around the run over its
+	// own disjoint verify_sql23v1_* namespace — the 11th, outermost.
+	code := sql23RunDeltaAudit(func() int {
+		return sql16RunDeltaAudit(func() int {
+			return pivot14RunDeltaAudit(func() int {
+				return group13RunDeltaAudit(func() int {
+					return sql21RunDeltaAudit(func() int {
+						return coded19RunDeltaAudit(func() int {
+							return obj11RunDeltaAudit(func() int {
+								return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+							})
 						})
 					})
 				})
 			})
 		})
 	})
-	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_", "verify_sql21v1_", "verify_sql13v1_", "verify_sql14v1_", "verify_sql16v1_"} {
+	for _, prefix := range []string{"verify_sql05_", "verify_sql10_", "verify_sql10v7_", "verify_sql21v1_", "verify_sql13v1_", "verify_sql14v1_", "verify_sql16v1_", "verify_sql23v1_"} {
 		if err := auditNoLeftoverVerifyNamespace(prefix); err != nil {
 			fmt.Fprintf(os.Stderr, "zero-leftover audit FAILED: %v\n", err)
 			if code == 0 {

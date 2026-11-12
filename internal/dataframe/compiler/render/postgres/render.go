@@ -213,6 +213,19 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	if graphPlanMentionsPathOperations(plan) {
 		return renderGraphPhysicalPlan(plan, storage)
 	}
+	// Whole-plan row-lineage delegation (row_lineage.go contract, pg-sql-23):
+	// a stage sequence carrying the compiler-minted bounded contributor-page
+	// terminal over one direct root scan and one ordinary GROUP stage is
+	// rendered WHOLE by the registered slice — the structural twin of the
+	// graph door above, with validateRowLineagePlanSurface as the single
+	// contract behind the door. The claim test is narrow by construction:
+	// every shape this slice does not render (a companion cell-trace or
+	// population-mapping return, a coded-group or composed lineage sequence, a
+	// hand-assembled terminal) falls through to the door that claimed it
+	// before this one existed and keeps its byte-identical registered voice.
+	if rowLineageTerminalMentions(plan) {
+		return renderRowLineagePhysicalPlan(plan, storage)
+	}
 	// Whole-plan composition delegation (stage_sequence.go contract,
 	// pg-sql-16): a stage sequence with two or more construction stages is
 	// the composed shape and is rendered WHOLE by the registered
