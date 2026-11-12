@@ -14,7 +14,9 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 )
 
 // PopulationMappingStatus is deliberately closed. Exact counts are only
@@ -74,6 +76,14 @@ type PopulationMappingResult struct {
 
 var errPopulationMappingLimit = errors.New("population mapping resource limit exceeded")
 
+// ErrPopulationMappingPostgresUnsupported reports the honest capability gap
+// for a PostgreSQL-tagged population mapping command that the selected
+// composition cannot serve: no row port, or no registered adapter for the
+// command's tag (pg-exec-07). It is returned before any port call or with
+// zero statements executed, and is deliberately distinct from INCOMPLETE —
+// a capability refusal is not a partially computed mapping.
+var ErrPopulationMappingPostgresUnsupported = errors.New("population mapping unsupported on the selected PostgreSQL composition")
+
 const (
 	defaultPopulationMappingUnmapped = 100
 	maxPopulationMappingUnmapped     = 1000
@@ -91,6 +101,18 @@ func (e *Engine) PopulationMapping(ctx context.Context, resolved Resolved, reque
 	}
 	compiled, err := compilePopulationMappingOutput(e.compileTarget, resolved, request.Output)
 	if err != nil {
+		// pg-exec-07, the pg-exec-12 precedent: a selected PostgreSQL
+		// target that meets a shape outside the registered mapping slice
+		// fails closed with the renderer's typed ErrUnsupportedPostgresPlan
+		// (the named capability gaps in render/postgres/population_mapping.go
+		// and population.go). The honest report is the capability sentinel,
+		// raised here — before the row port exists for this request, so the
+		// statement count is zero — and never a misleading COMPLETE or
+		// INCOMPLETE. The AQL path can never produce this sentinel, so the
+		// Arango voice is untouched.
+		if errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
+			return PopulationMappingResult{}, fmt.Errorf("%w: %v", ErrPopulationMappingPostgresUnsupported, err)
+		}
 		return PopulationMappingResult{}, err
 	}
 	return e.populationMappingCompiled(ctx, compiled, request, reader)
@@ -105,7 +127,29 @@ func (e *Engine) PopulationMappingCompiled(ctx context.Context, compiled compile
 }
 
 func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compiler.CompiledPopulationMappingQuery, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
+	// pg-exec-07: exhaustive backend switch over the tagged command, the
+	// canonical pattern of table_shape_exclusions.go (pg-exec-12). The AQL
+	// arm below is byte-own to Arango and unchanged. The PostgreSQL arm
+	// consumes the pg-sql-22 witness terminal: the two positional witness
+	// columns (member, then the single identity column) become the declared
+	// result contract the backend-tagged row adapter requires. Honest
+	// statuses: a missing row port or an unregistered PostgreSQL adapter is
+	// the capability gap ErrPopulationMappingPostgresUnsupported, reported
+	// before any port call or with zero statements executed; a routing
+	// mismatch or any other port failure is a hard error, never a partial
+	// report; caps and cancellation stay INCOMPLETE at the request.
+	isPostgreSQL := false
+	switch compiled.Command.Backend() {
+	case command.CompiledBackendAQL:
+	case command.CompiledBackendPostgreSQL:
+		isPostgreSQL = true
+	default:
+		return PopulationMappingResult{}, fmt.Errorf("population mapping command has unsupported backend %q", string(compiled.Command.Backend()))
+	}
 	if e == nil || e.sourceRows == nil {
+		if isPostgreSQL {
+			return PopulationMappingResult{}, fmt.Errorf("%w: no row port serves the selected PostgreSQL composition", ErrPopulationMappingPostgresUnsupported)
+		}
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query executor is required")
 	}
 	if reader == nil {
@@ -154,11 +198,27 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	if compiled.MemberColumn == "" || (compiled.IdentityPartsColumn == "" && compiled.ExplicitIdentityColumn == "") {
 		return PopulationMappingResult{}, fmt.Errorf("population mapping query is missing typed witness columns")
 	}
+	stream := RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}
+	if isPostgreSQL {
+		// Exactly one identity column is the renderer's contract: flat and
+		// construction terminals both emit positional c0=member, c1=identity
+		// (render/postgres/population_mapping.go). The declared list is that
+		// pair in renderer output order, so the PostgreSQL adapter refuses
+		// server column drift before the first row is visited.
+		if compiled.IdentityPartsColumn != "" && compiled.ExplicitIdentityColumn != "" {
+			return PopulationMappingResult{}, fmt.Errorf("population mapping PostgreSQL witness requires exactly one identity column")
+		}
+		identityColumn := compiled.IdentityPartsColumn
+		if identityColumn == "" {
+			identityColumn = compiled.ExplicitIdentityColumn
+		}
+		stream.DeclaredColumns = []string{compiled.MemberColumn, identityColumn}
+	}
 
 	mapped := make(map[string]struct{})
 	emitted := make(map[string]struct{})
 	witnessRows := int64(0)
-	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
+	err := e.sourceRows(ctx, stream, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -185,6 +245,13 @@ func (e *Engine) populationMappingCompiled(ctx context.Context, compiled compile
 	if err != nil {
 		if populationMappingIncomplete(err) {
 			return incompletePopulationMappingResult(), nil
+		}
+		if isPostgreSQL && errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
+			// The composition registered no adapter for the command's tag:
+			// the command package's explicit capability-gap report, honored
+			// with zero statements executed — never mapped onto INCOMPLETE
+			// and never a complete-but-empty mapping.
+			return PopulationMappingResult{}, fmt.Errorf("%w: PostgreSQL row adapter is not registered for the mapping command", ErrPopulationMappingPostgresUnsupported)
 		}
 		return PopulationMappingResult{}, fmt.Errorf("execute population mapping: %w", err)
 	}
@@ -235,8 +302,11 @@ func populationWitnessIdentity(query compiler.CompiledPopulationMappingQuery, ro
 	if query.ExplicitIdentityColumn != "" {
 		return populationExplicitIdentity(row[query.ExplicitIdentityColumn])
 	}
-	value, ok := row[query.IdentityPartsColumn].([]any)
-	if !ok || len(value) == 0 || query.RowIdentity == nil || len(value) != len(query.RowIdentity.Fields) {
+	value, err := populationIdentityParts(row[query.IdentityPartsColumn])
+	if err != nil {
+		return "", err
+	}
+	if len(value) == 0 || query.RowIdentity == nil || len(value) != len(query.RowIdentity.Fields) {
 		return "", fmt.Errorf("population mapping witness has an invalid row identity shape")
 	}
 	for _, part := range value {
@@ -250,6 +320,38 @@ func populationWitnessIdentity(query compiler.CompiledPopulationMappingQuery, ro
 	}
 	digest := sha256.Sum256(encoded)
 	return "default:" + hex.EncodeToString(digest[:]), nil
+}
+
+// populationIdentityParts reads the witness identity parts from one result
+// row. Both dialects hand back a JSON array of parts, but through different
+// driver shapes: the AQL adapter delivers a native []any, while the
+// PostgreSQL adapter decodes the jsonb column (jsonb_build_array keeps each
+// null part a jsonb null, the tri-state the executor reads typed) to
+// json.RawMessage (adapter decodeColumn). Malformed JSON, the JSON null
+// scalar, and any non-array value are contract violations refused
+// fail-closed. The decoded array re-enters the same per-part validation and
+// the same json.Marshal digest as the native arm, so identical parts hash
+// to an identical witness identity on both backends.
+func populationIdentityParts(value any) ([]any, error) {
+	switch typed := value.(type) {
+	case []any:
+		return typed, nil
+	case json.RawMessage:
+		if len(typed) == 0 || !json.Valid(typed) {
+			return nil, fmt.Errorf("population mapping witness has an invalid row identity shape")
+		}
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return nil, fmt.Errorf("population mapping witness has an invalid row identity shape: %w", err)
+		}
+		items, ok := decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("population mapping witness has an invalid row identity shape")
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("population mapping witness has an invalid row identity shape")
+	}
 }
 
 func populationExplicitIdentity(value any) (string, error) {
