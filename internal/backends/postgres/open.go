@@ -47,7 +47,7 @@ type Querier = rows.Querier
 // they own without importing the private adapter.
 func NewPlanJSONExecutor(querier Querier) (dataframeexecution.PostgreSQLPlanJSONExecutor, error) {
 	if querier == nil {
-		return nil, fmt.Errorf("%w: nil row querier", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: nil row querier", control.ErrInvalidConfig)
 	}
 	return newPostgreSQLPlanJSONExecutor(querier)
 }
@@ -59,7 +59,7 @@ func NewPlanJSONExecutor(querier Querier) (dataframeexecution.PostgreSQLPlanJSON
 // package directly, keeping the factory the single assembly point.
 func NewSourceRows(querier Querier) (dataframeexecution.SourceRows, error) {
 	if querier == nil {
-		return nil, fmt.Errorf("%w: nil row querier", ErrInvalidConfig)
+		return nil, fmt.Errorf("%w: nil row querier", control.ErrInvalidConfig)
 	}
 	executor, err := rows.NewExecutor(querier)
 	if err != nil {
@@ -80,7 +80,7 @@ var _ rows.Querier = (*pgstore.Client)(nil)
 // created so far; no half-initialized runtime escapes. The error text never
 // carries connection credentials while the cause chain stays intact for
 // errors.Is/As classification.
-func Open(ctx context.Context, cfg Config) (*Runtime, error) {
+func Open(ctx context.Context, cfg control.Config) (*Runtime, error) {
 	inner, err := control.Open(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -88,17 +88,17 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	querier := inner.PoolClient()
 	if querier == nil {
 		_ = inner.Close()
-		return nil, fmt.Errorf("%w: control runtime did not expose its pool as the row querier", ErrBootstrap)
+		return nil, fmt.Errorf("%w: control runtime did not expose its pool as the row querier", control.ErrBootstrap)
 	}
 	executor, err := rows.NewExecutor(querier)
 	if err != nil {
 		_ = inner.Close()
-		return nil, fmt.Errorf("%w: assemble row executor: %w", ErrBootstrap, err)
+		return nil, fmt.Errorf("%w: assemble row executor: %w", control.ErrBootstrap, err)
 	}
 	planJSON, err := newPostgreSQLPlanJSONExecutor(querier)
 	if err != nil {
 		_ = inner.Close()
-		return nil, fmt.Errorf("%w: assemble plan executor: %w", ErrBootstrap, err)
+		return nil, fmt.Errorf("%w: assemble plan executor: %w", control.ErrBootstrap, err)
 	}
 	return &Runtime{Runtime: inner, SourceRows: executor.SourceRows, PlanJSON: planJSON}, nil
 }

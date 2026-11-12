@@ -272,3 +272,47 @@ func TestOldConcretePathsTableIsPinned(t *testing.T) {
 		}
 	}
 }
+
+func writeGo(t *testing.T, root, rel, body string) {
+	t.Helper()
+	writeFile(t, filepath.Join(root, rel), body)
+}
+
+func TestNoReExportCatchesShimShapes(t *testing.T) {
+	root := t.TempDir()
+	writeGo(t, root, "control/defs.go", "package control\n\nimport \"errors\"\n\ntype Config struct{ N int }\n\nvar ErrInvalid = errors.New(\"x\")\n\nfunc NewStore() *Store { return nil }\n\ntype Store struct{}\n")
+	writeGo(t, root, "postgres/factory.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\nfunc Open(c control.Config) error { return nil }\n")
+	rule := NoReExportRule{Label: "facade", Owner: "import control directly",
+		Target: "postgres", OwnerPkg: "control", OwnerImport: "github.com/calypr/loom/internal/backends/postgres/control"}
+	if errs := CheckNoReExport(root, rule); len(errs) != 0 {
+		t.Fatalf("composition must be legal: %v", errs)
+	}
+	writeGo(t, root, "postgres/shim.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
+		"type Config = control.Config\n\nvar ErrInvalid = control.ErrInvalid\n\nfunc NewStore() *control.Store { return control.NewStore() }\n\ntype Store struct{ *control.Store }\n")
+	errs := CheckNoReExport(root, rule)
+	want := map[string]bool{"Config": false, "ErrInvalid": false, "NewStore": false, "Store": false}
+	for _, e := range errs {
+		for name := range want {
+			if strings.Contains(e.Reason, name) {
+				want[name] = true
+			}
+		}
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Fatalf("shim shape %s not caught; errors: %v", name, errs)
+		}
+	}
+	// AllowedEmbeds sanctions exactly the named same-named embedding.
+	rule.AllowedEmbeds = []string{"Store"}
+	errs = CheckNoReExport(root, rule)
+	for _, e := range errs {
+		if strings.Contains(e.Reason, "embeds") {
+			t.Fatalf("AllowedEmbeds must sanction Store embedding: %v", errs)
+		}
+	}
+	// Missing owner package is a verification failure, never silence.
+	if errs := CheckNoReExport(t.TempDir(), rule); len(errs) == 0 || errs[0].Kind != ErrMissing {
+		t.Fatalf("missing owner package must fail as missing-target, got %v", errs)
+	}
+}

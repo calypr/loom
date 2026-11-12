@@ -124,6 +124,11 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 	for _, e := range packagepolicy.CheckAbsences(repoRoot, packagepolicy.RepoAbsences()) {
 		t.Error(e.String())
 	}
+	for _, rule := range packagepolicy.RepoNoReExport() {
+		for _, e := range packagepolicy.CheckNoReExport(repoRoot, rule) {
+			t.Error(e.String())
+		}
+	}
 	if t.Failed() {
 		t.Fatal("repository violates the authoritative package boundary table (see failures above)")
 	}
@@ -327,6 +332,101 @@ func TestBackendOwnershipGuardContract(t *testing.T) {
 		if !hasErrorKind(malformed.Errors, packagepolicy.ErrParse) {
 			t.Fatalf("malformed input must fail as %s, got %v", packagepolicy.ErrParse, malformed.Errors)
 		}
+	})
+
+	// The arch-backend-09 ruling (Option A, 2026-11-12) keeps
+	// internal/backends/postgres/control as the cycle-free public control
+	// plane and deletes the root facade. This subtest machine-enforces
+	// the four ruling conditions instead of documenting them.
+	t.Run("facade_law_control_plane", func(t *testing.T) {
+		// (1a) aliases.go stays absent. The repository-level assertion
+		// ran with the table scan above; here the rule itself must go
+		// RED on a recreated shim.
+		shim := packagepolicy.AbsenceRule{Label: "removed control-forwarding facade", Owner: "import control directly",
+			Paths: []string{"internal/backends/postgres/aliases.go"}}
+		dir := t.TempDir()
+		facadeDir := filepath.Join(dir, "internal/backends/postgres")
+		if err := os.MkdirAll(facadeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		shimPath := filepath.Join(facadeDir, "aliases.go")
+		if err := os.WriteFile(shimPath, []byte("package postgres\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if errs := packagepolicy.CheckAbsences(dir, []packagepolicy.AbsenceRule{shim}); len(errs) == 0 {
+			t.Fatal("recreated aliases.go must fail the path-absence rule")
+		}
+		if err := os.Remove(shimPath); err != nil {
+			t.Fatal(err)
+		}
+		if errs := packagepolicy.CheckAbsences(dir, []packagepolicy.AbsenceRule{shim}); len(errs) != 0 {
+			t.Fatalf("removal must converge: %v", errs)
+		}
+
+		// (1c) the root package must not re-export control's public
+		// surface. Repository-level: the check passed in the table scan
+		// (root now declares only Open/Runtime/Querier/bridges).
+		// Fixture: the two shim shapes are caught, composition is legal.
+		root := t.TempDir()
+		for _, f := range []struct{ rel, body string }{
+			{"internal/backends/postgres/control/config.go", "package control\n\nimport \"errors\"\n\ntype Config struct{ N int }\n\nvar ErrInvalid = errors.New(\"x\")\n"},
+			{"internal/backends/postgres/factory.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\nfunc Open(c control.Config) (*Runtime, error) { return nil, nil }\n\ntype Runtime struct{ *control.Runtime }\n"},
+		} {
+			p := filepath.Join(root, f.rel)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(f.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		noReExport := packagepolicy.RepoNoReExport()
+		if len(noReExport) == 0 {
+			t.Fatal("the postgres-root no-re-export rule is missing from the table")
+		}
+		if errs := packagepolicy.CheckNoReExport(root, noReExport[0]); len(errs) != 0 {
+			t.Fatalf("legal composition must pass the no-re-export check: %v", errs)
+		}
+		if err := os.WriteFile(filepath.Join(root, "internal/backends/postgres/aliases.go"),
+			[]byte("package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\ntype Config = control.Config\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		foundAlias := false
+		for _, e := range packagepolicy.CheckNoReExport(root, noReExport[0]) {
+			if strings.Contains(e.Reason, "Config") {
+				foundAlias = true
+			}
+		}
+		if !foundAlias {
+			t.Fatal("re-exported control.Config from root must be caught")
+		}
+		// (1b) QuerierAsAny stays absent (identifier table row) —
+		// positive repository scan ran above; planted reappearance:
+		idRule := packagepolicy.AbsenceRule{Label: "removed untyped row-querier bridge", Owner: "typed Querier",
+			Identifiers: []string{"QuerierAsAny"}, ScanRoots: []string{"internal/backends/postgres"}}
+		if err := os.WriteFile(filepath.Join(root, "internal/backends/postgres/bridge.go"),
+			[]byte("package postgres\n\nfunc QuerierAsAny() any { return nil }\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if errs := packagepolicy.CheckAbsences(root, []packagepolicy.AbsenceRule{idRule}); len(errs) == 0 {
+			t.Fatal("planted QuerierAsAny must fail the identifier-absence rule")
+		}
+		if err := os.Remove(filepath.Join(root, "internal/backends/postgres/bridge.go")); err != nil {
+			t.Fatal(err)
+		}
+
+		// (1d) control never imports root, the rows adapter, or
+		// execution: repository-level by the table scan; fixture-level
+		// both banned shapes are named offenders.
+		cycleRule := guardRule(t, "postgres-control: cycle-free control plane")
+		cdir := t.TempDir()
+		guardWrite(t, cdir, "control/reaches_root.go", "github.com/calypr/loom/internal/backends/postgres")
+		guardWrite(t, cdir, "control/reaches_rows.go", "github.com/calypr/loom/internal/backends/postgres/internal/rows")
+		res := guardScan(t, cycleRule, filepath.Join(cdir, "control"), packagepolicy.AllScopes)
+		requireFinding(t, res, cycleRule.Label, "reaches_root.go", "internal/backends/postgres")
+		requireFinding(t, res, cycleRule.Label, "reaches_rows.go", "internal/backends/postgres/internal/rows")
+		// And the real control tree is clean today (positive).
+		requireClean(t, packagepolicy.ScanRule(repoRoot, cycleRule))
 	})
 }
 

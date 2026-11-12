@@ -43,7 +43,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/server"
 )
@@ -220,7 +220,7 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 			// and stated that its disappearance must update this register in
 			// the same commit, not silently. The arch-backend-06 caller
 			// migration retired it: ingest now reaches the driver classes only
-			// through postgres.CommitOutcomeUnknown, so the set is empty. Any
+			// through control.CommitOutcomeUnknown, so the set is empty. Any
 			// re-introduction is caught twice over: this assertion and, for
 			// every production file outside the backend tree, the
 			// register-confinement scan above (internal/ingest is not a
@@ -258,14 +258,14 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 	})
 
 	t.Run("config_validation_matrix_with_alive_controls", func(t *testing.T) {
-		base := func() postgres.Config {
-			return postgres.Config{
+		base := func() control.Config {
+			return control.Config{
 				DSN:            "postgres://loom:secret@localhost:5432/loom",
 				MaxConns:       4,
 				MinConns:       1,
 				AcquireTimeout: 30 * time.Second,
-				Setup:          postgres.SetupMigrate,
-				Schemas:        postgres.SeriesSchemas{postgres.SeriesSource: "loom_source"},
+				Setup:          control.SetupMigrate,
+				Schemas:        control.SeriesSchemas{control.SeriesSource: "loom_source"},
 			}
 		}
 		if err := base().Validate(); err != nil {
@@ -273,27 +273,27 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 		}
 		cases := []struct {
 			name     string
-			defect   func(*postgres.Config)
+			defect   func(*control.Config)
 			sentinel error
 		}{
-			{"blank_dsn", func(c *postgres.Config) { c.DSN = "  " }, postgres.ErrInvalidConfig},
-			{"zero_max_conns", func(c *postgres.Config) { c.MaxConns = 0 }, postgres.ErrInvalidConfig},
-			{"negative_min_conns", func(c *postgres.Config) { c.MinConns = -1 }, postgres.ErrInvalidConfig},
-			{"min_above_max", func(c *postgres.Config) { c.MinConns = 8 }, postgres.ErrInvalidConfig},
-			{"nonpositive_acquire_timeout", func(c *postgres.Config) { c.AcquireTimeout = 0 }, postgres.ErrInvalidConfig},
-			{"foreign_application_name_prefix", func(c *postgres.Config) { c.ApplicationName = "somebody-elses-tag" }, postgres.ErrInvalidConfig},
-			{"unsafe_application_name_characters", func(c *postgres.Config) { c.ApplicationName = "loom-pg-host=evil" }, postgres.ErrInvalidConfig},
-			{"missing_setup_policy", func(c *postgres.Config) { c.Setup = "" }, postgres.ErrInvalidConfig},
-			{"unknown_setup_policy", func(c *postgres.Config) { c.Setup = "yolo" }, postgres.ErrInvalidConfig},
-			{"blank_assigned_schema", func(c *postgres.Config) { c.Schemas = postgres.SeriesSchemas{postgres.SeriesSource: " "} }, postgres.ErrSeriesAssignment},
-			{"unknown_series", func(c *postgres.Config) { c.Schemas = postgres.SeriesSchemas{"not_a_series": "ok"} }, postgres.ErrSeriesAssignment},
-			{"unsafe_schema_name", func(c *postgres.Config) {
+			{"blank_dsn", func(c *control.Config) { c.DSN = "  " }, control.ErrInvalidConfig},
+			{"zero_max_conns", func(c *control.Config) { c.MaxConns = 0 }, control.ErrInvalidConfig},
+			{"negative_min_conns", func(c *control.Config) { c.MinConns = -1 }, control.ErrInvalidConfig},
+			{"min_above_max", func(c *control.Config) { c.MinConns = 8 }, control.ErrInvalidConfig},
+			{"nonpositive_acquire_timeout", func(c *control.Config) { c.AcquireTimeout = 0 }, control.ErrInvalidConfig},
+			{"foreign_application_name_prefix", func(c *control.Config) { c.ApplicationName = "somebody-elses-tag" }, control.ErrInvalidConfig},
+			{"unsafe_application_name_characters", func(c *control.Config) { c.ApplicationName = "loom-pg-host=evil" }, control.ErrInvalidConfig},
+			{"missing_setup_policy", func(c *control.Config) { c.Setup = "" }, control.ErrInvalidConfig},
+			{"unknown_setup_policy", func(c *control.Config) { c.Setup = "yolo" }, control.ErrInvalidConfig},
+			{"blank_assigned_schema", func(c *control.Config) { c.Schemas = control.SeriesSchemas{control.SeriesSource: " "} }, control.ErrSeriesAssignment},
+			{"unknown_series", func(c *control.Config) { c.Schemas = control.SeriesSchemas{"not_a_series": "ok"} }, control.ErrSeriesAssignment},
+			{"unsafe_schema_name", func(c *control.Config) {
 				// The store's ValidateAssignment applies the runner's
 				// identifier policy pre-pool; an unsafe name must never
 				// reach DDL. (Genuine shared-schema ledger conflicts are
 				// exercised end-to-end by the arch-backend-05 suite.)
-				c.Schemas = postgres.SeriesSchemas{postgres.SeriesSource: "Bad Name; DROP"}
-			}, postgres.ErrInvalidSchemaName},
+				c.Schemas = control.SeriesSchemas{control.SeriesSource: "Bad Name; DROP"}
+			}, control.ErrInvalidSchemaName},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -319,7 +319,7 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 
 	t.Run("series_set_equals_migration_manifest", func(t *testing.T) {
 		factory := map[string]bool{}
-		for _, series := range postgres.AllSeries() {
+		for _, series := range control.AllSeries() {
 			factory[string(series)] = true
 		}
 		manifest := map[string]bool{}

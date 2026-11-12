@@ -52,7 +52,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -290,9 +290,9 @@ type ing03Service struct {
 // exactly (internal/ingest deliberately does not import catalog/postgres,
 // so the fault seam lives here with the wiring).
 type ing03CatalogFaults struct {
-	wrapFieldProfile  func(postgres.FieldProfileStore) postgres.FieldProfileStore
-	wrapInventory     func(postgres.InventoryStore) postgres.InventoryStore
-	wrapRelationship  func(postgres.RelationshipStore) postgres.RelationshipStore
+	wrapFieldProfile  func(control.FieldProfileStore) control.FieldProfileStore
+	wrapInventory     func(control.InventoryStore) control.InventoryStore
+	wrapRelationship  func(control.RelationshipStore) control.RelationshipStore
 	wrapContributions func(inner GenerationSemanticContributor) GenerationSemanticContributor
 }
 
@@ -302,44 +302,44 @@ type ing03CatalogFaults struct {
 // checks, not fakes. Optional fault wrappers decorate the raw repositories
 // before the store-layer constructors wrap them. fail receives any
 // constructor error.
-func ing03WireCatalogWriters(src postgres.ConnSource, schema string, faults *ing03CatalogFaults, fail func(error)) GenerationCatalogWriters {
-	profileRepo, err := postgres.NewFieldProfileRepository(src, schema)
+func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing03CatalogFaults, fail func(error)) GenerationCatalogWriters {
+	profileRepo, err := control.NewFieldProfileRepository(src, schema)
 	if err != nil {
 		fail(fmt.Errorf("field profile repository: %w", err))
 	}
-	var profileStore postgres.FieldProfileStore = profileRepo
+	var profileStore control.FieldProfileStore = profileRepo
 	if faults != nil && faults.wrapFieldProfile != nil {
 		profileStore = faults.wrapFieldProfile(profileRepo)
 	}
-	profiles, err := postgres.NewCatalogFieldProfileStore(profileStore)
+	profiles, err := control.NewCatalogFieldProfileStore(profileStore)
 	if err != nil {
 		fail(fmt.Errorf("field profile store: %w", err))
 	}
-	inventoryRepo, err := postgres.NewInventoryRepository(src, schema)
+	inventoryRepo, err := control.NewInventoryRepository(src, schema)
 	if err != nil {
 		fail(fmt.Errorf("inventory repository: %w", err))
 	}
-	var inventoryStore postgres.InventoryStore = inventoryRepo
+	var inventoryStore control.InventoryStore = inventoryRepo
 	if faults != nil && faults.wrapInventory != nil {
 		inventoryStore = faults.wrapInventory(inventoryRepo)
 	}
-	inventory, err := postgres.NewCatalogStore(inventoryStore)
+	inventory, err := control.NewCatalogStore(inventoryStore)
 	if err != nil {
 		fail(fmt.Errorf("inventory store: %w", err))
 	}
-	relationshipRepo, err := postgres.NewCatalogRelationshipEvidenceRepository(src, schema)
+	relationshipRepo, err := control.NewCatalogRelationshipEvidenceRepository(src, schema)
 	if err != nil {
 		fail(fmt.Errorf("relationship evidence repository: %w", err))
 	}
-	var relationshipStore postgres.RelationshipStore = relationshipRepo
+	var relationshipStore control.RelationshipStore = relationshipRepo
 	if faults != nil && faults.wrapRelationship != nil {
 		relationshipStore = faults.wrapRelationship(relationshipRepo)
 	}
-	relations, err := postgres.NewCatalogRelationshipEvidenceStore(relationshipStore)
+	relations, err := control.NewCatalogRelationshipEvidenceStore(relationshipStore)
 	if err != nil {
 		fail(fmt.Errorf("relationship evidence store: %w", err))
 	}
-	contribs, err := postgres.NewSemanticContributionRepository(src, schema)
+	contribs, err := control.NewSemanticContributionRepository(src, schema)
 	if err != nil {
 		fail(fmt.Errorf("semantic contribution repository: %w", err))
 	}
@@ -459,17 +459,17 @@ func newIngest03Service(t *testing.T) *ing03Service {
 func (s *ing03Service) migrate() {
 	s.t.Helper()
 	client := s.openClient(2)
-	if _, err := postgres.MigrateSchema(s.ctx, client, s.schema); err != nil {
+	if _, err := control.MigrateSchema(s.ctx, client, s.schema); err != nil {
 		s.t.Fatalf("MigrateSchema: %s", s.scrub(err))
 	}
-	if _, err := postgres.MigrateDatasetReleaseSchema(s.ctx, client, s.manifestSchema); err != nil {
+	if _, err := control.MigrateDatasetReleaseSchema(s.ctx, client, s.manifestSchema); err != nil {
 		s.t.Fatalf("MigrateDatasetReleaseSchema: %s", s.scrub(err))
 	}
 }
 
-func (s *ing03Service) openClient(maxConns int32) *postgres.Client {
+func (s *ing03Service) openClient(maxConns int32) *control.Client {
 	s.t.Helper()
-	client, err := postgres.OpenPool(s.ctx, postgres.ClientConfig{
+	client, err := control.OpenPool(s.ctx, control.ClientConfig{
 		DSN:            s.dsn,
 		MaxConns:       maxConns,
 		MinConns:       0,
@@ -1041,8 +1041,8 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 		_, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(goodDir, ing03Project, &ref),
 			PGSourceOptions{DSN: "", Schema: service.schema, ManifestSchema: service.manifestSchema, ApplicationName: app, Catalog: service.catalogWriters()})
-		if !errors.Is(err, postgres.ErrInvalidDSN) {
-			t.Fatalf("error = %v, want %v", err, postgres.ErrInvalidDSN)
+		if !errors.Is(err, control.ErrInvalidDSN) {
+			t.Fatalf("error = %v, want %v", err, control.ErrInvalidDSN)
 		}
 	})
 
@@ -1050,8 +1050,8 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 		_, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(goodDir, ing03Project, &ref),
 			PGSourceOptions{DSN: service.dsn, Schema: service.schema, ManifestSchema: service.manifestSchema, MaxConns: -3, ApplicationName: app, Catalog: service.catalogWriters()})
-		if !errors.Is(err, postgres.ErrInvalidPoolConfig) {
-			t.Fatalf("error = %v, want %v", err, postgres.ErrInvalidPoolConfig)
+		if !errors.Is(err, control.ErrInvalidPoolConfig) {
+			t.Fatalf("error = %v, want %v", err, control.ErrInvalidPoolConfig)
 		}
 	})
 
@@ -1059,8 +1059,8 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 		_, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(goodDir, ing03Project, &ref),
 			PGSourceOptions{DSN: service.dsn, Schema: "Not A Schema", ManifestSchema: service.manifestSchema, ApplicationName: app, Catalog: service.catalogWriters()})
-		if !errors.Is(err, postgres.ErrInvalidSchemaName) {
-			t.Fatalf("error = %v, want %v", err, postgres.ErrInvalidSchemaName)
+		if !errors.Is(err, control.ErrInvalidSchemaName) {
+			t.Fatalf("error = %v, want %v", err, control.ErrInvalidSchemaName)
 		}
 	})
 }
@@ -1361,7 +1361,7 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 		service := newIngest03Service(t)
 		service.migrate()
 		client := service.openClient(2)
-		resourceRepo, err := postgres.NewResourceRepository(client, service.schema)
+		resourceRepo, err := control.NewResourceRepository(client, service.schema)
 		if err != nil {
 			t.Fatalf("resource repo: %v", err)
 		}
@@ -1379,7 +1379,7 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 		ref := ing03Ref(t, ing03Project, ing03Generation)
 		_, loadErr := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(metaDir, ing03Project, &ref), service.pgOptions(ing03AppBase+"-conflict"))
-		var conflict *postgres.BatchResourceConflictError
+		var conflict *control.BatchResourceConflictError
 		if !errors.As(loadErr, &conflict) {
 			t.Fatalf("load error = %T %v, want BatchResourceConflictError", loadErr, loadErr)
 		}
@@ -1412,14 +1412,14 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 		service := newIngest03Service(t)
 		service.migrate()
 		client := service.openClient(2)
-		resourceRepo, err := postgres.NewResourceRepository(client, service.schema)
+		resourceRepo, err := control.NewResourceRepository(client, service.schema)
 		if err != nil {
 			t.Fatalf("resource repo: %v", err)
 		}
 		if _, err := resourceRepo.InsertResource(context.Background(), reference.sourceSeed(victim)); err != nil {
 			t.Fatalf("seed edge source %s/%s: %s", victim.SourceType, victim.SourceID, service.scrub(err))
 		}
-		edgeRepo, err := postgres.NewEdgeRepository(client, service.schema)
+		edgeRepo, err := control.NewEdgeRepository(client, service.schema)
 		if err != nil {
 			t.Fatalf("edge repo: %v", err)
 		}
@@ -1432,7 +1432,7 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 
 		_, loadErr := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(metaDir, ing03Project, &ref), service.pgOptions(ing03AppBase+"-edge-fail"))
-		var edgeConflict *postgres.BatchEdgeConflictError
+		var edgeConflict *control.BatchEdgeConflictError
 		if !errors.As(loadErr, &edgeConflict) {
 			t.Fatalf("load error = %T %v, want BatchEdgeConflictError", loadErr, loadErr)
 		}
@@ -1536,7 +1536,7 @@ func TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBounda
 		t.Fatal("control load persisted no contributions: the witness is vacuous")
 	}
 
-	readRepo, err := postgres.NewSemanticReadRepository(service.iso, service.schema)
+	readRepo, err := control.NewSemanticReadRepository(service.iso, service.schema)
 	if err != nil {
 		t.Fatalf("semantic read repository: %s", service.scrub(err))
 	}
@@ -1608,7 +1608,7 @@ func TestPostgresGenerationLoadActivationIsExplicitCASPinned(t *testing.T) {
 	// store verdict (no row), not the ambient 42P01 of an unmigrated
 	// schema — the load itself still runs its own idempotent migrate.
 	service.migrate()
-	if activateErr := ActivatePostgresGeneration(context.Background(), ref, service.pgOptions(ing03AppBase+"-act-missing")); !errors.Is(activateErr, postgres.ErrManifestNotFound) {
+	if activateErr := ActivatePostgresGeneration(context.Background(), ref, service.pgOptions(ing03AppBase+"-act-missing")); !errors.Is(activateErr, control.ErrManifestNotFound) {
 		t.Fatalf("activate missing = %v, want ErrManifestNotFound", activateErr)
 	}
 
@@ -1741,12 +1741,12 @@ func TestPostgresGenerationLoadZZZeroSurvivorAudit(t *testing.T) {
 var errInjectedCatalogFault = errors.New("ing03 test: injected catalog fault")
 
 type injectedFieldProfileStore struct {
-	inner     postgres.FieldProfileStore
+	inner     control.FieldProfileStore
 	failAfter int
 	calls     int
 }
 
-func (f *injectedFieldProfileStore) UpsertFieldProfileBatch(ctx context.Context, scope postgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, coverage postgres.FieldProfileCoverage, batchSize int) error {
+func (f *injectedFieldProfileStore) UpsertFieldProfileBatch(ctx context.Context, scope control.FieldProfileScope, docs []catalog.FieldCatalogDocument, coverage control.FieldProfileCoverage, batchSize int) error {
 	f.calls++
 	if f.calls > f.failAfter {
 		return fmt.Errorf("%w: field profile upsert for %s", errInjectedCatalogFault, scope.ResourceType)
@@ -1754,25 +1754,25 @@ func (f *injectedFieldProfileStore) UpsertFieldProfileBatch(ctx context.Context,
 	return f.inner.UpsertFieldProfileBatch(ctx, scope, docs, coverage, batchSize)
 }
 
-func (f *injectedFieldProfileStore) ReadFieldProfileRows(ctx context.Context, scope postgres.FieldProfileScope) ([]catalog.FieldCatalogDocument, error) {
+func (f *injectedFieldProfileStore) ReadFieldProfileRows(ctx context.Context, scope control.FieldProfileScope) ([]catalog.FieldCatalogDocument, error) {
 	return f.inner.ReadFieldProfileRows(ctx, scope)
 }
 
-func (f *injectedFieldProfileStore) ReadFieldProfileRowsFiltered(ctx context.Context, filter postgres.FieldProfileFilter) ([]catalog.FieldCatalogDocument, error) {
+func (f *injectedFieldProfileStore) ReadFieldProfileRowsFiltered(ctx context.Context, filter control.FieldProfileFilter) ([]catalog.FieldCatalogDocument, error) {
 	return f.inner.ReadFieldProfileRowsFiltered(ctx, filter)
 }
 
-func (f *injectedFieldProfileStore) ReadProfileCoverage(ctx context.Context, filter postgres.FieldProfileFilter) ([]postgres.FieldProfileCoverage, error) {
+func (f *injectedFieldProfileStore) ReadProfileCoverage(ctx context.Context, filter control.FieldProfileFilter) ([]control.FieldProfileCoverage, error) {
 	return f.inner.ReadProfileCoverage(ctx, filter)
 }
 
 type injectedInventoryStore struct {
-	inner      postgres.InventoryStore
+	inner      control.InventoryStore
 	failOnCall int
 	calls      int
 }
 
-func (i *injectedInventoryStore) ScanSourceCounts(ctx context.Context, project, datasetGeneration, resourceType string) ([]postgres.InventorySourceGroup, error) {
+func (i *injectedInventoryStore) ScanSourceCounts(ctx context.Context, project, datasetGeneration, resourceType string) ([]control.InventorySourceGroup, error) {
 	i.calls++
 	if i.calls == i.failOnCall {
 		return nil, fmt.Errorf("%w: scan counts for %s", errInjectedCatalogFault, resourceType)
@@ -1792,16 +1792,16 @@ func (i *injectedInventoryStore) ReadBuild(ctx context.Context, project, dataset
 	return i.inner.ReadBuild(ctx, project, datasetGeneration)
 }
 
-func (i *injectedInventoryStore) ReadCountSums(ctx context.Context, scope postgres.InventoryCountScope) (map[string]int64, error) {
+func (i *injectedInventoryStore) ReadCountSums(ctx context.Context, scope control.InventoryCountScope) (map[string]int64, error) {
 	return i.inner.ReadCountSums(ctx, scope)
 }
 
 type injectedRelationshipStore struct {
-	inner    postgres.RelationshipStore
+	inner    control.RelationshipStore
 	failNext bool
 }
 
-func (r *injectedRelationshipStore) ScanRelationshipOccurrences(ctx context.Context, scope postgres.RelationshipScope) ([]postgres.RelationshipOccurrenceGroup, error) {
+func (r *injectedRelationshipStore) ScanRelationshipOccurrences(ctx context.Context, scope control.RelationshipScope) ([]control.RelationshipOccurrenceGroup, error) {
 	if r.failNext {
 		return nil, fmt.Errorf("%w: relationship scan", errInjectedCatalogFault)
 	}
@@ -1825,19 +1825,19 @@ func (s *ing03Service) installCatalogFault(t *testing.T, seam string) {
 	switch seam {
 	case "field-profile":
 		s.faults = &ing03CatalogFaults{
-			wrapFieldProfile: func(inner postgres.FieldProfileStore) postgres.FieldProfileStore {
+			wrapFieldProfile: func(inner control.FieldProfileStore) control.FieldProfileStore {
 				return &injectedFieldProfileStore{inner: inner, failAfter: 1}
 			},
 		}
 	case "inventory":
 		s.faults = &ing03CatalogFaults{
-			wrapInventory: func(inner postgres.InventoryStore) postgres.InventoryStore {
+			wrapInventory: func(inner control.InventoryStore) control.InventoryStore {
 				return &injectedInventoryStore{inner: inner, failOnCall: 1}
 			},
 		}
 	case "relationship":
 		s.faults = &ing03CatalogFaults{
-			wrapRelationship: func(inner postgres.RelationshipStore) postgres.RelationshipStore {
+			wrapRelationship: func(inner control.RelationshipStore) control.RelationshipStore {
 				return &injectedRelationshipStore{inner: inner, failNext: true}
 			},
 		}
@@ -1883,8 +1883,8 @@ func (s *ing03Service) readOneEdge() ing03EdgeSeed {
 	return seed
 }
 
-func (e ing03EdgeSeed) row() postgres.EdgeOccurrenceRow {
-	return postgres.EdgeOccurrenceRow{
+func (e ing03EdgeSeed) row() control.EdgeOccurrenceRow {
+	return control.EdgeOccurrenceRow{
 		Project: ing03Project, DatasetGeneration: ing03Generation, AuthResourcePath: ing03AuthPath,
 		Label: e.Label, SourceResourceType: e.SourceType, SourceLogicalID: e.SourceID,
 		TargetResourceType: e.TargetType, TargetLogicalID: e.TargetID,
@@ -1919,19 +1919,19 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 		ManifestSchema: "verify_ab06_offline_manifests",
 	}
 	// The exact configuration every shipped lane opens with (SetupNone).
-	if err := PGLoadConfig(shipped, shipped.DSN, postgres.SetupNone).Validate(); err != nil {
+	if err := PGLoadConfig(shipped, shipped.DSN, control.SetupNone).Validate(); err != nil {
 		t.Fatalf("shipped composition must validate dial-free, got: %v", err)
 	}
 	// SetupMigrate also validates (it is a legal policy; no shipped lane
 	// uses it today, and the witness suite exercises it against the server).
-	if err := PGLoadConfig(shipped, shipped.DSN, postgres.SetupMigrate).Validate(); err != nil {
+	if err := PGLoadConfig(shipped, shipped.DSN, control.SetupMigrate).Validate(); err != nil {
 		t.Fatalf("migrate-policy composition must validate: %v", err)
 	}
 
 	cases := []struct {
 		name    string
 		mutate  func(*PGSourceOptions)
-		policy  postgres.SetupPolicy
+		policy  control.SetupPolicy
 		wantErr error
 	}{
 		{
@@ -1940,20 +1940,20 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 			// is a named pre-dial refusal.
 			name:    "manifest schema may not equal the source schema",
 			mutate:  func(o *PGSourceOptions) { o.ManifestSchema = o.Schema },
-			policy:  postgres.SetupNone,
-			wantErr: postgres.ErrSeriesAssignment,
+			policy:  control.SetupNone,
+			wantErr: control.ErrSeriesAssignment,
 		},
 		{
 			name:    "manifest schema must be named",
 			mutate:  func(o *PGSourceOptions) { o.ManifestSchema = " " },
-			policy:  postgres.SetupNone,
-			wantErr: postgres.ErrSeriesAssignment,
+			policy:  control.SetupNone,
+			wantErr: control.ErrSeriesAssignment,
 		},
 		{
 			name:    "source schema must be named",
 			mutate:  func(o *PGSourceOptions) { o.Schema = "" },
-			policy:  postgres.SetupNone,
-			wantErr: postgres.ErrSeriesAssignment,
+			policy:  control.SetupNone,
+			wantErr: control.ErrSeriesAssignment,
 		},
 		{
 			// SetupVerify was removed in the arch-backend-06 fold: it was
@@ -1961,8 +1961,8 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 			// name without a real no-DDL implementation must fail here.
 			name:    "the removed verify policy stays refused",
 			mutate:  func(*PGSourceOptions) {},
-			policy:  postgres.SetupPolicy("verify"),
-			wantErr: postgres.ErrInvalidConfig,
+			policy:  control.SetupPolicy("verify"),
+			wantErr: control.ErrInvalidConfig,
 		},
 	}
 	for _, tc := range cases {
@@ -1975,17 +1975,17 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 			}
 			// Alive control: repairing only this defect validates — the
 			// unmutated shipped shape passes the same validator.
-			if err := PGLoadConfig(shipped, shipped.DSN, postgres.SetupNone).Validate(); err != nil {
+			if err := PGLoadConfig(shipped, shipped.DSN, control.SetupNone).Validate(); err != nil {
 				t.Fatalf("alive control (unmutated shipped config) must validate: %v", err)
 			}
 		})
 	}
 
-	// Production callers may not hand-assemble postgres.Config around the
+	// Production callers may not hand-assemble control.Config around the
 	// shared builder: one drift could reintroduce a refused composition.
 	for _, file := range []struct {
 		path    string
-		allowed int // occurrences of the postgres.Config{ literal allowed
+		allowed int // occurrences of the control.Config{ literal allowed
 	}{
 		{path: "generation_load.go", allowed: 1}, // only inside PGLoadConfig
 		{path: "postgres_writer.go", allowed: 0},
@@ -1994,8 +1994,8 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", file.path, err)
 		}
-		if got := strings.Count(string(raw), "postgres.Config{"); got > file.allowed {
-			t.Fatalf("%s builds postgres.Config{ %d times, want at most %d (all shipped configs come from PGLoadConfig)", file.path, got, file.allowed)
+		if got := strings.Count(string(raw), "control.Config{"); got > file.allowed {
+			t.Fatalf("%s builds control.Config{ %d times, want at most %d (all shipped configs come from PGLoadConfig)", file.path, got, file.allowed)
 		}
 	}
 }

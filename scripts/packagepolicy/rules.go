@@ -29,6 +29,8 @@ const (
 	labelCommandLeaf        = "command-leaf: standard-library only"
 	labelLifecycle          = "explorer-lifecycle: no adapter or driver policy types"
 	labelOldConcretePaths   = "old-concrete-paths: relocated under internal/backends by arch-backend-06/07"
+	labelControlCycleFree   = "postgres-control: cycle-free control plane"
+	labelRootNoReExport     = "postgres-root: no control symbol re-exports"
 )
 
 // backendImports is the shared forbidden set for every tree that must stay
@@ -286,6 +288,21 @@ func RepoRules() []Rule {
 			Scope:     AllScopes,
 			Forbidden: Forbidden{Prefix: importPaths(oldConcreteImportPaths)},
 		},
+		{
+			Label: labelControlCycleFree,
+			Owner: "internal/backends/postgres/control is the cycle-free public control plane (arch-backend-09 ruling 2026-11-12): it must never import the postgres factory root (cycle), the private rows adapter (root-owned bridge), or dataframe/execution (the bridge reaches the renderer through execution). Consumers import control directly for control-plane symbols; only the factory root may import rows.",
+			// AllScopes: a test-side cycle is still a cycle at
+			// build time, and a test reaching execution from
+			// control is the exact whitebox shortcut the ruling
+			// refuses to bless.
+			Targets:   []string{"internal/backends/postgres/control"},
+			Recursive: true,
+			Scope:     AllScopes,
+			Forbidden: Forbidden{Prefix: []string{
+				module + "internal/backends/postgres/internal/rows",
+				module + "internal/dataframe/execution",
+			}, Exact: []string{module + "internal/backends/postgres"}},
+		},
 	}
 }
 
@@ -313,6 +330,11 @@ func RepoAbsences() []AbsenceRule {
 			Owner:       "internal/backends/postgres root Querier contract (typed bridges; control Runtime.PoolClient)",
 			Identifiers: []string{"QuerierAsAny"},
 			ScanRoots:   []string{"internal", "cmd"},
+		},
+		{
+			Label: "removed control-forwarding facade (arch-backend-09 ruling 2026-11-12)",
+			Owner: "consumers import internal/backends/postgres/control directly; the root package owns only Open/Runtime and the typed data-plane bridges",
+			Paths: []string{"internal/backends/postgres/aliases.go"},
 		},
 	}
 }

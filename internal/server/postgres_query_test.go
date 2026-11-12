@@ -40,6 +40,7 @@ import (
 	"time"
 
 	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -494,16 +495,16 @@ func newQRouteFixture(t *testing.T) *qRouteFixture {
 // cmd/loom-data openCatalogWriters shape: one factory Open, four ports).
 func (f *qRouteFixture) migrate(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
-	runtime, err := backendspostgres.Open(context.Background(), backendspostgres.Config{
+	runtime, err := backendspostgres.Open(context.Background(), control.Config{
 		DSN:            f.dsn,
 		MaxConns:       4,
 		MinConns:       1,
 		AcquireTimeout: 30 * time.Second,
-		Schemas: backendspostgres.SeriesSchemas{
-			backendspostgres.SeriesSource:         f.srcSchema,
-			backendspostgres.SeriesDatasetRelease: f.relSchema,
+		Schemas: control.SeriesSchemas{
+			control.SeriesSource:         f.srcSchema,
+			control.SeriesDatasetRelease: f.relSchema,
 		},
-		Setup: backendspostgres.SetupMigrate,
+		Setup: control.SetupMigrate,
 	})
 	if err != nil {
 		t.Fatalf("migrate fixture series: %s", f.scrub(err))

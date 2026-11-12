@@ -19,6 +19,7 @@ import (
 
 	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -538,7 +539,7 @@ func openCatalogWriters(ctx context.Context, dsn, schema, manifestSchema, applic
 	// bare-pool open: this pool serves the four catalog evidence writers,
 	// and schema setup belongs to the loader's own measured bootstrap.
 	pg := ingest.PGSourceOptions{DSN: dsn, Schema: schema, ManifestSchema: manifestSchema}
-	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, poolDSN, postgres.SetupNone))
+	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, poolDSN, control.SetupNone))
 	if err != nil {
 		return ingest.GenerationCatalogWriters{}, nil, fmt.Errorf("open postgres catalog pool: %w", err)
 	}
@@ -561,7 +562,7 @@ func verifyStagedManifest(ctx context.Context, ref publication.Ref, dsn, schema,
 	// (ingest.PGLoadConfig, SetupNone); the manifest read resolves through
 	// the dataset_release schema.
 	pg := ingest.PGSourceOptions{DSN: dsn, Schema: schema, ManifestSchema: manifestSchema}
-	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, dsn, postgres.SetupNone))
+	runtime, err := postgres.Open(ctx, ingest.PGLoadConfig(pg, dsn, control.SetupNone))
 	if err != nil {
 		return err
 	}

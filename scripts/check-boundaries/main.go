@@ -45,6 +45,12 @@ func main() {
 	for _, e := range absences {
 		fmt.Fprintln(os.Stderr, e.String())
 	}
+	for _, rule := range packagepolicy.RepoNoReExport() {
+		for _, e := range packagepolicy.CheckNoReExport(*root, rule) {
+			absences = append(absences, e)
+			fmt.Fprintln(os.Stderr, e.String())
+		}
+	}
 	if len(res.Findings) > 0 || len(res.Errors) > 0 || len(absences) > 0 {
 		fmt.Fprintf(os.Stderr, "dataframe package boundary check failed: %d violation(s), %d verification failure(s), %d absence failure(s) over %d file(s)\n",
 			len(res.Findings), len(res.Errors), len(absences), res.Scanned)
@@ -352,6 +358,72 @@ func controls() []control {
 		}, func(f *fixture) error {
 			return expectAbsenceError(packagepolicy.CheckAbsences(f.dir, []packagepolicy.AbsenceRule{querierBridgeAbsenceRule()}),
 				packagepolicy.ErrVacuous, "zero Go files")
+		}},
+		{"facade-reexport-caught-and-removal-converges", func(f *fixture) {
+			f.write("control/defs.go", "package control\n\nimport \"errors\"\n\n"+
+				"type Config struct{ N int }\n\n"+
+				"var ErrInvalid = errors.New(\"x\")\n\n"+
+				"func NewStore() *Store { return nil }\n\n"+
+				"type Store struct{}\n")
+			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
+				"type Config = control.Config\n\n"+
+				"var ErrInvalid = control.ErrInvalid\n")
+		}, func(f *fixture) error {
+			rule := packagepolicy.NoReExportRule{Label: "facade", Owner: "import control directly",
+				Target: "postgres", OwnerPkg: "control", OwnerImport: "github.com/calypr/loom/internal/backends/postgres/control"}
+			if err := expectAbsenceError(packagepolicy.CheckNoReExport(f.dir, rule), packagepolicy.ErrVacuous, "Config"); err != nil {
+				return err
+			}
+			// Removal converges: composition (no re-export decls) passes.
+			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
+				"func Open(c control.Config) error { return nil }\n")
+			if errs := packagepolicy.CheckNoReExport(f.dir, rule); len(errs) != 0 {
+				return fmt.Errorf("composition must stay legal: %v", errs)
+			}
+			// Forwarding-wrapper form is also caught.
+			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
+				"func NewStore() *control.Store { return control.NewStore() }\n")
+			if err := expectAbsenceError(packagepolicy.CheckNoReExport(f.dir, rule), packagepolicy.ErrVacuous, "NewStore"); err != nil {
+				return err
+			}
+			// Same-name embedding (the old Runtime facade shape:
+			// type X struct{ *control.X }) re-publishes the method set
+			// and must be caught; differently named composition stays
+			// legal (covered above by Open's control.Runtime embed).
+			f.write("postgres/aliases.go", "package postgres\n\nimport \"github.com/calypr/loom/internal/backends/postgres/control\"\n\n"+
+				"type Store struct{ *control.Store }\n")
+			return expectAbsenceError(packagepolicy.CheckNoReExport(f.dir, rule), packagepolicy.ErrVacuous, "Store")
+		}},
+		{"control-imports-root-facade-caught", func(f *fixture) {
+		}, func(f *fixture) error {
+			rule, ok := packagepolicy.ByLabel("postgres-control: cycle-free control plane")
+			if !ok {
+				panic("authoritative control-cycle-free rule missing from the table")
+			}
+			f.write("internal/backends/postgres/control/leak.go", goFile("control", "github.com/calypr/loom/internal/backends/postgres"))
+			if err := expectFinding(scanPath(rule, filepath.Join(f.dir, "internal/backends/postgres/control")),
+				rule.Label, "leak.go", "internal/backends/postgres"); err != nil {
+				return err
+			}
+			// The exact-match semantics: importing a SIBLING of the root
+			// (control itself, or control's subpackages) is legal.
+			f.write("internal/backends/postgres/control/leak.go", goFile("control", "github.com/calypr/loom/internal/backends/postgres/control"))
+			return expectClean(scanPath(rule, filepath.Join(f.dir, "internal/backends/postgres/control")))
+		}},
+		{"control-reaches-rows-or-execution-caught", func(f *fixture) {
+		}, func(f *fixture) error {
+			rule, ok := packagepolicy.ByLabel("postgres-control: cycle-free control plane")
+			if !ok {
+				panic("authoritative control-cycle-free rule missing from the table")
+			}
+			f.write("internal/backends/postgres/control/rows_leak.go", goFile("control", "github.com/calypr/loom/internal/backends/postgres/internal/rows"))
+			f.write("internal/backends/postgres/control/exec_leak.go", goFile("control", "github.com/calypr/loom/internal/dataframe/execution"))
+			if err := expectFinding(scanPath(rule, filepath.Join(f.dir, "internal/backends/postgres/control")),
+				rule.Label, "rows_leak.go", "internal/rows"); err != nil {
+				return err
+			}
+			return expectFinding(scanPath(rule, filepath.Join(f.dir, "internal/backends/postgres/control")),
+				rule.Label, "exec_leak.go", "dataframe/execution")
 		}},
 	}
 }

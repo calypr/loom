@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"net/http"
 	"strings"
 	"testing"
@@ -35,7 +35,7 @@ func classifiedArangoFailure(t *testing.T, driverErr error) error {
 
 func classifiedPostgresFailure(t *testing.T, driverErr error) error {
 	t.Helper()
-	translated, ok := postgres.TranslateError(fmt.Errorf("postgres rows: query: %w", driverErr))
+	translated, ok := control.TranslateError(fmt.Errorf("postgres rows: query: %w", driverErr))
 	if !ok {
 		t.Fatalf("boundary fixture was not classified: %v", driverErr)
 	}
@@ -135,8 +135,8 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		}
 		// PG boundary keeps the sentinel reachable and never marks a caller
 		// cancel retryable.
-		pgCanceled := fmt.Errorf("acquire: %w: %w", postgres.ErrConnect, context.Canceled)
-		translated, ok := postgres.TranslateError(pgCanceled)
+		pgCanceled := fmt.Errorf("acquire: %w: %w", control.ErrConnect, context.Canceled)
+		translated, ok := control.TranslateError(pgCanceled)
 		if !ok || !errors.Is(translated, context.Canceled) {
 			t.Fatalf("boundary lost cancellation identity: %v", translated)
 		}
@@ -152,7 +152,7 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 			Message:        `duplicate key value violates unique constraint "uq_cas_revision"`,
 			ConstraintName: "uq_cas_revision",
 		})
-		if errors.Is(translated, postgres.ErrUniqueConflict) {
+		if errors.Is(translated, control.ErrUniqueConflict) {
 			t.Fatal("unproven unique violation presented as domain conflict")
 		}
 		mapped := MapDataframeError(translated, "req-u")
@@ -170,25 +170,25 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		}
 		// A targeted CAS caller that proves the statement meaning can still
 		// upgrade it privately; the public mapping is unchanged either way.
-		if _, ok := postgres.AsUniqueConflict(translated); !ok {
+		if _, ok := control.AsUniqueConflict(translated); !ok {
 			t.Fatal("targeted upgrade path lost")
 		}
 	})
 
 	t.Run("ambiguous_commit_is_distinguishable_from_proven_rollback", func(t *testing.T) {
-		proven, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
+		proven, ok := control.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
 		if !ok {
 			t.Fatal("proven rollback not classified")
 		}
-		if errors.Is(proven, postgres.ErrCommitOutcomeUnknown) {
+		if errors.Is(proven, control.ErrCommitOutcomeUnknown) {
 			t.Fatal("proven rollback labeled ambiguous")
 		}
-		ambiguous, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w",
+		ambiguous, ok := control.TranslateCommitError(fmt.Errorf("commit: %w",
 			&pgconn.PgError{Code: "57P01", SeverityUnlocalized: "FATAL", Message: "terminating connection due to administrator command"}))
 		if !ok {
 			t.Fatal("mid-commit session death not classified")
 		}
-		if !errors.Is(ambiguous, postgres.ErrCommitOutcomeUnknown) {
+		if !errors.Is(ambiguous, control.ErrCommitOutcomeUnknown) {
 			t.Fatal("mid-commit session death must be outcome-unknown")
 		}
 		provenMapped := MapDataframeError(proven, "req-proven")
@@ -205,7 +205,7 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 
 	t.Run("serialization_conflicts_stay_policy_only", func(t *testing.T) {
 		translated := classifiedPostgresFailure(t, &pgconn.PgError{Code: "40001", SeverityUnlocalized: "ERROR", Message: "could not serialize access due to concurrent update"})
-		if !postgres.RetryableTransactionConflict(translated) {
+		if !control.RetryableTransactionConflict(translated) {
 			t.Fatal("operation policy recognition lost")
 		}
 		userErr, isUser := dataframeerrors.AsUserError(translated)

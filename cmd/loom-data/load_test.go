@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -153,7 +153,7 @@ func (s *spyState) runner() loadRunner {
 // network, never standing in for a commit (no positive claims ride on them).
 type stubFieldProfiles struct{}
 
-func (stubFieldProfiles) WriteFieldProfile(context.Context, postgres.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
+func (stubFieldProfiles) WriteFieldProfile(context.Context, control.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
 	return nil
 }
 

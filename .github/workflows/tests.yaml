@@ -66,6 +66,7 @@ jobs:
                 TestBackendOwnershipGuardContract/legitimate_adapter_domain_import \
                 TestBackendOwnershipGuardContract/actual_relocated_adapter_import \
                 TestBackendOwnershipGuardContract/missing_or_malformed_input_is_error \
+                TestBackendOwnershipGuardContract/facade_law_control_plane \
                 TestCompilerProductionFilesNeverImportBackendsOrDrivers \
                 TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_named_victims_bleed \
                 TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_fires_on_a_real_postgres_adapter \

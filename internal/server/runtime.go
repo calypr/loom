@@ -27,7 +27,7 @@ import (
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	"github.com/calypr/loom/internal/authscope"
-	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -69,20 +69,20 @@ func postgreSQLRuntimeUnavailable(operation string) error {
 // schema-identifier validation and the cross-series migration-ledger law stay
 // with the factory's authoritative control.Config.Validate, which also runs
 // pre-dial.
-func postgresRuntimeAssignment(pg PostgreSQLConfig) (backendspostgres.SeriesSchemas, map[backendspostgres.Series]string, error) {
-	required := []backendspostgres.Series{
-		backendspostgres.SeriesSource,
-		backendspostgres.SeriesExplorerControl,
-		backendspostgres.SeriesPublicationControl,
-		backendspostgres.SeriesDatasetRelease,
-		backendspostgres.SeriesRecipeChains,
-		backendspostgres.SeriesRecipeExecRegistries,
+func postgresRuntimeAssignment(pg PostgreSQLConfig) (control.SeriesSchemas, map[control.Series]string, error) {
+	required := []control.Series{
+		control.SeriesSource,
+		control.SeriesExplorerControl,
+		control.SeriesPublicationControl,
+		control.SeriesDatasetRelease,
+		control.SeriesRecipeChains,
+		control.SeriesRecipeExecRegistries,
 	}
 	if len(pg.Schemas) != len(required) {
 		return nil, nil, ErrPostgreSQLRuntimeNotWired
 	}
-	assignment := backendspostgres.SeriesSchemas{}
-	names := map[backendspostgres.Series]string{}
+	assignment := control.SeriesSchemas{}
+	names := map[control.Series]string{}
 	seen := map[string]bool{}
 	for _, series := range required {
 		schema, assigned := pg.Schemas[string(series)]
@@ -106,8 +106,8 @@ func postgresRuntimeAssignment(pg PostgreSQLConfig) (backendspostgres.SeriesSche
 // below is the no-omission proof: the composition cannot compile if the
 // neutral contract grows a method this adapter does not decide.
 type pgExplorerStore struct {
-	*backendspostgres.ExplorerStore
-	publish *backendspostgres.PublishStore
+	*control.ExplorerStore
+	publish *control.PublishStore
 }
 
 var _ explorer.Store = pgExplorerStore{}
@@ -137,8 +137,8 @@ func (s pgExplorerStore) ValidateSelectionReferences(context.Context, string, st
 // and the runtime pool, so the pair is a pure port union with no shared
 // mutable state beyond the pool itself.
 type pgExplorerReads struct {
-	*backendspostgres.ExplorerStore
-	*backendspostgres.ExplicitGroupStore
+	*control.ExplorerStore
+	*control.ExplicitGroupStore
 }
 
 var _ explorer.ExplicitGroupRepository = pgExplorerReads{}
@@ -236,7 +236,7 @@ func (a pgGenerationActivator) Activate(ctx context.Context, manifest publicatio
 		// known typed refusals surface unchanged; connectivity-class
 		// failures that leave the commit outcome unknown are wrapped so
 		// the caller audits the pointer instead of retrying blind.
-		if errors.Is(err, backendspostgres.ErrActivationConflict) ||
+		if errors.Is(err, control.ErrActivationConflict) ||
 			errors.Is(err, publicationcontract.ErrGenerationNotReady) ||
 			errors.Is(err, publicationcontract.ErrInvalidActiveGeneration) {
 			return err
@@ -263,7 +263,7 @@ func pgActivationOutcomeUnknown(err error) bool {
 	if err == nil {
 		return false
 	}
-	if backendspostgres.CommitOutcomeUnknown(err) {
+	if control.CommitOutcomeUnknown(err) {
 		return true
 	}
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
@@ -315,13 +315,13 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		return nil, nil, err
 	}
 	dsn := postgresFirstQueryRouteDSN(pg)
-	runtime, err := openPostgresBackend(ctx, backendspostgres.Config{
+	runtime, err := openPostgresBackend(ctx, control.Config{
 		DSN:            dsn,
 		MaxConns:       int32(pg.MaxOpenConns),
 		MinConns:       int32(pg.MaxIdleConns),
 		AcquireTimeout: postgreSQLRuntimeAcquireTimeout,
 		Schemas:        assignment,
-		Setup:          backendspostgres.SetupNone,
+		Setup:          control.SetupNone,
 	})
 	if err != nil {
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL server runtime: %w", err), pg, dsn)
@@ -337,7 +337,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		runtime.ExplicitGroups == nil || runtime.CapabilitySnapshots == nil || runtime.TableShapes == nil ||
 		runtime.Bundles == nil || runtime.RecipeRevisions == nil || runtime.RecipeExecutions == nil ||
 		runtime.Catalog == nil || runtime.SemanticReads == nil || runtime.Releases == nil || runtime.Manifests == nil {
-		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("%w: assembled PostgreSQL runtime is missing a required data-plane port", backendspostgres.ErrBootstrap), pg, dsn)
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("%w: assembled PostgreSQL runtime is missing a required data-plane port", control.ErrBootstrap), pg, dsn)
 	}
 
 	// The compile target is selected exactly once from the source schema
@@ -345,7 +345,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	// caller. This deployment serves sources from PostgreSQL, so every
 	// compiler boundary (recipe engine, FHIR query, graph, preview) uses the
 	// PostgreSQL target through the same target-aware operations.
-	binding, err := ir.NewPostgresStorageBinding(schemas[backendspostgres.SeriesSource])
+	binding, err := ir.NewPostgresStorageBinding(schemas[control.SeriesSource])
 	if err != nil {
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("bind PostgreSQL storage placement: %w", err), pg, dsn)
 	}
@@ -531,8 +531,8 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		BaseOptions: ingest.LoadOptions{Schema: serverConfig.Server.Schema},
 		PG: ingest.PGSourceOptions{
 			DSN:            dsn,
-			Schema:         schemas[backendspostgres.SeriesSource],
-			ManifestSchema: schemas[backendspostgres.SeriesDatasetRelease],
+			Schema:         schemas[control.SeriesSource],
+			ManifestSchema: schemas[control.SeriesDatasetRelease],
 			// LoadPostgresGeneration requires all four catalog evidence
 			// writers (ErrGenerationLoadRequiresCatalogWriters); the factory
 			// assembled them from the same six-series placement, so the
@@ -690,11 +690,11 @@ func runPostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logger *
 	_, schemas, _ := postgresRuntimeAssignment(serverConfig.Server.PostgreSQL)
 	return serveRuntime(ctx, server, serverConfig.Server.Listen, closeRuntime, "close PostgreSQL server runtime", logger,
 		"listen", serverConfig.Server.Listen, "backend", serverConfig.Server.Backend,
-		"source_schema", schemas[backendspostgres.SeriesSource],
-		"explorer_schema", schemas[backendspostgres.SeriesExplorerControl],
-		"publication_schema", schemas[backendspostgres.SeriesPublicationControl],
-		"dataset_release_schema", schemas[backendspostgres.SeriesDatasetRelease],
-		"recipe_chains_schema", schemas[backendspostgres.SeriesRecipeChains],
-		"recipe_exec_schema", schemas[backendspostgres.SeriesRecipeExecRegistries],
+		"source_schema", schemas[control.SeriesSource],
+		"explorer_schema", schemas[control.SeriesExplorerControl],
+		"publication_schema", schemas[control.SeriesPublicationControl],
+		"dataset_release_schema", schemas[control.SeriesDatasetRelease],
+		"recipe_chains_schema", schemas[control.SeriesRecipeChains],
+		"recipe_exec_schema", schemas[control.SeriesRecipeExecRegistries],
 		"no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
 }

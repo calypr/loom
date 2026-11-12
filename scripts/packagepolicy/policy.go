@@ -333,6 +333,276 @@ type AbsenceRule struct {
 	ScanRoots   []string
 }
 
+// NoReExportRule asserts that a facade package (Target) does not
+// re-export the public surface of an owning package (Owner): no top-level
+// `Name = owner.Name` alias and no `func Name(...) owner.T` forwarding
+// declaration for any symbol the owning package exports. This is the
+// machine check behind "compat forwarding APIs absent" — the aliases.go
+// defect class: a compatibility shim re-publishing another package's
+// vocabulary from the old package path.
+type NoReExportRule struct {
+	Label    string
+	Owner    string // allowed-owner guidance emitted with every failure
+	Target   string // repo-root-relative facade directory (its own package)
+	OwnerPkg string // repo-root-relative owning package directory
+	// OwnerImport is the import path Target uses for OwnerPkg when
+	// matching qualified forwarding declarations.
+	OwnerImport string
+	// AllowedEmbeds names types where a same-named struct in Target may
+	// embed the owner's same-named type: the sanctioned composition
+	// shape (root Runtime embeds the control plane and adds the data
+	// ports). Every entry is an explicit, auditable ownership decision,
+	// not a blanket exemption; any OTHER same-named embedding still
+	// fails as method-set re-publication.
+	AllowedEmbeds []string
+}
+
+// CheckNoReExport parses both packages and reports facade declarations
+// that re-publish owning-package exports. A facade importing the owner is
+// legal (composition); only re-export declarations fail. Zero parsed
+// files in either package is a vacuity failure.
+func CheckNoReExport(repoRoot string, rule NoReExportRule) []ScanError {
+	ownerNames, errs := exportedNames(filepath.Join(repoRoot, rule.OwnerPkg), rule.OwnerPkg)
+	if len(errs) > 0 {
+		return errs
+	}
+	if len(ownerNames) == 0 {
+		return []ScanError{{Kind: ErrVacuous, Path: rule.OwnerPkg,
+			Reason: fmt.Sprintf("no-re-export check (%s): owner package exports no names — table defect", rule.Label)}}
+	}
+	targetFiles, errs := goFiles(filepath.Join(repoRoot, rule.Target), rule.Target)
+	if len(errs) > 0 {
+		return errs
+	}
+	var out []ScanError
+	for _, path := range targetFiles {
+		rel, rerr := filepath.Rel(repoRoot, path)
+		if rerr != nil {
+			rel = path
+		}
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			out = append(out, ScanError{Kind: ErrParse, Path: rel, Reason: perr.Error()})
+			continue
+		}
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				if d.Tok != token.TYPE && d.Tok != token.VAR && d.Tok != token.CONST {
+					continue
+				}
+				for _, spec := range d.Specs {
+					switch s := spec.(type) {
+					case *ast.ValueSpec:
+						for i, name := range s.Names {
+							if !name.IsExported() || i >= len(s.Values) {
+								continue
+							}
+							if sel, ok := s.Values[i].(*ast.SelectorExpr); ok &&
+								qualifiedOwner(sel, rule.OwnerImport) && ownerNames[sel.Sel.Name] {
+								out = append(out, ScanError{Kind: ErrVacuous, Path: rel,
+									Reason: fmt.Sprintf("facade re-exports owner symbol %s (%s); allowed owner: %s",
+										name.Name, rule.Label, rule.Owner)})
+							}
+						}
+					case *ast.TypeSpec:
+						if !s.Name.IsExported() {
+							continue
+						}
+						// type Name = owner.Name (alias form of the shim).
+						if s.Assign == token.NoPos {
+							if _, ok := s.Type.(*ast.StructType); !ok {
+								continue
+							}
+						}
+						if s.Assign != token.NoPos {
+							if sel, ok := s.Type.(*ast.SelectorExpr); ok &&
+								qualifiedOwner(sel, rule.OwnerImport) && ownerNames[sel.Sel.Name] {
+								out = append(out, ScanError{Kind: ErrVacuous, Path: rel,
+									Reason: fmt.Sprintf("facade re-exports owner type %s (%s); allowed owner: %s",
+										s.Name.Name, rule.Label, rule.Owner)})
+							}
+							continue
+						}
+						// type Name struct { *owner.T } — embedding
+						// promotes the owner's whole method set onto the
+						// facade: the same re-publish, spelled as
+						// composition. Only same-named embeddings fail,
+						// and only unless the name is an explicit
+						// AllowedEmbeds ownership decision.
+						if st, ok := s.Type.(*ast.StructType); ok {
+							allowed := false
+							for _, a := range rule.AllowedEmbeds {
+								if a == s.Name.Name {
+									allowed = true
+									break
+								}
+							}
+							if !allowed {
+								for _, fld := range st.Fields.List {
+									if len(fld.Names) > 0 {
+										continue
+									}
+									if sel, ok := embeddedSelector(fld.Type); ok &&
+										qualifiedOwner(sel, rule.OwnerImport) && ownerNames[sel.Sel.Name] &&
+										sel.Sel.Name == s.Name.Name {
+										out = append(out, ScanError{Kind: ErrVacuous, Path: rel,
+											Reason: fmt.Sprintf("facade %s embeds owner type %s, promoting its method set (%s); allowed owner: %s",
+												s.Name.Name, sel.Sel.Name, rule.Label, rule.Owner)})
+									}
+								}
+							}
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Recv != nil || !d.Name.IsExported() || d.Body == nil {
+					continue
+				}
+				// Forwarding wrapper: exported func whose body only
+				// returns a single owner symbol call (or forwards args).
+				if len(d.Body.List) == 1 {
+					ret, ok := d.Body.List[0].(*ast.ReturnStmt)
+					if !ok || len(ret.Results) != 1 {
+						continue
+					}
+					call, ok := ret.Results[0].(*ast.CallExpr)
+					if !ok {
+						continue
+					}
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok &&
+						qualifiedOwner(sel, rule.OwnerImport) && ownerNames[sel.Sel.Name] {
+						out = append(out, ScanError{Kind: ErrVacuous, Path: rel,
+							Reason: fmt.Sprintf("facade forwards to owner symbol %s (%s); allowed owner: %s",
+								sel.Sel.Name, rule.Label, rule.Owner)})
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+func qualifiedOwner(sel *ast.SelectorExpr, ownerImport string) bool {
+	id, ok := sel.X.(*ast.Ident)
+	return ok && id.Name == importLeafName(ownerImport)
+}
+
+// embeddedSelector unwraps an embedded field type (*owner.T or owner.T)
+// to its qualified selector.
+func embeddedSelector(expr ast.Expr) (*ast.SelectorExpr, bool) {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	return sel, ok
+}
+
+// importLeafName derives the default identifier for an import path
+// (last segment; hyphens to underscores is out of scope — none used).
+func importLeafName(importPath string) string {
+	if i := strings.LastIndexByte(importPath, '/'); i >= 0 {
+		return importPath[i+1:]
+	}
+	return importPath
+}
+
+// exportedNames parses every Go file in dir and returns its exported
+// top-level declaration names (types, vars, consts, funcs, methods).
+func exportedNames(dir, label string) (map[string]bool, []ScanError) {
+	files, errs := goFiles(dir, label)
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	names := map[string]bool{}
+	for _, path := range files {
+		fset := token.NewFileSet()
+		file, perr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if perr != nil {
+			return nil, []ScanError{{Kind: ErrParse, Path: path, Reason: perr.Error()}}
+		}
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					switch s := spec.(type) {
+					case *ast.ValueSpec:
+						for _, n := range s.Names {
+							if n.IsExported() {
+								names[n.Name] = true
+							}
+						}
+					case *ast.TypeSpec:
+						if s.Name.IsExported() {
+							names[s.Name.Name] = true
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Name.IsExported() {
+					names[d.Name.Name] = true
+				}
+			}
+		}
+	}
+	if len(names) == 0 {
+		return nil, []ScanError{{Kind: ErrVacuous, Path: label,
+			Reason: fmt.Sprintf("no-re-export check parsed zero exported names in %s: vacuous", label)}}
+	}
+	return names, nil
+}
+
+// goFiles returns the non-test .go files directly under dir (one
+// package). Missing/empty trees are verification failures.
+func goFiles(dir, label string) ([]string, []ScanError) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, []ScanError{{Kind: ErrMissing, Path: label, Reason: err.Error()}}
+	}
+	if !info.IsDir() {
+		return nil, []ScanError{{Kind: ErrNotDir, Path: label, Reason: "not a directory"}}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, []ScanError{{Kind: ErrWalk, Path: label, Reason: err.Error()}}
+	}
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		files = append(files, filepath.Join(dir, e.Name()))
+	}
+	if len(files) == 0 {
+		return nil, []ScanError{{Kind: ErrVacuous, Path: label, Reason: "no production Go files to parse: vacuous"}}
+	}
+	return files, nil
+}
+
+// RepoNoReExport is the machine-enforced facade law from the
+// arch-backend-09 ruling (2026-11-12, Option A): the postgres factory
+// root composes control and the private rows bridge but must never
+// re-publish control's vocabulary. internal/backends/postgres/aliases.go
+// was exactly this shim.
+func RepoNoReExport() []NoReExportRule {
+	return []NoReExportRule{
+		{
+			Label:       labelRootNoReExport,
+			Owner:       "import internal/backends/postgres/control directly for control-plane symbols; the root package keeps only the factory (Open/Runtime) and the typed data-plane bridges",
+			Target:      "internal/backends/postgres",
+			OwnerPkg:    "internal/backends/postgres/control",
+			OwnerImport: module + "internal/backends/postgres/control",
+			// The one sanctioned composition: the factory Runtime embeds
+			// the control runtime and adds SourceRows/PlanJSON (ruling
+			// 2026-11-12, Option A: "root for Open/Runtime (embedding
+			// promotes methods)"). Any other same-named embedding is a
+			// re-publication.
+			AllowedEmbeds: []string{"Runtime"},
+		},
+	}
+}
+
 // CheckAbsences fails when an obsolete path has been recreated or a
 // removed identifier has reappeared.
 func CheckAbsences(repoRoot string, rules []AbsenceRule) []ScanError {
