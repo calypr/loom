@@ -7,7 +7,8 @@ package server
 // scoped composition is refused before any route installs.
 
 import (
-	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -62,13 +63,19 @@ func TestRegisterRoutesRefusesIncompleteScopedCompositionBeforeInstall(t *testin
 	}
 	// The refusal must reach the caller as a startup failure, not a panic
 	// or a half-installed route table: the app must still answer its
-	// dependency-free liveness route only, and no generated route may have
-	// been registered (a load-route request must 404 rather than serve).
+	// dependency-free liveness route, and no generated route may have been
+	// registered -- the load route a successful composition would have
+	// installed must 404 rather than serve.
 	if _, status := server.Liveness(nil); status != 200 {
 		t.Fatalf("liveness must stay dependency-free, got %d", status)
 	}
-	if !errors.Is(err, err) {
-		t.Fatal("sentinel sanity")
+	response, err := server.App().Test(httptest.NewRequest(http.MethodPost, "/api/v1/datasets/acme/generations/gen-1", nil))
+	if err != nil {
+		t.Fatalf("load-route probe after refused install: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("a refused registerRoutes must leave no load route registered: POST load got %d, want 404", response.StatusCode)
 	}
 }
 
