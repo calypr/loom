@@ -423,6 +423,48 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		exec02AssertUntouchedArango(t, spies)
 	})
 
+	t.Run("PopulationMappingPostgreSQLRunArmServesWitnessContractThroughTheSharedPort", func(t *testing.T) {
+		// pg-exec-07: the population mapping witness terminal (pg-sql-22)
+		// compiles on the selected target and runs on the one shared source
+		// row port, carrying the two-positional-column witness contract
+		// (compiler-owned member field, then the single identity column) the
+		// PostgreSQL row adapter enforces. Exact membership is reported from
+		// the streamed witnesses; the Arango surface stays dark.
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, []map[string]any{
+			{ir.PhysicalPopulationMappingMemberField: "obs-1", ir.PhysicalPopulationMappingIdentityPartsField: []any{"P1", "obs-1"}},
+			{ir.PhysicalPopulationMappingMemberField: "obs-2", ir.PhysicalPopulationMappingIdentityPartsField: []any{"P1", "obs-2"}},
+		})
+		resolved, err := engine.CompileResolvedBundle(context.Background(), exec07FlatBundle("exec07-contract"), recipe.RuntimeBindings{
+			Project: "P1", DatasetGeneration: "G1",
+			SelectionProject:           "P1",
+			SelectionMembersCollection: "loom_explorer_selection_members",
+			AuthResourcePaths:          []string{"FHIR/Observation"},
+		})
+		if err != nil {
+			t.Fatalf("CompileResolvedBundle: %v", err)
+		}
+		result, err := engine.PopulationMapping(context.Background(), resolved,
+			PopulationMappingRequest{Output: "observations", MaxUnmapped: 10},
+			exec07Members("obs-1", "obs-2", "obs-3"))
+		if err != nil {
+			t.Fatalf("PopulationMapping: %v", err)
+		}
+		if spies.pgRequests != 1 || len(spies.pgFull) != 1 {
+			t.Fatalf("PostgreSQL mapping port calls = %d (records %d), want exactly one", spies.pgRequests, len(spies.pgFull))
+		}
+		if want := ir.PhysicalPopulationMappingMemberField + "," + ir.PhysicalPopulationMappingIdentityPartsField; strings.Join(spies.pgFull[0].Columns, ",") != want {
+			t.Fatalf("declared witness contract = %v, want %s", spies.pgFull[0].Columns, want)
+		}
+		if result.Status != PopulationMappingComplete || result.SelectedCount != 3 || result.MappedCount != 2 || result.UnmappedCount != 1 || result.EmittedRows != 2 {
+			t.Fatalf("typed mapping result = %#v", result)
+		}
+		if len(result.UnmappedMemberIDs) != 1 || result.UnmappedMemberIDs[0] != "obs-3" {
+			t.Fatalf("unmapped member IDs = %#v", result.UnmappedMemberIDs)
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+
 	t.Run("MisTaggedPostgreSQLCommandThroughAQLFakeFailsClosed", func(t *testing.T) {
 		spies := &dispatchSpies{}
 		// An AQL-target engine handing a PostgreSQL-tagged command to the
@@ -533,6 +575,46 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		}
 		if len(spies.aqlPreviewQueries) != 0 || len(spies.aqlQueries) != 0 {
 			t.Fatalf("PostgreSQL command touched the AQL adapters: preview=%v full=%v", spies.aqlPreviewQueries, spies.aqlQueries)
+		}
+	})
+	// pg-exec-11: the private workspace artifact capture reads through the
+	// same selected target and one source row port. The stream must run
+	// exactly the command the selected PostgreSQL target compiled for the
+	// capture bindings (row-level authorization path included), with the
+	// compiled declared column contract forwarded unchanged.
+	t.Run("PrivateCaptureRunsExactlyTheSelectedTargetCompiledCommand", func(t *testing.T) {
+		fixture := newExec11Capture(t, exec11PortRows("Ada"))
+		captureBindings := exec11RestrictedBindings()
+		captureBindings.IncludeAuthResourcePath = true
+		reference, err := compiler.CompileRecipeOutput(exec02PostgreSQLTarget(t),
+			fixture.resolved.Compiled.Outputs[0], captureBindings, 0, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatalf("reference capture compile: %v", err)
+		}
+		artifact, err := fixture.stream.MaterializeClickHouseArtifact(context.Background(), fixture.manager, "exec11-contract", fixture.stream.stageID, fixture.columns)
+		if err != nil {
+			t.Fatalf("materialize PostgreSQL capture: %v", err)
+		}
+		defer func() {
+			if err := artifact.Release(context.Background()); err != nil {
+				t.Fatalf("release: %v", err)
+			}
+		}()
+		if len(fixture.spies.pgFull) != 1 {
+			t.Fatalf("capture port calls = %d, want 1", len(fixture.spies.pgFull))
+		}
+		wantSQL, wantArgs, err := reference.Command.PostgreSQLParameters()
+		if err != nil {
+			t.Fatalf("reference command: %v", err)
+		}
+		if fixture.spies.pgFull[0].SQL != wantSQL || len(fixture.spies.pgFull[0].Args) != len(wantArgs) {
+			t.Fatalf("capture ran a command other than the selected target compiled")
+		}
+		if strings.Join(fixture.spies.pgFull[0].Columns, ",") != strings.Join(reference.Columns, ",") {
+			t.Fatalf("capture port declared columns %v, want the compiled contract %v", fixture.spies.pgFull[0].Columns, reference.Columns)
+		}
+		if !strings.Contains(wantSQL, "auth_resource_path") {
+			t.Fatalf("restricted capture reference must read the typed authorization column: %q", wantSQL)
 		}
 	})
 }

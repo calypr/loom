@@ -28,9 +28,11 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
+	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
 // dispatchSpies records every backend callback the engine could invoke.
@@ -567,10 +569,13 @@ func TestPostgreSQLStreamRefusesCrossTagAndZeroTagCommands(t *testing.T) {
 	}
 }
 
-// A PostgreSQL-served output cannot carry a ClickHouse combine payload, and
-// private workspace artifact capture refuses PostgreSQL-served dependencies
-// instead of falling back to an AQL capture stream.
-func TestPostgreSQLSelectionRefusesClickHousePayloadAndPrivateCapture(t *testing.T) {
+// A PostgreSQL-served output cannot carry a ClickHouse combine payload (a
+// plan-shape contradiction, refused before compilation). PostgreSQL-served
+// private workspace artifact capture is a legitimate source (pg-exec-11):
+// the build attaches the compiler-attested artifact scope without touching
+// any port, and materialization still fails closed when the compiled output
+// carries no exact scope evidence -- never by falling back to an AQL stream.
+func TestPostgreSQLSelectionRefusesClickHousePayloadAndBuildsPrivateCapture(t *testing.T) {
 	spies := &dispatchSpies{}
 	engine, _ := exec02pgEngine(t, spies, exec02Rows())
 	combinePlan := exec02TestResolved()
@@ -581,12 +586,36 @@ func TestPostgreSQLSelectionRefusesClickHousePayloadAndPrivateCapture(t *testing
 		t.Fatalf("PostgreSQL target over a ClickHouse payload must fail closed: %v", err)
 	}
 	resolved := exec02TestResolved()
-	_, _, err = engine.buildCompiledOutputStream(context.Background(), resolved, resolved.Compiled.Outputs[0], 0, map[string]bool{}, true)
-	if err == nil || !strings.Contains(err.Error(), "private ClickHouse workspace artifact capture is unsupported") {
-		t.Fatalf("private capture over a PostgreSQL-served output must fail closed: %v", err)
+	stream, _, err := engine.buildCompiledOutputStream(context.Background(), resolved, resolved.Compiled.Outputs[0], 0, map[string]bool{}, true)
+	if err != nil {
+		t.Fatalf("private capture build over a PostgreSQL-served output: %v", err)
+	}
+	if stream.expectedBackend != command.CompiledBackendPostgreSQL || stream.command.Backend() != command.CompiledBackendPostgreSQL {
+		t.Fatalf("capture stream is not a fully PostgreSQL-tagged stream: expected=%q command=%q", stream.expectedBackend, stream.command.Backend())
+	}
+	if stream.artifactScopeMode != chartifact.ScopeModeRows || stream.scopeEvidence != nil {
+		t.Fatalf("capture scope fields drifted from the evidence-free fixture: mode=%q evidence=%v", stream.artifactScopeMode, stream.scopeEvidence)
 	}
 	if spies.pgRequests != 0 {
-		t.Fatalf("refused selections reached the PostgreSQL port")
+		t.Fatalf("capture build reached the PostgreSQL port")
+	}
+	// Materialization of this evidence-free stream is refused fail-closed
+	// before any artifact exists; the source dispatch names PostgreSQL.
+	catalog := &testArtifactCatalog{items: map[string]chartifact.Manifest{}}
+	clickHouse := &testArtifactClickHouse{columns: map[string][]clickhouse.Column{}, rows: map[string][]map[string]any{}}
+	manager, err := chartifact.New(chartifact.Config{Catalog: catalog, ClickHouse: clickHouse})
+	if err != nil {
+		t.Fatalf("chartifact.New: %v", err)
+	}
+	_, err = stream.MaterializeClickHouseArtifact(context.Background(), manager, "exec-1", stream.stageID, nil)
+	if err == nil || !strings.Contains(err.Error(), "private PostgreSQL artifact requires opaque evidence for its exact complete source plan") {
+		t.Fatalf("evidence-free PostgreSQL capture must fail closed naming PostgreSQL: %v", err)
+	}
+	if len(catalog.items) != 0 {
+		t.Fatalf("refused PostgreSQL capture created %d artifacts", len(catalog.items))
+	}
+	if spies.pgRequests != 0 {
+		t.Fatalf("refused capture reached the PostgreSQL port")
 	}
 	exec02AssertUntouchedArango(t, spies)
 }

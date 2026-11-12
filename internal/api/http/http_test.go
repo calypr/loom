@@ -51,7 +51,11 @@ func TestReadinessRequiresCoreAndClickHouse(t *testing.T) {
 		wantOverall, wantCore, wantDataframe string
 	}{
 		{name: "ready", clickHouseEnabled: true, wantStatus: http.StatusOK, wantOverall: "ready", wantCore: "ready", wantDataframe: "ready"},
-		{name: "core unavailable", coreErr: errors.New("core unavailable"), clickHouseEnabled: true, wantStatus: http.StatusServiceUnavailable, wantOverall: "not_ready", wantCore: "not_ready"},
+		// pg-runtime-health-readiness: the checks are independent, so a
+		// failing core check no longer hides the ClickHouse verdict — the
+		// consulted-but-healthy ClickHouse reports dataframe=ready while
+		// core not_ready still dominates the status (503/not_ready).
+		{name: "core unavailable", coreErr: errors.New("core unavailable"), clickHouseEnabled: true, wantStatus: http.StatusServiceUnavailable, wantOverall: "not_ready", wantCore: "not_ready", wantDataframe: "ready"},
 		{name: "ClickHouse unavailable", clickHouseErr: errors.New("ClickHouse unavailable"), clickHouseEnabled: true, wantStatus: http.StatusServiceUnavailable, wantOverall: "not_ready", wantCore: "ready", wantDataframe: "backend_unavailable"},
 		{name: "ClickHouse disabled", wantStatus: http.StatusOK, wantOverall: "ready", wantCore: "ready", wantDataframe: "disabled"},
 	}

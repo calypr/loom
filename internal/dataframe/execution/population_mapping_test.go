@@ -3,9 +3,15 @@ package execution
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
@@ -169,5 +175,532 @@ func TestPopulationMappingCompiledDeduplicatesCanonicalExplicitNumericIdentities
 	}
 	if result.Status != PopulationMappingComplete || result.MappedCount != 1 || result.EmittedRows != 1 {
 		t.Fatalf("population mapping result = %#v", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// pg-exec-07: the PostgreSQL dispatch arm, offline.
+//
+// The witness terminal (pg-sql-22) arrives PostgreSQL-tagged; these tests
+// pin the honest statuses of the execution arm: exact membership from
+// declared-column rows, hard errors for foreign witnesses and port
+// failures, typed capability refusals with zero statements executed, and
+// INCOMPLETE (never a misleading partial) for caps and cancellation. The
+// AQL controls above stay untouched; each PG test arms an Arango spy that
+// names itself if a PostgreSQL plan ever touches it.
+// ---------------------------------------------------------------------------
+
+func exec07PostgreSQLTarget(t *testing.T) compiler.Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("loom")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := compiler.PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+func exec07MappingCommand(t *testing.T) command.CompiledCommand {
+	t.Helper()
+	compiled, err := command.NewPostgreSQLCommand(
+		`SELECT w0.member AS "c0", jsonb_build_array(s."id") AS "c1" FROM "loom"."specimen" AS s CROSS JOIN LATERAL jsonb_array_elements_text('[]'::jsonb) AS w0(member) ORDER BY w0.member COLLATE "C" ASC`,
+		[]command.PostgreSQLParameter{{Type: command.PostgreSQLParameterText, Value: "sha256:members"}},
+	)
+	if err != nil {
+		t.Fatalf("NewPostgreSQLCommand: %v", err)
+	}
+	return compiled
+}
+
+// exec07Port is the witness row port for these tests. It refuses any
+// non-PostgreSQL tag through PostgreSQLParameters, records the forwarded
+// declared-column contract, and can fail on demand.
+type exec07Port struct {
+	calls        int
+	requests     []RowsRequest
+	rows         []map[string]any
+	fail         error
+	beforeVisit  func(index int)
+	visitStarted bool
+}
+
+func (p *exec07Port) sourceRows(ctx context.Context, request RowsRequest, visit RowVisitor) error {
+	if _, _, err := request.Command.PostgreSQLParameters(); err != nil {
+		return err
+	}
+	p.calls++
+	p.requests = append(p.requests, request)
+	for index, row := range p.rows {
+		if p.beforeVisit != nil {
+			p.beforeVisit(index)
+		}
+		p.visitStarted = true
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := visit(row); err != nil {
+			return err
+		}
+	}
+	if p.fail != nil {
+		return p.fail
+	}
+	return nil
+}
+
+func exec07Members(ids ...string) PopulationMemberReader {
+	return PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
+		for _, id := range ids {
+			if err := visit(id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func exec07Query(t *testing.T, engine *Engine, request PopulationMappingRequest, reader PopulationMemberReader) (PopulationMappingResult, error) {
+	t.Helper()
+	return engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
+		Command: exec07MappingCommand(t), MemberColumn: "c0", IdentityPartsColumn: "c1",
+		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+	}, request, reader)
+}
+
+func TestPostgresPopulationMappingExactMembershipAndDedupe(t *testing.T) {
+	port := &exec07Port{rows: []map[string]any{
+		{"c0": "member-1", "c1": []any{"row-a"}},
+		{"c0": "member-1", "c1": []any{"row-a"}},
+		{"c0": "member-1", "c1": []any{"row-b"}},
+		{"c0": "member-2", "c1": []any{"row-c"}},
+	}}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := exec07Query(t, engine, PopulationMappingRequest{MaxUnmapped: 10}, exec07Members("member-1", "member-2", "member-3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingComplete || result.SelectedCount != 3 || result.MappedCount != 2 || result.UnmappedCount != 1 || result.EmittedRows != 3 {
+		t.Fatalf("population mapping result = %#v", result)
+	}
+	if len(result.UnmappedMemberIDs) != 1 || result.UnmappedMemberIDs[0] != "member-3" {
+		t.Fatalf("unmapped member IDs = %#v", result.UnmappedMemberIDs)
+	}
+	if port.calls != 1 || len(port.requests) != 1 {
+		t.Fatalf("port calls = %d, requests = %d", port.calls, len(port.requests))
+	}
+	if got := port.requests[0].DeclaredColumns; len(got) != 2 || got[0] != "c0" || got[1] != "c1" {
+		t.Fatalf("declared columns = %#v, want [c0 c1] in renderer output order", got)
+	}
+	if port.requests[0].BatchSize != 1000 {
+		t.Fatalf("batch hint = %d", port.requests[0].BatchSize)
+	}
+}
+
+// TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity is the
+// offline witness for the adapter-shape arm of populationIdentityParts,
+// following the pg-exec-12 table_shape_exclusions_test.go precedent of
+// feeding json.RawMessage rows through a fake port. The PostgreSQL adapter
+// decodes the jsonb witness column to json.RawMessage where the AQL adapter
+// delivers a native []any; both rows below carry the same identity parts in
+// the two driver shapes on two different selected members, so the emitted
+// dedupe collapses them into ONE canonical witness identity only if the
+// decoded RawMessage array re-marshals to the identical digest. The
+// cross-backend identity-equality claim of the decoder comment block is
+// witnessed here, offline, on the Arango-only lane.
+func TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity(t *testing.T) {
+	port := &exec07Port{rows: []map[string]any{
+		{"c0": "member-1", "c1": []any{"obs-a"}},
+		{"c0": "member-2", "c1": json.RawMessage(`["obs-a"]`)},
+	}}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := exec07Query(t, engine, PopulationMappingRequest{MaxUnmapped: 10}, exec07Members("member-1", "member-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingComplete || result.SelectedCount != 2 || result.MappedCount != 2 || result.UnmappedCount != 0 || result.EmittedRows != 1 {
+		t.Fatalf("cross-shape identity equality broken: %#v, want two mapped members collapsing to one emitted identity", result)
+	}
+	// A RawMessage-only run reports the same exact counts as its []any
+	// twin, so the success path is witnessed independently of the dedupe.
+	for _, port := range []*exec07Port{
+		{rows: []map[string]any{
+			{"c0": "member-1", "c1": json.RawMessage(`["obs-a"]`)},
+			{"c0": "member-2", "c1": json.RawMessage(`["obs-b"]`)},
+		}},
+		{rows: []map[string]any{
+			{"c0": "member-1", "c1": []any{"obs-a"}},
+			{"c0": "member-2", "c1": []any{"obs-b"}},
+		}},
+	} {
+		engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+		result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1", "member-2", "member-3"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != PopulationMappingComplete || result.SelectedCount != 3 || result.MappedCount != 2 || result.UnmappedCount != 1 || result.EmittedRows != 2 ||
+			len(result.UnmappedMemberIDs) != 1 || result.UnmappedMemberIDs[0] != "member-3" {
+			t.Fatalf("adapter-shape and native-shape runs must agree exactly; got %#v", result)
+		}
+	}
+}
+
+// TestPostgresPopulationMappingRawMessageViolationsFailClosed pins every
+// fail-closed branch of the adapter-shape arm: empty bytes, malformed
+// JSON, the JSON null scalar (which the adapter delivers as a non-nil
+// RawMessage("null"), never flattened into the SQL NULL nil), JSON object
+// and scalar non-arrays, and the missing-key nil form. Each is refused
+// with the typed invalid-shape error and a zero-value result: never a
+// partial mapping, never INCOMPLETE, never the capability sentinel.
+func TestPostgresPopulationMappingRawMessageViolationsFailClosed(t *testing.T) {
+	for _, violation := range []struct {
+		name string
+		row  map[string]any
+	}{
+		{"empty bytes", map[string]any{"c0": "member-1", "c1": json.RawMessage("")}},
+		{"malformed json", map[string]any{"c0": "member-1", "c1": json.RawMessage(`["obs-a"`)}},
+		{"json null scalar", map[string]any{"c0": "member-1", "c1": json.RawMessage("null")}},
+		{"json object", map[string]any{"c0": "member-1", "c1": json.RawMessage(`{"project":"P1"}`)}},
+		{"json scalar", map[string]any{"c0": "member-1", "c1": json.RawMessage(`"obs-a"`)}},
+		{"missing key (sql null)", map[string]any{"c0": "member-1"}},
+		{"explicit nil", map[string]any{"c0": "member-1", "c1": nil}},
+	} {
+		port := &exec07Port{rows: []map[string]any{
+			{"c0": "member-1", "c1": []any{"obs-a"}}, // a sound witness first: refusal must come from the violation, not ordering
+			violation.row,
+			{"c0": "member-2", "c1": []any{"obs-b"}}, // never visited: no partial mapping past the refusal
+		}}
+		engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+		result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1", "member-2"))
+		if err == nil || !strings.Contains(err.Error(), "invalid row identity shape") {
+			t.Fatalf("%s: violation error = %v, want the typed invalid-shape refusal", violation.name, err)
+		}
+		// The refusal is the decoder's own sentinel, never a wrapped
+		// encoding/json cause: that suffix pins the fail-closed guard
+		// (empty/malformed bytes are refused up front, not laundered
+		// through a decode-error wrap).
+		if want := "population mapping witness has an invalid row identity shape"; !strings.HasSuffix(err.Error(), want) {
+			t.Fatalf("%s: violation error = %v, want it to end in the decoder sentinel %q", violation.name, err, want)
+		}
+		if errors.Is(err, ErrPopulationMappingPostgresUnsupported) || errors.Is(err, errPopulationMappingLimit) {
+			t.Fatalf("%s: violation misclassified as a capability gap or cap: %v", violation.name, err)
+		}
+		if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 || result.UnmappedCount != 0 || result.EmittedRows != 0 ||
+			result.UnmappedMemberIDs != nil || result.HasMoreUnmapped {
+			t.Fatalf("%s: violation exposed a partial mapping: %#v", violation.name, result)
+		}
+		if !port.visitStarted || port.calls != 1 {
+			t.Fatalf("%s: refusal must run through the one port call after the witness stream started: calls=%d", violation.name, port.calls)
+		}
+	}
+}
+
+func TestPostgresPopulationMappingForeignWitnessRejected(t *testing.T) {
+	port := &exec07Port{rows: []map[string]any{{"c0": "member-9", "c1": []any{"row-a"}}}}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	_, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1"))
+	if err == nil || !strings.Contains(err.Error(), "not selected") {
+		t.Fatalf("foreign witness error = %v", err)
+	}
+	if errors.Is(err, errPopulationMappingLimit) {
+		t.Fatalf("foreign witness misread as a cap: %v", err)
+	}
+}
+
+func TestPostgresPopulationMappingCapIsIncompleteNotPartial(t *testing.T) {
+	port := &exec07Port{rows: []map[string]any{
+		{"c0": "member-1", "c1": []any{"row-a"}},
+		{"c0": "member-2", "c1": []any{"row-b"}},
+	}}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := exec07Query(t, engine, PopulationMappingRequest{MaxWitnessRows: 1}, exec07Members("member-1", "member-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingIncomplete || result.SelectedCount != 0 || result.MappedCount != 0 || result.UnmappedCount != 0 || result.EmittedRows != 0 {
+		t.Fatalf("cap produced a misleading partial result: %#v", result)
+	}
+	if !port.visitStarted {
+		t.Fatal("cap test never streamed a witness row")
+	}
+}
+
+func TestPostgresPopulationMappingCancellationIsIncompleteAtRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	port := &exec07Port{
+		rows: []map[string]any{
+			{"c0": "member-1", "c1": []any{"row-a"}},
+			{"c0": "member-2", "c1": []any{"row-b"}},
+		},
+	}
+	port.beforeVisit = func(index int) {
+		if index == 1 {
+			cancel()
+		}
+	}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := engine.PopulationMappingCompiled(ctx, compiler.CompiledPopulationMappingQuery{
+		Command: exec07MappingCommand(t), MemberColumn: "c0", IdentityPartsColumn: "c1",
+		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+	}, PopulationMappingRequest{}, exec07Members("member-1", "member-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingIncomplete || result.SelectedCount != 0 || result.MappedCount != 0 || result.EmittedRows != 0 {
+		t.Fatalf("cancellation produced a misleading partial result: %#v", result)
+	}
+	if !port.visitStarted {
+		t.Fatal("cancellation test never streamed a witness row")
+	}
+}
+
+func TestPostgresPopulationMappingCapabilityRefusalBeforePortCall(t *testing.T) {
+	var portCalls int
+	engine := &Engine{
+		compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000,
+		sourceRows: func(context.Context, RowsRequest, RowVisitor) error {
+			portCalls++
+			return nil
+		},
+	}
+	compiled := compiler.CompiledPopulationMappingQuery{
+		Command: exec07MappingCommand(t), MemberColumn: "c0", IdentityPartsColumn: "c1",
+		RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+	}
+	// (a) no row port at all.
+	noPort := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000}
+	result, err := noPort.PopulationMappingCompiled(context.Background(), compiled, PopulationMappingRequest{}, exec07Members("member-1"))
+	if !errors.Is(err, ErrPopulationMappingPostgresUnsupported) {
+		t.Fatalf("nil-port error = %v, want ErrPopulationMappingPostgresUnsupported", err)
+	}
+	if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 {
+		t.Fatalf("capability refusal exposed counts: %#v", result)
+	}
+	// (b) the composition registers no adapter for the command's tag: the
+	// port reports the command package's capability-gap sentinel without
+	// executing a statement.
+	unregistered := &exec07Port{fail: fmt.Errorf("postgres rows: %w", command.ErrCompiledCommandBackendNotRegistered)}
+	engine.sourceRows = unregistered.sourceRows
+	result, err = engine.PopulationMappingCompiled(context.Background(), compiled, PopulationMappingRequest{}, exec07Members("member-1"))
+	if !errors.Is(err, ErrPopulationMappingPostgresUnsupported) || errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+		t.Fatalf("unregistered-adapter error = %v", err)
+	}
+	if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 {
+		t.Fatalf("unregistered-adapter refusal exposed counts: %#v", result)
+	}
+	if unregistered.visitStarted {
+		t.Fatal("unregistered adapter visited witness rows")
+	}
+	if portCalls != 0 {
+		t.Fatalf("refusal path reached a port call: %d", portCalls)
+	}
+}
+
+func TestPostgresPopulationMappingRoutingMismatchIsHardError(t *testing.T) {
+	port := &exec07Port{fail: fmt.Errorf("dispatch: %w for %q", command.ErrCompiledCommandBackendMismatch, "POSTGRESQL")}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1"))
+	if err == nil || !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
+		t.Fatalf("routing mismatch error = %v", err)
+	}
+	if errors.Is(err, ErrPopulationMappingPostgresUnsupported) {
+		t.Fatalf("routing mismatch misread as a capability gap: %v", err)
+	}
+	if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 {
+		t.Fatalf("routing mismatch exposed counts: %#v", result)
+	}
+}
+
+func TestPostgresPopulationMappingGenericPortFailureIsHardError(t *testing.T) {
+	port := &exec07Port{rows: []map[string]any{{"c0": "member-1", "c1": []any{"row-a"}}}, fail: errors.New("connection reset")}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1"))
+	if err == nil || errors.Is(err, ErrPopulationMappingPostgresUnsupported) || result.Status == PopulationMappingIncomplete || result.Status == PopulationMappingComplete {
+		t.Fatalf("generic port failure was not a hard error: result=%#v err=%v", result, err)
+	}
+}
+
+func TestPostgresPopulationMappingContractRefusesBeforeSQL(t *testing.T) {
+	var calls int
+	ping := func(context.Context, RowsRequest, RowVisitor) error {
+		calls++
+		return nil
+	}
+	base := compiler.CompiledPopulationMappingQuery{MemberColumn: "c0", IdentityPartsColumn: "c1", RowIdentity: &spec.RowIdentity{Fields: []string{"id"}}}
+	for _, mutate := range []func(q *compiler.CompiledPopulationMappingQuery){
+		func(q *compiler.CompiledPopulationMappingQuery) { q.MemberColumn = "" },
+		func(q *compiler.CompiledPopulationMappingQuery) { q.IdentityPartsColumn = "" },
+		func(q *compiler.CompiledPopulationMappingQuery) { q.ExplicitIdentityColumn = "c2" }, // both identity columns: renderer contract violated
+	} {
+		compiled := base
+		compiled.Command = exec07MappingCommand(t)
+		mutate(&compiled)
+		engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: ping}
+		if _, err := engine.PopulationMappingCompiled(context.Background(), compiled, PopulationMappingRequest{}, exec07Members("member-1")); err == nil {
+			t.Fatalf("broken witness contract accepted: %#v", compiled)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("contract refusal reached the port: %d calls", calls)
+	}
+}
+
+func TestPostgresPopulationMappingUnknownBackendIsHardError(t *testing.T) {
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: func(context.Context, RowsRequest, RowVisitor) error { return nil }}
+	_, err := engine.PopulationMappingCompiled(context.Background(), compiler.CompiledPopulationMappingQuery{
+		MemberColumn: "c0", IdentityPartsColumn: "c1", RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+	}, PopulationMappingRequest{}, exec07Members("member-1"))
+	if err == nil || !strings.Contains(err.Error(), "unsupported backend") {
+		t.Fatalf("untagged command error = %v", err)
+	}
+}
+
+// Engine-seam offline legs for pg-exec-07: the selected PostgreSQL compile
+// target turns a population-constrained output into the tagged witness
+// terminal and dispatches it through the one row port; shapes outside the
+// registered mapping slice (render/postgres/population_mapping.go's named
+// capability gaps) refuse with the typed sentinel at zero statements.
+
+func exec07RouteBundle(name string) recipe.Bundle {
+	return recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                name,
+		TranslationVersion:  "exec07",
+		Outputs: []recipe.Output{{
+			Name: "specimens", RootResourceType: "Specimen", RowGrain: "specimen",
+			Fields: []recipe.Field{{Name: "id", ColumnID: "specimen_id", Expr: recipe.Expression{Select: "root.id"}}},
+			Population: &recipe.PopulationConstraint{
+				SelectionRevisionID: "sel-exec07", MembershipDigest: "sha256:exec07-members", MemberCount: 3,
+				ResourceType: "DocumentReference",
+				Route:        []recipe.PopulationRouteStep{{ResourceType: "DocumentReference", Relationship: "subject_Specimen"}},
+			},
+		}},
+	}
+}
+
+func exec07FlatBundle(name string) recipe.Bundle {
+	return recipe.Bundle{
+		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+		Name:                name,
+		TranslationVersion:  "exec07",
+		Outputs: []recipe.Output{{
+			Name: "observations", RootResourceType: "Observation", RowGrain: "observation",
+			Fields: []recipe.Field{{Name: "status", ColumnID: "status_id", Expr: recipe.Expression{Select: "root.status"}}},
+			Population: &recipe.PopulationConstraint{
+				SelectionRevisionID: "sel-exec07", MembershipDigest: "sha256:exec07-members", MemberCount: 3,
+				ResourceType: "Observation",
+			},
+		}},
+	}
+}
+
+func exec07Bindings(project, generation string) recipe.RuntimeBindings {
+	return recipe.RuntimeBindings{
+		Project: project, DatasetGeneration: generation,
+		SelectionProject:           "project-a",
+		SelectionMembersCollection: "loom_explorer_selection_members",
+		AuthResourcePaths:          []string{"FHIR/Observation", "FHIR/Specimen", "FHIR/DocumentReference"},
+	}
+}
+
+func exec07Engine(t *testing.T, port SourceRows) *Engine {
+	t.Helper()
+	config := (&dispatchSpies{}).arangoEngine()
+	config.CompileTarget = exec07PostgreSQLTarget(t)
+	config.SourceRows = port
+	return config.newEngineForTest(t)
+}
+
+func TestPostgresPopulationMappingEngineDispatchesFlatWitnessTerminal(t *testing.T) {
+	var portCalls int
+	var requests []RowsRequest
+	engine := exec07Engine(t, func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		if _, _, err := request.Command.PostgreSQLParameters(); err != nil {
+			return err
+		}
+		portCalls++
+		requests = append(requests, request)
+		for _, row := range []map[string]any{
+			// The canonical default witness identity is the two compiler-bound
+			// parts [project, root._key] (compiler/population_mapping.go).
+			{ir.PhysicalPopulationMappingMemberField: "obs-1", ir.PhysicalPopulationMappingIdentityPartsField: []any{"project-a", "obs-1"}},
+			{ir.PhysicalPopulationMappingMemberField: "obs-2", ir.PhysicalPopulationMappingIdentityPartsField: []any{"project-a", "obs-2"}},
+		} {
+			if err := visit(row); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	resolved, err := engine.CompileResolvedBundle(context.Background(), exec07FlatBundle("exec07-flat"), exec07Bindings("project-a", "gen-a"))
+	if err != nil {
+		t.Fatalf("CompileResolvedBundle: %v", err)
+	}
+	result, err := engine.PopulationMapping(context.Background(), resolved, PopulationMappingRequest{Output: "observations", MaxUnmapped: 10}, exec07Members("obs-1", "obs-2", "obs-3"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingComplete || result.SelectedCount != 3 || result.MappedCount != 2 || result.UnmappedCount != 1 || result.EmittedRows != 2 {
+		t.Fatalf("flat mapping result = %#v", result)
+	}
+	if len(result.UnmappedMemberIDs) != 1 || result.UnmappedMemberIDs[0] != "obs-3" {
+		t.Fatalf("unmapped member IDs = %#v", result.UnmappedMemberIDs)
+	}
+	if portCalls != 1 || len(requests) != 1 {
+		t.Fatalf("port calls = %d", portCalls)
+	}
+	if got := requests[0].DeclaredColumns; len(got) != 2 ||
+		got[0] != ir.PhysicalPopulationMappingMemberField ||
+		got[1] != ir.PhysicalPopulationMappingIdentityPartsField {
+		t.Fatalf("engine-declared witness contract = %#v, want the compiler-owned member and identity-parts fields", got)
+	}
+}
+
+func TestPostgresPopulationMappingNamedCapabilityGapRefusesAtZeroStatements(t *testing.T) {
+	// Each shape is a named capability gap in the registered PostgreSQL
+	// mapping slice: an expansion or a SET on the member-collecting root
+	// (validatePopulationMappingFlatSurface) and an endpoint-lookup route
+	// step (validateTraversalContract). The engine must refuse with the
+	// typed sentinel at zero statements — never INCOMPLETE, never a
+	// partial render.
+	expansion := exec07FlatBundle("exec07-expand")
+	expansion.Outputs[0].Expand = &recipe.Expansion{From: recipe.Expression{Select: "root.extension[]"}, As: "item"}
+	expansion.Outputs[0].RowGrain = "expanded"
+	expansion.Outputs[0].Identity = &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}}
+	for _, test := range []struct {
+		name   string
+		bundle recipe.Bundle
+		output string
+	}{
+		{"expansion on the mapping root", expansion, "observations"},
+		{"endpoint-lookup route", exec07RouteBundle("exec07-route"), "specimens"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var portCalls int
+			engine := exec07Engine(t, func(context.Context, RowsRequest, RowVisitor) error {
+				portCalls++
+				return nil
+			})
+			resolved, err := engine.CompileResolvedBundle(context.Background(), test.bundle, exec07Bindings("project-a", "gen-a"))
+			if err != nil {
+				t.Fatalf("CompileResolvedBundle: %v", err)
+			}
+			result, err := engine.PopulationMapping(context.Background(), resolved, PopulationMappingRequest{Output: test.output, MaxUnmapped: 10}, exec07Members("obs-1", "obs-2", "obs-3"))
+			if !errors.Is(err, ErrPopulationMappingPostgresUnsupported) {
+				t.Fatalf("error = %v, want ErrPopulationMappingPostgresUnsupported", err)
+			}
+			if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 {
+				t.Fatalf("capability refusal exposed counts: %#v", result)
+			}
+			if !strings.Contains(err.Error(), "unsupported physical plan") {
+				t.Fatalf("refusal lost the renderer's typed gap evidence: %v", err)
+			}
+			if portCalls != 0 {
+				t.Fatalf("refusal executed %d statements, want the statement-count-0 witness", portCalls)
+			}
+		})
 	}
 }

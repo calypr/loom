@@ -451,6 +451,17 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
+// CombinePortsConfigured reports whether every port the private workspace
+// artifact Combine path requires is wired: the ClickHouse result executor,
+// the published-input resolver, the execution read-pin runner, and the
+// private artifact manager. A composition that enables ClickHouse and then
+// silently drops one of these ports must fail at boot, not at the first
+// Combine.
+func (e *Engine) CombinePortsConfigured() bool {
+	return e.clickHouseQueryRows != nil && e.resolveClickHouseInputs != nil &&
+		e.withExecutionReadPins != nil && e.privateClickHouseArtifacts != nil
+}
+
 // CompileResolvedBundle validates and compiles a bundle that has already been
 // resolved by schema discovery. It never invokes Config.ResolveBundle and
 // therefore performs no catalog or schema discovery. Dynamic declarations
@@ -741,10 +752,13 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 	// selection never renders (and never reaches) a command. These are
 	// selection-level guarantees, not renderer accidents: the checked
 	// messages are the same the PostgreSQL route asserts post-compile.
+	// A PostgreSQL-served output is a legitimate private-artifact capture
+	// source (pg-exec-11): its rows stream through the source row port into
+	// the writer, and the capture contract (scope evidence, digests, row
+	// identity, authorization path) is enforced in materializeClickHouseArtifact.
+	// A PostgreSQL-served output may still never itself carry a ClickHouse
+	// combine payload: that is a plan-shape contradiction, not a source choice.
 	if e.compileTarget.Backend() == command.CompiledBackendPostgreSQL {
-		if privateArtifactCapture {
-			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
-		}
 		if output.Plan.ClickHouseCombine != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 		}
@@ -932,10 +946,13 @@ func (e *Engine) clickHouseStreamForOutput(ctx context.Context, resolved Resolve
 // until a parent-compiler ticket supplies a PostgreSQL page producer (the
 // compiler still refuses root-key output paging for PostgreSQL), no
 // production path can attach them.
+//
+// A capture build (privateArtifactCapture) is a legitimate PostgreSQL
+// request (pg-exec-11): the same compiler-attested artifact scope the AQL
+// builder attaches is computed here, and the capture contract itself is
+// enforced in materializeClickHouseArtifact. Non-capture PostgreSQL streams
+// keep the exact fields they carried before capture was offered.
 func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, query compiler.CompiledQuery, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
-	if privateArtifactCapture {
-		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: private ClickHouse workspace artifact capture is unsupported for PostgreSQL-served outputs", output.Name)
-	}
 	if output.Plan.ClickHouseCombine != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 	}
@@ -963,6 +980,19 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 		command:         query.Command,
 		expectedBackend: command.CompiledBackendPostgreSQL,
 		commandColumns:  append([]string(nil), query.Columns...),
+	}
+	if privateArtifactCapture {
+		// The same compiler-attested artifact scope the AQL builder attaches
+		// (engine artifact-scope block): rows later captured into a private
+		// ClickHouse artifact are only accepted with this exact evidence.
+		scopeMode, scopeEvidence, scopeIdentity, err := compiledArtifactScope(output, bindings, query.PhysicalPlan)
+		if err != nil {
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q artifact scope: %w", output.Name, err)
+		}
+		stream.artifactScopeMode, stream.scopeEvidence, stream.scopeEvidenceIdentity = scopeMode, scopeEvidence, scopeIdentity
+		if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
+			stream.artifactScopeEvidence = scopeEvidence.Digest()
+		}
 	}
 	return stream, query, nil
 }
@@ -1604,16 +1634,36 @@ func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResul
 		return StreamResult{}, fmt.Errorf("row visitor is required")
 	}
 	// The stable-identity bind fallback reads named binds only from an
-	// AQL-tagged command through closed dispatch; PostgreSQL statements bind
-	// positionally and expose no named binds, and a ClickHouse stream carries
-	// no compiled command at all, so both keep a nil fallback.
+	// AQL-tagged command through closed dispatch; a ClickHouse stream carries
+	// no compiled command at all and keeps a nil fallback. PostgreSQL
+	// statements bind positionally and expose no named binds, so a
+	// PostgreSQL-tagged stream instead supplies the finalized plan's own
+	// scope bind values: the renderer's loadScope binds
+	// plan.BindVars["project"] and plan.BindVars["dataset_generation"]
+	// verbatim as the statement's first positional arguments, so reading
+	// them from the compiled plan is the only way the fallback can
+	// contribute exactly what the query filtered by -- never the raw
+	// runtime bindings, which may carry untrimmed text the statement never
+	// bound. A missing or non-string scope bind stays absent, so
+	// ensureStableRowIdentity fails closed with the typed missing-field
+	// error, matching the AQL arm's nil-dataset_generation bind posture.
+	// Row-supplied columns are still read from the row first; only a scope
+	// field the row cannot carry falls back.
 	var identityBinds map[string]any
-	if s.command.Backend() == command.CompiledBackendAQL {
+	switch s.command.Backend() {
+	case command.CompiledBackendAQL:
 		_, binds, dispatchErr := s.command.AQLParameters()
 		if dispatchErr != nil {
 			return StreamResult{}, dispatchErr
 		}
 		identityBinds = binds
+	case command.CompiledBackendPostgreSQL:
+		identityBinds = map[string]any{}
+		for _, bindKey := range []string{"project", "dataset_generation"} {
+			if value, ok := s.physicalPlan.BindVars[bindKey].(string); ok {
+				identityBinds[bindKey] = value
+			}
+		}
 	}
 	count := 0
 	err := s.streamRaw(ctx, func(row map[string]any) error {

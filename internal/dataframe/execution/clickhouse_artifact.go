@@ -8,13 +8,15 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 )
 
-// MaterializeClickHouseArtifact streams a complete AQL output into a private,
-// typed ClickHouse artifact. The artifact remains leased after this call and
-// must be released after the ClickHouse stage finishes reading it.
+// MaterializeClickHouseArtifact streams a complete AQL or PostgreSQL output
+// into a private, typed ClickHouse artifact. The artifact remains leased
+// after this call and must be released after the ClickHouse stage finishes
+// reading it.
 func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*chartifact.Artifact, error) {
 	capture, err := s.materializeClickHouseArtifact(ctx, manager, executionID, stageID, columns)
 	if err != nil {
@@ -30,11 +32,30 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if s.captureExecutionID != "" && executionID != s.captureExecutionID {
 		return nil, fmt.Errorf("private artifact execution ID differs from its owning workspace capture")
 	}
-	aqlSource := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.sourceRows != nil
+	// Exhaustive three-way source dispatch (pg-exec-11). A source stream is
+	// exactly one of: an AQL-served stream, a PostgreSQL-served stream whose
+	// command carries the PostgreSQL tag on both the envelope and the
+	// expected-backend invariant with a declared column contract, or a
+	// prepared ClickHouse combine stream. The PostgreSQL arm joins the AQL
+	// non-prepared writer flow because both consume rows through the shared
+	// source row port with the compiled command's declared columns; the
+	// port's own tag dispatch stays the fail-closed boundary.
+	sourceStream := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.sourceRows != nil
+	pgSource := sourceStream && s.command.Backend() == command.CompiledBackendPostgreSQL &&
+		s.expectedBackend == command.CompiledBackendPostgreSQL && len(s.commandColumns) > 0
+	// A PostgreSQL-tagged command that is not a complete pgSource (foreign
+	// expected backend, missing declared contract) is a broken composition:
+	// it joins neither arm and fails at dispatch before any artifact exists.
+	aqlSource := sourceStream && !pgSource && s.command.Backend() != command.CompiledBackendPostgreSQL
 	clickHouseSource := s.physicalEngine == ir.PhysicalEngineClickHouse && s.clickHouseCombine != nil && s.clickHouseQueryRows != nil && s.compiledOutput
-	if !aqlSource && !clickHouseSource {
-		return nil, fmt.Errorf("private artifact requires a compiler-resolved streamable AQL or ClickHouse output")
+	if !aqlSource && !pgSource && !clickHouseSource {
+		return nil, fmt.Errorf("private artifact requires a compiler-resolved streamable AQL, PostgreSQL, or ClickHouse output")
 	}
+	sourceLabel := "AQL"
+	if pgSource {
+		sourceLabel = "PostgreSQL"
+	}
+	sourceNeedsEvidence := aqlSource || pgSource
 	if s.queryLimit != 0 {
 		return nil, fmt.Errorf("private AQL artifact cannot be built from a bounded preview")
 	}
@@ -57,23 +78,23 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if err != nil {
 		return nil, fmt.Errorf("private artifact authorization scope: %w", err)
 	}
-	if aqlSource && (s.scopeEvidence == nil || s.scopeEvidenceIdentity == nil || !s.scopeEvidence.Matches(s.physicalPlan, *s.scopeEvidenceIdentity)) {
-		return nil, fmt.Errorf("private AQL artifact requires opaque evidence for its exact complete source plan")
+	if sourceNeedsEvidence && (s.scopeEvidence == nil || s.scopeEvidenceIdentity == nil || !s.scopeEvidence.Matches(s.physicalPlan, *s.scopeEvidenceIdentity)) {
+		return nil, fmt.Errorf("private %s artifact requires opaque evidence for its exact complete source plan", sourceLabel)
 	}
-	if aqlSource && s.artifactScopeMode == "" {
+	if sourceNeedsEvidence && s.artifactScopeMode == "" {
 		s.artifactScopeMode = chartifact.ScopeModeRows
 	}
 	if s.artifactScopeMode != "" && s.artifactScopeMode != chartifact.ScopeModeRows && s.artifactScopeMode != chartifact.ScopeModeWhole {
 		return nil, fmt.Errorf("private artifact requires a supported compiler output scope mode")
 	}
-	if aqlSource && s.artifactScopeMode == chartifact.ScopeModeWhole && (!s.compiledOutput || strings.TrimSpace(s.artifactScopeEvidence) == "") {
+	if sourceNeedsEvidence && s.artifactScopeMode == chartifact.ScopeModeWhole && (!s.compiledOutput || strings.TrimSpace(s.artifactScopeEvidence) == "") {
 		return nil, fmt.Errorf("whole-scope private artifact requires compiler-issued scope evidence")
 	}
-	if aqlSource && s.artifactScopeMode == chartifact.ScopeModeRows && s.artifactScopeEvidence != "" {
+	if sourceNeedsEvidence && s.artifactScopeMode == chartifact.ScopeModeRows && s.artifactScopeEvidence != "" {
 		return nil, fmt.Errorf("row-scoped private artifact cannot carry whole-scope evidence")
 	}
-	if aqlSource && authMode == authscope.ReadScopeRestricted && s.artifactScopeMode == chartifact.ScopeModeRows && !s.bindings.IncludeAuthResourcePath {
-		return nil, fmt.Errorf("restricted AQL artifact requires a row-level authorization path projection")
+	if sourceNeedsEvidence && authMode == authscope.ReadScopeRestricted && s.artifactScopeMode == chartifact.ScopeModeRows && !s.bindings.IncludeAuthResourcePath {
+		return nil, fmt.Errorf("restricted %s artifact requires a row-level authorization path projection", sourceLabel)
 	}
 
 	normalized, err := chartifact.NormalizeSchema(columns)
@@ -110,14 +131,14 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	}
 	writer, err := manager.Begin(ctx, identity, normalized)
 	if err != nil {
-		return nil, fmt.Errorf("begin private AQL artifact: %w", err)
+		return nil, fmt.Errorf("begin private %s artifact: %w", sourceLabel, err)
 	}
 	streamResult, err := s.Stream(ctx, func(row map[string]any) error {
 		return writer.Write(ctx, row)
 	})
 	if err != nil {
 		abortErr := writer.Abort(context.WithoutCancel(ctx))
-		return nil, errors.Join(fmt.Errorf("stream AQL prefix into private ClickHouse artifact: %w", err), abortErr)
+		return nil, errors.Join(fmt.Errorf("stream %s prefix into private ClickHouse artifact: %w", sourceLabel, err), abortErr)
 	}
 	artifact, err := writer.Finalize(ctx)
 	if err != nil {

@@ -318,6 +318,8 @@ type qRouteMint struct {
 var qRouteMintInventory = map[string]int{
 	"TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable":     1,
 	"TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler": 1,
+	// pg-runtime-health-readiness leg (mints one database).
+	"TestPostgreSQLFirstQueryRouteLivenessAndReadiness": 1,
 }
 
 func qRouteTestPostgresURL(t *testing.T) string {
@@ -928,6 +930,67 @@ func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testi
 		if strings.Contains(response.Body, aqlTell) {
 			t.Fatalf("response body carries AQL tell %q: %s", aqlTell, fixture.scrub(response.Body))
 		}
+	}
+}
+
+// TestPostgreSQLFirstQueryRouteLivenessAndReadiness is the
+// pg-runtime-health-readiness leg for the first-query route: on a migrated
+// placement /livez answers the published DB-free body and /readyz reports
+// ready with dataframe=disabled (the route refuses ClickHouse by contract);
+// after the closer tears the pool down, /livez STILL answers 200 through the
+// production handler stack while /readyz refuses with core=not_ready and
+// the safe core_state=runtime_closed token.
+func TestPostgreSQLFirstQueryRouteLivenessAndReadiness(t *testing.T) {
+	markReadinessLeg(t, "TestPostgreSQLFirstQueryRouteLivenessAndReadiness")
+	fixture := newQRouteFixture(t)
+	catalog := fixture.migrate(t)
+	_ = catalog.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, closeRuntime, err := composePostgreSQLFirstQueryRoute(ctx, qRouteBootConfig(t, fixture, "127.0.0.1:0"), logger)
+	if err != nil {
+		t.Fatalf("compose production route: %s", fixture.scrub(err))
+	}
+	var closeOnce sync.Once
+	closeNow := func() {
+		closeOnce.Do(func() {
+			if err := closeRuntime(); err != nil {
+				t.Errorf("close production route runtime: %s", fixture.scrub(err))
+			}
+		})
+	}
+	defer closeNow()
+	app := server.App()
+
+	live := requestJSON(t, app, http.MethodGet, "/livez", "")
+	if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
+		t.Fatalf("livez on the first-query route = %d %s; want 200 {\"status\":\"live\"}", live.StatusCode, fixture.scrub(live.Body))
+	}
+	response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+	if response.StatusCode != http.StatusOK ||
+		!strings.Contains(response.Body, `"status":"ready"`) ||
+		!strings.Contains(response.Body, `"core":"ready"`) ||
+		!strings.Contains(response.Body, `"dataframe":"disabled"`) {
+		t.Fatalf("migrated first-query-route readiness = %d %s; want 200 ready/ready/disabled",
+			response.StatusCode, fixture.scrub(response.Body))
+	}
+	if strings.Contains(strings.ToLower(response.Body), "password") || strings.Contains(response.Body, fixture.dsn) {
+		t.Fatalf("readiness body leaked connection material: %s", fixture.scrub(response.Body))
+	}
+
+	closeNow()
+	liveAfter := requestJSON(t, app, http.MethodGet, "/livez", "")
+	if liveAfter.StatusCode != http.StatusOK || liveAfter.Body != `{"status":"live"}` {
+		t.Fatalf("livez with a closed pool = %d %s; liveness must be DB-free", liveAfter.StatusCode, fixture.scrub(liveAfter.Body))
+	}
+	refused := requestJSON(t, app, http.MethodGet, "/readyz", "")
+	if refused.StatusCode != http.StatusServiceUnavailable ||
+		!strings.Contains(refused.Body, `"core":"not_ready"`) ||
+		!strings.Contains(refused.Body, `"core_state":"runtime_closed"`) {
+		t.Fatalf("readyz with a closed pool = %d %s; want 503 core=not_ready core_state=runtime_closed",
+			refused.StatusCode, fixture.scrub(refused.Body))
 	}
 }
 

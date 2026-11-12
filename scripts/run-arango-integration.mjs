@@ -150,6 +150,29 @@ export const pgExec09CellTrace = new Set([
     'TestPostgresCellTraceArmALossyFirstReadsAmbiguous',
     'TestPostgresCellTraceStaleReceiptRejectsBeforeExecution',
 ]);
+// pg-exec-07: the population-mapping witness-terminal live battery (exact
+// membership and unmapped reporting, group dedupe over real PostgreSQL
+// state, cap/cancellation INCOMPLETE-at-request, the hard-error port
+// failure, the live stale-receipt statement-count-0 leg, and the named
+// capability-gap zero-statement refusal) requires the separate PostgreSQL
+// 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It runs
+// against the real PG18 server under the ticket check-2 harness
+// (go test ./internal/dataframe/execution -run PostgresPopulationMapping);
+// in this Arango-only lane their explicit skips stay visible in the proof
+// summary, following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
+// pg-exec-08 registration precedent. Membership is byte-exact against the
+// offline go test -json skip capture for this package. The offline cells
+// in the same file never skip and are therefore not registered here:
+// TestZZPostgresPopulationMappingZeroLeftoverFixtures returns without a
+// skip when no service was used.
+const pgExec07PopulationMapping = new Set([
+    'TestPostgresPopulationMappingLiveFlatExactMembership',
+    'TestPostgresPopulationMappingLiveGroupDedupe',
+    'TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete',
+    'TestPostgresPopulationMappingLivePortFailureIsHardError',
+    'TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution',
+    'TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements',
+]);
 // pg-exec-03: the PostgreSQL post-query marker live battery (RawMessage
 // marker flow through the shared materializer, named-UUID computation,
 // three-state values, and the cross-target JSON-null convergence cell)
@@ -212,6 +235,10 @@ const pgQueryRoute = new Set([
     'TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable',
     'TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler',
     'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
+    // pg-runtime-health-readiness: first-query-route liveness/readiness leg
+    // (LOOM_TEST_POSTGRES_URL-gated, never Arango), same registration
+    // precedent as the query-route battery above.
+    'TestPostgreSQLFirstQueryRouteLivenessAndReadiness',
     'TestZZQRouteZeroLeftoverFixtures',
 ]);
 // pg-ir-03: the ClickHouse prefix seam's PostgreSQL-arm live leg executes
@@ -241,6 +268,17 @@ const pgIr03PrefixSeam = new Set([
 const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeFullLadderServesProductionReads',
     'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
+    // pg-runtime-health-readiness: the readiness battery (independence +
+    // corrupt-ledger schema_mismatch/repair, never-migrated schema_unmigrated,
+    // never-created schema_missing on a non-source series, and the read-only
+    // probe proof) all drive the real PostgreSQL service under
+    // LOOM_TEST_POSTGRES_URL, never Arango; in this Arango-only lane their
+    // explicit skips stay visible in the proof summary, following the
+    // pg-runtime-server-composition registration precedent above.
+    'TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware',
+    'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
+    'TestPostgresRuntimeReadinessReportsMissingSchema',
+    'TestPostgresRuntimeVerifySchemaIsReadOnly',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
 // pg-exec-12: the table-shape exclusion-evidence live battery (exact
@@ -266,6 +304,30 @@ const pgExec12Exclusions = new Set([
     'TestPostgresExclusionsNoPolicyStatusDistinctLivePG18',
     'TestZZPostgresExclusionsZeroLeftoverFixtures',
 ]);
+// pg-exec-11: the PostgreSQL draft-output private-capture Combine live
+// battery (restricted capture feeding the terminal workspace Combine with
+// real authorization paths, the forged-path refusal, the mid-capture
+// cancellation cell, the evidence-free control, the real-ClickHouse
+// execution leg, and the verify_exec11_* census audit) requires the
+// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
+// Arango; the real-ClickHouse leg additionally requires LOOM_CLICKHOUSE_URL
+// (repo convention, internal/store/clickhouse/integration_test.go). They
+// run against the real PostgreSQL service under the ticket check harness
+// (go test ./internal/dataframe/execution -run Exec11lv); in this
+// Arango-only lane their explicit skips stay visible in the proof summary,
+// following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, pg-exec-03,
+// pg-query-route, pg-ir-03, and pg-runtime-server-composition registration
+// precedent. Membership is byte-exact against the offline go test -json
+// skip capture for this package (six cells; the offline capture matrix
+// cells TestPostgreSQLPrivateCapture* never skip).
+const pgExec11Capture = new Set([
+    'TestExec11lvLiveRestrictedCaptureFeedsCombine',
+    'TestExec11lvLiveCaptureRejectsForgedAuthPath',
+    'TestExec11lvLiveCaptureCancellationLeavesNothing',
+    'TestExec11lvLiveEvidenceFreeCaptureRefused',
+    'TestExec11lvLiveCombineExecutesAgainstClickHouse',
+    'TestZZPostgresCaptureZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -279,6 +341,7 @@ const external = new Set([
     ...pgExecRootPaging,
     ...pgExec04Preview,
     ...pgExec08RowLineage,
+    ...pgExec07PopulationMapping,
     ...pgExec09CellTrace,
     ...pgExec03PostQuery,
     ...pgExec06Category,
@@ -286,6 +349,7 @@ const external = new Set([
     ...pgIr03PrefixSeam,
     ...pgRuntimeComposition,
     ...pgExec12Exclusions,
+    ...pgExec11Capture,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],

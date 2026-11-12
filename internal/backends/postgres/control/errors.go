@@ -45,6 +45,20 @@ var (
 	ErrManifestAlreadyExists      = datasetstore.ErrManifestAlreadyExists
 	ErrManifestTransitionConflict = datasetstore.ErrManifestTransitionConflict
 	ErrActivationConflict         = datasetstore.ErrActivationConflict
+
+	// Schema-state classification sentinels (pg-runtime-health-readiness):
+	// the readiness verdict distinguishes a schema behind the embedded
+	// history (ErrMigrationPending) and an edited/future/vanished/
+	// out-of-order ledger from connectivity failures, without any consumer
+	// importing the store implementation. These are the same values the
+	// migration runner returns; the probe (Runtime.Readiness) surfaces them
+	// unmodified. ErrInvalidSchemaName (never-created schema) is already
+	// re-exported in vocabulary_control.go.
+	ErrMigrationPending          = pgstore.ErrMigrationPending
+	ErrMigrationChecksumMismatch = pgstore.ErrMigrationChecksumMismatch
+	ErrFutureSchemaVersion       = pgstore.ErrFutureSchemaVersion
+	ErrMigrationMissing          = pgstore.ErrMigrationMissing
+	ErrMigrationOutOfOrder       = pgstore.ErrMigrationOutOfOrder
 )
 
 // Error-translation taxonomy (arch-backend-06): the api/http and server
