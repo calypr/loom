@@ -97,6 +97,29 @@ const pgExec04Preview = new Set([
     'TestPostgresPreviewServerWiringFailClosesPGPlan',
     'TestZZPostgresPreviewServerZeroLeftoverFixtures',
 ]);
+// pg-exec-08: the bounded row-lineage contributor-page live battery (the
+// known-row contributor triples, typed not-found, paging progression,
+// foreign-witness exclusion, and the stored-null contributor-id contract
+// refusal, plus the live stale-receipt statement-count-0 leg) requires the
+// separate PostgreSQL 18 fixture service (LOOM_TEST_POSTGRES_URL), never
+// Arango. It runs against the real PG18 server under the ticket check-2
+// harness (go test ./internal/dataframe/execution -run PostgresRowLineage);
+// in this Arango-only lane their explicit skips stay visible in the proof
+// summary, following the pg-exec-02/#99, pg-exec-04, and pg-exec-05/#123
+// registration precedent. Membership is byte-exact against the offline
+// go test -json skip capture for this package. The offline cells in the
+// same file never skip and are therefore not registered here:
+// TestPostgresRowLineageStaleReceiptClassification runs its stale-receipt
+// classification in every profile, and TestZZPostgresRowLineageZeroLeftover
+// Fixtures returns without a skip when no service was used.
+const pgExec08RowLineage = new Set([
+    'TestPostgresRowLineageKnownRowExplainsContributors',
+    'TestPostgresRowLineageUnknownRowReturnsTypedNotFound',
+    'TestPostgresRowLineagePagingAdvancesWithoutDuplicatesAndStopsAtTerminalPage',
+    'TestPostgresRowLineageForeignWitnessesAreExcluded',
+    'TestPostgresRowLineageMalformedContributorIdentityIsContractError',
+    'TestPostgresRowLineageStaleReceiptRejectsBeforeExecution',
+]);
 // pg-exec-03: the PostgreSQL post-query marker live battery (RawMessage
 // marker flow through the shared materializer, named-UUID computation,
 // three-state values, and the cross-target JSON-null convergence cell)
@@ -167,6 +190,29 @@ const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
+// pg-exec-12: the table-shape exclusion-evidence live battery (exact
+// seven-term evidence, bounded paging, identity omission, the category
+// three-state, cancellation, the renderer-unsupported refusal, the auth
+// scope leg, the no-policy status distinctness leg, and the N-5 census
+// audit) requires the separate PostgreSQL 18 fixture service
+// (LOOM_TEST_POSTGRES_URL), never Arango. They run against the real PG18
+// server under the ticket check-2 harness (go test
+// ./internal/dataframe/execution -run 'TestPostgresExclusions|TestZZPostgresExclusions');
+// in this Arango-only lane their explicit skips stay visible in the proof
+// summary, following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
+// pg-exec-10 registration precedent. All nine cells are parent-level and
+// skip before any fixture write, so no slash-qualified names.
+const pgExec12Exclusions = new Set([
+    'TestPostgresExclusionsExactEvidenceLivePG18',
+    'TestPostgresExclusionsBoundedPagingLivePG18',
+    'TestPostgresExclusionsIdentityOmissionLivePG18',
+    'TestPostgresExclusionsCategoryThreeStateLivePG18',
+    'TestPostgresExclusionsCancellationLivePG18',
+    'TestPostgresExclusionsUnsupportedShapeLivePG18',
+    'TestPostgresExclusionsAuthScopeLivePG18',
+    'TestPostgresExclusionsNoPolicyStatusDistinctLivePG18',
+    'TestZZPostgresExclusionsZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -179,10 +225,12 @@ const external = new Set([
     ...pgExecDispatch,
     ...pgExecRootPaging,
     ...pgExec04Preview,
+    ...pgExec08RowLineage,
     ...pgExec03PostQuery,
     ...pgQueryRoute,
     ...pgIr03PrefixSeam,
     ...pgRuntimeComposition,
+    ...pgExec12Exclusions,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
