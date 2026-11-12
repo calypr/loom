@@ -227,6 +227,35 @@ func sql24ArmBPlan(t *testing.T, column string, offset, limit int) ir.PhysicalPl
 	return sql24AttachTrace(t, output, column, offset, limit)
 }
 
+// sql24ArmBIdentityPlan lowers an arm B output that AUTHORS an Identity, so
+// the real lowering projects __loom_row_id into the final RETURN
+// (lower/recipe_expression_lowering.go appendRecipeIdentity) and the mirror
+// derives the explicit identity beside the ordered parts exactly as the
+// real mint does — the both spelling reaches the renderer through the
+// production chain, not a hand-attachment.
+func sql24ArmBIdentityPlan(t *testing.T, column string, offset, limit int) ir.PhysicalPlan {
+	t.Helper()
+	output := sql24ArmBOutput()
+	output.Identity = &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}}
+	lowered := sql24Lower(t, output)
+	plan := sql24AttachTrace(t, lowered, column, offset, limit)
+	sawRowID := false
+	for _, operation := range lowered.Plan.Operations {
+		if operation.Return == nil {
+			continue
+		}
+		for _, projection := range operation.Return.Projections {
+			if projection.Name == "__loom_row_id" {
+				sawRowID = true
+			}
+		}
+	}
+	if !sawRowID {
+		t.Fatal("authored Identity did not project __loom_row_id into the final RETURN")
+	}
+	return plan
+}
+
 func sql24ArmAPlan(t *testing.T, all bool, offset, limit int) ir.PhysicalPlan {
 	t.Helper()
 	output := sql24Lower(t, sql24ArmAOutput())
@@ -363,6 +392,25 @@ func TestCellTracePostgresRefusesIdentityWithoutParts(t *testing.T) {
 	terminal.ExplicitIdentity = &explicit
 	terminal.IdentityParts = nil
 	sql24Refuse(t, plan, "no ordered identity parts")
+}
+
+// The dual-track side of the hand-attached cell above: the both spelling
+// produced through the real lowering chain (authored Identity → lowering
+// projects __loom_row_id → mirror derives the explicit identity beside the
+// parts), so a mint-to-renderer drift fails here rather than silently.
+func TestCellTracePostgresAuthoredIdentityContract(t *testing.T) {
+	rendered := sql24Render(t, sql24ArmBIdentityPlan(t, "gender", 0, 5))
+	want := sql24WantColumns(ir.PhysicalCellTraceExplicitIdentityField)
+	if strings.Join(rendered.OutputColumns, ",") != strings.Join(want, ",") {
+		t.Fatalf("output columns = %v, want %v", rendered.OutputColumns, want)
+	}
+	if !strings.Contains(rendered.SQL, ` AS "`+ir.PhysicalCellTraceExplicitIdentityField+`"`) {
+		t.Fatalf("authored Identity must publish the explicit contract column:\n%s", rendered.SQL)
+	}
+	if strings.Contains(rendered.SQL, ir.PhysicalCellTraceIdentityPartsField) {
+		t.Fatalf("identity-parts spelling must stay unpublished:\n%s", rendered.SQL)
+	}
+	sql24ContractCells(t, rendered)
 }
 
 func sql24Terminal(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalCellTraceReturn {
@@ -881,6 +929,63 @@ func TestCellTracePostgresLiveRootExtract(t *testing.T) {
 	missing := sql24RowBylogicalID(t, rows, "p-3")
 	if missing.status != "NO_MATCH" || missing.value != "<null>" {
 		t.Fatalf("p-3 (absent gender: SQL NULL, distinct from the recorded JSON null) = %+v", missing)
+	}
+}
+
+// TestCellTracePostgresLiveRootExtractOffsetGate runs the sealed-offset
+// gate against the server: the bigint offset parameter compared to 0
+// inside the flat-SELECT CASE must type-check (next to the statement ORDER
+// BY and window LIMIT), and the AQL-twin law must hold live — offset >= 1
+// over the one-item relation skips the sole candidate, so contributors
+// publish empty while the offset-free candidateCount still reads VALUE and
+// hasMore stays false. The offset-0 twin on the same fixture proves the
+// gate is not merely always-empty.
+func TestCellTracePostgresLiveRootExtractOffsetGate(t *testing.T) {
+	svc := newSQL24Service(t)
+	sql24TrackFixtures(t, svc)
+	sql24Insert(t, svc, "Patient", "p-1", map[string]any{"id": "p-1", "gender": "male"})
+
+	for _, offset := range []int{1, 2} {
+		rows := sql24RunPage(t, svc, sql24ArmBPlan(t, "gender", offset, 5))
+		male := sql24RowBylogicalID(t, rows, "p-1")
+		if male.status != "VALUE" || male.value != `"male"` || male.hasMore != "false" {
+			t.Fatalf("offset %d: candidateCount/status stay offset-free, the LIMIT-2 twin law: %+v", offset, male)
+		}
+		if male.contributions != "[]" {
+			t.Fatalf("offset %d must skip the sole candidate to the empty page (AQL LIMIT @offset twin): %+v", offset, male)
+		}
+	}
+	baseline := sql24RunPage(t, svc, sql24ArmBPlan(t, "gender", 0, 5))
+	male := sql24RowBylogicalID(t, baseline, "p-1")
+	if got := sql24ContributorMembers(t, male.contributions); len(got) != 1 || got[0] != `Patient/"p-1"="male"` {
+		t.Fatalf("offset 0 must publish the self contributor (the gate is not always-empty): %v", got)
+	}
+}
+
+// TestCellTracePostgresLiveAuthoredIdentityPage runs the minted explicit
+// identity through the server: the explicit select member and its
+// renderCellTraceExpression arm execute, and sql24RunPage's contract-named
+// cast follows the published column (the identity-parts spelling never
+// crosses the driver for an authored-Identity output).
+func TestCellTracePostgresLiveAuthoredIdentityPage(t *testing.T) {
+	svc := newSQL24Service(t)
+	sql24TrackFixtures(t, svc)
+	sql24Insert(t, svc, "Patient", "p-1", map[string]any{"id": "p-1", "gender": "male"})
+	sql24Insert(t, svc, "Patient", "p-2", map[string]any{"id": "p-2", "gender": "female"})
+
+	rows := sql24RunPage(t, svc, sql24ArmBIdentityPlan(t, "gender", 0, 5))
+	if len(rows) != 2 {
+		t.Fatalf("two scoped patients: %v", rows)
+	}
+	first := sql24RowBylogicalID(t, rows, "p-1")
+	if first.identity != `"p-1"` {
+		t.Fatalf("p-1 must publish the authored explicit identity through the dispatcher: %+v", first)
+	}
+	if first.status != "VALUE" || first.value != `"male"` {
+		t.Fatalf("p-1 evidence = %+v", first)
+	}
+	if got := sql24ContributorMembers(t, first.contributions); len(got) != 1 || got[0] != `Patient/"p-1"="male"` {
+		t.Fatalf("p-1 contributors = %v", got)
 	}
 }
 

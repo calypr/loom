@@ -144,9 +144,12 @@ package postgres
 //     lookahead); any other spelling is a plan defect, refused before
 //     rendering.
 //   - terminal seal: no omission code (only the refused lineages mint one);
-//     identity is either one explicit expression or at least one part,
-//     never both and never neither; every identity part is a string bind,
-//     a resolvable row value, or an unPrepared selector EXTRACT.
+//     identity carries at least one ordered part — the mint mints the parts
+//     first and the IR validator admits no parts-less terminal — and may
+//     carry one explicit expression beside them, which then publishes as
+//     the contract column (the mint never produces it alone); every identity
+//     part is a string bind, a resolvable row value, or an unPrepared
+//     selector EXTRACT.
 
 import (
 	"fmt"

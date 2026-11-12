@@ -812,6 +812,47 @@ func TestCompileCellTracePostgreSQLRootExtract(t *testing.T) {
 	}
 }
 
+// The real-mint both spelling, produced end to end rather than hand-
+// attached: an inline output that authors an Identity projects
+// __loom_row_id into the final RETURN (lower/recipe_expression_lowering.go
+// appendRecipeIdentity), so the real mint finalPopulationMappingIdentity
+// (compiler/population_mapping.go) attaches it beside the ordered parts,
+// and cellTraceQuery names the explicit contract column. This pins the
+// whole mint-to-contract chain on the PostgreSQL target: the renderer must
+// publish the explicit spelling, and the identity-parts name must not
+// appear in the statement.
+func TestCompileCellTracePostgreSQLAuthoredIdentityMintsExplicitColumn(t *testing.T) {
+	output := sql24PostgreSQLOutput()
+	output.Identity = &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}}
+	root := compilePopulationMappingOutput(t, output)
+	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), root, "gender", 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("authored-identity cell trace must compile on the PostgreSQL target: %v", err)
+	}
+	if compiled.ExplicitIdentityColumn != ir.PhysicalCellTraceExplicitIdentityField || compiled.IdentityPartsColumn != "" {
+		t.Fatalf("contract columns = (%q, %q), want the explicit identity named by the mint",
+			compiled.ExplicitIdentityColumn, compiled.IdentityPartsColumn)
+	}
+	sqlText, _ := sql24PostgresSQL(t, compiled)
+	if !strings.Contains(sqlText, ` AS "`+ir.PhysicalCellTraceExplicitIdentityField+`"`) {
+		t.Fatalf("the minted explicit identity must publish as its contract column:\n%s", sqlText)
+	}
+	if strings.Contains(sqlText, ir.PhysicalCellTraceIdentityPartsField) {
+		t.Fatalf("the identity-parts spelling must stay unpublished under the mint's pick law:\n%s", sqlText)
+	}
+	// The real mint kept the ordered parts beside the explicit identity:
+	// the terminal is the both state, not an explicit-only forgery.
+	terminalSeen := false
+	for _, operation := range root.Plan.Operations {
+		if operation.Kind == ir.PhysicalCellTraceReturnOp {
+			terminalSeen = true
+		}
+	}
+	if terminalSeen {
+		t.Fatal("compiling the trace must not mutate the canonical plan")
+	}
+}
+
 func terminalIndexOf(t *testing.T, plan ir.PhysicalPlan) int {
 	t.Helper()
 	for _, operation := range plan.Operations {
