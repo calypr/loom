@@ -747,6 +747,9 @@ func TestRowLineageLivePaging(t *testing.T) {
 	svc.insertResource(t, svc.schema, group13Project, group13Generation, "Observation", "w-denied", "FHIR/Hidden", sql23Payload("w-denied", "final"))
 	svc.insertResource(t, svc.schema, group13Project, "p23-old-gen", "Observation", "w-oldgen", group13AuthPath, sql23Payload("w-oldgen", "final"))
 	svc.insertResource(t, svc.schema, "p23-foreign", group13Generation, "Observation", "w-foreign", group13AuthPath, sql23Payload("w-foreign", "final"))
+	// A same-scope row of another resource type: dropping the resource-type
+	// predicate would let it into both the keyed group and the keyless page.
+	svc.insertResource(t, svc.schema, group13Project, group13Generation, "Patient", "w-patient", group13AuthPath, sql23Payload("w-patient", "final"))
 
 	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
 	identity := sql23PreviewIdentity(t, svc, plan, "final")
@@ -788,11 +791,66 @@ func TestRowLineageLivePaging(t *testing.T) {
 	}
 
 	// Keyless-group witness: the whole-population group covers exactly the
-	// five in-scope rows (the out-of-scope witnesses never contribute).
+	// five in-scope rows — the auth-path, generation, project, and
+	// resource-type witnesses never contribute.
 	if _, _, all := sql23RunPage(t, svc, sql23AttachTerminal(t,
 		group13KeylessPlan(t), group13Identity(t, group13KeylessPlan(t), nil), 0, 100)); len(all) != 5 {
 		t.Fatalf("keyless page must hold exactly the in-scope rows: %v", all)
 	}
+}
+
+// TestRowLineageLiveCollationOrder pins the byte order of the page. The
+// service database collates en_US.utf8, so "C" is a real difference, not a
+// no-op: the four keys below order k-B,k-C,k-a,k-b in "C" but k-a,k-b,k-B,k-C
+// under the database default. The published order is set by the aggregate's
+// own COLLATE "C"; which rows reach the published window is set by the page
+// relation's COLLATE "C" before its OFFSET/LIMIT, so a page order that fell
+// back to the database collation publishes a different MEMBER SET, not just a
+// different sequence.
+func TestRowLineageLiveCollationOrder(t *testing.T) {
+	svc := newSQL23Service(t)
+	sql23TrackFixtures(t, svc)
+	for _, id := range []string{"k-B", "k-C", "k-a", "k-b"} {
+		sql23Insert(t, svc, id, sql23Payload(id, "case"))
+	}
+
+	plan := group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup)
+	identity := sql23PreviewIdentity(t, svc, plan, "case")
+
+	cases := []struct {
+		offset, limit int
+		want          []string
+		hasMore       string
+	}{
+		// The limit-1 window is the membership check: "C" reaches the page
+		// with k-B and k-C, the database collation would reach it with k-a
+		// and k-b.
+		{0, 1, []string{"k-B"}, "true"},
+		{0, 2, []string{"k-B", "k-C"}, "true"},
+		{1, 1, []string{"k-C"}, "true"},
+		{0, 4, []string{"k-B", "k-C", "k-a", "k-b"}, "false"},
+	}
+	for _, testCase := range cases {
+		found, hasMore, contributors := sql23RunPage(t, svc,
+			sql23AttachTerminal(t, plan, identity, testCase.offset, testCase.limit))
+		if found != "true" {
+			t.Fatalf("collation page not found: offset %d limit %d", testCase.offset, testCase.limit)
+		}
+		if hasMore != testCase.hasMore {
+			t.Fatalf("offset %d limit %d: hasMore = %s, want %s", testCase.offset, testCase.limit, hasMore, testCase.hasMore)
+		}
+		if got := strings.Join(contributors, "|"); got != strings.Join(cellsOf(testCase.want), "|") {
+			t.Fatalf("offset %d limit %d: collation order\n got %v\nwant %v", testCase.offset, testCase.limit, contributors, testCase.want)
+		}
+	}
+}
+
+func cellsOf(ids []string) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = sql23ContributorCell("Observation", `"`+id+`"`, id)
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
