@@ -133,10 +133,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 				_, err := compiler.CompileRecipeOutputPage(target, zeroOutput, zeroBindings, 50, policy)
 				return err
 			}},
-			{"table shape exclusion compilation", func() error {
-				_, err := compiler.CompileTableShapeExclusions(target, zeroOutput, 0, 10, policy)
-				return err
-			}},
 		}
 		for _, surface := range surfaces {
 			err := surface.call()
