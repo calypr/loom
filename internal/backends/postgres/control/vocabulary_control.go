@@ -13,9 +13,15 @@ package control
 
 import (
 	catalogstore "github.com/calypr/loom/internal/backends/postgres/internal/catalog"
+	chartifactstore "github.com/calypr/loom/internal/backends/postgres/internal/chartifact"
 	datasetstore "github.com/calypr/loom/internal/backends/postgres/internal/dataset"
 	explorerstore "github.com/calypr/loom/internal/backends/postgres/internal/explorer"
+	publicationstore "github.com/calypr/loom/internal/backends/postgres/internal/publication"
+	recipeexecstore "github.com/calypr/loom/internal/backends/postgres/internal/recipeexec"
+	recipesstore "github.com/calypr/loom/internal/backends/postgres/internal/recipes"
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
+
+	publicationcontract "github.com/calypr/loom/internal/dataset"
 )
 
 // Batch conflict identities: sentinel chains and the typed errors that
@@ -145,4 +151,65 @@ func NewExplorerStore(client *Client, schema string) (*ExplorerStore, error) {
 
 func NewExplicitGroupStore(client *Client, schema string) (*ExplicitGroupStore, error) {
 	return explorerstore.NewExplicitGroupStore(client, schema)
+}
+
+// Data-plane adapters (pg-runtime-server-composition). The composed server
+// consumes these through control.Runtime fields; the types and constructors
+// are re-exported so witnesses and fixtures can name them and establish
+// publication, recipe, interpretation, or Explorer state directly over a
+// ConnSource without importing the private packages.
+type (
+	PublishStore              = explorerstore.PublishStore
+	InterpretationStore       = explorerstore.InterpretationStore
+	CapabilitySnapshotStore   = explorerstore.CapabilitySnapshotStore
+	TableShapeCapabilityStore = explorerstore.TableShapeCapabilityStore
+	DatasetReleaseStore       = datasetstore.ReleaseStore
+	BundleCatalog             = publicationstore.BundleCatalog
+	BundleRegistry            = publicationstore.Registry
+	BundleReadPins            = publicationstore.ReadPins
+	PublicationReconciler     = publicationstore.Reconciler
+	PhysicalDropTable         = publicationstore.PhysicalDropTable
+	RecipeExecRegistry        = recipeexecstore.Registry
+	RecipeRevisionRegistry    = recipesstore.RevisionRegistry
+	ChartifactCatalog         = chartifactstore.Catalog
+)
+
+func NewPublishStore(client *Client, explorerSchema, datasetSchema string) (*PublishStore, error) {
+	return explorerstore.NewPublishStore(client, explorerSchema, datasetSchema)
+}
+
+func NewInterpretationStore(client *Client, schema string) (*InterpretationStore, error) {
+	return explorerstore.NewInterpretationStore(client, schema)
+}
+
+func NewCapabilitySnapshotStore(client *Client, schema string) (*CapabilitySnapshotStore, error) {
+	return explorerstore.NewCapabilitySnapshotStore(client, schema)
+}
+
+func NewTableShapeCapabilityStore(client *Client, schema string) (*TableShapeCapabilityStore, error) {
+	return explorerstore.NewTableShapeCapabilityStore(client, schema)
+}
+
+func NewDatasetReleaseStore(src ConnSource, schema string) (*DatasetReleaseStore, error) {
+	return datasetstore.NewReleaseStore(src, schema)
+}
+
+func NewBundleCatalog(client *Client, schema string) (*BundleCatalog, error) {
+	return publicationstore.NewBundleCatalog(&leasedDB{client: client}, schema)
+}
+
+func NewPublicationReconciler(registry *BundleRegistry, pins *BundleReadPins, releases publicationcontract.ActiveReleaseResolver) (*PublicationReconciler, error) {
+	return publicationstore.NewReconciler(registry, pins, releases)
+}
+
+func NewRecipeExecRegistry(client *Client, schema string) (*RecipeExecRegistry, error) {
+	return recipeexecstore.New(&leasedDB{client: client}, schema)
+}
+
+func NewRecipeRevisionRegistry(client *Client, schema string) (*RecipeRevisionRegistry, error) {
+	return recipesstore.New(&leasedDB{client: client}, schema)
+}
+
+func NewChartifactCatalog(client *Client, schema string) (*ChartifactCatalog, error) {
+	return chartifactstore.NewCatalog(&leasedDB{client: client}, schema)
 }
