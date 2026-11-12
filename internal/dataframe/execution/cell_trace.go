@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
@@ -122,9 +123,71 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 		return CellTraceResult{}, fmt.Errorf("cell trace query is missing typed result columns")
 	}
 
+	// pg-exec-09: exhaustive backend dispatch over the tagged command, keyed
+	// the same way category scans (pg-exec-06) and table-shape exclusions
+	// (pg-exec-12) dispatch. The AQL arm below stays byte-identical to the
+	// pre-dispatch executor, including its contract-free row request and its
+	// native-shape parsers; the PostgreSQL arm carries the registered
+	// renderer's sealed six-column contract so the row adapter can enforce
+	// statement field descriptions before the first row is visited, and
+	// decodes the adapter's raw-JSON column shapes. An unregistered or zero
+	// tag is refused by name before any port call. SQL generation stays in
+	// the pg-sql-24 renderer; this switch executes what it compiles.
+	dialect := cellTraceAQLDialect
+	var declaredColumns []string
+	switch compiled.Command.Backend() {
+	case command.CompiledBackendPostgreSQL:
+		identityColumn := compiled.IdentityPartsColumn
+		if compiled.ExplicitIdentityColumn != "" {
+			identityColumn = compiled.ExplicitIdentityColumn
+		}
+		// The contract is the sealed renderer order
+		// (render/postgres/cell_trace.go outputColumns): value, contributions,
+		// identity (parts or explicit, the same pick law cellTraceRowIdentity
+		// applies), status, hasMore, omission. A duplicated name would make the
+		// adapter's positional check meaningless, so the contract must also be
+		// pairwise distinct — the row-lineage declared-contract law.
+		declaredColumns = []string{compiled.ValueColumn, compiled.ContributionsColumn, identityColumn,
+			compiled.StatusColumn, compiled.HasMoreColumn, compiled.OmissionColumn}
+		for i := range declaredColumns {
+			for j := i + 1; j < len(declaredColumns); j++ {
+				if declaredColumns[i] == declaredColumns[j] {
+					return CellTraceResult{}, fmt.Errorf("cell trace query is missing typed result columns")
+				}
+			}
+		}
+		dialect = cellTracePostgreSQLDialect
+	case command.CompiledBackendAQL:
+	default:
+		return CellTraceResult{}, fmt.Errorf("%w: cell trace command backend %q is not registered",
+			command.ErrCompiledCommandBackendNotRegistered, compiled.Command.Backend())
+	}
+	return e.scanCellTraceEvidence(ctx, compiled, request, rowID, column, maxWitness, declaredColumns, dialect)
+}
+
+// cellTraceDialect carries the per-backend row decode law over the shared
+// witness-bound scan. The AQL codec is today's parser verbatim; the
+// PostgreSQL codec decodes the adapter's raw-JSON column shapes and then
+// re-enters the same identity-digest and contribution validation, so both
+// dialects converge on one published evidence contract.
+type cellTraceDialect struct {
+	identity func(compiler.CompiledCellTraceQuery, map[string]any) (string, error)
+	parse    func(compiler.CompiledCellTraceQuery, CellTraceRequest, map[string]any) (CellTraceResult, error)
+}
+
+var cellTraceAQLDialect = cellTraceDialect{identity: cellTraceRowIdentity, parse: parseCellTraceRow}
+
+var cellTracePostgreSQLDialect = cellTraceDialect{identity: cellTracePostgreSQLIdentity, parse: parseCellTracePostgreSQLRow}
+
+// scanCellTraceEvidence is the shared witness-bound scan the dispatch above
+// reaches with the selected dialect: the one row port call, the witness-row
+// cap, the identity match, and the incomplete/failure/not-found epilogue are
+// dialect-neutral. declaredColumns is nil on the AQL arm, reproducing today's
+// contract-free request byte for byte.
+func (e *Engine) scanCellTraceEvidence(ctx context.Context, compiled compiler.CompiledCellTraceQuery, request CellTraceRequest, rowID, column string, maxWitness int64, declaredColumns []string, dialect cellTraceDialect) (CellTraceResult, error) {
 	var result CellTraceResult
 	witnessRows := int64(0)
-	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
+	err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, DeclaredColumns: declaredColumns, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -132,14 +195,14 @@ func (e *Engine) cellTraceCompiled(ctx context.Context, compiled compiler.Compil
 		if witnessRows > maxWitness {
 			return errCellTraceWitnessLimit
 		}
-		identity, identityErr := cellTraceRowIdentity(compiled, row)
+		identity, identityErr := dialect.identity(compiled, row)
 		if identityErr != nil {
 			return identityErr
 		}
 		if identity != rowID {
 			return nil
 		}
-		parsed, parseErr := parseCellTraceRow(compiled, request, row)
+		parsed, parseErr := dialect.parse(compiled, request, row)
 		if parseErr != nil {
 			return parseErr
 		}
@@ -185,7 +248,20 @@ func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]
 		return fmt.Sprint(value), nil
 	}
 	parts, ok := row[query.IdentityPartsColumn].([]any)
-	if !ok || query.RowIdentity == nil || len(parts) == 0 || len(parts) != len(query.RowIdentity.Fields) {
+	if !ok {
+		return "", fmt.Errorf("cell trace row has an invalid default identity shape")
+	}
+	return cellTraceIdentityPartsDigest(parts, query)
+}
+
+// cellTraceIdentityPartsDigest applies the shared default-identity law: the
+// ordered parts must match the compiled RowIdentity field list, carry no
+// null, and hash over their canonical JSON encoding — byte-for-byte the law
+// ensureStableRowIdentity uses to mint the preview's published __loom_row_id,
+// so a preview-published ID resolves on either dialect once the adapter's
+// column shapes are decoded to the same natives.
+func cellTraceIdentityPartsDigest(parts []any, query compiler.CompiledCellTraceQuery) (string, error) {
+	if query.RowIdentity == nil || len(parts) == 0 || len(parts) != len(query.RowIdentity.Fields) {
 		return "", fmt.Errorf("cell trace row has an invalid default identity shape")
 	}
 	for _, part := range parts {
@@ -199,6 +275,83 @@ func cellTraceRowIdentity(query compiler.CompiledCellTraceQuery, row map[string]
 	}
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:]), nil
+}
+
+// cellTracePostgreSQLIdentity resolves the identity of one published row on
+// the PostgreSQL arm. The adapter delivers jsonb columns as raw JSON bytes
+// (decodeColumn), so the identity-parts array and the explicit identity
+// scalar/object arrive as json.RawMessage; both are decoded to natives
+// BEFORE the shared digest/normalization law so digests converge with the
+// preview side. The dual tolerance ([]any as well) keeps the pg-sql-24
+// convergence contract — a PostgreSQL-tagged command served AQL-shaped rows
+// through the shared port — byte-verbatim green.
+func cellTracePostgreSQLIdentity(query compiler.CompiledCellTraceQuery, row map[string]any) (string, error) {
+	if query.ExplicitIdentityColumn != "" {
+		value, ok := row[query.ExplicitIdentityColumn]
+		if raw, isRaw := value.(json.RawMessage); isRaw {
+			decoded, err := decodePostgreSQLCellTraceJSON(raw)
+			if err != nil {
+				return "", fmt.Errorf("cell trace row has an invalid explicit identity: %w", err)
+			}
+			value, ok = decoded, true
+		}
+		if !ok || value == nil {
+			return "", fmt.Errorf("cell trace row has an invalid explicit identity")
+		}
+		if query.ExplicitIdentityObject {
+			return canonicalCellTraceObjectValue(value)
+		}
+		if strings.TrimSpace(fmt.Sprint(value)) == "" {
+			return "", fmt.Errorf("cell trace row has an invalid explicit identity")
+		}
+		return fmt.Sprint(value), nil
+	}
+	parts, err := cellTracePostgreSQLJSONParts(row[query.IdentityPartsColumn])
+	if err != nil {
+		return "", fmt.Errorf("cell trace row has an invalid default identity shape")
+	}
+	return cellTraceIdentityPartsDigest(parts, query)
+}
+
+// cellTracePostgreSQLJSONParts reads one published jsonb array column
+// (identity parts or the contributor page). The registered renderer always
+// COALESCEs these pages to a JSON array — jsonb_build_array / '[]'::jsonb —
+// so SQL NULL, empty bytes, malformed JSON, the JSON null scalar, and any
+// non-array value are contract violations refused fail-closed with no value,
+// never a silent empty page (the row-lineage contributor-page law). A native
+// []any is tolerated because the convergence contract serves adapter-free
+// rows through the same port.
+func cellTracePostgreSQLJSONParts(value any) ([]any, error) {
+	switch typed := value.(type) {
+	case []any:
+		return typed, nil
+	case json.RawMessage:
+		decoded, err := decodePostgreSQLCellTraceJSON(typed)
+		if err != nil {
+			return nil, err
+		}
+		items, ok := decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("cell trace row carries a non-array JSON value where an array page is published")
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("cell trace row is missing its published JSON array")
+	}
+}
+
+// decodePostgreSQLCellTraceJSON fail-closes one adapter-delivered raw JSON
+// column: empty or malformed bytes are a typed error, never a silent nil.
+// A stored JSON null scalar legitimately decodes to Go nil.
+func decodePostgreSQLCellTraceJSON(raw json.RawMessage) (any, error) {
+	if len(raw) == 0 || !json.Valid(raw) {
+		return nil, fmt.Errorf("cell trace row carries invalid raw JSON bytes")
+	}
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, fmt.Errorf("cell trace row carries invalid raw JSON bytes: %w", err)
+	}
+	return decoded, nil
 }
 
 // The compiler publishes a singleton __loom_row_id for composed cohort
@@ -288,6 +441,50 @@ func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceR
 	}, nil
 }
 
+// parseCellTracePostgreSQLRow parses the identity-matched row on the
+// PostgreSQL arm. Status/hasMore/omission are plain text/boolean columns the
+// adapter already delivers as natives, matching the AQL reads exactly. The
+// contributor page is a jsonb array (fail-closed through the published-array
+// law — a SQL NULL page is refused, the renderer COALESCEs it to '[]'). The
+// value column keeps the cross-backend three-state contract: SQL NULL stays
+// nil (a missing traced scalar — the status column is the authority), a
+// stored JSON value (including the JSON null scalar) decodes fail-closed
+// through encoding/json exactly as the Arango driver path delivers it, and
+// adapter-free natives pass through for the convergence contract.
+func parseCellTracePostgreSQLRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
+	status, ok := row[query.StatusColumn].(string)
+	if !ok || !validCellTraceStatus(CellTraceStatus(status)) {
+		return CellTraceResult{}, fmt.Errorf("cell trace row has an invalid status")
+	}
+	items, err := cellTracePostgreSQLJSONParts(row[query.ContributionsColumn])
+	if err != nil {
+		return CellTraceResult{}, fmt.Errorf("cell trace row has invalid contributions: %w", err)
+	}
+	contributions, err := cellTraceContributionsFromItems(items)
+	if err != nil {
+		return CellTraceResult{}, err
+	}
+	value := row[query.ValueColumn]
+	if raw, isRaw := value.(json.RawMessage); isRaw {
+		decoded, decodeErr := decodePostgreSQLCellTraceJSON(raw)
+		if decodeErr != nil {
+			return CellTraceResult{}, fmt.Errorf("cell trace row has an invalid traced value: %w", decodeErr)
+		}
+		value = decoded
+	}
+	hasMore, _ := row[query.HasMoreColumn].(bool)
+	omission, _ := row[query.OmissionColumn].(string)
+	nextOffset := 0
+	if hasMore {
+		nextOffset = request.Offset + len(contributions)
+	}
+	return CellTraceResult{
+		RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column), Value: value,
+		Status: CellTraceStatus(status), Contributions: contributions, HasMore: hasMore, NextOffset: nextOffset,
+		OmissionCode: omission, Complete: true,
+	}, nil
+}
+
 func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {
 	if value == nil {
 		return []CellTraceContribution{}, nil
@@ -296,6 +493,13 @@ func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {
 	if !ok {
 		return nil, fmt.Errorf("cell trace row has invalid contributions")
 	}
+	return cellTraceContributionsFromItems(items)
+}
+
+// cellTraceContributionsFromItems is the shared per-contribution validation
+// both dialects re-enter after their page decode, so provenance fields and
+// null-value retention are one law, not two.
+func cellTraceContributionsFromItems(items []any) ([]CellTraceContribution, error) {
 	result := make([]CellTraceContribution, 0, len(items))
 	for _, item := range items {
 		object, ok := item.(map[string]any)
