@@ -3,7 +3,6 @@ package execution
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 // CompiledQueryFingerprint returns a deterministic, value-safe identifier for
@@ -160,11 +160,13 @@ func previewPlanFingerprint(query compiler.CompiledQuery, stream OutputStream) s
 // the happy path) yields the empty fingerprint; on the compile-only Explain
 // path nothing else ever dispatches the command, so without this gate a
 // defect would surface as an empty public planFingerprint with a nil error.
-// A ClickHouse combine preview's digest reaches the projection through
+// The refusal is typed INTERNAL_ERROR, not retryable: it names a
+// compiled-command defect, never a caller fault or a backend condition. A
+// ClickHouse combine preview's digest reaches the projection through
 // validatePreviewPlan's non-empty admission check; this gate covers it too.
 func requireProjectedPlanFingerprint(output string, fingerprint string) error {
 	if strings.TrimSpace(fingerprint) == "" {
-		return fmt.Errorf("output %q: compiled command carries no dispatchable payload for its diagnostic plan fingerprint", output)
+		return dataframeerrors.NewError(dataframeerrors.CodeInternalError, "compiled command for output "+output+" carries no dispatchable payload for its diagnostic plan fingerprint", dataframeerrors.WithRetryable(false))
 	}
 	return nil
 }

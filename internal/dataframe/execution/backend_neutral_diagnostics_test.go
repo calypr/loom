@@ -10,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
+	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
 // TestBackendNeutralDiagnosticsAndPlanIdentity is the cross-backend witness
@@ -423,6 +424,12 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "resources") || !strings.Contains(err.Error(), "fingerprint") {
 				t.Fatalf("the gate error must name the output and the field: %v", err)
+			}
+			// The refusal is typed and non-retryable: a compiled-command
+			// defect, never a caller fault the transport may retry.
+			userErr, typed := dataframeerrors.AsUserError(err)
+			if !typed || userErr.Code() != string(dataframeerrors.CodeInternalError) || userErr.Retryable() {
+				t.Fatalf("the gate must refuse with typed non-retryable INTERNAL_ERROR, got typed=%v err=%v", typed, err)
 			}
 		}
 		// The compile-only Explain path is dispatch-free for a PG-tagged

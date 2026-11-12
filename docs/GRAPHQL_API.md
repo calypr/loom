@@ -58,6 +58,15 @@ mutation RunDataframe($input: FhirDataframeInput!, $limit: Int) {
 }
 ```
 
+`sourceQueryMs` is the backend-neutral source cursor interval for whichever
+backend serves the query. `arangoQueryMs` remains only as a legacy
+compatibility projection: it equals `sourceQueryMs` for AQL-served requests
+and is a literal `0` for PostgreSQL-served requests. Note the PostgreSQL
+semantics change: before `sourceQueryMs` existed, PostgreSQL answers carried
+the PostgreSQL cursor time in `arangoQueryMs`; consumers that read that field
+on the PostgreSQL lane must switch to `sourceQueryMs`, which measures the
+same cursor interval on both backends.
+
 ```json
 {
   "limit": 100,
