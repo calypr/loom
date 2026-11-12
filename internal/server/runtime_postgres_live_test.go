@@ -91,6 +91,7 @@ var pgCompMintInventory = map[string]int{
 	// pg-runtime-health-readiness legs (each mints one database).
 	"TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware": 1,
 	"TestPostgresRuntimeReadinessReportsNeverMigratedSchema":        1,
+	"TestPostgresRuntimeReadinessReportsMissingSchema":              1,
 	"TestPostgresRuntimeVerifySchemaIsReadOnly":                     1,
 }
 
@@ -644,6 +645,7 @@ func TestPostgresRuntimeServerLoadRouteServesEndToEnd(t *testing.T) {
 // yields not_ready with a safe core_state token that flips back the moment
 // the ledger is repaired (/readyz is uncached).
 func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware")
 	fixture := newPgCompFixture(t)
 	fixture.migrate(t)
 
@@ -791,6 +793,7 @@ func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T)
 // connectivity_down and a ledger that disagrees, and the pool never leaks
 // the credential-bearing error text into the body.
 func TestPostgresRuntimeReadinessReportsNeverMigratedSchema(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeReadinessReportsNeverMigratedSchema")
 	fixture := newPgCompFixture(t) // schemas created, never migrated
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -832,6 +835,7 @@ func TestPostgresRuntimeReadinessReportsNeverMigratedSchema(t *testing.T) {
 // byte-identical across the call. The lock-free half is pinned offline in
 // the store package (TestVerifyIsReadOnlyAndLockFree).
 func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeVerifySchemaIsReadOnly")
 	fixture := newPgCompFixture(t)
 	fixture.migrate(t)
 
@@ -914,6 +918,57 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestPostgresRuntimeReadinessReportsMissingSchema is the F1 regression
+// cell (verifier finding: the schema_missing token was unreachable
+// because the facade ErrInvalidSchemaName aliased a duplicate dataset
+// errors.New while the probe emits the store identity). It points ONE
+// non-source series -- recipe_exec_registries, exercising that series'
+// VerifySchema wrapper chain, not the source shortcut -- at a
+// never-created schema: compose survives (Health is version-only), the
+// uncached /readyz answers 503 core=not_ready core_state=schema_missing,
+// distinguishable from connectivity_down on a pool that is demonstrably
+// answering, and /livez stays DB-free.
+func TestPostgresRuntimeReadinessReportsMissingSchema(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeReadinessReportsMissingSchema")
+	fixture := newPgCompFixture(t)
+	fixture.migrate(t)
+
+	cfg := pgCompBootConfig(t, fixture, "127.0.0.1:0")
+	// Well-formed name the fixture deliberately never created.
+	cfg.Server.PostgreSQL.Schemas[string(backendspostgres.SeriesRecipeExecRegistries)] =
+		fmt.Sprintf(pgCompSchemaFmt, time.Now().UnixNano(), pgCompRandomHex(t), "exec_missing")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, cfg, logger)
+	if err != nil {
+		t.Fatalf("compose over one never-created schema placement (open is version-only): %s", fixture.scrub(err))
+	}
+	defer func() {
+		if err := closeRuntime(); err != nil {
+			t.Errorf("close missing-schema runtime: %s", fixture.scrub(err))
+		}
+	}()
+	app := server.App()
+
+	response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+	pgCompAssertNoLaneLeak(t, fixture, "missing-schema readyz", response.Body)
+	if response.StatusCode != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body, `"core":"not_ready"`) ||
+		!strings.Contains(response.Body, `"core_state":"schema_missing"`) {
+		t.Fatalf("never-created-schema readiness = %d %s; want 503 core=not_ready core_state=schema_missing (F1: this token was unreachable while the facade aliased a duplicate sentinel)",
+			response.StatusCode, fixture.scrub(response.Body))
+	}
+	if strings.Contains(strings.ToLower(response.Body), "password") || strings.Contains(response.Body, fixture.dsn) {
+		t.Fatalf("readiness body leaked connection material: %s", fixture.scrub(response.Body))
+	}
+	live := requestJSON(t, app, http.MethodGet, "/livez", "")
+	if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
+		t.Fatalf("livez on a missing-schema placement = %d %s; liveness is dependency-free", live.StatusCode, fixture.scrub(live.Body))
 	}
 }
 

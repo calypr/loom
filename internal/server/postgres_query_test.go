@@ -941,6 +941,7 @@ func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testi
 // production handler stack while /readyz refuses with core=not_ready and
 // the safe core_state=runtime_closed token.
 func TestPostgreSQLFirstQueryRouteLivenessAndReadiness(t *testing.T) {
+	markReadinessLeg(t, "TestPostgreSQLFirstQueryRouteLivenessAndReadiness")
 	fixture := newQRouteFixture(t)
 	catalog := fixture.migrate(t)
 	_ = catalog.Close()

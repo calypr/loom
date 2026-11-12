@@ -104,6 +104,7 @@ func callsSelector(node ast.Node, recv, name string) bool {
 // gains no classifier (its body shape is pinned in httpapi's
 // TestReadinessWithoutClassifierKeepsPublishedBodies).
 func TestHealthWiringPerCompositionArm(t *testing.T) {
+	markReadinessLeg(t, "TestHealthWiringPerCompositionArm")
 	for _, arm := range []struct {
 		file, funcName       string
 		coreRecv, coreMethod string
@@ -152,6 +153,7 @@ func TestHealthWiringPerCompositionArm(t *testing.T) {
 // complete over the backend's sentinel taxonomy, and a cause whose text
 // carries connection material can only ever reach clients as a token.
 func TestPostgreSQLCoreReadinessStateClassification(t *testing.T) {
+	markReadinessLeg(t, "TestPostgreSQLCoreReadinessStateClassification")
 	for _, tt := range []struct {
 		name string
 		err  error
