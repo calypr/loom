@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	catalogstore "github.com/calypr/loom/internal/backends/postgres/internal/catalog"
+	chartifactstore "github.com/calypr/loom/internal/backends/postgres/internal/chartifact"
 	datasetstore "github.com/calypr/loom/internal/backends/postgres/internal/dataset"
 	explorerstore "github.com/calypr/loom/internal/backends/postgres/internal/explorer"
 	publicationstore "github.com/calypr/loom/internal/backends/postgres/internal/publication"
@@ -18,6 +19,8 @@ import (
 	recipesstore "github.com/calypr/loom/internal/backends/postgres/internal/recipes"
 	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/catalog"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/calypr/loom/internal/backends/postgres/internal/redact"
 
@@ -59,6 +62,40 @@ type Runtime struct {
 	Inventory     catalog.InventoryRebuilder
 	Relationships catalog.RelationshipDiscoverer
 	Contributions catalog.SemanticContributor
+	// Catalog is the full catalog store over the source series: the value
+	// behind the four narrow evidence ports above, and additionally the
+	// semantic-inventory read lane (PageSemanticInventory,
+	// ResolveSemanticInventorySelections) and the capability-evidence reads
+	// (DiscoverResourceInventory, DiscoverRelationshipObservations,
+	// DiscoverFieldEnrichment) the Explorer capability resolver consumes.
+	Catalog *catalogstore.Store
+	// Releases is the dataset release repository (save, read-active,
+	// compare-and-swap activate) over the dataset_release series.
+	Releases *datasetstore.ReleaseStore
+	// SemanticReads is the semantic-inventory read lane over the source
+	// series (PageSemanticInventory, ResolveSemanticInventorySelections)
+	// consumed by the Explorer authoring compile path.
+	SemanticReads *catalogstore.SemanticReadRepository
+
+	// Data-plane ports (pg-runtime-server-composition). Each is assembled
+	// only when its owning series is assigned in Config; a consumer that
+	// needs an unassigned port treats the nil as a configuration refusal,
+	// never a silent zero value. The Explorer family is hosted by
+	// explorer_control; Publish crosses into dataset_release (it moves the
+	// active project release pointer) and is assembled only when both are
+	// assigned. Bundles and Chartifacts are hosted by the publication_control
+	// ledger; RecipeRevisions by recipe_chains; RecipeExecutions by
+	// recipe_exec_registries.
+	Explorer            *explorerstore.Store
+	Publish             *explorerstore.PublishStore
+	Interpretations     *explorerstore.InterpretationStore
+	ExplicitGroups      *explorerstore.ExplicitGroupStore
+	CapabilitySnapshots *explorerstore.CapabilitySnapshotStore
+	TableShapes         *explorerstore.TableShapeCapabilityStore
+	Bundles             *publicationstore.BundleCatalog
+	Chartifacts         *chartifactstore.Catalog
+	RecipeRevisions     *recipesstore.RevisionRegistry
+	RecipeExecutions    *recipeexecstore.Registry
 
 	client        *pgstore.Client
 	sourceSchema  string
@@ -123,6 +160,10 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 	if err := rt.assembleControlPorts(cfg); err != nil {
+		rt.Close()
+		return nil, err
+	}
+	if err := rt.assembleDataPlanePorts(cfg); err != nil {
 		rt.Close()
 		return nil, err
 	}
@@ -200,6 +241,7 @@ func (r *Runtime) assembleControlPorts(cfg Config) error {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble inventory store in %q", schema), err, password)
 	}
 	r.Inventory = inventory
+	r.Catalog = inventory
 	relationshipsRepo, err := catalogstore.NewRelationshipEvidenceRepository(r.client, schema)
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble relationship evidence repository in %q", schema), err, password)
@@ -214,7 +256,191 @@ func (r *Runtime) assembleControlPorts(cfg Config) error {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble semantic contribution repository in %q", schema), err, password)
 	}
 	r.Contributions = contributions
+	semanticReads, err := catalogstore.NewSemanticReadRepository(r.client, schema)
+	if err != nil {
+		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble semantic read repository in %q", schema), err, password)
+	}
+	r.SemanticReads = semanticReads
 	return nil
+}
+
+// leasedDB presents the runtime's one readiness-gated pool through the
+// structural Exec/Query/QueryRow/Begin contract that the publication,
+// recipe-chain, recipe-execution, and private-artifact constructors require.
+// It is deliberately behaviorally identical to the *pgxpool.Pool method set
+// those constructors accept in witnesses: Query and QueryRow delegate to the
+// store client's own lease-aware methods (same acquire-timeout discipline as
+// the control plane), Exec leases one connection for the statement, and
+// Begin binds a leased connection to the returned transaction, releasing it
+// exactly once on Commit or Rollback -- the standing pgx contract that every
+// transaction in this backend already honors. One leasedDB value is shared
+// by all data-plane stores of a runtime, so consumers that verify handle
+// identity (the reconciler's registry/pins same-database law) compare one
+// pointer. The type adds no semantics: same pool, same leases, no second
+// connection domain.
+type leasedDB struct {
+	client *pgstore.Client
+}
+
+func (d *leasedDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return d.client.Query(ctx, sql, args...)
+}
+
+func (d *leasedDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return d.client.QueryRow(ctx, sql, args...)
+}
+
+func (d *leasedDB) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	conn, err := d.client.Acquire(ctx)
+	if err != nil {
+		return pgconn.CommandTag{}, err
+	}
+	defer conn.Release()
+	return conn.Exec(ctx, sql, args...)
+}
+
+func (d *leasedDB) Begin(ctx context.Context) (pgx.Tx, error) {
+	conn, err := d.client.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		conn.Release()
+		return nil, err
+	}
+	return &leasedTx{Tx: tx, releaseOne: &sync.Once{}, release: conn.Release}, nil
+}
+
+// leasedTx completes the Begin lease: the connection returns to the pool on
+// whichever of Commit or Rollback the caller performs (pgx requires exactly
+// one; the once-guard makes an accidental second call a no-op instead of a
+// pool misuse).
+type leasedTx struct {
+	pgx.Tx
+	releaseOne *sync.Once
+	release    func()
+}
+
+func (t *leasedTx) Commit(ctx context.Context) error {
+	err := t.Tx.Commit(ctx)
+	t.releaseOne.Do(t.release)
+	return err
+}
+
+func (t *leasedTx) Rollback(ctx context.Context) error {
+	err := t.Tx.Rollback(ctx)
+	t.releaseOne.Do(t.release)
+	return err
+}
+
+// assembleDataPlanePorts wires the read- and write-plane adapters a fully
+// composed PostgreSQL server needs, each over its owning series' assigned
+// schema: the Explorer family over explorer_control (with Publish, which
+// additionally requires the dataset_release assignment because it moves the
+// active project release pointer), the dataset release repository over
+// dataset_release, the bundle catalog and private-artifact catalog over
+// publication_control (both hosted by that series' ledger, so one schema
+// and one pool can never straddle), the recipe revision chain over
+// recipe_chains, and the recipe execution registry over
+// recipe_exec_registries. An unassigned series leaves its ports nil; the
+// consumer's need for a nil port is a configuration refusal at the
+// composition boundary, never a silent zero value at use time. Every
+// constructor keeps its own validation; the assembly performs no
+// computation of its own.
+func (r *Runtime) assembleDataPlanePorts(cfg Config) error {
+	password := redact.ExtractDSNPassword(cfg.DSN)
+	// One handle for every DB-seam store, so handle-identity laws downstream
+	// (the reconciler's registry/pins same-database check) compare one value.
+	dataDB := &leasedDB{client: r.client}
+	if schema, assigned := cfg.Schemas[SeriesDatasetRelease]; assigned {
+		releases, err := datasetstore.NewReleaseStore(r.client, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble dataset release repository in %q", schema), err, password)
+		}
+		r.Releases = releases
+	}
+	if schema, assigned := cfg.Schemas[SeriesExplorerControl]; assigned {
+		explorer, err := explorerstore.New(r.client, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble Explorer store in %q", schema), err, password)
+		}
+		r.Explorer = explorer
+		interpretations, err := explorerstore.NewInterpretationStore(r.client, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble interpretation store in %q", schema), err, password)
+		}
+		r.Interpretations = interpretations
+		explicitGroups, err := explorerstore.NewExplicitGroupStore(r.client, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble explicit group store in %q", schema), err, password)
+		}
+		r.ExplicitGroups = explicitGroups
+		snapshots, err := explorerstore.NewCapabilitySnapshotStore(r.client, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble capability snapshot store in %q", schema), err, password)
+		}
+		r.CapabilitySnapshots = snapshots
+		tableShapes, err := explorerstore.NewTableShapeCapabilityStore(r.client, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble table-shape capability store in %q", schema), err, password)
+		}
+		r.TableShapes = tableShapes
+		if datasetSchema, datasetAssigned := cfg.Schemas[SeriesDatasetRelease]; datasetAssigned {
+			publish, err := explorerstore.NewPublishStore(r.client, schema, datasetSchema)
+			if err != nil {
+				return redactWrap(ErrBootstrap, fmt.Sprintf("assemble Explorer publish store across %q and %q", schema, datasetSchema), err, password)
+			}
+			r.Publish = publish
+		}
+	}
+	if schema, assigned := cfg.Schemas[SeriesPublicationControl]; assigned {
+		bundles, err := publicationstore.NewBundleCatalog(dataDB, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble bundle catalog in %q", schema), err, password)
+		}
+		r.Bundles = bundles
+		// The private ClickHouse artifact catalog's tables are hosted by the
+		// publication_control ledger (chartifact package note), so it shares
+		// the bundle catalog's schema assignment by construction.
+		chartifacts, err := chartifactstore.NewCatalog(dataDB, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble private artifact catalog in %q", schema), err, password)
+		}
+		r.Chartifacts = chartifacts
+	}
+	if schema, assigned := cfg.Schemas[SeriesRecipeChains]; assigned {
+		revisions, err := recipesstore.New(dataDB, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble recipe revision registry in %q", schema), err, password)
+		}
+		r.RecipeRevisions = revisions
+	}
+	if schema, assigned := cfg.Schemas[SeriesRecipeExecRegistries]; assigned {
+		executions, err := recipeexecstore.New(dataDB, schema)
+		if err != nil {
+			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble recipe execution registry in %q", schema), err, password)
+		}
+		r.RecipeExecutions = executions
+	}
+	return nil
+}
+
+// NewPublicationReconciler binds the abandoned-execution sweep to the
+// runtime's own bundle registry and pin arbiter (one pool, one schema, as
+// NewBundleCatalog guarantees) with the caller's active-release reader --
+// pass the runtime's Releases repository for the PUBLISHED janitor arm, or
+// nil to skip it, the same wiring rule the ClickHouse store enforces. The
+// sweep's physical drop hook is caller-owned because the physical tables
+// live in ClickHouse, not here.
+func (r *Runtime) NewPublicationReconciler(releases publicationcontract.ActiveReleaseResolver) (*publicationstore.Reconciler, error) {
+	if r.isClosed() {
+		return nil, ErrRuntimeClosed
+	}
+	if r.Bundles == nil {
+		return nil, fmt.Errorf("%w: publication_control series is not assigned; the reconciler needs the bundle registry and its pin arbiter", ErrInvalidConfig)
+	}
+	return publicationstore.NewReconciler(r.Bundles.Registry, r.Bundles.Pins(), releases)
 }
 
 // ConnSource exposes the pool behind the store's connection-source

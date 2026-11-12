@@ -5,18 +5,19 @@ package server
 // failed closed while no production factory consumed them.
 // pg-runtime-first-query-route is the documented "once a factory honors the
 // map" moment named by the field comment: runPostgreSQLFirstQueryRoute
-// consumes exactly the source + dataset_release pair (passed through the
-// backend factory, where storepostgres.ValidateAssignment stays the
-// authoritative pre-pool gate). Every unconsumed series (explorer_control,
-// publication_control, recipe_chains, recipe_exec_registries) and every
-// malformed consumable shape still FAILS configuration (fail closed); the
-// consumable pair is accepted only in its exact, distinct, non-blank shape.
-// Absent/empty stays valid here and keeps the route's pre-dial consumability
-// gate on the ErrPostgreSQLRuntimeNotWired refusal rather than a partial
-// composition. The authoritative assignment semantics (unknown series,
-// unsafe identifiers, ledger-disagreeing sharing, structured
-// *AssignmentConflict identity including its Schema field) are asserted at
-// the owning layer in
+// consumes exactly the source + dataset_release pair.
+// pg-runtime-server-composition added the second consumable shape: the
+// complete six-series ladder, consumed by runPostgreSQLFullRuntime
+// (runtime.go). Both shapes pass through the backend factory, where
+// storepostgres.ValidateAssignment stays the authoritative pre-pool gate.
+// Every other shape (foreign series, single ladder members, subsets beyond
+// the pair) still FAILS configuration (fail closed); each consumable shape
+// is accepted only in its exact, distinct, non-blank form. Absent/empty
+// stays valid here and keeps the routes' pre-dial consumability gates on the
+// ErrPostgreSQLRuntimeNotWired refusal rather than a partial composition.
+// The authoritative assignment semantics (unknown series, unsafe
+// identifiers, ledger-disagreeing sharing, structured *AssignmentConflict
+// identity including its Schema field) are asserted at the owning layer in
 // internal/backends/postgres/internal/store/ownership_contract_test.go
 // (ValidateAssignmentMatrix).
 
@@ -69,14 +70,14 @@ func TestPostgreSQLConfigSchemasConsumablePairAndFailClosed(t *testing.T) {
 			accept:  true,
 		},
 		{
-			name:           "source alone rejected: the consumable shape is the pair",
+			name:           "source alone rejected: neither consumable shape",
 			schemas:        map[string]string{"source": "loom_source"},
-			wantSubstrings: []string{"exactly the source and dataset_release entries"},
+			wantSubstrings: []string{"consumable shapes", "got 1 entries"},
 		},
 		{
-			name:           "dataset_release alone rejected: the consumable shape is the pair",
+			name:           "dataset_release alone rejected: neither consumable shape",
 			schemas:        map[string]string{"dataset_release": "loom_release"},
-			wantSubstrings: []string{"exactly the source and dataset_release entries"},
+			wantSubstrings: []string{"consumable shapes", "got 1 entries"},
 		},
 		{
 			name:           "blank source rejected",
@@ -103,41 +104,52 @@ func TestPostgreSQLConfigSchemasConsumablePairAndFailClosed(t *testing.T) {
 			wantSubstrings: []string{"must name distinct schemas"},
 		},
 		{
-			name:           "explorer_control entry rejected: not consumed by any factory",
+			// Single ladder members are consumed only by the full ladder, so
+			// alone they are neither consumable shape and fail closed.
+			name:           "lone explorer_control entry rejected: neither consumable shape",
 			schemas:        map[string]string{"explorer_control": "loom_explorer"},
-			wantSubstrings: []string{"explorer_control", "not consumed by any production factory"},
+			wantSubstrings: []string{"explorer_control", "consumable shapes", "got 1 entries"},
 		},
 		{
-			name:           "publication_control entry rejected: not consumed by any factory",
+			name:           "lone publication_control entry rejected: neither consumable shape",
 			schemas:        map[string]string{"publication_control": "loom_publication"},
-			wantSubstrings: []string{"publication_control", "not consumed by any production factory"},
+			wantSubstrings: []string{"publication_control", "consumable shapes", "got 1 entries"},
 		},
 		{
-			name:           "recipe_chains entry rejected: not consumed by any factory",
+			name:           "lone recipe_chains entry rejected: neither consumable shape",
 			schemas:        map[string]string{"recipe_chains": "loom_recipe"},
-			wantSubstrings: []string{"recipe_chains", "not consumed by any production factory"},
+			wantSubstrings: []string{"recipe_chains", "consumable shapes", "got 1 entries"},
 		},
 		{
-			name:           "recipe_exec_registries entry rejected: not consumed by any factory",
+			name:           "lone recipe_exec_registries entry rejected: neither consumable shape",
 			schemas:        map[string]string{"recipe_exec_registries": "loom_exec"},
-			wantSubstrings: []string{"recipe_exec_registries", "not consumed by any production factory"},
+			wantSubstrings: []string{"recipe_exec_registries", "consumable shapes", "got 1 entries"},
 		},
 		{
-			name: "unconsumed series beside the consumable pair still fails closed",
+			name: "a series beside the consumable pair that does not complete the ladder fails closed",
 			schemas: map[string]string{
 				"source": "loom_source", "dataset_release": "loom_release",
 				"explorer_control": "loom_explorer",
 			},
-			wantSubstrings: []string{"explorer_control", "not consumed by any production factory"},
+			wantSubstrings: []string{"explorer_control", "consumable shapes", "got 3 entries"},
 		},
 		{
-			name: "full distinct assignment rejected: four of six series stay unconsumed",
+			name: "the complete distinct six-series ladder is accepted (full runtime)",
 			schemas: map[string]string{
 				"source": "loom_source", "explorer_control": "loom_explorer",
 				"publication_control": "loom_publication", "dataset_release": "loom_release",
 				"recipe_chains": "loom_recipe", "recipe_exec_registries": "loom_exec",
 			},
-			wantSubstrings: []string{"not consumed by any production factory"},
+			accept: true,
+		},
+		{
+			name: "the six-series ladder with two series sharing one schema fails closed",
+			schemas: map[string]string{
+				"source": "loom_source", "explorer_control": "loom_explorer",
+				"publication_control": "loom_publication", "dataset_release": "loom_release",
+				"recipe_chains": "loom_exec", "recipe_exec_registries": "loom_exec",
+			},
+			wantSubstrings: []string{"must name distinct schemas"},
 		},
 		{
 			name: "unknown series rejected",
@@ -145,6 +157,17 @@ func TestPostgreSQLConfigSchemasConsumablePairAndFailClosed(t *testing.T) {
 				"warehouse_ledger": "loom_anything",
 			},
 			wantSubstrings: []string{"warehouse_ledger", "not consumed by any production factory"},
+		},
+		{
+			// Six entries with a typo'd member hits the foreign-series law
+			// first: the assignment is never silently treated as a ladder.
+			name: "six entries with a typo'd ladder member rejected as foreign series",
+			schemas: map[string]string{
+				"source": "loom_source", "explorer_control": "loom_explorer",
+				"publication_control": "loom_publication", "dataset_release": "loom_release",
+				"recipe_chainz": "loom_recipe", "recipe_exec_registries": "loom_exec",
+			},
+			wantSubstrings: []string{"recipe_chainz", "not consumed by any production factory"},
 		},
 	}
 	for _, tc := range tests {
