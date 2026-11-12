@@ -1,0 +1,32 @@
+# GRAPH-ROWS-06: Preserve the complete plan through save, reload, and concurrent edits
+
+Status: missing-contract. Dependencies: GRAPH-ROWS-02; GRAPH-ROWS-03; integrate GRAPH-ROWS-04 and GRAPH-ROWS-05.
+
+## Problem
+
+The main graph, row definition, and operation history must reload as one consistent plan. Existing imported pins, legacy routes, and construction stages cannot drift into competing sources of truth.
+
+## Change
+
+Complete persisted migration and transactional ownership for the contract in 01. Preserve stable output, occurrence, operation, and field-binding identities where the semantics remain the same. Preserve immutable source pins and their digests. Persist authorized changes in the project-local draft/source-plan overlay with current draft conflict checks.
+
+Round-trip imported and legacy documents through the production save and reload paths. Restore graph selection and row meaning from saved state without replaying user edits. Keep purely visual collapse and selection state separate from authored semantics.
+
+Handle upstream removal, row-root changes, table switches, delayed responses, failures, and concurrent editors through the existing proposal ownership and cancellation rules. Reconcile recovery must not resurrect a removed relationship or apply an old proposal.
+
+Own migration, lifecycle ownership, and persistence tests. UI ownership corrections go through the shared workspace integration owner.
+
+## Acceptance
+
+- Add and edit a relationship, change row definition, add Group and column operations, save, and reload. The complete authored plan and exact results survive.
+- Imported source edits preserve the original recipe reference and digest and persist an authorized project-local draft/source-plan overlay. They do not create a registry revision or modify the shared default.
+- Restore values and semantics after a reversible source edit. Record legitimate revision changes rather than claiming the draft identity never changed.
+- Two editors applying against the same saved draft produce a conflict or valid recovery, never a lost update.
+- Cancel, failed compile, rejected dependency repair, and late responses leave the saved plan intact.
+- Source-root replacement explicitly discloses detachment from the imported pin. Preserve-mode imported root edits remain blocked until the declared source-root overlay exists.
+- Older accepted documents load under an explicit tested migration. Unsupported versions produce a precise diagnosis.
+- Route removals and row changes preserve unrelated workspace outputs and shared bindings or require explicit repair.
+
+## Execution contract
+
+Read [the work package](../README.md) and repository `AGENTS.md` before implementation. Use the agreed baseline and an isolated worktree. Preserve unrelated work. Run the smallest relevant checks, then the required final acceptance against a frozen source snapshot. Record source identity, review, commands, outcomes, and remaining gaps. Do not deploy, publish, or push as part of this ticket.
