@@ -403,7 +403,8 @@ func TestRenderCompositeCombineConsumesExactPrivatePrefixArtifact(t *testing.T) 
 		Outputs: []ir.PhysicalCombineOutputColumn{{ID: "status", Name: "status", LogicalType: "string", ClickHouseType: "String"}},
 	}
 	prefix := ir.PhysicalClickHousePrefix{
-		StageID: "derive_status", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/programs/p1"},
+		SourceBackend: ir.PhysicalPrefixSourceAQL,
+		StageID:       "derive_status", AuthScopeMode: "restricted", AuthResourcePaths: []string{"/programs/p1"},
 		IncludeAuthResourcePath: true, AuthResourcePathBindKey: "construction_private_auth_resource_path",
 	}
 	expected := ir.ClickHouseArtifactIdentity{
