@@ -105,13 +105,17 @@ func ValidatePopulationMappingSource(plan ir.PhysicalPlan, binding PostgresPopul
 	if err := validatePopulationMappingPlanSurface(plan, binding); err != nil {
 		return err
 	}
-	// The construction entry runs the registered ir schema gate after the
-	// surface (renderPopulationMappingConstruction); the validate entry
-	// speaks the identical voice (entry==dispatch).
-	if plan.StageSequence != nil {
-		if err := plan.Validate(); err != nil {
-			return fmt.Errorf("validate physical plan: %w", err)
-		}
+	// Both entries run the registered ir schema gate after the surface
+	// (renderPopulationMappingFlat and renderPopulationMappingConstruction
+	// each run it after loadScope, the same voice as
+	// renderStageSequencePhysicalPlan and renderGraphPhysicalPlan); the
+	// validate entry speaks the identical voice (entry==dispatch). The
+	// surface validators do not nil-check every operation payload, and
+	// renderOperations dereferences Sort/Limit/Filter, so without this
+	// gate a hand-assembled nil-payload plan would validate clean and
+	// then panic instead of failing closed typed.
+	if err := plan.Validate(); err != nil {
+		return fmt.Errorf("validate physical plan: %w", err)
 	}
 	return nil
 }
@@ -318,6 +322,13 @@ func renderPopulationMappingFlat(
 	}
 	if err := renderer.loadScope(plan); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
+	}
+	// The slice-door law: every entry runs the registered ir schema gate
+	// before rendering speaks (renderStageSequencePhysicalPlan and
+	// renderGraphPhysicalPlan do; the surface gate does not nil-check
+	// operation payloads and renderOperations dereferences them).
+	if err := plan.Validate(); err != nil {
+		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
 	if err := renderer.renderOperations(plan); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err

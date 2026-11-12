@@ -628,6 +628,29 @@ func TestPopulationMappingRefusals(t *testing.T) {
 		plan.Operations[0].RootScan.Population = nil
 		map22WantRefusal(t, plan, "membership-driven population root source")
 	})
+	// Slice-door law, hand-assembled plans: the flat surface gate does
+	// not nil-check operation payloads and renderOperations dereferences
+	// Sort/Limit/Filter, so the registered ir schema gate (plan.Validate,
+	// run by both entries like every sibling slice entry) must fail the
+	// nil payload closed — never a nil-pointer panic out of the render.
+	for _, kind := range []struct {
+		name    string
+		opKind  ir.PhysicalOperationKind
+		opValue ir.PhysicalOperation
+		want    string
+	}{
+		{"nil-sort-payload", ir.PhysicalSortOp, ir.PhysicalOperation{Kind: ir.PhysicalSortOp}, "validate physical plan: operation 5 (SORT)"},
+		{"nil-limit-payload", ir.PhysicalLimitOp, ir.PhysicalOperation{Kind: ir.PhysicalLimitOp}, "validate physical plan: operation 5 (LIMIT)"},
+		{"nil-filter-payload", ir.PhysicalFilterOp, ir.PhysicalOperation{Kind: ir.PhysicalFilterOp}, "validate physical plan: operation 5 (FILTER)"},
+	} {
+		kind := kind
+		t.Run(kind.name, func(t *testing.T) {
+			plan := flat()
+			terminal := plan.Operations[len(plan.Operations)-1]
+			plan.Operations = append(plan.Operations[:len(plan.Operations)-1], kind.opValue, terminal)
+			map22WantRefusal(t, plan, kind.want)
+		})
+	}
 }
 
 func TestPopulationMappingPlainEntriesKeepTheDoorsShut(t *testing.T) {
