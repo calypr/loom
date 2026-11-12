@@ -100,10 +100,14 @@ type Runtime struct {
 	client        *pgstore.Client
 	sourceSchema  string
 	datasetSchema string
-	closeOne      sync.Once
-	closeErr      error
-	closed        bool
-	mu            sync.Mutex
+	// schemas is the validated full placement copied from Config at Open:
+	// the readiness probe verifies every assigned series' ledger, so every
+	// assigned schema must stay reachable (pg-runtime-health-readiness).
+	schemas  map[Series]string
+	closeOne sync.Once
+	closeErr error
+	closed   bool
+	mu       sync.Mutex
 }
 
 // Compile-time port conformance: signature drift between these adapters and
@@ -149,6 +153,15 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 
 	rt := &Runtime{client: client}
+	// Retain the full validated placement: the readiness probe verifies
+	// every assigned series' ledger, so the runtime must know all assigned
+	// schemas, not only the two the migration helpers address.
+	if len(cfg.Schemas) > 0 {
+		rt.schemas = make(map[Series]string, len(cfg.Schemas))
+		for series, schema := range cfg.Schemas {
+			rt.schemas[series] = schema
+		}
+	}
 	if schema, assigned := cfg.Schemas[SeriesSource]; assigned {
 		rt.sourceSchema = schema
 	}
@@ -525,6 +538,50 @@ func (r *Runtime) Health(ctx context.Context) error {
 		return ErrRuntimeClosed
 	}
 	return r.client.Ping(ctx)
+}
+
+// Readiness is the core-readiness probe for the selected PostgreSQL backend
+// (pg-runtime-health-readiness). It is Health's reachability and version
+// verdict plus, for every assigned series, the read-only ledger probe
+// (store.MigrationRunner.Verify through each series' VerifySchema): a
+// selected backend whose schema was never migrated, migrated away from, or
+// edited under the ledger is NOT ready, and the returned error classifies
+// which via errors.Is against the factory schema-state sentinels
+// (ErrInvalidSchemaName, ErrMigrationPending, ErrMigrationChecksumMismatch,
+// ErrFutureSchemaVersion, ErrMigrationMissing, ErrMigrationOutOfOrder),
+// while connectivity keeps ErrConnect and the version gate keeps
+// ErrUnsupportedVersion. The probe acquires no migration lock, applies no
+// DDL, and writes no ledger row: a readiness read can never mutate the
+// store. Unassigned series are skipped, never probed.
+func (r *Runtime) Readiness(ctx context.Context) error {
+	if err := r.Health(ctx); err != nil {
+		return err
+	}
+	for _, series := range AllSeries() {
+		schema, assigned := r.schemas[series]
+		if !assigned || strings.TrimSpace(schema) == "" {
+			continue
+		}
+		var err error
+		switch series {
+		case SeriesSource:
+			err = pgstore.VerifySchema(ctx, r.client, schema)
+		case SeriesExplorerControl:
+			err = explorerstore.VerifySchema(ctx, r.client, schema)
+		case SeriesPublicationControl:
+			err = publicationstore.VerifySchema(ctx, r.client, schema)
+		case SeriesDatasetRelease:
+			err = datasetstore.VerifySchema(ctx, r.client, schema)
+		case SeriesRecipeChains:
+			err = recipesstore.VerifySchema(ctx, r.client, schema)
+		case SeriesRecipeExecRegistries:
+			err = recipeexecstore.VerifySchema(ctx, r.client, schema)
+		}
+		if err != nil {
+			return fmt.Errorf("postgres backend: schema readiness for series %q: %w", series, err)
+		}
+	}
+	return nil
 }
 
 // Close releases the pool. It is safe to call concurrently and repeatedly:

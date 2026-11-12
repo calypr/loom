@@ -88,6 +88,11 @@ type pgCompMint struct {
 var pgCompMintInventory = map[string]int{
 	"TestPostgresRuntimeFullLadderServesProductionReads": 1,
 	"TestPostgresRuntimeServerLoadRouteServesEndToEnd":   1,
+	// pg-runtime-health-readiness legs (each mints one database).
+	"TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware": 1,
+	"TestPostgresRuntimeReadinessReportsNeverMigratedSchema":        1,
+	"TestPostgresRuntimeReadinessReportsMissingSchema":              1,
+	"TestPostgresRuntimeVerifySchemaIsReadOnly":                     1,
 }
 
 func pgCompTestPostgresURL(t *testing.T) string {
@@ -624,6 +629,346 @@ func TestPostgresRuntimeServerLoadRouteServesEndToEnd(t *testing.T) {
 	if served.StatusCode != http.StatusOK || !strings.Contains(served.Body, "\"rowCount\":1") ||
 		!strings.Contains(served.Body, "patient-server-loaded") {
 		t.Fatalf("the read lane must serve what the server loaded, got %d %s", served.StatusCode, fixture.scrub(served.Body))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// pg-runtime-health-readiness legs.
+// ---------------------------------------------------------------------------
+
+// TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware is the
+// acceptance battery for the PostgreSQL readiness posture: the selected
+// source backend and ClickHouse are reported independently (a dead
+// ClickHouse never hides a healthy PostgreSQL, and the /health 200-degraded
+// contract is preserved); liveness stays DB-free even after the pool is
+// closed; and a schema whose ledger disagrees with the embedded history
+// yields not_ready with a safe core_state token that flips back the moment
+// the ledger is repaired (/readyz is uncached).
+func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware")
+	fixture := newPgCompFixture(t)
+	fixture.migrate(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, pgCompBootConfig(t, fixture, "127.0.0.1:0"), logger)
+	if err != nil {
+		t.Fatalf("compose full runtime: %s", fixture.scrub(err))
+	}
+	var closeOnce sync.Once
+	closeNow := func() {
+		closeOnce.Do(func() {
+			if err := closeRuntime(); err != nil {
+				t.Errorf("close full runtime: %s", fixture.scrub(err))
+			}
+		})
+	}
+	defer closeNow()
+	app := server.App()
+
+	t.Run("ready_and_disabled_dataframe_on_a_migrated_backend", func(t *testing.T) {
+		response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+		pgCompAssertNoLaneLeak(t, fixture, "readyz", response.Body)
+		if response.StatusCode != http.StatusOK ||
+			!strings.Contains(response.Body, `"status":"ready"`) ||
+			!strings.Contains(response.Body, `"core":"ready"`) ||
+			!strings.Contains(response.Body, `"dataframe":"disabled"`) {
+			t.Fatalf("migrated full runtime readiness = %d %s; want 200 status=ready core=ready dataframe=disabled",
+				response.StatusCode, fixture.scrub(response.Body))
+		}
+		live := requestJSON(t, app, http.MethodGet, "/livez", "")
+		if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
+			t.Fatalf("livez on the full runtime = %d %s; want 200 {\"status\":\"live\"}", live.StatusCode, fixture.scrub(live.Body))
+		}
+	})
+
+	// Independence, headline cell: ClickHouse is dead while the selected
+	// PostgreSQL source backend is healthy. The clickhouse-go HTTP protocol
+	// opens lazily, so the dead port only bites at EnsureDatabase (a
+	// recorded degradation compose must survive) and at the readiness Ping.
+	// The body must report BOTH verdicts: core=ready and
+	// dataframe=backend_unavailable. /health keeps its cached 200-degraded
+	// contract with the same core verdict.
+	t.Run("clickhouse_failure_never_hides_the_selected_backend", func(t *testing.T) {
+		chConfig := pgCompBootConfig(t, fixture, "127.0.0.1:0")
+		chConfig.Server.ClickHouse = ClickHouseConfig{
+			Enabled:  true,
+			URL:      "http://127.0.0.1:1",
+			Database: "loom_health_probe",
+		}
+		chServer, chClose, err := composePostgreSQLFullRuntime(ctx, chConfig, logger)
+		if err != nil {
+			t.Fatalf("compose ClickHouse-dead full runtime: EnsureDatabase must degrade, not kill startup: %s", fixture.scrub(err))
+		}
+		defer func() {
+			if err := chClose(); err != nil {
+				t.Errorf("close ClickHouse-dead runtime: %s", fixture.scrub(err))
+			}
+		}()
+		response := requestJSON(t, chServer.App(), http.MethodGet, "/readyz", "")
+		pgCompAssertNoLaneLeak(t, fixture, "ClickHouse-dead readyz", response.Body)
+		if response.StatusCode != http.StatusServiceUnavailable ||
+			!strings.Contains(response.Body, `"core":"ready"`) ||
+			!strings.Contains(response.Body, `"dataframe":"backend_unavailable"`) {
+			t.Fatalf("ClickHouse-down readiness = %d %s; want 503 with core=ready AND dataframe=backend_unavailable",
+				response.StatusCode, fixture.scrub(response.Body))
+		}
+		health := requestJSON(t, chServer.App(), http.MethodGet, "/health", "")
+		if health.StatusCode != http.StatusOK ||
+			!strings.Contains(health.Body, `"status":"degraded"`) ||
+			!strings.Contains(health.Body, `"core":"ready"`) {
+			t.Fatalf("ClickHouse-down /health = %d %s; want 200 degraded with core=ready", health.StatusCode, fixture.scrub(health.Body))
+		}
+	})
+
+	// Schema mismatch (edited applied checksum) is not_ready and
+	// DISTINGUISHABLE from connectivity: core_state=schema_mismatch while
+	// the pool stays live and serving. Repairing the ledger flips the
+	// uncached /readyz back to 200 — proving the probe reads the ledger
+	// every call rather than caching a verdict.
+	t.Run("schema_mismatch_yields_not_ready_and_repairs_back_to_ready", func(t *testing.T) {
+		pool, err := pgxpool.New(ctx, fixture.dsn)
+		if err != nil {
+			t.Fatalf("connect ledger mutator: %s", fixture.scrub(err))
+		}
+		defer pool.Close()
+		// The ledger table name is the store-owned "schema_migrations"; the
+		// minted schema names are lowercase [a-z0-9_] by the census pattern,
+		// so quoting is exact.
+		ledger := `"` + fixture.schemas[backendspostgres.SeriesSource] + `".schema_migrations`
+		var version int64
+		var original string
+		if err := pool.QueryRow(ctx, "SELECT version, checksum FROM "+ledger+" ORDER BY version LIMIT 1").Scan(&version, &original); err != nil {
+			t.Fatalf("read ledger row: %s", fixture.scrub(err))
+		}
+		restore := func(when context.Context) {
+			if _, err := pool.Exec(when, "UPDATE "+ledger+" SET checksum = $1 WHERE version = $2", original, version); err != nil {
+				t.Errorf("restore ledger checksum: %s", fixture.scrub(err))
+			}
+		}
+		defer restore(context.WithoutCancel(context.Background()))
+		if _, err := pool.Exec(ctx, "UPDATE "+ledger+" SET checksum = $1 WHERE version = $2", strings.Repeat("0", 64), version); err != nil {
+			t.Fatalf("corrupt ledger checksum: %s", fixture.scrub(err))
+		}
+		response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+		pgCompAssertNoLaneLeak(t, fixture, "schema-mismatch readyz", response.Body)
+		if response.StatusCode != http.StatusServiceUnavailable ||
+			!strings.Contains(response.Body, `"core":"not_ready"`) ||
+			!strings.Contains(response.Body, `"core_state":"schema_mismatch"`) {
+			t.Fatalf("edited-ledger readiness = %d %s; want 503 core=not_ready core_state=schema_mismatch",
+				response.StatusCode, fixture.scrub(response.Body))
+		}
+		restore(ctx)
+		recovered := requestJSON(t, app, http.MethodGet, "/readyz", "")
+		if recovered.StatusCode != http.StatusOK || !strings.Contains(recovered.Body, `"core":"ready"`) {
+			t.Fatalf("repaired ledger must flip /readyz back without cache, got %d %s",
+				recovered.StatusCode, fixture.scrub(recovered.Body))
+		}
+	})
+
+	// Liveness is DB-free on the full runtime in the strongest sense: the
+	// pool is closed (Readiness would fail with runtime_closed) and /livez
+	// still answers the published body through the production handler stack.
+	t.Run("closed_pool_keeps_liveness_and_refuses_readiness", func(t *testing.T) {
+		closeNow()
+		live := requestJSON(t, app, http.MethodGet, "/livez", "")
+		if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
+			t.Fatalf("livez with a closed pool = %d %s; liveness must be DB-free", live.StatusCode, fixture.scrub(live.Body))
+		}
+		response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+		if response.StatusCode != http.StatusServiceUnavailable ||
+			!strings.Contains(response.Body, `"core":"not_ready"`) ||
+			!strings.Contains(response.Body, `"core_state":"runtime_closed"`) {
+			t.Fatalf("readyz with a closed pool = %d %s; want 503 core=not_ready core_state=runtime_closed",
+				response.StatusCode, fixture.scrub(response.Body))
+		}
+	})
+}
+
+// TestPostgresRuntimeReadinessReportsNeverMigratedSchema pins the
+// migration-state half of the acceptance: compose opens pre-schema (Ping is
+// version-only), so a never-migrated placement COMPOSES but must never
+// report ready; core_state=schema_unmigrated distinguishes it from both
+// connectivity_down and a ledger that disagrees, and the pool never leaks
+// the credential-bearing error text into the body.
+func TestPostgresRuntimeReadinessReportsNeverMigratedSchema(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeReadinessReportsNeverMigratedSchema")
+	fixture := newPgCompFixture(t) // schemas created, never migrated
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, pgCompBootConfig(t, fixture, "127.0.0.1:0"), logger)
+	if err != nil {
+		t.Fatalf("compose over never-migrated schemas (open is version-only): %s", fixture.scrub(err))
+	}
+	defer func() {
+		if err := closeRuntime(); err != nil {
+			t.Errorf("close never-migrated runtime: %s", fixture.scrub(err))
+		}
+	}()
+	app := server.App()
+
+	response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+	pgCompAssertNoLaneLeak(t, fixture, "never-migrated readyz", response.Body)
+	if response.StatusCode != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body, `"core":"not_ready"`) ||
+		!strings.Contains(response.Body, `"core_state":"schema_unmigrated"`) {
+		t.Fatalf("never-migrated readiness = %d %s; want 503 core=not_ready core_state=schema_unmigrated",
+			response.StatusCode, fixture.scrub(response.Body))
+	}
+	if strings.Contains(strings.ToLower(response.Body), "password") || strings.Contains(response.Body, fixture.dsn) {
+		t.Fatalf("readiness body leaked connection material: %s", fixture.scrub(response.Body))
+	}
+	live := requestJSON(t, app, http.MethodGet, "/livez", "")
+	if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
+		t.Fatalf("livez on never-migrated schemas = %d %s; liveness is dependency-free", live.StatusCode, fixture.scrub(live.Body))
+	}
+}
+
+// TestPostgresRuntimeVerifySchemaIsReadOnly is the read-only proof for the
+// readiness ledger probe (coordinator condition 1): for every assigned
+// series it calls the exact per-series VerifySchema the production probe
+// dispatches to, and pins that the ledger rows (version, name, checksum,
+// applied_at), the schema's tables, columns, and index definitions are
+// byte-identical across the call. The lock-free half is pinned offline in
+// the store package (TestVerifyIsReadOnlyAndLockFree).
+func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeVerifySchemaIsReadOnly")
+	fixture := newPgCompFixture(t)
+	fixture.migrate(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	defer cancel()
+	client, err := backendspostgres.OpenPool(ctx, backendspostgres.ClientConfig{DSN: fixture.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second})
+	if err != nil {
+		t.Fatalf("open store client for read-only proof: %s", fixture.scrub(err))
+	}
+	defer client.Close()
+	pool, err := pgxpool.New(ctx, fixture.dsn)
+	if err != nil {
+		t.Fatalf("connect fingerprint reader: %s", fixture.scrub(err))
+	}
+	defer pool.Close()
+
+	fingerprint := func(schema string) map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		queries := map[string]string{
+			"ledger": "SELECT COALESCE(md5(string_agg(version::text || '|' || name || '|' || checksum || '|' || applied_at::text, E'\n' ORDER BY version)), 'empty') " +
+				`FROM "` + schema + `".schema_migrations`,
+			"tables": "SELECT COALESCE(md5(string_agg(c.relkind::text || ':' || c.relname, ',' ORDER BY c.relkind, c.relname)), 'empty') " +
+				"FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
+				"WHERE n.nspname = $1 AND c.relkind IN ('r','p','i','S')",
+			"columns": "SELECT COALESCE(md5(string_agg(t.relname || '.' || a.attname || ':' || format_type(a.atttypid, a.atttypmod) || ':' || a.attnotnull::text || ':' || a.attgenerated::text, ',' ORDER BY t.relname, a.attnum)), 'empty') " +
+				"FROM pg_attribute a JOIN pg_class t ON t.oid = a.attrelid JOIN pg_namespace n ON n.oid = t.relnamespace " +
+				"WHERE n.nspname = $1 AND a.attnum > 0 AND NOT a.attisdropped AND t.relkind IN ('r','p')",
+			"indexes": "SELECT COALESCE(md5(string_agg(tablename || '.' || indexname || ':' || indexdef, ',' ORDER BY tablename, indexname)), 'empty') " +
+				"FROM pg_indexes WHERE schemaname = $1",
+		}
+		for _, key := range []string{"ledger", "tables", "columns", "indexes"} {
+			var fp string
+			var err error
+			if key == "ledger" {
+				err = pool.QueryRow(ctx, queries[key]).Scan(&fp)
+			} else {
+				err = pool.QueryRow(ctx, queries[key], schema).Scan(&fp)
+			}
+			if err != nil {
+				t.Fatalf("fingerprint %s of schema %s: %s", key, schema, fixture.scrub(err))
+			}
+			out[key] = fp
+		}
+		return out
+	}
+
+	for _, series := range backendspostgres.AllSeries() {
+		schema, assigned := fixture.schemas[series]
+		if !assigned {
+			continue
+		}
+		series, schema := series, schema
+		t.Run(string(series), func(t *testing.T) {
+			pre := fingerprint(schema)
+			var err error
+			switch series {
+			case backendspostgres.SeriesSource:
+				err = backendspostgres.VerifySchema(ctx, client, schema)
+			case backendspostgres.SeriesExplorerControl:
+				err = backendspostgres.VerifyExplorerControlSchema(ctx, client, schema)
+			case backendspostgres.SeriesPublicationControl:
+				err = backendspostgres.VerifyPublicationControlSchema(ctx, client, schema)
+			case backendspostgres.SeriesDatasetRelease:
+				err = backendspostgres.VerifyDatasetReleaseSchema(ctx, client, schema)
+			case backendspostgres.SeriesRecipeChains:
+				err = backendspostgres.VerifyRecipeChainsSchema(ctx, client, schema)
+			case backendspostgres.SeriesRecipeExecRegistries:
+				err = backendspostgres.VerifyRecipeExecRegistriesSchema(ctx, client, schema)
+			default:
+				t.Fatalf("series %q is assigned but outside the probe dispatch", series)
+			}
+			if err != nil {
+				t.Fatalf("VerifySchema on a migrated %s schema must pass: %s", series, fixture.scrub(err))
+			}
+			post := fingerprint(schema)
+			for key, before := range pre {
+				if post[key] != before {
+					t.Fatalf("VerifySchema on series %q mutated %s of schema %s: fingerprint %s -> %s", series, key, schema, before, post[key])
+				}
+			}
+		})
+	}
+}
+
+// TestPostgresRuntimeReadinessReportsMissingSchema is the F1 regression
+// cell (verifier finding: the schema_missing token was unreachable
+// because the facade ErrInvalidSchemaName aliased a duplicate dataset
+// errors.New while the probe emits the store identity). It points ONE
+// non-source series -- recipe_exec_registries, exercising that series'
+// VerifySchema wrapper chain, not the source shortcut -- at a
+// never-created schema: compose survives (Health is version-only), the
+// uncached /readyz answers 503 core=not_ready core_state=schema_missing,
+// distinguishable from connectivity_down on a pool that is demonstrably
+// answering, and /livez stays DB-free.
+func TestPostgresRuntimeReadinessReportsMissingSchema(t *testing.T) {
+	markReadinessLeg(t, "TestPostgresRuntimeReadinessReportsMissingSchema")
+	fixture := newPgCompFixture(t)
+	fixture.migrate(t)
+
+	cfg := pgCompBootConfig(t, fixture, "127.0.0.1:0")
+	// Well-formed name the fixture deliberately never created.
+	cfg.Server.PostgreSQL.Schemas[string(backendspostgres.SeriesRecipeExecRegistries)] =
+		fmt.Sprintf(pgCompSchemaFmt, time.Now().UnixNano(), pgCompRandomHex(t), "exec_missing")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, cfg, logger)
+	if err != nil {
+		t.Fatalf("compose over one never-created schema placement (open is version-only): %s", fixture.scrub(err))
+	}
+	defer func() {
+		if err := closeRuntime(); err != nil {
+			t.Errorf("close missing-schema runtime: %s", fixture.scrub(err))
+		}
+	}()
+	app := server.App()
+
+	response := requestJSON(t, app, http.MethodGet, "/readyz", "")
+	pgCompAssertNoLaneLeak(t, fixture, "missing-schema readyz", response.Body)
+	if response.StatusCode != http.StatusServiceUnavailable ||
+		!strings.Contains(response.Body, `"core":"not_ready"`) ||
+		!strings.Contains(response.Body, `"core_state":"schema_missing"`) {
+		t.Fatalf("never-created-schema readiness = %d %s; want 503 core=not_ready core_state=schema_missing (F1: this token was unreachable while the facade aliased a duplicate sentinel)",
+			response.StatusCode, fixture.scrub(response.Body))
+	}
+	if strings.Contains(strings.ToLower(response.Body), "password") || strings.Contains(response.Body, fixture.dsn) {
+		t.Fatalf("readiness body leaked connection material: %s", fixture.scrub(response.Body))
+	}
+	live := requestJSON(t, app, http.MethodGet, "/livez", "")
+	if live.StatusCode != http.StatusOK || live.Body != `{"status":"live"}` {
+		t.Fatalf("livez on a missing-schema placement = %d %s; liveness is dependency-free", live.StatusCode, fixture.scrub(live.Body))
 	}
 }
 

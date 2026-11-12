@@ -108,6 +108,26 @@ func MigrateSchema(ctx context.Context, client *pgstore.Client, schema string) (
 	return runner.Migrate(ctx)
 }
 
+// VerifySchema is the read-only counterpart of MigrateSchema for the
+// explorer_control series: it reports the assigned schema's ledger state
+// against the owner history (pgstore.MigrationRunner.Verify) without taking
+// the migration lock or writing anything. Failures are returned, never
+// absorbed; there is no fallback to another backend.
+func VerifySchema(ctx context.Context, client *pgstore.Client, schema string) error {
+	if client == nil {
+		return errors.New("postgres explorer store: nil client")
+	}
+	migrations, err := OwnerMigrations()
+	if err != nil {
+		return err
+	}
+	runner, err := pgstore.NewMigrationRunner(client, schema, migrations)
+	if err != nil {
+		return err
+	}
+	return runner.Verify(ctx)
+}
+
 // schemaNamePattern matches a safe lowercase PostgreSQL identifier, the same
 // shape the pg-store-02 runner accepts, so a Store and its runner can never
 // disagree about the target schema.
