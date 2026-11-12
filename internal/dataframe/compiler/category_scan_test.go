@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
@@ -709,5 +711,252 @@ func TestCompileCategoryScanTracksPresenceThroughExpandForDiscoveryProbe(t *test
 	}
 	if !strings.Contains(testAQLText(t, scanned.Command), companion) {
 		t.Fatalf("Expand category query omitted presence companion %q:\n%s", companion, testAQLText(t, scanned.Command))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// pg-sql-25: the PostgreSQL dispatch at the compiler boundary. The scan is
+// tagged as a PostgreSQL command, keeps the present/value positional contract,
+// carries no Arango-only fields, and shares every refusal code with the AQL
+// path. Real-server execution evidence lives with the render package.
+// ---------------------------------------------------------------------------
+
+func mustPostgreSQLCategoryTarget(t *testing.T) Target {
+	t.Helper()
+	binding, err := ir.NewPostgresStorageBinding("verify_sql25v1_compile")
+	if err != nil {
+		t.Fatalf("NewPostgresStorageBinding: %v", err)
+	}
+	target, err := PostgreSQLTarget(binding)
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget: %v", err)
+	}
+	return target
+}
+
+func mustPostgreSQLCategorySQL(t *testing.T, compiledCommand command.CompiledCommand) (string, []command.PostgreSQLParameter) {
+	t.Helper()
+	if compiledCommand.Backend() != command.CompiledBackendPostgreSQL {
+		t.Fatalf("category command backend = %v, want PostgreSQL", compiledCommand.Backend())
+	}
+	sql, args, err := compiledCommand.PostgreSQLParameters()
+	if err != nil {
+		t.Fatalf("PostgreSQLParameters: %v", err)
+	}
+	return sql, args
+}
+
+func TestCompileCategoryScanOutputForPostgreSQLTagsTheRegisteredCategoryStatement(t *testing.T) {
+	output := compilePopulationMappingOutput(t, recipe.Output{
+		Name: "Patients", RootResourceType: "Patient", RowGrain: "patient", RootColumnNaming: recipe.RootColumnNamingExact,
+		Fields: []recipe.Field{
+			{Name: "id", Expr: recipe.Expression{Select: "root.id"}},
+			{Name: "gender", Expr: recipe.Expression{Select: "root.gender"}},
+		},
+	})
+	scanned, err := CompileCategoryScanOutput(mustPostgreSQLCategoryTarget(t), output, "gender", 64, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql, args := mustPostgreSQLCategorySQL(t, scanned.Command)
+	for _, want := range []string{
+		"__loom_category_source AS", "__loom_category_rows AS", "__loom_category_distinct AS",
+		`CASE WHEN __loom_category_row."c1" THEN __loom_category_row."c0" END AS "value"`,
+		`GROUP BY "present", "value"`, `ORDER BY "present" ASC`, "LIMIT $",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("PostgreSQL category statement missing %q:\n%s", want, sql)
+		}
+	}
+	if strings.Contains(sql, "@") {
+		t.Fatalf("AQL bind syntax reached the PostgreSQL category command:\n%s", sql)
+	}
+	if strings.Contains(sql, `"gender"`) {
+		t.Fatalf("the category column name was interpolated into SQL text:\n%s", sql)
+	}
+	last := args[len(args)-1]
+	if want := (command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(65)}); last != want {
+		t.Fatalf("page bound = %#v, want %#v", last, want)
+	}
+	if scanned.PresentColumn != "present" || scanned.ValueColumn != "value" {
+		t.Fatalf("positional contract = %q/%q", scanned.PresentColumn, scanned.ValueColumn)
+	}
+	// The Arango-only execution aids never travel on a PostgreSQL command:
+	// no index advice and no separate witness command.
+	if scanned.CategoryIndex != nil || scanned.PreviewCoveringIndex != nil {
+		t.Fatalf("Arango index advice reached the PostgreSQL scan: %#v %#v", scanned.CategoryIndex, scanned.PreviewCoveringIndex)
+	}
+	if scanned.OverflowWitness != nil {
+		t.Fatalf("Arango overflow witness reached the PostgreSQL scan: %#v", scanned.OverflowWitness)
+	}
+	// The proof stays bound to the request, and presence is always tracked:
+	// the statement carries the total presence bit on every shape.
+	if scanned.Proof.Output != "Patients" || scanned.Proof.Column != "gender" || scanned.Proof.MaxValues != 64 ||
+		scanned.Proof.OutputSchemaDigest == "" || scanned.Proof.PlanFingerprint == "" ||
+		scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" || !scanned.Proof.PresenceTracked {
+		t.Fatalf("incomplete PostgreSQL category proof: %#v", scanned.Proof)
+	}
+	if scanned.Proof.OverflowWitnessFingerprint != "" {
+		t.Fatalf("proof cites a witness this scan does not carry: %#v", scanned.Proof)
+	}
+	// Determinism at the boundary: the same request compiles byte-identically.
+	again, err := CompileCategoryScanOutput(mustPostgreSQLCategoryTarget(t), output, "gender", 64, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	againSQL, againArgs := mustPostgreSQLCategorySQL(t, again.Command)
+	if againSQL != sql || !reflect.DeepEqual(againArgs, args) || again.Proof.Fingerprint != scanned.Proof.Fingerprint {
+		t.Fatal("PostgreSQL category compilation was not deterministic")
+	}
+	// A different selected column is a different proof and a different query.
+	other, err := CompileCategoryScanOutput(mustPostgreSQLCategoryTarget(t), output, "id", 64, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSQL, otherArgs := mustPostgreSQLCategorySQL(t, other.Command)
+	// The statement template is column-independent by design (the category
+	// path travels as a bound parameter); the proof and the arguments bind it.
+	if other.Proof.Fingerprint == scanned.Proof.Fingerprint || reflect.DeepEqual(otherArgs, args) {
+		t.Fatalf("proof and arguments were not bound to the selected category column: %#v %#v", other.Proof.Fingerprint, otherArgs)
+	}
+	if otherSQL != sql {
+		t.Fatalf("the registered category template changed between two registered columns:\n%s\n%s", sql, otherSQL)
+	}
+}
+
+func TestCompileCategoryScanPostgreSQLRefusalsMatchTheAQLPath(t *testing.T) {
+	target := mustPostgreSQLCategoryTarget(t)
+	base := lower.CompiledRecipeOutput{OutputSchema: []lower.CompiledOutputColumn{
+		{Name: "status", Kind: string(expression.KindString), Cardinality: string(expression.OptionalOne)},
+		{Name: "internal", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Internal: true},
+		{Name: "identity", Kind: string(expression.KindString), Cardinality: string(expression.RequiredOne), Identity: true},
+		{Name: "repeated", Kind: string(expression.KindString), Cardinality: string(expression.Many)},
+		{Name: "object", Kind: string(expression.KindObject), Cardinality: string(expression.OptionalOne)},
+		{Name: "unknown_kind", Kind: "mystery", Cardinality: string(expression.OptionalOne)},
+	}}
+	for _, test := range []struct {
+		name string
+		code CategoryScanRefusalCode
+	}{
+		{"missing", CategoryScanColumnUnknown},
+		{"internal", CategoryScanColumnInternal},
+		{"identity", CategoryScanColumnIdentity},
+		{"repeated", CategoryScanColumnRepeated},
+		{"object", CategoryScanColumnUnsupported},
+		{"unknown_kind", CategoryScanColumnUnsupported},
+	} {
+		_, pgErr := CompileCategoryScanOutput(target, base, test.name, 256, ir.DefaultPhysicalOptimizationPolicy())
+		var refusal *CategoryScanRefusal
+		if !errors.As(pgErr, &refusal) || refusal.Code != test.code {
+			t.Fatalf("PostgreSQL refusal for %q = %v, want %s", test.name, pgErr, test.code)
+		}
+		if code, ok := CategoryScanRefusalCodeOf(pgErr); !ok || code != test.code {
+			t.Fatalf("typed PostgreSQL code = %q/%t", code, ok)
+		}
+	}
+	// The bound check runs before any plan work, on both backends.
+	for _, maxValues := range []int{0, MaxCategoryScanValues + 1} {
+		_, pgErr := CompileCategoryScanOutput(target, base, "status", maxValues, ir.DefaultPhysicalOptimizationPolicy())
+		if code, ok := CategoryScanRefusalCodeOf(pgErr); !ok || code != CategoryScanInvalidLimit {
+			t.Fatalf("PostgreSQL limit refusal for %d = %v", maxValues, pgErr)
+		}
+	}
+}
+
+func TestCompileCategoryScanStageForPostgreSQLKeepsTheSourceProjectionAndRefusesComposedStages(t *testing.T) {
+	compiled := compilePopulationMappingOutput(t, categoryScanConstructionRecipeOutput())
+	target := mustPostgreSQLCategoryTarget(t)
+
+	scanned, err := CompileCategoryScanStage(target, compiled, recipe.ConstructionSourceProjectionID, "status_id", "amount_id", 64, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql, args := mustPostgreSQLCategorySQL(t, scanned.Command)
+	if !strings.Contains(sql, "__loom_category_distinct AS") || !strings.HasSuffix(sql, "LIMIT $6") {
+		t.Fatalf("source-projection stage scan was not the registered category statement:\n%s", sql)
+	}
+	if len(args) == 0 || args[len(args)-1].Value != int64(65) {
+		t.Fatalf("stage scan bound = %#v", args)
+	}
+	if scanned.Proof.Version != 2 || scanned.Proof.StageID != recipe.ConstructionSourceProjectionID ||
+		scanned.Proof.ColumnID != "status_id" || scanned.Proof.ValueColumnID != "amount_id" ||
+		scanned.Proof.Column != "status" || !scanned.Proof.PresenceTracked {
+		t.Fatalf("stage proof is not bound to the requested pair: %#v", scanned.Proof)
+	}
+	if scanned.OverflowWitness != nil {
+		t.Fatalf("Arango witness reached the PostgreSQL stage scan: %#v", scanned.OverflowWitness)
+	}
+
+	// A composed construction stage has no registered PostgreSQL category
+	// terminal: the scan refuses with the typed capability gap instead of
+	// falling back to AQL or translating the composition.
+	for _, stageID := range []string{"derive_total", "keep_positive"} {
+		_, stageErr := CompileCategoryScanStage(target, compiled, stageID, "status_id", "amount_id", 64, ir.DefaultPhysicalOptimizationPolicy())
+		if !errors.Is(stageErr, postgresrender.ErrUnsupportedPostgresPlan) {
+			t.Fatalf("composed stage %q must refuse with the typed capability gap: %v", stageID, stageErr)
+		}
+		if strings.Contains(strings.ToLower(stageErr.Error()), "aql") {
+			t.Fatalf("composed stage refusal must not offer an AQL fallback: %v", stageErr)
+		}
+	}
+}
+
+// TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSourceRead
+// is the positive cell for the source-preserving proof arm: a stage whose
+// prefix is a parent-preserving RELATED_EXPAND plus a row-preserving
+// RELATED_FIELD arrives with a StageSequence, passes the shared
+// categoryScanPreservesSourceCategories proof, and is narrowed to the source
+// read before the PostgreSQL terminal renders. The AQL twin is
+// TestCompileCategoryScanCollapsesParentPreservingRelatedPrefixToRootCategories.
+func TestCompileCategoryScanStageForPostgreSQLCollapsesProvenRelatedPrefixToSourceRead(t *testing.T) {
+	compiled := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, false, false))
+	if _, found := compiledStageByID(compiled.Stages, "add_status"); !found {
+		t.Fatal("compiled output lost the terminal related-field stage")
+	}
+
+	scanned, err := CompileCategoryScanStage(mustPostgreSQLCategoryTarget(t), compiled, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if err != nil {
+		t.Fatalf("proof-accepted related prefix must render, not refuse: %v", err)
+	}
+	sql, args := mustPostgreSQLCategorySQL(t, scanned.Command)
+	for _, want := range []string{
+		"__loom_category_source AS", "__loom_category_rows AS", "__loom_category_distinct AS",
+		`GROUP BY "present", "value"`, `ORDER BY "present" ASC`,
+		`END COLLATE "C" ASC, "value" ASC`,
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("collapsed related-prefix page is not the registered composed statement (missing %q):\n%s", want, sql)
+		}
+	}
+	if !strings.HasSuffix(sql, "LIMIT $"+fmt.Sprint(len(args))) {
+		t.Fatalf("the bound parameter must be the final placeholder:\n%s\n%#v", sql, args)
+	}
+	if scanned.Proof.Version != 2 || scanned.Proof.StageID != "add_status" ||
+		scanned.Proof.ColumnID != "category_id" || scanned.Proof.ValueColumnID != "value_id" ||
+		scanned.Proof.Column != "category" || scanned.Proof.MaxValues != 256 || !scanned.Proof.PresenceTracked {
+		t.Fatalf("collapsed scan lost its Version-2 stage/pair proof: %#v", scanned.Proof)
+	}
+	if terminalStage, _ := compiledStageByID(compiled.Stages, "add_status"); true {
+		wantDigest, hashErr := categoryHash(terminalStage.Columns)
+		if hashErr != nil {
+			t.Fatal(hashErr)
+		}
+		if scanned.Proof.OutputSchemaDigest != wantDigest || scanned.Proof.PlanFingerprint == "" ||
+			scanned.Proof.QueryFingerprint == "" || scanned.Proof.Fingerprint == "" {
+			t.Fatalf("collapsed scan lost its proof identity: %#v", scanned.Proof)
+		}
+	}
+	if scanned.CategoryIndex != nil || scanned.PreviewCoveringIndex != nil || scanned.OverflowWitness != nil {
+		t.Fatalf("Arango-only execution aids reached the collapsed PostgreSQL scan: %#v %#v %#v",
+			scanned.CategoryIndex, scanned.PreviewCoveringIndex, scanned.OverflowWitness)
+	}
+
+	// The arm is proof-gated, not blanket-accepted: inserting a FILTER into
+	// the same prefix invalidates the source-category proof and the same
+	// stage scan refuses with the typed capability gap.
+	filtered := compilePopulationMappingOutput(t, categoryScanRelatedRecipeOutput(recipe.ExpansionPreserveParent, true, false))
+	_, refusalErr := CompileCategoryScanStage(mustPostgreSQLCategoryTarget(t), filtered, "add_status", "category_id", "value_id", 256, ir.DefaultPhysicalOptimizationPolicy())
+	if !errors.Is(refusalErr, postgresrender.ErrUnsupportedPostgresPlan) {
+		t.Fatalf("unproven related prefix must refuse with the typed capability gap: %v", refusalErr)
 	}
 }

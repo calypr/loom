@@ -67,6 +67,9 @@ func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindi
 	if workspaceOutputCaptureRequired(output) {
 		return CompiledQuery{}, fmt.Errorf("output %q references same-workspace outputs; server-owned workspace capture is not available", output.Name)
 	}
+	if output.Plan.ClickHousePrefix != nil || (output.OptimizedPlan != nil && output.OptimizedPlan.ClickHousePrefix != nil) {
+		return CompiledQuery{}, fmt.Errorf("output %q is a composite ClickHouse plan; compile its source prefix through CompileClickHousePrefix and its combine through the ClickHouse stream path", output.Name)
+	}
 	var physical ir.PhysicalPlan
 	groupRows := len(output.Plan.Operations) == 1 && output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp
 	if groupRows {
@@ -199,6 +202,140 @@ func CompileRecipeOutput(target Target, output lower.CompiledRecipeOutput, bindi
 		PreviewGroupProjection: previewGroupProjection,
 		PlanDiagnostics:        physicalPlanDiagnostics(physical),
 	}, nil
+}
+
+// CompiledClickHousePrefix is the compiled source query of one composite
+// ClickHouse plan's typed prefix, tagged once with the command backend named
+// by the prefix's own SourceBackend. The command is the only executable
+// carrier: the query text, bind variables, and SQL arguments are never
+// re-extracted as loose execution fields.
+type CompiledClickHousePrefix struct {
+	Command       command.CompiledCommand
+	OutputColumns []string
+	Fingerprint   string
+}
+
+// CompileClickHousePrefix is the compiler seam that compiles the typed prefix
+// of one composite ClickHouse plan into a source-backend command. The prefix's
+// explicit PhysicalPrefixSourceBackend tag — never the terminal Combine, which
+// always executes on ClickHouse — selects the renderer, and the selected
+// compile target must name the same backend: an AQL-tagged prefix requires
+// the Arango target and a PostgreSQL-tagged prefix requires the PostgreSQL
+// target. There is no default and no fallback: an untagged, unknown, or
+// target-mismatched prefix fails explicitly before any rendering or I/O.
+//
+// The AQL arm renders through the canonical AQL prefix renderer, preserving
+// the exact payload bytes and named-bind contract. The PostgreSQL arm renders
+// the same closed typed stage sequence through the target-bound PostgreSQL
+// renderer as parameterized SQL and requires the statement to declare exactly
+// the prefix's typed final schema, row identity column included, in schema
+// order; any drift fails closed.
+func CompileClickHousePrefix(target Target, plan ir.PhysicalPlan) (CompiledClickHousePrefix, error) {
+	if err := target.validate(); err != nil {
+		return CompiledClickHousePrefix{}, err
+	}
+	if plan.Engine != ir.PhysicalEngineClickHouse || plan.ClickHousePrefix == nil || plan.ClickHouseCombine == nil {
+		return CompiledClickHousePrefix{}, fmt.Errorf("composite ClickHouse plan with a typed prefix is required")
+	}
+	// Validate the composite before backend dispatch, not just the arm-local
+	// view. The PostgreSQL arm renders a stripped standalone clone, so with-
+	// out this call the composite contract — the restricted PostgreSQL
+	// refusal, cell-trace/row-lineage refusal, preview/LIMIT refusal,
+	// GROUP/COHORT_GROUP stage refusal, prefix-to-final-stage binding, and
+	// OutputAuthResourcePathBindKey equality — would only be enforced for
+	// callers that went through the composer. Hand-built or restored plans
+	// are validated here, before any rendering or I/O.
+	if err := plan.Validate(); err != nil {
+		return CompiledClickHousePrefix{}, fmt.Errorf("validate composite ClickHouse prefix plan: %w", err)
+	}
+	switch prefix := plan.ClickHousePrefix; prefix.SourceBackend {
+	case ir.PhysicalPrefixSourceAQL:
+		if target.backend != command.CompiledBackendAQL {
+			return CompiledClickHousePrefix{}, fmt.Errorf("AQL-tagged ClickHouse prefix requires the AQL compile target, got %s", string(target.backend))
+		}
+		rendered, err := aql.RenderClickHousePrefix(plan)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("render ClickHouse prefix command: %w", err)
+		}
+		compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("tag ClickHouse prefix command: %w", err)
+		}
+		fingerprint, err := categoryQueryFingerprint(rendered.Query, rendered.BindVars)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("fingerprint ClickHouse prefix command: %w", err)
+		}
+		return CompiledClickHousePrefix{
+			Command:       compiledCommand,
+			OutputColumns: clickHousePrefixSchema(plan),
+			Fingerprint:   fingerprint,
+		}, nil
+	case ir.PhysicalPrefixSourcePostgreSQL:
+		if target.backend != command.CompiledBackendPostgreSQL {
+			return CompiledClickHousePrefix{}, fmt.Errorf("PostgreSQL-tagged ClickHouse prefix requires the PostgreSQL compile target, got %s", string(target.backend))
+		}
+		source := ir.ClonePhysicalPlan(plan)
+		source.Engine = ir.PhysicalEngineAQL
+		source.ClickHouseCombine = nil
+		source.ClickHousePrefix = nil
+		tagged, rendered, err := target.renderPostgreSQLFinalPlan(source)
+		if err != nil {
+			return CompiledClickHousePrefix{}, fmt.Errorf("render ClickHouse prefix command: %w", err)
+		}
+		if err := matchClickHousePrefixSchema(plan, rendered.OutputColumns); err != nil {
+			return CompiledClickHousePrefix{}, err
+		}
+		return CompiledClickHousePrefix{
+			Command:       tagged,
+			OutputColumns: append([]string(nil), rendered.OutputColumns...),
+			Fingerprint:   postgreSQLPlanFingerprint(rendered.SQL, rendered.Args, rendered.OutputColumns),
+		}, nil
+	default:
+		return CompiledClickHousePrefix{}, prefix.SourceBackend.Validate()
+	}
+}
+
+func clickHousePrefixSchema(plan ir.PhysicalPlan) []string {
+	if plan.StageSequence == nil {
+		return nil
+	}
+	columns := make([]string, 0, len(plan.StageSequence.FinalColumns))
+	for _, column := range plan.StageSequence.FinalColumns {
+		columns = append(columns, column.Name)
+	}
+	return columns
+}
+
+// matchClickHousePrefixSchema requires the rendered PostgreSQL statement to
+// declare exactly the prefix's typed final schema in schema order, including
+// the row identity column the terminal Combine uses for row identity.
+func matchClickHousePrefixSchema(plan ir.PhysicalPlan, declared []string) error {
+	if plan.StageSequence == nil {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix has no typed stage sequence")
+	}
+	sequence := plan.StageSequence
+	expected := clickHousePrefixSchema(plan)
+	if len(expected) == 0 {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix declares no typed final schema columns")
+	}
+	sawRowIdentity := false
+	for _, column := range sequence.FinalColumns {
+		if column.Name == sequence.FinalRowIdentity {
+			sawRowIdentity = true
+		}
+	}
+	if !sawRowIdentity {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix typed schema does not carry its row identity column %q", sequence.FinalRowIdentity)
+	}
+	if len(declared) != len(expected) {
+		return fmt.Errorf("PostgreSQL ClickHouse prefix declares %d result columns, want the exact typed prefix schema %v", len(declared), expected)
+	}
+	for index := range expected {
+		if declared[index] != expected[index] {
+			return fmt.Errorf("PostgreSQL ClickHouse prefix result column %d is %q, want the typed prefix column %q", index, declared[index], expected[index])
+		}
+	}
+	return nil
 }
 
 // canRenderStreamingMissingCategoryPivotPreview only enables the streaming

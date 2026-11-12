@@ -60,7 +60,7 @@ func RenderCompositeClickHouseCombine(plan ir.PhysicalClickHouseCombine, prefix 
 			continue
 		}
 		if privateRefFound || ref.PrivateStageID != prefix.StageID {
-			return RenderedCombine{}, fmt.Errorf("private ClickHouse Combine input does not match the exact AQL prefix stage")
+			return RenderedCombine{}, fmt.Errorf("private ClickHouse Combine input does not match the exact prefix stage")
 		}
 		privateRefFound = true
 	}
