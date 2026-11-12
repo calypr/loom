@@ -237,6 +237,17 @@ func CompileClickHousePrefix(target Target, plan ir.PhysicalPlan) (CompiledClick
 	if plan.Engine != ir.PhysicalEngineClickHouse || plan.ClickHousePrefix == nil || plan.ClickHouseCombine == nil {
 		return CompiledClickHousePrefix{}, fmt.Errorf("composite ClickHouse plan with a typed prefix is required")
 	}
+	// Validate the composite before backend dispatch, not just the arm-local
+	// view. The PostgreSQL arm renders a stripped standalone clone, so with-
+	// out this call the composite contract — the restricted PostgreSQL
+	// refusal, cell-trace/row-lineage refusal, preview/LIMIT refusal,
+	// GROUP/COHORT_GROUP stage refusal, prefix-to-final-stage binding, and
+	// OutputAuthResourcePathBindKey equality — would only be enforced for
+	// callers that went through the composer. Hand-built or restored plans
+	// are validated here, before any rendering or I/O.
+	if err := plan.Validate(); err != nil {
+		return CompiledClickHousePrefix{}, fmt.Errorf("validate composite ClickHouse prefix plan: %w", err)
+	}
 	switch prefix := plan.ClickHousePrefix; prefix.SourceBackend {
 	case ir.PhysicalPrefixSourceAQL:
 		if target.backend != command.CompiledBackendAQL {

@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -214,6 +215,28 @@ func TestPhysicalClickHousePrefixRefusesRestrictedPostgreSQLPrefix(t *testing.T)
 	}
 	if err := prefix.ValidateScope(); err != nil {
 		t.Fatalf("restricted scope shape must stay well-formed for the AQL backend: %v", err)
+	}
+}
+
+func TestPhysicalClickHousePrefixPostgreSQLScopeGateIsAnAllowlist(t *testing.T) {
+	// The PostgreSQL gate refuses unless AuthScopeMode is the literal
+	// "unrestricted". A non-canonical variant of restricted is still
+	// restricted semantics per validateShared (binds carry an exact non-empty
+	// path set with auth_resource_paths_unrestricted false), so it must be
+	// refused by the PostgreSQL gate itself — never by falling through to a
+	// downstream check. Pin every non-canonical variant here.
+	for _, mode := range []string{"Restricted", "RESTRICTED", " restricted", "restricted ", "restricted\u00a0", ""} {
+		t.Run("mode="+strconv.Quote(mode), func(t *testing.T) {
+			prefix := PhysicalClickHousePrefix{
+				SourceBackend: PhysicalPrefixSourcePostgreSQL, StageID: "final_stage", AuthScopeMode: mode,
+				AuthResourcePaths: []string{"/programs/p1"}, IncludeAuthResourcePath: true,
+				AuthResourcePathBindKey: "construction_private_auth_resource_path",
+			}
+			err := prefix.Validate(prefixDispatchSequence(), prefixDispatchBinds([]string{"/programs/p1"}, false))
+			if err == nil || !strings.Contains(err.Error(), "unsupported on the PostgreSQL source backend") {
+				t.Fatalf("non-canonical restricted mode %q on PostgreSQL error = %v, want the PostgreSQL restricted refusal", mode, err)
+			}
+		})
 	}
 }
 

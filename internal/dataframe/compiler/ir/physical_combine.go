@@ -334,7 +334,14 @@ func (prefix PhysicalClickHousePrefix) validateSourceAQL(sequence *PhysicalStage
 }
 
 func (prefix PhysicalClickHousePrefix) validateSourcePostgreSQL(sequence *PhysicalStageSequence, bindVars map[string]any) error {
-	if prefix.AuthScopeMode == "restricted" {
+	// Allowlist, not a denylist: anything that is not the literal
+	// "unrestricted" is restricted semantics here. validateShared treats
+	// every non-"unrestricted" mode with restricted-semantics binds as a
+	// restricted prefix, so a non-canonical variant ("Restricted", padded,
+	// empty) must not slip past this gate into the PostgreSQL backend with
+	// restricted binds and no bound authorization path column. There is no
+	// restricted semantics by omission on this tag.
+	if prefix.AuthScopeMode != "unrestricted" {
 		return fmt.Errorf("restricted private ClickHouse prefixes are unsupported on the PostgreSQL source backend: the composed PostgreSQL renderer has no registered bound authorization path column")
 	}
 	return prefix.validateShared(sequence, bindVars, "PostgreSQL")

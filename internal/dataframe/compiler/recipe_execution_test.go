@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -236,6 +237,53 @@ func TestCompileClickHousePrefixPostgreSQLRendersParameterizedSQL(t *testing.T) 
 	broken.StageSequence.FinalRowIdentity = "__loom_missing_row_id"
 	if _, err := compiler.CompileClickHousePrefix(target, broken); err == nil || !strings.Contains(err.Error(), "row identity") {
 		t.Fatalf("missing row identity error = %v", err)
+	}
+}
+
+// TestCompileClickHousePrefixRefusesDirectlyBuiltRestrictedPostgreSQLPrefix
+// pins that the seam itself enforces the composite IR contract. The
+// PostgreSQL arm renders a stripped standalone clone, so the full composite
+// validation must run at the seam before backend dispatch — otherwise every
+// composite refusal (restricted PostgreSQL prefix, cell-trace/row-lineage,
+// preview/LIMIT, GROUP/COHORT_GROUP, prefix-to-final-stage binding,
+// OutputAuthResourcePathBindKey equality) would be contingent on the caller
+// having gone through ComposeClickHouseCombine. A hand-built PG-tagged
+// restricted prefix — exactly the artifact the contract promises to refuse
+// before any rendering or I/O — must fail here, including in non-canonical
+// restricted-mode spellings the exact-match denylist would miss.
+func TestCompileClickHousePrefixRefusesDirectlyBuiltRestrictedPostgreSQLPrefix(t *testing.T) {
+	target, err := compiler.PostgreSQLTarget(mustPostgresBinding(t, "verify_ir03v1_offline"))
+	if err != nil {
+		t.Fatalf("PostgreSQLTarget() error = %v", err)
+	}
+	base := prefixTestCompositeWithCombine(t, prefixTestFilterOnlyOutput(), ir.PhysicalPrefixSourcePostgreSQL, prefixTestBindings(authscope.ReadScopeUnrestricted), func(stageID string) ir.PhysicalClickHouseCombine {
+		return prefixTestAppendCombineFor(stageID, "gender_id", "right_gender", "gender", "string", "String")
+	})
+	for _, mode := range []string{"restricted", "Restricted", ""} {
+		t.Run("mode="+strconv.Quote(mode), func(t *testing.T) {
+			handBuilt := ir.ClonePhysicalPlan(base)
+			handBuilt.ClickHousePrefix.AuthScopeMode = mode
+			handBuilt.ClickHousePrefix.AuthResourcePaths = []string{"/programs/p1"}
+			handBuilt.ClickHousePrefix.IncludeAuthResourcePath = true
+			handBuilt.ClickHousePrefix.AuthResourcePathBindKey = "construction_private_auth_resource_path"
+			handBuilt.BindVars["auth_resource_paths"] = []string{"/programs/p1"}
+			handBuilt.BindVars["auth_resource_paths_unrestricted"] = false
+			handBuilt.BindVars["scope_allowed"] = true
+			handBuilt.BindVars["construction_private_auth_resource_path"] = "/programs/p1"
+			compiled, err := compiler.CompileClickHousePrefix(target, handBuilt)
+			if err == nil || !strings.Contains(err.Error(), "unsupported on the PostgreSQL source backend") {
+				t.Fatalf("hand-built restricted PostgreSQL prefix error = %v, want the restricted refusal", err)
+			}
+			if compiled.Fingerprint != "" || compiled.Command.Backend() != "" || len(compiled.OutputColumns) != 0 {
+				t.Fatalf("hand-built restricted PostgreSQL prefix produced a compiled artifact: backend=%q columns=%v fingerprint=%q", string(compiled.Command.Backend()), compiled.OutputColumns, compiled.Fingerprint)
+			}
+		})
+	}
+	// The unmodified composer-built plan still compiles, proving the refusal
+	// is the scope gate and not the added composite validation rejecting
+	// legitimate plans.
+	if _, err := compiler.CompileClickHousePrefix(target, base); err != nil {
+		t.Fatalf("composer-built unrestricted PostgreSQL prefix: %v", err)
 	}
 }
 
