@@ -93,6 +93,8 @@ var pgCompMintInventory = map[string]int{
 	"TestPostgresRuntimeReadinessReportsNeverMigratedSchema":        1,
 	"TestPostgresRuntimeReadinessReportsMissingSchema":              1,
 	"TestPostgresRuntimeVerifySchemaIsReadOnly":                     1,
+	// arch-backend-08 composition-matrix live leg (one database).
+	"TestBackendCompositionContract/liveProductionCompose_ledgerHolds": 1,
 }
 
 func pgCompTestPostgresURL(t *testing.T) string {
