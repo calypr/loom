@@ -11,6 +11,8 @@ package execution
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -235,13 +237,128 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		}
 	})
 
-	t.Run("CellTraceSurfaceRefusesPostgreSQLTargetByName", func(t *testing.T) {
+	// pg-sql-24 amendment (coordinator ruling, option a): the retired arm
+	// CellTraceSurfaceRefusesPostgreSQLTargetByName asserted the pre-pg-sql-24
+	// voice, when every cell-trace compile refused the PostgreSQL target by
+	// name. pg-sql-24 registered the whole-plan cell-trace slice, so that
+	// refusal is retired here and inverted into the run-arm twin of the
+	// RowLineage positive below. The executor entry (cellTraceCompiled) is
+	// port-transparent today — pg-exec-09 has not landed, so nothing refuses
+	// at the executor itself; it carries the command the selected target
+	// compiled to the one shared source row port and never compiles AQL.
+	// The exec02 "resources" output (Patient root scalar EXTRACT, RowIdentity
+	// [id]) is the registered arm B (root-extract contributor) shape. The
+	// arm A (reduced-set contributor) page is registered at the renderer,
+	// but no exec-path fixture reaches it: CompileResolvedBundle lowers with
+	// the default policy, whose traversal lowering carries the
+	// endpoint-lookup planner label, and the renderer refuses that shape
+	// fail-closed by name — pinned as the second refusal arm below.
+	t.Run("CellTracePostgreSQLRunArmServesEvidenceThroughTheSharedPort", func(t *testing.T) {
+		resolved := exec02TestResolved()
+		compiled, err := compiler.CompileCellTraceOutput(exec02PostgreSQLTarget(t),
+			resolved.Compiled.Outputs[0], "name", 1, 2, ir.DefaultPhysicalOptimizationPolicy())
+		if err != nil {
+			t.Fatalf("registered arm B cell trace must compile on the PostgreSQL target: %v", err)
+		}
+		if _, args, portErr := compiled.Command.PostgreSQLParameters(); portErr != nil || len(args) == 0 {
+			t.Fatalf("compiled cell trace command must be a parameterized PostgreSQL command: %v / %d args", portErr, len(args))
+		}
+		if compiled.ValueColumn != ir.PhysicalCellTraceValueField || compiled.StatusColumn != ir.PhysicalCellTraceStatusField ||
+			compiled.ContributionsColumn != ir.PhysicalCellTraceContributionsField ||
+			compiled.IdentityPartsColumn != ir.PhysicalCellTraceIdentityPartsField ||
+			compiled.HasMoreColumn != ir.PhysicalCellTraceHasMoreField || compiled.OmissionColumn != ir.PhysicalCellTraceOmissionField {
+			t.Fatalf("compiled trace must carry the six registered contract columns: %#v", compiled)
+		}
+
+		parts := []any{"patient-one"}
+		encoded, _ := json.Marshal(parts)
+		digest := sha256.Sum256(encoded)
+		rowID := hex.EncodeToString(digest[:])
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, []map[string]any{
+			{ir.PhysicalCellTraceIdentityPartsField: []any{"patient-two"}, ir.PhysicalCellTraceValueField: "Grace",
+				ir.PhysicalCellTraceStatusField: "VALUE", ir.PhysicalCellTraceHasMoreField: false,
+				ir.PhysicalCellTraceOmissionField: "", ir.PhysicalCellTraceContributionsField: []any{}},
+			{ir.PhysicalCellTraceIdentityPartsField: parts, ir.PhysicalCellTraceValueField: "Ada",
+				ir.PhysicalCellTraceStatusField: "VALUE", ir.PhysicalCellTraceHasMoreField: false,
+				ir.PhysicalCellTraceOmissionField: "", ir.PhysicalCellTraceContributionsField: []any{
+					map[string]any{"resourceType": "Patient", "resourceId": "patient-one", "operation": "EXTRACT", "value": "female"},
+				}},
+		})
+		result, err := engine.CellTrace(context.Background(), resolved,
+			CellTraceRequest{Output: "resources", RowID: rowID, Column: "name", Offset: 1, Limit: 1})
+		if err != nil {
+			t.Fatalf("CellTrace on the registered arm B shape: %v", err)
+		}
+		if spies.pgRequests != 1 || len(spies.pgFull) != 1 || len(spies.pgPreview) != 0 {
+			t.Fatalf("cell trace must run exactly once on the full source row port: full=%d preview=%d", len(spies.pgFull), len(spies.pgPreview))
+		}
+		call := spies.pgFull[0]
+		for _, want := range []string{`AS "__loom_trace_value"`, `AS "__loom_trace_identity_parts"`, `AS "__loom_trace_contributions"`} {
+			if !strings.Contains(call.SQL, want) {
+				t.Fatalf("port call must carry the compiled trace plan (%s):\n%s", want, call.SQL)
+			}
+		}
+		if len(call.Args) == 0 {
+			t.Fatal("every scope and page fact must travel as an ordered parameter")
+		}
+		if !result.Complete || result.Status != CellTraceValue || result.Value != "Ada" ||
+			result.HasMore || result.NextOffset != 0 || len(result.Contributions) != 1 ||
+			result.Contributions[0].ResourceID != "patient-one" || result.Contributions[0].Operation != "EXTRACT" {
+			t.Fatalf("the first visited row must be the identity-matched published row: %#v", result)
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+
+	t.Run("CellTracePostgreSQLRefusesComposedConstructionByNameWithZeroPortCalls", func(t *testing.T) {
 		spies := &dispatchSpies{}
 		engine, _ := exec02pgEngine(t, spies, exec02Rows())
-		_, err := engine.CellTrace(context.Background(), exec02TestResolved(),
-			CellTraceRequest{Output: "resources", RowID: "patient-one", Column: "name"})
-		if err == nil || !strings.Contains(err.Error(), "cell trace compilation is unsupported on the PostgreSQL compile target") {
-			t.Fatalf("cell trace must name its refusal under the PostgreSQL target: %v", err)
+		resolved, err := engine.CompileResolvedBundle(context.Background(), exec08GroupBundle(), recipe.RuntimeBindings{
+			Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"observations"}, AuthResourcePaths: []string{"FHIR/Observation"},
+		})
+		if err != nil {
+			t.Fatalf("CompileResolvedBundle: %v", err)
+		}
+		_, err = engine.CellTrace(context.Background(), resolved,
+			CellTraceRequest{Output: "observations", RowID: "x", Column: "status", Limit: 25})
+		if err == nil || !strings.Contains(err.Error(), "composed construction cell trace is unsupported on the PostgreSQL compile target") {
+			t.Fatalf("unregistered composed-construction trace must refuse by name: %v", err)
+		}
+		if !errors.Is(err, postgres.ErrUnsupportedPostgresPlan) {
+			t.Fatalf("cell trace refusal must carry the typed unsupported-plan error: %v", err)
+		}
+		if spies.pgRequests != 0 {
+			t.Fatalf("refused cell trace reached the row port")
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+
+	t.Run("CellTracePostgreSQLRefusesEndpointLookupTraversalByNameWithZeroPortCalls", func(t *testing.T) {
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, exec02Rows())
+		resolved, err := engine.CompileResolvedBundle(context.Background(), recipe.Bundle{
+			RecipeSchemaVersion: recipe.CurrentSchemaVersion,
+			Name:                "pgsql24_endpoint_control",
+			TranslationVersion:  "pg-sql-24",
+			Outputs: []recipe.Output{{
+				Name: "patients", RootResourceType: "Patient", RowGrain: "patient",
+				RootColumnNaming: recipe.RootColumnNamingExact, TraversalColumnNaming: recipe.TraversalColumnNamingExact,
+				Fields: []recipe.Field{{Name: "patient_id", ColumnID: "patient_id", Expr: recipe.Expression{Select: "root.id"}}},
+				Traversals: []recipe.Traversal{{
+					Name: "subject_Patient", ToResourceType: "Condition", Alias: "condition",
+					Fields: []recipe.Field{{Name: "condition_id", ColumnID: "condition_id", Expr: recipe.Expression{Select: "id"}, ValueMode: recipe.ValueModeFirst}},
+				}},
+			}},
+		}, recipe.RuntimeBindings{
+			Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"patients"}, AuthResourcePaths: []string{"FHIR/Patient", "FHIR/Condition"},
+		})
+		if err != nil {
+			t.Fatalf("CompileResolvedBundle: %v", err)
+		}
+		_, err = engine.CellTrace(context.Background(), resolved,
+			CellTraceRequest{Output: "patients", RowID: "x", Column: "condition_id", Limit: 25})
+		if err == nil || !strings.Contains(err.Error(), "endpoint-lookup") {
+			t.Fatalf("the default-policy traversal trace must refuse with the spine's typed endpoint-lookup voice: %v", err)
 		}
 		if !errors.Is(err, postgres.ErrUnsupportedPostgresPlan) {
 			t.Fatalf("cell trace refusal must carry the typed unsupported-plan error: %v", err)
