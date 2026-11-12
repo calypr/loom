@@ -350,7 +350,7 @@ func ValidatePopulationRootSource(plan ir.PhysicalPlan, binding PostgresPopulati
 		return err
 	}
 	if scan.Population != nil {
-		_, err := validatePopulationPayload(plan, scan)
+		_, err := validatePopulationPayload(plan, scan, false)
 		return err
 	}
 	return validateCohortPayload(plan, scan)
@@ -514,12 +514,21 @@ type populationRootShape struct {
 // traversal plus its canonical scope block), and the terminal root key.
 // Every deviation is a typed refusal; the canonical scope ops are recognized
 // and never rendered (D5 — scope.go is the single scope authority).
-func validatePopulationPayload(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) (populationRootShape, error) {
+func validatePopulationPayload(plan ir.PhysicalPlan, scan ir.PhysicalRootScan, witness bool) (populationRootShape, error) {
 	var shape populationRootShape
 	population := scan.Population
-	if population.CollectMembersVariable != "" {
+	if !witness && population.CollectMembersVariable != "" {
 		return shape, fmt.Errorf("%w: population member witnesses (CollectMembersVariable %q) belong to the pg-sql-22 population terminal and are not registered by pg-sql-18 (D2)",
 			ErrUnsupportedPostgresPlan, population.CollectMembersVariable)
+	}
+	if witness && population.CollectMembersVariable != ir.PopulationMappingMembersVariable {
+		// The witness posture is registered only for the compiler-owned
+		// mapping collection (compiler/population_mapping.go stamps exactly
+		// ir.PopulationMappingMembersVariable); any other name is a
+		// hand-assembled or foreign request and fails closed, never
+		// rendering a witness for members nothing maps.
+		return shape, fmt.Errorf("%w: the member witness is registered only for CollectMembersVariable %q, got %q",
+			ErrUnsupportedPostgresPlan, ir.PopulationMappingMembersVariable, population.CollectMembersVariable)
 	}
 	shape.memberVariable = population.MemberScan.Variable
 	if shape.memberVariable == "" {
@@ -782,7 +791,7 @@ func sameCanonicalPhysicalValue(got, wanted ir.PhysicalValue) bool {
 // the root row on exactly those columns (the DOCUMENT restore + null filter
 // of render.go:751-754: an unmatched identity simply is not a root).
 func (r *planRenderer) renderPopulationRootSource(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) error {
-	shape, err := validatePopulationPayload(plan, scan)
+	shape, err := validatePopulationPayload(plan, scan, r.mapping != nil && r.mapping.witness)
 	if err != nil {
 		return err
 	}
@@ -858,10 +867,38 @@ func (r *planRenderer) renderPopulationRootSource(plan ir.PhysicalPlan, scan ir.
 		projection = append(projection, terminalAlias+"."+resource.MustColumn(column).SQLText())
 		join = append(join, "pop."+resource.MustColumn(column).SQLText()+" = "+r.rootAlias+"."+resource.MustColumn(column).SQLText())
 	}
-	candidate := "INNER JOIN (SELECT DISTINCT " + strings.Join(projection, ", ") +
-		" FROM " + strings.Join(fromParts, " ") +
-		" WHERE " + strings.Join(predicates, " AND ") +
-		") AS pop ON " + strings.Join(join, " AND ")
+	candidate := "INNER JOIN ("
+	if r.mapping != nil && r.mapping.witness {
+		// Member-witness posture (pg-sql-22, the D2 flip): the AQL
+		// COLLECT-INTO + SORTED_UNIQUE of render/aql/render.go:742-749 —
+		// one sorted, de-duplicated member-id array per candidate root —
+		// becomes GROUP BY over the same identity columns plus
+		// to_jsonb(ARRAY_AGG(DISTINCT ... ORDER BY ... COLLATE "C")).
+		// ARRAY_AGG skips SQL NULLs; selection_members.id is NOT NULL
+		// CHECK non-empty in migration 000008, so no row is lost, and
+		// DISTINCT + COLLATE "C" is exactly SORTED_UNIQUE's bytewise
+		// sort-unique (Arango sorts strings bytewise). GROUP BY is the
+		// DISTINCT the plain posture used: the same identity collapse
+		// (D1), one row per candidate root, now carrying its members.
+		// The COLLATE rides the aggregate ARGUMENT, not just the ORDER BY:
+		// PostgreSQL rejects (SQLSTATE 42P10) a DISTINCT aggregate whose
+		// ORDER BY expression is not literally in the argument list, so
+		// the bytewise collation must decorate both identically.
+		memberRead := memberAlias + "." + r.membership.columnSQL(membershipSelectionMembers, "id") + ` COLLATE "C"`
+		candidate += "SELECT " + strings.Join(projection, ", ") +
+			", to_jsonb(ARRAY_AGG(DISTINCT (" + memberRead + ") ORDER BY (" + memberRead + `))) AS "` +
+			populationMappingMembersColumnAlias + `"` +
+			" FROM " + strings.Join(fromParts, " ") +
+			" WHERE " + strings.Join(predicates, " AND ") +
+			" GROUP BY " + strings.Join(projection, ", ") +
+			") AS pop ON " + strings.Join(join, " AND ")
+		r.mapping.membersColumnRef = "pop." + quoteMembershipIdentifier(populationMappingMembersColumnAlias)
+	} else {
+		candidate += "SELECT DISTINCT " + strings.Join(projection, ", ") +
+			" FROM " + strings.Join(fromParts, " ") +
+			" WHERE " + strings.Join(predicates, " AND ") +
+			") AS pop ON " + strings.Join(join, " AND ")
+	}
 	r.joins = append(r.joins, candidate)
 	return nil
 }

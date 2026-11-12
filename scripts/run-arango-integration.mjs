@@ -144,6 +144,29 @@ export const pgExec03PostQuery = new Set([
     'TestPostgresPostQueryMutationControls',
     'TestZZPostgresPostQueryZeroLeftoverFixtures',
 ]);
+// pg-exec-06: the category presence/value scan live battery (exact
+// CategoryValue pages, deterministic rerun against the direct-SQL witness,
+// page-owned truncation, scope-empty no-leak, cancellation honesty, auth
+// scope travel, the stage form, and the zero-touch refusals including the
+// compiler-entry identity refusals) requires the separate PostgreSQL 18
+// fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It runs against
+// the real PG18 server under the ticket check-2 harness (go test
+// ./internal/dataframe/execution -run PostgresCategory); in this Arango-only
+// lane their explicit skips stay visible in the proof summary, following the
+// pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and pg-exec-10/#144
+// registration precedent. Membership is byte-exact against the offline
+// go test -json skip capture for this package.
+const pgExec06Category = new Set([
+    'TestPostgresCategoryExactValuesLivePG18',
+    'TestPostgresCategoryDeterministicRerunLivePG18',
+    'TestPostgresCategoryOverflowLivePG18',
+    'TestPostgresCategoryEmptyScopeNoLeakLivePG18',
+    'TestPostgresCategoryCancellationLivePG18',
+    'TestPostgresCategoryAuthScopeLivePG18',
+    'TestPostgresCategoryStageScanLivePG18',
+    'TestPostgresCategoryRefusalsZeroTouchLivePG18',
+    'TestZZPostgresCategoryZeroLeftoverFixtures',
+]);
 // pg-runtime-first-query-route: the public fhirDataframe query-route live
 // battery (census through the production handler, the exact-literals
 // serving leg, the dead-endpoint bound witness, and the N-5 census audit)
@@ -240,6 +263,7 @@ const external = new Set([
     ...pgExec04Preview,
     ...pgExec08RowLineage,
     ...pgExec03PostQuery,
+    ...pgExec06Category,
     ...pgQueryRoute,
     ...pgIr03PrefixSeam,
     ...pgRuntimeComposition,
