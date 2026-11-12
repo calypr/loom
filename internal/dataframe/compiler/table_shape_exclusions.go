@@ -53,9 +53,6 @@ func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutpu
 	if err := target.validate(); err != nil {
 		return CompiledTableShapeExclusionQuery{}, err
 	}
-	if err := target.rejectPostgreSQL("table shape exclusion compilation"); err != nil {
-		return CompiledTableShapeExclusionQuery{}, err
-	}
 	if offset < 0 {
 		return CompiledTableShapeExclusionQuery{}, &TableShapeExclusionRefusal{Code: TableShapeExclusionInvalidOffset}
 	}
@@ -137,16 +134,35 @@ func CompileTableShapeExclusions(target Target, output lower.CompiledRecipeOutpu
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
 		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("verify table-shape exclusion scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
-	if err != nil {
-		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("render table-shape exclusion plan: %w", err)
-	}
-	if strings.TrimSpace(output.Name) == "" {
-		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
-	}
-	compiledCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
-	if commandErr != nil {
-		return CompiledTableShapeExclusionQuery{}, fmt.Errorf("tag table-shape exclusion command: %w", commandErr)
+	// The target selects the dialect once and there is no AQL fallback and no
+	// AQL-to-SQL conversion: the Arango target renders through the canonical
+	// AQL renderer (its registered surface, byte-identical to before the
+	// PostgreSQL terminal landed) and the PostgreSQL target renders through
+	// the registered evidence-terminal slice, whose unsupported shapes fail
+	// explicitly with the renderer's typed error.
+	var compiledCommand command.CompiledCommand
+	if target.backend == command.CompiledBackendPostgreSQL {
+		postgresCommand, _, postgresErr := target.renderPostgreSQLFinalPlan(physical)
+		if postgresErr != nil {
+			return CompiledTableShapeExclusionQuery{}, postgresErr
+		}
+		if strings.TrimSpace(output.Name) == "" {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
+		}
+		compiledCommand = postgresCommand
+	} else {
+		rendered, err := aql.RenderPhysicalPlan(physical)
+		if err != nil {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("render table-shape exclusion plan: %w", err)
+		}
+		if strings.TrimSpace(output.Name) == "" {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("table-shape exclusion output name is required")
+		}
+		aqlCommand, commandErr := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+		if commandErr != nil {
+			return CompiledTableShapeExclusionQuery{}, fmt.Errorf("tag table-shape exclusion command: %w", commandErr)
+		}
+		compiledCommand = aqlCommand
 	}
 	return CompiledTableShapeExclusionQuery{
 		Command:              compiledCommand,

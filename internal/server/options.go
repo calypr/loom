@@ -83,18 +83,18 @@ type PostgreSQLConfig struct {
 	// Schemas is the declaration of schema ownership for each production
 	// migration series (see
 	// internal/backends/postgres/internal/store/migration_ownership.go).
-	// Since pg-runtime-first-query-route it is CONSUMED for exactly two
-	// series: the PostgreSQL first query route passes the source and
-	// dataset_release assignments through the backend factory
-	// (internal/server runPostgreSQLFirstQueryRoute), where
+	// Since pg-runtime-server-composition it is CONSUMED in exactly two
+	// shapes: the complete six-series ladder (the full PostgreSQL runtime,
+	// internal/server runPostgreSQLFullRuntime) and the first-query-route
+	// pair (source and dataset_release only, runPostgreSQLFirstQueryRoute).
+	// Both pass the assignment through the backend factory, where
 	// storepostgres.ValidateAssignment is the authoritative pre-pool gate.
-	// The other four series (explorer_control, publication_control,
-	// recipe_chains, recipe_exec_registries) still have no production
-	// migrate or store call sites, so any entry for them is rejected at
-	// configuration time (fail closed) instead of being silently ignored --
-	// a deployment can never believe an unconsumed series is isolated in
-	// the named schema. A missing map is valid here (no error), but the
-	// route's pre-dial consumability gate then keeps the deployment on the
+	// Any other shape -- an extra entry, a typo'd series, or a subset of the
+	// ladder beyond the pair -- is rejected at configuration time (fail
+	// closed) instead of being silently ignored: a deployment can never
+	// believe an unconsumed series is isolated in the named schema. A
+	// missing map is valid here (no error), but the route's pre-dial
+	// consumability gates then keep the deployment on the
 	// ErrPostgreSQLRuntimeNotWired refusal, never a partial composition.
 	Schemas map[string]string `yaml:"schemas"`
 }
@@ -506,42 +506,75 @@ func (p PostgreSQLConfig) validate() error {
 	// become acceptable once a factory honors the map, at which point
 	// storepostgres.ValidateAssignment is the authoritative pre-pool gate
 	// (it stays authoritative and fully tested at the store layer in the
-	// meantime)." pg-runtime-first-query-route is that factory: the first
-	// query route (runPostgreSQLFirstQueryRoute in server.go) honors exactly
-	// the source and dataset_release assignments and passes them through the
+	// meantime)." pg-runtime-first-query-route opened that door for the
+	// source and dataset_release pair, and pg-runtime-server-composition now
+	// consumes the complete six-series ladder through the full PostgreSQL
+	// runtime (runPostgreSQLFullRuntime). Both shapes pass through the
 	// factory's Config.Validate, where storepostgres.ValidateAssignment
 	// remains the authoritative pre-dial ledger gate. The fail-closed law
-	// still governs every unconsumed series: silently ignoring an explicit
-	// entry would let a deployment believe a series is hosted in the named
-	// schema while the assignment has no effect -- explorer_control,
-	// publication_control, recipe_chains, and recipe_exec_registries still
-	// have no production migrate call sites (review on PR #110, thread
-	// PRRT_kwDOS-yV5s61pLW-), so any entry for them is rejected here rather
-	// than silently dropped next to a working route.
+	// still governs every shape: silently ignoring an explicit entry would
+	// let a deployment believe a series is hosted in the named schema while
+	// the assignment has no effect, so any map that is neither the exact
+	// first-query-route pair nor the exact full ladder is rejected here.
 	if len(p.Schemas) == 0 {
 		return nil
 	}
-	for series := range p.Schemas {
-		if series != "source" && series != "dataset_release" {
-			return fmt.Errorf("server.postgresql.schemas: series %q is not consumed by any production factory; remove the entry (the first query route honors exactly source and dataset_release)", series)
+	const (
+		seriesSource               = "source"
+		seriesExplorerControl      = "explorer_control"
+		seriesPublicationControl   = "publication_control"
+		seriesDatasetRelease       = "dataset_release"
+		seriesRecipeChains         = "recipe_chains"
+		seriesRecipeExecRegistries = "recipe_exec_registries"
+	)
+	ladder := []string{seriesSource, seriesExplorerControl, seriesPublicationControl, seriesDatasetRelease, seriesRecipeChains, seriesRecipeExecRegistries}
+	_, hasSource := p.Schemas[seriesSource]
+	_, hasDatasetRelease := p.Schemas[seriesDatasetRelease]
+	firstQueryPair := len(p.Schemas) == 2 && hasSource && hasDatasetRelease
+	fullLadder := len(p.Schemas) == len(ladder)
+	for _, series := range ladder {
+		if _, assigned := p.Schemas[series]; !assigned && fullLadder {
+			// A 6-entry map missing a ladder member carries a foreign key;
+			// neither consumable shape accepts it.
+			fullLadder = false
+			break
 		}
 	}
-	source, hasSource := p.Schemas["source"]
-	manifest, hasManifest := p.Schemas["dataset_release"]
-	if !hasSource || !hasManifest {
-		return errors.New("server.postgresql.schemas: the consumable assignment is exactly the source and dataset_release entries; supply both together")
+	for series := range p.Schemas {
+		known := false
+		for _, candidate := range ladder {
+			if series == candidate {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return fmt.Errorf("server.postgresql.schemas: series %q is not consumed by any production factory; the consumable shapes are the exact first-query-route pair (source and dataset_release) or the complete six-series ladder", series)
+		}
 	}
-	if strings.TrimSpace(source) == "" || strings.TrimSpace(manifest) == "" {
-		return errors.New("server.postgresql.schemas: the source and dataset_release entries cannot be blank")
+	if !firstQueryPair && !fullLadder {
+		return fmt.Errorf("server.postgresql.schemas: the consumable shapes are the exact first-query-route pair (source and dataset_release) or the complete six-series ladder (source, explorer_control, publication_control, dataset_release, recipe_chains, recipe_exec_registries); got %d entries", len(p.Schemas))
 	}
-	// Compare the TRIMMED values: the route's assignment trims before
-	// handing the pair to the factory, so names that differ only by
+	for series, schema := range p.Schemas {
+		if strings.TrimSpace(schema) == "" {
+			return fmt.Errorf("server.postgresql.schemas: the %s entry cannot be blank", series)
+		}
+	}
+	// Compare the TRIMMED values pairwise: the composition gates trim before
+	// handing the map to the factory, so names that differ only by
 	// surrounding whitespace would collapse to one schema downstream and
-	// surface as the generic not-wired sentinel. Refusing them here keeps
-	// the precise shared-schema message for the operator
-	// (review e22c4825 optional 3; both paths already failed closed).
-	if strings.TrimSpace(source) == strings.TrimSpace(manifest) {
-		return errors.New("server.postgresql.schemas: source and dataset_release must name distinct schemas; their pinned migration ledgers disagree, and the shared-schema refusal stays authoritative at storepostgres.ValidateAssignment")
+	// surface as the generic not-wired sentinel. Refusing them here keeps the
+	// precise shared-schema message for the operator
+	// (review e22c4825 optional 3; both paths already failed closed). The
+	// migration-ownership law gives every schema exactly one series' history,
+	// so every consumed pair must be distinct.
+	trimmed := make(map[string]string, len(p.Schemas))
+	for series, schema := range p.Schemas {
+		name := strings.TrimSpace(schema)
+		if other, clash := trimmed[name]; clash {
+			return fmt.Errorf("server.postgresql.schemas: %s and %s must name distinct schemas; their pinned migration ledgers disagree, and the shared-schema refusal stays authoritative at storepostgres.ValidateAssignment", series, other)
+		}
+		trimmed[name] = series
 	}
 	return nil
 }
