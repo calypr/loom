@@ -159,6 +159,10 @@ const pgQueryRoute = new Set([
     'TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable',
     'TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler',
     'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
+    // pg-runtime-health-readiness: first-query-route liveness/readiness leg
+    // (LOOM_TEST_POSTGRES_URL-gated, never Arango), same registration
+    // precedent as the query-route battery above.
+    'TestPostgreSQLFirstQueryRouteLivenessAndReadiness',
     'TestZZQRouteZeroLeftoverFixtures',
 ]);
 // pg-ir-03: the ClickHouse prefix seam's PostgreSQL-arm live leg executes
@@ -188,6 +192,15 @@ const pgIr03PrefixSeam = new Set([
 const pgRuntimeComposition = new Set([
     'TestPostgresRuntimeFullLadderServesProductionReads',
     'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
+    // pg-runtime-health-readiness: the readiness battery (independence +
+    // corrupt-ledger schema_mismatch/repair, never-migrated schema_unmigrated)
+    // and the read-only probe proof all drive the real PostgreSQL service
+    // under LOOM_TEST_POSTGRES_URL, never Arango; in this Arango-only lane
+    // their explicit skips stay visible in the proof summary, following the
+    // pg-runtime-server-composition registration precedent above.
+    'TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware',
+    'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
+    'TestPostgresRuntimeVerifySchemaIsReadOnly',
     'TestZZPgCompZeroLeftoverFixtures',
 ]);
 // pg-exec-12: the table-shape exclusion-evidence live battery (exact
