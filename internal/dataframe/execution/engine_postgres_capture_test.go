@@ -27,6 +27,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	"github.com/calypr/loom/internal/dataframe/recipe"
+	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -105,8 +106,9 @@ func newExec11Capture(t *testing.T, rows []map[string]any) exec11CaptureFixture 
 // exec11PortRows returns rows in the exact shape the real PostgreSQL row
 // port serves for the compiled capture command: the declared contract
 // columns only (_key, value, auth_resource_path). A stable __loom_row_id is
-// derived by the engine from the row's _key plus the Loom-owned scope
-// bindings; a port that supplied one would be fabricating identity.
+// derived by the engine from the row's _key plus the compiled command's own
+// scope bind values (what the statement filters by); a port that supplied
+// one would be fabricating identity.
 func exec11PortRows(values ...string) []map[string]any {
 	rows := make([]map[string]any, 0, len(values))
 	for index, value := range values {
@@ -256,6 +258,102 @@ func TestPostgreSQLPrivateCaptureServesRestrictedRows(t *testing.T) {
 	if err := artifact.Release(context.Background()); err != nil {
 		t.Fatalf("release: %v", err)
 	}
+}
+
+// exec11IdentityDigestFields re-derives the engine's scope-bound row
+// identity over an arbitrary identity field list: the SHA-256 (hex) of the
+// JSON array of the field values in declaration order.
+func exec11IdentityDigestFields(values ...any) string {
+	encoded, err := json.Marshal(append([]any(nil), values...))
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+// Review round (thread PRRT_kwDOS-yV5s62zvmz): the PostgreSQL identity
+// fallback must derive strictly from the compiled command's own scope
+// values. The statement's positional scope arguments are verbatim the
+// finalized plan's scope binds (render/postgres loadScope), so raw runtime
+// bindings -- which may carry untrimmed text the statement never bound --
+// can never enter a row identity.
+func TestPostgreSQLPrivateCaptureRowIdentityMatchesCommandBinds(t *testing.T) {
+	t.Run("UntrimmedRawBindingCannotEnterTheDigest", func(t *testing.T) {
+		fixture := newExec11Capture(t, exec11PortRows("Ada"))
+		fixture.stream.RowIdentity = &spec.RowIdentity{Fields: []string{"project", "dataset_generation", "_key"}}
+		// The only way raw bindings diverge from the compiled command:
+		// untrimmed text at the binding edge. The command keeps filtering
+		// by the trimmed scope values.
+		fixture.stream.bindings.Project = "  project-a  "
+		fixture.stream.bindings.DatasetGeneration = "  generation-2  "
+		sqlText, params, err := fixture.stream.command.PostgreSQLParameters()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(params) < 2 {
+			t.Fatalf("command carries fewer than two scope parameters: %s", sqlText)
+		}
+		boundProject, okProject := params[0].Value.(string)
+		boundGeneration, okGeneration := params[1].Value.(string)
+		if !okProject || !okGeneration || boundProject != "project-a" || boundGeneration != "generation-2" {
+			t.Fatalf("command scope arguments drifted from the trimmed binds: %#v/%#v in %s",
+				params[0].Value, params[1].Value, sqlText)
+		}
+		want := exec11IdentityDigestFields(boundProject, boundGeneration, "generation-2/exec11-row-one")
+		var got string
+		if _, err := fixture.stream.Stream(context.Background(), func(row map[string]any) error {
+			got, _ = row["__loom_row_id"].(string)
+			return nil
+		}); err != nil {
+			t.Fatalf("stream: %v", err)
+		}
+		if got != want {
+			t.Fatalf("row identity did not derive from the values the command bound: got %s, want command-bound %s", got, want)
+		}
+	})
+	t.Run("MissingScopeBindFailsClosedLikeTheAQLArm", func(t *testing.T) {
+		fixture := newExec11Capture(t, exec11PortRows("Ada"))
+		fixture.stream.RowIdentity = &spec.RowIdentity{Fields: []string{"project", "dataset_generation", "_key"}}
+		// A broken composition that leaves the scope bind untyped supplies
+		// no fallback value: the identity fails closed with the typed
+		// missing-field error, exactly as the AQL arm's nil bind does.
+		fixture.stream.physicalPlan.BindVars["dataset_generation"] = 42
+		if _, err := fixture.stream.Stream(context.Background(), func(map[string]any) error { return nil }); err == nil ||
+			!strings.Contains(err.Error(), `stable row identity field "dataset_generation" is missing`) {
+			t.Fatalf("untyped scope bind error = %v, want typed missing-field refusal", err)
+		}
+	})
+	t.Run("BlankGenerationCannotBuildACaptureCommand", func(t *testing.T) {
+		// A blank runtime generation never reaches the row port at all:
+		// lowering yields ir.DatasetGenerationBindValue's nil and the
+		// renderer's scope gate refuses before capture is ever built.
+		bindings := exec11RestrictedBindings()
+		bindings.DatasetGeneration = "   "
+		makeOutput := func(name string) recipe.Output {
+			return recipe.Output{
+				Name: name, RootResourceType: "Patient", RowGrain: "patient",
+				Fields: []recipe.Field{{Name: "value", ColumnID: name + "-value", Expr: recipe.Expression{Select: "root.id"}}},
+			}
+		}
+		bundle := recipe.Bundle{
+			RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "pg-capture-blank", TranslationVersion: "test",
+			Outputs: []recipe.Output{makeOutput("patients"), makeOutput("observations")},
+		}
+		spies := &dispatchSpies{}
+		config := spies.arangoEngine()
+		config.CompileTarget = exec02PostgreSQLTarget(t)
+		config.SourceRows = exec02pgPort(spies, &spies.pgFull, exec11PortRows("Ada"))
+		engine := config.newEngineForTest(t)
+		resolved, err := engine.CompileResolvedBundle(context.Background(), bundle, bindings)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		if _, _, err := engine.buildCompiledOutputStream(context.Background(), resolved, resolved.Compiled.Outputs[0], 0, map[string]bool{}, true); err == nil ||
+			!strings.Contains(err.Error(), `"dataset_generation" bind must be a string`) {
+			t.Fatalf("blank-generation capture build error = %v, want the renderer's typed scope refusal", err)
+		}
+	})
 }
 
 // L1: the dispatch is exhaustive and honest. A PostgreSQL-tagged command

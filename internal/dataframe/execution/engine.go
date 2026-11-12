@@ -1637,10 +1637,18 @@ func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResul
 	// AQL-tagged command through closed dispatch; a ClickHouse stream carries
 	// no compiled command at all and keeps a nil fallback. PostgreSQL
 	// statements bind positionally and expose no named binds, so a
-	// PostgreSQL-tagged stream instead supplies the stream's own Loom-owned
-	// scope bindings: the exact authoritative values its positional command
-	// arguments filtered the query by. Row-supplied columns are still read
-	// from the row first; only a scope field the row cannot carry falls back.
+	// PostgreSQL-tagged stream instead supplies the finalized plan's own
+	// scope bind values: the renderer's loadScope binds
+	// plan.BindVars["project"] and plan.BindVars["dataset_generation"]
+	// verbatim as the statement's first positional arguments, so reading
+	// them from the compiled plan is the only way the fallback can
+	// contribute exactly what the query filtered by -- never the raw
+	// runtime bindings, which may carry untrimmed text the statement never
+	// bound. A missing or non-string scope bind stays absent, so
+	// ensureStableRowIdentity fails closed with the typed missing-field
+	// error, matching the AQL arm's nil-dataset_generation bind posture.
+	// Row-supplied columns are still read from the row first; only a scope
+	// field the row cannot carry falls back.
 	var identityBinds map[string]any
 	switch s.command.Backend() {
 	case command.CompiledBackendAQL:
@@ -1650,9 +1658,11 @@ func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResul
 		}
 		identityBinds = binds
 	case command.CompiledBackendPostgreSQL:
-		identityBinds = map[string]any{
-			"project":            s.bindings.Project,
-			"dataset_generation": s.bindings.DatasetGeneration,
+		identityBinds = map[string]any{}
+		for _, bindKey := range []string{"project", "dataset_generation"} {
+			if value, ok := s.physicalPlan.BindVars[bindKey].(string); ok {
+				identityBinds[bindKey] = value
+			}
 		}
 	}
 	count := 0
