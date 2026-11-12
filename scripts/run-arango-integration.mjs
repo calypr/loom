@@ -138,6 +138,22 @@ const pgQueryRoute = new Set([
     'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
     'TestZZQRouteZeroLeftoverFixtures',
 ]);
+// pg-runtime-server-composition: the full-runtime live battery (ladder serve
+// through the production composition, the server-side load+activate
+// end-to-end leg, and the N-5 verify_pgcomp_ census audit) requires the
+// separate PostgreSQL fixture service (LOOM_TEST_POSTGRES_URL), never
+// Arango. It runs against the real PostgreSQL service under the ticket
+// check-2 harness (go test ./internal/server); in this Arango-only lane its
+// explicit skips stay visible in the proof summary, following the
+// pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and pg-runtime-first-query-
+// route registration precedent. The offline cells in the same package
+// (assignment ladder, refusal posture, census-vocabulary correspondence)
+// never skip and are therefore not registered here.
+const pgRuntimeComposition = new Set([
+    'TestPostgresRuntimeFullLadderServesProductionReads',
+    'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
+    'TestZZPgCompZeroLeftoverFixtures',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -152,6 +168,7 @@ const external = new Set([
     ...pgExec04Preview,
     ...pgExec03PostQuery,
     ...pgQueryRoute,
+    ...pgRuntimeComposition,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
