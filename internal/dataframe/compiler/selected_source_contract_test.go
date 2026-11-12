@@ -105,14 +105,6 @@ func TestSelectedSourceCompilerTargetSeal(t *testing.T) {
 			surface string
 			call    func() error
 		}{
-			{"category scan compilation", func() error {
-				_, err := compiler.CompileCategoryScanOutput(target, zeroOutput, "id", 10, policy)
-				return err
-			}},
-			{"category scan stage compilation", func() error {
-				_, err := compiler.CompileCategoryScanStage(target, zeroOutput, "stage", "c", "v", 10, policy)
-				return err
-			}},
 			{"cell trace compilation", func() error {
 				_, err := compiler.CompileCellTraceOutput(target, zeroOutput, "name", 0, 10, policy)
 				return err

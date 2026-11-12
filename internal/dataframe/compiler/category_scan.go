@@ -15,6 +15,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
@@ -104,13 +105,13 @@ func CompileCategoryScanOutput(target Target, output lower.CompiledRecipeOutput,
 	if err := target.validate(); err != nil {
 		return CompiledCategoryScanQuery{}, err
 	}
-	if err := target.rejectPostgreSQL("category scan compilation"); err != nil {
-		return CompiledCategoryScanQuery{}, err
-	}
 	columnName = strings.TrimSpace(columnName)
 	column, err := categoryScanColumn(output.OutputSchema, columnName)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, err
+	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePostgreSQLCategoryScan(target, output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy)
 	}
 	return compileCategoryScan(output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy)
 }
@@ -121,9 +122,6 @@ func CompileCategoryScanOutput(target Target, output lower.CompiledRecipeOutput,
 // included in the proof so a result cannot be reused for another pivot pair.
 func CompileCategoryScanStage(target Target, output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
 	if err := target.validate(); err != nil {
-		return CompiledCategoryScanQuery{}, err
-	}
-	if err := target.rejectPostgreSQL("category scan stage compilation"); err != nil {
 		return CompiledCategoryScanQuery{}, err
 	}
 	stage, found := compiledStageByID(output.Stages, stageID)
@@ -176,6 +174,9 @@ func CompileCategoryScanStage(target Target, output lower.CompiledRecipeOutput, 
 		}
 	} else if stageID != recipe.ConstructionSourceProjectionID {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
+	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePostgreSQLCategoryScan(target, stageOutput, stageOutput.OutputSchema, category, value, stageID, category.ID, value.ID, maxValues, policy)
 	}
 	return compileCategoryScan(stageOutput, stageOutput.OutputSchema, category, value, stageID, category.ID, value.ID, maxValues, policy)
 }
@@ -372,6 +373,101 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		Command: compiledCommand, PresentColumn: "present", ValueColumn: "value",
 		Proof: proof, Diagnostics: diagnostics, CategoryIndex: categoryIndex,
 		PreviewCoveringIndex: previewCoveringIndex, OverflowWitness: overflowWitness,
+	}, nil
+}
+
+// compilePostgreSQLCategoryScan compiles one category evidence request for
+// the selected PostgreSQL target. It shares every semantic decision the AQL
+// path makes before rendering — the same column refusals and limit bound from
+// the callers, the same plan selection through categoryScanPhysicalPlan, the
+// same source-preserving proof that lets a stage scan read the cheaper source
+// projection, and the same deterministic execution window — and then hands the
+// plan to the registered PostgreSQL category terminal
+// (render/postgres.RenderCategoryScan). Nothing here translates AQL text:
+// unsupported plans fail with the renderer's typed gap and never fall back.
+//
+// The Arango-only accelerators (category and preview-covering index specs,
+// the related-scan and indexed-root query forms) never attach to a PostgreSQL
+// command, the same law compilePostgreSQLRecipeOutput applies.
+func compilePostgreSQLCategoryScan(target Target, output lower.CompiledRecipeOutput, schema []lower.CompiledOutputColumn, column, valueColumn lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if maxValues < 1 || maxValues > MaxCategoryScanValues {
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: column.Name}
+	}
+	physical, err := categoryScanPhysicalPlan(output, policy)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
+	presenceMarkerColumn := categoryScanPresenceMarkerColumn(physical, schema)
+	if physical.StageSequence != nil {
+		sourceProjectionEquivalent := stageID == recipe.ConstructionSourceProjectionID ||
+			categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
+			(stageID == "" && categoryScanDirectRootSource(physical, column))
+		if !sourceProjectionEquivalent {
+			return CompiledCategoryScanQuery{}, fmt.Errorf(
+				"category scan of construction stage %q needs a composed stage-sequence read, which has no registered PostgreSQL category terminal: %w",
+				stageID, postgresrender.ErrUnsupportedPostgresPlan)
+		}
+		// The proof stays bound to the requested terminal stage while the scan
+		// reads the source projection, exactly as the AQL path does after the
+		// same shared proof.
+		physical.StageSequence = nil
+		physical = narrowSourceCategoryScanProjection(physical, column.Name)
+	}
+	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
+	}
+	if physical.StageSequence == nil {
+		physical = withoutCategoryScanRootIdentitySort(physical)
+	}
+	rendered, err := postgresrender.RenderCategoryScan(physical, target.postgres, column.Name, presenceMarkerColumn, maxValues)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("render postgresql category scan: %w", err)
+	}
+	compiledCommand, commandErr := command.NewPostgreSQLCommand(rendered.Values.SQL, rendered.Values.Args)
+	if commandErr != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("tag category scan command: %w", commandErr)
+	}
+
+	diagnostics := physicalPlanDiagnostics(physical)
+	schemaDigest, err := categoryHash(schema)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan schema: %w", err)
+	}
+	proof := CategoryScanProof{
+		Version: 1, Output: output.Name, Column: column.Name, Kind: column.Kind,
+		Cardinality: column.Cardinality, MaxValues: maxValues,
+		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
+		QueryFingerprint: postgreSQLPlanFingerprint(rendered.Values.SQL, rendered.Values.Args, rendered.Values.OutputColumns),
+		// The PostgreSQL category statement always carries the total presence
+		// bit beside its value, so presence is tracked on every shape this
+		// registers.
+		PresenceTracked: true,
+	}
+	if stageID != "" {
+		proof.Version = 2
+		proof.StageID = stageID
+		proof.ColumnID = categoryColumnID
+		proof.ValueColumnID = valueColumnID
+	}
+	proof.Fingerprint, err = categoryHash(proof)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan proof: %w", err)
+	}
+	return CompiledCategoryScanQuery{
+		Command: compiledCommand,
+		// The positional contract the row port aligns by index, and the keys
+		// the executor reads (execution/category_scan.go).
+		PresentColumn: rendered.PresentColumn, ValueColumn: rendered.ValueColumn,
+		Proof: proof, Diagnostics: diagnostics,
+		// OverflowWitness and the Arango index specs stay nil. The AQL path
+		// attaches a witness only for a composed stage-sequence scan, the one
+		// shape this terminal refuses, and the bounded page already detects
+		// truncation through its maxValues+1 bound; attaching a witness here
+		// would change the typed outcome the AQL path produces for the same
+		// request. The registered terminal still renders the witness
+		// statement (render/postgres.RenderedCategoryScan.Witness) for the
+		// separate execution-adapter ticket to consume.
 	}, nil
 }
 
