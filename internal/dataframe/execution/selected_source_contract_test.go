@@ -11,6 +11,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
+	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
 func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
@@ -263,6 +265,43 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		}
 		if spies.pgRequests != 0 {
 			t.Fatalf("refused row lineage reached the row port")
+		}
+		exec02AssertUntouchedArango(t, spies)
+	})
+
+	t.Run("RowLineagePostgreSQLRunArmServesBoundedColumnContractThroughTheSharedPort", func(t *testing.T) {
+		// pg-exec-08: the positive twin of the refusal above. The registered
+		// pg-sql-23 GROUP plan is compiled by the selected target and runs on
+		// the one shared source row port, carrying the bounded result column
+		// contract (found, contributors, hasMore) the PostgreSQL row adapter
+		// enforces, and decoding the jsonb contributor page to typed
+		// contributors. The Arango surface stays dark.
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, []map[string]any{{
+			"found": true, "contributors": json.RawMessage(exec08PageOneA), "hasMore": false,
+		}})
+		resolved, err := engine.CompileResolvedBundle(context.Background(), exec08GroupBundle(), recipe.RuntimeBindings{
+			Project: "P1", DatasetGeneration: "G1", OutputNames: []string{"observations"}, AuthResourcePaths: []string{"FHIR/Observation"},
+		})
+		if err != nil {
+			t.Fatalf("CompileResolvedBundle: %v", err)
+		}
+		result, err := engine.RowLineage(context.Background(), resolved, RowLineageRequest{
+			Output: "observations",
+			RowID:  `[["construction","exec08_group"],["operation","GROUP"],["grouped_status_id","final"]]`,
+			Offset: 0, Limit: 25,
+		})
+		if err != nil {
+			t.Fatalf("RowLineage: %v", err)
+		}
+		if spies.pgRequests != 1 || len(spies.pgFull) != 1 {
+			t.Fatalf("PostgreSQL lineage port calls = %d (records %d), want exactly one", spies.pgRequests, len(spies.pgFull))
+		}
+		if want := "found,contributors,hasMore"; strings.Join(spies.pgFull[0].Columns, ",") != want {
+			t.Fatalf("declared column contract = %v, want %s", spies.pgFull[0].Columns, want)
+		}
+		if len(result.Contributors) != 1 || result.Contributors[0].ResourceID != "obs-a" || result.HasMore {
+			t.Fatalf("typed contributor page = %#v", result)
 		}
 		exec02AssertUntouchedArango(t, spies)
 	})
