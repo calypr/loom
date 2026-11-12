@@ -120,6 +120,29 @@ const pgExec08RowLineage = new Set([
     'TestPostgresRowLineageMalformedContributorIdentityIsContractError',
     'TestPostgresRowLineageStaleReceiptRejectsBeforeExecution',
 ]);
+// pg-exec-07: the population-mapping witness-terminal live battery (exact
+// membership and unmapped reporting, group dedupe over real PostgreSQL
+// state, cap/cancellation INCOMPLETE-at-request, the hard-error port
+// failure, the live stale-receipt statement-count-0 leg, and the named
+// capability-gap zero-statement refusal) requires the separate PostgreSQL
+// 18 fixture service (LOOM_TEST_POSTGRES_URL), never Arango. It runs
+// against the real PG18 server under the ticket check-2 harness
+// (go test ./internal/dataframe/execution -run PostgresPopulationMapping);
+// in this Arango-only lane their explicit skips stay visible in the proof
+// summary, following the pg-exec-02/#99, pg-exec-04, pg-exec-05/#123, and
+// pg-exec-08 registration precedent. Membership is byte-exact against the
+// offline go test -json skip capture for this package. The offline cells
+// in the same file never skip and are therefore not registered here:
+// TestZZPostgresPopulationMappingZeroLeftoverFixtures returns without a
+// skip when no service was used.
+const pgExec07PopulationMapping = new Set([
+    'TestPostgresPopulationMappingLiveFlatExactMembership',
+    'TestPostgresPopulationMappingLiveGroupDedupe',
+    'TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete',
+    'TestPostgresPopulationMappingLivePortFailureIsHardError',
+    'TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution',
+    'TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements',
+]);
 // pg-exec-03: the PostgreSQL post-query marker live battery (RawMessage
 // marker flow through the shared materializer, named-UUID computation,
 // three-state values, and the cross-target JSON-null convergence cell)
@@ -264,6 +287,7 @@ const external = new Set([
     ...pgExecRootPaging,
     ...pgExec04Preview,
     ...pgExec08RowLineage,
+    ...pgExec07PopulationMapping,
     ...pgExec03PostQuery,
     ...pgExec06Category,
     ...pgQueryRoute,
