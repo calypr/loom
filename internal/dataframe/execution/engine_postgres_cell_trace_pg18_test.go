@@ -45,6 +45,21 @@ package execution_test
 //     compiler-wave follow-up (registered policies stamp the endpoint-
 //     lookup label the renderer refuses by name); these legs execute the
 //     accepted public seam instead.
+//   - The AQL graph-loader default row identity (["project","_key"]) cannot
+//     be minted by a PostgreSQL preview: the preview row carries no
+//     "project" column and a PostgreSQL preview command carries no named
+//     binds by design (engine.go: "a PostgreSQL preview carries no named
+//     binds, exactly as before this typed boundary"), so PreviewOutput with
+//     IncludeRowIdentity refuses such outputs with the backend-unavailable
+//     class. The preview-mint legs therefore run on the registered
+//     authored-Identity shape (the projected identity column the mint
+//     reads) — the shape exec08's live battery also uses; exec08 avoids the
+//     default identity through construction instead. The default-identity
+//     ordered-parts spelling stays covered live through the trace
+//     statement's own published identity-parts column (the witness-cap leg)
+//     and offline through the sealed contract. The PostgreSQL preview
+//     default-identity mint is recorded for the preview/compiler wave,
+//     outside this ticket's executor-only scope.
 //
 // Fixture databases and schemas are uniquely owned as verify_exec09_ct_* and
 // dropped by the test that created them; the TestZZ audit is
@@ -633,7 +648,7 @@ func TestPostgresCellTracePreviewRoundTripServesEvidenceThroughThePort(t *testin
 	})
 	recorder := &exec09ctRecorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
-	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(false))
+	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(true))
 
 	// The preview publishes gender and identity; the trace must agree with
 	// both, taken out of the executed preview, never re-derived.
@@ -687,14 +702,27 @@ func TestPostgresCellTracePreviewRoundTripServesEvidenceThroughThePort(t *testin
 				t.Fatalf("value %q leaked into statement text: %s", leaked, call.sql)
 			}
 		}
-		boundIdentity := false
+		// The scope facts travel as ordered typed parameters (project and
+		// generation arrive as text args and never appear in the SQL text,
+		// asserted above). The requested row identity does NOT travel as a
+		// parameter: the executor matches it scan-side against the row's
+		// published identity spelling, so it must be absent from the args.
+		boundScope := 0
 		for _, arg := range call.args {
-			if text, ok := arg.Value.(string); ok && text == identityByLogical[wantID] {
-				boundIdentity = true
+			if text, ok := arg.Value.(string); ok {
+				switch text {
+				case exec09ctProject, exec09ctGeneration:
+					boundScope++
+				}
 			}
 		}
-		if !boundIdentity {
-			t.Fatalf("the requested row identity never arrived as a bound parameter")
+		if boundScope != 2 {
+			t.Fatalf("project and generation must arrive as ordered typed parameters: %d of 2 among %d args", boundScope, len(call.args))
+		}
+		for _, arg := range call.args {
+			if text, ok := arg.Value.(string); ok && text == identityByLogical[wantID] {
+				t.Fatalf("the requested identity must match scan-side, not arrive as a bound parameter: %s", text)
+			}
 		}
 		if result.Status != dataframeexecution.CellTraceValue || result.Value != previewGender[wantID] {
 			t.Fatalf("traced value %#v/%s drifted from the published preview value %#v", result.Value, result.Status, previewGender[wantID])
@@ -735,7 +763,7 @@ func TestPostgresCellTraceNullValueStatesStayDistinctFromAValue(t *testing.T) {
 	})
 	recorder := &exec09ctRecorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
-	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(false))
+	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(true))
 
 	for _, wantID := range []string{"p-1", "p-2", "p-3"} {
 		identity := s.previewIdentity(t, engine, resolved, wantID)
@@ -777,7 +805,7 @@ func TestPostgresCellTraceOffsetGateSkipsTheSoleCandidateWithoutChangingStatus(t
 	s.seed(t, []exec09ctSeedRow{{exec09ctProject, exec09ctGeneration, "p-1", exec09ctAuthPath, `"male"`}})
 	recorder := &exec09ctRecorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
-	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(false))
+	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(true))
 	identity := s.previewIdentity(t, engine, resolved, "p-1")
 
 	for _, offset := range []int{1, 2} {
@@ -882,8 +910,10 @@ func TestPostgresCellTraceForgedIdentityIsTypedNotFoundAndRealIdentityResolves(t
 	s.seed(t, []exec09ctSeedRow{{exec09ctProject, exec09ctGeneration, "p-1", exec09ctAuthPath, `"male"`}})
 	recorder := &exec09ctRecorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
-	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(false))
+	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(true))
 
+	// Under the authored identity the published digest of a patient is
+	// sha256(JSON [id]); "nobody" is no row's published identity.
 	forgedDigest := sha256.Sum256([]byte(`["nobody"]`))
 	forged := hex.EncodeToString(forgedDigest[:])
 	before := recorder.count()
@@ -946,7 +976,7 @@ func TestPostgresCellTraceWitnessCapIsIncompleteNotAbsence(t *testing.T) {
 	if digest := exec09ctIdentityDigestOf(t, rows[0][ir.PhysicalCellTraceIdentityPartsField]); digest == target {
 		t.Fatalf("aiming witness failed: the first visited row is the target")
 	}
-	recorder := &exec09ctRecorder{adapter: s.adapter}
+	beforeCapped := probe.count()
 	capped, err := engine.CellTrace(s.ctx, resolved, dataframeexecution.CellTraceRequest{
 		Output: exec09ctExplorer, RowID: target, Column: "gender", Offset: 0, Limit: 25, MaxWitnessRows: 1,
 	})
@@ -956,7 +986,7 @@ func TestPostgresCellTraceWitnessCapIsIncompleteNotAbsence(t *testing.T) {
 	if capped.Status != dataframeexecution.CellTraceIncomplete || capped.OmissionCode != "TRACE_WITNESS_INCOMPLETE" || capped.Complete {
 		t.Fatalf("capped trace = %#v, want INCOMPLETE/TRACE_WITNESS_INCOMPLETE, never absence", capped)
 	}
-	if got := recorder.count(); got != 1 {
+	if got := probe.count() - beforeCapped; got != 1 {
 		t.Fatalf("capped trace ran %d statements, want exactly one", got)
 	}
 	// Control: the same identity without the cap resolves, and so does the
@@ -993,7 +1023,7 @@ func TestPostgresCellTraceForeignWitnessesAreExcluded(t *testing.T) {
 	})
 	recorder := &exec09ctRecorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
-	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(false))
+	resolved := s.resolve(t, engine, exec09ctProject, exec09ctGeneration, exec09ctPatientsBundle(true))
 	identity := s.previewIdentity(t, engine, resolved, "p-1")
 
 	before := recorder.count()
@@ -1016,7 +1046,9 @@ func TestPostgresCellTraceForeignWitnessesAreExcluded(t *testing.T) {
 		t.Fatalf("foreign witnesses inflated hasMore: %#v", result)
 	}
 
-	// A foreign row's identity is not a published row of this output.
+	// A foreign row's identity — the digest the foreign patient would
+	// publish under this output's identity law — is not a published row of
+	// this output.
 	foreignDigest := sha256.Sum256([]byte(`["p-foreign-project"]`))
 	if _, err := engine.CellTrace(s.ctx, resolved, dataframeexecution.CellTraceRequest{
 		Output: exec09ctExplorer, RowID: hex.EncodeToString(foreignDigest[:]), Column: "gender", Offset: 0, Limit: 25,
@@ -1304,7 +1336,10 @@ func exec09ctSnapshot(project, generation, token string, scope authscope.ReadSco
 
 func exec09ctReceipt(t *testing.T, snapshot capability.Snapshot) explorer.CompilationReceipt {
 	t.Helper()
-	bundle := exec09ctPatientsBundle(false)
+	// The receipt carries the same authored-Identity bundle the preview
+	// mints from, so the hook's recompile and the client-side identity
+	// agree on one identity law.
+	bundle := exec09ctPatientsBundle(true)
 	contract := json.RawMessage(`{"outputs":[{"outputId":"patients","columns":[{"column":"patient_id","label":"Patient","logicalType":"string","filterable":true,"chartable":false},{"column":"gender","label":"Gender","logicalType":"string","filterable":true,"chartable":true}]}]}`)
 	emitted := []explorer.EmittedColumn{
 		{OutputID: exec09ctExplorer, EmissionID: "em_patient_id", PublicColumn: "patient_id", Label: "Patient", LogicalType: "string", Filterable: true},
@@ -1547,7 +1582,7 @@ func TestPostgresCellTraceStaleReceiptRejectsBeforeExecution(t *testing.T) {
 	service := exec09ctLifecycleService(t, authorized, engine, receipt, currentReceipt)
 
 	// Fresh control on the same live service: the receipt explains its cell.
-	identity := s.previewIdentity(t, engine, s.resolve(t, engine, seedProject, exec09ctGeneration, exec09ctPatientsBundle(false)), "p-1")
+	identity := s.previewIdentity(t, engine, s.resolve(t, engine, seedProject, exec09ctGeneration, exec09ctPatientsBundle(true)), "p-1")
 	result, err := service.CellTrace(s.ctx, exec09ctLifecycleRequest(receipt, identity, 0, 25))
 	if err != nil || result.Trace.Status != dataframeexecution.CellTraceValue || result.Trace.Value != "male" {
 		t.Fatalf("fresh receipt failed on live state: %#v %s", result, s.scrub(err))
@@ -1573,7 +1608,7 @@ func TestPostgresCellTraceStaleReceiptRejectsBeforeExecution(t *testing.T) {
 	// Recovery control: the current generation compiles and explains its
 	// own cell — the refusal is staleness, not the fixture.
 	authorized.set(current, scope)
-	newIdentity := s.previewIdentity(t, engine, s.resolve(t, engine, seedProject, "gen-b", exec09ctPatientsBundle(false)), "p-new")
+	newIdentity := s.previewIdentity(t, engine, s.resolve(t, engine, seedProject, "gen-b", exec09ctPatientsBundle(true)), "p-new")
 	recovered, err := service.CellTrace(s.ctx, exec09ctLifecycleRequest(currentReceipt, newIdentity, 0, 25))
 	if err != nil {
 		t.Fatalf("current receipt failed: %s", s.scrub(err))
