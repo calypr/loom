@@ -1,0 +1,55 @@
+%% Integrated server runtime (arch-backend-08).
+%% Drawn from delivered source: internal/server/server.go, compose.go,
+%% runtime.go, row_sources.go, routes.go at the arch-backend-08 branch.
+%% One backend-selection seam; shared builders; one serve loop; one closer.
+flowchart TD
+    subgraph Dispatch["run() -- backend selection only (server.go)"]
+        CFG[Config validated + normalized] --> SEL{server.backend}
+        SEL -->|arango| AR[runArangoRuntime]
+        SEL -->|postgres: six-series ladder| PGR[runPostgreSQLFullRuntime]
+        SEL -->|postgres: other shapes| PGF[runPostgreSQLFirstQueryRoute]
+        PGF -- "consumability gate pre-dial:<br/>not exactly source+dataset_release pair" --> REF[ErrPostgreSQLRuntimeNotWired<br/>zero opens, never falls through]
+    end
+
+    subgraph Factories["startup-only open seams (compose.go, composition-private)"]
+        OA["openArangoBackend = arangofactory.Open"]
+        OP["openPostgresBackend = backendspostgres.Open"]
+        OC["newClickHouseClient = clickhousestore.New"]
+    end
+
+    AR --> OA
+    PGR -- "assignment + validate pre-dial" --> OP
+    PGF -- "assignment + validate pre-dial" --> OP
+
+    subgraph Plane["ClickHouse publication plane (independent lane)"]
+        NPP[newPublicationPlane<br/>ClickHouse client + private artifacts +<br/>materialization reader + bundle target]
+    end
+    PGR -- "server.clickhouse.enabled" --> NPP --> OC
+    AR -- "server.clickhouse.enabled" --> NPP
+
+    subgraph Shared["shared builders (compose.go)"]
+        HOOKS[newReleaseHooks<br/>publication verification + release CAS]
+        LIFE[buildLifecycleConfig<br/>receipt-execution closures + typed lane ports]
+        ROUTES[wireExplorerRoutes<br/>registerRoutes with typed routeDependencies<br/>+ explicit routeScopePolicy]
+        HTTP[httpapi.NewHTTPServer]
+    end
+    AR --> HOOKS & LIFE & ROUTES & HTTP
+    PGR --> HOOKS & LIFE & ROUTES & HTTP
+    PGF --> HTTP
+
+    subgraph RowPorts["row ports with closed-dispatch tag guards (row_sources.go)"]
+        AQLC["selectedAQLAdapter + withConfiguredAQLRows<br/>serves AQL-tagged commands only"]
+        PGC["configuredPostgreSQLSourceRows<br/>serves PostgreSQL-tagged commands only"]
+    end
+    OA --> AQLC
+    OP --> PGC
+
+    subgraph Serve["one listen/shutdown loop (serveRuntime, compose.go)"]
+        SR[serveRuntime: Listen goroutine, ctx shutdown,<br/>owns the runtime closer, logs close errors]
+    end
+    AR -- "cleanups stack -> closer" --> SR
+    PGR -- "cleanups stack -> closer" --> SR
+    PGF -- "cleanups stack -> closer" --> SR
+
+    CONTRACT["TestBackendCompositionContract<br/>(backend_composition_contract_test.go):<br/>each selection opens exactly its own factories, once"]
+    CONTRACT -. spies .-> Factories

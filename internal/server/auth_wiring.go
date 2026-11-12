@@ -14,6 +14,12 @@ type authComponents struct {
 	authenticator authscope.Authenticator
 	authorizer    authscope.Authorizer
 	scopeResolver *authscope.ScopeResolver
+	// scopePolicy is the explicit route-composition policy derived from the
+	// auth mode (arch-backend-08): basic/no-auth lanes are explicitly
+	// unrestricted and the calypr lane carries its required resolver, so an
+	// incomplete scoped composition is caught before routes install instead
+	// of a nil resolver silently meaning "unrestricted".
+	scopePolicy routeScopePolicy
 }
 
 func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalog.AuthResourcePathOptions) ([]string, error)) (authComponents, error) {
@@ -21,6 +27,7 @@ func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalo
 		return authComponents{
 			authenticator: authscope.StaticAuthenticator{Principal: authscope.Principal{Subject: "anonymous"}},
 			authorizer:    authscope.AllowAllAuthorizer{},
+			scopePolicy:   unrestrictedRouteScope(),
 		}, nil
 	}
 	switch {
@@ -28,6 +35,7 @@ func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalo
 		return authComponents{
 			authenticator: authscope.BasicAuthenticator{Username: cfg.Auth.Basic.Username, Password: cfg.Auth.Basic.Password},
 			authorizer:    authscope.AllowAllAuthorizer{},
+			scopePolicy:   unrestrictedRouteScope(),
 		}, nil
 	case strings.EqualFold(cfg.Auth.Mode, "calypr"):
 		client := &http.Client{Timeout: cfg.Auth.Calypr.RequestTimeout}
@@ -44,6 +52,7 @@ func wireAuth(cfg Config, noAuth bool, listExisting func(context.Context, catalo
 			authenticator: authscope.CalyprAuthenticator{},
 			authorizer:    authscope.ScopeAuthorizer{Resolver: resolver},
 			scopeResolver: resolver,
+			scopePolicy:   scopedRouteScope(resolver),
 		}, nil
 	default:
 		return authComponents{}, fmt.Errorf("unsupported auth mode %q", cfg.Auth.Mode)

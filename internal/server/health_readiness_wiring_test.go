@@ -133,7 +133,12 @@ func TestHealthWiringPerCompositionArm(t *testing.T) {
 	}
 
 	t.Run("ArangoArm_unchanged_and_without_classifier", func(t *testing.T) {
-		lit := httpConfigLiteral(t, "server.go", "run")
+		// arch-backend-08 Unit C moved the Arango compose body out of the
+		// run() dispatcher (old file:func -- server.go::run) into the shared
+		// seam (new file:func -- compose.go::composeArangoRuntime). The
+		// witness follows the literal; the published probe closures must
+		// still move byte-verbatim with it.
+		lit := httpConfigLiteral(t, "compose.go", "composeArangoRuntime")
 		for _, key := range []string{"CoreReadyCheck", "ClickHouseReadyCheck", "ClickHouseEnabled"} {
 			if _, ok := literalField(lit, key); !ok {
 				t.Fatalf("Arango arm lost its published field %s", key)

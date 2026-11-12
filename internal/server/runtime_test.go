@@ -194,8 +194,15 @@ func isTypedExplicitUnavailable(err error, operationSubstring string) bool {
 // wired-not-vacuous contrast: the Arango lane's authorizer stamps the Arango
 // selection-members collection onto every binding; the PostgreSQL authorizer
 // must leave the field empty on both read and write.
+//
+// Witness migrated by arch-backend-08: the dedicated pgRecipeAuthorization
+// type (runtime.go) was retired into the shared recipeAuthorization core
+// (recipe_authorization.go), so the PostgreSQL posture is now the zero value
+// of that core and the Arango half is the explicit collection argument, the
+// same value the Arango lane passes at construction. The contrast itself is
+// unchanged.
 func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
-	pgRead, err := pgRecipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
+	pgRead, err := recipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("unrestricted read authorization: %v", err)
 	}
@@ -205,7 +212,7 @@ func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	if pgRead.SelectionProject != "p1" {
 		t.Fatalf("SelectionProject must be the canonical project, got %q", pgRead.SelectionProject)
 	}
-	pgWrite, err := pgRecipeAuthorization{}.AuthorizeWrite(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
+	pgWrite, err := recipeAuthorization{}.AuthorizeWrite(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("unrestricted write authorization: %v", err)
 	}
@@ -215,7 +222,7 @@ func TestPostgresRuntimeAuthorizerNeverStampsTheArangoCollection(t *testing.T) {
 	// The contrast half: same package, same input, Arango lane stamps the
 	// collection. Without this half the assertion above could pass on a
 	// broken authorizer that simply drops every binding field.
-	arangoRead, err := recipeAuthorization{}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
+	arangoRead, err := recipeAuthorization{selectionMembersCollection: backendsarango.SelectionMembersCollection}.AuthorizeRead(context.Background(), recipe.RuntimeBindings{Project: "p1", DatasetGeneration: "g"})
 	if err != nil {
 		t.Fatalf("arango-lane read authorization: %v", err)
 	}
@@ -262,32 +269,50 @@ func TestPostgresRuntimeCompositionHasNoArangoImport(t *testing.T) {
 // ---- closer ordering law (compose must not own deferred cleanup) ----
 
 // TestPostgresRuntimeComposeOwnsNoDeferredCleanup is the witness for the
-// close-ordering law: composePostgreSQLFullRuntime returns while the server
-// is still about to Listen, so nothing that must outlive compose may be
-// deferred in its body. The pre-fix shape deferred clickhouse.Close() and
-// both reconciler cancel-and-wait closures inside compose, closing the
-// client and cancelling the reconcilers before a single request was served.
-// This cell goes red if any defer reappears directly in the compose body:
-// exactly one defer is legal -- the zero-argument error-path sweep that
-// drains the cleanups stack, as the first statement.
+// close-ordering law: a compose returns while the server is still about to
+// Listen, so nothing that must outlive compose may be deferred in its body.
+// The pre-fix shape deferred clickhouse.Close() and both reconciler
+// cancel-and-wait closures inside compose, closing the client and cancelling
+// the reconcilers before a single request was served. This cell goes red if
+// any defer reappears directly in the compose body: exactly one defer is
+// legal -- the zero-argument error-path sweep that drains the cleanups
+// stack, as the first statement.
+//
+// arch-backend-08 Unit C extends the law to both production composes. The
+// Arango arm's cleanup previously lived in server.go run()'s serve-loop
+// defers (old: server.go::run) and moved into the compose closer
+// (new: compose.go::composeArangoRuntime), so both arms must show the same
+// stack shape: one deferred sweep, four pushes, reverse-order closer.
 func TestPostgresRuntimeComposeOwnsNoDeferredCleanup(t *testing.T) {
-	source, err := os.ReadFile("runtime.go")
+	for _, arm := range []struct{ file, funcName string }{
+		{file: "runtime.go", funcName: "composePostgreSQLFullRuntime"},
+		{file: "compose.go", funcName: "composeArangoRuntime"},
+	} {
+		arm := arm
+		t.Run(arm.funcName, func(t *testing.T) {
+			assertComposeOwnsNoDeferredCleanup(t, arm.file, arm.funcName)
+		})
+	}
+}
+
+func assertComposeOwnsNoDeferredCleanup(t *testing.T, file, funcName string) {
+	source, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("read the composition source: %v", err)
 	}
 	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, "runtime.go", source, parser.ParseComments)
+	parsed, err := parser.ParseFile(fileSet, file, source, parser.ParseComments)
 	if err != nil {
 		t.Fatalf("parse the composition source: %v", err)
 	}
 	var compose *ast.FuncDecl
 	for _, decl := range parsed.Decls {
-		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "composePostgreSQLFullRuntime" {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == funcName {
 			compose = fn
 		}
 	}
 	if compose == nil {
-		t.Fatal("composePostgreSQLFullRuntime is missing from the composition source")
+		t.Fatalf("%s is missing from the composition source %s", funcName, file)
 	}
 	var bodyDefers []*ast.DeferStmt
 	var insideFuncLit []bool

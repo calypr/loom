@@ -20,7 +20,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
@@ -32,22 +31,16 @@ import (
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataframe/published"
-	"github.com/calypr/loom/internal/dataframe/recipe"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/artifactfs"
-	"github.com/calypr/loom/internal/explorer/capability"
-	"github.com/calypr/loom/internal/explorer/lifecycle"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
-	"github.com/calypr/loom/internal/projectid"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -149,63 +142,6 @@ type pgExplorerReads struct {
 }
 
 var _ explorer.ExplicitGroupRepository = pgExplorerReads{}
-
-// pgRecipeAuthorization is the PostgreSQL sibling of recipeAuthorization. It
-// is identical except for one honest omission: SelectionMembersCollection is
-// the Arango-only runtime binding consumed exclusively by the AQL group-rows
-// renderer, so the PostgreSQL runtime leaves it empty instead of stamping an
-// Arango collection name onto every PostgreSQL binding. The PostgreSQL
-// renderer never consumes the field, and a PostgreSQL-tagged command never
-// reaches an AQL renderer (closed dispatch rejects it at the compiler
-// boundary).
-type pgRecipeAuthorization struct {
-	resolver *authscope.ScopeResolver
-}
-
-var _ graphresolver.RecipeAuthorizer = pgRecipeAuthorization{}
-
-func (a pgRecipeAuthorization) AuthorizeRead(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
-	}
-	bindings.Project = strings.TrimSpace(bindings.Project)
-	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	if a.resolver == nil {
-		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
-		return bindings, nil
-	}
-	principal, _ := authscope.PrincipalFromContext(ctx)
-	scope, err := a.resolver.ResolveReadScopeForGeneration(ctx, principal, bindings.Project, bindings.DatasetGeneration, bindings.AuthResourcePaths)
-	if err != nil {
-		return recipe.RuntimeBindings{}, recipeAuthorizationError(err)
-	}
-	if scope.Mode == authscope.ReadScopeRestricted && len(scope.AuthResourcePaths) == 0 {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeUnauthorizedProject, "")
-	}
-	bindings.AuthResourcePaths = append([]string(nil), scope.AuthResourcePaths...)
-	bindings.AuthScopeMode = scope.Mode
-	return bindings, nil
-}
-
-func (a pgRecipeAuthorization) AuthorizeWrite(ctx context.Context, bindings recipe.RuntimeBindings) (recipe.RuntimeBindings, error) {
-	if strings.TrimSpace(bindings.Project) == "" {
-		return recipe.RuntimeBindings{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
-	}
-	bindings.Project = strings.TrimSpace(bindings.Project)
-	bindings.SelectionProject = projectid.Canonical(bindings.Project)
-	if a.resolver == nil {
-		bindings.AuthScopeMode = authscope.ReadScopeUnrestricted
-		return bindings, nil
-	}
-	principal, _ := authscope.PrincipalFromContext(ctx)
-	scope, err := a.resolver.ResolveWriteScopeForGeneration(ctx, principal, bindings.Project, bindings.DatasetGeneration, bindings.AuthResourcePaths)
-	if err != nil {
-		return recipe.RuntimeBindings{}, recipeAuthorizationError(err)
-	}
-	bindings.AuthResourcePaths = append([]string(nil), scope.AuthResourcePaths...)
-	bindings.AuthScopeMode = scope.Mode
-	return bindings, nil
-}
 
 // pgIngestRunner drives a server-side PostgreSQL generation load through the
 // ingest lane's own PostgreSQL entry point -- the same production path the
@@ -379,7 +315,7 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		return nil, nil, err
 	}
 	dsn := postgresFirstQueryRouteDSN(pg)
-	runtime, err := backendspostgres.Open(ctx, backendspostgres.Config{
+	runtime, err := openPostgresBackend(ctx, backendspostgres.Config{
 		DSN:            dsn,
 		MaxConns:       int32(pg.MaxOpenConns),
 		MinConns:       int32(pg.MaxIdleConns),
@@ -436,36 +372,46 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	var clickhouse *clickhousestore.Client
 	var materializationReader *published.Reader
 	var privateClickHouseArtifacts *chartifact.Manager
+	var plane *publicationPlane
 	if serverConfig.Server.ClickHouse.Enabled {
-		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password})
-		if err != nil {
-			return nil, nil, fmt.Errorf("create ClickHouse client: %w", err)
-		}
-		cleanups = append(cleanups, clickhouse.Close)
-		if err := clickhouse.EnsureDatabase(ctx); err != nil {
-			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
-			publicationReady = false
-		}
-		privateClickHouseArtifacts, err = chartifact.New(chartifact.Config{Catalog: runtime.Chartifacts, ClickHouse: clickhouse,
-			BatchRows:  serverConfig.Server.RecipeBatchRows,
-			BatchBytes: serverConfig.Server.RecipeBatchBytes,
+		var closeClickHouse func() error
+		var planeErr error
+		plane, closeClickHouse, planeErr = newPublicationPlane(ctx, serverConfig, logger, publicationPlaneInput{
+			InitialDegradation:      degradation,
+			InitialPublicationReady: publicationReady,
+			ClickHouse:              clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password},
+			// The PostgreSQL lane rides the factory's own artifact catalog
+			// port: no bootstrap step, no Arango collection.
+			AcquireArtifactCatalog: func(context.Context, *clickhousestore.Client) (chartifact.Catalog, error) {
+				return runtime.Chartifacts, nil
+			},
+			BundleCatalog:          runtime.Bundles,
+			ActiveManifestResolver: runtime.Manifests,
+			ActiveReleaseResolver:  runtime.Releases,
+			Scopes:                 scopeResolver,
 		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("create private ClickHouse artifact manager: %w", err)
+		// The client was acquired the moment the constructor returned a
+		// closer: the cleanups stack owns it even on the plane's error path.
+		if closeClickHouse != nil {
+			cleanups = append(cleanups, closeClickHouse)
 		}
-		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: runtime.Bundles, Logger: logger, MaxPage: 1000, ActiveManifestResolver: runtime.Manifests, ActiveReleaseResolver: runtime.Releases}
+		if planeErr != nil {
+			return nil, nil, planeErr
+		}
+		clickhouse = plane.ClickHouse
+		privateClickHouseArtifacts = plane.PrivateArtifacts
+		materializationReader = plane.MaterializationReader
+		degradation = plane.Degradation
+		publicationReady = plane.PublicationReady
 	}
 
 	var clickHouseQueryRows dataframeexecution.ClickHouseQueryRows
-	if clickhouse != nil {
-		clickHouseQueryRows = clickhouse.QueryRowsArgsVisit
-	}
 	var resolveClickHouseInputs dataframeexecution.ResolveClickHouseInputs
 	var withExecutionReadPins dataframeexecution.WithExecutionReadPins
-	if materializationReader != nil {
-		resolver := clickHouseCombineInputResolver{reader: materializationReader, scopes: scopeResolver}
-		resolveClickHouseInputs = resolver.resolve
-		withExecutionReadPins = materializationReader.WithExecutionReadPins
+	if plane != nil {
+		clickHouseQueryRows = plane.ClickHouseQueryRows
+		resolveClickHouseInputs = plane.ResolveClickHouseInputs
+		withExecutionReadPins = plane.WithExecutionReadPins
 	}
 
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
@@ -503,60 +449,35 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	}
 
 	var bundleTarget publication.Target
-	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
-		bundleStore, err := publicationclickhouse.NewBundleStore(clickhouse, runtime.Bundles)
-		if err != nil {
-			return nil, nil, fmt.Errorf("create dataframe bundle store: %w", err)
-		}
-		bundleStore.SetActiveReleaseReader(runtime.Releases)
+	if plane != nil {
 		// Abandoned-execution sweep runs through the backend's own
 		// reconciler: the registry scan, pointer binding check, lease, and
 		// terminal write are PostgreSQL law (same pool, same ledger), and the
 		// physical ClickHouse drop is the caller-owned hook.
-		reconciler, err := runtime.NewPublicationReconciler(runtime.Releases)
-		if err != nil {
-			degradation = recordDegradation(logger, degradation, "publication reconciler", err)
-			publicationReady = false
-		} else if err := reconciler.SweepStale(ctx, time.Now().UTC().Add(-2*time.Minute), func(ctx context.Context, physicalTable string) error {
-			return clickhouse.DropTable(ctx, physicalTable)
-		}); err != nil {
-			degradation = recordDegradation(logger, degradation, "dataframe publication reconciliation", err)
-			publicationReady = false
+		if err := plane.reconcileBundles(ctx, logger, publicationReady, degradation, runtime.Bundles, runtime.Releases,
+			func(ctx context.Context, clickhouse *clickhousestore.Client, _ *publicationclickhouse.ClickHouseBundleStore, cutoff time.Time) (string, error) {
+				reconciler, err := runtime.NewPublicationReconciler(runtime.Releases)
+				if err != nil {
+					return "publication reconciler", err
+				}
+				if err := reconciler.SweepStale(ctx, cutoff, func(ctx context.Context, physicalTable string) error {
+					return clickhouse.DropTable(ctx, physicalTable)
+				}); err != nil {
+					return "dataframe publication reconciliation", err
+				}
+				return "", nil
+			}); err != nil {
+			return nil, nil, err
 		}
-		if publicationReady {
-			bundleTarget = bundleStore
-		}
+		publicationReady = plane.PublicationReady
+		degradation = plane.Degradation
+		bundleTarget = plane.BundleTarget
 	}
 
-	verificationStore := publicationVerificationStore{executions: runtime.Bundles}
-	releaseService := &publicationcontract.ReleaseService{Manifests: runtime.Manifests, Releases: runtime.Releases, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
-	var activationConflictOnce atomic.Bool
-	activationConflictOnce.Store(serverConfig.Server.DevActivationConflictOnce)
-	var repositoryActivationConflictOnce atomic.Bool
-	repositoryActivationConflictOnce.Store(serverConfig.Server.DevRepositoryActivationConflictOnce)
-	activateExplorerRelease := newExplorerReleaseActivator(releaseService, &repositoryActivationConflictOnce)
-	prepareExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) (publicationcontract.ProjectRelease, int64, error) {
-		expectedRevision := int64(0)
-		active, err := releaseService.Active(ctx, project)
-		if err == nil {
-			expectedRevision = active.Revision
-		} else if !errors.Is(err, publicationcontract.ErrNoActiveRelease) {
-			return publicationcontract.ProjectRelease{}, 0, err
-		}
-		release, err := releaseService.Create(ctx, publicationcontract.ActivationRequest{
-			Project: project, Generation: generation, GitCommit: generation,
-			OptionalSelectors: selectors,
-		})
-		// The dev fault scenario is harness parity with the Arango lane: the
-		// candidate stays retained while PublishAuthoring's CAS refuses.
-		if err == nil && activationConflictOnce.CompareAndSwap(true, false) {
-			expectedRevision++
-		}
-		return release, expectedRevision, err
-	}
-	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
-		return releaseService.ValidateGeneration(ctx, project, generation)
-	}
+	// The release service, dev CAS-fault one-shots, and the prepare/
+	// activate/validate closures are the shared composition (compose.go):
+	// byte-identical to the Arango lane, over this lane's ports.
+	hooks := newReleaseHooks(serverConfig, runtime.Manifests, runtime.Releases, runtime.Bundles)
 
 	explorerStore := pgExplorerStore{ExplorerStore: runtime.Explorer, publish: runtime.Publish}
 	explorerReads := pgExplorerReads{ExplorerStore: runtime.Explorer, ExplicitGroupStore: runtime.ExplicitGroups}
@@ -594,7 +515,11 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 				return explainPostgreSQLCompiledQuery(ctx, runtime.PlanJSON, compiled)
 			},
 		},
-		RecipeAuthorizer: pgRecipeAuthorization{resolver: scopeResolver},
+		// The PostgreSQL lane's authorizer leaves SelectionMembersCollection
+		// empty: the zero value is the explicit PostgreSQL stamp policy (the
+		// AQL group-rows renderer is that binding's only consumer, and the
+		// PostgreSQL renderer never consumes it).
+		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
 		RecipeRevisions:  runtime.RecipeRevisions,
 		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(runtime.Bundles, scopeResolver),
 	})
@@ -636,167 +561,38 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 		return nil, nil, fmt.Errorf("create generation load service: %w", err)
 	}
 
-	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		var resolveCombineSchemas combineInputSchemaResolver
-		if materializationReader != nil {
-			resolveCombineSchemas = func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (resolvedCombineInputSchema, error) {
-				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
-			}
-		}
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas)
-	}
-	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
+	// The Explorer lifecycle is the shared composition in compose.go; the
+	// lane differences arrive as one typed ports struct (semantic reads,
+	// interpretations, table shapes, explicit groups, receipt executions).
+	lifecycleConfig, err := buildLifecycleConfig(lifecycleCompositionInput{
+		ServerConfig:          serverConfig,
+		Logger:                logger,
+		RecipeEngine:          recipeEngine,
+		CapabilityResolver:    capabilityResolver,
+		ExplorerService:       explorerService,
+		ArtifactStore:         artifactStore,
+		MaterializationReader: materializationReader,
+		ScopeResolver:         scopeResolver,
+		BundleTarget:          bundleTarget,
+		Degradation:           degradation,
+		Hooks:                 hooks,
+		Ports: lifecycleLanePorts{
+			SemanticInventory:                  runtime.SemanticReads.PageSemanticInventory,
+			ResolveSemanticInventorySelections: runtime.SemanticReads.ResolveSemanticInventorySelections,
+			// SelectionMembersCollection is an AQL-only runtime binding (the
+			// AQL group-rows renderer is its sole consumer); the PostgreSQL
+			// runtime leaves it empty, which the PostgreSQL renderer never
+			// reads.
+			SelectionMembersCollection:  "",
+			InterpretationRepository:    runtime.Interpretations,
+			TableShapeCapabilities:      runtime.TableShapes,
+			ExplicitGroups:              explorerReads,
+			SelectionReferenceValidator: explorerStore.ValidateSelectionReferences,
+			ReceiptExecutions:           runtime.Bundles,
+		},
+	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("configure local workspace writeback: %w", err)
-	}
-	populationMappingCursorCodec, err := lifecycle.NewHMACPopulationMappingCursorCodec(serverConfig.Server.PopulationMappingCursorSecret)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configure population mapping cursor signing: %w", err)
-	}
-	var artifactPublishedReader lifecycle.ArtifactPublishedReader
-	if materializationReader != nil {
-		artifactPublishedReader = materializationReader
-		if serverConfig.Server.DevArtifactRowDelay > 0 {
-			artifactPublishedReader = artifactDelayReader{next: artifactPublishedReader, delay: serverConfig.Server.DevArtifactRowDelay}
-		}
-	}
-	schemaIndex, err := fhirschema.GeneratedIndex()
-	if err != nil {
-		return nil, nil, fmt.Errorf("load generated schema index for row choices: %w", err)
-	}
-	rowChoiceResolver, err := lifecycle.NewSchemaRowChoiceResolver(schemaIndex)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configure row-choice schema resolver: %w", err)
-	}
-	explicitGroupResolver, err := lifecycle.NewRepositoryExplicitGroupRevisionResolver(explorerReads)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configure explicit group revision resolver: %w", err)
-	}
-	lifecycleConfig := lifecycle.Config{
-		SemanticInventory:                  runtime.SemanticReads.PageSemanticInventory,
-		ResolveSemanticInventorySelections: runtime.SemanticReads.ResolveSemanticInventorySelections,
-		// SelectionMembersCollection is an AQL-only runtime binding (the AQL
-		// group-rows renderer is its sole consumer); the PostgreSQL runtime
-		// leaves it empty, which the PostgreSQL renderer never reads.
-		SelectionMembersCollection:   "",
-		InterpretationRepository:     runtime.Interpretations,
-		PopulationMappingCursorCodec: populationMappingCursorCodec,
-		SelectionSourceResolver:      published.SelectionSourceAdapter{Reader: materializationReader},
-		SelectionReferenceValidator:  explorerStore.ValidateSelectionReferences,
-		RowChoiceResolver:            rowChoiceResolver,
-		RowChoicePlanner:             rowChoiceResolver,
-		ExplicitGroupResolver:        explicitGroupResolver,
-		ExplicitGroupRepository:      explorerReads,
-		TableShapeCapabilities:       runtime.TableShapes,
-		ScanCategories:               configuredCategoryScanner(logger, recipeEngine),
-		CompileReceipt:               compileReceipt,
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
-		},
-		Capability: lifecycle.CapabilityResolver{
-			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
-				return capabilityResolver.Resolve(ctx, project, generation)
-			},
-			Token:          capabilityResolver.ResolveToken,
-			ForCompilation: capabilityResolver.ResolveForCompilation,
-			ForExecution:   capabilityResolver.ResolveForExecution,
-			Catalog:        authoringV2Catalog,
-		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
-			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
-		},
-		ArtifactStore:    artifactStore,
-		PublishedReader:  artifactPublishedReader,
-		ArtifactTTL:      serverConfig.Server.ArtifactTTL,
-		ArtifactMaxRows:  serverConfig.Server.ArtifactMaxRows,
-		ArtifactMaxBytes: serverConfig.Server.ArtifactMaxBytes,
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			if receipt == nil {
-				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt preview resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.PreviewSummary{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			output := ""
-			if len(bindings.OutputNames) > 0 {
-				output = bindings.OutputNames[0]
-			}
-			summary, previewErr := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
-			if previewErr != nil {
-				logReceiptPreviewContractFailure(logger, requestIDFromContext(ctx), receipt.ID, output, previewErr)
-			}
-			return summary, previewErr
-		},
-		ValidateReceiptStream: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
-			err := validateReceiptFullStream(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer row-value policy full-stream validation failed", "receipt_id", receipt.ID, "error", err)
-			}
-			return err
-		},
-		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
-			if receipt == nil {
-				return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt population mapping resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.PopulationMappingResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
-				for _, id := range memberIDs {
-					if err := visit(id); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-			return recipeEngine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
-		},
-		CellTrace: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
-			if receipt == nil {
-				return dataframeexecution.CellTraceResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt cell trace resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.CellTraceResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.CellTrace(ctx, resolved, request)
-		},
-		RowLineage: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
-			if receipt == nil {
-				return dataframeexecution.RowLineageResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt row lineage resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.RowLineageResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.RowLineage(ctx, resolved, request)
-		},
-		TableShapeExclusions: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
-			if receipt == nil {
-				return dataframeexecution.TableShapeExclusionResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt table-shape exclusion resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.TableShapeExclusionResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.TableShapeExclusions(ctx, resolved, request)
-		},
-		MaterializeReceipt: explorerReceiptMaterializer(
-			recipeEngine, bundleTarget, runtime.Bundles, degradation, logger,
-			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
-			serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
-		),
-		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
-		ActivateRelease:           activateExplorerRelease,
-		PrepareRelease:            prepareExplorerRelease,
-		PersistPublishedWorkspace: persistPublishedWorkspace,
+		return nil, nil, err
 	}
 	server, err = httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
 		// Core readiness is the backend's full probe: reachability + the
@@ -818,18 +614,15 @@ func composePostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logg
 	if err != nil {
 		return nil, nil, fmt.Errorf("create HTTP server: %w", err)
 	}
-	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
-		if scopeResolver == nil {
-			return nil
-		}
-		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
-	}, explorerService, lifecycleConfig)
-	explorerHandlers.constructionInputs = constructionInputsCatalog{
+	// Typed route composition contract (arch-backend-08): the releases port
+	// and the explicit scoped-auth policy arrive as named fields, validated
+	// complete before any route installs; the shared wiring lives in
+	// compose.go.
+	if err := wireExplorerRoutes(server, generationService, authorizer, resolver, scopeResolver, explorerService, lifecycleConfig, constructionInputsCatalog{
 		reader: materializationReader, catalog: runtime.Bundles, capabilities: lifecycleConfig.Capability,
 		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
-	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, runtime.Bundles, scopeResolver); err != nil {
-		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
+	}, routeDependencies{releases: runtime.Bundles, scopes: auth.scopePolicy}); err != nil {
+		return nil, nil, err
 	}
 	if privateClickHouseArtifacts != nil {
 		reconcileCtx, cancelReconciler := context.WithCancel(ctx)
@@ -884,7 +677,8 @@ func runRuntimeCloseSteps(steps []func() error) error {
 	return firstErr
 }
 
-// runPostgreSQLFullRuntime is the production entry: compose, then serve. The
+// runPostgreSQLFullRuntime is the production entry: compose, then serve
+// through the one listen/shutdown loop (compose.go serveRuntime). The
 // startup line keeps the six-series placement visible for operators without
 // echoing credentials (the recomputation is pure and cannot diverge from
 // what compose opened).
@@ -893,37 +687,14 @@ func runPostgreSQLFullRuntime(ctx context.Context, serverConfig Config, logger *
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := closeRuntime(); closeErr != nil {
-			logger.Error("close PostgreSQL server runtime", "error", closeErr)
-		}
-	}()
 	_, schemas, _ := postgresRuntimeAssignment(serverConfig.Server.PostgreSQL)
-	errCh := make(chan error, 1)
-	go func() {
-		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "backend", serverConfig.Server.Backend,
-			"source_schema", schemas[backendspostgres.SeriesSource],
-			"explorer_schema", schemas[backendspostgres.SeriesExplorerControl],
-			"publication_schema", schemas[backendspostgres.SeriesPublicationControl],
-			"dataset_release_schema", schemas[backendspostgres.SeriesDatasetRelease],
-			"recipe_chains_schema", schemas[backendspostgres.SeriesRecipeChains],
-			"recipe_exec_schema", schemas[backendspostgres.SeriesRecipeExecRegistries],
-			"no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
-		errCh <- server.App().Listen(serverConfig.Server.Listen)
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			return fmt.Errorf("server stopped: %w", err)
-		}
-	case <-ctx.Done():
-		logger.Info("shutting down HTTP server", "reason", ctx.Err())
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-		defer cancel()
-		if err := server.App().ShutdownWithContext(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown failed: %w", err)
-		}
-	}
-	return nil
+	return serveRuntime(ctx, server, serverConfig.Server.Listen, closeRuntime, "close PostgreSQL server runtime", logger,
+		"listen", serverConfig.Server.Listen, "backend", serverConfig.Server.Backend,
+		"source_schema", schemas[backendspostgres.SeriesSource],
+		"explorer_schema", schemas[backendspostgres.SeriesExplorerControl],
+		"publication_schema", schemas[backendspostgres.SeriesPublicationControl],
+		"dataset_release_schema", schemas[backendspostgres.SeriesDatasetRelease],
+		"recipe_chains_schema", schemas[backendspostgres.SeriesRecipeChains],
+		"recipe_exec_schema", schemas[backendspostgres.SeriesRecipeExecRegistries],
+		"no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
 }
