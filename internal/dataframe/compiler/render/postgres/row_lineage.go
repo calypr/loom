@@ -3,12 +3,18 @@ package postgres
 // The bounded exact-row lineage contributor page (pg-sql-23) is registered here
 // as its own closed plan slice: a plan whose stage sequence carries the
 // compiler-minted PhysicalRowLineageReturn terminal over one direct root scan
-// and one ordinary GROUP construction stage. Dispatch is the additive
+// and one ordinary GROUP construction stage. Dispatch is the single additive
 // row-lineage door in RenderPhysicalPlan (after the graph door, before the
-// composition door) plus the additive arm in validateStageSequencePlanSurface;
-// both call this one renderer, and validateRowLineagePlanSurface is the single
-// total contract behind them (render.go / graph.go / group.go / pivot.go /
-// stage_sequence.go precedent; entry==dispatch message equality).
+// composition door); this renderer has no second entry point. Shapes the door
+// does not claim never reach it: validateStageSequencePlanSurface
+// (stage_sequence.go:262) and validateCodedGroupPlanSurface (coded_group.go:454)
+// keep refusing RowLineageReturn with the merged registered voice, and the
+// dual-voice cells (row_lineage_test.go) pin that fall-through.
+// validateRowLineagePlanSurface is the single total contract behind the door
+// (render.go / graph.go / group.go / pivot.go / stage_sequence.go precedent);
+// the entry==dispatch law is between the door entry (RenderPhysicalPlan) and a
+// direct renderRowLineagePhysicalPlan call — the test's dispatch side — which
+// must refuse identical shapes with byte-identical messages.
 //
 // AQL ground truth is render/aql/row_lineage.go :10-184 — the canonical
 // scalar-Group contributor page, ported branch-for-branch:
@@ -46,7 +52,7 @@ package postgres
 //     materialized positionally by materializeGroupSource. The compiler mints
 //     the two hidden contributor columns the page reads — the resource-id
 //     column over root payload.id and the occurrence-key column over the root
-//     document key (compiler/row_lineage.go:842-860) — and both must be among
+//     document key (compiler/row_lineage.go:944-946,959-960) — and both must be among
 //     those projections.
 //   - Group: one GROUP stage, scalar STRING/INTEGER/DECIMAL/BOOLEAN keys, the
 //     three missing-key policies (GROUP groups nulls, EXCLUDE drops them,
@@ -84,9 +90,18 @@ package postgres
 //     dropped member.
 //
 // Refusal register (typed ErrUnsupportedPostgresPlan, never partially
-// rendered, never an AQL fallback; every one of these is refused on the
-// PostgreSQL target TODAY by target.rejectPostgreSQL at compiler/
-// row_lineage.go:655, so registering this slice removes no refusal):
+// rendered, never an AQL fallback). Post-merge enforcement: the PostgreSQL
+// target dispatches to compileRowLineagePostgreSQL (compiler/
+// row_lineage.go:660-661) before target.rejectPostgreSQL (:663, now an
+// AQL-path no-op for this entry) can speak, so this register — beside
+// compileRowLineagePostgreSQL's own named refusals (zero capability, explicit
+// group rows, composed cohort) — is what refuses these shapes today. Before
+// the slice was registered every one of them was refused on the PostgreSQL
+// target by target.rejectPostgreSQL at that entry; registering this slice
+// removed no refusal, it moved these refusals to a named authority. The seal
+// list retired this surface's AQL-only arm once the bounded page became
+// PG-implemented (4874fd89); the named zero-output refusal stays pinned by
+// the compiler battery's zero-output-names-its-surface cell):
 //
 //   - a traced terminal: the RELATED_EXPAND owner chain, the staged-Pivot
 //     preimage and the GROUP→Pivot preimage all carry
@@ -148,8 +163,9 @@ const (
 const rowLineageContributorAlias = "p"
 
 // The two hidden contributor identity columns are minted by the compiler
-// (compiler/row_lineage.go:23-24 rowLineageResourceID/rowLineageOccurrenceKey,
-// attached at :939-956) with fixed names; a registered page addresses exactly
+// (compiler/row_lineage.go:26-27 rowLineageResourceID/rowLineageOccurrenceKey,
+// attached as hidden RETURN projections at :944-946 and :959-960) with fixed
+// names; a registered page addresses exactly
 // these. The texts are renderer-owned constants (groupSemanticCarrierName and
 // the composition prefix precedent) and the live L1 round-trip cell ties them
 // to the compiler's mint: a name drift makes the page refuse, never render.
@@ -219,12 +235,15 @@ func rowLineageTerminalMentions(plan ir.PhysicalPlan) bool {
 	return stage.Kind == ir.PhysicalStageGroupOp && stage.Group != nil
 }
 
-// renderRowLineagePhysicalPlan is the single row-lineage door behind both
-// entry points (the RenderPhysicalPlan hook and the stage-sequence arm). Gate
-// order mirrors the other slice doors: storage validation, then
-// validateRowLineagePlanSurface as the first plan-facing act so both doors
-// refuse the same shapes with the same typed errors BEFORE plan.Validate can
-// speak, then the plan-wide gates, then the builder.
+// renderRowLineagePhysicalPlan is the single row-lineage door. Its only
+// production caller is the row-lineage arm of RenderPhysicalPlan (render.go,
+// after the graph door, before the composition door); the direct calls in
+// row_lineage_test.go are the test's dispatch side of the entry==dispatch
+// equality law, not a second door. Gate order mirrors the other slice doors:
+// storage validation, then validateRowLineagePlanSurface as the first
+// plan-facing act so the door and a direct dispatch call refuse the same
+// shapes with the same typed errors BEFORE plan.Validate can speak, then the
+// plan-wide gates, then the builder.
 func renderRowLineagePhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
@@ -264,8 +283,8 @@ func renderRowLineagePhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStora
 	return command.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
 }
 
-// validateRowLineagePlanSurface is the total closed-slice contract behind both
-// doors. It speaks typed refusals over ANY plan the door claims before plan
+// validateRowLineagePlanSurface is the total closed-slice contract behind the
+// single door. It speaks typed refusals over ANY plan the door claims before plan
 // validation, scope loading, or any rendering can reject with an off-type
 // error, and it reproduces the registered voices of shapes whose ownership
 // stays in another slice (#132 register-split voice law).
