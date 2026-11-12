@@ -299,6 +299,104 @@ func TestPostgresPopulationMappingExactMembershipAndDedupe(t *testing.T) {
 	}
 }
 
+// TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity is the
+// offline witness for the adapter-shape arm of populationIdentityParts,
+// following the pg-exec-12 table_shape_exclusions_test.go precedent of
+// feeding json.RawMessage rows through a fake port. The PostgreSQL adapter
+// decodes the jsonb witness column to json.RawMessage where the AQL adapter
+// delivers a native []any; both rows below carry the same identity parts in
+// the two driver shapes on two different selected members, so the emitted
+// dedupe collapses them into ONE canonical witness identity only if the
+// decoded RawMessage array re-marshals to the identical digest. The
+// cross-backend identity-equality claim of the decoder comment block is
+// witnessed here, offline, on the Arango-only lane.
+func TestPostgresPopulationMappingRawMessagePartsMatchNativeIdentity(t *testing.T) {
+	port := &exec07Port{rows: []map[string]any{
+		{"c0": "member-1", "c1": []any{"obs-a"}},
+		{"c0": "member-2", "c1": json.RawMessage(`["obs-a"]`)},
+	}}
+	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+	result, err := exec07Query(t, engine, PopulationMappingRequest{MaxUnmapped: 10}, exec07Members("member-1", "member-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != PopulationMappingComplete || result.SelectedCount != 2 || result.MappedCount != 2 || result.UnmappedCount != 0 || result.EmittedRows != 1 {
+		t.Fatalf("cross-shape identity equality broken: %#v, want two mapped members collapsing to one emitted identity", result)
+	}
+	// A RawMessage-only run reports the same exact counts as its []any
+	// twin, so the success path is witnessed independently of the dedupe.
+	for _, port := range []*exec07Port{
+		{rows: []map[string]any{
+			{"c0": "member-1", "c1": json.RawMessage(`["obs-a"]`)},
+			{"c0": "member-2", "c1": json.RawMessage(`["obs-b"]`)},
+		}},
+		{rows: []map[string]any{
+			{"c0": "member-1", "c1": []any{"obs-a"}},
+			{"c0": "member-2", "c1": []any{"obs-b"}},
+		}},
+	} {
+		engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+		result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1", "member-2", "member-3"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != PopulationMappingComplete || result.SelectedCount != 3 || result.MappedCount != 2 || result.UnmappedCount != 1 || result.EmittedRows != 2 ||
+			len(result.UnmappedMemberIDs) != 1 || result.UnmappedMemberIDs[0] != "member-3" {
+			t.Fatalf("adapter-shape and native-shape runs must agree exactly; got %#v", result)
+		}
+	}
+}
+
+// TestPostgresPopulationMappingRawMessageViolationsFailClosed pins every
+// fail-closed branch of the adapter-shape arm: empty bytes, malformed
+// JSON, the JSON null scalar (which the adapter delivers as a non-nil
+// RawMessage("null"), never flattened into the SQL NULL nil), JSON object
+// and scalar non-arrays, and the missing-key nil form. Each is refused
+// with the typed invalid-shape error and a zero-value result: never a
+// partial mapping, never INCOMPLETE, never the capability sentinel.
+func TestPostgresPopulationMappingRawMessageViolationsFailClosed(t *testing.T) {
+	for _, violation := range []struct {
+		name string
+		row  map[string]any
+	}{
+		{"empty bytes", map[string]any{"c0": "member-1", "c1": json.RawMessage("")}},
+		{"malformed json", map[string]any{"c0": "member-1", "c1": json.RawMessage(`["obs-a"`)}},
+		{"json null scalar", map[string]any{"c0": "member-1", "c1": json.RawMessage("null")}},
+		{"json object", map[string]any{"c0": "member-1", "c1": json.RawMessage(`{"project":"P1"}`)}},
+		{"json scalar", map[string]any{"c0": "member-1", "c1": json.RawMessage(`"obs-a"`)}},
+		{"missing key (sql null)", map[string]any{"c0": "member-1"}},
+		{"explicit nil", map[string]any{"c0": "member-1", "c1": nil}},
+	} {
+		port := &exec07Port{rows: []map[string]any{
+			{"c0": "member-1", "c1": []any{"obs-a"}}, // a sound witness first: refusal must come from the violation, not ordering
+			violation.row,
+			{"c0": "member-2", "c1": []any{"obs-b"}}, // never visited: no partial mapping past the refusal
+		}}
+		engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
+		result, err := exec07Query(t, engine, PopulationMappingRequest{}, exec07Members("member-1", "member-2"))
+		if err == nil || !strings.Contains(err.Error(), "invalid row identity shape") {
+			t.Fatalf("%s: violation error = %v, want the typed invalid-shape refusal", violation.name, err)
+		}
+		// The refusal is the decoder's own sentinel, never a wrapped
+		// encoding/json cause: that suffix pins the fail-closed guard
+		// (empty/malformed bytes are refused up front, not laundered
+		// through a decode-error wrap).
+		if want := "population mapping witness has an invalid row identity shape"; !strings.HasSuffix(err.Error(), want) {
+			t.Fatalf("%s: violation error = %v, want it to end in the decoder sentinel %q", violation.name, err, want)
+		}
+		if errors.Is(err, ErrPopulationMappingPostgresUnsupported) || errors.Is(err, errPopulationMappingLimit) {
+			t.Fatalf("%s: violation misclassified as a capability gap or cap: %v", violation.name, err)
+		}
+		if result.Status != "" || result.SelectedCount != 0 || result.MappedCount != 0 || result.UnmappedCount != 0 || result.EmittedRows != 0 ||
+			result.UnmappedMemberIDs != nil || result.HasMoreUnmapped {
+			t.Fatalf("%s: violation exposed a partial mapping: %#v", violation.name, result)
+		}
+		if !port.visitStarted || port.calls != 1 {
+			t.Fatalf("%s: refusal must run through the one port call after the witness stream started: calls=%d", violation.name, port.calls)
+		}
+	}
+}
+
 func TestPostgresPopulationMappingForeignWitnessRejected(t *testing.T) {
 	port := &exec07Port{rows: []map[string]any{{"c0": "member-9", "c1": []any{"row-a"}}}}
 	engine := &Engine{compileTarget: exec07PostgreSQLTarget(t), batchSize: 1000, sourceRows: port.sourceRows}
