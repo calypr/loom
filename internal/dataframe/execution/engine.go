@@ -1343,7 +1343,11 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: previewPlanFingerprint(query, stream), TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
+	planFingerprint := previewPlanFingerprint(query, stream)
+	if err := requireProjectedPlanFingerprint(stream.Name, planFingerprint); err != nil {
+		return PreviewSummary{}, err
+	}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: planFingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)

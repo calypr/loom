@@ -3,6 +3,7 @@ package execution
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -84,8 +85,12 @@ const sourcePlanShapeDomain = "loom:source-plan-shape:v1"
 //     parameter types, and the output/public/pivot metadata. Bound values are
 //     excluded, so rebinding a value keeps the shape while the value-bound
 //     artifact digest moves.
-//   - A command whose dispatch fails (an invalid tagged payload) reports the
-//     empty string; callers fail closed on an empty fingerprint.
+//   - A command whose dispatch fails (a corrupt tagged payload) reports the
+//     empty string. The command constructors reject such payloads, so this
+//     is a compiled-command invariant violation rather than a reachable
+//     shape; requireProjectedPlanFingerprint fails both public projections
+//     closed on it, so no Explain or preview response ever carries an empty
+//     planFingerprint with a nil error.
 func SourcePlanFingerprint(compiled compiler.CompiledQuery) string {
 	if compiled.Command.Backend() == command.CompiledBackendPostgreSQL {
 		return postgreSQLDiagnosticShapeFingerprint(compiled)
@@ -99,7 +104,10 @@ func SourcePlanFingerprint(compiled compiler.CompiledQuery) string {
 // excluded), and the declared/public/pivot output metadata. Fields are
 // length-prefixed so no boundary between adjacent fields can be forged by
 // embedding separators in the SQL text. An empty statement or a dispatch
-// failure yields the empty string, which the preview validators refuse.
+// failure yields the empty string, which requireProjectedPlanFingerprint
+// refuses at the Explain and preview projections as a compiled-command
+// defect (validatePreviewPlan's non-empty check guards the bound-digest
+// admission gate, not this shape).
 func postgreSQLDiagnosticShapeFingerprint(compiled compiler.CompiledQuery) string {
 	sqlText, args, err := compiled.Command.PostgreSQLParameters()
 	if err != nil || strings.TrimSpace(sqlText) == "" {
@@ -143,4 +151,20 @@ func previewPlanFingerprint(query compiler.CompiledQuery, stream OutputStream) s
 		return query.PlanDiagnostics.Fingerprint
 	}
 	return SourcePlanFingerprint(query)
+}
+
+// requireProjectedPlanFingerprint is the fail-closed gate the public
+// projections run on every projected planFingerprint before the response is
+// assembled. A compiled source command that cannot dispatch (a corrupt
+// tagged payload the command constructors' invariants make unreachable on
+// the happy path) yields the empty fingerprint; on the compile-only Explain
+// path nothing else ever dispatches the command, so without this gate a
+// defect would surface as an empty public planFingerprint with a nil error.
+// A ClickHouse combine preview's digest reaches the projection through
+// validatePreviewPlan's non-empty admission check; this gate covers it too.
+func requireProjectedPlanFingerprint(output string, fingerprint string) error {
+	if strings.TrimSpace(fingerprint) == "" {
+		return fmt.Errorf("output %q: compiled command carries no dispatchable payload for its diagnostic plan fingerprint", output)
+	}
+	return nil
 }

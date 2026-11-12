@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -400,6 +401,44 @@ func TestBackendNeutralDiagnosticsAndPlanIdentity(t *testing.T) {
 					t.Fatalf("%s preview source duration = %v, want the cursor quantum %v with row delivery excluded", lane.name, got, want)
 				}
 			})
+		}
+	})
+
+	t.Run("projection gate refuses an empty public fingerprint", func(t *testing.T) {
+		// The public projections never surface an empty planFingerprint with
+		// a nil error: a compiled command that cannot dispatch its payload
+		// (an invariant violation the command constructors make unreachable
+		// on the happy path) fails the projection closed instead, on the
+		// compile-only Explain path included, where nothing else dispatches.
+		if err := requireProjectedPlanFingerprint("resources", "86d795c00159019f31b5270e5b4f20b4406e939475e3980646866d513427394d"); err != nil {
+			t.Fatalf("a real shape digest must pass the gate: %v", err)
+		}
+		if err := requireProjectedPlanFingerprint("resources", "combine-fingerprint"); err != nil {
+			t.Fatalf("the ClickHouse combine digest must pass the gate: %v", err)
+		}
+		for _, empty := range []string{"", "   "} {
+			err := requireProjectedPlanFingerprint("resources", empty)
+			if err == nil {
+				t.Fatalf("empty fingerprint %q must fail the projection gate", empty)
+			}
+			if !strings.Contains(err.Error(), "resources") || !strings.Contains(err.Error(), "fingerprint") {
+				t.Fatalf("the gate error must name the output and the field: %v", err)
+			}
+		}
+		// The compile-only Explain path is dispatch-free for a PG-tagged
+		// command, so the gate is the only enforcement there; witness that
+		// ExplainResolved projects a real shape (the gate passed) with the
+		// hex bytes the fingerprint family guarantees.
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, exec02Rows())
+		limited := exec02TestResolved()
+		limited.Semantic.SemanticPlan.Bindings.PreviewLimit = 5
+		explanation, err := (Control{Engine: engine}).ExplainResolved(ctx, limited, false)
+		if err != nil {
+			t.Fatalf("ExplainResolved: %v", err)
+		}
+		if got := explanation.Outputs[0].PlanFingerprint; len(got) != 64 || strings.TrimLeft(got, "0123456789abcdef") != "" {
+			t.Fatalf("Explain must project a real 64-hex shape through the gate, got %q", got)
 		}
 	})
 

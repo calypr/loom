@@ -104,8 +104,12 @@ func (c Control) ExplainResolved(ctx context.Context, resolved Resolved, live bo
 		if err != nil {
 			return PhysicalExplanation{}, fmt.Errorf("output %q: %w", output.Name, err)
 		}
+		fingerprint := SourcePlanFingerprint(compiled)
+		if err := requireProjectedPlanFingerprint(output.Name, fingerprint); err != nil {
+			return PhysicalExplanation{}, err
+		}
 		item := PhysicalOutputExplanation{
-			Name: output.Name, PlanFingerprint: SourcePlanFingerprint(compiled),
+			Name: output.Name, PlanFingerprint: fingerprint,
 			Columns: append([]string(nil), compiled.PublicColumns...), Diagnostics: compiled.PlanDiagnostics,
 		}
 		if live {
