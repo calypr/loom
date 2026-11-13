@@ -36,6 +36,14 @@ type fakeArm struct {
 	authoring   []string // ordered create/builder/reconcile calls
 	handler     http.Handler
 	extra       []*http.Server // serveOn listeners, closed with the fake
+	// authoring publish + active-state readback scripts
+	publishOutputs   []PublicationOutput
+	publishState     string
+	publishEchoBad   bool
+	publishNoOutputs bool // answers with an empty outputs array
+	activeDigest     string
+	activeRevision   string
+	activationBody   string // when set, publish/explorer-config answer 503 with this body
 }
 
 func (f *fakeArm) publishedBodies() [][]byte {
@@ -92,12 +100,58 @@ func newFakeArm(backend string) *fakeArm {
 			_ = json.NewEncoder(w).Encode(state)
 			return
 		case strings.Contains(path, "/explorer-config"):
+			f.mu.Lock()
+			activation := f.activationBody
+			f.mu.Unlock()
+			if activation != "" {
+				http.Error(w, activation, http.StatusServiceUnavailable)
+				return
+			}
 			body, _ := io.ReadAll(r.Body)
 			f.mu.Lock()
 			f.publish++
 			f.published = append(f.published, body)
 			f.mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"recipe": "bench", "translationVersion": "t1", "receiptId": "revpub-1", "revisionId": "rev-1", "executionId": "exec-1", "activated": true})
+			return
+		case strings.HasSuffix(path, "/authoring/v2/publish") && r.Method == http.MethodPost:
+			f.mu.Lock()
+			activation := f.activationBody
+			f.mu.Unlock()
+			if activation != "" {
+				http.Error(w, activation, http.StatusServiceUnavailable)
+				return
+			}
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			receiptID, _ := body["receiptId"].(string)
+			f.mu.Lock()
+			f.calls = append(f.calls, fmt.Sprintf("%s:publish:%s", backend, receiptID))
+			outs, state, echo, noOuts := f.publishOutputs, f.publishState, f.publishEchoBad, f.publishNoOutputs
+			f.mu.Unlock()
+			if state == "" {
+				state = "ACTIVE"
+			}
+			answer := receiptID
+			if echo {
+				answer = "receipt-other"
+			}
+			if len(outs) == 0 && !noOuts {
+				outs = []PublicationOutput{{OutputID: "out", State: "READY", MaterializationID: "mat-" + receiptID}}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"receiptId": answer, "revisionId": "authoring-test", "state": state, "outputs": outs})
+			return
+		case r.Method == http.MethodGet && strings.Contains(path, "/explorers/") && !strings.Contains(path[strings.LastIndex(path, "/explorers/")+len("/explorers/"):], "/"):
+			f.mu.Lock()
+			digest, rev := f.activeDigest, f.activeRevision
+			f.mu.Unlock()
+			if digest == "" {
+				digest = "sha256:active-default"
+			}
+			if rev == "" {
+				rev = "authoring-active-default"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"draftDigest": digest, "activeRevisionId": rev})
 			return
 		case strings.Contains(path, "/authoring/v2/preview"):
 			var body map[string]any

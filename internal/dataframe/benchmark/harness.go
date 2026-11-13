@@ -223,7 +223,11 @@ func doArmRequest(client *http.Client, req *http.Request) (map[string]any, error
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("route %s returned %d: %s", req.URL.Path, resp.StatusCode, truncateToken(string(data)))
+		body := truncateToken(string(data))
+		if activationRefusalIn(string(data)) {
+			return nil, fmt.Errorf("%w: route %s returned %d: %s", ErrActivationRefusal, req.URL.Path, resp.StatusCode, body)
+		}
+		return nil, fmt.Errorf("route %s returned %d: %s", req.URL.Path, resp.StatusCode, body)
 	}
 	var value map[string]any
 	dec := json.NewDecoder(bytes.NewReader(data))
