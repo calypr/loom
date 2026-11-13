@@ -16,6 +16,10 @@ import (
 // and emit a report that VerifyReport must accept. Every failure aborts
 // before any success-shaped artifact exists.
 
+// ListenPlaceholder marks where the chosen listen address is rendered into
+// the arm config: --config makes YAML authoritative for listen.
+const ListenPlaceholder = "__BENCH_LISTEN__"
+
 // ArmConfig describes one backend arm: either attach to a running server
 // (BaseURL) or spawn one from BinaryPath with ConfigYAML.
 type ArmConfig struct {
@@ -403,12 +407,18 @@ func startArm(ctx context.Context, backend string, cfg ArmConfig, spawn SpawnFun
 		return nil, err
 	}
 	listen := fmt.Sprintf("127.0.0.1:%d", port)
+	// --config makes YAML authoritative for listen, so the chosen address
+	// must be rendered into the config, not only passed as --listen.
+	cfgYAML := cfg.ConfigYAML
+	if addr, mark, ok := strings.Cut(cfgYAML, ListenPlaceholder); ok {
+		cfgYAML = addr + listen + mark
+	}
 	ready := cfg.ReadyURL
 	if ready == "" {
 		ready = "http://" + listen + "/readyz"
 	}
 	timeout := 60 * time.Second
-	spec := ServerSpec{BinaryPath: cfg.BinaryPath, Backend: backend, ConfigYAML: cfg.ConfigYAML, Env: cfg.Env, ReadyURL: ready, Timeout: timeout, StderrDir: opts.StderrDir}
+	spec := ServerSpec{BinaryPath: cfg.BinaryPath, Backend: backend, ConfigYAML: cfgYAML, Env: cfg.Env, ReadyURL: ready, Timeout: timeout, StderrDir: opts.StderrDir}
 	proc, err := spawn(ctx, spec, cfg.ScrubSecrets, listen)
 	if err != nil {
 		return nil, err

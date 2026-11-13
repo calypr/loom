@@ -108,7 +108,7 @@ func (d *deployer) prepare(ctx context.Context) error {
 		}
 		*l.arm = benchmark.ArmConfig{
 			BinaryPath:   f.binary,
-			ConfigYAML:   benchmark.BuildServerConfigYAML("127.0.0.1:0", l.backend, backendYAML, fence.URL(), cursorSecret),
+			ConfigYAML:   benchmark.BuildServerConfigYAML(benchmark.ListenPlaceholder, l.backend, backendYAML, fence.URL(), cursorSecret),
 			ScrubSecrets: []string{l.dsn, cursorSecret},
 		}
 	}
