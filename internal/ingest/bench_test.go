@@ -37,7 +37,6 @@ func BenchmarkValidateAndExtract(b *testing.B) {
 
 		class := schema.GetClass(resourceType)
 
-		// 1. Generic Baseline
 		b.Run(resourceType+"/Generic_Baseline", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -52,7 +51,6 @@ func BenchmarkValidateAndExtract(b *testing.B) {
 			}
 		})
 
-		// 2. Generated Validate-only
 		b.Run(resourceType+"/Generated_ValidateOnly", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -82,7 +80,6 @@ func BenchmarkValidateAndExtract(b *testing.B) {
 			}
 		})
 
-		// 3. Generated Validate+Extract
 		b.Run(resourceType+"/Generated_ValidateAndExtract", func(b *testing.B) {
 			b.ResetTimer()
 			stageTiming := make(map[string]float64)
@@ -150,7 +147,6 @@ func BenchmarkVertexSerialization(b *testing.B) {
 	}
 	line := lines[0]
 
-	// 1. Prepare map payload
 	var mapPayload map[string]any
 	if err := sonic.ConfigFastest.Unmarshal(line, &mapPayload); err != nil {
 		b.Fatalf("failed to decode: %v", err)
@@ -163,7 +159,6 @@ func BenchmarkVertexSerialization(b *testing.B) {
 		Payload:      mapPayload,
 	}
 
-	// 2. Prepare struct payload
 	var structPayload fhir.Condition
 	if err := sonic.ConfigFastest.Unmarshal(line, &structPayload); err != nil {
 		b.Fatalf("failed to decode: %v", err)
@@ -176,7 +171,6 @@ func BenchmarkVertexSerialization(b *testing.B) {
 		Payload:      &structPayload,
 	}
 
-	// 3. Prepare RawMessage payload
 	rawDoc := VertexDocument{
 		Key:          "sample-key",
 		ID:           "sample-id",

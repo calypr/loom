@@ -141,8 +141,6 @@ func TestComposeClickHouseCombineRejectsCohortGroupPrefixAndIRBypass(t *testing.
 		t.Fatalf("COHORT_GROUP prefix error = %v", err)
 	}
 
-	// Construct a malformed-at-the-public-seam composite directly to ensure
-	// PhysicalPlan validation independently closes the same authorization gap.
 	forged := ir.ClonePhysicalPlan(prefix.Plan)
 	forged.Engine = ir.PhysicalEngineClickHouse
 	forged.ClickHouseCombine = &combine
@@ -422,8 +420,6 @@ func TestComposeClickHouseCombineRefusesRestrictedPostgreSQLPrefix(t *testing.T)
 	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourcePostgreSQL, bindings); err == nil || !strings.Contains(err.Error(), "unsupported on the PostgreSQL source backend") {
 		t.Fatalf("restricted PostgreSQL prefix error = %v", err)
 	}
-	// The same restricted bindings remain valid for the AQL source backend:
-	// the refusal is a PostgreSQL capability gap, not a scope regression.
 	if _, err := ComposeClickHouseCombine(prefix.Plan, combine, ir.PhysicalPrefixSourceAQL, bindings); err != nil {
 		t.Fatalf("restricted AQL prefix compose error = %v", err)
 	}

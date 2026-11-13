@@ -1,143 +1,3 @@
-// Package postgres renders validated physical IR plans into parameterized
-// PostgreSQL 18 statements for the source store (pg-ir-02).
-//
-// The renderer input is a physical plan plus an ir.PostgresStorageBinding.
-// The binding is the only source of SQL identifiers: table and column names
-// come from the compiler-owned allowlist in internal/dataframe/compiler/ir
-// (postgres_storage.go), and an unregistered or hand-assembled identifier is
-// rejected with ErrUnregisteredPostgresIdentifier. Everything else the plan
-// carries — project, dataset generation, auth resource paths, resource
-// types, edge labels, filter values, payload paths, limit values, and output
-// column names — is runtime data and is passed to the driver as ordered,
-// typed $n parameters. No plan string is ever interpolated into SQL text.
-//
-// The deterministic SORT/LIMIT execution window is registered in window.go
-// (pg-sql-12) as the closed final slice: over the spine it keeps the merged
-// typed-column contract; after UNNEST it orders and bounds the final
-// expanded rows using the complete typed row identity — root and owner
-// logical identities, storage occurrence witnesses, and the has-item and
-// ordinality witnesses — never the root ID alone.
-//
-// Unsupported plans fail closed with ErrUnsupportedPostgresPlan; there is no
-// fallback to the AQL renderer and no AQL-to-SQL conversion anywhere in this
-// package. The rendered result is a command.RenderedPostgresPhysicalPlan,
-// which additionally refuses AQL bind syntax and placeholder/argument
-// mismatch at construction.
-//
-// The v1 supported surface is the scoped read spine: one direct root
-// resource scan, typed scope predicates (explicit project, dataset
-// generation, and an explicit auth mode), scalar filter comparisons —
-// direct value comparisons over typed columns or JSONB payload paths with
-// typed (spec value-kind-checked) bind values, and the closed
-// selector-extraction comparisons whose ANY/NONE/ALL quantifier and
-// null/missing reading preserve the physical-predicate contract (all
-// predicate rendering and its capability registration live in
-// predicates.go) — boolean ALL/ANY/NOT predicate trees, depth-one typed
-// edge-occurrence traversals rendered by traversal.go — the OPTIONAL
-// parent-preserving LEFT JOIN LATERAL child join, the REQUIRED match EXISTS
-// semi-join (whose subplan payload filter re-reads the predicates.go
-// comparison contract over the reached child rows), and the unnest
-// owner-route step as an inner edge scan (renderTraversalScan parity: zero
-// route occurrences eliminate the parent under either empty policy) — one
-// column sort with deterministic identity tie-breaks, one bound limit, and
-// one positional return projection. The JSON-array cardinality boundary
-// (UNNEST, pg-sql-09) is registered in unnest.go as its own closed
-// operation slice: one direct root scan, one or more JSON-array expansions
-// with typed-identity owner routes, and a positional return over the
-// stored rows plus the renderer-derived item, ancestor, ordinality, and
-// has-item values. The membership population/cohort roots (pg-sql-18) are
-// registered in population.go as their own closed entry slice: the
-// constructor-only PostgresPopulationRootBinding (registered table allowlist
-// pinned to the store migrations) makes RenderPopulationRootScan the sole
-// binder for selection-bounded population roots and cohort-scoped roots,
-// with the cohort guards rendered as an uncorrelated guard InitPlan that
-// also carries the canonical deny; without a binding — every plain
-// RenderPhysicalPlan path — membership roots remain capability gaps that
-// return typed errors, never an AQL fallback. The correlated related-record
-// sets (pg-sql-08) are registered in sets.go as their own closed operation
-// slice: the child_sets.go child set with its FIRST/ALL/DISTINCT selector
-// reductions renders as parent-preserving per-field scalar sublinks over
-// the deduplicated child items, and the hop-only canonical RELATED
-// existence shape (with its registered top-level NOT form) shares the
-// validated correlated-hop renderer; production related-eligibility plans
-// keep failing closed until the anchor prefix's subplan-argument call is
-// registered (sets.go header). The REQUIRED match EXISTS stays owned by
-// traversal.go unchanged. The terminal melt (UNPIVOT, pg-sql-15) is
-// registered in unpivot.go as its own closed operation slice: one direct
-// root scan, one CROSS JOIN LATERAL VALUES melt carrying one slot per
-// authored input with the declared key literal, the value-type witness
-// raising the canonical TABLE_UNPIVOT_VALUE_TYPE_MISMATCH tag through the
-// guard barrier, the DROP-drops-null-rows / PRESERVE-keeps-them policy over
-// the missing-versus-JSON-null tri-state, and the compiler-owned melt
-// identity as the W3 stable order. The authored finite graph path union
-// (pg-sql-20) is registered in graph.go as its own closed plan slice: one
-// direct root scan with the canonical root scope block, typed root filters,
-// and REQUIRED-match semi-joins, one PATH_SEED, one PATH_EXTEND per authored
-// hop correlated to its parent path set (each carrying its canonical
-// (edge, target) scope block and typed reached-row filters), and a terminal
-// GRAPH_RETURN that renders the path-set union, deterministic identity
-// deduplication, route order, and the bound limit+1 lookahead as one WITH
-// statement — dispatched whole at the RenderPhysicalPlan entry, the
-// structural twin of the AQL entry's pre-loop GRAPH_RETURN dispatch
-// (render/aql/render.go:473-476). The nested object and bounded slice
-// projections (pg-sql-11) are registered in objects.go as the closed
-// composite RETURN surface: jsonb_build_object with bound name
-// parameters, the per-field omission CASE at the AQL null reading, the
-// bounded slice sublink with the logical_id tie-break over the singleton
-// root row or a sets.go-validated child set (production compact-
-// projection Extract.Prepared annotations resolve against that set's
-// registered projection slots; everything else keeps the cited verbatim
-// refusal), and recursion capped at depth 4. The coded Group tuple
-// (CODED_GROUP, pg-sql-19) is registered in coded_group.go as its own
-// closed plan slice: the inline single-stage shape lowers — one direct
-// root scan with the canonical scope block and the spine's renderable
-// source operations, and one authored CODED_GROUP stage — renders as one
-// WITH statement: the guarded jsonb_array_elements expansion (AQL
-// null/IS_ARRAY guard parity, the zero-item [null] candidate kept by LEFT
-// JOIN), the total validity predicate with the space-only trim set of the
-// ONE codedGroupTrimCharacters constant, the GROUP/EXCLUDE/ERROR
-// missing-key policies (ERROR raising CONSTRUCTION_CODED_GROUP_MISSING_KEY
-// per candidate through population.go's guardCast barrier at the AQL
-// ASSERT position), per-root DISTINCT tuple dedup with COUNT(*) over
-// contributing roots, the renderer-composed JSON-compact stable identity
-// ordered COLLATE "C" under the bound preview limit (the AQL terminal
-// identity-sort semantics, stage_sequence.go:399-448). The grouped pivot
-// (GROUPED_PIVOT and its inline single-stage CODED_PIVOT construction shape,
-// pg-sql-14) is registered in pivot.go as its own closed plan slice with one
-// cell-and-identity core behind two whole-plan doors: the spine reshape —
-// one direct root scan carrying the canonical scope filters and the canonical
-// AUTH_RESOURCE_PATH_ALLOWED let through the untouched spine arms, the
-// registered pivot, and the reshaped execution window (stable-row SORT then
-// LIMIT, the ir reshaped-window guard re-read) — and the coded-category
-// stage, whose AQL value chain (owner expansion, the (system, code) match on
-// one Coding item, the INVALID_CHOICE_ARM assert on matched owners, and the
-// FIRST-over-candidates value fallback) renders as guarded jsonb LATERAL
-// relations. Endpoint-lookup
-// traversals,
-// repeated/indexed selector predicates, correlated predicates,
-// CONTAINS_TEXT, shared subsets, prepared sets, node-path sets, subplans
-// outside the two registered correlated shapes, group rows,
-// unpivots coexisting with filters, traversals, or unnests, every
-// other stage sequence (composed stage sequences are pg-sql-16), and
-// ClickHouse payloads are capability gaps that return typed errors.
-//
-// The construction Group stage (GROUP, pg-sql-13) is registered in
-// group.go as its own closed plan slice: the inline single-stage shape over
-// the spine's renderable source operations carries typed scalar keys
-// (STRING/INTEGER/DECIMAL/BOOLEAN; jsonb members through the canonical
-// NULLIF + #>> read with the CONSTRUCTION_GROUP_KEY_TYPE_MISMATCH witness,
-// storage-typed columns through the direct cast), the seven reducers
-// (COUNT_ROWS, COUNT_NON_NULL, COUNT_DISTINCT, SUM, MEAN, MIN, MAX —
-// SUM/MEAN IEEE-faithful over the calls.go double band behind a
-// non-raising non-finite comparison gate reading the AQL null on
-// overflow, EXPLAIN-attested under both plan_cache_modes because PG18
-// removed isfinite), the ALL/ONE row values — one shared emitter with the
-// coded-group arm (Q4 same-emitter law) — and the stable identity in the
-// AQL TO_STRING member-array composition, ordered by the registered
-// NULLS FIRST key refinement (D-13c, per coordinator ruling 2026-11-11)
-// with the identity COLLATE "C" tie-break. CodingKey keys and the
-// many-cardinality pool over coded tuples are wave-2 refusals named in
-// their file headers.
 package postgres
 
 import (
@@ -152,28 +12,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// ErrUnsupportedPostgresPlan reports a physical plan outside the closed v1
-// PostgreSQL render surface. Callers must surface it as a capability gap;
-// the renderer never falls back to AQL and never converts AQL to SQL.
 var ErrUnsupportedPostgresPlan = errors.New("postgres renderer: unsupported physical plan")
 
-// ErrInvalidPostgresPlanScope reports a plan whose explicit scope binds are
-// missing or contradictory (blank project, absent auth mode flags, or an
-// unrestricted mode carrying paths). Scope is never inferred and never
-// widened; the canonical mapping itself lives in scope.go.
 var ErrInvalidPostgresPlanScope = errors.New("postgres renderer: invalid plan scope")
 
-// renderer-owned filterable column policy: single-segment document paths
-// that map onto typed columns of the resource table. Any other path is a
-// JSONB payload path and is bound as one whole text-path parameter. Storage
-// identity sequences (resource_seq, edge_seq) are reserved for
-// renderer-generated ordering and are never user-addressable columns.
-// canonicalKeyColumn maps the Arango document-key references the shared
-// lowering path uses (root "_key" and root document "id") onto the storage
-// column that carries the same validated identity in the PostgreSQL store.
-// Within one scoped root scan the generation-qualified key derives from the
-// natural identity, so logical_id ordering and equality match the Arango
-// document-key semantics exactly.
 func canonicalKeyColumn(path string) string {
 	switch path {
 	case "_key", "id":
@@ -192,130 +34,34 @@ var resourceFilterColumns = map[string]bool{
 	"recorded_at":        true,
 }
 
-// RenderPhysicalPlan renders a validated physical plan onto the trusted
-// PostgreSQL storage binding. The result is deterministic: the same plan and
-// binding always yield byte-identical SQL and value-identical ordered
-// arguments, and it never aliases plan data (every bound value is copied or
-// re-encoded).
 func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
-	// Whole-plan cell-trace delegation (cell_trace.go contract, pg-sql-24):
-	// an inline plan mentioning the compiler-minted typed cell-evidence
-	// terminal is rendered WHOLE by the registered slice — the structural
-	// twin of the graph door below, with validateCellTracePlanSurface as the
-	// single contract behind the door (and behind
-	// renderCellTracePhysicalPlan, entry==dispatch message equality). The
-	// door sits at the HEAD of the
-	// whole-plan region (coordinator ruling 2026-11-12): the graph and every
-	// later door have never seen this companion, so claiming all
-	// terminal-carrying inline plans here keeps an unregistered shape
-	// fail-closed with a named refusal instead of silently dropping the
-	// trace columns; every plan without the terminal routes byte-identically
-	// to the doors that claimed it before this arm existed (door-claims-
-	// nothing-else cells, cell_trace_test.go).
 	if cellTraceTerminalMentions(plan) {
 		return renderCellTracePhysicalPlan(plan, storage)
 	}
-	// Whole-plan graph delegation (graph.go contract, pg-sql-20): a plan
-	// mentioning PATH_SEED/PATH_EXTEND/GRAPH_RETURN is the authored graph
-	// shape and is rendered WHOLE by the registered graph slice — the
-	// structural twin of the AQL entry's pre-loop GRAPH_RETURN dispatch
-	// (render/aql/render.go:473-476). No spine arm ever sees a path
-	// operation; graph.go's validateGraphPlanSurface is the single contract
-	// behind this door and behind RenderGraphPhysicalPlan (entry==dispatch
-	// message equality), and every non-graph plan reaches the untouched
-	// spine below exactly as merged.
 	if graphPlanMentionsPathOperations(plan) {
 		return renderGraphPhysicalPlan(plan, storage)
 	}
-	// Whole-plan row-lineage delegation (row_lineage.go contract, pg-sql-23):
-	// a stage sequence carrying the compiler-minted bounded contributor-page
-	// terminal over one direct root scan and one ordinary GROUP stage is
-	// rendered WHOLE by the registered slice — the structural twin of the
-	// graph door above, with validateRowLineagePlanSurface as the single
-	// contract behind the door. The claim test is narrow by construction:
-	// every shape this slice does not render (a companion cell-trace or
-	// population-mapping return, a coded-group or composed lineage sequence, a
-	// hand-assembled terminal) falls through to the door that claimed it
-	// before this one existed and keeps its byte-identical registered voice.
 	if rowLineageTerminalMentions(plan) {
 		return renderRowLineagePhysicalPlan(plan, storage)
 	}
-	// Whole-plan composition delegation (stage_sequence.go contract,
-	// pg-sql-16): a stage sequence with two or more construction stages is
-	// the composed shape and is rendered WHOLE by the registered
-	// composition slice — the structural twin of the graph door above, with
-	// validateStageSequencePlanSurface as the single contract behind the
-	// door (and behind renderStageSequencePhysicalPlan, entry==dispatch
-	// message equality). The door sits after the graph door and BEFORE the
-	// four inline slice doors: a composed plan is never claimed by an
-	// inline single-stage door, and the inline doors keep rendering their
-	// single-stage shapes byte-identically. Single-stage plans fall through
-	// to their inline doors; the ones no inline door claims reach this same
-	// door through the converted StageSequence refusal below (coordinator
-	// ruling 2026-11-11: the blanket refusal becomes the same total
-	// validator, so every such shape gets a typed refusal or a render — no
-	// silent path).
 	if stageSequenceCompositionMentions(plan) {
 		return renderStageSequencePhysicalPlan(plan, storage)
 	}
-	// Whole-plan coded-group delegation (coded_group.go contract,
-	// pg-sql-19): a plan whose stage sequence mentions a CODED_GROUP stage
-	// is rendered WHOLE by the registered slice — the structural twin of
-	// the graph door above, with validateCodedGroupPlanSurface as the
-	// single contract behind the door. No spine arm ever sees a
-	// construction stage, and every other stage sequence reaches the
-	// untouched StageSequence refusal below.
 	if codedGroupPlanMentionsStage(plan) {
 		return renderCodedGroupPhysicalPlan(plan, storage)
 	}
-	// Related-occurrence composition claim (stage_sequence.go G3(c),
-	// pg-sql-16): a stage sequence mentioning the related-occurrence Group
-	// adapter is the related-expand shape and is rendered WHOLE by the
-	// registered composition slice, whose renderStageGroup dispatch arm
-	// feeds the adapter to stage_related_occurrence.go. Multi-stage
-	// sequences already entered through the composition door above; this
-	// claim adds the single-stage shape, which the inline group door keeps
-	// refusing on direct call (defense-in-depth re-read, group.go). It sits
-	// AFTER the graph, composition, and coded-group doors so those doors'
-	// voices stay byte-identical for the shapes they claim, and BEFORE the
-	// group door so no GROUP-with-adapter plan is claimed inline.
-	// validateStageSequencePlanSurface behind renderStageSequencePhysicalPlan
-	// stays the single contract (entry==dispatch message equality).
 	if stageSequenceRelatedOccurrenceMentions(plan) {
 		return renderStageSequencePhysicalPlan(plan, storage)
 	}
-	// Whole-plan group delegation (group.go contract, pg-sql-13): a plan
-	// whose stage sequence mentions a GROUP stage is rendered WHOLE by the
-	// registered slice — the structural twin of the two doors above, with
-	// validateGroupPlanSurface as the single contract behind the door (and
-	// behind renderGroupPhysicalPlan, entry==dispatch message equality).
-	// No spine arm ever sees a construction stage, and every other stage
-	// sequence reaches the untouched StageSequence refusal below.
 	if groupPlanMentionsStage(plan) {
 		return renderGroupPhysicalPlan(plan, storage)
 	}
-	// Whole-plan coded-pivot delegation (pivot.go contract, pg-sql-14):
-	// the inline single-stage CODED_PIVOT construction sequence is
-	// rendered WHOLE by the registered slice — the structural twin of the
-	// doors above, with validateGroupedCodedPivotPlanSurface as the
-	// single contract behind the door. The door keys on stage payload
-	// presence (CodedCorrelation != nil), so a single-stage NON-coded
-	// construction PIVOT never enters it and the merged StageSequence
-	// refusal below stays byte-identical for that shape.
 	if groupedPivotStagePlanMentionsSurface(plan) {
 		return renderGroupedCodedPivotPhysicalPlan(plan, storage)
 	}
-	// Full-backstop defense in depth (unnest.go contract): a plan that
-	// mentions UNNEST is pinned to the registered slice as the first
-	// plan-facing act here, before plan validation, scope loading, or any
-	// rendering can reject with an off-type error, so the dispatch entry
-	// enforces one contract with RenderUnnest, not a partial backstop.
-	// The re-check at the first UNNEST in renderUnnest stays as the local
-	// invariant; the check is total over any plan, so a malformed non-unnest
-	// plan reaches plan.Validate untouched.
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnnestOp {
 			if err := validateUnnestPlanSurface(plan); err != nil {
@@ -324,14 +70,6 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 			break
 		}
 	}
-	// Full-backstop defense in depth (unpivot.go contract): a plan that
-	// mentions UNPIVOT is pinned to the registered melt slice as the first
-	// plan-facing act here, before plan validation, scope loading, or any
-	// rendering can reject with an off-type error, so the dispatch entry
-	// enforces one contract with RenderUnpivot, not a partial backstop. The
-	// re-check at the melt in renderUnpivot stays the local invariant; the
-	// check is total over any plan, so a malformed non-melt plan reaches
-	// plan.Validate untouched.
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalUnpivotOp {
 			if err := validateUnpivotPlanSurface(plan); err != nil {
@@ -340,45 +78,16 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 			break
 		}
 	}
-	// Whole-plan scalar-pivot delegation (pivot.go contract, pg-sql-14):
-	// any plan mentioning a GROUPED_PIVOT operation is rendered WHOLE by
-	// the registered spine slice, which owns its WITH/SELECT assembly
-	// exactly as coded_group.go does — the flat assemble() cannot express
-	// GROUP BY. Unlike the unpivot-style validate-then-break spelling
-	// above, the door therefore RETURNS the whole-plan renderer on the
-	// first pivot operation: the pivot renders no spine arm at all, and
-	// validateGroupedPivotPlanSurface inside renderGroupedPivotPhysicalPlan
-	// stays the single contract, refusing every non-slice plan with a
-	// typed gap; the default-arm refusal remains byte-identical for every
-	// plan without a pivot operation.
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalGroupedPivotOp {
 			return renderGroupedPivotPhysicalPlan(plan, storage)
 		}
 	}
-	// Whole-plan excluded-row evidence delegation (table_shape_exclusions.go
-	// contract, pg-sql-26): a plan mentioning the table-shape evidence
-	// terminal is the authored diagnostic shape and is rendered WHOLE by the
-	// registered slice — the structural twin of the pivot door above, with
-	// validateTableShapeExclusionPlanSurface as the single contract behind
-	// both this door and RenderTableShapeExclusions (entry==dispatch message
-	// equality). It sits directly after the pivot door because the terminal
-	// is the reshape family's second whole-plan renderer and shares its
-	// source-region arms; no other shape carries the operation, so every
-	// other door's voice and the default-arm refusal stay byte-identical.
 	for _, operation := range plan.Operations {
 		if operation.Kind == ir.PhysicalTableShapeExclusionReturnOp {
 			return renderTableShapeExclusionPhysicalPlan(plan, storage)
 		}
 	}
-	// Single-stage composition claim (stage_sequence.go, pg-sql-16): the
-	// former blanket StageSequence refusal, converted per the coordinator
-	// ruling of 2026-11-11 into the SAME door a composed sequence enters.
-	// It sits BEFORE plan.Validate so validateStageSequencePlanSurface
-	// stays the first plan-facing act for every shape no inline door
-	// claimed: such a plan renders or refuses with a typed
-	// ErrUnsupportedPostgresPlan message, never a silent drop and never a
-	// partial render.
 	if plan.StageSequence != nil {
 		return renderStageSequencePhysicalPlan(plan, storage)
 	}
@@ -419,19 +128,6 @@ func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding)
 	return command.NewRenderedPostgresPhysicalPlan(sql, renderer.args, renderer.outputColumns)
 }
 
-// rowScope records the renderer-owned SQL placement of one plan variable.
-// The plan-authored variable name is used only as an internal map key; it
-// never reaches SQL text. optional marks a row materialized by an OPTIONAL
-// traversal join (traversal.go): it is NULL-extensible, so main-sequence
-// FILTER and SORT may not reference it, while RETURN projections read its
-// columns with SQL NULL for parent-preserving rows.
-//
-// A derived scope (unnest.go) carries a renderer-computed SQL expression
-// instead of a storage alias: derivedValue is the only reading, there is no
-// table alias or resource type, and only resolveValue may read it, so a
-// derived variable can never be used as a join, filter column, or sort
-// column. derivedJSON marks a jsonb-valued derived row whose non-empty
-// paths are document paths over the derived value.
 type rowScope struct {
 	alias        string
 	resourceType string
@@ -441,103 +137,42 @@ type rowScope struct {
 }
 
 type planRenderer struct {
-	storage ir.PostgresStorageBinding
-	args    []command.PostgreSQLParameter
-	// parameters deduplicates identical scalar scope binds (project,
-	// generation, resource types, label, auth array) so repeated predicates
-	// reference one placeholder.
-	parameters map[string]int
-	rows       map[string]rowScope
-	// canonicalAuthLets maps each dropped canonical AUTH_RESOURCE_PATH_ALLOWED
-	// LET variable to the registered scope row it was proven over
-	// (scope_ops.go). The LET and its closing equality carry no PostgreSQL
-	// meaning; loadScope owns the scope.
+	storage           ir.PostgresStorageBinding
+	args              []command.PostgreSQLParameter
+	parameters        map[string]int
+	rows              map[string]rowScope
 	canonicalAuthLets map[string]string
 
-	// stageRows binds each composed-construction stage row variable (pg-sql-16,
-	// stage_sequence.go) to the prior stage CTE's materialized columns. Like
-	// unpivotOutputs it is a routed read contract: a stage row is never a
-	// stored document, so its reads resolve positionally and nothing else.
 	stageRows map[string]stageRowScope
 
-	// scope is the re-read canonical scope established by loadScope (its
-	// definition and predicate mapping live in scope.go).
-	scope     planScope
-	rootAlias string
-	// edgeAliases records the lateral aliases of OPTIONAL traversal joins in
-	// plan order; the assembler orders every one by its exposed edge_seq so
-	// repeated occurrences are deterministic on every execution.
-	edgeAliases []string
-	// traversalSeq is the single alias counter shared by traversal.go: every
-	// registered traversal join (lateral child subquery or EXISTS step)
-	// consumes one sequence number, so edge/target/lateral aliases are
-	// unique and deterministic for a plan.
+	scope         planScope
+	rootAlias     string
+	edgeAliases   []string
 	traversalSeq  int
 	where         []string
 	joins         []string
 	selects       []string
 	outputColumns []string
 
-	// window is the SORT/LIMIT state and total-order contract; its fields,
-	// entry points, and ORDER BY assembly live in window.go (pg-sql-12).
-	// Nothing outside window.go writes it.
 	window executionWindow
 
-	// Unnest state (unnest.go): lateral clauses in plan order, the
-	// renderer-minted lateral aliases whose rn columns the window's total
-	// order uses (window.go consumes them), and the expansion counter that
-	// mints the aliases. All are renderer-owned; no plan string reaches SQL
-	// text through them.
 	laterals       []string
 	lateralAliases []string
 	unnestSeq      int
 
-	// Melt state (unpivot.go, pg-sql-15): the expansion counter that mints
-	// the VALUES-alias names, and the registered melt output contract —
-	// melt output variable → output column name → the SQL expression that
-	// emits it. resolveValue routes melt reads to resolveUnpivotOutputValue
-	// and renderReturn routes a melted plan's projection list to
-	// renderUnpivotReturn; with no melt rendered both fields stay nil and
-	// the spine paths are untouched. All renderer-owned; no plan string
-	// reaches SQL text through them.
 	unpivotSeq     int
 	unpivotOutputs map[string]map[string]string
 
-	// membership is the trusted membership binding, set only by
-	// RenderPopulationRootScan (population.go); nil keeps membership roots a
-	// capability gap on the plain spine.
 	membership *PostgresPopulationRootBinding
 
-	// mapping is the population-mapping render state (population_mapping.go,
-	// pg-sql-22): set ONLY by RenderPopulationMappingPlan. nil keeps the
-	// member witness unregistered — the D2 refusal in validatePopulationPayload
-	// and the composition source region's member-column arm stay exactly as
-	// merged — while a bound value switches the population root into the
-	// member-witness posture the mapping terminals consume. All state is
-	// renderer-owned; no plan string reaches SQL text through it.
 	mapping *populationMappingRender
 
-	// Composite state (objects.go, pg-sql-11): rootVariable names the
-	// SPINE root-scan variable — the only registered singleton slice
-	// source — set exactly where renderRootScan binds the direct-scan row
-	// (membership roots delegate before it, so they never register one);
-	// sliceSeq mints the renderer-owned aggregate aliases; setBodies
-	// records each successfully validated child set's correlated body
-	// (sets.go D2 hunk) so a registered SLICE over the set renders over
-	// the same deduplicated item relation the reductions read;
-	// setProjections records the same sets' registered traversal-time
-	// projection slots (the compact-projection contract
-	// lower/child_sets.go projectPhysicalChildSet stamps), which is what
-	// a slice extract's Extract.Prepared reference resolves against.
-	// All are renderer-owned; no plan string reaches SQL text through them.
 	rootVariable   string
 	sliceSeq       int
 	setBodies      map[string]correlatedSetBody
 	setProjections map[string][]ir.PhysicalSetProjectionField
 }
 
-// addParameter appends one ordered argument and returns its $n index. A
-// non-empty cacheKey deduplicates equal scalar bindings.
 func (r *planRenderer) addParameter(parameter command.PostgreSQLParameter, cacheKey string) int {
 	if cacheKey != "" {
 		if index, ok := r.parameters[cacheKey]; ok {
@@ -564,7 +199,7 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 	if len(plan.Operations) == 0 {
 		return fmt.Errorf("%w: plan has no operations", ErrUnsupportedPostgresPlan)
 	}
-	phase := 0 // 0 = source ops, 1 = window ops, 2 = return terminal
+	phase := 0
 	sawSort, sawLimit := false, false
 	for index, operation := range plan.Operations {
 		last := index == len(plan.Operations)-1
@@ -585,8 +220,6 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 				return err
 			}
 			if canonical {
-				// loadScope already enforces this predicate from the
-				// re-read canonical binds; the plan operation adds nothing.
 				continue
 			}
 			clause, err := r.renderFilter(plan, *operation.Filter)
@@ -635,10 +268,6 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 				return err
 			}
 		case ir.PhysicalUnpivotOp:
-			// The melt slice (unpivot.go, pg-sql-15): the closed sequence
-			// [ROOT_SCAN, UNPIVOT, SORT?, LIMIT?, RETURN] is enforced by
-			// validateUnpivotPlanSurface, applied at the entry above and
-			// re-applied at the melt; this arm keeps positional dispatch.
 			if phase != 0 {
 				return fmt.Errorf("%w: unpivot must precede the execution window", ErrUnsupportedPostgresPlan)
 			}
@@ -652,9 +281,6 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			if sawSort || phase > 1 || (phase == 1 && sawLimit) {
 				return fmt.Errorf("%w: at most one SORT, before LIMIT", ErrUnsupportedPostgresPlan)
 			}
-			// The key contract (W1 typed columns vs. the W2 stable row
-			// identity tuple) is enforced in window.go, the single window
-			// contract owner; these arms keep the positional dispatch rules.
 			if err := r.renderWindowSort(plan, *operation.Sort); err != nil {
 				return err
 			}
@@ -676,11 +302,6 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 			}
 			phase = 2
 		case ir.PhysicalPopulationMappingReturnOp:
-			// The pg-sql-22 mapping terminal (population_mapping.go). The
-			// arm is gated on the renderer-owned mapping state that ONLY
-			// RenderPopulationMappingPlan sets, so the plain
-			// RenderPhysicalPlan default-arm refusal for this operation
-			// stays byte-identical (same typed message as the arm below).
 			if r.mapping == nil {
 				return fmt.Errorf("%w: operation %q is not part of the v1 PostgreSQL render surface",
 					ErrUnsupportedPostgresPlan, string(operation.Kind))
@@ -708,8 +329,6 @@ func (r *planRenderer) renderOperations(plan ir.PhysicalPlan) error {
 
 func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRootScan) error {
 	if scan.Population != nil || scan.CohortSource != nil {
-		// Membership roots are registered by population.go (pg-sql-18); the
-		// binding gate lives there, and the candidate seed below stays refused.
 		return r.renderRootSources(plan, scan)
 	}
 	if scan.PageCandidateSeed != nil {
@@ -729,18 +348,7 @@ func (r *planRenderer) renderRootScan(plan ir.PhysicalPlan, scan ir.PhysicalRoot
 	return nil
 }
 
-// resolveValue maps one plan value onto either a trusted column expression
-// or a parameterized JSONB payload path over its row alias. Payload paths
-// are bound through documentPathExpression (null_semantics.go), the
-// package's single path-binding authority, so extraction and comparison
-// paths can never drift apart. Derived scopes (unnest.go) resolve through
-// resolveDerivedValue against their renderer-computed expression instead;
-// everything else resolves through the shared rows-parameterized resolver
-// in traversal.go, which main sequence and EXISTS subplans share.
 func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
-	// Melt output reads (unpivot.go) resolve through the registered output
-	// contract, never the stored-row path; with no melt rendered the map is
-	// nil and this branch is inert.
 	if scope, ok := r.stageRows[value.Variable]; ok {
 		return r.resolveStageRowValue(scope, value)
 	}
@@ -753,17 +361,6 @@ func (r *planRenderer) resolveValue(value ir.PhysicalValue) (string, error) {
 	return r.resolveValueInRows(r.rows, value)
 }
 
-// rejectOptionalRowReferences enforces the OPTIONAL-traversal boundary for
-// main-sequence FILTER operations: no comparison leaf, at any depth of an
-// ALL/NOT composition, may read a row materialized by an OPTIONAL
-// traversal join. A WHERE conjunct over null-extended child rows re-adds
-// the inner-join exclusion the AQL LET-set never applies (render/aql
-// navigation_render.go:11-37), and NOT/IS-DISTINCT-FROM forms would keep
-// parents an AQL required match excludes (lower/required_match.go).
-// Required matching must use the typed EXISTS subplan form, which renders
-// over INNER joins where WHERE placement is exact. EXISTS predicate
-// subplans are self-scoped and walk-free: their own contract is enforced by
-// renderRequiredMatchExists.
 func (r *planRenderer) rejectOptionalRowReferences(filter ir.PhysicalFilter) error {
 	if filter.Expression != nil {
 		return rejectOptionalInPredicate(*filter.Expression, r.rows)
@@ -778,7 +375,7 @@ func rejectOptionalInPredicate(predicate ir.PhysicalPredicateExpression, rows ma
 	switch predicate.Kind {
 	case ir.PhysicalComparisonPredicate:
 		if predicate.Comparison == nil {
-			return nil // the comparison renderer reports the missing payload.
+			return nil
 		}
 		if predicate.Comparison.LeftExpression != nil &&
 			predicate.Comparison.LeftExpression.Extract != nil {
@@ -806,7 +403,7 @@ func rejectOptionalInPredicate(predicate ir.PhysicalPredicateExpression, rows ma
 			}
 		}
 		return nil
-	default: // EXISTS and unknown kinds: no main-sequence row references.
+	default:
 		return nil
 	}
 }
@@ -816,28 +413,9 @@ func optionalRowRefError(variable string) error {
 		ErrUnsupportedPostgresPlan, variable)
 }
 
-// payloadPathSegmentPattern re-checks the frozen ir path contract at the
-// renderer boundary.
 var payloadPathSegmentPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// SORT and LIMIT are rendered through window.go's renderWindowSort and
-// renderWindowLimit (pg-sql-12): the single execution-window contract owner
-// for both the spine (W1) and the final window after UNNEST (W2).
-
-// renderReturn assembles the positional projection list. Every projection
-// first passes classifyExtractionProjections (selectors.go) — the single
-// projection-contract definition, applied with the renderer's own row
-// bindings — and is then emitted from its classification: direct values and
-// VALUE expressions through resolveValue, selector extractions and presence
-// sidecars through the canonical mappings in null_semantics.go, CALL
-// expressions through the fragment renderer in calls.go, and the pg-sql-11
-// OBJECT/SLICE composites through their recursive renderers in objects.go
-// (plan flows through for the slice predicate's bind-backed right side).
 func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn) error {
-	// A melted plan's terminal projection list reads only registered melt
-	// outputs (unpivot.go owns that contract, validateUnpivotReturn pins it
-	// at the surface); the spine classification below stays byte-identical
-	// when no melt rendered.
 	if r.unpivotOutputs != nil {
 		return r.renderUnpivotReturn(ret)
 	}
@@ -882,9 +460,6 @@ func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn)
 			}
 			expression = presence
 		case extractionCallExpression:
-			// The deep walk (bind values, row bindings, and the closed
-			// jsonb fragment grammar) is owned end to end by calls.go
-			// (pg-sql-10); this dispatch only places the fragment.
 			value, err := r.renderCallProjection(plan, projection.projection)
 			if err != nil {
 				return err
@@ -903,10 +478,6 @@ func (r *planRenderer) renderReturn(plan ir.PhysicalPlan, ret ir.PhysicalReturn)
 			}
 			expression = value
 		case extractionUnitNormalized:
-			// The closed contract and the whole jsonb fragment walk are
-			// owned end to end by unit_normalization.go (pg-sql-21); this
-			// dispatch only places the fragment, exactly like the CALL
-			// arm above.
 			value, err := r.renderUnitNormalizedProjection(projection)
 			if err != nil {
 				return err
@@ -927,20 +498,12 @@ func (r *planRenderer) assemble() string {
 	for _, join := range r.joins {
 		builder.WriteString(" " + join)
 	}
-	// Lateral expansions trail the storage joins so each references only
-	// rows that already bound (unnest.go mints them in plan order).
 	for _, lateral := range r.laterals {
 		builder.WriteString(" " + lateral)
 	}
 	if len(r.where) > 0 {
 		builder.WriteString(" WHERE " + strings.Join(r.where, " AND "))
 	}
-	// Deterministic total order: the window contract in window.go maps the
-	// plan sort keys, then appends the storage identities so repeated rows
-	// from parallel edge occurrences order the same way on every execution,
-	// then each unnest expansion's witnesses so duplicate items keep their
-	// source-array position (the ordering counterpart of
-	// ir.PhysicalUnnestSortKeys' has-item/ordinality tie-break).
 	builder.WriteString(" ORDER BY " + strings.Join(r.windowOrder(), ", "))
 	builder.WriteString(r.window.limitClause)
 	return builder.String()

@@ -421,7 +421,6 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 				"payload": map[string]any{"id": id, "gender": "female", "identifier": []any{map[string]any{"value": "shared"}, map[string]any{"value": fmt.Sprintf("value-%d", index)}}}})
 		}
 	}
-	// Same FHIR ID outside either dataset boundary must never supply member values.
 	for index, scope := range []map[string]any{{"project": "another-project", "dataset_generation": generation}, {"project": resourceProject, "dataset_generation": "another-generation"}} {
 		scope["_key"], scope["id"], scope["resourceType"], scope["auth_resource_path"] = keyPrefix+fmt.Sprintf("_outside_%d", index), "a", "Patient", "/allowed"
 		scope["payload"] = map[string]any{"id": "leaked", "gender": "male"}
@@ -668,8 +667,6 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			if !reflect.DeepEqual(row["ids"], []any{}) || row["gender"] != nil || !reflect.DeepEqual(row["identifiers"], []any{}) {
 				t.Fatalf("restricted-empty authorization leaked cohort member data: %#v", row)
 			}
-			// A verified pinned selection may retain the old null-payload identity
-			// for a resource that no longer exists; it cannot carry field values.
 			for _, rawMember := range row["members"].([]any) {
 				member := rawMember.(map[string]any)
 				identity := member["source_identity"].(map[string]any)

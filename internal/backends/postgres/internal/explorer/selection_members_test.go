@@ -1,55 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for bounded idempotent selection
-// member batches and the digest/count finalize under the current writer
-// fence (pg-state-selection-members-v1; check-2 companion:
-// go test -count=1 -run '^TestSelectionMembers' ./internal/backends/postgres/internal/explorer/,
-// plus the full-package run go test -count=1 ./internal/backends/postgres/internal/explorer/).
-//
-// Everything here runs against the service named by
-// LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
-// database (verify_selem_*) plus one owned schema (verify_selem_*) inside
-// it and drops both in its cleanups, so the suite leaves zero leftovers.
-// The fixture history is this package's embedded owner history, which
-// includes the selection-revisions migration 000008_selection_revisions (the
-// delivered member DDL this ticket builds on: PRIMARY KEY
-// (selection_id, member_key), UNIQUE (selection_id, project, generation,
-// resource_type, id), the key-shape CHECK, and the member immutability
-// guard). NewMigrationRunner composes and sorts the union onto the ONE
-// shared per-schema ledger, and the ledger rows are asserted literally with
-// the fixture checksum self-recomputed from the file bytes.
-//
-// Every lifecycle claim is driven through real Store methods on real
-// connections; expected rows are asserted literally through direct SQL on a
-// witness pool that is a third, physically distinct backend connection, and
-// concurrent proofs run over two single-connection clients with provably
-// distinct pg_backend_pid() values, at least 10 rounds per racing surface,
-// with byte-identical row witnesses (every column plus ctid). The
-// conflicting-member arbiter is proven at BOTH layers: the raw database
-// refusal names its exact SQLSTATE and constraint, and the adapter is
-// proven to CLASSIFY that refusal as explorer.ErrSelectionConflict (a raw
-// driver error surfacing instead would fail the same probe). The fenced
-// finalize is proven non-vacuous by mutation probes that change exactly one
-// claimed fact (digest, count) and must see the exact-named refusal with
-// the staging left byte-identical and unusable; the member_bytes
-// pass-through is pinned explicitly as the deliberate boundary of what the
-// fence verifies. Crash windows are injected through the in-transaction
-// complete seam; the bounded keyset stream is proven through the
-// test-only page observer (each fetched page <= the 1000-row bound, and
-// more than one page for >1000 members). Nothing is mocked and no test here
-// passes by skipping: a run presented as acceptance evidence requires the
-// live service (see testPostgresURL). Concurrency tests run serially (no
-// t.Parallel anywhere).
-//
-// Golden literals (member-key hexes, the empty-membership digest) are
-// pinned independently of the adapter so a derivation drift breaks the
-// literal rather than its mirror.
-//
-// The TestZZ zero-leftover audit is ownership-scoped: it checks each exact
-// name this file created and verified (creation registry) and scans ONLY
-// its own verify_selem_* prefix for strays; foreign prefixes are other
-// suites' life, and any unregistered survivor under THIS prefix is fatal.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -76,45 +26,27 @@ import (
 )
 
 const (
-	// The member DDL is the delivered migration from the prerequisite
-	// (000008 covers BOTH selection tables in one migration), now embedded
-	// in the owner history; this ticket ships no new DDL and pins the same
-	// bytes the member behavior depends on.
 	selemFixtureName     = "selection_revisions"
 	selemFixtureVersion  = int64(8)
 	selemFixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
 	selemImmutableCode   = "45501"
 	selemRefConstraint   = "selection_members_ref_ux"
-	// selemRaceRounds is the per-surface race floor.
-	selemRaceRounds = 10
+	selemRaceRounds      = 10
 
 	selemProject = "verify-selem-p"
 )
 
-// Golden literals pinned independently of the adapter.
 const (
-	// selemGoldenKeySelemX is the hex(sha256) half of the derived member
-	// key for (verify-selem-p, gen-a, DocumentReference, selem-golden-x)
-	// under selection "selection-golden": the 0x00-prefixed frame hash
-	// recomputed by hand, so drift in selectionMemberKey breaks this
-	// literal rather than a computed mirror.
-	selemGoldenKeySelemX = "325f564f597dacc4e53f2fd41e9a0d0ae3ddcd340c927dd8f1647837d882b231"
-	// selemEmptyMembershipDigest is sha256 over zero membership frames:
-	// the digest a zero-member selection must finalize with (the frozen
-	// facts CHECK requires a non-empty digest, and this is the true
-	// digest of nothing).
+	selemGoldenKeySelemX       = "325f564f597dacc4e53f2fd41e9a0d0ae3ddcd340c927dd8f1647837d882b231"
 	selemEmptyMembershipDigest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 )
 
 var selemNameRe = regexp.MustCompile(`^verify_selem_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and TestZZ asserts each exact name is gone -- and that
-// NOTHING else under the verify_selem_* prefix survived.
 var (
 	selemOwnedMu      sync.Mutex
-	selemOwnedRes     = map[string]string{} // database -> owned schema
-	selemExtraSchemas []string              // schemas created outside per-test fixtures
+	selemOwnedRes     = map[string]string{}
+	selemExtraSchemas []string
 )
 
 func selemRegister(db, schema string) {
@@ -128,12 +60,6 @@ func selemRegisterExtraSchema(schema string) {
 	defer selemOwnedMu.Unlock()
 	selemExtraSchemas = append(selemExtraSchemas, schema)
 }
-
-// ---------------------------------------------------------------------------
-// Isolated PostgreSQL fixture: one uniquely owned database plus one owned
-// schema per test, named verify_selem_*; three single-connection clients
-// (witness + writer A + writer B) with provably distinct backends.
-// ---------------------------------------------------------------------------
 
 type selemService struct {
 	ctx     context.Context
@@ -209,8 +135,6 @@ func newSelemService(t *testing.T) *selemService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -219,10 +143,6 @@ func newSelemService(t *testing.T) *selemService {
 	dsn := u.String()
 	secrets = append(secrets, dsn)
 
-	// Each client is capped at one physical connection, and pgstore.Open
-	// pings the server and refuses anything but PostgreSQL 18, so the
-	// witness, writer A, and writer B are provably three distinct PG18
-	// backends.
 	newClient := func(label string) *pgstore.Client {
 		client, err := pgstore.Open(ctx, pgstore.Config{
 			DSN:            dsn,
@@ -293,11 +213,6 @@ func (s *selemService) backendPID(t *testing.T, client *pgstore.Client, label st
 	return pid
 }
 
-// migrate composes and applies the owned history -- this package's embedded
-// owner history (which embeds the selection-revisions migration whose member
-// DDL this ticket's behavior depends on) -- through the real pg-store-02
-// runner onto the ONE shared per-schema ledger, and asserts the ledger
-// literally with the checksum self-recomputed from the embedded bytes.
 func (s *selemService) migrate(t *testing.T) {
 	t.Helper()
 	owner, err := OwnerMigrations()
@@ -358,10 +273,6 @@ func (s *selemService) migrate(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// direct-SQL witnesses (test's own client, never a store connection)
-// ---------------------------------------------------------------------------
 
 func (s *selemService) qualified(table string) string {
 	return pgx.Identifier{s.schema, table}.Sanitize()
@@ -426,8 +337,6 @@ func (s *selemService) witnessHeader(id string) selemWitnessedHeader {
 	return w
 }
 
-// assertHeaderStable witnesses that a header row did not move at all
-// (every column plus the physical ctid).
 func (s *selemService) assertHeaderStable(t *testing.T, id string, before selemWitnessedHeader) selemWitnessedHeader {
 	t.Helper()
 	after := s.witnessHeader(id)
@@ -472,9 +381,6 @@ func (s *selemService) memberCount(t *testing.T, selectionID string) int {
 	return s.execCount(t, "SELECT count(*) FROM "+s.membersFQN()+" WHERE selection_id = $1", selectionID)
 }
 
-// storedMembers witnesses every stored member row of a selection (all
-// columns) so the fenced finalize can be cross-checked against the stored
-// membership independently of the adapter's stream.
 func (s *selemService) storedMembers(t *testing.T, selectionID string) []explorer.SelectionMember {
 	t.Helper()
 	conn, err := s.witness.Acquire(s.ctx)
@@ -502,11 +408,6 @@ func (s *selemService) storedMembers(t *testing.T, selectionID string) []explore
 	}
 	return out
 }
-
-// ---------------------------------------------------------------------------
-// fixtures local to this suite (distinct ids from the sibling selection
-// suite so literals cannot mask each other)
-// ---------------------------------------------------------------------------
 
 func selemHex(t *testing.T) string { return randomHex(t) }
 
@@ -539,18 +440,12 @@ func selemRefs(ids ...string) []explorer.SelectionMember {
 	return out
 }
 
-// beginStaging begins one staging revision on store A and returns it.
 func (s *selemService) beginStaging(t *testing.T, id, key, writer string) {
 	t.Helper()
 	if _, err := s.storeA.BeginSelection(s.ctx, selemHeaderFixture(id, key), writer); err != nil {
 		s.fail("begin "+id, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 1: batch retry creates no duplicates; conflicting member
-// refuses -- at the adapter AND through the named database arbiter.
-// ---------------------------------------------------------------------------
 
 func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 	s := newSelemService(t)
@@ -559,8 +454,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 	writer := "selem-batch-writer-" + suffix
 	s.beginStaging(t, id, "selem-batch-key-"+suffix, writer)
 
-	// A batch that repeats one reference inside itself creates each
-	// member exactly once and reports only the creations.
 	batch := selemRefs("files001", "files002", "files001")
 	inserted, err := s.storeA.AppendSelectionMembers(s.ctx, id, writer, batch)
 	if err != nil {
@@ -584,9 +477,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("member rows after deduped batch = %d, want 2", n)
 	}
 
-	// Retry of the FULL batch is idempotent: zero rows created, the two
-	// stored rows byte-identical (every column plus ctid: no delete/re-
-	// insert churn, no duplicates).
 	retryInserted, err := s.storeA.AppendSelectionMembers(s.ctx, id, writer, batch)
 	if err != nil {
 		s.fail("retry append", err)
@@ -604,7 +494,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("retry created duplicates: %d rows", n)
 	}
 
-	// A mixed batch (one existing, one new) reports only the new one.
 	mixed := selemRefs("files001", "files003")
 	inserted, err = s.storeA.AppendSelectionMembers(s.ctx, id, writer, mixed)
 	if err != nil {
@@ -617,8 +506,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("member rows after mixed append = %d, want 3", n)
 	}
 
-	// A foreign writer cannot stage anything: refused with ErrSelection-
-	// Conflict, and the three stored rows are byte-identical witnesses.
 	foreignBefore := [3]selemWitnessedMember{
 		s.witnessMember(id, mk001),
 		s.witnessMember(id, mk002),
@@ -637,9 +524,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("foreign append left rows behind: %d, want 3", n)
 	}
 
-	// Conflicting member (adapter layer): a caller-supplied memberKey
-	// that disagrees with the derived key is refused before any row of
-	// the batch exists.
 	bad := selemRef("files005")
 	bad.MemberKey = id + "_" + strings.Repeat("0", 64)
 	if _, err := s.storeA.AppendSelectionMembers(s.ctx, id, writer, append(selemRefs("files006"), bad)); !errors.Is(err, explorer.ErrSelectionConflict) {
@@ -651,10 +535,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("wrong-memberKey batch leaked rows: %d, want 3", n)
 	}
 
-	// Conflicting member (database arbiter): a stored row already holds
-	// the reference files007 under a different (shape-valid) member key.
-	// The adapter must CLASSIFY the named constraint's refusal as
-	// ErrSelectionConflict, and the whole batch must vanish with it.
 	if err := s.witnessExecErr(
 		`INSERT INTO `+s.membersFQN()+`
 		 (selection_id, member_key, project, generation, resource_type, id, ordinal)
@@ -669,9 +549,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 	if _, err := s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files008", "files007")); !errors.Is(err, explorer.ErrSelectionConflict) {
 		t.Fatalf("arbiter-conflicting append = %v, want ErrSelectionConflict (classified, not a raw driver error)", err)
 	}
-	// Post-abort convergence: files008 (inserted before the refusal in
-	// this same transaction) vanished with the batch; only the witness-
-	// seeded foreign row remains of this probe.
 	s.assertMemberRowAbsent(t, id, "files008")
 	if after := s.witnessMember(id, id+"_"+strings.Repeat("f", 64)); !after.same(foreignRow) {
 		t.Fatalf("the adapter disturbed the conflicting row: %+v", after)
@@ -680,19 +557,12 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("member rows after arbiter refusal = %d, want 4", n)
 	}
 
-	// Non-vacuity of that arbiter: the same collision through direct SQL
-	// must be refused by the NAMED database object, not just a Go
-	// pre-check. (The adapter inserted files001 under its derived key;
-	// a second shape-valid key for the same reference must hit
-	// selection_members_ref_ux with SQLSTATE 23505.)
 	assertPgError(t, "raw ref-ux collision", s.witnessExecErr(
 		`INSERT INTO `+s.membersFQN()+`
 		 (selection_id, member_key, project, generation, resource_type, id, ordinal)
 		 VALUES ($1, $2, $3, 'gen-a', 'DocumentReference', 'files001', 0)`,
 		id, id+"_"+strings.Repeat("a", 64), selemProject), "23505", selemRefConstraint)
 
-	// Control: the legal insert-once shape still inserts (the refusal
-	// above is the named constraint, not the table being unwritable).
 	if err := s.witnessExecErr(
 		`INSERT INTO `+s.membersFQN()+`
 		 (selection_id, member_key, project, generation, resource_type, id, ordinal)
@@ -701,12 +571,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("control: legal member row refused: %s", s.scrub(err))
 	}
 
-	// Conflicting member, key-shaped poison: a stored row holds the
-	// DERIVED key of files011 while storing the reference files012 -- a
-	// shape only a hostile direct insert can produce (the guard trigger
-	// makes it permanent). Appending files011 must refuse with the exact
-	// conflict rather than credit the poisoned row as staged, and leak
-	// nothing.
 	poisonKey := goldenMemberKey(t, id, selemRef("files011").Ref)
 	if err := s.witnessExecErr(
 		`INSERT INTO `+s.membersFQN()+`
@@ -729,8 +593,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 		t.Fatalf("poisoned-key append leaked rows: %d, want 6 (files001-003 + the three hostile probes, no files011)", n)
 	}
 
-	// Owner abort removes header and members: post-abort convergence for
-	// the whole batch.
 	if err := s.storeA.AbortSelection(s.ctx, id, writer); err != nil {
 		s.fail("owner abort", err)
 	}
@@ -742,8 +604,6 @@ func TestSelectionMembersBatchIdempotentRetryRefusesConflicts(t *testing.T) {
 	}
 }
 
-// assertMemberRowAbsent witnesses that the derived member key of (id,
-// refID) has no row.
 func (s *selemService) assertMemberRowAbsent(t *testing.T, id, refID string) {
 	t.Helper()
 	mk := goldenMemberKey(t, id, selemRef(refID).Ref)
@@ -751,13 +611,6 @@ func (s *selemService) assertMemberRowAbsent(t *testing.T, id, refID string) {
 		t.Fatalf("expected no member row %s, found %+v", mk, w)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 2: only the active writer may append/complete, and a
-// digest/count mismatch leaves UNUSABLE staging. Mutation probes change
-// exactly one claimed fact each; the refusal is exact-named and the header
-// row stays byte-identical STAGING.
-// ---------------------------------------------------------------------------
 
 func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 	s := newSelemService(t)
@@ -771,21 +624,12 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 	staged := s.storedMembers(t, id)
 	wantDigest, wantCount, wantBytes := membershipFacts(staged)
 
-	// (a) A foreign token cannot complete: exact-named conflict, header
-	// byte-identical (still STAGING, facts untouched, ctid unmoved).
 	pristine := s.witnessHeader(id)
 	if _, err := s.storeB.CompleteSelection(s.ctx, id, "stale-"+suffix, wantDigest, wantCount, wantBytes, time.Now().UTC()); !errors.Is(err, explorer.ErrSelectionConflict) {
 		t.Fatalf("foreign-token complete = %v, want ErrSelectionConflict", err)
 	}
 	s.assertHeaderStable(t, id, pristine)
 
-	// (b) Digest/count mismatch leaves unusable staging. Mutation probe
-	// 1: a member appears after the digest was taken -- the claim no
-	// longer describes the staged set. The append itself legitimately
-	// renews the writer lease, so the stability witness is captured from
-	// the post-append state: what must not move is the state, the
-	// completion bit, and the frozen facts (and the row's ctid, which a
-	// refused finalize may not touch).
 	if _, err := s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files003")); err != nil {
 		s.fail("append third member", err)
 	}
@@ -796,14 +640,13 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 	if _, err := s.storeA.CompleteSelection(s.ctx, id, writer, wantDigest, wantCount, wantBytes, time.Now().UTC()); !errors.Is(err, explorer.ErrSelectionIncomplete) {
 		t.Fatalf("complete with pre-append facts = %v, want ErrSelectionIncomplete (mismatch leaves staging unusable)", err)
 	}
-	s.assertHeaderStable(t, id, postAppend) // no flip, no fact write, no ctid move
+	s.assertHeaderStable(t, id, postAppend)
 	if _, err := s.storeA.VisitSelectionMembers(s.ctx, selemProject, id, "", 10, func(explorer.SelectionMember) error {
 		return nil
 	}); !errors.Is(err, explorer.ErrSelectionIncomplete) {
 		t.Fatalf("visit after a refused finalize = %v, want ErrSelectionIncomplete -- staging must be unusable", err)
 	}
 
-	// Mutation probe 2: correct digest, count short by one.
 	redigested, realCount, rebytes, err := s.storeA.DigestSelectionMembers(s.ctx, selemProject, id)
 	if err != nil {
 		s.fail("re-digest", err)
@@ -816,7 +659,6 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 	}
 	s.assertHeaderStable(t, id, postAppend)
 
-	// Mutation probe 3: correct count, digest flipped in one hex char.
 	flipped := redigested[:len(redigested)-1]
 	if redigested[len(redigested)-1] == '0' {
 		flipped += "1"
@@ -828,10 +670,6 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 	}
 	s.assertHeaderStable(t, id, postAppend)
 
-	// Mutation probe 4: membership that does not match ANY of the three
-	// claims still refuses with the same exact name, and the stored
-	// members are still the byte-identical three (the fence never
-	// rewrites membership).
 	for i, refID := range []string{"files001", "files002", "files003"} {
 		_ = i
 		mk := goldenMemberKey(t, id, selemRef(refID).Ref)
@@ -840,10 +678,6 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 		}
 	}
 
-	// The fence verifies the IDENTITY-bearing facts and passes
-	// member_bytes through: correct digest/count with bytes=0 completes
-	// (Arango parity -- @bytes is the caller's accounting hint) and the
-	// frozen row carries exactly what was claimed.
 	completedAt := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 	completed, err := s.storeA.CompleteSelection(s.ctx, id, writer, redigested, realCount, 0, completedAt)
 	if err != nil {
@@ -861,15 +695,11 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 		t.Fatalf("completed_at literal = %q, want 2026-09-19 00:00:00+00", done.completeAtText)
 	}
 
-	// The frozen facts describe the STORED rows: recompute them
-	// independently from the witness, never from the adapter.
 	if gotDigest, gotCount, gotBytes := membershipFacts(s.storedMembers(t, id)); gotDigest != redigested || gotCount != realCount || gotBytes != rebytes {
 		t.Fatalf("frozen digest/count disagrees with stored membership: frozen %s/%d, stored %s/%d (%d bytes)",
 			redigested, realCount, gotDigest, gotCount, gotBytes)
 	}
 
-	// Idempotent retry: identical facts return the stored row, byte-
-	// identical. Changed facts conflict; the COMPLETE row never moves.
 	retry, err := s.storeB.CompleteSelection(s.ctx, id, writer, redigested, realCount, 0, completedAt)
 	if err != nil {
 		s.fail("idempotent complete retry", err)
@@ -883,19 +713,10 @@ func TestSelectionMembersCompleteFinalizesUnderWriterFence(t *testing.T) {
 	}
 	s.assertHeaderStable(t, id, done)
 
-	// Missing selection: not-found, not a silent success.
 	if _, err := s.storeA.CompleteSelection(s.ctx, "selem-never-"+suffix, writer, redigested, realCount, 0, completedAt); !errors.Is(err, explorer.ErrSelectionNotFound) {
 		t.Fatalf("complete on missing selection = %v, want ErrSelectionNotFound", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 2 (concurrency): the fenced finalize racing a live append on
-// TWO physically distinct connections. Whichever side wins the header lock,
-// a COMPLETE row's frozen digest/count ALWAYS equals the digest/count of
-// the member rows actually stored -- the fence is what makes that
-// invariant hold, and the losing side gets its exact-named refusal.
-// ---------------------------------------------------------------------------
 
 func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 	s := newSelemService(t)
@@ -917,18 +738,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			s.fail("race seed digest", err)
 		}
 
-		// Both operations race for real on two distinct backends, but
-		// the arrival ORDER is proven, not coaxed by a scheduler yield
-		// (a runtime.Gosched head-start is only a ~25us bias next to a
-		// lock-statement round trip, which let the witness pass
-		// vacuously under load): the side meant to win the header lock
-		// first parks inside its in-transaction test seam -- a real
-		// statement of the live transaction already holding the
-		// FOR UPDATE fence -- and only then is the rival launched at
-		// the live lock. Every seam release is time-bounded, so a
-		// broken schedule fails loudly instead of hanging, and
-		// PostgreSQL still decides the serialization underneath; the
-		// per-round invariants below hold no matter who wins.
 		var appendErr, completeErr error
 		var wg sync.WaitGroup
 		seamEntered := make(chan struct{})
@@ -952,9 +761,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 		}
 		wg.Add(2)
 		if round%2 == 0 {
-			// Complete holds the fence first: its completion CAS has
-			// run and the finalize commit is parked; append arrives at
-			// the live lock mid-flight.
 			s.storeB.beforeCompleteCommit = parkInSeam
 			go func() {
 				defer wg.Done()
@@ -965,14 +771,9 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 				defer wg.Done()
 				_, appendErr = s.storeA.AppendSelectionMembers(s.ctx, id, writer, selemRefs("files002"))
 			}()
-			// Give the append's BEGIN + header FOR UPDATE time to
-			// reach the live lock before the fence is released.
 			time.Sleep(2 * time.Millisecond)
 			close(seamRelease)
 		} else {
-			// Append holds the fence first: its member insert has run
-			// and the batch commit is parked; complete arrives at the
-			// live lock against membership that has already moved.
 			s.storeA.afterMemberInsert = parkInSeam
 			go func() {
 				defer wg.Done()
@@ -986,20 +787,10 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			time.Sleep(2 * time.Millisecond)
 			close(seamRelease)
 		}
-		// wg.Wait() first: the rival goroutine may still read its seam
-		// field (its header check can pass on a divergent schedule),
-		// and a plain write-then-read on those fields with no
-		// happens-before edge is a data race. The next round assigns
-		// both seams in this goroutine after Wait, so per-round setup
-		// is unchanged.
 		wg.Wait()
 		s.storeA.afterMemberInsert = nil
 		s.storeB.beforeCompleteCommit = nil
 
-		// Exactly one of the two raced operations was refused with its
-		// exact name; the other may have succeeded. Both-succeed is
-		// impossible (the header lock serializes them), and both-refused
-		// means the fence lost the invariant.
 		row := s.witnessHeader(id)
 		if !row.exists {
 			t.Fatalf("round %d: header vanished", round)
@@ -1008,7 +799,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 		gotDigest, gotCount, _ := membershipFacts(stored)
 		if row.complete {
 			completeWins++
-			// The frozen facts describe EXACTLY the stored rows.
 			if row.membershipDigest != gotDigest || row.memberCount != gotCount {
 				t.Fatalf("round %d: COMPLETE row froze %s/%d but the stored membership is %s/%d (fence violated)",
 					round, row.membershipDigest, row.memberCount, gotDigest, gotCount)
@@ -1027,9 +817,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			}
 		} else {
 			appendWins++
-			// The append won: the claimed facts now disagree with the
-			// staged set, so the complete was refused with the exact
-			// name and the row stays byte-identical STAGING.
 			if !errors.Is(completeErr, explorer.ErrSelectionIncomplete) {
 				t.Fatalf("round %d: complete against a moved membership = %v, want ErrSelectionIncomplete", round, completeErr)
 			}
@@ -1042,8 +829,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			if len(stored) != 2 {
 				t.Fatalf("round %d: staged members = %d, want 2 after the append won", round, len(stored))
 			}
-			// Post-refusal convergence: the writer can still finalize
-			// the true membership.
 			if _, err := s.storeA.CompleteSelection(s.ctx, id, writer, gotDigest, gotCount, 0, time.Now().UTC()); err != nil {
 				t.Fatalf("round %d: correct complete after the refusal = %v", round, err)
 			}
@@ -1058,12 +843,6 @@ func TestSelectionMembersFencedCompleteRacesAppend(t *testing.T) {
 			selemRaceRounds, completeWins, appendWins)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Durability seam: a crash between the completion CAS and its commit
-// leaves the row STAGING with its members byte-identical (the freeze
-// commits whole or not at all), and the retry after the crash converges.
-// ---------------------------------------------------------------------------
 
 func TestSelectionMembersCompleteCrashWindowConvergence(t *testing.T) {
 	s := newSelemService(t)
@@ -1093,16 +872,12 @@ func TestSelectionMembersCompleteCrashWindowConvergence(t *testing.T) {
 	} else if !strings.Contains(err.Error(), "before commit") {
 		t.Fatalf("crashed complete error = %v, want the seam-classified wrap", err)
 	}
-	// The freeze vanished whole: still STAGING, no frozen facts, ctid
-	// unmoved; members byte-identical.
 	s.assertHeaderStable(t, id, before)
 	for i, mk := range memberKeys {
 		if after := s.witnessMember(id, mk); !after.same(members[i]) {
 			t.Fatalf("crashed complete disturbed member %s: %+v", mk, after)
 		}
 	}
-	// Post-crash convergence: the same complete commits after the seam
-	// is removed.
 	s.storeA.beforeCompleteCommit = nil
 	completed, err := s.storeA.CompleteSelection(s.ctx, id, writer, digest, count, bytes, time.Now().UTC())
 	if err != nil {
@@ -1117,16 +892,10 @@ func TestSelectionMembersCompleteCrashWindowConvergence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 3: Visit is bounded per call, keyset stable under foreign
-// churn, and cancellation-aware with a resumable cursor.
-// ---------------------------------------------------------------------------
-
 func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 	s := newSelemService(t)
 	suffix := selemHex(t)
 
-	// A COMPLETE selection of 300 members.
 	id := "selem-visit-" + suffix
 	writer := "selem-visit-writer-" + suffix
 	s.beginStaging(t, id, "selem-visit-key-"+suffix, writer)
@@ -1152,15 +921,6 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 		s.fail("complete", err)
 	}
 
-	// Foreign churn while the walk runs: another selection is appended
-	// to and aborted on the second backend throughout the paging. This
-	// is what a keyset walk must survive -- an offset walk would skip
-	// or repeat members. The outcome is witnessed (completed-round count
-	// plus the first error): churn that errored before ever starting,
-	// or never overlapped the paging loop, must not let this half of the
-	// acceptance pass vacuously -- the file header's nothing-passes-by-
-	// skipping standard, enforced like the fence race's interleaving
-	// witness below.
 	stopChurn := make(chan struct{})
 	churnDone := make(chan struct{})
 	var churnCompleted atomic.Int64
@@ -1262,10 +1022,6 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 		t.Fatalf("visit walk took %d calls, want %d (64-bounded pages plus the terminal empty page)", calls, wantCalls)
 	}
 
-	// Cancellation-aware: a caller context cancelled mid-page stops the
-	// walk between members and the returned cursor names the LAST member
-	// the visitor actually saw; resuming on a fresh context continues
-	// from there with no gap and no duplicate.
 	cancelCtx, cancel := context.WithCancel(s.ctx)
 	const cancelAfter = 20
 	visitedBefore := 0
@@ -1317,9 +1073,6 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 		t.Fatal("the cancelled+resumed sequence diverged from the uninterrupted walk")
 	}
 
-	// Bounded page cap: an absurd page budget is still clamped to one
-	// bounded page (the 1000-row stream page), so no call can ever
-	// materialize an unbounded member list.
 	bigID := "selem-visit-big-" + suffix
 	bigWriter := "selem-big-writer-" + suffix
 	s.beginStaging(t, bigID, "selem-big-key-"+suffix, bigWriter)
@@ -1356,7 +1109,6 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 			bigVisited, selectionDigestPageSize)
 	}
 
-	// STAGING refuses; nil visitor refused; foreign project concealed.
 	stagingID := "selem-visit-staging-" + suffix
 	s.beginStaging(t, stagingID, "selem-visit-staging-key-"+suffix, "w-"+suffix)
 	if _, err := s.storeA.VisitSelectionMembers(s.ctx, selemProject, stagingID, "", 10, func(explorer.SelectionMember) error {
@@ -1375,18 +1127,10 @@ func TestSelectionMembersVisitBoundedKeysetAndCancellation(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// The digest/finalize stream is bounded and keyset-driven (proven through
-// the page observer), frozen facts are returned without re-streaming, and
-// a zero-member selection finalizes with the true digest of nothing.
-// ---------------------------------------------------------------------------
-
 func TestSelectionMembersDigestIsBoundedPagedAndFrozen(t *testing.T) {
 	s := newSelemService(t)
 	suffix := selemHex(t)
 
-	// Golden, offline-safe: the adapter's derived key equals the pinned
-	// literal for a fresh triple (drift breaks the literal).
 	ref := explorer.ResourceRef{Project: selemProject, Generation: "gen-a", ResourceType: "DocumentReference", ID: "selem-golden-x"}
 	if got := selectionMemberKey("selection-golden", ref); got != "selection-golden_"+selemGoldenKeySelemX {
 		t.Fatalf("member key drifted from the pinned golden:\nadapter %s\ngolden  %s", got, "selection-golden_"+selemGoldenKeySelemX)
@@ -1411,13 +1155,10 @@ func TestSelectionMembersDigestIsBoundedPagedAndFrozen(t *testing.T) {
 	if err != nil {
 		s.fail("paged digest", err)
 	}
-	// Facts equal an INDEPENDENT recomputation over the whole batch.
 	wantDigest, wantCount, wantBytes := membershipFacts(batch)
 	if digest != wantDigest || count != wantCount || bytes != wantBytes {
 		t.Fatalf("paged digest = %s/%d/%d, want %s/%d/%d", digest, count, bytes, wantDigest, wantCount, wantBytes)
 	}
-	// The walk is bounded and crossed the page boundary: more than one
-	// page, every page within the 1000-row bound, exact page sizes.
 	if len(pages) < 2 {
 		t.Fatalf("digest of %d members fetched %d pages; a single-page read is a full materialization", total, len(pages))
 	}
@@ -1436,8 +1177,6 @@ func TestSelectionMembersDigestIsBoundedPagedAndFrozen(t *testing.T) {
 		}
 	}
 
-	// The fenced finalize RE-STREAMS the membership itself (observer
-	// fires again under the fence) and only then freezes.
 	pages = nil
 	completed, err := s.storeA.CompleteSelection(s.ctx, id, writer, digest, count, bytes, time.Now().UTC())
 	if err != nil {
@@ -1450,8 +1189,6 @@ func TestSelectionMembersDigestIsBoundedPagedAndFrozen(t *testing.T) {
 		t.Fatalf("fenced finalize did not re-stream under the fence: pages = %v, want [1000 1]", pages)
 	}
 
-	// Frozen path: a COMPLETE digest returns the stored facts WITHOUT
-	// touching the member table.
 	pages = nil
 	frozenDigest, frozenCount, _, err := s.storeA.DigestSelectionMembers(s.ctx, selemProject, id)
 	if err != nil {
@@ -1465,10 +1202,6 @@ func TestSelectionMembersDigestIsBoundedPagedAndFrozen(t *testing.T) {
 	}
 	s.storeA.memberPageStreamed = nil
 
-	// Zero-member golden: the digest of nothing is the empty sha256
-	// literal, count/bytes are zero, and the fence finalizes it (the
-	// frozen-facts CHECK needs a non-empty digest -- this is the true
-	// digest of an empty set).
 	emptyID := "selem-empty-" + suffix
 	emptyWriter := "selem-empty-writer-" + suffix
 	s.beginStaging(t, emptyID, "selem-empty-key-"+suffix, emptyWriter)
@@ -1486,16 +1219,10 @@ func TestSelectionMembersDigestIsBoundedPagedAndFrozen(t *testing.T) {
 	if !row.complete || row.membershipDigest != selemEmptyMembershipDigest || row.memberCount != 0 {
 		t.Fatalf("empty-selection freeze = %+v", row)
 	}
-	// And an attacker-style claim of a NON-empty membership over the
-	// empty staging is refused by the fence.
 	if _, err := s.storeA.CompleteSelection(s.ctx, emptyID, emptyWriter, digest, count, bytes, time.Now().UTC()); !errors.Is(err, explorer.ErrSelectionConflict) {
 		t.Fatalf("re-complete of the empty row with foreign facts = %v, want ErrSelectionConflict", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// SQL contract for the membership statement set (offline half).
-// ---------------------------------------------------------------------------
 
 func TestSelectionMembersSQLAndGoldenContract(t *testing.T) {
 	sql := newSelectionMemberSQL("ctl")
@@ -1523,8 +1250,6 @@ func TestSelectionMembersSQLAndGoldenContract(t *testing.T) {
 	if !strings.Contains(sql.completeCAS, "state = 'STAGING'") || !strings.Contains(sql.completeCAS, "writer_token = $6") {
 		t.Fatalf("completeCAS must be a writer-conditional staging CAS: %s", sql.completeCAS)
 	}
-	// The adapter's conflicting-member classification names the delivered
-	// DDL's arbiter exactly.
 	if !strings.Contains(string(readFixtureDDL(t)), selemRefConstraint) {
 		t.Fatalf("fixture DDL must define the arbiter the adapter classifies: %s", selemRefConstraint)
 	}
@@ -1537,6 +1262,13 @@ func TestSelectionMembersSQLAndGoldenContract(t *testing.T) {
 	}
 	if isMemberRefConflict(errors.New("plain error")) {
 		t.Fatal("a plain error is not a member conflict")
+	}
+	typedNil := error((*pgconn.PgError)(nil))
+	if isMemberRefConflict(typedNil) {
+		t.Fatal("a typed-nil driver error is not a member conflict")
+	}
+	if isMemberRefConflict(fmt.Errorf("insert: %w", typedNil)) {
+		t.Fatal("a wrapped typed-nil driver error is not a member conflict")
 	}
 }
 
@@ -1552,13 +1284,6 @@ func readFixtureDDL(t *testing.T) []byte {
 	}
 	return []byte(fixture.SQL)
 }
-
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit: the creation registry's exact names
-// are gone, and a scan over THIS suite's own verify_selem_* prefix finds
-// nothing. Foreign prefixes belong to sibling suites; any unregistered
-// survivor under this prefix is fatal.
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverVerifySelemFixtures(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -1578,8 +1303,6 @@ func TestZZZeroLeftoverVerifySelemFixtures(t *testing.T) {
 	extra := append([]string{}, selemExtraSchemas...)
 	selemOwnedMu.Unlock()
 
-	// Creation registry: every exact name whose verified creation this
-	// file recorded must be gone.
 	for db, schema := range databases {
 		var count int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, db).Scan(&count); err != nil {
@@ -1599,9 +1322,6 @@ func TestZZZeroLeftoverVerifySelemFixtures(t *testing.T) {
 		}
 	}
 
-	// Prefix scan under THIS suite's own prefix only (never a global
-	// baseline): a stray under verify_selem_* is fatal whether or not it
-	// was registered. Foreign prefixes are sibling suites' life.
 	var strays []string
 	rows, err := admin.Query(ctx, `SELECT datname FROM pg_database WHERE datname LIKE 'verify\_selem\_%' ESCAPE '\' ORDER BY datname`)
 	if err != nil {

@@ -1,12 +1,5 @@
 package httpapi
 
-// L1 contract tests for pg-runtime-health-readiness: the selected source
-// backend and ClickHouse are consulted independently (each under its own
-// budget), both fields are always reported, liveness consults no dependency,
-// and the optional CoreState classifier is the ONLY route by which failure
-// detail enters the body — ArangoDB arms, which never supply one, keep
-// byte-identical published bodies.
-
 import (
 	"context"
 	"errors"
@@ -28,8 +21,6 @@ func newHealthServer(t *testing.T, cfg HTTPConfig) *HTTPServer {
 	return server
 }
 
-// L1a/L1b/L1c: independence of consultation. Every consulted check runs,
-// even when the other has failed, and every field is always reported.
 func TestReadinessConsultsBothChecksIndependently(t *testing.T) {
 	tests := []struct {
 		name                   string
@@ -87,18 +78,12 @@ func TestReadinessConsultsBothChecksIndependently(t *testing.T) {
 	}
 }
 
-// L1e: a hung core check must not consume the ClickHouse budget or fabricate
-// its verdict. The core stub blocks past the per-check budget; the ClickHouse
-// stub must observe a live (not yet expired) context and still report its
-// own state.
 func TestReadinessHungCoreDoesNotFabricateClickHouseVerdict(t *testing.T) {
 	coreRelease := make(chan struct{})
 	t.Cleanup(func() { close(coreRelease) })
 	var clickHouseCtxLive, clickHouseInvoked atomic.Bool
 	server := newHealthServer(t, HTTPConfig{
 		CoreReadyCheck: func(ctx context.Context) error {
-			// Hang until this check's OWN budget expires, mimicking a wedged
-			// backend, then report its timeout as a failure.
 			<-ctx.Done()
 			<-coreRelease
 			return ctx.Err()
@@ -134,9 +119,6 @@ func TestReadinessHungCoreDoesNotFabricateClickHouseVerdict(t *testing.T) {
 	}
 }
 
-// L1f: liveness is dependency-free on every configuration: no check is ever
-// consulted, even with both dependencies down, and even after readiness has
-// seen the failures.
 func TestLivenessNeverConsultsChecksOnAnyLane(t *testing.T) {
 	var checks atomic.Int64
 	server := newHealthServer(t, HTTPConfig{
@@ -157,8 +139,6 @@ func TestLivenessNeverConsultsChecksOnAnyLane(t *testing.T) {
 	}
 }
 
-// L1g: the optional CoreState classifier is the only failure-detail channel.
-// A credential-bearing cause can only ever surface as one fixed token.
 func TestReadinessCoreStateClassifierReportsSafeTokens(t *testing.T) {
 	classifier := func(err error) string {
 		switch {
@@ -194,8 +174,6 @@ func TestReadinessCoreStateClassifierReportsSafeTokens(t *testing.T) {
 			if body["core_state"] != tt.wantState {
 				t.Fatalf("core_state=%v, want %s (body=%#v)", body["core_state"], tt.wantState, body)
 			}
-			// Credential discipline: the classifier receives the wrapped
-			// error, but only its token may appear in the body.
 			if text, ok := body["core_state"].(string); !ok || len(text) > 64 {
 				t.Fatalf("core_state must be a short fixed token, got %#v", body["core_state"])
 			}
@@ -203,9 +181,6 @@ func TestReadinessCoreStateClassifierReportsSafeTokens(t *testing.T) {
 	}
 }
 
-// L1h Arango-mode verbatim witness: a deployment without the classifier
-// (every ArangoDB arm) gets exactly the published body — no core_state key
-// on any status — and the Health cache keeps its 200/degraded contract.
 func TestReadinessWithoutClassifierKeepsPublishedBodies(t *testing.T) {
 	server := newHealthServer(t, HTTPConfig{
 		CoreReadyCheck:       func(context.Context) error { return errors.New("arangodb unreachable") },
@@ -225,7 +200,6 @@ func TestReadinessWithoutClassifierKeepsPublishedBodies(t *testing.T) {
 	if _, present := body["core_state"]; present {
 		t.Fatalf("cached Health must not gain core_state either: %#v", body)
 	}
-	// The /health degraded-200 compatibility contract is unchanged.
 	degraded := newHealthServer(t, HTTPConfig{
 		ClickHouseEnabled:    true,
 		ClickHouseReadyCheck: func(context.Context) error { return errors.New("clickhouse unavailable") },
@@ -244,8 +218,6 @@ var (
 	errConnectivityDown = &credentialBearingError{}
 )
 
-// credentialBearingError mimics the worst case: a connectivity failure whose
-// text carries a DSN credential. Only the classifier token may reach clients.
 type credentialBearingError struct{}
 
 func (credentialBearingError) Error() string {

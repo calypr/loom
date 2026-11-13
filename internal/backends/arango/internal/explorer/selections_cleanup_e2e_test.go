@@ -18,20 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// These tests drive the real selection staging lifecycle against a private
-// ArangoDB database and only ever call production Store methods. They exist to
-// test two claims about CleanupSelectionStaging (selections.go:384) instead of
-// trusting its comment at selections.go:37-40:
-//
-//	H3-a: a writer that is legitimately mid-operation but whose writer lease has
-//	      lapsed is never touched by another session's BeginSelection.
-//	H3-b: cleanup cannot destroy a completed selection, because it omits the
-//	      complete != true guard that AbortSelection (selections.go:290) and
-//	      CompleteSelection (selections.go:242) both carry.
-//
-// Databases use the loom_exv_ prefix so this suite's residue is checkable
-// independently of other verification workers.
-
 const selectionCleanupDatabasePrefix = "loom_exv_"
 
 type selectionCleanupDocument struct {
@@ -130,12 +116,6 @@ RETURN {missing: d == null, state: d == null ? null : d.state, complete: d != nu
 	return info
 }
 
-// selectionCleanupExpireLease rewinds writerExpiresAt into the past. Production
-// renews the lease only inside AppendSelectionMembers (selections.go:168), so an
-// idle gap past the 10m lease has exactly this end state. The existing harness
-// uses the same direct patch with the literal 0
-// (selection_storage_integration_test.go:29-34); this variant keeps the value
-// explicit about how far past the lease the document is.
 func selectionCleanupExpireLease(t *testing.T, ctx context.Context, client *store.Client, selectionID string, lapsedFor time.Duration) int64 {
 	t.Helper()
 	expired := time.Now().UTC().Add(-selectionWriterLease - lapsedFor).UnixMilli()
@@ -146,9 +126,6 @@ func selectionCleanupExpireLease(t *testing.T, ctx context.Context, client *stor
 	return expired
 }
 
-// selectionCleanupAssertNoOrphans fails when staged members exist whose header
-// is gone. Cleanup removes members and the header in one AQL query, so an orphan
-// set is the observable signature of a torn reap.
 func selectionCleanupAssertNoOrphans(t *testing.T, ctx context.Context, client *store.Client, label string) {
 	t.Helper()
 	var orphans int64
@@ -193,17 +170,10 @@ func selectionCleanupMembers(project, generation, resourceType, prefix string, c
 	return members
 }
 
-// TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest reproduces, in
-// production order, the un-renewed window that lifecycle/selection.go:393-419
-// creates between the last AppendSelectionMembers and CompleteSelection, then
-// lets a second session call BeginSelection (which unconditionally runs
-// CleanupSelectionStaging at selections.go:41).
 func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	ctx, client, persistence := selectionCleanupOpen(t, 300*time.Second)
 	const project = "loom_exv_cleanup_mid_digest"
 
-	// Case 0: harness proof. A genuinely crashed creator (STAGING header, lease
-	// lapsed) must be reaped, or the H3-a result below would be vacuous.
 	crashedID := "selection-cleanup-crashed-" + uuid.NewString()
 	crashedToken := uuid.NewString()
 	if _, err := persistence.BeginSelection(ctx, selectionCleanupHeader(project, crashedID, uuid.NewString(), time.Now().UTC()), crashedToken); err != nil {
@@ -224,8 +194,6 @@ func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	}
 	selectionCleanupAssertNoOrphans(t, ctx, client, "crashed-reap")
 
-	// Case 1: control. A writer inside the lease that is mid-digest must survive
-	// another session's BeginSelection and must still be able to complete.
 	liveID := "selection-cleanup-live-" + uuid.NewString()
 	liveToken := uuid.NewString()
 	liveMembers := selectionCleanupMembers(project, "generation-a", "DocumentReference", "live", 3)
@@ -235,8 +203,6 @@ func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	if inserted, err := persistence.AppendSelectionMembers(ctx, liveID, liveToken, liveMembers); err != nil || len(inserted) != 3 {
 		t.Fatalf("live writer append inserted=%d err=%v", len(inserted), err)
 	}
-	// The un-renewed window: digest runs, no lease refresh happens, then a second
-	// session calls BeginSelection before this writer completes.
 	liveDigest, liveCount, _, err := persistence.DigestSelectionMembers(ctx, project, liveID)
 	if err != nil || liveCount != 3 {
 		t.Fatalf("live writer digest count=%d err=%v", liveCount, err)
@@ -257,8 +223,6 @@ func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	t.Logf("SELECTION_CLEANUP_LIVE_WRITER_COMPLETED digest=%s memberCount=%d", liveCompleted.MembershipDigest, liveCompleted.MemberCount)
 	selectionCleanupAssertNoOrphans(t, ctx, client, "live-writer")
 
-	// Case 2: the hypothesis. Identical to case 1, except the lease lapsed while
-	// the writer sat in the un-renewed digest phase with no timeout violation.
 	idleID := "selection-cleanup-idle-" + uuid.NewString()
 	idleToken := uuid.NewString()
 	if _, err := persistence.BeginSelection(ctx, selectionCleanupHeader(project, idleID, uuid.NewString(), time.Now().UTC()), idleToken); err != nil {
@@ -302,16 +266,10 @@ func TestSelectionCleanupStagingReapsLeaseLapsedWriterMidDigest(t *testing.T) {
 	selectionCleanupAssertNoOrphans(t, ctx, client, "tail-begin")
 }
 
-// TestSelectionCleanupStagingDestroysCompletedStagingHeader probes the missing
-// complete != true guard at selections.go:388-400 against the sibling guards in
-// AbortSelection (selections.go:290) and CompleteSelection (selections.go:242),
-// and separately measures whether production code can reach that state at all.
 func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 	ctx, client, persistence := selectionCleanupOpen(t, 240*time.Second)
 	const project = "loom_exv_cleanup_completed"
 
-	// Reachability probe A: BeginSelection rejects a complete revision, so the
-	// immutable staging insert cannot carry complete=true.
 	rejected := selectionCleanupHeader(project, "selection-cleanup-reject-"+uuid.NewString(), uuid.NewString(), time.Now().UTC())
 	rejected.Complete = true
 	rejected.MembershipDigest = strings.Repeat("a", 64)
@@ -324,8 +282,6 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 		t.Errorf("BeginSelection accepted a complete revision; state=STAGING with complete=true is directly reachable")
 	}
 
-	// Reachability probe B: run the whole production lifecycle and confirm no
-	// document ever lands in {state:"STAGING", complete:true}.
 	fullID := "selection-cleanup-full-" + uuid.NewString()
 	fullToken := uuid.NewString()
 	fullMembers := selectionCleanupMembers(project, "generation-a", "DocumentReference", "full", 4)
@@ -369,9 +325,6 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 		t.Errorf("completed selection destroyed by cleanup: %#v", survivor)
 	}
 
-	// Guard comparison: a document forced into {STAGING, complete:true} by raw
-	// AQL (no production path does this) is refused by Abort and Complete but not
-	// by Cleanup.
 	const guardedID = "selection-cleanup-guarded"
 	guardedToken := "guarded-writer-token"
 	completedAt := time.Now().UTC().Add(-3 * time.Hour)
@@ -445,10 +398,6 @@ func TestSelectionCleanupStagingDestroysCompletedStagingHeader(t *testing.T) {
 	selectionCleanupAssertNoOrphans(t, ctx, client, "guarded-cleanup")
 }
 
-// TestSelectionCleanupStagingLeaseGapAtScale quantifies the un-renewed gap that
-// DigestSelectionMembers (selections.go:181-227) can create at the production
-// row bound, so the 10m lease claim is judged against measured work rather than
-// an assumed constant.
 func TestSelectionCleanupStagingLeaseGapAtScale(t *testing.T) {
 	ctx, _, persistence := selectionCleanupOpen(t, 25*time.Minute)
 	size := int(lifecycle.DefaultSelectionMaxRows)
@@ -489,8 +438,6 @@ func selectionCleanupScaleRun(t *testing.T, ctx context.Context, persistence *St
 		batches++
 	}
 	appendElapsed := time.Since(appendStart)
-	// The lease clock last ticked inside the final AppendSelectionMembers
-	// (selections.go:168). Everything recorded after this line is un-renewed work.
 	unrenewedStart := time.Now()
 	digest, count, bytes, err := persistence.DigestSelectionMembers(ctx, project, selectionID)
 	if err != nil {

@@ -1,26 +1,5 @@
 package postgres
 
-// Offline battery for the pg-sql-16 G3(c) related-occurrence Group adapter
-// (stage_related_occurrence.go). The arm renders a GROUP stage's
-// related-occurrence adapter as ONE correlated lateral expansion shared by
-// every adapter-owned read of that stage: the anchor-prefixed hop chain
-// over fhir_edge × target occurrence (traversal.go contracts), the Coding
-// expansion in the unnest slice's registered WITH-ORDINALITY shape, the
-// selected scalars, the occurrence key, and the has-item/route-has-item/
-// rank witnesses that pin the registered total order.
-//
-// Cells: fragment-class goldens (anchor scan, one-hop route, coding
-// expansion, scalar projections, occurrence key, witnesses, policies), the
-// share-law cell (each route binds to its own prior relation; a borrow is
-// structurally impossible because no cross-call memo exists), determinism,
-// the parameterization law (plan data only through $n), and the typed
-// refusal battery for every shape outside the closed slice.
-//
-// The arm is called directly (the composition-door wiring is the group.go
-// half of this wave): the integration hunk documented in the file header
-// threads region.sourceText / region.columns / region.orderTerms through
-// renderStageGroup.
-
 import (
 	"encoding/json"
 	"strings"
@@ -30,24 +9,12 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// ---------------------------------------------------------------------------
-// Fixture: the production shape of lower/recipe_construction_related_expand.go
-// (anchor scan + root-key equality + canonical scope blocks + one validated
-// traversal + optional contributor FILTER) and
-// lower/group_related_occurrence_lower.go (the adapter itself), hand-carried
-// because the compiled route to an adapter-bearing composition stage is the
-// production-unreachable receipt this slice mirrors (L-13.5 pins).
-// ---------------------------------------------------------------------------
-
 const (
 	sql16roProject    = "sql16ro-proj"
 	sql16roGeneration = "gen-1"
 	sql16roAuthPath   = "FHIR/Patient"
 )
 
-// sql16roScopeBlock spells the canonical project/dataset_generation/auth
-// legs appendProjectScope/appendDatasetGenerationScope/appendAuthScope emit
-// (population.go matchCanonicalScopeBlock is the contract).
 func sql16roScopeBlock(variables []string, authVariable string) []ir.PhysicalOperation {
 	operations := make([]ir.PhysicalOperation, 0, 2*len(variables)+2)
 	for _, field := range []struct {
@@ -107,8 +74,6 @@ func sql16roExtract(variable, resourceType, selector string, cardinality ir.Phys
 }
 
 func sql16roSelectorNameOnly(text string) spec.Selector {
-	// Fixed paths used by every fixture; parse once through the real
-	// grammar so a fixture can never hand-shape an ungrammatical selector.
 	selector, err := spec.ParseSelector(text)
 	if err != nil {
 		panic("sql16ro fixture selector " + text + ": " + err.Error())
@@ -116,9 +81,6 @@ func sql16roSelectorNameOnly(text string) spec.Selector {
 	return selector
 }
 
-// sql16roFixture is the canonical one-hop (Patient ← Observation, INBOUND
-// subject_Reference) adapter with the Coding expansion, EXCLUDE policy, and
-// one selected scalar.
 func sql16roFixture(t *testing.T) (ir.PhysicalPlan, ir.PhysicalConstructionStage, map[string]stageColumnFact) {
 	t.Helper()
 	plan := ir.PhysicalPlan{
@@ -161,7 +123,6 @@ func sql16roFixture(t *testing.T) (ir.PhysicalPlan, ir.PhysicalConstructionStage
 			}}},
 	}
 	subplan.Operations = append(subplan.Operations,
-		// The anchor scan and root-key equality (recipe_construction_related_expand.go).
 		ir.PhysicalOperation{Kind: ir.PhysicalCollectionScanOp,
 			CollectionScan: &ir.PhysicalCollectionScan{Variable: "anchor_doc", CollectionBindKey: "ro_anchor_collection"}},
 		ir.PhysicalOperation{Kind: ir.PhysicalFilterOp, Filter: &ir.PhysicalFilter{Predicate: ir.PhysicalPredicate{
@@ -269,17 +230,11 @@ func sql16roBoundTexts(r *planRenderer) map[string]bool {
 	return bound
 }
 
-// ---------------------------------------------------------------------------
-// Golden: fragment classes of the canonical one-hop adapter.
-// ---------------------------------------------------------------------------
-
 func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 	plan, stage, facts := sql16roFixture(t)
 	region, r := sql16roRender(t, plan, stage, "__loom_stage_0", facts)
 	sql := region.sourceText
 
-	// The shared-expansion spine: the prior relation under the terminal
-	// alias, one lateral expansion, positional carry-through.
 	for _, want := range []string{
 		"SELECT s.*, __loom_rel.* FROM __loom_stage_0 AS s LEFT JOIN LATERAL",
 		"FROM (SELECT 1) AS __loom_one LEFT JOIN LATERAL (",
@@ -292,26 +247,18 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		}
 	}
 
-	// The route: DISTINCT ON terminal identity, the target document, the
-	// anchor scan correlated through the materialized root key, and the
-	// INNER edge × target occurrence join of the hop contract.
 	for _, want := range []string{
 		`SELECT DISTINCT ON (`, ` COLLATE "C") `, ` AS term_id, `, ` AS doc`,
 		` ORDER BY `, ` COLLATE "C"`,
-		`"logical_id" = s."c0"`,    // anchor equality through the prior relation's key column
-		`target_logical_id" = a1.`, // INBOUND: anchored endpoint is the edge target side
-		`"source_logical_id"`,      // reached endpoint carried to the target join
-		` INNER JOIN `,             // edge and target joins are INNER
+		`"logical_id" = s."c0"`,
+		`target_logical_id" = a1.`,
+		`"source_logical_id"`,
+		` INNER JOIN `,
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("source text missing route fragment:\n want: %s\n got: %s", want, sql)
 		}
 	}
-	// The conjunct-placement law: the anchor scope legs, the root-key
-	// correlation, and the contributor FILTERs address the hop aliases
-	// (a1/e2/x2), so they must be composed INSIDE the route subquery. The
-	// planner rejects them at the outer lateral (42P01), which the live leg
-	// proved; this cell is the offline guard.
 	routeEnd := strings.Index(sql, "AS __loom_route ON TRUE")
 	relStart := strings.Index(sql, "AS __loom_rel ON TRUE")
 	if routeEnd < 0 || relStart < 0 || routeEnd > relStart {
@@ -324,16 +271,10 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 			t.Fatalf("conjunct %q is not composed inside the route subquery:\n%s", inside, sql)
 		}
 	}
-	// The outer lateral's WHERE carries only the registered policy
-	// conjuncts: nothing that names a hop alias may appear after the route.
 	if outer := sql[relStart:]; strings.Contains(outer, "a1.") || strings.Contains(outer, "x2.") || strings.Contains(outer, "e2.") {
 		t.Fatalf("a hop-alias conjunct escaped into the outer lateral:\n%s", outer)
 	}
 
-	// The total order is the AQL FOR nesting: parent identity, then the
-	// reached terminal, then the dense Coding position. Leading with the
-	// terminal would tie two parents that reach one target (and two
-	// unmatched parents) into an arbitrary order.
 	for _, want := range []string{
 		`ROW_NUMBER() OVER (ORDER BY s."c0" COLLATE "C" ASC NULLS FIRST, ` +
 			`__loom_route.term_id COLLATE "C" ASC NULLS FIRST, __loom_r1_cod.rn ASC NULLS FIRST) - 1`,
@@ -343,22 +284,14 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		}
 	}
 
-	// The Coding array is read AT the iterated selector step, inclusive of
-	// its own field (unnest.go:540-560, whose AQL twin is the FOR over
-	// current.field): reading the container above the [] step would gather
-	// an empty array on real data, silently.
 	if got := r.args[7]; string(got.Type) != "text" || got.Value != "{valueCodeableConcept,coding}" {
 		t.Fatalf("the Coding array must bind the path through the iterated step, got %#v", got)
 	}
 
-	// The scope chains: anchor and reached-target rows each carry the
-	// canonical project/generation/auth/type predicates (scope.go emitted,
-	// not plan text): count of resource_type binds ≥ 2 (anchor + target).
 	if got := strings.Count(sql, "resource_type\" = $"); got < 2 {
 		t.Fatalf("anchor and target scope predicates missing (resource_type conjuncts = %d):\n%s", got, sql)
 	}
 
-	// Selected scalar projection reads the materialized route document.
 	if !strings.Contains(sql, "__loom_route.doc #> $") {
 		t.Fatalf("scalar projection must read the materialized route document:\n%s", sql)
 	}
@@ -366,16 +299,10 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		t.Fatalf("adapter column related_status missing: %v", region.columns)
 	}
 
-	// The Coding expansion is iterated from the route document, and the
-	// zero-based ordinal is the dense survivor position minus one.
 	if !strings.Contains(sql, `(__loom_r1_cod.rn - 1)::int`) {
 		t.Fatalf("Coding ordinal must be the dense position minus one:\n%s", sql)
 	}
 
-	// The two has-item witnesses, exactly: has-item conjoins the route
-	// arrival WITH the Coding survivor (the AQL routeHasItem && hasItem),
-	// and the route-item witness is the arrival alone. Dropping either half
-	// silently changes what the downstream aggregate can filter on.
 	for _, want := range []string{
 		`(CASE WHEN (__loom_route.term_id IS NOT NULL AND __loom_r1_cod.rn IS NOT NULL) THEN true ELSE false END) AS "__loom_r1_h"`,
 		`(CASE WHEN __loom_route.term_id IS NOT NULL THEN true ELSE false END) AS "__loom_r1_r"`,
@@ -385,8 +312,6 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		}
 	}
 
-	// The occurrence key object carries the four AQL members through
-	// to_jsonb, and the witnesses are total two-valued booleans.
 	for _, want := range []string{
 		"jsonb_build_object(", "to_jsonb((s.\"c0\"))", "to_jsonb((__loom_route.term_id))",
 		`"__loom_r1_k"`, `"__loom_r1_h"`, `"__loom_r1_r"`, `"__loom_r1_n"`,
@@ -398,36 +323,24 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		}
 	}
 
-	// The Coding EXCLUDE policy drops matched-route-empty rows but keeps
-	// the unmatched pad row (AQL `!routeHasItem OR hasItem`).
 	if !strings.Contains(sql, "CASE WHEN NOT (__loom_route.term_id IS NOT NULL) OR __loom_r1_cod.rn IS NOT NULL THEN 1 ELSE 0 END") {
 		t.Fatalf("Coding EXCLUDE conjunct drifted:\n%s", sql)
 	}
 
-	// The registered total order: source ORDER BY the parent key then the
-	// rank, and the composition refinement names the same materialized
-	// columns in the same order.
 	if !strings.HasSuffix(sql, `ORDER BY s."c0" ASC, __loom_rel."__loom_r1_n" ASC`) {
 		t.Fatalf("source text must end in the parent-then-rank order:\n%s", sql)
 	}
-	// The order terms carry the parent identity BEFORE the rank: the rank is
-	// the position within one parent's expansion, so the terms must be the
-	// parent key then the rank (one term would interleave every parent's
-	// first item — not a total order).
 	if len(region.orderTerms) != 2 || region.orderTerms[0] != `s."c0" ASC` ||
 		region.orderTerms[1] != `s."__loom_r1_n" ASC` {
 		t.Fatalf("order terms = %v, want [s.\"c0\" ASC s.\"__loom_r1_n\" ASC]", region.orderTerms)
 	}
 
-	// Adapter-owned reads address materialized columns only (the share law
-	// at the reference level): every adapter column ref is unqualified.
 	for name, column := range region.columns {
 		if !strings.HasPrefix(column.ref, `"`) || strings.Contains(column.ref, ".") {
 			t.Fatalf("adapter column %q ref %q is not the materialized unqualified read", name, column.ref)
 		}
 	}
 
-	// Parameterization law: plan data crosses only through $n.
 	for _, forbidden := range []string{"'Patient'", "'Observation'", "'subject_Reference'",
 		"'valueCodeableConcept'", "'coding'", "'final'", "'inputrow'", "'observation_doc'", "'fhir_edge'"} {
 		if strings.Contains(sql, forbidden) {
@@ -435,10 +348,6 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		}
 	}
 	bound := sql16roBoundTexts(r)
-	// The registry-validated names (the edge collection, the anchor
-	// collection) never reach SQL text at all: they are checked against the
-	// registry and the physical relation name is registry-derived
-	// (traversal.go:170-173), so they are not parameters either.
 	for _, want := range []string{"Patient", "Observation", "subject_Reference",
 		"{valueCodeableConcept,coding}", "{}", "root_id", "terminal_id", "item_present", "ordinal",
 		"system", "version", "code", "display", sql16roProject, sql16roGeneration} {
@@ -447,14 +356,6 @@ func TestSQL16RelatedOccurrenceGoldenOneHop(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Share law (S9 killer cell): the expansion binds to its own prior relation.
-// There is no cross-call memo, so borrowing is structurally impossible; a
-// reintroduced memo keyed by route ID would make this cell RED because the
-// second relation's expansion would come back carrying the first relation
-// and its key column.
-// ---------------------------------------------------------------------------
 
 func TestSQL16RelatedOccurrenceShareLaw(t *testing.T) {
 	plan, stage, facts := sql16roFixture(t)
@@ -472,7 +373,6 @@ func TestSQL16RelatedOccurrenceShareLaw(t *testing.T) {
 		!strings.Contains(regionB.sourceText, `s."c7"`) {
 		t.Fatalf("expansion B must bind relation 7 with its own key column:\n%s", regionB.sourceText)
 	}
-	// Neither expansion carries the other's relation or key read.
 	if strings.Contains(regionA.sourceText, "__loom_stage_7") || strings.Contains(regionA.sourceText, `s."c7"`) {
 		t.Fatalf("expansion A borrowed the second relation:\n%s", regionA.sourceText)
 	}
@@ -480,17 +380,11 @@ func TestSQL16RelatedOccurrenceShareLaw(t *testing.T) {
 		t.Fatalf("expansion B borrowed the first relation (share violation):\n%s", regionB.sourceText)
 	}
 
-	// Determinism: a fresh renderer over the same inputs renders byte-
-	// identical SQL.
 	regionC, _ := sql16roRender(t, plan, stage, "__loom_stage_0", facts)
 	if regionC.sourceText != regionA.sourceText {
 		t.Fatalf("rendering is not deterministic:\nA: %s\nC: %s", regionA.sourceText, regionC.sourceText)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Empty-policy cells (construction_group.go:532-554 parity).
-// ---------------------------------------------------------------------------
 
 func TestSQL16RelatedOccurrencePolicies(t *testing.T) {
 	cases := []struct {
@@ -544,8 +438,6 @@ func TestSQL16RelatedOccurrencePolicies(t *testing.T) {
 	}
 }
 
-// No-Coding adapter: item_present is the AQL false literal, ordinal null,
-// and no membership or coding lateral is emitted.
 func TestSQL16RelatedOccurrenceGoldenNoCoding(t *testing.T) {
 	plan, stage, facts := sql16roFixture(t)
 	adapter := stage.Group.RelatedOccurrence
@@ -556,9 +448,6 @@ func TestSQL16RelatedOccurrenceGoldenNoCoding(t *testing.T) {
 	adapter.CodingEmptyPolicy = ""
 	adapter.OrdinalSemantics = ""
 	delete(facts, "membership")
-	// An adapter without a Coding selector declares only scalars: the
-	// target projection drops the array field with it (an unread array
-	// outside the adapter arm is a typed refusal, tested in the battery).
 	projections := stage.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields
 	stage.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields = projections[:3]
 	region, _ := sql16roRender(t, plan, stage, "__loom_stage_0", facts)
@@ -572,7 +461,6 @@ func TestSQL16RelatedOccurrenceGoldenNoCoding(t *testing.T) {
 	if !strings.Contains(sql, "to_jsonb((false))") || !strings.Contains(sql, "to_jsonb((NULL::int))") {
 		t.Fatalf("AQL parity: item_present false and ordinal null without a Coding (construction_group.go:590-593):\n%s", sql)
 	}
-	// Without the Coding the rank refines only on the terminal identity.
 	if strings.Contains(sql, "__loom_r1_cod.rn ASC") {
 		t.Fatalf("rank must not order by the absent Coding:\n%s", sql)
 	}
@@ -580,12 +468,6 @@ func TestSQL16RelatedOccurrenceGoldenNoCoding(t *testing.T) {
 		t.Fatalf("occurrence key column must remain registered")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Typed refusal battery: every shape outside the closed slice refuses with
-// ErrUnsupportedPostgresPlan and no partial render (the cell renders, the
-// mutation must refuse).
-// ---------------------------------------------------------------------------
 
 func TestSQL16RelatedOccurrenceRefusals(t *testing.T) {
 	type cell struct {
@@ -727,23 +609,6 @@ func TestSQL16RelatedOccurrenceRefusals(t *testing.T) {
 		{"anchor-fact-jsonb", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
 			f["_key"] = stageColumnFact{alias: "c0", jsonb: true}
 		}, "not the materialized root-key scalar"},
-		// --- guard-level battery completions (worker-167). Every remaining
-		// renderer guard in stage_related_occurrence.go is now killed by at
-		// least one cell that asserts its own message fragment, so
-		// disabling any guard turns some cell RED (run_guards.py attests
-		// this mechanically). Four guards are deliberately cell-less:
-		//   - the membership-without-selector else arm: the adapter gate
-		//     (Coding selector vs. declared Coding details, and the array/
-		//     membership/unnest triple) refuses every input that could
-		//     reach it, and no stage declares a ""-named column;
-		//   - the hop-anchor "binds no readable row" lookup: currentVar is
-		//     only ever scan.Variable or a traversal target, both always
-		//     registered in the rows map;
-		//   - the "reaches not its declared target type" check: the
-		//     hop-label/traversal payload agreement and the gate's
-		//     ends-at-declared-target check jointly make it unreachable;
-		//   - the "correlation marker lost" internal invariant: the marker
-		//     is placed by this renderer itself, one statement earlier.
 		{"identity-field-arity", func(s *ir.PhysicalConstructionStage, f map[string]stageColumnFact, p *ir.PhysicalPlan) {
 			field := &s.Group.RelatedOccurrence.RelatedRecords.RelatedRecords.Return.Object.Fields[0]
 			field.Expression.Value.Path = []string{"_id", "extra"}
@@ -831,7 +696,6 @@ func TestSQL16RelatedOccurrenceRefusals(t *testing.T) {
 			s.Group.RelatedOccurrence.CodingMembershipColumn = ""
 		}, "no matching array column"},
 	}
-	// One ALIVE control first: the canonical fixture renders.
 	{
 		plan, stage, facts := sql16roFixture(t)
 		sql16roRender(t, plan, stage, "__loom_stage_0", facts)
@@ -856,8 +720,6 @@ func TestSQL16RelatedOccurrenceRefusals(t *testing.T) {
 	}
 }
 
-// The contributor FILTER renders through the shared scoped predicate
-// machinery over the reached row, staying a parameterized conjunct.
 func TestSQL16RelatedOccurrenceContributorFilter(t *testing.T) {
 	plan, stage, facts := sql16roFixture(t)
 	subplan := &stage.Group.RelatedOccurrence.RelatedRecords.RelatedRecords
@@ -883,24 +745,17 @@ func TestSQL16RelatedOccurrenceContributorFilter(t *testing.T) {
 		}},
 	})
 	region, renderer := sql16roRender(t, plan, stage, "__loom_stage_0", facts)
-	// The conjunct is the package's single selector-predicate shape
-	// (traversal_test.go:399-422 parity), evaluated over the reached
-	// target row's payload: the value whole in a one-element list, ANY
-	// quantified, correlated to x2 — never a second predicate authority.
 	want := `AND (EXISTS (SELECT 1 FROM jsonb_array_elements((CASE WHEN (x2."payload" #> $7::text[]) IS NULL ` +
 		`OR jsonb_typeof((x2."payload" #> $7::text[])) = 'null' THEN '[]'::jsonb ` +
 		`ELSE jsonb_build_array((x2."payload" #> $7::text[])) END)) AS __sv(v) WHERE (__sv.v) = ($8::jsonb)))`
 	if !strings.Contains(region.sourceText, want) {
 		t.Fatalf("contributor conjunct missing %q:\n%s", want, region.sourceText)
 	}
-	// The conjunct addresses the reached row (x2), so it must be composed
-	// inside the route subquery, never promoted to the outer lateral.
 	conjunct := strings.Index(region.sourceText, "AS __sv(v)")
 	routeEnd := strings.Index(region.sourceText, "AS __loom_route ON TRUE")
 	if conjunct < 0 || routeEnd < 0 || conjunct > routeEnd {
 		t.Fatalf("contributor conjunct escaped the route subquery:\n%s", region.sourceText)
 	}
-	// The value itself never reaches SQL text.
 	if strings.Contains(region.sourceText, "'final'") {
 		t.Fatalf("contributor value reached SQL text:\n%s", region.sourceText)
 	}
@@ -915,12 +770,6 @@ func TestSQL16RelatedOccurrenceContributorFilter(t *testing.T) {
 	}
 }
 
-// The endpoint-lookup strategy is a planner label: a fully named payload
-// (the shape the default optimization policy emits, lower/traversal.go:143
-// -147) must render byte-identically to the native join — the registered
-// PostgreSQL posture normalizes it (graph.go:340-349 +
-// graph20NativeStrategyTraversal precedent) instead of refusing a plan the
-// production channel emits for every default-policy compile.
 func TestSQL16RelatedOccurrenceEndpointLookupEquivalence(t *testing.T) {
 	plan, stage, facts := sql16roFixture(t)
 	baseline, baselineRenderer := sql16roRender(t, plan, stage, "__loom_stage_0", facts)

@@ -8,17 +8,10 @@ import (
 	semanticpkg "github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// BuildGenericPhysicalPlanWithPolicy lowers one canonical output with an
-// explicit request execution context. Keeping these values separate prevents
-// runtime provenance from being mistaken for semantic output structure.
 func BuildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context semanticpkg.ExecutionContext, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	return buildGenericPhysicalPlanWithPolicy(output, context, policy, nil)
 }
 
-// buildGenericPhysicalPlanWithPolicy is the shared physical-plan builder. A
-// field lowerer is supplied by frontends whose canonical semantic fields are
-// richer than selector metadata (for example persisted recipe expressions).
-// A nil lowerer retains the selector-only GraphQL/dataframe behavior.
 func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context semanticpkg.ExecutionContext, policy ir.PhysicalOptimizationPolicy, lowerer semanticFieldProjectionLowerer) (ir.PhysicalPlan, error) {
 	if strings.TrimSpace(context.Project) == "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("semantic plan project is required")
@@ -110,11 +103,6 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 				continue
 			}
 			if child.MatchMode.Required() {
-				// Required routes are represented by the root semi-join emitted
-				// above for membership, but they may still need a materialized
-				// child set for selected fields or nested shaping. The second
-				// physical set is post-window output work; it cannot change root
-				// membership because the semi-join remains before SORT/LIMIT.
 				if physicalNodeNeedsMaterializedSet(child) {
 					childSetIndex++
 					childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
@@ -167,9 +155,6 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 				}
 				continue
 			}
-			// Optional children are correlated sets. Keeping them in a LET
-			// subquery preserves the parent row grain while allowing typed child
-			// filters and projections to be applied before materialization.
 			childSetIndex++
 			childProjectionPrefix := traversalColumnPrefix(output.TraversalColumnNaming, projectionPrefix, child.Alias)
 			childBindings[child.Alias] = physicalSemanticBinding{ResourceType: child.ResourceType, Source: ir.PhysicalValue{Variable: fmt.Sprintf("child_set_%d", childSetIndex)}}
@@ -209,9 +194,6 @@ func buildGenericPhysicalPlanWithPolicy(output semanticpkg.OutputPlan, context s
 	return physical, nil
 }
 
-// physicalNodeNeedsMaterializedSet reports whether a node or any optional
-// descendant has shaped output. Materializing an otherwise unselected parent
-// is necessary to give nested sets a stable correlated source variable.
 func physicalNodeNeedsMaterializedSet(node semanticpkg.SemanticNode) bool {
 	if len(node.Fields) != 0 || len(node.Filters) != 0 || len(node.Pivots) != 0 || len(node.OwnerRecords) != 0 || len(node.Aggregates) != 0 || len(node.Slices) != 0 || len(node.DynamicMaps) != 0 {
 		return true
@@ -240,10 +222,6 @@ func appendProjectScope(operations []ir.PhysicalOperation, variables []string, r
 	return operations
 }
 
-// appendDatasetGenerationScope applies the same exact generation bind to
-// every physical document participating in a scan/traversal. With a nil bind
-// value this renders `dataset_generation == null`, deliberately isolating
-// legacy documents from later generation-qualified loads.
 func appendDatasetGenerationScope(operations []ir.PhysicalOperation, variables []string, relationship string, node semanticpkg.SemanticNode) []ir.PhysicalOperation {
 	right := ir.PhysicalValue{BindKey: datasetGenerationBindKey}
 	for _, variable := range variables {

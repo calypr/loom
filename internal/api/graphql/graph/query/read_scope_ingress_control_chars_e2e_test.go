@@ -12,12 +12,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// F-B22 Tier-1 durable control for the resolver-less read-scope fallback:
-// client- and IdP-supplied paths become \x00-joined scope digests
-// downstream (fhirReadScopeDigest, explorer capability digests), so they
-// must traverse ingest normalization first. Archived CONFIRMED wording is
-// preserved verbatim as the REGRESSION branch of each case.
-
 func errorcode(t *testing.T, err error) string {
 	t.Helper()
 	if err == nil {

@@ -1,22 +1,5 @@
 package server
 
-// arch-backend-12 live witnesses for backend-neutral source diagnostics.
-//
-// Two legs, one meaning: whichever backend serves the query, the public
-// source-query duration is the single cursor interval produced by the one
-// internal timer, and no value-free public diagnostic carries query text.
-//
-//   - TestBackendNeutralDiagnosticsAgainstArango drives the real Arango
-//     adapter through the execution service and engine (skips without
-//     LOOM_TEST_ARANGO_URL; the Arango CI runner always sets it, and the
-//     runner profile requires it to execute and pass).
-//   - TestBackendNeutralDiagnosticsLivePostgreSQL drives runFhirDataframe
-//     with a diagnostics selection through the production first-query
-//     handler against a live PostgreSQL generation (skips without
-//     LOOM_TEST_POSTGRES_URL; in the Arango-only lane that skip stays
-//     visible in the proof summary via the runner's external set,
-//     following the pg-exec registration precedent).
-
 import (
 	"context"
 	"encoding/json"
@@ -51,11 +34,6 @@ func (arch12UnusedRegistry) LoadRecipeVersion(context.Context, string, string) (
 	return exec.Entry{}, fmt.Errorf("live diagnostics witness compiles bundles directly; the registry is never addressed")
 }
 
-// TestBackendNeutralDiagnosticsAgainstArango is the AQL-lane live witness:
-// against the real Arango service, the service stream reports a strictly
-// positive source-query interval with the AQL tag, and preview and Explain
-// agree on the same value-free 64-hex plan fingerprint that carries no AQL
-// text and no bound values.
 func TestBackendNeutralDiagnosticsAgainstArango(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -168,8 +146,6 @@ func TestBackendNeutralDiagnosticsAgainstArango(t *testing.T) {
 	if len(explanation.Outputs) != 1 || explanation.Outputs[0].PlanFingerprint != summary.PlanFingerprint {
 		t.Fatalf("Explain and preview diverged against the live service: explain=%+v preview=%q", explanation.Outputs, summary.PlanFingerprint)
 	}
-	// No query text, bound value, or fixture identity may ride the public
-	// diagnostic objects.
 	encoded, err := json.Marshal(struct {
 		Summary     dataframeexecution.PreviewSummary   `json:"summary"`
 		Diagnostics dataframeexecution.QueryDiagnostics `json:"diagnostics"`
@@ -184,11 +160,6 @@ func TestBackendNeutralDiagnosticsAgainstArango(t *testing.T) {
 	}
 }
 
-// TestBackendNeutralDiagnosticsLivePostgreSQL is the PostgreSQL-lane live
-// witness through the production first-query handler: sourceQueryMs answers
-// with a strictly positive real-server cursor interval while the legacy
-// arangoQueryMs projection is exactly zero, and neither the response nor
-// its diagnostics can carry SQL text or bound values.
 func TestBackendNeutralDiagnosticsLivePostgreSQL(t *testing.T) {
 	fixture := newQRouteFixture(t)
 	fixture.load(t, qRouteProject, qRouteGenA, map[string][]string{
@@ -248,8 +219,6 @@ func TestBackendNeutralDiagnosticsLivePostgreSQL(t *testing.T) {
 	if run.Diagnostics.ArangoQueryMs != 0 {
 		t.Fatalf("arangoQueryMs must be exactly zero on the PostgreSQL lane, got %v", run.Diagnostics.ArangoQueryMs)
 	}
-	// The legacy projection equals the neutral field on an AQL answer, so
-	// its zero here is the backend tag speaking, not a second timer.
 	for _, tell := range []string{"SELECT ", "FROM loom.", "$1", "$2", "patient-ada", qRouteProject} {
 		if strings.Contains(response.Body, tell) {
 			t.Fatalf("PostgreSQL diagnostics response carries the SQL/value tell %q: %s", tell, fixture.scrub(response.Body))

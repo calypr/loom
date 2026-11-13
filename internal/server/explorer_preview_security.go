@@ -10,16 +10,8 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ErrReceiptExecutionContract identifies a receipt/capability mismatch that
-// must be rejected before a receipt-backed query or materialization starts.
-// It is deliberately transport-neutral; HTTP adapters can map it to their
-// existing receipt-input conflict diagnostic.
 var ErrReceiptExecutionContract = errors.New("receipt execution contract mismatch")
 
-// validateAuthorizedReadScope verifies both the digest and the explicit mode.
-// In particular, restricted + zero paths is a valid deny-all result, while an
-// empty mode is rejected because downstream legacy code may interpret it as
-// unrestricted when the path list is empty.
 func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest string) error {
 	switch scope.Mode {
 	case authscope.ReadScopeUnrestricted:
@@ -27,7 +19,6 @@ func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest strin
 			return receiptExecutionContractError("unrestricted scope must not carry resource paths")
 		}
 	case authscope.ReadScopeRestricted:
-		// A restricted-empty scope is intentional and must remain restricted.
 	default:
 		return receiptExecutionContractError("authorization scope mode is missing or invalid")
 	}
@@ -37,10 +28,6 @@ func validateAuthorizedReadScope(scope authscope.ReadScope, expectedDigest strin
 	return nil
 }
 
-// validateReceiptEnginePublicColumns proves that the engine and receipt expose
-// exactly the same public columns. Column order is deliberately not compared:
-// the compiler owns execution order while the receipt's output contract owns
-// presentation order. Internal identity/provenance projections are excluded.
 func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, resolved dataframeexecution.Resolved) error {
 	if receipt == nil {
 		return receiptExecutionContractError("receipt is required")
@@ -70,9 +57,6 @@ func validateReceiptEnginePublicColumns(receipt *explorer.CompilationReceipt, re
 	for _, output := range resolved.Compiled.Outputs {
 		seen[output.Name] = true
 		if groupedOutputs[output.Name] {
-			// Explicit groups are terminal row sources, so their executable
-			// columns are not the authored root-field emissions. Bind this
-			// exception to the receipt's full compiler-derived schema and plan.
 			if expected, actual := receipt.OutputFingerprints[output.Name], groupedFingerprints[output.Name]; expected == "" || actual == "" || expected != actual {
 				return contractMismatch("output_execution", output.Name, expected, actual)
 			}

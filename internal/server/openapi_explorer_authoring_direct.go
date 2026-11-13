@@ -49,37 +49,11 @@ func authResourcePathFromParam(value *loomapi.AuthResourcePath) string {
 	return string(*value)
 }
 
-// Authorizer storage faults are reported with the repo's backend-unavailable
-// named fault rather than 403, so a store/client failure is never mistaken for
-// a permission decision. The name follows the shared taxonomy: authscope
-// authorizes the boundary with ErrAuthorizationBackendUnavailable and the
-// dataframe layer maps it to dataframeerrors.CodeBackendUnavailable (see
-// internal/api/http/errors.go:53-55 and internal/api/authpolicy/policy.go:36-37).
 const (
 	authoringBackendUnavailableCode    = "BACKEND_UNAVAILABLE"
 	authoringBackendUnavailableMessage = "authorization backend unavailable"
 )
 
-// isAuthorizerStorageFault classifies an AuthorizeWrite error as a storage or
-// transport fault (not a permission decision) by error TYPE and explicit
-// numeric response fields — there is no message-substring matching. It
-// extends the repo's authz taxonomy exactly as
-// internal/api/authpolicy/policy.go:36-37 groups context.DeadlineExceeded,
-// dataframeerrors.ErrBackendUnavailable and authscope.ErrAuthorizationBackendUnavailable
-// into the retryable backend-unavailable class (mirrored at
-// internal/api/http/errors.go:53-55), and recognises Arango client faults
-// through the backend factory's adapter-owned classifiers
-// (arangofactory.IsArangoErrorResponse / IsArangoPermissionResponse, which
-// read the driver error in value and pointer form). A driver response that
-// carries the Arango permission-decision fields (HTTP 401/403 or ErrorNum
-// 11) is a store-level permission DENIAL, not a backend fault: it keeps the
-// 403 arm. Query-fault responses (Code 400 family, bind-parameter error
-// numbers) remain storage faults. Genuine permission denials from the
-// ScopeResolver wrap authscope.ErrForbidden/ErrUnauthenticated
-// (scope_resolver.go) and are checked first, so this predicate can only ever
-// lift a non-permission storage fault out of the 403 arm; it can never
-// relabel a denial — sentinel or store-native — as 5xx. An unclassified
-// error stays in the 403 arm (unchanged pre-repair posture) — fail closed.
 func isAuthorizerStorageFault(err error) bool {
 	if err == nil {
 		return false

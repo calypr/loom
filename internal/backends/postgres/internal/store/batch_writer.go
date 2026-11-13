@@ -1,57 +1,3 @@
-// Bounded, idempotent COPY batch writer for the PostgreSQL 18 source store
-// (pg-store-06).
-//
-// BatchWriter writes one bounded batch of resource rows and edge rows with
-// PostgreSQL COPY into transaction-local staging (ON COMMIT DROP temp
-// tables), then publishes the staged rows atomically into the scoped tables
-// owned by pg-store-04/pg-store-05 (fhir_resource, fhir_edge_occurrence).
-// The whole batch — COPY, publish, and the batch_write_ledger marker
-// (migration 000008) — lives in one transaction, so a batch either commits
-// completely or leaves no rows and no marker behind. This mirrors the
-// Arango model's contract that counters advance only after a whole bounded
-// insert succeeds (internal/ingest loadFile/InsertBatchRaw), without
-// materializing a whole NDJSON file, and the publish-last discipline the
-// inventory repository uses for its completeness marker.
-//
-// Guarantees:
-//   - Exactly-once per batch identity: the batch claims its row in
-//     batch_write_ledger inside its own transaction before staging anything.
-//     The (batch_id, digest) pair is the fingerprint: a retry of identical
-//     committed input reads the marker and is a no-op returning the ledger's
-//     committed counts; reusing the identity with a different digest is a
-//     typed *BatchIdentityConflictError and changes nothing. Concurrent
-//     claimants of one identity serialize on the primary key, so an
-//     ambiguous retry can never replace a different payload.
-//   - Natural identities are insert-only, like the single-row repositories:
-//     a duplicate natural resource identity (project, dataset_generation,
-//     resource_type, logical_id) or a duplicate edge occurrence identity
-//     (the nine identity columns) whose content differs — whether the
-//     duplicate is within the batch or against an already-stored row — is a
-//     typed conflict and the whole batch rolls back, preserving the prior
-//     row. Content-identical duplicates collapse: fully identical rows
-//     within one batch publish once, and a row already stored identically
-//     is skipped, making row-level replay idempotent.
-//   - Edge source preconditions hold exactly as in EdgeRepository.InsertEdge:
-//     a source absent from fhir_resource at publish time (the batch's own
-//     resources count, they are published first in the same transaction) is
-//     a typed *EdgeSourceMissingError and the batch writes nothing.
-//   - Exact commit accounting: the result counts and the ledger counts are
-//     the number of rows the publish statements actually inserted, never
-//     the number offered. An inserted-count/expected-count divergence (a
-//     concurrent writer moved between the guard and the publish) aborts the
-//     batch rather than silently under-committing.
-//   - Independent batches do not share state: BatchWriter holds no mutex and
-//     no session state; one batch is one transaction on one pooled
-//     connection, its staging in that connection's private temp schema.
-//
-// The digest is the lowercase hex SHA-256 of the canonical encoding of the
-// batch (identity, scope, then every row's every column in order, with
-// length-prefixed fields so no two distinct batches share an encoding, and
-// distinct tags for absent payload/key versus the empty string).
-//
-// There is no cross-database atomicity and no backend fallback: every
-// failure is a named error the caller must surface. This file owns WRITE
-// only; streaming reads and row decoding belong to the execution worker.
 package postgres
 
 import (
@@ -68,56 +14,25 @@ import (
 )
 
 const (
-	// batchLedgerTableName is the table created by migration
-	// 000008_batch_write_ledger.sql.
 	batchLedgerTableName = "batch_write_ledger"
-	// MaxBatchResources bounds the resource rows one batch may offer, so a
-	// caller cannot push an unbounded COPY through one pooled connection.
-	MaxBatchResources = 1000
-	// MaxBatchEdges bounds the edge rows one batch may offer.
-	MaxBatchEdges = 1000
-	// MaxBatchIDLength bounds the caller's deterministic batch identity.
-	MaxBatchIDLength = 255
+	MaxBatchResources    = 1000
+	MaxBatchEdges        = 1000
+	MaxBatchIDLength     = 255
 )
 
-// Staging tables are ON COMMIT DROP temp tables inside the batch's own
-// transaction, addressed through the session-private pg_temp schema so
-// concurrent batches never collide.
 const (
 	stagingResourceTable = "stg_batch_resource"
 	stagingEdgeTable     = "stg_batch_edge"
 )
 
-// Sentinel errors for classifying batch-write failures without string
-// matching.
 var (
-	// ErrInvalidBatch reports a malformed batch: blank batch identity, a
-	// batch with no rows, an over-capacity batch, a blank project, a row
-	// whose scope disagrees with the batch scope, or a row that fails the
-	// single-row insert contract (server-assigned sequence supplied, blank
-	// required field, negative ordinal, or invalid JSON payload).
-	ErrInvalidBatch = errors.New("postgres: invalid batch")
-	// ErrBatchIdentityConflict reports a batch_id already committed with a
-	// different digest. Nothing was written.
+	ErrInvalidBatch          = errors.New("postgres: invalid batch")
 	ErrBatchIdentityConflict = errors.New("postgres: batch identity conflict")
-	// ErrBatchRowConflict reports a duplicate natural identity whose
-	// content differs, within the batch or against a stored row. The whole
-	// batch rolled back and the prior row is preserved.
-	ErrBatchRowConflict = errors.New("postgres: batch row conflict")
-	// ErrBatchAccounting reports a publish whose inserted-row count
-	// diverged from the guarded expectation (a concurrent writer landed
-	// between the guard and the publish). The batch rolled back.
-	ErrBatchAccounting = errors.New("postgres: batch commit accounting divergence")
-	// ErrBatchWrite reports an infrastructure failure while running the
-	// batch (acquire, begin, COPY, publish statement, ledger statement, or
-	// commit). Classify with errors.Is and inspect the chained cause.
-	ErrBatchWrite = errors.New("postgres: batch write failed")
+	ErrBatchRowConflict      = errors.New("postgres: batch row conflict")
+	ErrBatchAccounting       = errors.New("postgres: batch commit accounting divergence")
+	ErrBatchWrite            = errors.New("postgres: batch write failed")
 )
 
-// BatchIdentityConflictError reports a batch_id whose ledger row holds a
-// different digest than the retried content: the identity was reused with
-// different rows. Nothing was written. It matches errors.Is(err,
-// ErrBatchIdentityConflict).
 type BatchIdentityConflictError struct {
 	BatchID        string
 	LedgerDigest   string
@@ -132,12 +47,6 @@ func (e *BatchIdentityConflictError) Error() string {
 
 func (e *BatchIdentityConflictError) Unwrap() error { return ErrBatchIdentityConflict }
 
-// BatchResourceConflictError reports a batch refused because a natural
-// resource identity (project, dataset_generation, resource_type, logical_id)
-// appears twice with different content — InBatch when both copies are in
-// this batch's staging, otherwise when a stored row's content differs. The
-// whole batch rolled back; the prior row is preserved. It matches
-// errors.Is(err, ErrBatchRowConflict).
 type BatchResourceConflictError struct {
 	Project           string
 	DatasetGeneration string
@@ -158,11 +67,6 @@ func (e *BatchResourceConflictError) Error() string {
 
 func (e *BatchResourceConflictError) Unwrap() error { return ErrBatchRowConflict }
 
-// BatchEdgeConflictError reports a batch refused because an edge occurrence
-// identity (the nine identity columns of fhir_edge_occurrence) appears twice
-// with different content (auth resource path or logical edge key). The whole
-// batch rolled back; the prior row is preserved. It matches errors.Is(err,
-// ErrBatchRowConflict).
 type BatchEdgeConflictError struct {
 	Project            string
 	DatasetGeneration  string
@@ -189,13 +93,9 @@ func (e *BatchEdgeConflictError) Error() string {
 
 func (e *BatchEdgeConflictError) Unwrap() error { return ErrBatchRowConflict }
 
-// BatchAccountingError reports a publish whose actual inserted count
-// diverged from the guarded expectation, so the batch rolled back instead
-// of silently under- or over-committing. It matches errors.Is(err,
-// ErrBatchAccounting).
 type BatchAccountingError struct {
 	BatchID   string
-	Side      string // "resources" or "edges"
+	Side      string
 	Expected  int64
 	Committed int64
 }
@@ -208,12 +108,7 @@ func (e *BatchAccountingError) Error() string {
 
 func (e *BatchAccountingError) Unwrap() error { return ErrBatchAccounting }
 
-// BatchWriteError wraps an infrastructure failure inside one WriteBatch
-// transaction. It matches errors.Is(err, ErrBatchWrite) and chains the
-// driver or context cause, e.g. errors.As for *pgconn.PgError.
 type BatchWriteError struct {
-	// Op is the failing step: "acquire", "begin", "search_path",
-	// "create-staging", "copy", "check", "publish", "ledger", or "commit".
 	Op      string
 	BatchID string
 	Err     error
@@ -223,17 +118,8 @@ func (e *BatchWriteError) Error() string {
 	return fmt.Sprintf("postgres: batch %q failed during %s: %v", e.BatchID, e.Op, e.Err)
 }
 
-// Unwrap exposes both the class sentinel and the cause for errors.Is/As.
 func (e *BatchWriteError) Unwrap() []error { return []error{ErrBatchWrite, e.Err} }
 
-// Batch is one bounded, replayable write unit. ID is the caller's
-// deterministic batch identity — stable across retries of the same write
-// unit (derive it from stable provenance such as
-// project/generation/source/batch-ordinal, never from a per-attempt nonce,
-// or retries lose their idempotency) — and the ledger's primary key. Every
-// row must carry exactly the batch's Project and DatasetGeneration; rows
-// never cross scopes. At least one row is required and the row counts are
-// bounded by MaxBatchResources and MaxBatchEdges.
 type Batch struct {
 	ID                string
 	Project           string
@@ -242,56 +128,26 @@ type Batch struct {
 	Edges             []EdgeOccurrenceRow
 }
 
-// BatchResult is the outcome of a WriteBatch call. The committed counts are
-// the rows the publish statements actually inserted into the scoped tables,
-// equal to the ledger row's counts for this batch identity; on a replay they
-// are read back from the ledger, so the retry sees the original accounting.
 type BatchResult struct {
-	BatchID string
-	// Digest is the lowercase hex SHA-256 of the canonical batch content.
-	Digest string
-	// CommittedResources and CommittedEdges count rows newly inserted by
-	// the publish statements (a replay reports the original commit's
-	// numbers from the ledger).
-	CommittedResources int64
-	CommittedEdges     int64
-	// SkippedIdenticalResources and SkippedIdenticalEdges count offered
-	// rows that needed no write: fully identical duplicates within the
-	// batch collapsed away, or rows already stored content-identically.
+	BatchID                   string
+	Digest                    string
+	CommittedResources        int64
+	CommittedEdges            int64
 	SkippedIdenticalResources int64
 	SkippedIdenticalEdges     int64
-	// Replay is true when the ledger already held this batch identity with
-	// an equal digest and the call wrote nothing.
-	Replay bool
+	Replay                    bool
 }
 
-// BatchWriter publishes bounded, replayable resource and edge batches into
-// one schema of the PostgreSQL source store. Create one with
-// NewBatchWriter. It holds no state beyond the qualified table names: no
-// mutex, no shared staging, no process-wide serialization point. The caller
-// owns the connection source and the schema lifecycle (MigrateSchema must
-// have applied migrations 000002, 000004, and 000008 before use).
 type BatchWriter struct {
 	src              ConnSource
 	schema           string
 	resourceTableFQN string
 	edgeTableFQN     string
 	ledgerFQN        string
-	// failHook, when non-nil, is called before each named step and its
-	// error aborts the batch. It is a test seam (set directly by
-	// in-package tests) for exercising failure-before-commit; production
-	// construction always leaves it nil.
-	failHook func(step string) error
-	// inTxProbe, when non-nil, is called inside the batch transaction after
-	// each step completes, with the live transaction. It is a test seam for
-	// rendezvous and backend-pid proofs; production construction always
-	// leaves it nil.
-	inTxProbe func(step, batchID string, tx pgx.Tx)
+	failHook         func(step string) error
+	inTxProbe        func(step, batchID string, tx pgx.Tx)
 }
 
-// NewBatchWriter validates the connection source and schema name and binds
-// the writer to the batch tables of <schema>. The connection source must be
-// live only when WriteBatch runs, not here.
 func NewBatchWriter(src ConnSource, schema string) (*BatchWriter, error) {
 	if src == nil {
 		return nil, errors.New("postgres: nil batch connection source")
@@ -308,8 +164,6 @@ func NewBatchWriter(src ConnSource, schema string) (*BatchWriter, error) {
 	}, nil
 }
 
-// batchStep names the ordered steps of one WriteBatch transaction. failHook
-// fires before each; inTxProbe fires after each.
 const (
 	stepBegin          = "begin"
 	stepReadLedger     = "read-ledger"
@@ -324,14 +178,6 @@ const (
 	stepCommit         = "commit"
 )
 
-// WriteBatch publishes one batch atomically: it claims the ledger marker,
-// COPYs the rows into transaction-local staging, guards duplicate natural
-// identities (typed conflicts that roll the whole batch back), publishes the
-// resources and then the edges (whose sources may live in the same batch),
-// records the exact committed counts in the marker, and commits. A failure
-// at any step — including an injected failHook error — rolls everything
-// back, leaving no rows and no marker. A batch whose identity and digest
-// match the ledger is a no-op returning the original accounting.
 func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult, error) {
 	if err := validateBatch(batch); err != nil {
 		return BatchResult{}, err
@@ -358,16 +204,12 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 		}
 	}()
 
-	// Pin the search_path like the migration runner does, then qualify
-	// every table reference anyway; staging is reached through the
-	// session-private pg_temp schema.
 	setSearchPath := "SET LOCAL search_path TO " + pgx.Identifier{w.schema}.Sanitize()
 	if _, err := tx.Exec(ctx, setSearchPath); err != nil {
 		return BatchResult{}, &BatchWriteError{Op: "search_path", BatchID: batch.ID, Err: err}
 	}
 	w.probe(stepBegin, batch.ID, tx)
 
-	// Fast path: an already-recorded identity never stages or publishes.
 	if err := w.hookFail(stepReadLedger); err != nil {
 		return BatchResult{}, &BatchWriteError{Op: "ledger", BatchID: batch.ID, Err: err}
 	}
@@ -376,9 +218,6 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 	}
 	w.probe(stepReadLedger, batch.ID, tx)
 
-	// Claim the identity before touching anything: the ledger marker
-	// commits or rolls back with the batch's rows, and concurrent
-	// claimants of one identity serialize on the primary key.
 	if err := w.hookFail(stepClaimLedger); err != nil {
 		return BatchResult{}, &BatchWriteError{Op: "ledger", BatchID: batch.ID, Err: err}
 	}
@@ -387,9 +226,6 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 		return BatchResult{}, err
 	}
 	if !claimed {
-		// A concurrent claimant finished first; classify against the
-		// now-visible row: identical content is the replay this retry
-		// wanted, different content is the typed identity conflict.
 		res, _, err := w.readLedgerRow(ctx, tx, batch, digest)
 		return res, err
 	}
@@ -464,12 +300,6 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 		w.probe(stepPublishEdges, batch.ID, tx)
 	}
 
-	// The marker carries the exact commit accounting, written in this same
-	// transaction: readers trust the counts only because they land with the
-	// rows. committed_at is stamped with clock_timestamp() (the real
-	// per-call wall clock) rather than keeping the claim-time now()
-	// snapshot, which would report the transaction START, not the
-	// finalize moment.
 	if err := w.hookFail(stepFinalizeLedger); err != nil {
 		return BatchResult{}, &BatchWriteError{Op: "ledger", BatchID: batch.ID, Err: err}
 	}
@@ -498,7 +328,6 @@ func (w *BatchWriter) WriteBatch(ctx context.Context, batch Batch) (BatchResult,
 	}, nil
 }
 
-// hookFail fires the injected failure seam for one step.
 func (w *BatchWriter) hookFail(step string) error {
 	if w.failHook == nil {
 		return nil
@@ -506,7 +335,6 @@ func (w *BatchWriter) hookFail(step string) error {
 	return w.failHook(step)
 }
 
-// probe fires the in-transaction observation seam for one step.
 func (w *BatchWriter) probe(step, batchID string, tx pgx.Tx) {
 	if w.inTxProbe == nil {
 		return
@@ -514,9 +342,6 @@ func (w *BatchWriter) probe(step, batchID string, tx pgx.Tx) {
 	w.inTxProbe(step, batchID, tx)
 }
 
-// checkLedger reads the fast path: if the ledger already holds this batch
-// identity, equal digests replay the original accounting (done=true,
-// nothing written) and a differing digest is the typed identity conflict.
 func (w *BatchWriter) checkLedger(ctx context.Context, tx pgx.Tx, batch Batch, digest string) (BatchResult, bool, error) {
 	var ledgerDigest string
 	var ledgerResources, ledgerEdges int64
@@ -533,9 +358,6 @@ func (w *BatchWriter) checkLedger(ctx context.Context, tx pgx.Tx, batch Batch, d
 	return res, true, err
 }
 
-// claimLedger inserts the marker row before any row is staged or published
-// and reports whether this batch owns the identity. A conflicting concurrent
-// claim returns claimed=false after the statement resolved.
 func (w *BatchWriter) claimLedger(ctx context.Context, tx pgx.Tx, batch Batch, digest string) (bool, error) {
 	var claimedID string
 	err := tx.QueryRow(ctx,
@@ -552,7 +374,6 @@ func (w *BatchWriter) claimLedger(ctx context.Context, tx pgx.Tx, batch Batch, d
 	return true, nil
 }
 
-// readLedgerRow reads the committed row after a lost claim race.
 func (w *BatchWriter) readLedgerRow(ctx context.Context, tx pgx.Tx, batch Batch, digest string) (BatchResult, bool, error) {
 	var ledgerDigest string
 	var ledgerResources, ledgerEdges int64
@@ -560,9 +381,6 @@ func (w *BatchWriter) readLedgerRow(ctx context.Context, tx pgx.Tx, batch Batch,
 		"SELECT digest, resource_count, edge_count FROM "+w.ledgerFQN+" WHERE batch_id = $1",
 		batch.ID).Scan(&ledgerDigest, &ledgerResources, &ledgerEdges)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// The competing claim rolled back between the claim statement and
-		// this read: nothing owns the identity, and this transaction must
-		// not proceed half-claimed — the retry re-enters and claims it.
 		return BatchResult{}, false, &BatchWriteError{
 			Op: "ledger", BatchID: batch.ID,
 			Err: errors.New("concurrent batch claim vanished before it could be classified; retry the batch"),
@@ -575,8 +393,6 @@ func (w *BatchWriter) readLedgerRow(ctx context.Context, tx pgx.Tx, batch Batch,
 	return res, true, err
 }
 
-// classifyLedgerRow turns one ledger row into either a replay result (equal
-// digest) or the typed identity conflict (differing digest).
 func classifyLedgerRow(batch Batch, digest, ledgerDigest string, ledgerResources, ledgerEdges int64) (BatchResult, error) {
 	if digest != ledgerDigest {
 		return BatchResult{}, &BatchIdentityConflictError{
@@ -596,8 +412,6 @@ func classifyLedgerRow(batch Batch, digest, ledgerDigest string, ledgerResources
 	}, nil
 }
 
-// stagingResourceFQN and stagingEdgeFQN address this session's private
-// staging tables through the pg_temp schema.
 func (w *BatchWriter) stagingResourceFQN() string {
 	return pgx.Identifier{"pg_temp", stagingResourceTable}.Sanitize()
 }
@@ -606,9 +420,6 @@ func (w *BatchWriter) stagingEdgeFQN() string {
 	return pgx.Identifier{"pg_temp", stagingEdgeTable}.Sanitize()
 }
 
-// stageResources creates the resource staging table and COPYs the offered
-// rows into it in batch order, tagged with their ordinal so guard queries
-// can report a deterministic first offender.
 func (w *BatchWriter) stageResources(ctx context.Context, tx pgx.Tx, batch Batch) error {
 	const createSQL = "CREATE TEMP TABLE " + stagingResourceTable + " (" +
 		"ordinal bigint NOT NULL, " +
@@ -645,14 +456,6 @@ func (w *BatchWriter) stageResources(ctx context.Context, tx pgx.Tx, batch Batch
 	return nil
 }
 
-// guardResources applies the resource duplicate guards and returns the
-// number of rows the publish must insert. Guards run in this order and each
-// reports its first (lowest-ordinal) offender, so a broken guard cannot
-// hide behind an earlier one: an in-batch duplicate of the natural identity
-// (project, dataset_generation, resource_type, logical_id) whose auth path
-// or payload differs is the typed in-batch conflict; a stored row under the
-// same natural identity whose auth path or payload differs is the typed
-// stored-row conflict; content-identical duplicates are legal and collapse.
 func (w *BatchWriter) guardResources(ctx context.Context, tx pgx.Tx, batch Batch) (int64, error) {
 	stg := w.stagingResourceFQN()
 	var resourceType, logicalID string
@@ -703,10 +506,6 @@ func (w *BatchWriter) guardResources(ctx context.Context, tx pgx.Tx, batch Batch
 	return expected, nil
 }
 
-// publishResources publishes the distinct staged rows into fhir_resource.
-// ON CONFLICT DO NOTHING can only skip rows the guards already proved
-// content-identical; the caller compares the inserted count with the
-// guarded expectation and aborts on any divergence.
 func (w *BatchWriter) publishResources(ctx context.Context, tx pgx.Tx, batchID string) (int64, error) {
 	sql := "INSERT INTO " + w.resourceTableFQN +
 		" (project, dataset_generation, resource_type, logical_id, auth_resource_path, payload)" +
@@ -733,8 +532,6 @@ func (w *BatchWriter) publishResources(ctx context.Context, tx pgx.Tx, batchID s
 	return n, nil
 }
 
-// stageEdges creates the edge staging table and COPYs the offered rows into
-// it in batch order.
 func (w *BatchWriter) stageEdges(ctx context.Context, tx pgx.Tx, batch Batch) error {
 	const createSQL = "CREATE TEMP TABLE " + stagingEdgeTable + " (" +
 		"ordinal bigint NOT NULL, " +
@@ -779,9 +576,6 @@ func (w *BatchWriter) stageEdges(ctx context.Context, tx pgx.Tx, batch Batch) er
 	return nil
 }
 
-// edgeIdentityJoin is the nine-column occurrence identity used to join
-// staging (alias s) or a distinct-tuple subquery (alias d) to
-// fhir_edge_occurrence (alias e).
 func (w *BatchWriter) edgeIdentityJoin(left, right string) string {
 	return left + ".project = " + right + ".project" +
 		" AND " + left + ".dataset_generation = " + right + ".dataset_generation" +
@@ -794,14 +588,6 @@ func (w *BatchWriter) edgeIdentityJoin(left, right string) string {
 		" AND " + left + ".source_ordinal = " + right + ".source_ordinal"
 }
 
-// guardEdges applies the edge duplicate and source-precondition guards and
-// returns the number of rows the publish must insert. Order and offender
-// selection mirror guardResources: an in-batch duplicate of the occurrence
-// identity whose auth path or logical edge key differs; a stored occurrence
-// under the same identity whose content differs; an edge whose source is
-// absent from fhir_resource (the batch's own resources were published
-// first, in this same transaction, and count). Content-identical duplicates
-// are legal and collapse.
 func (w *BatchWriter) guardEdges(ctx context.Context, tx pgx.Tx, batch Batch) (int64, error) {
 	stg := w.stagingEdgeFQN()
 
@@ -852,10 +638,6 @@ func (w *BatchWriter) guardEdges(ctx context.Context, tx pgx.Tx, batch Batch) (i
 		return 0, &BatchWriteError{Op: "check", BatchID: batch.ID, Err: err}
 	}
 
-	// Source precondition: every staged edge needs its source in
-	// fhir_resource now that the batch's resources are published. The
-	// first (lowest-ordinal) offending row is reported, matching the
-	// single-row insert's typed error.
 	sourceSQL := "SELECT s.source_resource_type, s.source_logical_id FROM " + stg + " s" +
 		" WHERE NOT EXISTS (SELECT 1 FROM " + w.resourceTableFQN + " src" +
 		" WHERE src.project = s.project AND src.dataset_generation = s.dataset_generation" +
@@ -888,11 +670,6 @@ func (w *BatchWriter) guardEdges(ctx context.Context, tx pgx.Tx, batch Batch) (i
 	return expected, nil
 }
 
-// publishEdges publishes the distinct staged occurrences into
-// fhir_edge_occurrence. The WHERE EXISTS repeats the source precondition
-// defensively — the guard already proved every source present and the
-// caller compares the inserted count — so no edge can publish without its
-// source under any reordering.
 func (w *BatchWriter) publishEdges(ctx context.Context, tx pgx.Tx, batchID string) (int64, error) {
 	sql := "INSERT INTO " + w.edgeTableFQN +
 		" (project, dataset_generation, auth_resource_path, label," +
@@ -925,10 +702,6 @@ func (w *BatchWriter) publishEdges(ctx context.Context, tx pgx.Tx, batchID strin
 	return n, nil
 }
 
-// validateBatch enforces the batch contract before any round trip: a
-// present, bounded batch identity, a bounded non-empty batch, a present
-// project scope, every row scoped exactly to the batch, and every row
-// individually valid for a single-row insert.
 func validateBatch(batch Batch) error {
 	if strings.TrimSpace(batch.ID) == "" {
 		return fmt.Errorf("%w: batch id is blank", ErrInvalidBatch)
@@ -957,9 +730,6 @@ func validateBatch(batch Batch) error {
 				ErrInvalidBatch, batch.ID, i, rec.Project, rec.DatasetGeneration,
 				batch.Project, batch.DatasetGeneration)
 		}
-		// The physical row built here carries the zero storage sequence;
-		// the shared write guard still refuses any offered one at the
-		// single boundary all writes cross.
 		if err := validateResourceForInsert(ResourceRow{Resource: rec}); err != nil {
 			return fmt.Errorf("%w: batch %q resource %d: %w", ErrInvalidBatch, batch.ID, i, err)
 		}
@@ -977,12 +747,6 @@ func validateBatch(batch Batch) error {
 	return nil
 }
 
-// batchDigest is the lowercase hex SHA-256 of the canonical encoding of the
-// batch. Every field is length-prefixed ("len:bytes") so distinct field
-// boundaries cannot collide, rows encode in batch order, and an absent
-// payload or logical edge key tags as "N" while a present one tags "V" plus
-// its length-prefixed bytes — so SQL NULL stays distinct from the bytes
-// "null" and from the empty string.
 func batchDigest(batch Batch) string {
 	h := sha256.New()
 	put := func(s string) {
@@ -1028,8 +792,6 @@ func batchDigest(batch Batch) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// derefString returns the pointed-to string or the empty string for nil
-// (only reached through putTagged's present branch, so never for SQL NULL).
 func derefString(s *string) string {
 	if s == nil {
 		return ""

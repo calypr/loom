@@ -1,37 +1,5 @@
 package postgres
 
-// Production-path and live acceptance legs for the pg-sql-21
-// unit-normalized projection (unit_normalization.go). Three producer
-// attestations plus the registered-surface execution battery:
-//
-//	P-1 (TestSQL21ProductionRecipeRefusedAtAggregateGate) — a real
-//	    unitNormalization recipe through the full production pipeline
-//	    (semantic.BuildRecipePlan → ResolveRecipePlan →
-//	    lower.CompileResolvedRecipePlan) compiles, and the PostgreSQL
-//	    renderer refuses it at the aggregate gate. This is the
-//	    producer-completeness probe the coordinator condition (1) demands:
-//	    the only plan that ever carries a lowering-minted
-//	    PhysicalUnitNormalization reaches a named refusal, never a
-//	    silent render. The verbatim refusal text is logged for the plan
-//	    artifact.
-//	P-2 (TestSQL21ProductionLoweredExtractHoistsByteIdentically) — the
-//	    lowering's own aggregate-value EXTRACT is hoisted, unmodified and
-//	    byte-identical (condition (2): both marshal sides logged), into a
-//	    registered RETURN projection; the renderer resolves it.
-//	P-3 (same test, live legs) — that hoisted production artifact
-//	    executes on real PostgreSQL 18 over live fixtures.
-//
-// The live battery pins the registered cells named in the plan's mutant
-// table (§6): every TestSQL21Live* test below is the named RED victim of
-// one named mutant, and its GREEN run is the alive control. Every live leg
-// ran LIVE for the ticket acceptance (report-pinned); with a service URL
-// set no leg may skip internally — a broken URL fails through fail().
-// Service-less lanes keep green by the package's shared testPostgresURL
-// skip, which establishes nothing: skipped tests never pass the ticket
-// (contract: "mocks and skipped tests do not establish parity").
-// Resources live in the owned verify_sql21v1_* namespace, tracked by the
-// TestMain delta audit (unit_normalization_test.go).
-
 import (
 	"context"
 	"encoding/json"
@@ -64,16 +32,6 @@ const (
 )
 
 var sql21LiveNamePattern = regexp.MustCompile(`^verify_sql21v1_[0-9]+_[0-9a-f]+$`)
-
-// ---------------------------------------------------------------------------
-// Live service. Service-less lanes keep green by skipping (the package's
-// documented discipline, root_scan_test.go:418-423 — CI provides no
-// PostgreSQL for this package), but a skip is never a ticket pass: the
-// acceptance run for pg-sql-21 was LIVE (report + PR body pin it), with
-// every live leg mandatory once the service URL is set — a set-but-broken
-// URL is t.Fatalf through fail(), never a skip ("mocks and skipped tests
-// do not establish parity", ticket contract).
-// ---------------------------------------------------------------------------
 
 type sql21Service struct {
 	*pgsq01Service
@@ -181,9 +139,6 @@ func sql21ResourceName(t *testing.T) string {
 	return name
 }
 
-// sql21TrackResource registers a minted name with the delta audit; the
-// t.Cleanup drop registered beside it is the convergence proof the audit
-// verifies after the whole-package run.
 func sql21TrackResource(t *testing.T, name string) {
 	t.Helper()
 	sql21FixturesMu.Lock()
@@ -252,14 +207,6 @@ func (s *sql21Service) runOne(t *testing.T, rendered command.RenderedPostgresPhy
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Fixture and plan helpers. One project per cell keeps every scenario a
-// one-row statement, so a guard raise aborts exactly its own cell.
-// ---------------------------------------------------------------------------
-
-// sql21Observation builds an Observation payload whose valueQuantity
-// carries exactly the present arguments: pass a field as nil to omit it,
-// or json.RawMessage("null") to store a JSON null.
 func sql21Observation(value any, system any, code any) map[string]any {
 	quantity := map[string]any{}
 	if value != nil {
@@ -319,8 +266,6 @@ func sql21FahrenheitProjection(t *testing.T) ir.PhysicalProjection {
 	}}
 }
 
-// sql21IndexedComponentProjection normalizes component[index].valueQuantity,
-// the semantic-sanctioned "select one indexed Quantity first" shape.
 func sql21IndexedComponentProjection(t *testing.T, index int) ir.PhysicalProjection {
 	t.Helper()
 	target, dimension, rules := sql21CentimeterFacts(t)
@@ -353,8 +298,6 @@ func sql21IndexedComponentProjection(t *testing.T, index int) ir.PhysicalProject
 	}}
 }
 
-// sql21Cell is one fixture row and the single expectation for the plan over
-// its own project: want for a clean read, wantTag for an execution raise.
 type sql21Cell struct {
 	project string
 	payload map[string]any
@@ -371,10 +314,6 @@ func sql21RunCells(t *testing.T, svc *sql21Service, projection ir.PhysicalProjec
 			svc.runOne(t, rendered, cell.want)
 			continue
 		}
-		// P1/P3 discipline from pg-sql-10: the violating row must PLAIN
-		// under EXPLAIN (the barrier keeps the guard CAST out of
-		// plan-time folding) with the guard surviving as a per-row
-		// subplan, and only then raise at execution.
 		planText := svc.explain(t, rendered)
 		if !strings.Contains(planText, "SubPlan") && !strings.Contains(planText, "Function Scan") {
 			t.Fatalf("%s: guard subplan missing from plan:\n%s", cell.project, planText)
@@ -383,17 +322,6 @@ func sql21RunCells(t *testing.T, svc *sql21Service, projection ir.PhysicalProjec
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live battery — the named RED victims of the plan §6 mutants.
-// ---------------------------------------------------------------------------
-
-// TestSQL21LiveLinearAndIdentityConversionsReadExact is the named victim
-// of mutant M6 (read the TARGET's rule instead of the row's source rule:
-// every cell here would apply the wrong coefficient, and the [degF]
-// identity cell would apply 1.8x+32 to a Fahrenheit value). It is also
-// the alive control for the identity-match determinism the plan pins:
-// each stored identity resolves exactly one bound rule and reads the
-// exact IEEE answer.
 func TestSQL21LiveLinearAndIdentityConversionsReadExact(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
@@ -403,44 +331,25 @@ func TestSQL21LiveLinearAndIdentityConversionsReadExact(t *testing.T) {
 	})
 	fahrenheit := sql21FahrenheitProjection(t)
 	sql21RunCells(t, svc, fahrenheit, []sql21Cell{
-		// 1.8*20 + 32 = 68 exactly in doubles (the product rounds to
-		// 36.0, the sum is exact): a wrong-rule read breaks here.
 		{"sql21-cel", sql21Observation(20, sql21UCUM, "Cel"), "[68]", ""},
-		// The target-relative identity arm: scale 1, offset 0. An
-		// implementation that consulted the TARGET (c-to-f) rule would
-		// read [207.88], never [98.6].
 		{"sql21-degf-identity", sql21Observation(98.6, sql21UCUM, "[degF]"), "[98.6]", ""},
 	})
-	// Scope decoy: the same logical id under Patient must never be read.
 	svc.insertResource(t, "sql21-exact-cm", sql21Gen, "Patient", "sql21-exact-cm", sql21Path,
 		map[string]any{"gender": "female"})
 	svc.runOne(t, svc.renderLive(t, sql21LivePlan("sql21-exact-cm", "root", cm)), "[5]")
 }
 
-// TestSQL21LiveNullValuesSkipBeforeIdentityAssert is the named victim of
-// mutant M1 (move the null drop after the identity lateral). The
-// decisive cell is a null value with a KNOWN-BAD identity: any ordering
-// where the guard sees the row raises UNIT_IDENTITY_UNKNOWN instead of
-// reading the empty array.
 func TestSQL21LiveNullValuesSkipBeforeIdentityAssert(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
 	sql21RunCells(t, svc, cm, []sql21Cell{
 		{"sql21-null-value", sql21Observation(sql21JSONNull, sql21UCUM, "cm"), "[]", ""},
-		// The ordering pin: the value is null AND the identity is
-		// unknown. AQL's FILTER precedes ASSERT; this must read [],
-		// never raise.
 		{"sql21-null-value-bad-identity", sql21Observation(sql21JSONNull, "urn:example:bad", "furlong"), "[]", ""},
-		// Null ITEMS inside a stored value array drop before the guard;
-		// surviving items still convert (document-order jsonb_agg).
 		{"sql21-array-nulls", sql21Observation([]any{2, nil, 4}, sql21UCUM, "cm"), "[2 4]", ""},
 		{"sql21-null-quantity", map[string]any{"status": "final", "valueQuantity": sql21JSONNull}, "[]", ""},
 	})
 }
 
-// TestSQL21LiveEmptyValueListReadsEmptyArray is the named victim of
-// mutant M8 (drop the COALESCE so an empty aggregate reads SQL NULL):
-// every cell must read the jsonb array [], never a NULL cell.
 func TestSQL21LiveEmptyValueListReadsEmptyArray(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
@@ -452,11 +361,6 @@ func TestSQL21LiveEmptyValueListReadsEmptyArray(t *testing.T) {
 	})
 }
 
-// TestSQL21LiveDisplayLabelDoesNotSelectRule is the named victim of
-// mutant M2 (consult Quantity.unit display text): with unit:"cm" stored
-// beside a non-matching code, an implementation that reads the label
-// would convert instead of raising UNIT_IDENTITY_UNKNOWN — byte-identical
-// to the AQL ASSERT message (render/aql/selectors.go:214).
 func TestSQL21LiveDisplayLabelDoesNotSelectRule(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
@@ -465,19 +369,11 @@ func TestSQL21LiveDisplayLabelDoesNotSelectRule(t *testing.T) {
 	}}
 	sql21RunCells(t, svc, cm, []sql21Cell{
 		{"sql21-display-label", displayLabel, "", unitGuardIdentityUnknown},
-		// Identity is the PAIR: value with code but no system has no
-		// identity at all — guard raises, empty list does not apply
-		// (the value survives null-drop and reaches the guard).
 		{"sql21-missing-system", map[string]any{"status": "final",
 			"valueQuantity": map[string]any{"value": 5, "code": "cm"}}, "", unitGuardIdentityUnknown},
 	})
 }
 
-// TestSQL21LiveExactIdentityPair is the named victim of mutant M3 (trim
-// or case-fold the identity before matching): every near-miss spelling
-// below would match under any fold and read a number instead of raising.
-// The alive control is the exact pair in
-// TestSQL21LiveLinearAndIdentityConversionsReadExact.
 func TestSQL21LiveExactIdentityPair(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
@@ -490,12 +386,6 @@ func TestSQL21LiveExactIdentityPair(t *testing.T) {
 	})
 }
 
-// TestSQL21LiveRepeatedSourceSiblingIdentity is the named victim of
-// mutant M9 (FIRST→last sibling): the stored code list ["cm","m"] must
-// resolve by its first item, reading [4]; last-item semantics would read
-// [400]. A null-first list pins FIRST(FLATTEN(...)) parity: FIRST keeps
-// the leading null (FLATTEN does not drop it), so no identity exists and
-// the guard raises.
 func TestSQL21LiveRepeatedSourceSiblingIdentity(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
@@ -514,11 +404,6 @@ func TestSQL21LiveRepeatedSourceSiblingIdentity(t *testing.T) {
 	})
 }
 
-// TestSQL21LiveIndexedQuantityReadsInRangeAndOutOfRange pins the
-// registered non-negative indexed steps end-to-end: an in-range index
-// reads the indexed Quantity, an out-of-range index reads SQL NULL — the
-// missing-read arm of unitValueListExpression — and lands on the empty
-// array, matching AQL's missing reads null.
 func TestSQL21LiveIndexedQuantityReadsInRangeAndOutOfRange(t *testing.T) {
 	svc := newSQL21Service(t)
 	payload := map[string]any{"status": "final", "component": []any{
@@ -532,11 +417,6 @@ func TestSQL21LiveIndexedQuantityReadsInRangeAndOutOfRange(t *testing.T) {
 	})
 }
 
-// TestSQL21LiveDecimalStringAndNonNumericReadBack pins the coercion
-// cells: a decimal-form string crosses the registered pg-sql-10 tiers
-// and converts; every other JSON type reaches the guard (identity still
-// required) and reads a jsonb null ELEMENT — never skipped, never a
-// raise (AQL invalid-arithmetic null, operators.md 259-262).
 func TestSQL21LiveDecimalStringAndNonNumericReadBack(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
@@ -545,59 +425,28 @@ func TestSQL21LiveDecimalStringAndNonNumericReadBack(t *testing.T) {
 		{"sql21-boolean-value", sql21Observation(true, sql21UCUM, "cm"), "[<nil>]", ""},
 		{"sql21-object-value", sql21Observation(map[string]any{"a": 1}, sql21UCUM, "cm"), "[<nil>]", ""},
 		{"sql21-word-value", sql21Observation("abc", sql21UCUM, "cm"), "[<nil>]", ""},
-		// Oracle-rejected numeric spelling (huge exponent): the gated
-		// tier reads the fail-closed null, never a 22003 raise.
 		{"sql21-huge-exponent", sql21Observation("1e999999999999", sql21UCUM, "cm"), "[<nil>]", ""},
-		// A null element beside a real value: the null drops, the value
-		// converts — jsonb_agg keeps converted nulls but never sees a
-		// dropped one (document order).
 		{"sql21-null-then-value", sql21Observation([]any{nil, "3"}, sql21UCUM, "cm"), "[3]", ""},
 	})
 }
 
-// TestSQL21LiveOverflowReadsNull is the named victim of mutant M4 (run
-// the conversion as an unguarded double expression): both cells sit
-// where the raw double product would raise 22003 on the cast or hand
-// Infinity to to_jsonb (22003/22P05); the registered band reads the
-// conservative jsonb null element instead.
 func TestSQL21LiveOverflowReadsNull(t *testing.T) {
 	svc := newSQL21Service(t)
 	cm := sql21UnitProjection(t, nil)
 	sql21RunCells(t, svc, cm, []sql21Cell{
-		// product 1e309: past every pass bound → ELSE null arm.
 		{"sql21-multiply-overflow", sql21Observation("1e307", sql21UCUM, "m"), "[<nil>]", ""},
-		// operand at the overflow tie band → operand arm null.
 		{"sql21-operand-overflow", sql21Observation("1.8e308", sql21UCUM, "cm"), "[<nil>]", ""},
 	})
 }
 
-// TestSQL21LiveAdditionNearTieReadsNull is the named victim of mutant
-// M5 (widen unitAddPassUpper toward the overflow tie): the stored value
-// is floor(unitAddPassUpper / 1.8), so the tested sum product+32 sits
-// just above the registered addition pass boundary while the product
-// stays inside the multiply bound. The registered reading is the
-// conservative null; a widened bound would execute the double addition
-// and read a number (or raise) instead.
 func TestSQL21LiveAdditionNearTieReadsNull(t *testing.T) {
 	svc := newSQL21Service(t)
-	// All comparisons are exact integer arithmetic on the decimal
-	// spellings (every bound here is an integral decimal expansion).
-	// The near-tie value is constructed from an INDEPENDENT expansion of
-	// the intended boundary (DBL_MAX − 2^975, the same second derivation
-	// the offline pin re-proves), never from the constant itself: a
-	// mutant that widens unitAddPassUpper must change the executed
-	// verdict on this fixed value, not have the value follow the mutant.
 	upper := new(big.Int).Mul(
 		new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 53), big.NewInt(1)),
 		new(big.Int).Lsh(big.NewInt(1), 971))
 	upper.Sub(upper, new(big.Int).Lsh(big.NewInt(1), 975))
-	// value = floor(passUpper / 1.8) = floor(10*upper / 18), so the
-	// exact product 1.8*value lies in [upper − 1.8, upper): below the
-	// multiply bound (product arm passes, mulDiv > upper below), and
-	// the sum product + 32 ≥ upper + 30.2 (sum arm fails) — the
-	// registered ELSE null.
 	valueInt := new(big.Int).Quo(new(big.Int).Mul(upper, big.NewInt(10)), big.NewInt(18))
-	productTenths := new(big.Int).Mul(valueInt, big.NewInt(18)) // = 10 × product
+	productTenths := new(big.Int).Mul(valueInt, big.NewInt(18))
 	lowerTenths := new(big.Int).Sub(new(big.Int).Mul(upper, big.NewInt(10)), big.NewInt(18))
 	if productTenths.Cmp(lowerTenths) < 0 || productTenths.Cmp(new(big.Int).Mul(upper, big.NewInt(10))) >= 0 {
 		t.Fatalf("constructed near-tie product left [upper-1.8, upper)")
@@ -626,16 +475,6 @@ func TestSQL21LiveAdditionNearTieReadsNull(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// P-1/P-2/P-3: production producer attestations.
-// ---------------------------------------------------------------------------
-
-// sql21UnitNormalizationBundle is a real recipe document carrying the
-// production unitNormalization policy: a resource-grain Observation output
-// whose max aggregate normalizes valueQuantity.value to cm through the
-// pinned registry rules. This is the producer surface
-// (semantic/recipe_rich_shaping.go:439-490 +
-// lower/root_projection.go:321-335), not a hand-built IR shape.
 func sql21UnitNormalizationBundle(name string, target unit.UnitIdentity, rules []unit.UnitRuleReference) recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -698,9 +537,6 @@ func sql21CentimeterPolicyRefs(t *testing.T) (unit.UnitIdentity, []unit.UnitRule
 	return policy.Target, references
 }
 
-// sql21FindAggregateNormalization locates the production aggregate
-// projection carrying the lowering-minted normalization, failing the
-// witness when the planner emitted no such projection at all.
 func sql21FindAggregateNormalization(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalAggregate {
 	t.Helper()
 	for _, operation := range plan.Operations {
@@ -722,12 +558,6 @@ func sql21FindAggregateNormalization(t *testing.T, plan ir.PhysicalPlan) *ir.Phy
 	return nil
 }
 
-// TestSQL21ProductionRecipeRefusedAtAggregateGate is probe P-1: the real
-// lowering mints the normalization only inside a PhysicalAggregate-
-// Expression, whose projection kind the classifier still refuses — the
-// named gap for pg-sql-13. The refusal must be typed and verbatim, never
-// a silent render and never an AQL fallback. The exact message is logged
-// for the plan artifact (coordinator condition 1).
 func TestSQL21ProductionRecipeRefusedAtAggregateGate(t *testing.T) {
 	target, references := sql21CentimeterPolicyRefs(t)
 	plan := sql21CompileProduction(t, sql21UnitNormalizationBundle("sql21_p1_aggregate_gate", target, references))
@@ -753,22 +583,12 @@ func TestSQL21ProductionRecipeRefusedAtAggregateGate(t *testing.T) {
 	t.Logf("P-1 verbatim aggregate-gate refusal (banked): %v", err)
 }
 
-// TestSQL21ProductionLoweredExtractHoistsByteIdentically is probe P-2 +
-// its live leg P-3 (coordinator condition 2): the lowering's own
-// aggregate-value EXTRACT, hoisted unmodified into the registered
-// RETURN-projection posture, is byte-identical to the production artifact
-// (both marshal sides logged) and renders and executes on live
-// PostgreSQL 18. This is the canonical hand-off shape pg-sql-13 will
-// feed, proven end to end today.
 func TestSQL21ProductionLoweredExtractHoistsByteIdentically(t *testing.T) {
 	target, references := sql21CentimeterPolicyRefs(t)
 	plan := sql21CompileProduction(t, sql21UnitNormalizationBundle("sql21_p2_hoist_identity", target, references))
 	aggregate := sql21FindAggregateNormalization(t, plan)
 	production := aggregate.Value
 
-	// Byte identity: the hoisted projection expression round-trips
-	// through JSON into a fresh value, and the two marshals must match
-	// exactly — the hand-off touched no byte.
 	productionRaw, err := json.Marshal(production)
 	if err != nil {
 		t.Fatalf("marshal production expression: %v", err)
@@ -793,15 +613,11 @@ func TestSQL21ProductionLoweredExtractHoistsByteIdentically(t *testing.T) {
 		t.Fatalf("hoisted expression left the registered posture: %+v", hoisted)
 	}
 
-	// Offline render: the registered renderer resolves the production
-	// artifact as a RETURN projection.
 	projection := ir.PhysicalProjection{Name: "length_cm", Expression: &hoisted}
 	offlineBinding, err := ir.NewPostgresStorageBinding("loom_offline")
 	if err != nil {
 		t.Fatalf("NewPostgresStorageBinding: %v", err)
 	}
-	// The scan must bind the SAME row variable the production extract
-	// names, so the hoisted artifact stays untouched.
 	livePlan := func(project string) ir.PhysicalPlan {
 		return sql21LivePlan(project, hoisted.Extract.Source.Variable, projection)
 	}
@@ -809,7 +625,6 @@ func TestSQL21ProductionLoweredExtractHoistsByteIdentically(t *testing.T) {
 		t.Fatalf("renderer refused the hoisted production EXTRACT: %v", err)
 	}
 
-	// Live leg P-3: execute the hoisted production artifact.
 	svc := newSQL21Service(t)
 	sql21RunCells(t, svc, projection, []sql21Cell{
 		{"sql21_p2_cm", sql21Observation(5, sql21UCUM, "cm"), "[5]", ""},
@@ -818,17 +633,7 @@ func TestSQL21ProductionLoweredExtractHoistsByteIdentically(t *testing.T) {
 	})
 }
 
-// TestSQL21TamperedRuleSetFailsClosed is the named victim of mutant M7
-// (skip the renderer's Validate/registry re-read): a hand-authored plan
-// with registry-drifted coefficients or unapproved rule material must
-// refuse before any SQL exists, keeping the upstream sentinels — never
-// execute a plan that picked its own numbers.
 func TestSQL21TamperedRuleSetFailsClosed(t *testing.T) {
-	// The renderer's OWN re-read is driven directly (sql21ContractError):
-	// ir.Validate answers first on the public entry, but mutant M7 removes
-	// only the renderer-side checks, so the victim test must reach the
-	// renderer to die. Each tamper is exactly one mutation of the legal
-	// baseline (the ALIVE discipline).
 	tamperedScale := sql21UnitProjection(t, func(x *ir.PhysicalExtract) {
 		x.UnitNormalization.Rules[0].Scale = 101
 	})
@@ -837,7 +642,6 @@ func TestSQL21TamperedRuleSetFailsClosed(t *testing.T) {
 		t.Fatalf("tampered scale refused with drifted text: %v", err)
 	}
 
-	// Unapproved rule material keeps the upstream identity sentinel.
 	unknown := sql21UnitProjection(t, func(x *ir.PhysicalExtract) {
 		x.UnitNormalization.Rules = []unit.UnitConversionRule{{
 			ID: "invented", Version: "1", Kind: unit.UnitConversionLinear,
@@ -851,8 +655,6 @@ func TestSQL21TamperedRuleSetFailsClosed(t *testing.T) {
 		t.Fatalf("unapproved rule material = %v, want unit.ErrUnitIdentityUnknown sentinel", err)
 	}
 
-	// A non-registry dimension claim refuses with the dimension
-	// sentinel even when every rule individually validates.
 	driftedDimension := sql21UnitProjection(t, func(x *ir.PhysicalExtract) {
 		x.UnitNormalization.Dimension = unit.UnitDimension{Time: 1}
 	})

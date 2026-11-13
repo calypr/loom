@@ -24,23 +24,15 @@ type Service struct {
 	scopeResolver          *authscope.ScopeResolver
 	activeManifestResolver publication.ActiveResolver
 	explain                func(context.Context, compiler.CompiledQuery) error
-	// now is the single clock seam for the run-phase diagnostics so a test can
-	// hold the backend open without racing wall-clock speed thresholds.
-	now func() time.Time
+	now                    func() time.Time
 }
 
 type Config struct {
-	DiscoverReferences func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
-	DiscoverFields     func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
-	Dataframes         *dataframeexecution.Service
-	// CompileTarget is the closed compile target selected once by
-	// composition. It is required: FHIR query compilation, graph mode, and
-	// preview all compile through the same target-aware compiler boundary.
-	CompileTarget compiler.Target
-	ScopeResolver *authscope.ScopeResolver
-	// ActiveManifestResolver is optional. When present, builder catalog
-	// discovery and recipe preparation resolve one READY active generation
-	// before inspecting any fields or relationship routes.
+	DiscoverReferences     func(context.Context, catalog.PopulatedReferenceOptions) ([]catalog.PopulatedReference, error)
+	DiscoverFields         func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
+	Dataframes             *dataframeexecution.Service
+	CompileTarget          compiler.Target
+	ScopeResolver          *authscope.ScopeResolver
 	ActiveManifestResolver publication.ActiveResolver
 	Explain                func(context.Context, compiler.CompiledQuery) error
 }
@@ -70,8 +62,6 @@ func catalogUnavailable() error {
 	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 }
 
-// clockNow is the run-phase diagnostics clock. Production uses the wall clock;
-// tests substitute a controlled clock to assert phase boundaries.
 func (s *Service) clockNow() time.Time {
 	if s.now != nil {
 		return s.now()
@@ -154,9 +144,6 @@ func (s *Service) Run(ctx context.Context, input model.FhirDataframeInput, limit
 	if err != nil {
 		return nil, queryInvalidErrorOrBackend(err)
 	}
-	// The compilation interval closes at the compiler boundary: the backend
-	// query and row materialization below are already reported as their own
-	// diagnostics and must not be double-charged here.
 	compilationDuration := s.clockNow().Sub(compileStarted)
 	result, err := s.dataframes.RunCompiled(ctx, compiled)
 	if err != nil {

@@ -87,9 +87,6 @@ func TestScopeResolverResolveReadScopeKeepsRestrictedEmptyIntersection(t *testin
 			resources: []string{"/programs/EllrottLab/projects/GDC_Data"},
 		},
 		ListExistingAuthResourcePaths: func(context.Context, catalog.AuthResourcePathOptions) ([]string, error) {
-			// The caller has access to GDC_Data, but this project currently has
-			// no matching catalog scope. This must be a deny-all scope, not a
-			// no-filter scope.
 			return []string{"Another-Project"}, nil
 		},
 	})
@@ -146,8 +143,6 @@ func TestScopeResolverCachesExistingPathsPerNormalizedGeneration(t *testing.T) {
 		t.Fatalf("generation-b scope = %#v, want restricted empty", second)
 	}
 
-	// The normalized generation-a lookup must use its own cache entry instead
-	// of reusing generation-b's empty intersection.
 	again, err := resolver.ResolveReadScopeForGeneration(context.Background(), principal, "P1", "generation-a", nil)
 	if err != nil {
 		t.Fatalf("cached ResolveReadScopeForGeneration(generation-a) error = %v", err)

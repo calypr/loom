@@ -1,41 +1,5 @@
 package execution_test
 
-// pg-exec-12 live acceptance battery: execute PostgreSQL table-shape
-// exclusion evidence with honest incomplete/unsupported results (check:
-// go test ./internal/dataframe/execution -run PostgresExclusions under
-// LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service).
-// Never-skip: with the URL present every leg runs real SQL and fails loud;
-// absence follows the package convention (t.Skip, as in the exec04 preview
-// battery). This file is the ticket's "the PG integration must execute
-// actual SQL and may not skip" acceptance leg; mocks are not used: every
-// leg compiles an authored recipe.Bundle through the real Engine on the
-// selected PostgreSQL target and streams the pg-sql-26 evidence terminal
-// over the production internal/backends/postgres row adapter.
-//
-// Legs: L1 exact excluded identities/reasons in the frozen seven-term order
-// with literal expected rows; L2 stable bounded paging (probe window,
-// disjoint pages, never more than limit); L3 identity omission as an
-// explicit INCOMPLETE witness with the SQL-NULL omission column carried
-// honestly; L4 the missing / JSON-null / SQL-NULL three state; L5
-// cancellation reports INCOMPLETE, never a complete-empty result; L6 honest
-// UNSUPPORTED for a shape outside the registered slice with zero executed
-// statements and a registered-shape control on the same schema; L7 the
-// zero-leftover census for the owned verify_exec12_ex_* namespace; L8 the
-// authorization leg — a positive authorized read and a negative
-// unauthorized read through the same binding→plan-scope→SQL path the AQL
-// evidence route uses (scope binds re-read by the renderer, predicates
-// emitted by the spine); L9 the no-exclusion-policy status witness: its own
-// status, distinct from COMPLETE-with-evidence and from UNSUPPORTED, with a
-// compile-live AQL twin control (the Arango statuses themselves remain
-// byte-owned by TestTableShapeExclusionsReportsUnsupportedAndNoPolicy and
-// the AQL compiler arms).
-//
-// Fixture databases and schemas are uniquely owned as verify_exec12_ex_* and
-// dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix. The full exec04pvForbidArango
-// landmine discipline is mirrored: a PostgreSQL-served evidence read that
-// touches any Arango/ClickHouse control fails the leg.
-
 import (
 	"context"
 	"crypto/rand"
@@ -134,8 +98,6 @@ func exec12exRandomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// exec12exScrubberFor returns an error formatter that replaces every
-// credential-bearing form of the raw test service URL with <redacted>.
 func exec12exScrubberFor(raw string) (func(any) string, func(string)) {
 	secrets := []string{raw}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
@@ -156,8 +118,6 @@ func exec12exScrubberFor(raw string) (func(any) string, func(string)) {
 	return scrub, func(s string) { secrets = append(secrets, s) }
 }
 
-// exec12exService is one owned isolated database + production-migrated
-// schema + production row adapter.
 type exec12exService struct {
 	ctx      context.Context
 	admin    *pgxpool.Pool
@@ -275,8 +235,6 @@ func exec12exNewService(t *testing.T) *exec12exService {
 	return &exec12exService{ctx: ctx, admin: admin, iso: iso, schema: schema, dsn: dsn, target: target, scrub: scrub, fail: fail, executor: executor}
 }
 
-// migrate installs the real pg-store-02 resource placement through the
-// production migration runner.
 func (s *exec12exService) migrate(t *testing.T) {
 	t.Helper()
 	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
@@ -313,9 +271,6 @@ func (s *exec12exService) seed(t *testing.T, rows []exec12exFixtureRow) {
 	}
 }
 
-// exec12exRecorder wraps the production adapter and records one call per
-// executed statement: SQL, ordered typed arguments, the declared column
-// contract, and the routing tag.
 type exec12exCall struct {
 	sql      string
 	args     []command.PostgreSQLParameter
@@ -339,8 +294,6 @@ func (r *exec12exRecorder) port(ctx context.Context, request dataframeexecution.
 
 func (r *exec12exRecorder) counts() int { return len(r.calls) }
 
-// exec12exInvalidRegistry refuses recipe loads: this battery compiles
-// authored bundles only.
 type exec12exInvalidRegistry struct{}
 
 func (exec12exInvalidRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
@@ -351,9 +304,6 @@ func (exec12exInvalidRegistry) LoadRecipeVersion(context.Context, string, string
 	return exec.Entry{}, errors.New("the exclusion battery compiles authored bundles only")
 }
 
-// exec12exForbidArango arms every AQL/Arango/ClickHouse callback as an error
-// landmine (exec04pv discipline): a PostgreSQL-served evidence read that
-// touches any of them fails.
 func exec12exForbidArango() dataframeexecution.Config {
 	return dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
@@ -406,13 +356,6 @@ func (s *exec12exService) engine(t *testing.T, port dataframeexecution.SourceRow
 	return engine
 }
 
-// ---------------------------------------------------------------------------
-// Authored recipe: one Patient-grain output with a grouped pivot over the
-// stored category member "status", listed category "alpha". The pivot's
-// value column ("weight") is never read by the evidence terminal — the
-// fixtures do not even need it.
-// ---------------------------------------------------------------------------
-
 const (
 	exec12exProject    = "P1"
 	exec12exGeneration = "gen-a"
@@ -461,10 +404,6 @@ func exec12exBindings(project, generation string, authPaths ...string) recipe.Ru
 	}
 }
 
-// exec12exDoc is a stored Observation payload with the identity members the
-// renderer's identity-available conjunction checks. The category member is
-// code.text; "__missing__" omits the whole code object and "__null__"
-// stores code.text as the explicit JSON null.
 func exec12exDoc(logicalID, group, category string) string {
 	if category == "__missing__" {
 		return fmt.Sprintf(`{"resourceType":"Observation","id":%q,"status":%q}`, logicalID, group)
@@ -475,17 +414,10 @@ func exec12exDoc(logicalID, group, category string) string {
 	return fmt.Sprintf(`{"resourceType":"Observation","id":%q,"status":%q,"code":{"text":%q}}`, logicalID, group, category)
 }
 
-// exec12exDocNoIdentity stores a payload without resourceType/id members:
-// the evidence row must land in the explicit UNAVAILABLE omission branch.
 func exec12exDocNoIdentity(group, category string) string {
 	return fmt.Sprintf(`{"status":%q,"code":{"text":%q}}`, group, category)
 }
 
-// exec12exAcceptanceFixture is the committed fixture set: four P1/gen-a
-// Patients (one listed "alpha" that must never appear as evidence, two
-// unlisted string categories, one missing category) plus two intruders that
-// exist only to prove the compiled scope (project/generation/auth) keeps
-// another project/generation out of the evidence read.
 func exec12exAcceptanceFixture() []exec12exFixtureRow {
 	return []exec12exFixtureRow{
 		{exec12exProject, exec12exGeneration, "Observation", "obs-ada", exec12exAuthPath, exec12exDoc("obs-ada", "g1", "beta")},
@@ -518,11 +450,6 @@ func exec12exRowsDigest(exclusions []dataframeexecution.TableShapeExclusion) []s
 	}
 	return out
 }
-
-// ---------------------------------------------------------------------------
-// L1 — exact excluded identities/reasons, frozen seven-term order, literal
-// expected rows, nine-field contract pinned on the executed statement.
-// ---------------------------------------------------------------------------
 
 func TestPostgresExclusionsExactEvidenceLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
@@ -571,12 +498,6 @@ func TestPostgresExclusionsExactEvidenceLivePG18(t *testing.T) {
 	if result.Status != dataframeexecution.TableShapeExclusionComplete || !result.Complete || result.HasMore || result.NextOffset != 0 {
 		t.Fatalf("result metadata = %#v", result)
 	}
-	// Literal expectation, seven-term order: the first term is the
-	// pivot-computed row identity, so the three rows land in their group-key
-	// identity buckets ordered g1 < g2 < g3 under COLLATE "C"; the
-	// present/category ranks only order rows inside a bucket. The
-	// listed-category observation and both intruders are absent: exclusion
-	// evidence is unlisted-only and scope-bound.
 	want := []string{
 		"Observation/obs-ada|row-|present=true|value=\"beta\"|type=STRING|reason=UNLISTED_CATEGORY|omission=",
 		"Observation/obs-alan|row-|present=true|value=\"gamma\"|type=STRING|reason=UNLISTED_CATEGORY|omission=",
@@ -587,13 +508,11 @@ func TestPostgresExclusionsExactEvidenceLivePG18(t *testing.T) {
 		if i >= len(got) {
 			t.Fatalf("missing evidence row %d: want %q, got %v", i, want[i], got)
 		}
-		// The row identity is the pivot's own __loom_row_id form; compare
-		// everything but the opaque identity suffix positionally.
 		gotFields := strings.Split(got[i], "|")
 		wantFields := strings.Split(want[i], "|")
 		for j := range wantFields {
 			if j == 1 {
-				continue // opaque pivot row identity, pinned non-empty below
+				continue
 			}
 			if gotFields[j] != wantFields[j] {
 				t.Fatalf("evidence row %d field %d = %q, want %q (row: %q)", i, j, gotFields[j], wantFields[j], got[i])
@@ -607,12 +526,6 @@ func TestPostgresExclusionsExactEvidenceLivePG18(t *testing.T) {
 		t.Fatalf("evidence count = %d, want %d: %v", len(got), len(want), got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L2 — stable bounded paging: probe window (limit+1), disjoint pages, never
-// more than limit rows, NextOffset advances by delivered rows, one
-// statement per page.
-// ---------------------------------------------------------------------------
 
 func TestPostgresExclusionsBoundedPagingLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
@@ -629,8 +542,6 @@ func TestPostgresExclusionsBoundedPagingLivePG18(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileResolvedBundle: %s", s.scrub(err))
 	}
-	// Fixture: 3 base + 5 extra = 8 unlisted exclusions (the listed row and
-	// the P2 intruders are never evidence).
 	const total = 8
 	seen := map[string]bool{}
 	offset := 0
@@ -673,13 +584,6 @@ func TestPostgresExclusionsBoundedPagingLivePG18(t *testing.T) {
 		t.Fatalf("paged %d distinct exclusions, want %d", len(seen), total)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L3 — identity omission: an explicit UNAVAILABLE witness (never a
-// synthesized identity), page INCOMPLETE, and the companion EXACT row
-// carries SQL NULL (not the omission constant, not the empty string) in the
-// omission column — the three states do not cross-contaminate.
-// ---------------------------------------------------------------------------
 
 func TestPostgresExclusionsIdentityOmissionLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
@@ -724,12 +628,6 @@ func TestPostgresExclusionsIdentityOmissionLivePG18(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L4 — category three-state over the wire: missing member (present=false,
-// SQL NULL value), explicit JSON null (present=true, raw "null"), and an
-// empty string (present=true, raw "\"\""). The three never flatten.
-// ---------------------------------------------------------------------------
-
 func TestPostgresExclusionsCategoryThreeStateLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
 	s.migrate(t)
@@ -763,7 +661,6 @@ func TestPostgresExclusionsCategoryThreeStateLivePG18(t *testing.T) {
 	if states["obs-n"] != `present=true value=null` {
 		t.Fatalf("explicit JSON null must read present=true with the raw JSON null carried, never flattened to nil: %q", states["obs-n"])
 	}
-	// Distinguish the two nulls structurally: value nil vs RawMessage("null").
 	for _, exclusion := range result.Exclusions {
 		if exclusion.SourceIdentity.ResourceID == "obs-m" && exclusion.Category.Value != nil {
 			t.Fatalf("SQL NULL missing-category value must stay nil, got %#v", exclusion.Category.Value)
@@ -779,11 +676,6 @@ func TestPostgresExclusionsCategoryThreeStateLivePG18(t *testing.T) {
 		t.Fatalf("empty-string category must stay a present empty string: %q", states["obs-e"])
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L5 — cancellation mid-stream reports INCOMPLETE at the requested offset,
-// never a complete or complete-empty result.
-// ---------------------------------------------------------------------------
 
 func TestPostgresExclusionsCancellationLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
@@ -827,13 +719,6 @@ func TestPostgresExclusionsCancellationLivePG18(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L6 — honest UNSUPPORTED: a shape outside the registered evidence slice
-// (authored extra FILTER, the X7 surface) reports UNSUPPORTED with zero
-// executed statements; the registered shape on the same schema executes and
-// returns evidence — the status is shape-derived, not blanket.
-// ---------------------------------------------------------------------------
-
 func TestPostgresExclusionsUnsupportedShapeLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
 	s.migrate(t)
@@ -856,7 +741,6 @@ func TestPostgresExclusionsUnsupportedShapeLivePG18(t *testing.T) {
 	if recorder.counts() != 0 {
 		t.Fatalf("UNSUPPORTED must execute zero statements, got %d", recorder.counts())
 	}
-	// Alive control on the same schema/engine: the registered shape runs.
 	registered, err := engine.CompileResolvedBundle(s.ctx, exec12exBundle(recipe.PivotUnlistedCategoryExcludeWithEvidence, false), bindings)
 	if err != nil {
 		t.Fatalf("registered bundle compile: %s", s.scrub(err))
@@ -869,10 +753,6 @@ func TestPostgresExclusionsUnsupportedShapeLivePG18(t *testing.T) {
 		t.Fatalf("registered control = %#v after %d statements", control, recorder.counts())
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L7 — zero-leftover census for the owned verify_exec12_ex_* namespace.
-// ---------------------------------------------------------------------------
 
 func TestZZPostgresExclusionsZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
@@ -920,22 +800,11 @@ func TestZZPostgresExclusionsZeroLeftoverFixtures(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L8 — authorization checks: the same binding→plan-scope→SQL path the AQL
-// evidence route uses (project/generation/deny binds re-read by the
-// renderer; restricted auth mode binds the exact authorized path set).
-// Positive: the authorized binding reads its evidence. Negative: the same
-// data with an unauthorized auth path set reads zero evidence through real
-// executed SQL (never widens, never falls back), and the project/generation
-// intruders never appear in the authorized read.
-// ---------------------------------------------------------------------------
-
 func TestPostgresExclusionsAuthScopeLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
 	s.migrate(t)
 	s.seed(t, exec12exAcceptanceFixture())
 
-	// Positive authorized read through the production path.
 	recorder := &exec12exRecorder{s: s}
 	engine := s.engine(t, recorder.port)
 	authorized, err := engine.CompileResolvedBundle(s.ctx, exec12exBundle(recipe.PivotUnlistedCategoryExcludeWithEvidence, false), exec12exBindings(exec12exProject, exec12exGeneration, exec12exAuthPath))
@@ -958,9 +827,6 @@ func TestPostgresExclusionsAuthScopeLivePG18(t *testing.T) {
 		t.Fatalf("authorized read statement count = %d", recorder.counts())
 	}
 
-	// Negative unauthorized read: restricted mode with a non-matching auth
-	// path set must read zero evidence through executed SQL, not error and
-	// not widen.
 	unauthorized, err := engine.CompileResolvedBundle(s.ctx, exec12exBundle(recipe.PivotUnlistedCategoryExcludeWithEvidence, false), exec12exBindings(exec12exProject, exec12exGeneration, "FHIR/Encounter"))
 	if err != nil {
 		t.Fatalf("unauthorized compile: %s", s.scrub(err))
@@ -988,14 +854,6 @@ func TestPostgresExclusionsAuthScopeLivePG18(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L9 — the no-exclusion-policy status: its own distinct status at the
-// execution layer, distinct from COMPLETE-with-evidence and UNSUPPORTED,
-// with zero executed statements, plus a compile-live AQL twin control that
-// pins the PostgreSQL arm to the current AQL behavior (owned by
-// TestTableShapeExclusionsReportsUnsupportedAndNoPolicy).
-// ---------------------------------------------------------------------------
-
 func TestPostgresExclusionsNoPolicyStatusDistinctLivePG18(t *testing.T) {
 	s := exec12exNewService(t)
 	s.migrate(t)
@@ -1020,10 +878,6 @@ func TestPostgresExclusionsNoPolicyStatusDistinctLivePG18(t *testing.T) {
 		t.Fatalf("no-policy must execute zero statements, got %d", recorder.counts())
 	}
 
-	// Distinctness witnesses on the same service: the same output shape with
-	// the evidence policy yields COMPLETE-with-evidence (not NO_POLICY), and
-	// the outside-slice shape yields UNSUPPORTED (neither NO_POLICY nor
-	// COMPLETE).
 	evidence, err := engine.CompileResolvedBundle(s.ctx, exec12exBundle(recipe.PivotUnlistedCategoryExcludeWithEvidence, false), bindings)
 	if err != nil {
 		t.Fatalf("evidence compile: %s", s.scrub(err))
@@ -1053,11 +907,6 @@ func TestPostgresExclusionsNoPolicyStatusDistinctLivePG18(t *testing.T) {
 		t.Fatalf("only the COMPLETE-with-evidence witness may run statements (the NO_POLICY and UNSUPPORTED witnesses run zero), got %d", recorder.counts())
 	}
 
-	// Compile-live AQL twin control: the same authored no-policy bundle on
-	// the Arango target reports the same distinct status at this layer
-	// (production compile through the canonical AQL renderer; no Arango
-	// service is contacted — the no-policy refusal fires before dispatch,
-	// which is exactly what is being twin-pinned).
 	twinConfig := exec12exForbidArango()
 	twinConfig.SourceRows = func(context.Context, dataframeexecution.RowsRequest, dataframeexecution.RowVisitor) error {
 		return errors.New("the no-policy twin must never execute a query")

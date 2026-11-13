@@ -5,15 +5,6 @@ import (
 	"testing"
 )
 
-// TestRequestBodySchemasRejectUnknownMembersAtGeneratedBoundary pins the OpenAPI
-// promise that every request body schema (additionalProperties: false) stays
-// closed at the generated HTTP boundary, mirroring strict_json.go's contract:
-// "keep mutation requests closed at the generated HTTP boundary". An ignored
-// unknown member turns a client typo (e.g. a mistyped filter or outputId) into
-// a silently dropped field instead of the documented 400 (the shared error
-// handler renders binder rejections as INVALID_REQUEST). The
-// update-explorer-config body is an x-go-type alias of authoringv2.Workspace
-// and is waived in strict_json.go pending that type-boundary decision.
 func TestRequestBodySchemasRejectUnknownMembersAtGeneratedBoundary(t *testing.T) {
 	requests := map[string]func() any{
 		"ArtifactPrepareRequest":                      func() any { return &ArtifactPrepareRequest{} },
@@ -62,10 +53,6 @@ func TestRequestBodySchemasRejectUnknownMembersAtGeneratedBoundary(t *testing.T)
 	}
 }
 
-// TestNewlyClosedRequestBodiesStillDecodeMinimalPayloads guards against
-// over-strictness: the request types that only gained strictness (no semantic
-// rules) must still decode their empty envelope; required-field validation
-// stays with the documented handler validators.
 func TestNewlyClosedRequestBodiesStillDecodeMinimalPayloads(t *testing.T) {
 	minimalAllowed := []func() any{
 		func() any { return &ArtifactPrepareRequest{} },
@@ -97,19 +84,6 @@ func TestNewlyClosedRequestBodiesStillDecodeMinimalPayloads(t *testing.T) {
 	}
 }
 
-// TestLookupSourceBinderPairingMatchesCanonicalAcceptSet pins the
-// strict_json.go LookupSource discriminator against the single authority on
-// writable source semantics, authoringv2 ColumnSource.validate: the binder's
-// early XOR checks must neither accept a payload the domain layer would
-// reject nor narrow a payload the domain accepts (a rejected round-86 variant
-// blanket-blocked the identifier arm and broke the UPDATE_COLUMN round-trip
-// of resolver-produced identifierBySystem columns). The identifier binding is
-// accepted alone, mirroring the writable branch in semantic_types.go, with
-// the kind==identifierBySystem gate and ValidateIdentifierBinding left to the
-// domain authority the lookup object alone cannot see; the binder is
-// deliberately one notch narrower (an explicit empty/blank match or path
-// pointer next to identifier is rejected here although TrimSpace would make
-// it empty at the domain).
 func TestLookupSourceBinderPairingMatchesCanonicalAcceptSet(t *testing.T) {
 	accept := []string{
 		`{"match":"category","path":"category.coding[]","projectionMode":"VALUE"}`,

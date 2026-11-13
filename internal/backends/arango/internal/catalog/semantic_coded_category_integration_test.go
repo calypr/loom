@@ -92,8 +92,6 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 		code := fmt.Sprintf("large-%03d", i)
 		addCategoryCode("scope-a", code, "Large category "+code, largeSystem, largeVersion)
 	}
-	// This code sorts after the ordinary members and is matched by code because
-	// its display is absent. It must still select the complete family.
 	lateCodeOnlyWitness := "zz-late-code-only-witness"
 	addCategoryCode("scope-a", lateCodeOnlyWitness, "", largeSystem, largeVersion)
 	addCategoryCode("scope-b", "scope-b-private", "AAA scope-b private category", largeSystem, largeVersion)
@@ -101,8 +99,6 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 	smallDisplays := []string{"Small category alpha", "Small category beta"}
 	addCategoryCode("scope-a", "small-alpha", smallDisplays[0], "urn:c01:small", "v1")
 	addCategoryCode("scope-a", "small-beta", smallDisplays[1], "urn:c01:small", "v1")
-	// Keep the fallback in a one-code family so its representative example is
-	// deterministic while still exercising indexed family aggregation.
 	const fallbackSystem = "urn:c01:fallback"
 	addCategoryCode("scope-a", "small-fallback-code", "", fallbackSystem, "v1")
 	addCategoryCode("scope-a", "other-system-code", "Other system", "urn:c01:other", "v1")
@@ -219,8 +215,6 @@ func TestSemanticInventoryPagesAndResolvesCodedCategoryFamilies(t *testing.T) {
 	if resolvedSmall.FamilyID != smallRef.FamilyID || resolvedSmall.Population != 2 {
 		t.Fatalf("resolved small category family = %+v; want both matching Coding rows", resolvedSmall)
 	}
-	// Family DTOs intentionally carry one deterministic representative example;
-	// the population and descriptor cover the full system/version family.
 	assertSemanticCategoryExamples(t, resolvedSmall, []string{smallDisplays[0]})
 	resolvedFallback, err := store.ResolveSemanticInventorySelections(ctx, catalog.SemanticInventoryResolveOptions{
 		Project:                       project,

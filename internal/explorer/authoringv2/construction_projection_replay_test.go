@@ -1,18 +1,5 @@
 package authoringv2
 
-// Projection owner-branch replay family: closes the FORMAL-62-U1 replay-lane
-// gap (verification/publication-bundle/FINDINGS.md Round 61 §1): the
-// validatePivotSourceProjection dispatch arms and the carry-prefix loop were
-// unreachable to the model/replay. The ConstructionProjectionOwnership model
-// (cf0ca558) covers decision semantics with eight violating-by-design fault
-// cfgs (m-prj-f-*); this family pins the Go branch outcomes and their exact
-// reject strings. Boundary is disclosed per branch: accept cases and every
-// rejection reachable through the public Construction.Validate run full-suite;
-// nil-payload and sorting-owner isolations collide with earlier structural
-// validators inside full-suite and additionally pin the exact branch string
-// through the direct validator entry, mirroring how the model's branchAccepts
-// maps to construction_validation.go:338-397.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -105,8 +92,6 @@ func projectionPivotStepWithValue(id, inputStepID, valueColumnID string, outputs
 }
 
 func projectionCaseConstruction(branch string) (*Construction, []Column, error) {
-	// root_filter is always index 0; extraOutputs are the non-public columns a
-	// carrying prefix step must publish for the projection to reach its owner.
 	rootExtras := []string{}
 	addRoot := func(ids ...string) { rootExtras = append(rootExtras, ids...) }
 	finish := func(extraSteps ...ConstructionStep) (*Construction, []Column, error) {
@@ -203,9 +188,6 @@ func projectionCaseProjection(branch string) ConstructionSourceProjection {
 	return projectionFacts(column, owner)
 }
 
-// projectionBranchExpectation is the single Go-side source of truth for the
-// observable outcome of every branch; the Node lane and contract assert the
-// same id/accept/substring triples through the batch channel.
 func projectionBranchExpectation(branch string) (accepted bool, contains string) {
 	switch branch {
 	case "pivot-accept", "group-accept", "filter-accept", "derive-accept", "unpivot-accept":

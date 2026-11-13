@@ -1,13 +1,5 @@
 package server
 
-// Live battery for the full PostgreSQL server runtime
-// (pg-runtime-server-composition). Mirrors the first-query-route harness:
-// own verify_pgcomp_* census, enumerated mint inventory, TestZZ zero-leftover
-// audit (N-5: foreign prefixes are never deleted or attributed), and every
-// leg boots the PRODUCTION composition (composePostgreSQLFullRuntime) and
-// drives it through the production handler stack. The PostgreSQL legs never
-// skip when LOOM_TEST_POSTGRES_URL is set; they fail loud.
-
 import (
 	"bytes"
 	"context"
@@ -41,20 +33,14 @@ import (
 )
 
 const (
-	pgCompDBFmt     = "verify_pgcomp_%d_%s"
-	pgCompSchemaFmt = "verify_pgcomp_%d_%s_%s"
-	pgCompProject   = "pgcomp-p1"
-	pgCompGenA      = "generation-a"
-	pgCompAppTag    = "verify-pgcomp-server"
-	// firstQueryRouteDeferral is the marker every deliberate refusal of the
-	// first-query route carries (postgreSQLFirstQueryRouteWiringError). No
-	// response from the FULL runtime may ever carry it: the ladder composed
-	// past the route, and a deferral resurfacing means a stub came back.
+	pgCompDBFmt             = "verify_pgcomp_%d_%s"
+	pgCompSchemaFmt         = "verify_pgcomp_%d_%s_%s"
+	pgCompProject           = "pgcomp-p1"
+	pgCompGenA              = "generation-a"
+	pgCompAppTag            = "verify-pgcomp-server"
 	firstQueryRouteDeferral = "first query route"
 )
 
-// Six-series placement: one minted schema per series inside one minted
-// database. The tokens are fixed so the census regex can enumerate them.
 var pgCompSeriesTokens = []struct {
 	series control.Series
 	token  string
@@ -84,17 +70,13 @@ type pgCompMint struct {
 	dropped bool
 }
 
-// pgCompMintInventory is the checked-in enumeration of this file's minting
-// legs. The TestZZ audit asserts the runtime registry matches it leg-for-leg.
 var pgCompMintInventory = map[string]int{
-	"TestPostgresRuntimeFullLadderServesProductionReads": 1,
-	"TestPostgresRuntimeServerLoadRouteServesEndToEnd":   1,
-	// pg-runtime-health-readiness legs (each mints one database).
-	"TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware": 1,
-	"TestPostgresRuntimeReadinessReportsNeverMigratedSchema":        1,
-	"TestPostgresRuntimeReadinessReportsMissingSchema":              1,
-	"TestPostgresRuntimeVerifySchemaIsReadOnly":                     1,
-	// arch-backend-08 composition-matrix live leg (one database).
+	"TestPostgresRuntimeFullLadderServesProductionReads":               1,
+	"TestPostgresRuntimeServerLoadRouteServesEndToEnd":                 1,
+	"TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware":    1,
+	"TestPostgresRuntimeReadinessReportsNeverMigratedSchema":           1,
+	"TestPostgresRuntimeReadinessReportsMissingSchema":                 1,
+	"TestPostgresRuntimeVerifySchemaIsReadOnly":                        1,
 	"TestBackendCompositionContract/liveProductionCompose_ledgerHolds": 1,
 }
 
@@ -250,9 +232,6 @@ func newPgCompFixture(t *testing.T) *pgCompFixture {
 	return &pgCompFixture{dsn: dsn, schemas: schemas, scrub: scrub, secrets: secrets, admin: admin, database: database}
 }
 
-// migrate bootstraps all six series through the public factory
-// (SetupMigrate). The composition itself opens with SetupNone, so migrating
-// here is what makes a schema "arranged" the way the factory's law requires.
 func (f *pgCompFixture) migrate(t *testing.T) {
 	t.Helper()
 	runtime, err := backendspostgres.Open(context.Background(), control.Config{
@@ -271,8 +250,6 @@ func (f *pgCompFixture) migrate(t *testing.T) {
 	}
 }
 
-// catalogRuntime opens the factory for the four catalog evidence writers the
-// ingest lane requires, exactly as the loom-data CLI composes them.
 func (f *pgCompFixture) catalogRuntime(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
 	runtime, err := backendspostgres.Open(context.Background(), control.Config{
@@ -302,8 +279,6 @@ func (f *pgCompFixture) pgOptions(application string) ingest.PGSourceOptions {
 	}
 }
 
-// load stages one generation through the production ingest entry point, the
-// same shape the loom-data CLI takes.
 func (f *pgCompFixture) load(t *testing.T, project, generation string, files map[string][]string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -368,10 +343,6 @@ func pgCompRepoPath(t *testing.T, elems ...string) string {
 	}
 }
 
-// pgCompBootConfig turns the live fixture into the consumable full-ladder
-// configuration. The server.schema stays the repository graph schema (the
-// load route feeds it to graph.Load; a schema NAME would be a defect the
-// load leg below would catch).
 func pgCompBootConfig(t *testing.T, f *pgCompFixture, listen string) Config {
 	t.Helper()
 	u, err := url.Parse(f.dsn)
@@ -435,9 +406,6 @@ func pgCompGraphQL(t *testing.T, app *fiber.App, body string) testHTTPResponse {
 	return requestJSON(t, app, http.MethodPost, "/graphql/graph", body)
 }
 
-// pgCompAssertNoLaneLeak is the shared honesty check for every response this
-// battery inspects: no Arango surface, no AQL tell, and no resurfaced
-// first-query-route deferral on the full runtime.
 func pgCompAssertNoLaneLeak(t *testing.T, f *pgCompFixture, what, body string) {
 	t.Helper()
 	lower := strings.ToLower(body)
@@ -451,12 +419,6 @@ func pgCompAssertNoLaneLeak(t *testing.T, f *pgCompFixture, what, body string) {
 	}
 }
 
-// TestPostgresRuntimeFullLadderServesProductionReads boots the full
-// composition against a live six-series fixture (gen-A loaded+active through
-// the CLI-parity ingest lane) and proves the ladder serves: the read lane
-// answers exact scalars, generation status reads from the manifest store,
-// and the capabilities the first-query route deferred no longer carry its
-// deferral (they reach the wired engine and answer on their own merits).
 func TestPostgresRuntimeFullLadderServesProductionReads(t *testing.T) {
 	fixture := newPgCompFixture(t)
 	fixture.migrate(t)
@@ -496,11 +458,6 @@ func TestPostgresRuntimeFullLadderServesProductionReads(t *testing.T) {
 		}
 	})
 
-	// The first-query route pinned these as BACKEND_UNAVAILABLE wiring
-	// refusals (retryable=false). The full runtime wires the recipe engine
-	// and the reference-backed traversal lane stays a typed refusal of the
-	// compiler/graph path -- but never the route deferral and never an
-	// Arango surface, which pgCompAssertNoLaneLeak enforces on every leg.
 	graphqlLegs := []struct{ name, query string }{
 		{"recipe_validate", `{"query":"mutation { validateDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + pgCompProject + `\"}}) { name } }"}`},
 		{"recipe_explain", `{"query":"query { explainDataframeRecipe(input: {name: \"r\", bindings: {project: \"` + pgCompProject + `\"}}) { name } }"}`},
@@ -518,14 +475,6 @@ func TestPostgresRuntimeFullLadderServesProductionReads(t *testing.T) {
 		})
 	}
 
-	// Live witness for the closer ordering law, gated on an owned
-	// ClickHouse (LOOM_CLICKHOUSE_URL; the leg is absent -- not skipped --
-	// when the environment does not own one, so the registered skip-set is
-	// unchanged). compose has already returned here, so a ClickHouse client
-	// deferred closed inside compose would be closed while readiness runs:
-	// the Ping inside ClickHouseReadyCheck fails and readiness reports
-	// 503/backend_unavailable instead of 200/ready. With the client owned
-	// by the returned closer, readiness stays ready for the whole serve.
 	if clickhouseURL := strings.TrimSpace(os.Getenv("LOOM_CLICKHOUSE_URL")); clickhouseURL != "" {
 		t.Run("clickhouse_client_survives_compose_return", func(t *testing.T) {
 			chConfig := pgCompBootConfig(t, fixture, "127.0.0.1:0")
@@ -554,12 +503,6 @@ func TestPostgresRuntimeFullLadderServesProductionReads(t *testing.T) {
 	}
 }
 
-// TestPostgresRuntimeServerLoadRouteServesEndToEnd is the headline delta of
-// the composition over the first-query route: the load route now runs the
-// ingest lane's own PostgreSQL entry point through the server (the route
-// used to answer with the CLI-deferral 503). The generation loads AND
-// activates through the production handler stack, the manifest store reports
-// it active, and the read lane serves the row the server itself loaded.
 func TestPostgresRuntimeServerLoadRouteServesEndToEnd(t *testing.T) {
 	fixture := newPgCompFixture(t)
 	fixture.migrate(t)
@@ -599,9 +542,6 @@ func TestPostgresRuntimeServerLoadRouteServesEndToEnd(t *testing.T) {
 		t.Fatalf("server-side load must serve through the PostgreSQL ingest lane, got %d %s", response.StatusCode, fixture.scrub(text))
 	}
 
-	// Direct witness that the server's load route ran the CLI-parity
-	// activation: the project's active POINTER names the server-loaded
-	// generation (activation law: pointer moves, manifest row stays STAGED).
 	{
 		witness := fixture.catalogRuntime(t)
 		defer func() { _ = witness.Close() }()
@@ -614,11 +554,6 @@ func TestPostgresRuntimeServerLoadRouteServesEndToEnd(t *testing.T) {
 		}
 	}
 
-	// The PostgreSQL manifest store keeps the row STAGED and activates by
-	// moving the project's active POINTER (ResolveActiveManifest), so the
-	// status endpoint honestly reports state=STAGED with reusable=true for a
-	// server-loaded generation on both lanes. ACTIVE-ness is proven by the
-	// read lane below, which resolves through the active manifest pointer.
 	status := requestJSON(t, app, http.MethodGet, "/api/v1/datasets/"+pgCompProject+"/generations/"+generation, "")
 	pgCompAssertNoLaneLeak(t, fixture, "loaded-generation status", status.Body)
 	if status.StatusCode != http.StatusOK || !strings.Contains(status.Body, generation) ||
@@ -635,18 +570,6 @@ func TestPostgresRuntimeServerLoadRouteServesEndToEnd(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg-runtime-health-readiness legs.
-// ---------------------------------------------------------------------------
-
-// TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware is the
-// acceptance battery for the PostgreSQL readiness posture: the selected
-// source backend and ClickHouse are reported independently (a dead
-// ClickHouse never hides a healthy PostgreSQL, and the /health 200-degraded
-// contract is preserved); liveness stays DB-free even after the pool is
-// closed; and a schema whose ledger disagrees with the embedded history
-// yields not_ready with a safe core_state token that flips back the moment
-// the ledger is repaired (/readyz is uncached).
 func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T) {
 	markReadinessLeg(t, "TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware")
 	fixture := newPgCompFixture(t)
@@ -686,13 +609,6 @@ func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T)
 		}
 	})
 
-	// Independence, headline cell: ClickHouse is dead while the selected
-	// PostgreSQL source backend is healthy. The clickhouse-go HTTP protocol
-	// opens lazily, so the dead port only bites at EnsureDatabase (a
-	// recorded degradation compose must survive) and at the readiness Ping.
-	// The body must report BOTH verdicts: core=ready and
-	// dataframe=backend_unavailable. /health keeps its cached 200-degraded
-	// contract with the same core verdict.
 	t.Run("clickhouse_failure_never_hides_the_selected_backend", func(t *testing.T) {
 		chConfig := pgCompBootConfig(t, fixture, "127.0.0.1:0")
 		chConfig.Server.ClickHouse = ClickHouseConfig{
@@ -725,20 +641,12 @@ func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T)
 		}
 	})
 
-	// Schema mismatch (edited applied checksum) is not_ready and
-	// DISTINGUISHABLE from connectivity: core_state=schema_mismatch while
-	// the pool stays live and serving. Repairing the ledger flips the
-	// uncached /readyz back to 200 — proving the probe reads the ledger
-	// every call rather than caching a verdict.
 	t.Run("schema_mismatch_yields_not_ready_and_repairs_back_to_ready", func(t *testing.T) {
 		pool, err := pgxpool.New(ctx, fixture.dsn)
 		if err != nil {
 			t.Fatalf("connect ledger mutator: %s", fixture.scrub(err))
 		}
 		defer pool.Close()
-		// The ledger table name is the store-owned "schema_migrations"; the
-		// minted schema names are lowercase [a-z0-9_] by the census pattern,
-		// so quoting is exact.
 		ledger := `"` + fixture.schemas[control.SeriesSource] + `".schema_migrations`
 		var version int64
 		var original string
@@ -770,9 +678,6 @@ func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T)
 		}
 	})
 
-	// Liveness is DB-free on the full runtime in the strongest sense: the
-	// pool is closed (Readiness would fail with runtime_closed) and /livez
-	// still answers the published body through the production handler stack.
 	t.Run("closed_pool_keeps_liveness_and_refuses_readiness", func(t *testing.T) {
 		closeNow()
 		live := requestJSON(t, app, http.MethodGet, "/livez", "")
@@ -789,15 +694,9 @@ func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T)
 	})
 }
 
-// TestPostgresRuntimeReadinessReportsNeverMigratedSchema pins the
-// migration-state half of the acceptance: compose opens pre-schema (Ping is
-// version-only), so a never-migrated placement COMPOSES but must never
-// report ready; core_state=schema_unmigrated distinguishes it from both
-// connectivity_down and a ledger that disagrees, and the pool never leaks
-// the credential-bearing error text into the body.
 func TestPostgresRuntimeReadinessReportsNeverMigratedSchema(t *testing.T) {
 	markReadinessLeg(t, "TestPostgresRuntimeReadinessReportsNeverMigratedSchema")
-	fixture := newPgCompFixture(t) // schemas created, never migrated
+	fixture := newPgCompFixture(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -830,13 +729,6 @@ func TestPostgresRuntimeReadinessReportsNeverMigratedSchema(t *testing.T) {
 	}
 }
 
-// TestPostgresRuntimeVerifySchemaIsReadOnly is the read-only proof for the
-// readiness ledger probe (coordinator condition 1): for every assigned
-// series it calls the exact per-series VerifySchema the production probe
-// dispatches to, and pins that the ledger rows (version, name, checksum,
-// applied_at), the schema's tables, columns, and index definitions are
-// byte-identical across the call. The lock-free half is pinned offline in
-// the store package (TestVerifyIsReadOnlyAndLockFree).
 func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 	markReadinessLeg(t, "TestPostgresRuntimeVerifySchemaIsReadOnly")
 	fixture := newPgCompFixture(t)
@@ -924,23 +816,12 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 	}
 }
 
-// TestPostgresRuntimeReadinessReportsMissingSchema is the F1 regression
-// cell (verifier finding: the schema_missing token was unreachable
-// because the facade ErrInvalidSchemaName aliased a duplicate dataset
-// errors.New while the probe emits the store identity). It points ONE
-// non-source series -- recipe_exec_registries, exercising that series'
-// VerifySchema wrapper chain, not the source shortcut -- at a
-// never-created schema: compose survives (Health is version-only), the
-// uncached /readyz answers 503 core=not_ready core_state=schema_missing,
-// distinguishable from connectivity_down on a pool that is demonstrably
-// answering, and /livez stays DB-free.
 func TestPostgresRuntimeReadinessReportsMissingSchema(t *testing.T) {
 	markReadinessLeg(t, "TestPostgresRuntimeReadinessReportsMissingSchema")
 	fixture := newPgCompFixture(t)
 	fixture.migrate(t)
 
 	cfg := pgCompBootConfig(t, fixture, "127.0.0.1:0")
-	// Well-formed name the fixture deliberately never created.
 	cfg.Server.PostgreSQL.Schemas[string(control.SeriesRecipeExecRegistries)] =
 		fmt.Sprintf(pgCompSchemaFmt, time.Now().UnixNano(), pgCompRandomHex(t), "exec_missing")
 
@@ -975,10 +856,6 @@ func TestPostgresRuntimeReadinessReportsMissingSchema(t *testing.T) {
 	}
 }
 
-// TestPgCompCensusVocabularyCorrespondence pins offline that every name this
-// file can mint matches its own census regex, near-miss shapes never minted
-// do not, and the q-route / query-package vocabularies stay disjoint from
-// this census (the separation that keeps parallel live batteries race-free).
 func TestPgCompCensusVocabularyCorrespondence(t *testing.T) {
 	hex := func() string {
 		var b [6]byte
@@ -1025,7 +902,6 @@ func TestPgCompCensusVocabularyCorrespondence(t *testing.T) {
 	}
 }
 
-// TestZZPgCompZeroLeftoverFixtures is the N-5 audit for this file's census.
 func TestZZPgCompZeroLeftoverFixtures(t *testing.T) {
 	raw := pgCompTestPostgresURL(t)
 	if !pgCompBaselineSet {

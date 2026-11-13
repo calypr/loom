@@ -10,14 +10,8 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// CapabilitySnapshotCollection is intentionally separate from the legacy
-// Explorer collections. Registration in the server bootstrap should include
-// this persistent, non-truncating collection.
 const CapabilitySnapshotCollection = "loom_explorer_capability_snapshots"
 
-// CapabilitySnapshotCollectionSpec is exported so the server's shared
-// bootstrap registry can append it without coupling this adapter to the
-// legacy collection list.
 func CapabilitySnapshotCollectionSpec() store.CollectionSpec {
 	return store.CollectionSpec{
 		Name: CapabilitySnapshotCollection,
@@ -28,9 +22,6 @@ func CapabilitySnapshotCollectionSpec() store.CollectionSpec {
 	}
 }
 
-// CapabilitySnapshotStore persists the complete canonical snapshot under its
-// content address. Insert-ignore is deliberate: retries never execute an
-// UPDATE, so an immutable document's payload and revision remain untouched.
 type CapabilitySnapshotStore struct{ client client }
 
 func NewCapabilitySnapshotStore(c client) (*CapabilitySnapshotStore, error) {
@@ -151,8 +142,6 @@ func capabilitySnapshotKey(token string) string {
 }
 
 func canonicalSnapshotDocument(snapshot capability.Snapshot, key string) (map[string]any, error) {
-	// CanonicalPayload is the exact payload covered by Token. Add Token back to
-	// that normalized object so Arango stores a canonical *full* snapshot.
 	var doc map[string]any
 	if err := json.Unmarshal(snapshot.CanonicalPayload(), &doc); err != nil {
 		return nil, err

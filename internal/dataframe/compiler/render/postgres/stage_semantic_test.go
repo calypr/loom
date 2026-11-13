@@ -1,13 +1,5 @@
 package postgres
 
-// pg-sql-16 G2 (L-13.3 closure) offline legs: the registered semantic-family
-// Group key renders the membership walk, matcher, per-row dedup, zero-match
-// fallback row, tuple identity, code policy, and the group label over the
-// production-lowered inline GROUP plan with a hand-carried resolved family
-// (production authoring stays refused at recipe.Bundle.Validate —
-// "semanticCategory is not a resolved BINDING" — which is L-13.3's own
-// probe receipt, cited in group.go's register).
-
 import (
 	"strings"
 	"testing"
@@ -26,9 +18,6 @@ const (
 	sql16SemanticIdentity = "1.4.2"
 )
 
-// sql16SemanticAttach mounts a fully resolved family onto an already
-// lowered inline GROUP plan and declares the label column in both the stage
-// and the terminal schema (ir/physical_stage_validation.go:167-171,286).
 func sql16SemanticAttach(t *testing.T, plan *ir.PhysicalPlan, version string) {
 	t.Helper()
 	if plan.StageSequence == nil || len(plan.StageSequence.Stages) != 1 {
@@ -47,8 +36,6 @@ func sql16SemanticAttach(t *testing.T, plan *ir.PhysicalPlan, version string) {
 	if !ok || resourceType == "" {
 		t.Fatalf("root collection bind %q carries no resource type", scan.CollectionBindKey)
 	}
-	// The label is a public string column: clone the lowered string output's
-	// compiled shape rather than inventing one.
 	template := ir.PhysicalStageColumn{}
 	for _, column := range stage.OutputColumns {
 		if column.Kind == "string" {
@@ -105,8 +92,6 @@ func sql16SemanticAttach(t *testing.T, plan *ir.PhysicalPlan, version string) {
 	}
 }
 
-// sql16SemanticPlan is the healthy registered shape: the keyed COUNT_ROWS
-// base plus a versioned semantic family key.
 func sql16SemanticPlan(t *testing.T, policy recipe.ConstructionGroupMissingKeyPolicy, version string) ir.PhysicalPlan {
 	t.Helper()
 	plan := group13CountRowsPlan(t, policy)
@@ -123,9 +108,6 @@ func sql16SemanticRender(t *testing.T, plan ir.PhysicalPlan) (string, []string) 
 	return rendered.SQL, rendered.OutputColumns
 }
 
-// sql16RegionRenderer builds the minimal renderer the grouped-aggregate
-// region needs, with the root scan's row scope registered the way
-// renderRootScan does (population.go:473).
 func sql16RegionRenderer(t *testing.T, plan ir.PhysicalPlan) *planRenderer {
 	t.Helper()
 	renderer := &planRenderer{
@@ -136,8 +118,6 @@ func sql16RegionRenderer(t *testing.T, plan ir.PhysicalPlan) *planRenderer {
 	return renderer
 }
 
-// group13ReturnOp returns the lowered plan's RETURN operation, the source
-// projection the inline door materializes columns from.
 func group13ReturnOp(t *testing.T, plan ir.PhysicalPlan) *ir.PhysicalReturn {
 	t.Helper()
 	var ret *ir.PhysicalReturn
@@ -163,18 +143,11 @@ func sql16SemanticRefusal(t *testing.T, plan ir.PhysicalPlan, want string) {
 	}
 }
 
-// TestSQL16SemanticGolden pins the registered region shape on the healthy
-// plan: the carrier walk, the matcher chain, the per-row dedup, the
-// zero-match fallback, the tuple terms, the label, the identity member, and
-// the terminal order — with every family string a bound parameter.
 func TestSQL16SemanticGolden(t *testing.T) {
 	plan := sql16SemanticPlan(t, recipe.ConstructionGroupMissingKeyGroup, sql16SemanticIdentity)
 	sql, names := sql16SemanticRender(t, plan)
 
-	// --- the walk (construction_group.go:676-693). ---
 	for _, want := range []string{
-		// IS_ARRAY-guarded expansion per repeated segment, inside one
-		// correlated subquery whose aggregate is the raw projection.
 		`COALESCE((SELECT jsonb_agg(semx1.item) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(`,
 		`) = 'array' THEN `, ` ELSE '[]'::jsonb END) AS semx1(item)), '[]'::jsonb)`,
 	} {
@@ -183,19 +156,17 @@ func TestSQL16SemanticGolden(t *testing.T) {
 		}
 	}
 
-	// --- the matcher (construction_group.go:713-718). ---
 	for _, want := range []string{
 		`jsonb_typeof(_mc.coding) = 'object'`,
 		`_mc.coding -> $`,
 		`= 'string'`,
 		`_mc.coding ->> $`,
-		`IS NULL`, // the version branch is present in one of its two forms
+		`IS NULL`,
 	} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("matcher fragment missing: %s", want)
 		}
 	}
-	// The per-row dedup + collapse, and the zero-match fallback row.
 	for _, want := range []string{
 		`MIN(`, ` COLLATE "C") AS g_sc1`,
 		`FROM jsonb_array_elements("csem") AS _mc(coding)`,
@@ -207,8 +178,6 @@ func TestSQL16SemanticGolden(t *testing.T) {
 			t.Errorf("dedup/fallback fragment missing: %s\n%s", want, sql)
 		}
 	}
-	// The tuple terms join the key terms and the label is the MIN-or-code
-	// reading (:225-228, :253-256, :300-310).
 	for _, want := range []string{
 		`g_ssy AS g_ssy`, `g_svr AS g_svr`, `g_sco AS g_sco`,
 		`CASE WHEN MIN(g_sdi COLLATE "C") IS NULL THEN g_sco ELSE MIN(g_sdi COLLATE "C") END AS g_slb`,
@@ -218,7 +187,6 @@ func TestSQL16SemanticGolden(t *testing.T) {
 			t.Errorf("grouping fragment missing: %s\n%s", want, sql)
 		}
 	}
-	// The identity member (:170-171) and the registered terminal order.
 	for _, want := range []string{
 		`"semantic_family"`,
 		`to_jsonb($`,
@@ -234,24 +202,17 @@ func TestSQL16SemanticGolden(t *testing.T) {
 			t.Errorf("identity/order fragment missing: %s\n%s", want, sql)
 		}
 	}
-	// No family string reaches SQL text: they are parameters only.
 	for _, secret := range []string{sql16SemanticSystem, sql16SemanticBinding, sql16SemanticRule,
 		sql16SemanticFamily, sql16SemanticIdentity, sql16SemanticPath, "coding", "code"} {
 		if strings.Contains(sql, "'"+secret+"'") {
 			t.Errorf("family string %q reached SQL text", secret)
 		}
 	}
-	// The label is one emitted column beside keys, reducers, and identity.
 	if len(names) != 4 || names[2] != sql16SemanticOutput || names[3] != groupRowIDColumn {
 		t.Fatalf("output columns = %v", names)
 	}
 }
 
-// TestSQL16SemanticWalkChain pins the multi-repeated-segment form of the
-// walk: each repeated segment adds one IS_ARRAY-guarded
-// jsonb_array_elements step, chained CROSS JOIN LATERAL so an emptied
-// branch prunes the row exactly as the AQL nested FOR does, inside the one
-// correlated carrier subquery.
 func TestSQL16SemanticWalkChain(t *testing.T) {
 	plan := sql16SemanticPlan(t, recipe.ConstructionGroupMissingKeyGroup, sql16SemanticIdentity)
 	key := plan.StageSequence.Stages[0].Group.SemanticKey
@@ -271,9 +232,6 @@ func TestSQL16SemanticWalkChain(t *testing.T) {
 	}
 }
 
-// TestSQL16SemanticVersionBranches pins the two matcher version arms
-// (:715-718): a non-blank family version compares the trim-gated read to the
-// bind; a blank family version demands the read be null.
 func TestSQL16SemanticVersionBranches(t *testing.T) {
 	t.Run("versioned-family", func(t *testing.T) {
 		sql, _ := sql16SemanticRender(t, sql16SemanticPlan(t, recipe.ConstructionGroupMissingKeyGroup, sql16SemanticIdentity))
@@ -292,8 +250,6 @@ func TestSQL16SemanticVersionBranches(t *testing.T) {
 	})
 }
 
-// TestSQL16SemanticMissingKeyPolicy pins the code policy arms
-// (construction_group.go:172-180) with their alive controls.
 func TestSQL16SemanticMissingKeyPolicy(t *testing.T) {
 	t.Run("group-keeps-null-code", func(t *testing.T) {
 		sql, _ := sql16SemanticRender(t, sql16SemanticPlan(t, recipe.ConstructionGroupMissingKeyGroup, sql16SemanticIdentity))
@@ -316,16 +272,9 @@ func TestSQL16SemanticMissingKeyPolicy(t *testing.T) {
 	group13AliveControl(t)
 }
 
-// TestSQL16SemanticKeylessGrandTotal pins the door law the AQL gate
-// (construction_group.go:50-53) states: an in-scope source row admits a
-// keyless Group when a semantic family key is present, so the
-// COUNT_ROWS-only grand-total restriction does not apply to it.
 func TestSQL16SemanticKeylessGrandTotal(t *testing.T) {
 	plan := group13KeylessPlan(t)
 	sql16SemanticAttach(t, &plan, sql16SemanticIdentity)
-	// The base keyless plan is COUNT_ROWS-only plus row values; add a SUM
-	// reducer, which the keyless grand total would refuse without the
-	// semantic key.
 	stage := &plan.StageSequence.Stages[0]
 	stage.Group.Aggregates = append(stage.Group.Aggregates, ir.PhysicalStageGroupAggregate{
 		Operation: "MIN", InputColumn: "value", Output: "semantic_min", Variable: "group_semantic_min_9",
@@ -359,8 +308,6 @@ func TestSQL16SemanticKeylessGrandTotal(t *testing.T) {
 		t.Fatalf("a keyless Group carrying a semantic family key must render: %v", err)
 	}
 
-	// Alive control on the refusal: the same shape WITHOUT the family key
-	// stays the keyless grand-total restriction.
 	without := group13KeylessPlan(t)
 	withoutStage := &without.StageSequence.Stages[0]
 	withoutStage.Group.Aggregates = append(withoutStage.Group.Aggregates, ir.PhysicalStageGroupAggregate{
@@ -373,9 +320,6 @@ func TestSQL16SemanticKeylessGrandTotal(t *testing.T) {
 	}
 }
 
-// TestSQL16SemanticDoorRefusals pins the registered arm's fail-closed half:
-// every incomplete or inconsistent family is a typed refusal, and each cell
-// is paired with the healthy render as the alive control.
 func TestSQL16SemanticDoorRefusals(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -392,9 +336,6 @@ func TestSQL16SemanticDoorRefusals(t *testing.T) {
 			plan.StageSequence.Stages[0].Group.SemanticKey.OutputColumn = ""
 		}, "missing its output column"},
 		{"foreign-input-stage", func(t *testing.T, plan *ir.PhysicalPlan) {
-			// The door's own inline law is InputStageID == SourceStageID;
-			// moving both off the direct-root stage id keeps that law true
-			// and reaches the semantic arm's ir:1480 re-read.
 			plan.StageSequence.SourceStageID = "not_the_source_projection"
 			plan.StageSequence.Stages[0].InputStageID = "not_the_source_projection"
 		}, "direct-root"},
@@ -445,9 +386,6 @@ func TestSQL16SemanticDoorRefusals(t *testing.T) {
 		sql16SemanticRefusal(t, plan, "reserved for the renderer's semantic carrier column")
 	})
 	t.Run("family-key-mints-no-carrier-at-composition", func(t *testing.T) {
-		// The region refuses a family key whose carrier was never minted
-		// (the composition door's own refusal stays the front door; this
-		// is the belt behind it).
 		plan := sql16SemanticPlan(t, recipe.ConstructionGroupMissingKeyGroup, sql16SemanticIdentity)
 		stage := plan.StageSequence.Stages[0]
 		renderer := sql16RegionRenderer(t, plan)
@@ -483,9 +421,6 @@ func TestSQL16SemanticDoorRefusals(t *testing.T) {
 	group13AliveControl(t)
 }
 
-// TestSQL16SemanticNonSemanticDriftIsZero pins the byte-preservation half:
-// the same base plan without a family key renders no membership relation, no
-// carrier, and no semantic identity member.
 func TestSQL16SemanticNonSemanticDriftIsZero(t *testing.T) {
 	sql, _ := sql16SemanticRender(t, group13CountRowsPlan(t, recipe.ConstructionGroupMissingKeyGroup))
 	for _, forbidden := range []string{

@@ -1,23 +1,5 @@
 package aql
 
-// AQL-side pin for the construction UNPIVOT stage-schema identity contract
-// (PR #137 review of lower/recipe_construction.go,
-// reconcileConstructionUnpivotSchema). The demotion is backend-neutral
-// lowering, so it reaches the IR this AQL renderer consumes: production
-// lowering (recipe -> semantic.BuildRecipePlan -> semantic.ResolveRecipePlan
-// -> lower.CompileResolvedRecipePlan, zero hand-shaping) must yield an
-// UNPIVOT stage schema where the retained root _key is internal and
-// identity-free (the ir:1097-1101 posture: a retained root _key stays
-// separate from the terminal identity) and the generated row identity is
-// the sole identity column, and the AQL renderer must render the stage
-// (TABLE_UNPIVOT witness, table_reshape.go:557).
-//
-// RED-capable: reverting the lowering demotion (dropping
-// column.Identity = false in the computed arm) makes _key claim a second
-// identity and this cell fails on the identity count — the pre-demotion
-// IR is what AQL would emit. The PG-side twin is
-// render/postgres TestSQL16CompositionKindSweep/UNPIVOT.
-
 import (
 	"strings"
 	"testing"

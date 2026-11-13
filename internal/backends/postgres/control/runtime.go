@@ -27,11 +27,6 @@ import (
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 )
 
-// Rows and Row are the structural read shapes of the runtime's streaming
-// query surface. They declare exactly the methods a caller may use on a
-// result (the same subset the row-visitor boundary exposes), which keeps
-// the control plane free of any driver import: the concrete value behind
-// them is the pool's own cursor, satisfied structurally.
 type Rows interface {
 	Next() bool
 	Scan(dest ...any) error
@@ -44,51 +39,16 @@ type Row interface {
 	Scan(dest ...any) error
 }
 
-// Runtime is the control-plane composition returned by Open: typed domain
-// ports, the pool behind narrow structural surfaces, and lifecycle hooks.
-// It is deliberately a struct of exported fields and not a service locator:
-// no map lookups, no generic Service() accessor, and no field exposes a pgx
-// pool, a driver type, or a private adapter type (asserted by the backend
-// ownership contract). The row-execution ports (SourceRows, PlanJSON) live
-// on the postgres.Runtime that embeds this one.
 type Runtime struct {
-	// Manifests is the dataset generation lifecycle port (create, read,
-	// CAS transition, active resolution, activation CAS) over the
-	// DatasetReleaseSeries assignment.
-	Manifests publicationcontract.ManifestLifecycle
-	// The four catalog evidence ports a PostgreSQL generation load drives
-	// after the resource and edge passes, wired over the source schema.
+	Manifests     publicationcontract.ManifestLifecycle
 	FieldProfiles catalog.FieldProfileWriter
 	Inventory     catalog.InventoryRebuilder
 	Relationships catalog.RelationshipDiscoverer
 	Contributions catalog.SemanticContributor
-	// Catalog is the full catalog store over the source series: one
-	// NewFullStore value over the inventory, field-profile, and
-	// relationship-evidence repositories, serving as the value behind the
-	// FieldProfiles, Inventory, and Relationships ports above and carrying
-	// the capability-evidence reads (DiscoverResourceInventory,
-	// DiscoverRelationshipObservations, DiscoverFieldEnrichment) that
-	// catalog.ReadCapabilityEvidence consumes from a single reader.
-	// Contributions is a separate repository, as is the semantic-inventory
-	// read lane (the SemanticReads port).
-	Catalog *catalogstore.Store
-	// Releases is the dataset release repository (save, read-active,
-	// compare-and-swap activate) over the dataset_release series.
-	Releases *datasetstore.ReleaseStore
-	// SemanticReads is the semantic-inventory read lane over the source
-	// series (PageSemanticInventory, ResolveSemanticInventorySelections)
-	// consumed by the Explorer authoring compile path.
+	Catalog       *catalogstore.Store
+	Releases      *datasetstore.ReleaseStore
 	SemanticReads *catalogstore.SemanticReadRepository
 
-	// Data-plane ports (pg-runtime-server-composition). Each is assembled
-	// only when its owning series is assigned in Config; a consumer that
-	// needs an unassigned port treats the nil as a configuration refusal,
-	// never a silent zero value. The Explorer family is hosted by
-	// explorer_control; Publish crosses into dataset_release (it moves the
-	// active project release pointer) and is assembled only when both are
-	// assigned. Bundles and Chartifacts are hosted by the publication_control
-	// ledger; RecipeRevisions by recipe_chains; RecipeExecutions by
-	// recipe_exec_registries.
 	Explorer            *explorerstore.Store
 	Publish             *explorerstore.PublishStore
 	Interpretations     *explorerstore.InterpretationStore
@@ -103,34 +63,25 @@ type Runtime struct {
 	client        *pgstore.Client
 	sourceSchema  string
 	datasetSchema string
-	// schemas is the validated full placement copied from Config at Open:
-	// the readiness probe verifies every assigned series' ledger, so every
-	// assigned schema must stay reachable (pg-runtime-health-readiness).
-	schemas  map[Series]string
-	closeOne sync.Once
-	closeErr error
-	closed   bool
-	mu       sync.Mutex
+	schemas       map[Series]string
+	closeOne      sync.Once
+	closeErr      error
+	closed        bool
+	mu            sync.Mutex
 }
 
-// Compile-time port conformance: signature drift between these adapters and
-// their neutral contracts fails the build, not the live run. (The
-// rows.Querier conformance assertion lives in the postgres package, the
-// only place the rows adapter may be imported without an import cycle.)
 var (
 	_ publicationcontract.ManifestLifecycle = (*datasetstore.Store)(nil)
 	_ catalog.FieldProfileWriter            = (*catalogstore.Store)(nil)
 	_ catalog.InventoryRebuilder            = (*catalogstore.Store)(nil)
 	_ catalog.RelationshipDiscoverer        = (*catalogstore.Store)(nil)
+	_ catalog.CapabilityEvidenceReader      = (*catalogstore.Store)(nil)
 	_ catalog.SemanticContributor           = (*catalogstore.SemanticContributionRepository)(nil)
+	_ catalog.InventoryRebuilder            = (*catalogstore.InventoryAdapter)(nil)
+	_ catalog.FieldProfileWriter            = (*catalogstore.FieldProfileAdapter)(nil)
+	_ catalog.RelationshipDiscoverer        = (*catalogstore.RelationshipAdapter)(nil)
 )
 
-// Open validates the configuration, opens exactly one readiness-gated
-// PostgreSQL 18 pool for the selected backend, applies the approved schema
-// setup policy, and assembles the control-plane adapters. Every failure
-// path closes the resources created so far; no half-initialized runtime
-// escapes. The error text never carries connection credentials while the
-// cause chain stays intact for errors.Is/As classification.
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -156,9 +107,6 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 
 	rt := &Runtime{client: client}
-	// Retain the full validated placement: the readiness probe verifies
-	// every assigned series' ledger, so the runtime must know all assigned
-	// schemas, not only the two the migration helpers address.
 	if len(cfg.Schemas) > 0 {
 		rt.schemas = make(map[Series]string, len(cfg.Schemas))
 		for series, schema := range cfg.Schemas {
@@ -186,7 +134,6 @@ func Open(ctx context.Context, cfg Config) (*Runtime, error) {
 	return rt, nil
 }
 
-// setup applies the approved schema setup policy for every assigned series.
 func (r *Runtime) setup(ctx context.Context, cfg Config) error {
 	if cfg.Setup == SetupNone {
 		return nil
@@ -219,13 +166,6 @@ func (r *Runtime) setup(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// assembleControlPorts wires the dataset lifecycle port over the
-// DatasetReleaseSeries assignment and the four catalog evidence ports over
-// the source assignment. An unassigned series leaves its port nil: a
-// consumer that needs it must assign the series in Config, and the port
-// nil-ness is a configuration refusal, never a silent zero value at use
-// time. Every constructor keeps its own validation; the assembly performs
-// no computation of its own.
 func (r *Runtime) assembleControlPorts(cfg Config) error {
 	password := redact.ExtractDSNPassword(cfg.DSN)
 	if schema, assigned := cfg.Schemas[SeriesDatasetRelease]; assigned {
@@ -251,14 +191,6 @@ func (r *Runtime) assembleControlPorts(cfg Config) error {
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble relationship evidence repository in %q", schema), err, password)
 	}
-	// One full Store over all three repositories backs every source-series
-	// catalog port. The capability resolver consumes all three evidence
-	// reads from a single value (catalog.ReadCapabilityEvidence), so the
-	// Catalog port must carry all three legs — the composition that made
-	// Runtime.Catalog inventory-only was the PG-PG-CAPABILITY-EVIDENCE-
-	// COMPOSITION-PANIC (nil deref on the absent legs). The single-leg
-	// constructors remain for the narrow ingest-recipe ports; here all
-	// four ports are the same assembled value.
 	catalogStore, err := catalogstore.NewFullStore(inventoryRepo, profileRepo, relationshipsRepo)
 	if err != nil {
 		return redactWrap(ErrBootstrap, fmt.Sprintf("assemble catalog store in %q", schema), err, password)
@@ -280,20 +212,6 @@ func (r *Runtime) assembleControlPorts(cfg Config) error {
 	return nil
 }
 
-// leasedDB presents the runtime's one readiness-gated pool through the
-// structural Exec/Query/QueryRow/Begin contract that the publication,
-// recipe-chain, recipe-execution, and private-artifact constructors require.
-// It is deliberately behaviorally identical to the *pgxpool.Pool method set
-// those constructors accept in witnesses: Query and QueryRow delegate to the
-// store client's own lease-aware methods (same acquire-timeout discipline as
-// the control plane), Exec leases one connection for the statement, and
-// Begin binds a leased connection to the returned transaction, releasing it
-// exactly once on Commit or Rollback -- the standing pgx contract that every
-// transaction in this backend already honors. One leasedDB value is shared
-// by all data-plane stores of a runtime, so consumers that verify handle
-// identity (the reconciler's registry/pins same-database law) compare one
-// pointer. The type adds no semantics: same pool, same leases, no second
-// connection domain.
 type leasedDB struct {
 	client *pgstore.Client
 }
@@ -328,10 +246,6 @@ func (d *leasedDB) Begin(ctx context.Context) (pgx.Tx, error) {
 	return &leasedTx{Tx: tx, releaseOne: &sync.Once{}, release: conn.Release}, nil
 }
 
-// leasedTx completes the Begin lease: the connection returns to the pool on
-// whichever of Commit or Rollback the caller performs (pgx requires exactly
-// one; the once-guard makes an accidental second call a no-op instead of a
-// pool misuse).
 type leasedTx struct {
 	pgx.Tx
 	releaseOne *sync.Once
@@ -350,24 +264,8 @@ func (t *leasedTx) Rollback(ctx context.Context) error {
 	return err
 }
 
-// assembleDataPlanePorts wires the read- and write-plane adapters a fully
-// composed PostgreSQL server needs, each over its owning series' assigned
-// schema: the Explorer family over explorer_control (with Publish, which
-// additionally requires the dataset_release assignment because it moves the
-// active project release pointer), the dataset release repository over
-// dataset_release, the bundle catalog and private-artifact catalog over
-// publication_control (both hosted by that series' ledger, so one schema
-// and one pool can never straddle), the recipe revision chain over
-// recipe_chains, and the recipe execution registry over
-// recipe_exec_registries. An unassigned series leaves its ports nil; the
-// consumer's need for a nil port is a configuration refusal at the
-// composition boundary, never a silent zero value at use time. Every
-// constructor keeps its own validation; the assembly performs no
-// computation of its own.
 func (r *Runtime) assembleDataPlanePorts(cfg Config) error {
 	password := redact.ExtractDSNPassword(cfg.DSN)
-	// One handle for every DB-seam store, so handle-identity laws downstream
-	// (the reconciler's registry/pins same-database check) compare one value.
 	dataDB := &leasedDB{client: r.client}
 	if schema, assigned := cfg.Schemas[SeriesDatasetRelease]; assigned {
 		releases, err := datasetstore.NewReleaseStore(r.client, schema)
@@ -416,9 +314,6 @@ func (r *Runtime) assembleDataPlanePorts(cfg Config) error {
 			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble bundle catalog in %q", schema), err, password)
 		}
 		r.Bundles = bundles
-		// The private ClickHouse artifact catalog's tables are hosted by the
-		// publication_control ledger (chartifact package note), so it shares
-		// the bundle catalog's schema assignment by construction.
 		chartifacts, err := chartifactstore.NewCatalog(dataDB, schema)
 		if err != nil {
 			return redactWrap(ErrBootstrap, fmt.Sprintf("assemble private artifact catalog in %q", schema), err, password)
@@ -442,13 +337,6 @@ func (r *Runtime) assembleDataPlanePorts(cfg Config) error {
 	return nil
 }
 
-// NewPublicationReconciler binds the abandoned-execution sweep to the
-// runtime's own bundle registry and pin arbiter (one pool, one schema, as
-// NewBundleCatalog guarantees) with the caller's active-release reader --
-// pass the runtime's Releases repository for the PUBLISHED janitor arm, or
-// nil to skip it, the same wiring rule the ClickHouse store enforces. The
-// sweep's physical drop hook is caller-owned because the physical tables
-// live in ClickHouse, not here.
 func (r *Runtime) NewPublicationReconciler(releases publicationcontract.ActiveReleaseResolver) (*publicationstore.Reconciler, error) {
 	if r.isClosed() {
 		return nil, ErrRuntimeClosed
@@ -459,18 +347,8 @@ func (r *Runtime) NewPublicationReconciler(releases publicationcontract.ActiveRe
 	return publicationstore.NewReconciler(r.Bundles.Registry, r.Bundles.Pins(), releases)
 }
 
-// ConnSource exposes the pool behind the store's connection-source
-// contract, so callers construct store-side writers and repositories over
-// the runtime's own pool without naming the pool type.
 func (r *Runtime) ConnSource() ConnSource { return r.client }
 
-// PoolClient hands the typed pool client to the postgres factory package,
-// the only legal importer of the rows adapter. The adapter's Querier
-// contract is asserted at compile time in that package
-// (var _ rows.Querier = (*store.Client)(nil)); nothing travels untyped, so
-// the bridge cannot silently degrade to a runtime reflection check at
-// row-consumption time. A closed runtime yields nil, which the factory
-// treats as a bootstrap failure.
 func (r *Runtime) PoolClient() *Client {
 	if r.isClosed() {
 		return nil
@@ -478,9 +356,6 @@ func (r *Runtime) PoolClient() *Client {
 	return r.client
 }
 
-// Query runs one statement on the pool and streams its rows behind the
-// structural Rows surface, honoring the configured acquire timeout. The
-// caller must close the returned Rows.
 func (r *Runtime) Query(ctx context.Context, sql string, args ...any) (Rows, error) {
 	if r.isClosed() {
 		return nil, ErrRuntimeClosed
@@ -488,8 +363,6 @@ func (r *Runtime) Query(ctx context.Context, sql string, args ...any) (Rows, err
 	return r.client.Query(ctx, sql, args...)
 }
 
-// QueryRow runs one statement expected to yield at most one row, behind
-// the structural Row surface.
 func (r *Runtime) QueryRow(ctx context.Context, sql string, args ...any) Row {
 	if r.isClosed() {
 		return closedRow{}
@@ -501,12 +374,6 @@ type closedRow struct{}
 
 func (closedRow) Scan(dest ...any) error { return ErrRuntimeClosed }
 
-// MigrateDatasetReleaseSchema applies the dataset_release series' owned
-// migrations to its assigned schema over the runtime pool, idempotently and
-// advisory-locked — the manifest lane's counterpart to MigrateSchema for
-// callers that own bootstrap explicitly. It never creates a schema: an
-// absent assigned schema is a named refusal, and schema lifecycle stays
-// with the caller.
 func (r *Runtime) MigrateDatasetReleaseSchema(ctx context.Context) (MigrateResult, error) {
 	if r.isClosed() {
 		return MigrateResult{}, ErrRuntimeClosed
@@ -517,14 +384,6 @@ func (r *Runtime) MigrateDatasetReleaseSchema(ctx context.Context) (MigrateResul
 	return datasetstore.MigrateSchema(ctx, r.client, r.datasetSchema)
 }
 
-// MigrateSchema applies every owned source-series migration to the assigned
-// source schema over the runtime's own pool, idempotently and under an
-// advisory lock. It never creates a schema: when the assigned schema is
-// absent the migration runner refuses, and the caller owns schema lifecycle
-// (the live Open witness pins exactly that refusal under SetupMigrate). The
-// generation-load bootstrap calls this while its own bootstrap stage is
-// measured; the SetupMigrate policy covers callers that want setup folded
-// into the open.
 func (r *Runtime) MigrateSchema(ctx context.Context) (MigrateResult, error) {
 	if r.isClosed() {
 		return MigrateResult{}, ErrRuntimeClosed
@@ -535,8 +394,6 @@ func (r *Runtime) MigrateSchema(ctx context.Context) (MigrateResult, error) {
 	return pgstore.MigrateSchema(ctx, r.client, r.sourceSchema)
 }
 
-// Health reports whether the backend is reachable and still the selected
-// PostgreSQL 18 service. It is the narrow liveness hook: no pool internals.
 func (r *Runtime) Health(ctx context.Context) error {
 	if r.isClosed() {
 		return ErrRuntimeClosed
@@ -544,19 +401,6 @@ func (r *Runtime) Health(ctx context.Context) error {
 	return r.client.Ping(ctx)
 }
 
-// Readiness is the core-readiness probe for the selected PostgreSQL backend
-// (pg-runtime-health-readiness). It is Health's reachability and version
-// verdict plus, for every assigned series, the read-only ledger probe
-// (store.MigrationRunner.Verify through each series' VerifySchema): a
-// selected backend whose schema was never migrated, migrated away from, or
-// edited under the ledger is NOT ready, and the returned error classifies
-// which via errors.Is against the factory schema-state sentinels
-// (ErrInvalidSchemaName, ErrMigrationPending, ErrMigrationChecksumMismatch,
-// ErrFutureSchemaVersion, ErrMigrationMissing, ErrMigrationOutOfOrder),
-// while connectivity keeps ErrConnect and the version gate keeps
-// ErrUnsupportedVersion. The probe acquires no migration lock, applies no
-// DDL, and writes no ledger row: a readiness read can never mutate the
-// store. Unassigned series are skipped, never probed.
 func (r *Runtime) Readiness(ctx context.Context) error {
 	if err := r.Health(ctx); err != nil {
 		return err
@@ -588,8 +432,6 @@ func (r *Runtime) Readiness(ctx context.Context) error {
 	return nil
 }
 
-// Close releases the pool. It is safe to call concurrently and repeatedly:
-// the underlying pool close runs once; later calls return the same verdict.
 func (r *Runtime) Close() error {
 	r.closeOne.Do(func() {
 		r.mu.Lock()
@@ -614,12 +456,6 @@ func connectionNonce() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// withApplicationName tags the DSN's backends so pg_stat_activity witnesses
-// exactly the connections this runtime owns. A DSN that already carries an
-// application_name keeps it verbatim: the consumer's own witness tag (the
-// loader's attribution tag, a test suite's named pool) must survive to
-// pg_stat_activity, and the own-prefix nonce is only minted when nothing
-// tagged the connection.
 func withApplicationName(dsn, applicationName string) string {
 	if u, err := url.Parse(dsn); err == nil && u.Scheme != "" {
 		q := u.Query()
@@ -636,8 +472,6 @@ func withApplicationName(dsn, applicationName string) string {
 	return dsn + " application_name=" + applicationName
 }
 
-// redactWrap keeps causes reachable (errors.Is/As) while guaranteeing the
-// rendered text never carries the connection credential.
 type redactedError struct {
 	msg   string
 	cause error

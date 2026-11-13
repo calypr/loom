@@ -30,10 +30,6 @@ type relatedCategoryPlan struct {
 	index       *PreviewCoveringIndexSpec
 }
 
-// compileRelatedCategoryScan accepts only a direct root source with its
-// canonical project, generation, and authorization scope, followed by a
-// connected chain of PRESERVE_PARENT related expansions and direct scalar
-// related-field helpers. All other plans use the existing category renderer.
 func compileRelatedCategoryScan(
 	plan ir.PhysicalPlan,
 	stageID, categoryColumnID, valueColumnID string,

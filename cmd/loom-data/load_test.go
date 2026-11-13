@@ -26,10 +26,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Spy runner + recording infrastructure.
-// ---------------------------------------------------------------------------
-
 type spyState struct {
 	mu sync.Mutex
 
@@ -148,9 +144,6 @@ func (s *spyState) runner() loadRunner {
 	}
 }
 
-// Catalog writer stubs satisfy the four GenerationCatalogWriters interfaces;
-// they exist only so the spy can hand back a Complete() bundle without any
-// network, never standing in for a commit (no positive claims ride on them).
 type stubFieldProfiles struct{}
 
 func (stubFieldProfiles) WriteFieldProfile(context.Context, control.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
@@ -224,10 +217,6 @@ func arangoBaseArgs() []string {
 	return []string{"--backend=arango", "--generation=gen-cli"}
 }
 
-// ---------------------------------------------------------------------------
-// Stage 1: backend tag first, dialect second.
-// ---------------------------------------------------------------------------
-
 func TestInspectLoadGenerationArgs(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -274,11 +263,6 @@ func TestNormalizeBackendTag(t *testing.T) {
 	}
 }
 
-// TestBackendTagValidatedBeforeDialect is the alive control for the
-// tag-before-dialect ordering law (internal/backends/postgres/internal/rows/rows.go:172-178):
-// every backend-specific setting is simultaneously invalid, and the error
-// must still be the backend sentinel. Reordering the stages flips the error
-// identity and fails this test.
 func TestBackendTagValidatedBeforeDialect(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	spy := newSpyState()
@@ -301,8 +285,6 @@ func TestBackendTagValidatedBeforeDialect(t *testing.T) {
 		t.Fatalf("misrouted backend touched %d seams, want 0", spy.totalCalls())
 	}
 
-	// Alive control: the same invocation with a valid tag reaches a dialect
-	// guard instead, proving the ordering witness is not vacuous.
 	_, _ = captureOutput(t, func() {
 		control := append([]string{}, args...)
 		control[0] = "--backend=postgres"
@@ -316,7 +298,6 @@ func TestBackendTagValidatedBeforeDialect(t *testing.T) {
 func TestBackendRequiredRefusesEntireInvocation(t *testing.T) {
 	t.Setenv(pgDSNEnv, "postgresql://env-user/envpass@127.0.0.1:1/envdb")
 	spy := newSpyState()
-	// Even a fully-populated environment DSN cannot substitute for the tag.
 	_, _ = captureOutput(t, func() {
 		err := dispatchLoadGeneration(context.Background(),
 			[]string{"--project=prj-a", "--generation=gen-a", "--pg-schema=s", "--pg-manifest-schema=m"}, spy.runner())
@@ -343,10 +324,6 @@ func TestHelpWithoutBackendPrintsCombinedUsage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Dispatch exclusivity: the PG invocation uses only the PG loader.
-// ---------------------------------------------------------------------------
-
 func TestDispatchPostgresUsesOnlyPGLoader(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	spy := newSpyState()
@@ -362,8 +339,6 @@ func TestDispatchPostgresUsesOnlyPGLoader(t *testing.T) {
 	if spy.count("loadPostgres") != 1 {
 		t.Fatalf("loadPostgres calls = %d, want 1", spy.count("loadPostgres"))
 	}
-	// The injected PG error proves Arango is never opened: not the Arango
-	// loader, not the Arango database-exists gate, nothing.
 	if spy.count("loadArango") != 0 || spy.count("requireDatabase") != 0 {
 		t.Fatalf("PG invocation touched Arango seams: %v", spy.calls)
 	}
@@ -453,7 +428,6 @@ func TestDispatchPostgresVerifyFailureSuppressesSuccess(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	ref := mustRef(t, "prj-cli", "gen-cli")
 
-	// Alive pair: identical inputs, opposite verification verdict.
 	spy := newSpyState()
 	spy.pgSummary = ingest.LoadSummary{Dataset: &ref}
 	spy.verifyErr = errors.New("manifest is LOADING")
@@ -487,7 +461,7 @@ func captureError(t *testing.T, spy *spyState) error {
 func TestDispatchPostgresNilManifestGuard(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	spy := newSpyState()
-	spy.pgSummary = ingest.LoadSummary{} // success without a dataset manifest
+	spy.pgSummary = ingest.LoadSummary{}
 	err := captureError(t, spy)
 	if err == nil || !strings.Contains(err.Error(), "dataset manifest") {
 		t.Fatalf("nil-manifest success must be refused, got %v", err)
@@ -515,7 +489,6 @@ func TestDispatchFailureSurfacesInactiveManifestForInspection(t *testing.T) {
 		t.Fatalf("failure with a known manifest must print the inspection note, got %q", spy.notes)
 	}
 
-	// Alive control: without a manifest reference the note must NOT appear.
 	spy2 := newSpyState()
 	spy2.pgErr = errors.New("too early to have a manifest")
 	_ = captureError(t, spy2)
@@ -526,16 +499,10 @@ func TestDispatchFailureSurfacesInactiveManifestForInspection(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Cross-backend misrouting refusals.
-// ---------------------------------------------------------------------------
-
 func TestCrossBackendFlagsAreRefusedWithoutEcho(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	_, _ = captureOutput(t, func() {
 		_, err := parsePostgresLoadCommand(append(pgBaseArgs(), "--url=http://arango-host-secret"), flag.ContinueOnError)
-		// The flag package normalizes to one dash in "flag provided but not
-		// defined: -url"; the setting name must be named, the value never.
 		if err == nil || !strings.Contains(err.Error(), "-url") {
 			t.Fatalf("postgres route must refuse --url, got %v", err)
 		}
@@ -552,17 +519,12 @@ func TestCrossBackendFlagsAreRefusedWithoutEcho(t *testing.T) {
 			t.Fatalf("parse refusal echoed the flag value: %v", err)
 		}
 	})
-	// Alive control: the same flags are accepted by their own route.
 	_, _ = captureOutput(t, func() {
 		if _, err := parseArangoLoadCommand(append(arangoBaseArgs(), "--url=http://arango-host"), flag.ContinueOnError); err != nil {
 			t.Fatalf("control: arango must accept --url: %v", err)
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Typed refusals with per-sentinel alive controls.
-// ---------------------------------------------------------------------------
 
 func TestTypedRefusalsWithAliveControls(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
@@ -614,9 +576,6 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 			controlOK: func() []string { return pgBaseArgs() },
 		},
 		{
-			// The manifest lane lives on its own schema (one history
-			// owner per schema): the CLI must refuse to run without
-			// naming it, before any dial.
 			name: "manifest schema required",
 			args: func() []string {
 				return []string{"--backend=postgres", "--project=p", "--generation=gen-a", "--pg-dsn=postgresql://h/db", "--pg-schema=s"}
@@ -643,9 +602,6 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 			controlOK: func() []string { return append(pgBaseArgs(), "--pg-max-conns=4") },
 		},
 		{
-			// Alive control for the int32 conversion wrap: flag.IntVar
-			// accepts this on 64-bit platforms, so without the explicit
-			// bound it would silently become MaxConns=705032704.
 			name:      "max conns int32 overflow",
 			args:      func() []string { return append(pgBaseArgs(), "--pg-max-conns=5000000000") },
 			sentinel:  ErrPGMaxConnsInvalid,
@@ -664,13 +620,9 @@ func TestTypedRefusalsWithAliveControls(t *testing.T) {
 			if !errors.Is(err, tc.sentinel) {
 				t.Fatalf("error = %v, want %v", err, tc.sentinel)
 			}
-			// No sentinel case may open a backend: zero seam calls.
 			if spy.totalCalls() != 0 {
 				t.Fatalf("refusal touched %d seams, want 0: %v", spy.totalCalls(), spy.calls)
 			}
-			// Alive control: the repaired invocation passes the guard. The
-			// environment DSN channel is cleared so a conflict-case control
-			// tests its own guard, not the conflict already exercised.
 			if tc.controlOK != nil {
 				t.Setenv(pgDSNEnv, "")
 				spyControl := newSpyState()
@@ -713,10 +665,6 @@ func TestApplicationNamePassesThroughToLoader(t *testing.T) {
 	}
 }
 
-// TestApplicationNamePaddedUsesTrimmedEverywhere is the alive control for
-// the padded-value review finding: the string that is regex-validated must
-// be the exact string that reaches both the loader and the catalog pool DSN
-// application_name, never a padded variant.
 func TestApplicationNamePaddedUsesTrimmedEverywhere(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	spy := newSpyState()
@@ -734,10 +682,6 @@ func TestApplicationNamePaddedUsesTrimmedEverywhere(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Arango route invariants preserved from the existing CLI.
-// ---------------------------------------------------------------------------
-
 func TestArangoGenerationInvariantsPreserved(t *testing.T) {
 	t.Setenv(pgDSNEnv, "")
 	_, _ = captureOutput(t, func() {
@@ -745,8 +689,6 @@ func TestArangoGenerationInvariantsPreserved(t *testing.T) {
 			!strings.Contains(err.Error(), "--generation is required for load-generation") {
 			t.Fatalf("missing --generation must refuse with the existing message, got %v", err)
 		}
-		// Same opaque-identifier violation the existing CLI suite uses:
-		// leading whitespace (cmd/arango-fhir-proto/main_test.go:128-132).
 		if _, err := parseArangoLoadCommand([]string{"--backend=arango", "--project=prj-a", "--generation= generation-a"}, flag.ContinueOnError); err == nil ||
 			!strings.Contains(err.Error(), "invalid --generation for load-generation") {
 			t.Fatalf("invalid --generation must refuse with the existing message, got %v", err)
@@ -774,10 +716,6 @@ func TestJoinApplicationName(t *testing.T) {
 		t.Fatalf("explicit application_name must be preserved: %q", existing)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Credential redaction (acceptance: no credential value in diagnostics).
-// ---------------------------------------------------------------------------
 
 const unitDSNPassword = "SENTINELPW999"
 const unitDSNKeywordSecret = "KEYSECRET123"
@@ -815,16 +753,11 @@ func TestRedactPGDiagnosticRemovesCredentials(t *testing.T) {
 		t.Fatal("keyword redaction must preserve classification")
 	}
 
-	// Identity passthrough when there is nothing to redact.
 	plain := errors.New("nothing secret here")
 	if got := redactPGDiagnostic(plain, urlDSN); got != plain {
 		t.Fatalf("credential-free error must pass through unchanged, got %v", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Subprocess contract: exit codes, differential parity, real-path redaction.
-// ---------------------------------------------------------------------------
 
 var (
 	buildOnce      sync.Once
@@ -906,25 +839,20 @@ func TestCLIBinaryUsageAndExitCodes(t *testing.T) {
 	if res := runCLI(t, loomBin, noDSNEnv(), "load-generation", "--backend=postgres", "--zz-not-a-flag"); res.code != 2 {
 		t.Fatalf("unknown flag must exit 2 via flag.ExitOnError, got %d", res.code)
 	}
-	// PrintDefaults renders flags with a single dash; assert that spelling.
 	if res := runCLI(t, loomBin, noDSNEnv(), "load-generation", "--backend=postgres", "-h"); res.code != 0 ||
 		!strings.Contains(res.stderr, "-pg-dsn") || !strings.Contains(res.stderr, "STAGED") || !strings.Contains(res.stderr, "NOT activated") {
 		t.Fatalf("route help: code %d stderr %q, want exit 0 naming pg flags and STAGED/NOT activated", res.code, res.stderr)
 	}
 }
 
-// flagLineRE matches PrintDefaults flag-opening lines.
 var flagLineRE = regexp.MustCompile(`^  -([A-Za-z0-9][A-Za-z0-9_-]*)`)
 
-// parseFlagUsage extracts per-flag records from a PrintDefaults block,
-// dropping the failf error line the caller must strip beforehand.
 func parseFlagUsage(t *testing.T, stderr string) map[string]string {
 	t.Helper()
 	lines := strings.Split(stderr, "\n")
 	if len(lines) == 0 {
 		t.Fatal("empty usage stderr")
 	}
-	// The first line is the flag package's failf error line.
 	lines = lines[1:]
 	records := map[string]string{}
 	current := ""
@@ -951,10 +879,6 @@ func parseFlagUsage(t *testing.T, stderr string) map[string]string {
 	return records
 }
 
-// TestArangoUsageSurfaceIsDifferentialParity builds the untouched
-// arango-fhir-proto binary and this one and compares the per-flag
-// PrintDefaults records of load-generation byte-for-byte. The only allowed
-// difference is loom-data's extra --backend routing flag.
 func TestArangoUsageSurfaceIsDifferentialParity(t *testing.T) {
 	loomBin, arangoBin := builtBinaries(t)
 
@@ -996,9 +920,6 @@ func TestArangoUsageSurfaceIsDifferentialParity(t *testing.T) {
 	}
 }
 
-// TestPostgresRouteUsageSurface proves the PG route advertises its own
-// settings, keeps the shared-knob records byte-identical to the existing
-// CLI, and never advertises Arango-only flags.
 func TestPostgresRouteUsageSurface(t *testing.T) {
 	loomBin, arangoBin := builtBinaries(t)
 
@@ -1019,7 +940,6 @@ func TestPostgresRouteUsageSurface(t *testing.T) {
 			t.Fatalf("postgres route is missing flag --%s", required)
 		}
 	}
-	// Shared knobs must be byte-identical to the existing CLI records.
 	arangoOnly := map[string]bool{"url": true, "database": true, "write-api": true, "project": true}
 	sharedChecked := 0
 	for name, oldLine := range oldRecords {
@@ -1040,11 +960,6 @@ func TestPostgresRouteUsageSurface(t *testing.T) {
 	}
 }
 
-// TestBadDSNErrsWithoutCredential is the coordinator-mandated live leg of
-// the boundary-redaction law: the REAL binary takes the REAL
-// the pool-open path (client.go pgx parse echo and the
-// loopback-connect path) with a sentinel password and must exit nonzero
-// with the password absent from every diagnostic.
 func TestBadDSNErrsWithoutCredential(t *testing.T) {
 	loomBin, _ := builtBinaries(t)
 
@@ -1073,8 +988,6 @@ func TestBadDSNErrsWithoutCredential(t *testing.T) {
 		})
 	}
 
-	// Alive control for the env channel: a both-set invocation is refused by
-	// the conflict sentinel, proving the environment path is live.
 	res := runCLI(t, loomBin, []string{pgDSNEnv + "=postgresql://env-host/envdb"}, "load-generation",
 		"--backend=postgres", "--project=prj-cli", "--generation=gen-cli",
 		"--pg-schema=verify_clidisp_s_unit",
@@ -1084,21 +997,11 @@ func TestBadDSNErrsWithoutCredential(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live PostgreSQL 18 leg (granted window). Own-prefix fixtures only,
-// ownership-scoped with a pre-snapshot, mirroring the pg-ingest-03
-// conventions (internal/ingest/generation_load_postgres_test.go:40-45,
-// 76-172, 1663-1681). LOOM_TEST_POSTGRES_URL is never printed: every test
-// diagnostic passes through the scrub closure first.
-// ---------------------------------------------------------------------------
-
 const cliDispPrefix = "verify_clidisp_"
 
 var (
-	cliDispDBNamePattern     = regexp.MustCompile(`^verify_clidisp_[0-9]+_[0-9a-f]+$`)
-	cliDispSchemaNamePattern = regexp.MustCompile(`^verify_clidisp_s_[0-9]+_[0-9a-f]+$`)
-	// The dataset_release series lives on its own schema (ingest.PGSourceOptions.ManifestSchema);
-	// the CLI refuses a postgres load without it.
+	cliDispDBNamePattern             = regexp.MustCompile(`^verify_clidisp_[0-9]+_[0-9a-f]+$`)
+	cliDispSchemaNamePattern         = regexp.MustCompile(`^verify_clidisp_s_[0-9]+_[0-9a-f]+$`)
 	cliDispManifestSchemaNamePattern = regexp.MustCompile(`^verify_clidisp_sm_[0-9]+_[0-9a-f]+$`)
 	cliDispAppPattern                = regexp.MustCompile(`^verify-clidisp-[0-9a-f]+$`)
 )
@@ -1112,9 +1015,6 @@ var (
 	cliDispUsed         bool
 )
 
-// cliDispDSNSecrets enumerates every credential view of a test-service URL
-// so no diagnostic can echo it (LOOM_TEST_POSTGRES_URL is never printed;
-// the pattern follows internal/ingest/generation_load_postgres_test.go:362-378).
 func cliDispDSNSecrets(raw string) []string {
 	secrets := []string{raw}
 	if parsed, err := url.Parse(raw); err == nil && parsed.User != nil {
@@ -1128,10 +1028,6 @@ func cliDispDSNSecrets(raw string) []string {
 	return secrets
 }
 
-// cliDispScrubber renders any value with every credential view of the test
-// service URL replaced. Every fatal/diagnostic in the live leg goes through
-// it: pgxpool.New parse failures echo the full connection string, password
-// included.
 func cliDispScrubber(raw string) func(any) string {
 	secrets := cliDispDSNSecrets(raw)
 	return func(v any) string {
@@ -1147,8 +1043,6 @@ func cliDispScrubber(raw string) func(any) string {
 
 func cliDispCaptureBaseline(raw string) {
 	cliDispBaselineOnce.Do(func() {
-		// Errors are stored already-scrubbed: the pgxpool.New failure text
-		// carries the DSN, and the stored error is printed by callers.
 		scrub := cliDispScrubber(raw)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -1159,7 +1053,6 @@ func cliDispCaptureBaseline(raw string) {
 		}
 		defer admin.Close()
 		var count int64
-		// Static literal LIKE pattern, not built input.
 		if err := admin.QueryRow(ctx,
 			"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_clidisp\\_%' ESCAPE '\\'").
 			Scan(&count); err != nil {
@@ -1199,7 +1092,6 @@ func newCLIDispService(t *testing.T) *cliDispService {
 		t.Skip("set LOOM_TEST_POSTGRES_URL to run the live PostgreSQL 18 CLI leg")
 	}
 	cliDispUsed = true
-	// Pre-snapshot before this process creates anything.
 	cliDispCaptureBaseline(raw)
 	if cliDispBaselineErr != nil {
 		t.Fatalf("baseline: %v", cliDispBaselineErr)
@@ -1223,12 +1115,6 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	t.Cleanup(cancel)
 
-	// Admin pool: the plain service URL. It hosts CREATE/DROP DATABASE and
-	// the pg_stat_activity witness queries only. It deliberately shares no
-	// url.Parse instance with any owned-database DSN (PR #118 verifier
-	// finding 1c): one shared parsed URL let the probe tag leak into the
-	// owned DSN, where joinApplicationName would then skip the operator's
-	// --pg-application-name.
 	admin, err := pgxpool.New(ctx, raw)
 	if err != nil {
 		t.Fatalf("connect for admin: %s", scrub(err))
@@ -1256,11 +1142,6 @@ func newCLIDispService(t *testing.T) *cliDispService {
 		cliDispOwnedMu.Unlock()
 	})
 
-	// The owned DSN handed to the CLI carries no application_name at all:
-	// joinApplicationName preserves an existing tag (cmd/loom-data/load.go
-	// and internal/ingest/generation_load.go:1275-1289), so a leaked probe
-	// tag there would silently skip the operator's --pg-application-name and
-	// the attribution witness could never fire (PR #118 verifier finding 1c).
 	owned, err := url.Parse(raw)
 	if err != nil {
 		t.Fatalf("owned dsn parse: %s", scrub(err))
@@ -1274,11 +1155,6 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	dsn := owned.String()
 	secrets = append(secrets, dsn)
 
-	// The iso pool doubles as the poller's alive control: it holds
-	// connections on the OWNED database tagged with the probe name, so the
-	// witness predicate (application_name = $probe AND datname = <owned>)
-	// fires from a connection this test owns. A probe on the service
-	// database could never match that datname (PR #118 verifier finding 1c).
 	control, err := url.Parse(raw)
 	if err != nil {
 		t.Fatalf("control dsn parse: %s", scrub(err))
@@ -1304,7 +1180,6 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
 		t.Fatalf("create owned schema: %s", scrub(err))
 	}
-	// The dataset_release series schema the CLI must be told about explicitly.
 	manifestSchema := fmt.Sprintf("%ssm_%d_%s", cliDispPrefix, time.Now().UnixNano(), cliDispRandomHex(t))
 	if !cliDispManifestSchemaNamePattern.MatchString(manifestSchema) {
 		t.Fatalf("owned manifest schema name %q violates the pattern", manifestSchema)
@@ -1315,9 +1190,6 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	return &cliDispService{t: t, ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, manifestSchema: manifestSchema, scrub: scrub, appProbe: "verify_clidisp_admin_probe"}
 }
 
-// cliDispWitnessPoller observes pg_stat_activity for a bound application_name
-// within this service's own database, so positive attribution cannot be
-// confused with sibling churn.
 type cliDispWitnessPoller struct {
 	t      *testing.T
 	svc    *cliDispService
@@ -1381,9 +1253,6 @@ func (w *cliDispWitnessPoller) observed(app string) int {
 	return w.seen[app]
 }
 
-// cliDispWriteFixtures writes the minimal two-resource staging directory in
-// the canonical shape the pg-ingest-03 suite uses (Patient + Observation
-// with a resolving subject reference and one LOINC-coded observation).
 func cliDispWriteFixtures(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1432,9 +1301,6 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 		t.Fatalf("witness application name %q violates the pattern", app)
 	}
 
-	// Witness: our load's application_name, the always-present admin probe
-	// (alive control for the poll itself), and a nonexistent name (selectivity
-	// control).
 	witness := startCLIDispWitness(t, svc, app, svc.appProbe, "verify-clidisp-no-such-app-xyz")
 	defer witness.stopPolling()
 
@@ -1464,19 +1330,11 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 		t.Fatalf("success must announce STAGED-and-not-activated, got %q", stderr)
 	}
 
-	// The last stdout line is the machine-readable summary (progress events
-	// precede it).
 	lines := strings.Split(strings.TrimSpace(stdout), "\n")
 	var summary ingest.LoadSummary
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &summary); err != nil {
 		t.Fatalf("last stdout line is not the summary JSON: %v\n%q", err, lines[len(lines)-1])
 	}
-	// Ground truth from the merged ing-03 contract: builders emit a
-	// forward/back-ref pair per logical subject edge — subject_Patient
-	// forward plus subject_observation back-ref for each subject reference
-	// (internal/ingest/generation_load_postgres_test.go:1127-1133, SQL-dumped
-	// ground truth in the PR #118 verification verdict) — so 2 files with
-	// 3 Patients + 2 Observations (one subject ref each) commit 2/5/4.
 	if summary.Files != 2 || summary.VerticesInserted != 5 || summary.EdgesInserted != 4 {
 		t.Fatalf("summary counts = files %d vertices %d edges %d, want literal 2/5/4",
 			summary.Files, summary.VerticesInserted, summary.EdgesInserted)
@@ -1484,15 +1342,10 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 	if summary.Dataset == nil || summary.Dataset.Project != project || summary.Dataset.Generation != generation {
 		t.Fatalf("summary dataset = %+v, want %s/%s", summary.Dataset, project, generation)
 	}
-	// Credential hygiene: the service DSN must never appear in CLI output.
 	if strings.Contains(stdout, svc.dsn) || strings.Contains(stderr, svc.dsn) {
 		t.Fatal("raw DSN appeared in CLI output")
 	}
 
-	// Literal-row witness through direct SQL: STAGED manifest and an
-	// untouched active-generation pointer (the STAGED-not-activated boundary).
-	// The dataset_release series (manifest, active pointers) lives on the
-	// manifest schema, not the data schema (store.SeriesDatasetRelease).
 	manifestTable := pgx.Identifier{svc.manifestSchema, "dataset_generation_manifest"}.Sanitize()
 	activeTable := pgx.Identifier{svc.manifestSchema, "dataset_active_generation"}.Sanitize()
 	var state string
@@ -1512,9 +1365,6 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 		t.Fatalf("active-generation pointer count = %d, want 0: the CLI must never activate", activeCount)
 	}
 
-	// Attribution: the load's own application_name was witnessed on this
-	// database (D5), with the admin probe proving the poll can see anything
-	// and the nonexistent name proving the predicate is selective.
 	if witness.observed(app) == 0 {
 		t.Fatalf("load backends were never witnessed with application_name %q", app)
 	}
@@ -1525,9 +1375,6 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 		t.Fatal("witness predicate is not selective")
 	}
 
-	// Negative leg: an empty staging directory is refused by the loader's
-	// zero-files guard, and a virgin schema is left untouched (never
-	// migrated) while the CLI connected only over PG.
 	virginSchema := fmt.Sprintf("%ss_%d_%s", cliDispPrefix, time.Now().UnixNano(), cliDispRandomHex(t))
 	if _, err := svc.iso.Exec(svc.ctx, `CREATE SCHEMA "`+virginSchema+`"`); err != nil {
 		t.Fatalf("create virgin schema: %s", svc.scrub(err))
@@ -1574,21 +1421,14 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 	}
 }
 
-// TestZZCLIDispLiveOwnershipAudit runs last in the package and is
-// ownership-scoped: it counts only this process's own verify_clidisp_*
-// prefix against the pre-snapshot baseline, so concurrent sibling workers
-// neither race nor trip it.
 func TestZZCLIDispLiveOwnershipAudit(t *testing.T) {
 	if !cliDispUsed {
 		t.Skip("live leg did not run in this process")
 	}
 	if cliDispBaselineErr != nil {
-		// Stored already-scrubbed by cliDispCaptureBaseline.
 		t.Fatalf("baseline was never captured: %v", cliDispBaselineErr)
 	}
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-	// pgxpool.New echoes the full DSN (password included) on parse failure:
-	// every audit diagnostic goes through the scrubber.
 	scrub := cliDispScrubber(raw)
 	admin, err := pgxpool.New(context.Background(), raw)
 	if err != nil {

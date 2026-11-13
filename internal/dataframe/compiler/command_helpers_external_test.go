@@ -6,9 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 )
 
-// testAQLView derives the AQL diagnostic view of a compiled command for
-// external-package tests. A dispatch failure is a test bug, not a runtime
-// condition, so it fails the test immediately.
 func testAQLView(t *testing.T, compiledCommand command.CompiledCommand) (string, map[string]any) {
 	t.Helper()
 	query, bindVars, err := compiledCommand.AQLParameters()

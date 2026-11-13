@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	groupScanAssessmentTimeout    = 500 * time.Millisecond
-	groupScanFullCollectionCutoff = 0.90
-	// Projection assessment and execution use a fixed per-query cap; admission
-	// leaves most of that cap available to other query state.
+	groupScanAssessmentTimeout                = 500 * time.Millisecond
+	groupScanFullCollectionCutoff             = 0.90
 	groupPreviewQueryMemoryLimitBytes   int64 = 256 << 20
 	groupPreviewProjectionMemoryShare         = 4
 	groupPreviewProjectionSafetyFactor        = 8
@@ -28,10 +26,6 @@ const (
 
 func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.CompiledQuery, stream *OutputStream) error {
 	if stream != nil && stream.command.Backend() == command.CompiledBackendPostgreSQL {
-		// The Group preview optimizer is an Arango control surface: it uses
-		// the Arango index listing, EXPLAIN result types, and AQL-shaped
-		// assessment queries. It never evaluates a PostgreSQL-served stream,
-		// even if a preview scan spec were somehow attached to it.
 		return contextError(ctx)
 	}
 	if query == nil || stream == nil || stream.sourceRows == nil ||
@@ -44,8 +38,6 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 
 	assessmentCtx, cancel := context.WithTimeout(ctx, groupScanAssessmentTimeout)
 	defer cancel()
-	// The ordinary command is kept for the projection decision key: the
-	// decision belongs to the canonical query, not to a factorized variant.
 	ordinaryCommand := query.Command
 	disableIndex := false
 	var selectedProjectionIndex *PreviewCollectionIndex
@@ -67,10 +59,6 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 				if renderErr != nil {
 					continue
 				}
-				// A hint render that is not AQL-tagged is a routing defect;
-				// the AQL adapter refuses it through closed dispatch, and
-				// the candidate is assessed conservatively as if the index
-				// were unavailable rather than dispatched anywhere.
 				scans, scansErr := e.previewCollectionScans(assessmentCtx, indexedCommand, query.PreviewGroupScan.Collection)
 				if assessmentCtx.Err() != nil {
 					return contextError(ctx)
@@ -98,16 +86,12 @@ func (e *Engine) chooseGroupPreviewScan(ctx context.Context, query *compiler.Com
 		}
 	}
 	if !coveringIndexSelected && query.PreviewGroupScan != nil && e.previewCollectionScans != nil && assessmentCtx.Err() == nil {
-		// The ordinary command must name AQL before the inspection seam is
-		// consulted: this gate is an execution error path, not an advisory
-		// evidence failure, exactly as before the capability boundary.
 		if _, _, dispatchErr := query.Command.AQLParameters(); dispatchErr != nil {
 			return dispatchErr
 		}
 		scans, err := e.previewCollectionScans(assessmentCtx, query.Command, query.PreviewGroupScan.Collection)
 		if err == nil && assessmentCtx.Err() == nil && hasNonCoveringRootIndex(scans, query.PreviewGroupScan.Collection) {
 			if e.previewCollectionCount == nil && query.PreviewGroupProjection == nil {
-				// Keep the canonical indexed query when the broad-scan decision lacks exact evidence.
 			} else {
 				projectionScopeCount := scopeCountMatchesProjection(query)
 				assessedScopeCountAttempted = projectionScopeCount
@@ -285,11 +269,6 @@ func compatibleGroupProjectionIndexes(collection string, required *compiler.Prev
 	return compatible
 }
 
-// hasCoveringRootIndexNamed reports whether neutral scan evidence shows the
-// command reading the collection through exactly one index node that covers
-// both the filtered and projected fields and names indexName. It is policy,
-// not decoding: the adapter already filtered nodes to the collection and
-// classified coverage; the empty collection or index name is never covered.
 func hasCoveringRootIndexNamed(evidence PreviewCollectionScanEvidence, collection, indexName string) bool {
 	if collection == "" || indexName == "" {
 		return false
@@ -525,11 +504,6 @@ func compatibleGroupPreviewIndexes(required *compiler.PreviewCoveringIndexSpec, 
 	return compatible
 }
 
-// hasNonCoveringRootIndex reports whether neutral scan evidence shows the
-// command reading the collection through exactly one index node that covers
-// neither the filtered nor the projected fields — the broad-scan signal that
-// may justify the canonical sequential fallback. Unknown coverage certifies
-// nothing.
 func hasNonCoveringRootIndex(evidence PreviewCollectionScanEvidence, collection string) bool {
 	if evidence.FullCollectionEnumeration || len(evidence.IndexNodes) != 1 {
 		return false

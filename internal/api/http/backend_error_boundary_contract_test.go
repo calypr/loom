@@ -1,12 +1,5 @@
 package httpapi
 
-// TestBackendErrorBoundaryContract is the transport side of the arch-backend-03
-// boundary: MapDataframeError consumes Loom errors produced at the adapter
-// seams (never vendor types) and produces the existing public semantics —
-// correct status, code, message, and safe details — with no SQL, query text,
-// bind values, constraint names, or credentials in any public payload.
-// Equivalent supported database failures map identically across backends.
-
 import (
 	"context"
 	"encoding/json"
@@ -53,9 +46,6 @@ func mustBody(t *testing.T, mapped MappedError) string {
 
 func TestBackendErrorBoundaryContract(t *testing.T) {
 	t.Run("map_consumes_only_loom_errors", func(t *testing.T) {
-		// Raw vendor failures reaching the transport unclassified are
-		// redacted to INTERNAL_ERROR with no vendor detail: the mapper never
-		// interprets them itself.
 		rawArango := fmt.Errorf("arango query: %w", shared.ArangoError{HasError: true, Code: 500, ErrorNum: 4, ErrorMessage: "boom hunter2"})
 		mapped := MapDataframeError(rawArango, "req-raw")
 		if mapped.Status != http.StatusInternalServerError || mapped.Body.Error.Code != "INTERNAL_ERROR" {
@@ -75,11 +65,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 	})
 
 	t.Run("equivalent_backend_failures_map_identically", func(t *testing.T) {
-		// The ArangoDB configured-limit rejection and the PostgreSQL
-		// server-policy cancel (SQLSTATE 57014) are equivalent supported
-		// failures: same public code family, same retry discipline. Uses the
-		// merged boundary's own severity literal spelling ("ERROR" as sent,
-		// "FATAL"/"PANIC" where relevant), never new ones.
 		arangoMapped := MapDataframeError(classifiedArangoFailure(t, shared.ArangoError{
 			HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "AQL: query would use more memory than allowed",
 		}), "req-a")
@@ -133,8 +118,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		if mapped.Body.Error.Code != "BACKEND_UNAVAILABLE" || !mapped.Body.Error.Retryable {
 			t.Fatalf("deadline = %d %q retryable=%t", mapped.Status, mapped.Body.Error.Code, mapped.Body.Error.Retryable)
 		}
-		// PG boundary keeps the sentinel reachable and never marks a caller
-		// cancel retryable.
 		pgCanceled := fmt.Errorf("acquire: %w: %w", control.ErrConnect, context.Canceled)
 		translated, ok := control.TranslateError(pgCanceled)
 		if !ok || !errors.Is(translated, context.Canceled) {
@@ -159,17 +142,12 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		if mapped.Body.Error.Code != "INTERNAL_ERROR" || mapped.Body.Error.Retryable {
 			t.Fatalf("unique violation mapped = %d %q retryable=%t", mapped.Status, mapped.Body.Error.Code, mapped.Body.Error.Retryable)
 		}
-		// The merged boundary's stable public fields (backend, condition,
-		// sqlstate) may appear; server-provided message text, constraint
-		// names, and column material may not.
 		body := mustBody(t, mapped)
 		for _, forbidden := range []string{"uq_cas_revision", "duplicate key", "violates unique constraint"} {
 			if strings.Contains(strings.ToLower(body), strings.ToLower(forbidden)) {
 				t.Fatalf("public payload leaked %q: %s", forbidden, body)
 			}
 		}
-		// A targeted CAS caller that proves the statement meaning can still
-		// upgrade it privately; the public mapping is unchanged either way.
 		if _, ok := control.AsUniqueConflict(translated); !ok {
 			t.Fatal("targeted upgrade path lost")
 		}
@@ -196,8 +174,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		if provenMapped.Body.Error.Retryable || ambiguousMapped.Body.Error.Retryable {
 			t.Fatal("no commit outcome may advertise a blanket retry")
 		}
-		// Both stay distinguishable to callers through sentinels even though
-		// both redact publicly.
 		if ambiguousMapped.Body.Error.Code != provenMapped.Body.Error.Code {
 			t.Fatal("public codes unexpectedly differ")
 		}
@@ -217,8 +193,6 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 			t.Fatal("transport must not advertise retry for transaction conflicts")
 		}
 		body := mustBody(t, mapped)
-		// The stable condition name and SQLSTATE are the boundary's public
-		// fields; the server's message text stays redacted.
 		if strings.Contains(strings.ToLower(body), "could not serialize access") {
 			t.Fatalf("public payload leaked the server message: %s", body)
 		}

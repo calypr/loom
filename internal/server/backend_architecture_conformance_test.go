@@ -1,34 +1,5 @@
 package server
 
-// TestBackendArchitectureConformance (arch-backend-10) is the required
-// dual-backend conformance suite: the SAME logical graph, the SAME
-// scenario cells, and LITERAL expected results (test constants, never
-// backend-vs-backend agreement) run through the PRODUCTION composition on
-// both real backends — composePostgreSQLFullRuntime over an owned
-// verify_ab10pg_* PostgreSQL 18 database and composeArangoRuntime over an
-// owned loom_test_ab10_arango_* ArangoDB database.
-//
-// Evidence classes are deliberately distinct (coverage amendment):
-//   - scenario verdicts come only from the production composition and the
-//     public handler stack (server.App().Test) or the arm's own production
-//     domain ports (activation CAS, publication-lease arbitration, the
-//     compiled-command row boundary);
-//   - raw driver probes (admin pgx / Arango HTTP document reads) are used
-//     ONLY for census audits and absence witnesses — they never substitute
-//     a compiler-backed Engine/API case and vice versa.
-//
-// Ingest rides the supported library entry points the loom-data CLI
-// dispatches to (ingest.Load / ingest.LoadPostgresGeneration), never the
-// HTTP load route. The lane skips at the ARM top when its service env var
-// is unset — a skipped arm is blocked acceptance adjudicated by CI, never
-// success. Both arms skip offline, so the parent still passes with exactly
-// two registered skip identities.
-//
-// Census law (mirrors the pgComp/qRoute precedent): every destructive
-// resource is a registered mint keyed by the minting leg; each arm ends
-// with a zero-survivor audit of its owned prefix; foreign prefixes are
-// never enumerated for deletion, never touched (N-5).
-
 import (
 	"bytes"
 	"context"
@@ -71,11 +42,6 @@ import (
 	"github.com/calypr/loom/internal/ingest"
 )
 
-// ---------------------------------------------------------------------------
-// Shared logical graph: byte-identical NDJSON on both arms, literal oracles
-// as test constants. Nothing here is derived from a backend response.
-// ---------------------------------------------------------------------------
-
 const (
 	ab10Project1 = "ab10-p1"
 	ab10Project2 = "ab10-p2"
@@ -83,27 +49,17 @@ const (
 	ab10GenB     = "ab10-gen-b"
 	ab10GenC     = "ab10-gen-c"
 
-	// Stored auth paths (program/project spellings normalize to distinct
-	// keys, so a restricted caller can grant one and not the other).
 	ab10PathMain    = "/programs/prog-a/projects/ab10-p1/clinical"
 	ab10PathForeign = "/programs/prog-a/projects/ab10-p2/clinical"
 	ab10PathUngrant = "/programs/prog-b/projects/ab10-p3/clinical"
 
-	// Fence subjects (sub claim of the stub-issued JWTs).
 	ab10SubjectGranted   = "ab10-granted"
 	ab10SubjectUnrelated = "ab10-unrelated"
 	ab10SubjectBroad     = "ab10-broad"
 )
 
-// ab10Literal is the pinned expected read-side view of the shared graph.
 type ab10Literal = map[string]map[string]string
 
-// ab10PatientLines is the exact NDJSON staged for Patient.ndjson. The
-// literals below are also the oracles: gender/birthDate values, the
-// explicit-null vs missing distinction on p-nullfield/p-nogender, and the
-// _key set. Observation rows carry the schema-required code (CodeableConcept)
-// and subject references so the repeated occurrence cell can bind both
-// occurrences to p-ada.
 func ab10PatientLines(t *testing.T) []string {
 	t.Helper()
 	return ab10JSONLines(t,
@@ -128,7 +84,6 @@ func ab10ForeignPatientLines(t *testing.T) []string {
 	)
 }
 
-// ab10StagedPatientLines belongs to the never-activated generation ab10-gen-b.
 func ab10StagedPatientLines(t *testing.T) []string {
 	t.Helper()
 	return ab10JSONLines(t,
@@ -157,7 +112,6 @@ func ab10GenFiles(t *testing.T) map[string][]string {
 	}
 }
 
-// GraphQL request bodies for the shared cells (same bytes both arms).
 const ab10PatientQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Patient","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
 
 const ab10ForeignQueryBody = `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project2 + `","rootResourceType":"Patient","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":10}}`
@@ -168,15 +122,8 @@ func ab10PagedQueryBody(limit int) string {
 	return `{"query":"mutation($input: FhirDataframeInput!, $limit: Int) { runFhirDataframe(input: $input, limit: $limit) { columns rowCount rows } }","variables":{"input":{"project":"` + ab10Project1 + `","rootResourceType":"Patient","rootFields":[{"name":"id","selector":{"valuePath":"id"}},{"name":"gender","selector":{"valuePath":"gender"}},{"name":"birthDate","selector":{"valuePath":"birthDate"}}]},"limit":` + strconv.Itoa(limit) + `}}`
 }
 
-// ab10DecodeRows decodes the handler's rows preserving the wire-level
-// distinction between an explicit JSON null and an absent key: each cell
-// value is kept as raw bytes and its presence is tracked separately.
 type ab10Row map[string]json.RawMessage
 
-// ab10OracleTester is the minimal tester surface the literal-oracle helpers
-// use. The live *testing.T satisfies it; a fresh &testing.T{} serves as the
-// shadow so a negative control's mutated expectation can never reach the
-// live cell's Fatalf.
 type ab10OracleTester interface {
 	Helper()
 	Fatalf(format string, args ...any)
@@ -207,9 +154,6 @@ func ab10DecodeRows(t ab10OracleTester, what, body string) ab10RowBy {
 		key := ab10RawText(t, what, row, "_key")
 		by.Rows = append(by.Rows, ab10DecodedRow{Key: key, ID: ab10RawText(t, what, row, "id"), Values: row})
 	}
-	// Order by the FHIR logical id: the dataframe _key column is the arm's
-	// row identity (the PostgreSQL lane serves the logical id, the Arango
-	// lane a graph digest), so only the id gives both arms one order.
 	sort.Slice(by.Rows, func(i, j int) bool {
 		if by.Rows[i].ID != by.Rows[j].ID {
 			return by.Rows[i].ID < by.Rows[j].ID
@@ -220,9 +164,7 @@ func ab10DecodeRows(t ab10OracleTester, what, body string) ab10RowBy {
 }
 
 type ab10DecodedRow struct {
-	Key string
-	// ID is the FHIR logical id projected through the id column: the
-	// arm-independent row identity for literal oracles.
+	Key    string
 	ID     string
 	Values ab10Row
 }
@@ -246,7 +188,6 @@ func ab10RawText(t ab10OracleTester, what string, row ab10Row, column string) st
 	return text
 }
 
-// ab10ScalarLiteral asserts one row/column against a literal string value.
 func ab10ScalarLiteral(t ab10OracleTester, what string, row ab10Row, column, want string) {
 	t.Helper()
 	raw, present := row[column]
@@ -262,10 +203,6 @@ func ab10ScalarLiteral(t ab10OracleTester, what string, row ab10Row, column, wan
 	}
 }
 
-// ab10CrossDialectTells are the refusals every PG-arm response must carry
-// and every Arango-arm response must not — the no-fallback law witnessed on
-// the wire. (The PG tell list is absent-side only: nothing in an Arango
-// answer should read like SQL dispatch.)
 var (
 	ab10PGForbiddenTells   = []string{"arango", "aql", "for d in ", "@auth_resource_paths", "fhir_field_catalog"}
 	ab10ArangoForbiddenSQL = []string{"SELECT ", "INSERT INTO", "pg_stat", "postgres"}
@@ -285,12 +222,6 @@ func ab10AssertNoCrossDialectTell(t *testing.T, arm, what, body string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Census registry: every owned mint is registered under the minting leg and
-// must be reported dropped by the arm's final audit; foreign prefixes are
-// never touched.
-// ---------------------------------------------------------------------------
-
 var (
 	ab10OwnedMu     sync.Mutex
 	ab10Owned       = map[string]ab10Mint{}
@@ -299,24 +230,18 @@ var (
 )
 
 type ab10Mint struct {
-	backend string // arm identity: "postgresql" or "arangodb"
+	backend string
 	leg     string
 	dropped bool
-	// seq orders registrations so a leg can count the mints it made in its
-	// own invocation, which keeps the ledger honest under -count and under a
-	// -run filter that skips legs.
-	seq int
+	seq     int
 }
 
-// ab10MintInventory is the checked-in enumeration of mints per leg. The
-// arm-end audit asserts the registry matches it leg-for-leg.
 var ab10MintInventory = map[string]int{
 	"TestBackendArchitectureConformance/postgresql":                                           1,
 	"TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely": 1,
 	"TestBackendArchitectureConformance/arangodb":                                             1,
 }
 
-// ab10MintSeq counts registrations process-wide; see ab10Mint.seq.
 var ab10MintSeq int
 
 func ab10Register(name, backend, leg string) {
@@ -326,12 +251,6 @@ func ab10Register(name, backend, leg string) {
 	ab10Owned[name] = ab10Mint{backend: backend, leg: leg, seq: ab10MintSeq}
 }
 
-// ab10AuditLegMints asserts that this leg mints exactly `want` owned
-// resources in its own invocation. Two scopes apply: the mint must name this
-// leg (so a parent does not bill its subtests' mints to itself) and it must
-// postdate this registration (so a repeated run under -count re-checks only
-// its own mint, and a filtered run that never enters a leg never asserts for
-// it). Whether each mint was dropped is the arm-end audit's job.
 func ab10AuditLegMints(t *testing.T, arm string, want int) {
 	t.Helper()
 	ab10OwnedMu.Lock()
@@ -367,18 +286,6 @@ func ab10MarkDropped(name string) {
 	ab10Owned[name] = rec
 }
 
-// ab10AuditArm runs at the end of each arm: the runtime registry must match
-// the checked-in inventory for this arm's legs (every mint dropped), no
-// stray marks may exist, and every foreign-prefixed resource the service
-// still holds must be zero (owned prefixes) — foreign names are recorded
-// for audit but never deleted (N-5).
-// ab10AuditArm runs from the first-registered t.Cleanup of each arm: the
-// registry comparison covers this arm's legs only while the arm otherwise
-// passed (on a red arm the leg inventory is not meaningful), and the live
-// zero-survivor census always runs — leaks matter most after failures.
-// First registration matters: cleanups run LIFO, so every drop cleanup
-// registered later (fixture mints, cell resources) has already marked the
-// registry dropped=true by the time the registry section reads it.
 func ab10AuditArm(t *testing.T, arm string) {
 	t.Helper()
 	if !t.Failed() {
@@ -416,10 +323,6 @@ func ab10AuditRegistry(t *testing.T, arm string) {
 			t.Errorf("%s arm census: mint %q (leg %s) was never dropped", arm, name, mint.leg)
 		}
 	}
-	// Per-leg mint counts are asserted by each leg itself (ab10AuditLegMints),
-	// because only the leg knows its own invocation. Here the arm-end audit
-	// keeps the sprawl guarantee: no leg outside the checked-in inventory may
-	// mint at all.
 	for leg := range gotLegs {
 		if !knownLegs[leg] {
 			t.Errorf("%s arm census: unexpected minting leg %q (update ab10MintInventory deliberately, with review)", arm, leg)
@@ -430,11 +333,6 @@ func ab10AuditRegistry(t *testing.T, arm string) {
 	}
 }
 
-// ab10AuditSurvivors live-verifies the owned prefix is empty on the
-// service itself, through a fresh connection: by cleanup time the
-// fixture's own pools are closed, and the service outlives the test
-// process. A surviving owned resource is a leak regardless of how the
-// arm ended.
 func ab10AuditSurvivors(t *testing.T, arm string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -497,21 +395,12 @@ func ab10AuditSurvivors(t *testing.T, arm string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Parent and arms.
-// ---------------------------------------------------------------------------
-
 func TestBackendArchitectureConformance(t *testing.T) {
-	// The arms run the same named cells; each skips at its top when its
-	// service is absent. A skipped arm is blocked acceptance for CI to
-	// adjudicate — never a pass of that arm's scenarios.
 	t.Run("postgresql", testBackendArchitectureConformancePostgres)
 	t.Run("arangodb", testBackendArchitectureConformanceArango)
 }
 
 func ab10Logger() *slog.Logger {
-	// Server ERROR lines (capability refusals, route faults) must reach the
-	// test log so CI evidence carries the cause, not just the wire status.
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 }
 
@@ -543,10 +432,6 @@ func ab10RepoPath(t *testing.T, elems ...string) string {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL arm.
-// ---------------------------------------------------------------------------
-
 var (
 	ab10PGDBPattern     = regexp.MustCompile(`^verify_ab10pg_[0-9]+_[0-9a-f]{12}$`)
 	ab10PGSchemaPattern = regexp.MustCompile(`^verify_ab10pg_[0-9]+_[0-9a-f]{12}_(src|exp|pub|rel|rcp|exe)$`)
@@ -572,8 +457,8 @@ type ab10PGFixture struct {
 	dsn      string
 	schemas  map[control.Series]string
 	scrub    func(any) string
-	admin    *pgxpool.Pool // maintenance-database admin: CREATE/DROP/pg_database only
-	iso      *pgxpool.Pool // the fixture database itself: census and digest probes
+	admin    *pgxpool.Pool
+	iso      *pgxpool.Pool
 	database string
 }
 
@@ -647,10 +532,6 @@ func newAB10PGFixture(t *testing.T) *ab10PGFixture {
 	if err != nil {
 		t.Fatalf("connect to isolated database: %s", scrub(err))
 	}
-	// Registered after the drop cleanup, so LIFO ordering closes this pool
-	// before DROP DATABASE runs. Census probes must use this pool: the
-	// admin pool is connected to the maintenance database, where the
-	// owned schemas and their tables do not exist.
 	t.Cleanup(iso.Close)
 	schemas := map[control.Series]string{}
 	for _, placement := range ab10PGSeriesTokens {
@@ -663,9 +544,6 @@ func newAB10PGFixture(t *testing.T) *ab10PGFixture {
 		}
 		schemas[placement.series] = schema
 	}
-	// The baseline check belongs to the arm, not the audit: the zero-
-	// survivor assertion for verify_ab10pg_* databases runs in ab10AuditPG
-	// at arm end through this same admin pool.
 	return &ab10PGFixture{t: t, dsn: dsn, schemas: schemas, scrub: scrub, admin: admin, iso: iso, database: database}
 }
 
@@ -739,10 +617,6 @@ func (f *ab10PGFixture) catalogRuntime(t *testing.T) *backendspostgres.Runtime {
 	return rt
 }
 
-// controlRuntime opens the six-series control runtime over the migrated
-// fixture: the arm's production domain ports (Releases, Manifests, Explorer,
-// SourceRows) — used for domain-port evidence classes, never as a substitute
-// for a scenario verdict on the public lane.
 func (f *ab10PGFixture) controlRuntime(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
 	rt, err := backendspostgres.Open(context.Background(), f.openConfig(control.SetupNone))
@@ -765,9 +639,6 @@ func (f *ab10PGFixture) pgOptions(application string) ingest.PGSourceOptions {
 	}
 }
 
-// load stages one generation through the production ingest entry point
-// (ingest.LoadPostgresGeneration), the loom-data CLI shape, with the
-// supported per-load AuthResourcePath stamp.
 func (f *ab10PGFixture) load(t *testing.T, project, generation, authPath string, files map[string][]string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -783,19 +654,13 @@ func (f *ab10PGFixture) load(t *testing.T, project, generation, authPath string,
 		t.Fatalf("build dataset ref: %v", err)
 	}
 	opts := ingest.LoadOptions{
-		Schema:  ab10RepoPath(t, "schemas", "graph-fhir.json"),
-		MetaDir: dir,
-		Project: project,
-		Dataset: &ref,
-		// The bulk load route stamps the normalized authorization key
-		// (authscope.NormalizeAuthResourcePath over the fence resource
-		// path); rows must carry the same value or the read-scope filter
-		// (auth_resource_path IN normalized-scope-paths) never matches.
+		Schema:           ab10RepoPath(t, "schemas", "graph-fhir.json"),
+		MetaDir:          dir,
+		Project:          project,
+		Dataset:          &ref,
 		AuthResourcePath: authscope.NormalizeAuthResourcePath(authPath),
 		StageOnly:        true,
-		// The literals are authored; a malformed row is a test bug and
-		// must name file/line/resource instead of aggregating.
-		FailFast: true,
+		FailFast:         true,
 	}
 	pg := f.pgOptions("verify-ab10pg")
 	pg.Catalog = ingest.GenerationCatalogWriters{
@@ -878,8 +743,6 @@ func ab10PGBootConfigBase(t *testing.T, f *ab10PGFixture, listen string) Config 
 	return cfg
 }
 
-// ab10PGProbe runs one query against the fixture through the ADMIN pool: a
-// census/absence-class driver probe, never a scenario verdict.
 func (f *ab10PGFixture) probeCount(t *testing.T, query string, args ...any) int64 {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -892,12 +755,9 @@ func (f *ab10PGFixture) probeCount(t *testing.T, query string, args ...any) int6
 }
 
 func testBackendArchitectureConformancePostgres(t *testing.T) {
-	ab10PGURL(t) // skip first: a registered cleanup would run under Skip too
-	// Registered first (after the skip decision) so LIFO cleanup ordering
-	// runs the audit last: by then the fixture's drop cleanup has marked
-	// the registry dropped=true.
+	ab10PGURL(t)
 	t.Cleanup(func() { ab10AuditArm(t, "postgresql") })
-	ab10AuditLegMints(t, "postgresql", 1) // the arm fixture
+	ab10AuditLegMints(t, "postgresql", 1)
 	fixture := newAB10PGFixture(t)
 	fixture.migrate(t)
 	fixture.load(t, ab10Project1, ab10GenA, ab10PathMain, ab10GenFiles(t))
@@ -908,8 +768,6 @@ func testBackendArchitectureConformancePostgres(t *testing.T) {
 
 	fence := ab10StartFenceStub(t)
 
-	// Cells that need the live handler stack boot their own production
-	// composition; the shared one below serves the unauthenticated cells.
 	ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
 	defer cancel()
 	server, closeRuntime, err := composePostgreSQLFullRuntime(ctx, fixture.bootConfig(t, "127.0.0.1:0"), ab10Logger())
@@ -930,9 +788,6 @@ func testBackendArchitectureConformancePostgres(t *testing.T) {
 		scrub:   fixture.scrub,
 	}
 
-	// Read-order-dependent cells run first against gen-a active; the
-	// release-intake cell re-points ab10-p1 and therefore runs last of the
-	// query family (documented order, no t.Parallel anywhere).
 	ab10CellScalarQuery(t, arm)
 	ab10CellRepeatedOccurrence(t, arm)
 	ab10CellNullAndMissing(t, arm)
@@ -951,8 +806,6 @@ func testBackendArchitectureConformancePostgres(t *testing.T) {
 
 func ab10AuditPG(t *testing.T, fixture *ab10PGFixture) {
 	t.Helper()
-	// Zero-survivor audit of the owned prefix (N-5: foreign databases are
-	// never enumerated for deletion or attributed).
 	var survivors []string
 	rows, err := fixture.admin.Query(context.Background(),
 		`SELECT datname FROM pg_database WHERE datname LIKE 'verify\_ab10pg\_%' ESCAPE '\'`)
@@ -970,9 +823,6 @@ func ab10AuditPG(t *testing.T, fixture *ab10PGFixture) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("survivor rows: %s", fixture.scrub(err))
 	}
-	// t.Cleanup drops run after this audit, so every registry mint of this
-	// arm must still be live here and nothing else may exist: the live set
-	// equals the registered set exactly (arm fixture + upgrade-cell fixture).
 	var expected []string
 	ab10OwnedMu.Lock()
 	for name, mint := range ab10Owned {
@@ -994,10 +844,6 @@ func ab10AuditPG(t *testing.T, fixture *ab10PGFixture) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ArangoDB arm.
-// ---------------------------------------------------------------------------
 
 func ab10ArangoEndpoint(t *testing.T) string {
 	t.Helper()
@@ -1023,9 +869,6 @@ func ab10ArangoOwnDatabase(t *testing.T, endpoint, leg string) string {
 		t.Fatalf("mint owned database: %v", err)
 	}
 	defer response.Body.Close()
-	// Arango answers a successful create with HTTP 201; only a 2xx whose
-	// body says result:true is an owned mint (matching the runner's
-	// response.ok semantics in run-arango-integration.mjs).
 	var minted struct {
 		Result bool `json:"result"`
 	}
@@ -1064,10 +907,8 @@ func ab10ArangoOwnDatabase(t *testing.T, endpoint, leg string) string {
 
 func testBackendArchitectureConformanceArango(t *testing.T) {
 	endpoint := ab10ArangoEndpoint(t)
-	// Registered before the mint so LIFO cleanup ordering runs the audit
-	// last: by then the database drop cleanup has marked the registry.
 	t.Cleanup(func() { ab10AuditArm(t, "arangodb") })
-	ab10AuditLegMints(t, "arangodb", 1) // the arm database
+	ab10AuditLegMints(t, "arangodb", 1)
 	database := ab10ArangoOwnDatabase(t, endpoint, t.Name())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
@@ -1078,13 +919,6 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 	}
 	defer func() { _ = backend.Close(context.Background()) }()
 
-	// Supported ingest: the library entry point the loom-data Arango route
-	// dispatches to. An explicit Dataset ref selects the immutable
-	// generation loader (ingest.Load would otherwise take the unversioned
-	// primary-resource lane, which stamps no dataset_generation and creates
-	// no manifest). gen-a activates inside Load; gen-b stays staged. The
-	// auth stamp rides the same boundary normalization the server bulk-load
-	// route applies.
 	refA, err := publication.NewRef(ab10Project1, ab10GenA)
 	if err != nil {
 		t.Fatalf("build gen-a dataset ref: %v", err)
@@ -1169,7 +1003,6 @@ func ab10WriteMetaDir(t *testing.T, files map[string][]string) string {
 	return dir
 }
 
-// ab10ArangoProbe is the census/absence-class raw driver for the Arango arm.
 type ab10ArangoProbe struct {
 	endpoint string
 	database string
@@ -1192,8 +1025,6 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 		t.Fatalf("census cursor: %v", err)
 	}
 	defer response.Body.Close()
-	// POST /_db/<db>/_api/cursor (the production profile_client route)
-	// answers 201 on cursor creation (200 also accepted).
 	if !(response.StatusCode == http.StatusOK || response.StatusCode == http.StatusCreated) {
 		payload, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
 		t.Fatalf("census cursor HTTP %d: %s", response.StatusCode, payload)
@@ -1207,17 +1038,8 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 	return len(payload.Result)
 }
 
-// payloadHasAttribute answers: does the stored document carry `attribute`
-// explicitly inside its raw payload document? Explicit JSON null counts.
-// Ingress namespaces every vertex key to g_<sha256> (generation_identity.go)
-// and keeps the FHIR id in logical_key, so the witness selects by
-// project + dataset_generation + logical_key, exactly the census the
-// PostgreSQL arm runs against its logical_id column.
 func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, project, generation, logicalKey, attribute string) bool {
 	t.Helper()
-	// Two verdicts, never one: the scan finding no document is a census
-	// failure, not an "attribute absent" answer, so the negative witness
-	// can only ever be decided against a row that is provably stored.
 	query := `LET d = FIRST(FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.logical_key == @logicalKey RETURN doc) RETURN {found: d != null, hasAttribute: d != null && d.payload != null && HAS(d.payload, @attribute)}`
 	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, map[string]any{
 		"@collection": collection, "project": project, "generation": generation,
@@ -1268,25 +1090,18 @@ func mustAB10JSON(t *testing.T, value any) string {
 	return string(encoded)
 }
 
-// ---------------------------------------------------------------------------
-// Shared arm plumbing.
-// ---------------------------------------------------------------------------
-
 type ab10Arm struct {
 	name     string
 	app      *fiber.App
-	fixture  *ab10PGFixture         // postgres arm only
-	endpoint string                 // arangodb arm only
-	database string                 // arangodb arm only
-	backend  *arangofactory.Runtime // arangodb arm only
-	probe    *ab10ArangoProbe       // arangodb arm only
+	fixture  *ab10PGFixture
+	endpoint string
+	database string
+	backend  *arangofactory.Runtime
+	probe    *ab10ArangoProbe
 	fence    *ab10Fence
 	scrub    func(any) string
 }
 
-// ab10BootArangoApp boots the Arango arm through the production compose.
-// unauthenticated selects the anonymous lane; false boots the calypr lane
-// against the arm's fence stub.
 func ab10BootArangoApp(t *testing.T, ctx context.Context, arm *ab10Arm, unauthenticated bool) *fiber.App {
 	t.Helper()
 	cfg := Config{}
@@ -1316,17 +1131,11 @@ func ab10BootArangoApp(t *testing.T, ctx context.Context, arm *ab10Arm, unauthen
 	return server.App()
 }
 
-// ---------------------------------------------------------------------------
-// Fence stub: loopback trusted issuer for the calypr auth lane. Tokens are
-// unsigned JWTs whose iss names the stub; the stub is the trust anchor — it
-// maps each token to its subject and its authorization snapshot.
-// ---------------------------------------------------------------------------
-
 type ab10Fence struct {
 	issuer string
-	tokens map[string]string // subject -> Authorization header value
+	tokens map[string]string
 	mu     sync.Mutex
-	access map[string]map[string][]map[string]string // subject -> resource path -> grants
+	access map[string]map[string][]map[string]string
 }
 
 func ab10StartFenceStub(t *testing.T) *ab10Fence {
@@ -1346,8 +1155,6 @@ func ab10StartFenceStub(t *testing.T) *ab10Fence {
 		grants := fence.access[subject]
 		fence.mu.Unlock()
 		if len(grants) == 0 {
-			// Restricted with nothing grantable: a decoy path keeps the
-			// snapshot non-empty while intersecting no loaded path.
 			grants = map[string][]map[string]string{"/programs/decoy/projects/decoy/none": {{"method": "read", "service": "*"}}}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1369,7 +1176,6 @@ func (f *ab10Fence) subjectFor(authorization string) (string, bool) {
 	return "", false
 }
 
-// ab10Grant records the read grants a subject receives from the stub.
 func (f *ab10Fence) grant(subject string, paths ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -1380,8 +1186,6 @@ func (f *ab10Fence) grant(subject string, paths ...string) {
 	f.access[subject] = grants
 }
 
-// ab10Token mints the Authorization header value for a subject. iss must
-// equal the trusted issuer; sub identifies the caller.
 func (f *ab10Fence) token(t *testing.T, subject string) string {
 	t.Helper()
 	f.mu.Lock()
@@ -1406,10 +1210,6 @@ func ab10UnsignedJWT(t *testing.T, claims map[string]any) string {
 	return encode(map[string]any{"alg": "none", "typ": "JWT"}) + "." + encode(claims) + ".ab10"
 }
 
-// ---------------------------------------------------------------------------
-// GraphQL lane helpers.
-// ---------------------------------------------------------------------------
-
 func ab10Graph(t *testing.T, arm *ab10Arm, body string) string {
 	t.Helper()
 	return ab10GraphAuth(t, arm, body, nil)
@@ -1425,9 +1225,6 @@ func ab10GraphAuth(t *testing.T, arm *ab10Arm, body string, headers map[string]s
 	return response.Body
 }
 
-// ab10WantRows is the literal expectation for one Patient-lane query: exact
-// _key set with per-row column values. A nil value means "any value"; the
-// absent-key vs null distinction is asserted by ab10CellNullAndMissing.
 type ab10WantRow struct {
 	Key    string
 	Values map[string]*string
@@ -1463,10 +1260,6 @@ func ab10CheckNoRows(t ab10OracleTester, arm *ab10Arm, what string, body string)
 
 func ab10Str(value string) *string { return &value }
 
-// ---------------------------------------------------------------------------
-// Cell 1: scalarQueryServesLiteralScalars.
-// ---------------------------------------------------------------------------
-
 func ab10CellScalarQuery(t *testing.T, arm *ab10Arm) {
 	t.Run("scalarQueryServesLiteralScalars", func(t *testing.T) {
 		body := ab10Graph(t, arm, ab10PatientQueryBody)
@@ -1487,9 +1280,6 @@ func ab10CellScalarQuery(t *testing.T, arm *ab10Arm) {
 				t.Fatalf("%s arm: scalar query lost column %q, got %v", arm.name, required, decoded.Columns)
 			}
 		}
-		// Negative control: the same evaluator, fed a mutated expectation,
-		// must go red against a shadow tester — the live cell is never
-		// reached by the mutated assertion.
 		if t.Failed() {
 			return
 		}
@@ -1502,12 +1292,6 @@ func ab10CellScalarQuery(t *testing.T, arm *ab10Arm) {
 	})
 }
 
-// ab10OracleGoesRed runs a supposed-fatal oracle on a shadow tester and
-// reports whether the shadow actually failed. The oracle runs in its own
-// goroutine because a shadow Fatalf ends with runtime.Goexit: the channel
-// (closed even under Goexit) lets this test survive the shadow's death.
-// A panic is not recovered — a broken oracle helper must crash loudly
-// rather than masquerade as a red verdict.
 func ab10OracleGoesRed(assert func(t ab10OracleTester)) bool {
 	shadow := &testing.T{}
 	done := make(chan struct{})
@@ -1519,10 +1303,6 @@ func ab10OracleGoesRed(assert func(t ab10OracleTester)) bool {
 	return shadow.Failed()
 }
 
-// ---------------------------------------------------------------------------
-// Cell 2: repeatedRelatedOccurrenceStaysDistinct.
-// ---------------------------------------------------------------------------
-
 func ab10CellRepeatedOccurrence(t *testing.T, arm *ab10Arm) {
 	t.Run("repeatedRelatedOccurrenceStaysDistinct", func(t *testing.T) {
 		body := ab10Graph(t, arm, ab10ObservationQueryBody)
@@ -1530,13 +1310,10 @@ func ab10CellRepeatedOccurrence(t *testing.T, arm *ab10Arm) {
 			{Key: "ab10-obs-1", Values: map[string]*string{"status": ab10Str("final"), "subject": ab10Str("Patient/ab10-patient-ada")}},
 			{Key: "ab10-obs-2", Values: map[string]*string{"status": ab10Str("final"), "subject": ab10Str("Patient/ab10-patient-ada")}},
 		})
-		// Independent probe (census class): exactly two Observation rows.
 		ab10ProbeOccurrenceCount(t, arm, "Observation", ab10Project1, ab10GenA, 2)
 	})
 }
 
-// ab10ProbeOccurrenceCount is the raw-driver census witness — never a
-// scenario verdict, always paired with a compiler-backed case above.
 func ab10ProbeOccurrenceCount(t *testing.T, arm *ab10Arm, resourceType, project, generation string, want int) {
 	t.Helper()
 	if arm.probe != nil {
@@ -1557,17 +1334,11 @@ func ab10ProbeOccurrenceCount(t *testing.T, arm *ab10Arm, resourceType, project,
 	}
 }
 
-// ab10ProbeStoredHasExplicitAttribute is the census-class raw-driver witness
-// that one stored resource keeps `attribute` explicitly (null counts) in its
-// durable payload document: the three-state input survives relocation.
 func ab10ProbeStoredHasExplicitAttribute(t *testing.T, arm *ab10Arm, resourceType, project, generation, logicalID, attribute string) bool {
 	t.Helper()
 	if arm.probe != nil {
 		return arm.probe.payloadHasAttribute(t, resourceType, project, generation, logicalID, attribute)
 	}
-	// Two verdicts, like the Arango probe: a row that is not stored at all
-	// is a census failure, never an "attribute absent" answer, so the
-	// negative witness cannot be satisfied by an ingestion gap.
 	stored := arm.fixture.probeCount(t,
 		`SELECT count(*) FROM "`+arm.fixture.schemas[control.SeriesSource]+`".fhir_resource
 		  WHERE project=$1 AND dataset_generation=$2 AND resource_type=$3 AND logical_id=$4`,
@@ -1585,10 +1356,6 @@ func ab10ProbeStoredHasExplicitAttribute(t *testing.T, arm *ab10Arm, resourceTyp
 	}
 	return count == 1
 }
-
-// ---------------------------------------------------------------------------
-// Cell 3: nullAndMissingSemanticsPreserved.
-// ---------------------------------------------------------------------------
 
 func ab10CellNullAndMissing(t *testing.T, arm *ab10Arm) {
 	t.Run("nullAndMissingSemanticsPreserved", func(t *testing.T) {
@@ -1613,34 +1380,20 @@ func ab10CellNullAndMissing(t *testing.T, arm *ab10Arm) {
 		}
 		nullRaw, nullPresent := nullfield.Values["gender"]
 		missingRaw, missingPresent := nogender.Values["gender"]
-		// Production wire characterization: the dataframe lane serves both
-		// the explicit-null and the absent-source state as the identical
-		// JSON null on both backends. Relocation must preserve exactly
-		// that: one wire null, not a fabricated third wire state and not a
-		// dropped column.
 		if nullPresent != missingPresent || string(nullRaw) != "null" || string(missingRaw) != "null" {
 			t.Fatalf("%s arm: explicit-null and missing-source genders did not both serve the wire literal null (%s present=%v vs %s present=%v)",
 				arm.name, nullRaw, nullPresent, missingRaw, missingPresent)
 		}
-		// Durable three-state census (census class): the stored payload
-		// must still keep the two input states distinguishable — the
-		// PostgreSQL jsonb root and the Arango vertex payload document
-		// each preserve the explicit null the missing row never had.
 		if !ab10ProbeStoredHasExplicitAttribute(t, arm, "Patient", ab10Project1, ab10GenA, "ab10-patient-nullfield", "gender") {
 			t.Fatalf("%s arm: explicit-null gender was not preserved in the stored payload", arm.name)
 		}
 		if ab10ProbeStoredHasExplicitAttribute(t, arm, "Patient", ab10Project1, ab10GenA, "ab10-patient-nogender", "gender") {
 			t.Fatalf("%s arm: missing-source gender gained a stored attribute it never had", arm.name)
 		}
-		// Birthdates (both always present) keep their literal values.
 		ab10ScalarLiteral(t, arm.name+" arm: nullfield birthDate", nullfield.Values, "birthDate", "2000-12-31")
 		ab10ScalarLiteral(t, arm.name+" arm: nogender birthDate", nogender.Values, "birthDate", "1988-01-02")
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Cells 4+5: the auth family over the calypr lane and the loopback fence.
-// ---------------------------------------------------------------------------
 
 func ab10CellAuthFamily(t *testing.T, arm *ab10Arm) {
 	calyprApp := arm.app
@@ -1661,7 +1414,7 @@ func ab10CellAuthFamily(t *testing.T, arm *ab10Arm) {
 		calyprApp = ab10BootArangoApp(t, ctx, arm, false)
 	}
 	arm.fence.grant(ab10SubjectGranted, ab10PathMain)
-	arm.fence.grant(ab10SubjectUnrelated) // empty restricted scope (decoy snapshot)
+	arm.fence.grant(ab10SubjectUnrelated)
 	granted := map[string]string{"Authorization": arm.fence.token(t, ab10SubjectGranted)}
 	unrelated := map[string]string{"Authorization": arm.fence.token(t, ab10SubjectUnrelated)}
 
@@ -1676,8 +1429,6 @@ func ab10CellAuthFamily(t *testing.T, arm *ab10Arm) {
 		})
 		foreign := ab10GraphAuth(t, &inner, ab10ForeignQueryBody, granted)
 		ab10CheckNoRows(t, &inner, "foreign p2 query for granted subject", foreign)
-		// Absence witness (census class): the excluded row does exist
-		// server-side, so the zero result is authorization, not emptiness.
 		ab10ProbeOccurrenceCount(t, arm, "Patient", ab10Project2, ab10GenA, 1)
 	})
 
@@ -1688,18 +1439,12 @@ func ab10CellAuthFamily(t *testing.T, arm *ab10Arm) {
 		ab10CheckNoRows(t, &inner, "p1 query for unrelated subject", body)
 		foreign := ab10GraphAuth(t, &inner, ab10ForeignQueryBody, unrelated)
 		ab10CheckNoRows(t, &inner, "p2 query for unrelated subject", foreign)
-		// Control: the unrestricted lane sees the same rows, proving the
-		// zero result above is the restricted scope, not missing data.
 		check := ab10Graph(t, arm, ab10PatientQueryBody)
 		if len(ab10DecodeRows(t, "unrestricted control", check).Rows) != 3 {
 			t.Fatalf("%s arm: unrestricted control must serve the three literal rows", arm.name)
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Cell 6: unrestrictedSeesEverything.
-// ---------------------------------------------------------------------------
 
 func ab10CellUnrestrictedSeesEverything(t *testing.T, arm *ab10Arm) {
 	t.Run("unrestrictedSeesEverything", func(t *testing.T) {
@@ -1716,10 +1461,6 @@ func ab10CellUnrestrictedSeesEverything(t *testing.T, arm *ab10Arm) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Cell 8: stablePagingIsDeterministic.
-// ---------------------------------------------------------------------------
-
 func ab10CellStablePaging(t *testing.T, arm *ab10Arm) {
 	t.Run("stablePagingIsDeterministic", func(t *testing.T) {
 		firstBody := ab10Graph(t, arm, ab10PagedQueryBody(1))
@@ -1728,18 +1469,10 @@ func ab10CellStablePaging(t *testing.T, arm *ab10Arm) {
 		if len(first.Rows) != 1 || len(second.Rows) != 2 {
 			t.Fatalf("%s arm: limit paging served %d then %d rows, want 1 then 2", arm.name, len(first.Rows), len(second.Rows))
 		}
-		// Deterministic: the same query repeated byte-identically returns a
-		// byte-identical wire envelope, row identity included. This is the
-		// arm-independent form: the row identity column is arm-native (the
-		// PostgreSQL lane serves the logical id, the Arango lane a graph
-		// digest), so the guarantee is repeat-stability of whatever the lane
-		// serves, not one lane's spelling of it.
 		repeatBody := ab10Graph(t, arm, ab10PagedQueryBody(1))
 		if firstBody != repeatBody {
 			t.Fatalf("%s arm: paging is nondeterministic: %s then %s", arm.name, firstBody, repeatBody)
 		}
-		// The larger page is an extension: no duplicates, and the smaller
-		// page's row is contained in it.
 		seen := map[string]bool{}
 		for _, row := range second.Rows {
 			if seen[row.ID] {
@@ -1750,8 +1483,6 @@ func ab10CellStablePaging(t *testing.T, arm *ab10Arm) {
 		if !seen[first.Rows[0].ID] {
 			t.Fatalf("%s arm: page of 2 lost the page-of-1 row %q, got %v", arm.name, first.Rows[0].ID, second.Rows)
 		}
-		// Terminal page ends cleanly: full limit covers exactly the three
-		// patients, by literal logical id.
 		full := ab10DecodeRows(t, "full page", ab10Graph(t, arm, ab10PagedQueryBody(10)))
 		if len(full.Rows) != 3 {
 			t.Fatalf("%s arm: terminal page served %d rows, want the full 3", arm.name, len(full.Rows))
@@ -1770,44 +1501,24 @@ func ab10CellStablePaging(t *testing.T, arm *ab10Arm) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Cell 7 half: generationIsolationServesActiveOnly (release intake is the
-// second half, run after the CAS cells).
-// ---------------------------------------------------------------------------
-
 func ab10CellGenerationIsolation(t *testing.T, arm *ab10Arm) {
 	t.Run("generationIsolationServesActiveOnly", func(t *testing.T) {
-		// gen-b is STAGED for ab10-p1: its rows never surface.
 		body := ab10Graph(t, arm, ab10PatientQueryBody)
 		for _, row := range ab10DecodeRows(t, "isolation query", body).Rows {
 			if row.ID == "ab10-patient-staged" {
 				t.Fatalf("%s arm: staged generation row %q surfaced while gen-a active", arm.name, row.Key)
 			}
 		}
-		// Census witness (census class): the staged row exists server-side.
 		ab10ProbeOccurrenceCount(t, arm, "Patient", ab10Project1, ab10GenB, 1)
 	})
 
-	// Release-intake matrix through the public activation route: activating
-	// the staged generation moves the active pointer with typed status
-	// reads before and after (characterization of load→stage→activate).
 	t.Run("releaseIntakeActivatesThroughPublicRoute", func(t *testing.T) {
-		// Production truth on both backends: activation moves the project's
-		// active pointer; the manifest itself remains STAGED (that is the
-		// reusable activatable state — no ACTIVE manifest state exists).
-		// Active-ness is therefore a pointer property, proved below by what
-		// the read lane serves; the status route carries the manifest state.
 		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenA); state != "STAGED" {
 			t.Fatalf("%s arm: active gen-a manifest state = %q, want literal STAGED", arm.name, state)
 		}
 		if state := ab10GenerationStatus(t, arm, ab10Project1, ab10GenB); state != "STAGED" {
 			t.Fatalf("%s arm: staged gen-b state = %q, want literal STAGED", arm.name, state)
 		}
-		// Load-and-activate through the public route: the same multipart
-		// contract the production loader posts (auth_resource_path field +
-		// NDJSON parts). A POST onto an already-staged generation is reused
-		// (Reused/Activated:false), so the cell loads a fresh generation
-		// token and the route's own load+activate must report Activated.
 		upload, boundary := pgCompMultipart(t,
 			map[string]string{"auth_resource_path": ab10PathMain},
 			map[string]string{"Patient.ndjson": strings.Join(ab10StagedPatientLines(t), "\n") + "\n"})
@@ -1833,14 +1544,11 @@ func ab10CellGenerationIsolation(t *testing.T, arm *ab10Arm) {
 		ab10CheckRowsLiteral(t, arm, "activated gen-c query", body, []ab10WantRow{
 			{Key: "ab10-patient-staged", Values: map[string]*string{"gender": ab10Str("other"), "birthDate": ab10Str("1999-09-09")}},
 		})
-		// Old active rows are now invisible: gen-a no longer served.
 		for _, row := range ab10DecodeRows(t, "post-activation query", body).Rows {
 			if row.ID == "ab10-patient-ada" {
 				t.Fatalf("%s arm: deactivated generation rows still served", arm.name)
 			}
 		}
-		// Existence witness (census class): the superseded gen-a rows and
-		// the never-activated gen-b rows remain server-side.
 		ab10ProbeOccurrenceCount(t, arm, "Patient", ab10Project1, ab10GenA, 3)
 	})
 }
@@ -1861,17 +1569,11 @@ func ab10GenerationStatus(t *testing.T, arm *ab10Arm, project, generation string
 	return payload.State
 }
 
-// ---------------------------------------------------------------------------
-// Cell 9: explorerDraftCASOneWinnerExactPreimage.
-// ---------------------------------------------------------------------------
-
 const (
 	ab10ExplorerID         = "ab10-draft-cas"
 	ab10TokenProbeExplorer = "ab10-token-probe"
 )
 
-// ab10DraftWorkspace is the literal authored workspace both arms seed —
-// byte-identical bytes on both backends.
 func ab10DraftWorkspace() authoringv2.Workspace {
 	return authoringv2.Workspace{
 		APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind,
@@ -1900,16 +1602,12 @@ func ab10CellDraftCASOneWinner(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: canonical draft bytes sha256 = %s, want pinned literal %s", arm.name, sha, ab10DraftBytesSHA)
 		}
 
-		// The snapshot token is issued by the production capability
-		// resolver; capture it from the builder lane of a throwaway
-		// explorer in the same (project, active generation) namespace.
 		ab10SeedDraft(t, arm, ctx, ab10TokenProbeExplorer, nil)
 		token, scopeDigest, generation := ab10BuilderSnapshot(t, arm, ab10TokenProbeExplorer)
 		ab10SeedDraft(t, arm, ctx, ab10ExplorerID, &ab10DraftSeed{
 			Raw: raw, Digest: digest, Token: token, ScopeDigest: scopeDigest, Generation: generation,
 		})
 
-		// Preimage: the acknowledged pre-command state is the exact bytes.
 		response, state := ab10Builder(t, arm, ab10ExplorerID)
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("%s arm: builder preimage status %d body %s", arm.name, response.StatusCode, response.Body)
@@ -1918,10 +1616,6 @@ func ab10CellDraftCASOneWinner(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: preimage draft identity = (%d,%q), want literal (1,%q)", arm.name, state.DraftVersion, state.DraftDigest, ab10DraftDigest)
 		}
 
-		// Two concurrent saves at the same version: one winner, one loser.
-		// The writers must not touch the tester: testing requires FailNow
-		// on the test goroutine, so transport failures travel back in the
-		// outcome and fail after done.Wait().
 		type outcome struct {
 			status int
 			body   string
@@ -1981,7 +1675,6 @@ func ab10CellDraftCASOneWinner(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: winner ack = (%d,%q), want draftVersion literal 2 and a new digest", arm.name, ack.DraftVersion, ack.DraftDigest)
 		}
 
-		// Persisted head matches the ack; the loser's bytes left no ghost.
 		after, afterState := ab10Builder(t, arm, ab10ExplorerID)
 		if after.StatusCode != http.StatusOK {
 			t.Fatalf("%s arm: builder post-CAS status %d body %s", arm.name, after.StatusCode, after.Body)
@@ -2006,8 +1699,6 @@ func ab10CellDraftCASOneWinner(t *testing.T, arm *ab10Arm) {
 	})
 }
 
-// ab10DraftDigest and ab10DraftBytesSHA are pinned literals for the shared
-// workspace above: the same bytes must digest identically on both arms.
 const (
 	ab10DraftDigest   = "sha256:8219b9afd37fc338b0ccfbcf148c210594b68981b8cf8593bdc588230b669b56"
 	ab10DraftBytesSHA = "8219b9afd37fc338b0ccfbcf148c210594b68981b8cf8593bdc588230b669b56"
@@ -2032,8 +1723,6 @@ type ab10DraftSeed struct {
 	Generation  string
 }
 
-// ab10SeedDraft writes the draft through the arm's production store port.
-// A nil seed creates the token-probe explorer with an empty draft.
 func ab10SeedDraft(t *testing.T, arm *ab10Arm, ctx context.Context, explorerID string, seed *ab10DraftSeed) {
 	t.Helper()
 	value := explorer.Explorer{
@@ -2086,18 +1775,9 @@ func ab10BuilderSnapshot(t *testing.T, arm *ab10Arm, explorerID string) (token, 
 	return state.Catalog.SnapshotToken, state.Catalog.AuthorizationScopeDigest, state.Catalog.Generation
 }
 
-// ---------------------------------------------------------------------------
-// Cell 10: publicationControlFenceRejectsStaleOwner.
-// ---------------------------------------------------------------------------
-
 func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 	t.Run("publicationControlFenceRejectsStaleOwner", func(t *testing.T) {
 		ctx := context.Background()
-		// Two candidate releases over the same (project, generation): the
-		// fence story needs a takeover, and re-activating the already
-		// active release is the production zero-write no-op (expected
-		// revision is deliberately not compared there), so every refusal
-		// assertion below targets a release other than the active one.
 		release1 := publication.ProjectRelease{
 			ID: "ab10-release-1", Project: ab10Project2, GitCommit: "ab10-commit-1", Generation: ab10GenA,
 		}
@@ -2123,8 +1803,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 		cas := func(release publication.ProjectRelease, expected int64) (publication.ActiveRelease, error) {
 			return store.CompareAndSwapActivateRelease(ctx, release, expected)
 		}
-		// casError keeps the single-driver assertions readable: they care
-		// only about the verdict.
 		casErr := func(release publication.ProjectRelease, expected int64) error {
 			_, err := cas(release, expected)
 			return err
@@ -2135,9 +1813,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 		save(release1)
 		save(release2)
 
-		// No pointer row exists yet: only the expected-revision-0 creator
-		// may mint it. A stale expectation is a typed refusal, no false
-		// completion.
 		if err := casErr(release1, 1<<40); err == nil {
 			t.Fatalf("%s arm: activation CAS accepted a stale expected revision with no active pointer — the fence is not enforced", arm.name)
 		}
@@ -2148,17 +1823,12 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 		if err != nil || active.Revision != 1 || active.Release.ID != release1.ID {
 			t.Fatalf("%s arm: first activation did not persist the pointer: active=%+v err=%v, want literal (release-1, revision 1)", arm.name, active, arm.scrub(err))
 		}
-		// The already-active release re-activates as the zero-write no-op
-		// (F-B15): success regardless of the expected revision.
 		if err := casErr(release1, 1<<40); err != nil {
 			t.Fatalf("%s arm: re-activating the active release refused instead of no-op: %s", arm.name, arm.scrub(err))
 		}
-		// A foreign release with a stale expected revision: typed refusal.
 		if err := casErr(release2, 1<<40); err == nil {
 			t.Fatalf("%s arm: foreign release activated on a stale expected revision — the fence is not enforced", arm.name)
 		}
-		// race fires one CAS per target release, all against one expected
-		// revision, from separate goroutines.
 		type casVerdict struct {
 			active publication.ActiveRelease
 			err    error
@@ -2177,13 +1847,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			return verdicts
 		}
 
-		// Concurrent drivers racing to the SAME end state converge: the
-		// first advances the pointer under the row lock, and every later
-		// driver finds its own release already active, so it takes the
-		// production zero-write no-op path where the expected revision is
-		// deliberately not compared. All four therefore succeed with the
-		// same verdict. The fence witness is not the success count but the
-		// write count: the revision moved by exactly one, 1 to 2.
 		for i, verdict := range race(1, release2, release2, release2, release2) {
 			if verdict.err != nil {
 				t.Fatalf("%s arm: concurrent driver %d refused the already-converged end state: %s", arm.name, i, arm.scrub(verdict.err))
@@ -2196,13 +1859,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: takeover did not persist (release-2, revision 2): active=%+v err=%v", arm.name, active, arm.scrub(err))
 		}
 
-		// Concurrent drivers racing to DIFFERENT end states against one
-		// expected revision. The success count is not the fence witness,
-		// because the zero-write no-op absorbs any driver whose own release
-		// already holds the pointer, expected revision un compared. What the
-		// fence must guarantee is a single write per expected revision, a
-		// uniform verdict for every accepted driver, and a typed conflict for
-		// every driver that cannot converge.
 		release3 := publication.ProjectRelease{
 			ID: "ab10-release-3", Project: ab10Project2, GitCommit: "ab10-commit-3", Generation: ab10GenA,
 		}
@@ -2212,9 +1868,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 		save(release3)
 		save(release4)
 
-		// Two drivers, two distinct candidates that are neither of them
-		// active, one expected revision: no no-op can absorb either, so
-		// exactly one write may land and the other driver is refused.
 		wins, losers := 0, 0
 		for i, verdict := range race(2, release3, release4) {
 			switch {
@@ -2237,12 +1890,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: the two-way race did not land exactly one write: active=%+v err=%v, want revision 3", arm.name, taken, arm.scrub(err))
 		}
 
-		// Three distinct candidates, none of which can be the active
-		// release, all against the current revision: the no-op path cannot
-		// absorb any of them, so exactly one compare-and-swap may land and
-		// the other two are refused with the shared conflict sentinel. A
-		// fourth driver repeating the winner's candidate would only converge
-		// through the no-op, so it is not part of this witness.
 		release5 := publication.ProjectRelease{
 			ID: "ab10-release-5", Project: ab10Project2, GitCommit: "ab10-commit-5", Generation: ab10GenA,
 		}
@@ -2273,8 +1920,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 		if wins != 1 || conflicts != 2 {
 			t.Fatalf("%s arm: three distinct candidates on one expected revision: %d winners, %d conflicts, want exactly 1 and 2", arm.name, wins, conflicts)
 		}
-		// Exactly one write landed, so the durable pointer and the winner
-		// must name the same end state.
 		final, ferr := readActive()
 		if ferr != nil || final.Revision != 4 {
 			t.Fatalf("%s arm: three-way race did not land exactly one write: active=%+v err=%v, want revision 4", arm.name, final, arm.scrub(ferr))
@@ -2288,18 +1933,10 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			}
 		}
 
-		// The superseded expected revision can never complete: the release
-		// that held the pointer two steps back is no longer active, so no
-		// no-op applies to it.
 		if err := casErr(release2, 2); err == nil {
 			t.Fatalf("%s arm: superseded expected revision completed after takeover", arm.name)
 		}
 
-		// Lease owner fence: publication control plane. The Arango lane
-		// drives the exported bundle-lease registry; the PG lane drives the
-		// manifest activation fence over the same series (the PG lease
-		// keeper package is module-internal with no production consumer —
-		// recorded as a coverage note in the conformance matrix).
 		if arm.backend != nil {
 			registry := arm.backend.PublishedRegistry
 			key, owner, stale := "ab10-lease-key", "ab10-owner-a", "ab10-owner-b"
@@ -2307,10 +1944,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			if err != nil || !acquired {
 				t.Fatalf("%s arm: lease acquire for owner A: acquired=%v err=%v", arm.name, acquired, err)
 			}
-			// The shared registry contract refuses a held lease through the
-			// claim verdict, not an error: PostgreSQL returns RowsAffected
-			// 0 and Arango's FILTER empties the UPSERT, both as (false,
-			// nil). A driver failure is still a failure.
 			if acquired, err := registry.AcquireBundleLease(ctx, key, stale, time.Now().Add(time.Minute)); err != nil {
 				t.Fatalf("%s arm: foreign lease probe failed at the driver: %v", arm.name, err)
 			} else if acquired {
@@ -2319,11 +1952,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			if renewed, err := registry.RenewBundleLease(ctx, key, stale, time.Now().Add(time.Minute)); err != nil || renewed {
 				t.Fatalf("%s arm: stale owner renewed the lease (renewed=%v err=%v) — false completion allowed", arm.name, renewed, err)
 			}
-			// Both registries document a foreign release as a no-op that
-			// leaves the fence intact (registry.go ReleaseBundleLease
-			// comment; the Arango FILTER drops the non-owner REMOVE). The
-			// durable witness is the owner renewal below: had the foreign
-			// release deleted the lease, that renewal would refuse.
 			if err := registry.ReleaseBundleLease(ctx, key, stale); err != nil {
 				t.Fatalf("%s arm: foreign release errored instead of the documented no-op: %v", arm.name, err)
 			}
@@ -2333,7 +1961,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			if err := registry.ReleaseBundleLease(ctx, key, owner); err != nil {
 				t.Fatalf("%s arm: owner release refused: %v", arm.name, err)
 			}
-			// Expired-lease takeover succeeds.
 			if _, err := registry.AcquireBundleLease(ctx, key+"-expired", owner, time.Now().Add(-time.Second)); err != nil {
 				t.Fatalf("%s arm: acquiring an already-expired lease: %v", arm.name, err)
 			}
@@ -2342,17 +1969,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			}
 			_ = registry.ReleaseBundleLease(ctx, key+"-expired", stale)
 		} else {
-			// PG lane: the generation activation fence over the production
-			// manifest lifecycle port. ab10-p1 is the arm's served project:
-			// its pointer names gen-a and gen-b is staged, so the two
-			// generations give a real candidate/pointer pair to race against.
-			// A wrong expected pointer must be refused with the pointer
-			// untouched; the matching expected pointer must move it; and the
-			// already-active candidate completes as the documented idempotent
-			// zero-write success with the expected pointer un compared (the
-			// same posture as the release-store no-op above). The pointer is
-			// restored to gen-a before the cell returns, because later cells
-			// read the served generation.
 			runtime := arm.fixture.controlRuntime(t)
 			defer func() { _ = runtime.Close() }()
 			genA := mustAB10Ref(t, ab10Project1, ab10GenA)
@@ -2372,8 +1988,6 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			if err != nil {
 				t.Fatalf("%s arm: read staged manifest: %s", arm.name, arm.scrub(err))
 			}
-			// A candidate that is not the pointer, with an expected pointer
-			// that is not the pointer: typed refusal, pointer untouched.
 			ghost := mustAB10Ref(t, ab10Project1, ab10GenC)
 			if err := runtime.Manifests.ActivateGeneration(ctx, stagedB, &ghost); err == nil {
 				t.Fatalf("%s arm: activation accepted a wrong expected active pointer — fence is not enforced", arm.name)
@@ -2383,19 +1997,15 @@ func ab10CellPublicationControlFence(t *testing.T, arm *ab10Arm) {
 			if got := activeGen(); got != ab10GenA {
 				t.Fatalf("%s arm: refused activation moved the pointer to %q, want %q", arm.name, got, ab10GenA)
 			}
-			// The matching expected pointer activates.
 			if err := runtime.Manifests.ActivateGeneration(ctx, stagedB, &genA); err != nil {
 				t.Fatalf("%s arm: activation with the matching expected pointer refused: %s", arm.name, arm.scrub(err))
 			}
 			if got := activeGen(); got != ab10GenB {
 				t.Fatalf("%s arm: pointer did not move: served generation %q, want %q", arm.name, got, ab10GenB)
 			}
-			// The active candidate completes idempotently regardless of the
-			// expected pointer: zero writes, not a false refusal.
 			if err := runtime.Manifests.ActivateGeneration(ctx, stagedB, &ghost); err != nil {
 				t.Fatalf("%s arm: re-activating the active generation refused instead of completing idempotently: %s", arm.name, arm.scrub(err))
 			}
-			// Restore the served generation for the cells that follow.
 			stagedA, err := runtime.Manifests.ReadManifest(ctx, genA)
 			if err != nil {
 				t.Fatalf("%s arm: read manifest to restore: %s", arm.name, arm.scrub(err))
@@ -2419,14 +2029,6 @@ func mustAB10Ref(t *testing.T, project, generation string) publication.Ref {
 	return ref
 }
 
-// ---------------------------------------------------------------------------
-// Cell 11: cancellationTypedFailureNoFallback.
-// ---------------------------------------------------------------------------
-
-// ab10ArmRowsDispatch drives one arm-native statement through the arm's
-// production row-execution port: the Arango lane's selected AQL adapter, or
-// the PostgreSQL lane's tag-validated source-rows executor. Nothing here
-// reaches a driver directly; the port is the only path under test.
 func ab10ArmRowsDispatch(t *testing.T, arm *ab10Arm, ctx context.Context, visit func(map[string]any) error) error {
 	t.Helper()
 	if arm.backend != nil {
@@ -2446,9 +2048,6 @@ func ab10ArmRowsDispatch(t *testing.T, arm *ab10Arm, ctx context.Context, visit 
 	}, visit)
 }
 
-// ab10AssertNoForeignFallbackTell rejects an error whose text names the other
-// backend: a cancelled PostgreSQL read must never report an Arango failure,
-// and a cancelled AQL read must never report a PostgreSQL failure.
 func ab10AssertNoForeignFallbackTell(t *testing.T, arm *ab10Arm, stage string, err error) {
 	t.Helper()
 	tell := []string{"arango", "aql"}
@@ -2463,28 +2062,8 @@ func ab10AssertNoForeignFallbackTell(t *testing.T, arm *ab10Arm, stage string, e
 	}
 }
 
-// The two cancellation guarantees the row port gives a caller are distinct,
-// and the cell asserts each one separately because production delivers them
-// through different seams:
-//
-//  1. A request whose context is already ended is refused with a typed
-//     failure that satisfies errors.Is against the context error (the
-//     PostgreSQL adapter wraps it in its QueryError, which also carries its
-//     own query sentinel; the Arango adapter returns the driver's context
-//     failure). The caller always observes an abort, never a false completion.
-//  2. An abort raised by the caller's own visitor mid-stream keeps its
-//     identity: the port returns the visitor's error unchanged and stops
-//     iteration, so the rows the caller refused to accept are never delivered.
-//
-// A context cancelled between visits is NOT asserted to abort a stream the
-// driver has already buffered: both adapters observe context only at the
-// driver seam, so a small result can complete without consulting it. That is
-// documented adapter behavior, not a fallback, and the cell says so instead
-// of asserting a guarantee the adapters do not make.
 func ab10CellCancellationNoFallback(t *testing.T, arm *ab10Arm) {
 	t.Run("cancellationTypedFailureNoFallback", func(t *testing.T) {
-		// Census through the same port: more than one row makes the
-		// stop-early witness below non-vacuous.
 		total := 0
 		censusCtx, censusCancel := context.WithCancel(context.Background())
 		defer censusCancel()
@@ -2498,8 +2077,6 @@ func ab10CellCancellationNoFallback(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: cancellation cell saw %d rows, want at least 2 — vacuous stop-early witness", arm.name, total)
 		}
 
-		// (1) An already-cancelled request is refused with the arm's own
-		// typed context failure and visits nothing.
 		cancelledCtx, cancel := context.WithCancel(context.Background())
 		cancel()
 		visitsOnCancelled := 0
@@ -2518,8 +2095,6 @@ func ab10CellCancellationNoFallback(t *testing.T, arm *ab10Arm) {
 			t.Fatalf("%s arm: cancelled execution visited %d rows, want 0", arm.name, visitsOnCancelled)
 		}
 
-		// (2) A caller abort mid-stream keeps its error identity and stops
-		// delivery of the remaining rows.
 		abort := errors.New("ab10 client aborted")
 		visited := 0
 		streamCtx, streamCancel := context.WithCancel(context.Background())
@@ -2559,10 +2134,6 @@ func ab10MustPG(t *testing.T, sql string, args ...command.PostgreSQLParameter) c
 	return compiled
 }
 
-// ---------------------------------------------------------------------------
-// Cell 12: backendUnavailableAndWrongTagNoFallback.
-// ---------------------------------------------------------------------------
-
 func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 	t.Run("backendUnavailableAndWrongTagNoFallback", func(t *testing.T) {
 		t.Run("unavailableEndpointRefused", func(t *testing.T) {
@@ -2577,7 +2148,7 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 				}
 				t.Cleanup(func() { openArangoBackend = original })
 				dead := arm.fixture.bootConfig(t, "127.0.0.1:0")
-				dead.Server.PostgreSQL.Port = 1 // connection refused
+				dead.Server.PostgreSQL.Port = 1
 				_, closeRuntime, err := composePostgreSQLFullRuntime(ctx, dead, ab10Logger())
 				if err == nil {
 					_ = closeRuntime()
@@ -2596,7 +2167,7 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 			}
 			t.Cleanup(func() { openPostgresBackend = original })
 			cfg := Config{}
-			cfg.Server.URL = "http://127.0.0.1:1" // connection refused
+			cfg.Server.URL = "http://127.0.0.1:1"
 			cfg.Server.Database = arm.database
 			cfg.Server.Listen = "127.0.0.1:0"
 			cfg.Server.AllowUnauthenticated = true
@@ -2617,7 +2188,6 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 		t.Run("wrongTagCommandRefusedPreDial", func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
-			// Tagged-union accessors refuse the mismatch pre-dial, typed.
 			pgCommand := ab10MustPG(t, "SELECT 1")
 			if _, _, err := pgCommand.AQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 				t.Fatalf("%s arm: AQL accessor on a PostgreSQL-tagged command: %v, want ErrCompiledCommandBackendMismatch", arm.name, err)
@@ -2626,11 +2196,6 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 			if _, _, err := aqlCommand.PostgreSQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 				t.Fatalf("%s arm: PostgreSQL accessor on an AQL-tagged command: %v, want ErrCompiledCommandBackendMismatch", arm.name, err)
 			}
-			// Cross-tag dispatch into the arm's own row adapter is refused
-			// before any dial. The PostgreSQL arm pairs the typed error with
-			// a durable committed-transaction census below; the Arango arm
-			// asserts the typed refusal alone. The runtime is opened before
-			// sampling so pool assembly never lands inside the window.
 			var err error
 			var before int64
 			if arm.backend != nil {
@@ -2651,16 +2216,6 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Wrong-tag zero-statement witnesses (census class).
-// ---------------------------------------------------------------------------
-
-// ab10ServerStatementWitness samples a durable per-database counter: the
-// PostgreSQL arm's committed-transaction total. Each witness read commits
-// exactly one transaction itself, so the paired assertion tolerates +1 and
-// anything beyond that is an executed statement. The Arango arm has no
-// free server-side statement census; its cross-tag refusal is asserted
-// through the typed error alone.
 func ab10ServerStatementWitness(t *testing.T, arm *ab10Arm) int64 {
 	t.Helper()
 	if arm.name == "postgresql" {
@@ -2676,16 +2231,11 @@ func ab10AssertNoServerStatements(t *testing.T, arm *ab10Arm, before int64) {
 		return
 	}
 	after := ab10ServerStatementWitness(t, arm)
-	// +1 accounts for the before-witness read's own commit; a refusal that
-	// never dialed the server must add nothing of its own.
 	if after-before > 1 {
 		t.Fatalf("%s arm: cross-tag dispatch reached the server: xact_commit grew by %d, want 1 (the before-witness read alone)", arm.name, after-before)
 	}
 }
 
-// ab10AttemptJSON is requestJSON for worker goroutines: identical wire
-// shape, but failures return an error instead of calling t.Fatal, so
-// FailNow never leaves the test goroutine.
 func ab10AttemptJSON(app *fiber.App, method, path, body string) (testHTTPResponse, error) {
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
@@ -2701,10 +2251,6 @@ func ab10AttemptJSON(app *fiber.App, method, path, body string) (testHTTPRespons
 	return testHTTPResponse{StatusCode: response.StatusCode, Body: string(raw)}, nil
 }
 
-// ---------------------------------------------------------------------------
-// Cell 13: upgradeFromPinnedPreRefactorReopensSafely.
-// ---------------------------------------------------------------------------
-
 func ab10CellUpgradeReopen(t *testing.T, arm *ab10Arm) {
 	t.Run("upgradeFromPinnedPreRefactorReopensSafely", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
@@ -2713,9 +2259,6 @@ func ab10CellUpgradeReopen(t *testing.T, arm *ab10Arm) {
 			ab10CellUpgradeReopenPG(t, arm, ctx)
 			return
 		}
-		// Arango lane: the pinned pre-refactor bootstrap shape is the
-		// factory Open (the sole bootstrap authority), rows are ingested,
-		// the production compose boots, and a second boot is byte-stable.
 		first := ab10BootArangoApp(t, ctx, arm, true)
 		body := ab10Graph(t, &ab10Arm{name: arm.name, app: first, scrub: arm.scrub}, ab10PatientQueryBody)
 		firstState := ab10DecodeRows(t, "reopen first boot", body)
@@ -2740,12 +2283,7 @@ func ab10CellUpgradeReopen(t *testing.T, arm *ab10Arm) {
 
 func ab10CellUpgradeReopenPG(t *testing.T, arm *ab10Arm, ctx context.Context) {
 	t.Helper()
-	ab10AuditLegMints(t, "postgresql", 1) // the pinned pre-refactor fixture
-	// A fresh owned database migrated by the pinned pre-refactor ledger
-	// (the frozen migration bytes the runner replays), seeded with one
-	// resource row, then reopened through the production compose: rows,
-	// migration history, and checksums must be identical, and a second
-	// boot must be safe.
+	ab10AuditLegMints(t, "postgresql", 1)
 	fixture := newAB10PGFixture(t)
 	fixture.migrate(t)
 	fixture.load(t, ab10Project1, ab10GenA, ab10PathMain, ab10GenFiles(t))
@@ -2774,7 +2312,6 @@ func ab10CellUpgradeReopenPG(t *testing.T, arm *ab10Arm, ctx context.Context) {
 	if err := closeRuntime(); err != nil {
 		t.Fatalf("close first reopen: %s", fixture.scrub(err))
 	}
-	// Second boot is safe (repeat startup converges).
 	second, closeSecond, err := composePostgreSQLFullRuntime(ctx, fixture.bootConfig(t, "127.0.0.1:0"), ab10Logger())
 	if err != nil {
 		t.Fatalf("postgresql arm: second reopen: %s", fixture.scrub(err))
@@ -2790,8 +2327,6 @@ func ab10CellUpgradeReopenPG(t *testing.T, arm *ab10Arm, ctx context.Context) {
 	}
 }
 
-// ab10PGRowsDigest hashes the schema's resource rows through the driver —
-// the census-class durability witness for the reopen cell.
 func ab10PGRowsDigest(t *testing.T, fixture *ab10PGFixture, source string) string {
 	t.Helper()
 	var digest *string

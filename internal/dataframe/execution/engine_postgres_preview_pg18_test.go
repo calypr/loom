@@ -1,37 +1,5 @@
 package execution_test
 
-// pg-exec-04 live acceptance battery: bounded PostgreSQL previews through
-// PreviewOutput (check-2: go test ./internal/dataframe/execution -run
-// PostgresPreview under LOOM_TEST_POSTGRES_URL against the isolated
-// PostgreSQL 18 service; at the branch point this selector matched zero
-// tests — that RED is the vacuous-suite guard this battery closes).
-//
-// Every leg is production-compiled end to end: an authored recipe.Bundle
-// (schema version, RootResourceType, RowGrain, Fields with schema-validated
-// selectors) goes through the real Engine.CompileResolvedBundle —
-// semantic.BuildRecipePlan/ResolveRecipePlan and
-// lower.CompileResolvedRecipePlan — and the selected PostgreSQL compile
-// target renders the parent-tagged command through the canonical
-// command.NewPostgreSQLCommand path; execution then streams it onto the real
-// server via the production internal/dataframe/postgres adapter. No leg
-// hand-builds a lower.CompiledRecipeOutput. Fixtures are stored through the
-// production resource repository in a schema installed by the production
-// migration runner.
-//
-// Witnesses are literal values: exact per-leg row JSON, driver-decoded
-// values, ordered typed statement arguments pinned at the port, and the
-// Complete/Truncated/RowCount summary contract from the ticket acceptance.
-// Non-vacuity discipline: every refusal has a paired control that proceeds
-// on the same fixture (see the mutation-control leg); statement counts are
-// taken at the port, never by timing; the deadline leg blocks inside the
-// visitor so it is deterministic rather than racing the server. The full
-// exec02ForbidArango landmine set is armed on every leg: a PostgreSQL-served
-// preview that touches any Arango/ClickHouse control fails the test.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec04_pv_* and
-// dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -142,12 +110,6 @@ type exec04pvService struct {
 	executor dataframeexecution.SourceRows
 }
 
-// exec04pvScrubberFor returns an error formatter that replaces every
-// credential-bearing form of the raw test service URL with <redacted>, so no
-// fatal path echoes credentials into the test log: connection failures from
-// pgxpool.New / pgx.ParseConfig on the raw URL can quote the full URL.
-// addSecret registers further forms (the derived isolated-database DSN) for
-// scrubbing.
 func exec04pvScrubberFor(raw string) (func(any) string, func(string)) {
 	secrets := []string{raw}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
@@ -168,11 +130,6 @@ func exec04pvScrubberFor(raw string) (func(any) string, func(string)) {
 	return scrub, func(s string) { secrets = append(secrets, s) }
 }
 
-// TestExec04pvScrubberHidesCredentialForms pins the scrubber contract for
-// the credential-bearing URL forms: every verbatim occurrence of the raw
-// URL, the userinfo, the bare password, and registered derived DSNs must be
-// replaced, so no error path that echoes a pool or config failure can print
-// a credential. Offline string check: never contacts a service.
 func TestExec04pvScrubberHidesCredentialForms(t *testing.T) {
 	raw := "postgres://verify_user:S3cr3t-Pw@db.internal:5432/loomsvc?sslmode=require"
 	scrub, addSecret := exec04pvScrubberFor(raw)
@@ -290,8 +247,6 @@ func newExec04pvService(t *testing.T) *exec04pvService {
 	return &exec04pvService{ctx: ctx, admin: admin, iso: iso, schema: schema, dsn: dsn, target: target, scrub: scrub, fail: fail, executor: executor}
 }
 
-// migrate installs the real pg-store-02 resource placement through the
-// production migration runner.
 func (s *exec04pvService) migrate(t *testing.T) {
 	t.Helper()
 	client, err := storepg.OpenPool(s.ctx, storepg.ClientConfig{DSN: s.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 2 * time.Second})
@@ -308,12 +263,6 @@ type exec04pvFixtureRow struct {
 	project, generation, resourceType, logicalID, authPath, payload string
 }
 
-// acceptanceFixture is the committed fixture set. The P1/gen-a scope holds
-// exactly three patients ordered patient-ada, patient-alan, patient-grace
-// under the compiled pg-sql-12 window (logical_id, resource_seq); the
-// P2/gen-c scope holds exactly two (patient-two-a, patient-two-b); the two
-// intruders exist only to prove a bounded preview never leaks another
-// project or generation.
 func exec04pvAcceptanceFixture() []exec04pvFixtureRow {
 	return []exec04pvFixtureRow{
 		{"P1", "gen-a", "Patient", "patient-ada", "FHIR/Patient", `{"gender":"female","birthDate":"1815-12-10"}`},
@@ -355,7 +304,6 @@ func (s *exec04pvService) countResources(t *testing.T) int64 {
 	return count
 }
 
-// exec04pvCall records one statement through the single source row port.
 type exec04pvCall struct {
 	sql      string
 	args     []command.PostgreSQLParameter
@@ -363,9 +311,6 @@ type exec04pvCall struct {
 	tag      command.CompiledBackend
 }
 
-// exec04pvRecorder wraps the production adapter: it refuses any non-PostgreSQL
-// tag before the driver (there is no fallback to arm) and records every
-// statement, its ordered typed arguments, and its declared column contract.
 type exec04pvRecorder struct {
 	s     *exec04pvService
 	calls []exec04pvCall
@@ -382,8 +327,6 @@ func (r *exec04pvRecorder) port(ctx context.Context, request dataframeexecution.
 
 func (r *exec04pvRecorder) counts() int { return len(r.calls) }
 
-// exec04pvInvalidRegistry refuses recipe loads: this battery compiles
-// authored bundles only, mirroring the relocated exec-02 witness.
 type exec04pvInvalidRegistry struct{}
 
 func (exec04pvInvalidRegistry) LoadRecipe(context.Context, string) (exec.Entry, error) {
@@ -394,10 +337,6 @@ func (exec04pvInvalidRegistry) LoadRecipeVersion(context.Context, string, string
 	return exec.Entry{}, errors.New("the preview battery compiles authored bundles only")
 }
 
-// exec04pvForbidArango arms every AQL/Arango/ClickHouse callback as an
-// error landmine (the arch-backend-06 relocation moved the shared
-// exec02ForbidArango into the backends tree with its battery): a
-// PostgreSQL-served plan that touches any of them fails.
 func exec04pvForbidArango() dataframeexecution.Config {
 	return dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
@@ -439,9 +378,6 @@ func exec04pvForbidArango() dataframeexecution.Config {
 	}
 }
 
-// engine wires a PostgreSQL-selected engine with every Arango/ClickHouse
-// control armed as a landmine and the recording wrapper around the real
-// adapter as the single source row port.
 func (s *exec04pvService) engine(t *testing.T, recorder *exec04pvRecorder, rootPageRows int) *dataframeexecution.Engine {
 	t.Helper()
 	config := exec04pvForbidArango()
@@ -457,8 +393,6 @@ func (s *exec04pvService) engine(t *testing.T, recorder *exec04pvRecorder, rootP
 	return engine
 }
 
-// previewBundle is the authored recipe every leg compiles for real: two
-// scalar fields with schema-validated selectors over Patient.
 func exec04pvBundle() recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -481,9 +415,6 @@ func exec04pvBindings(project, generation string) recipe.RuntimeBindings {
 	}
 }
 
-// canonicalRows renders each public preview row as its canonical JSON text
-// (Go json.Marshal sorts map keys), and driver-decoded json.RawMessage and
-// string forms of the same JSON value collapse to one witness.
 func exec04pvCanonicalRows(rows []map[string]any) []string {
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -535,8 +466,6 @@ const (
 	exec04pvGoldTwoB  = `{"birthDate":"2001-02-02","gender":"female"}`
 )
 
-// runPreview collects one production-compiled preview and returns the
-// collected rows, the summary, and the recorder.
 func (s *exec04pvService) runPreview(t *testing.T, rootPageRows int, project, generation string, limit int, mutateVisitor func(*[]map[string]any) func(map[string]any) error) ([]map[string]any, dataframeexecution.PreviewSummary, *exec04pvRecorder, error) {
 	t.Helper()
 	s.migrate(t)
@@ -556,9 +485,6 @@ func (s *exec04pvService) runPreview(t *testing.T, rootPageRows int, project, ge
 	return rows, summary, recorder, err
 }
 
-// TestPostgresPreviewTruncatedAtLimit is acceptance 1: three fixture rows
-// with limit two return the exact first two rows, Complete=false,
-// Truncated=true, with exactly one statement through the single port.
 func TestPostgresPreviewTruncatedAtLimit(t *testing.T) {
 	s := newExec04pvService(t)
 	rows, summary, recorder, err := s.runPreview(t, 0, "P1", "gen-a", 2, nil)
@@ -579,8 +505,6 @@ func TestPostgresPreviewTruncatedAtLimit(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewNaturalExhaustion is acceptance 2: the two-row P2/gen-c
-// scope with limit three returns both rows, Complete=true, Truncated=false.
 func TestPostgresPreviewNaturalExhaustion(t *testing.T) {
 	s := newExec04pvService(t)
 	rows, summary, recorder, err := s.runPreview(t, 0, "P2", "gen-c", 3, nil)
@@ -598,10 +522,6 @@ func TestPostgresPreviewNaturalExhaustion(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewEmptyScopeNoLeak is acceptance 3: a preview over a
-// scope with no rows returns zero rows while the same database holds
-// witnesses under other projects and generations, and the ordered typed
-// statement arguments carry the exact empty scope.
 func TestPostgresPreviewEmptyScopeNoLeak(t *testing.T) {
 	s := newExec04pvService(t)
 	rows, summary, recorder, err := s.runPreview(t, 0, "P-none", "gen-a", 5, nil)
@@ -635,8 +555,6 @@ func TestPostgresPreviewEmptyScopeNoLeak(t *testing.T) {
 	}
 	var auth [][]string
 	if err := json.Unmarshal([]byte(fmt.Sprintf("%s", call.args[2].Value)), &auth); err != nil {
-		// The auth payload is a jsonb array of scope paths; accept either
-		// nesting shape but require the exact path inside.
 		var flat []string
 		if err2 := json.Unmarshal([]byte(fmt.Sprintf("%s", call.args[2].Value)), &flat); err2 != nil {
 			t.Fatalf("auth argument is not decodable jsonb (%v / %v): %s", err, err2, call.args[2].Value)
@@ -662,9 +580,6 @@ func TestPostgresPreviewEmptyScopeNoLeak(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewCancellationNeverComplete is acceptance 4a: cancelling
-// the request mid-stream returns an error and never a false complete
-// result, with the summary explicitly not carrying a completed marker.
 func TestPostgresPreviewCancellationNeverComplete(t *testing.T) {
 	s := newExec04pvService(t)
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -692,8 +607,6 @@ func TestPostgresPreviewCancellationNeverComplete(t *testing.T) {
 	if len(rows) == 0 {
 		t.Fatalf("cancellation must fire after at least one delivered row for this to be a mid-stream control, got 0")
 	}
-	// ALIVE control on the same engine and fixture: an uncancelled rerun
-	// converges to the exact bounded witness.
 	var rerun []map[string]any
 	var rerunSummary dataframeexecution.PreviewSummary
 	var rerunErr error
@@ -718,12 +631,6 @@ func TestPostgresPreviewCancellationNeverComplete(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewDeadlineNeverComplete is acceptance 4b in its
-// deterministic form: the visitor blocks past the request deadline so the
-// deadline is guaranteed to be live mid-stream (the naive post-compile
-// 1ms-deadline shape spuriously passed on fast local streams — methodology
-// RED R2, replaced per the ratified plan). The run must return an error
-// with no completed marker, then converge on rerun.
 func TestPostgresPreviewDeadlineNeverComplete(t *testing.T) {
 	s := newExec04pvService(t)
 	s.migrate(t)
@@ -737,7 +644,7 @@ func TestPostgresPreviewDeadlineNeverComplete(t *testing.T) {
 	ctx, cancel := context.WithTimeout(s.ctx, 200*time.Millisecond)
 	defer cancel()
 	summary, err := engine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: "patients", Limit: 5}, func(map[string]any) error {
-		time.Sleep(300 * time.Millisecond) // block past the deadline on the first row
+		time.Sleep(300 * time.Millisecond)
 		return nil
 	})
 	if err == nil {
@@ -766,9 +673,6 @@ func TestPostgresPreviewDeadlineNeverComplete(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewPublicColumnsCompiledOrder is acceptance 5: the public
-// columns retain the compiled order and names, the summary column contract
-// matches them, and internal projection columns never cross.
 func TestPostgresPreviewPublicColumnsCompiledOrder(t *testing.T) {
 	s := newExec04pvService(t)
 	rows, summary, recorder, err := s.runPreview(t, 0, "P1", "gen-a", 5, nil)
@@ -792,13 +696,6 @@ func TestPostgresPreviewPublicColumnsCompiledOrder(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewRootPagePreviewPlanNeverCarries is the production half
-// of acceptance 6: with Config.RootPageRows armed, a PostgreSQL-served
-// preview still runs exactly one statement — the production compiler refuses
-// root-key output paging for PostgreSQL, so no preview plan can carry a
-// root-page command sequence, and the AQL page loop never attaches. The
-// paired ALIVE control (the AQL engine does page) and the typed producer
-// refusal live in the internal offline battery.
 func TestPostgresPreviewRootPagePreviewPlanNeverCarries(t *testing.T) {
 	s := newExec04pvService(t)
 	rows, summary, recorder, err := s.runPreview(t, 25, "P1", "gen-a", 5, nil)
@@ -821,13 +718,6 @@ func TestPostgresPreviewRootPagePreviewPlanNeverCarries(t *testing.T) {
 	}
 }
 
-// TestPostgresPreviewMutationControls proves the bounded-preview legs die
-// under mutation (batch law: production-compiled legs must not survive
-// input mutation). (a) witness mutation: comparing the correct collection
-// against a flipped golden must be detected by the same comparison the legs
-// use; (b) input mutation: one flipped fixture gender must break the exact
-// goldens. Both arms have their alive side exercised by the legs above on
-// the unmutated fixture.
 func TestPostgresPreviewMutationControls(t *testing.T) {
 	s := newExec04pvService(t)
 
@@ -880,9 +770,6 @@ func TestPostgresPreviewMutationControls(t *testing.T) {
 	})
 }
 
-// TestZZPostgresPreviewZeroLeftoverFixtures is the ownership-scoped audit:
-// every database this file verified into existence must be gone, and no
-// unregistered survivor may remain under this file's own prefix.
 func TestZZPostgresPreviewZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {

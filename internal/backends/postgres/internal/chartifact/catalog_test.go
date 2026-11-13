@@ -1,18 +1,5 @@
 package postgres
 
-// Real PostgreSQL 18 integration for the private ClickHouse artifact
-// manifest and cleanup-lease catalog (pg-private-clickhouse-artifact-
-// catalog-v1). Service-gated by LOOM_TEST_POSTGRES_URL: every acceptance
-// assertion below runs against a real server. Each test owns one uniquely
-// named pgprivcat01_it_* database plus one owned pgprivcat01_it_* schema
-// inside it, applies the authoritative publication control-plane owner
-// history's versions {1, 7} (000007_private_clickhouse_artifacts, owned by
-// internal/backends/postgres/internal/publication) through the real pg-store-02
-// runner, and asserts literal expected rows through its own witness pool.
-// Mocks and skipped tests do not establish parity: the check is run with the
-// service configured, and the gate exists only to keep unrelated CI lanes
-// green.
-
 import (
 	"context"
 	"crypto/rand"
@@ -58,12 +45,8 @@ func randomHex() string {
 	return hex.EncodeToString(buf)
 }
 
-// truncUS is the value a timestamptz column holds after pgx encodes t at
-// microsecond precision.
 func truncUS(t time.Time) time.Time { return t.Truncate(time.Microsecond) }
 
-// jsonTimeLiteral is the exact quoted JSON string the catalog writes into
-// the authoritative payload for t.
 func jsonTimeLiteral(t *testing.T, value time.Time) string {
 	t.Helper()
 	encoded, err := json.Marshal(value.UTC())
@@ -73,11 +56,6 @@ func jsonTimeLiteral(t *testing.T, value time.Time) string {
 	return string(encoded)
 }
 
-// guardedPool is a real *pgxpool.Pool that refuses transaction use. It is
-// not a mock database: every statement reaches the real server through the
-// embedded pool; it only records the witness that the catalog never opens
-// a transaction or issues BEGIN, so the caller's idempotent ClickHouse
-// DropTable can always run outside any database transaction.
 type guardedPool struct {
 	*pgxpool.Pool
 	mu        sync.Mutex
@@ -132,17 +110,11 @@ func (g *guardedPool) Begin(ctx context.Context) (pgx.Tx, error) {
 
 var _ DB = (*guardedPool)(nil)
 
-// catalogService owns one isolated database and one owned schema inside it,
-// both named pgprivcat01_it_*, plus the migrated catalog, a catalog bound to
-// the transaction-refusing view of the witness pool, and a second
-// one-connection pool for two-backend race proofs. Nothing outside these
-// resources is touched; TestZZNoLeftoverOwnedResources audits that none
-// survive.
 type catalogService struct {
 	ctx       context.Context
-	admin     *pgxpool.Pool // service database
-	iso       *pgxpool.Pool // isolated database (witness pool)
-	isoB      *pgxpool.Pool // isolated database, second single-connection backend
+	admin     *pgxpool.Pool
+	iso       *pgxpool.Pool
+	isoB      *pgxpool.Pool
 	guarded   *guardedPool
 	schema    string
 	qualified string
@@ -160,8 +132,6 @@ func newCatalogService(t *testing.T) *catalogService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output; the URL is
-	// never printed.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -208,8 +178,6 @@ func newCatalogService(t *testing.T) *catalogService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -224,8 +192,6 @@ func newCatalogService(t *testing.T) *catalogService {
 	}
 	t.Cleanup(iso.Close)
 
-	// The second pool is capped at one physical connection so race tests
-	// contend on two provably distinct PG backends.
 	config, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		fail("parse isolated database config", err)
@@ -269,14 +235,6 @@ func newCatalogService(t *testing.T) *catalogService {
 	return s
 }
 
-// migrate applies this suite's slice of the authoritative publication
-// control-plane history -- the ledger bootstrap plus
-// 000007_private_clickhouse_artifacts.sql, owned by
-// internal/backends/postgres/internal/publication (this package keeps no DDL) --
-// through the real pg-store-02 runner, and asserts the ledger literally
-// records both rows. The suite filters the owner history to the versions its
-// artifact-catalog audit owns; the other publication tables belong to the
-// publication owner's own suites.
 func (s *catalogService) migrate(t *testing.T) {
 	t.Helper()
 	owner, err := publicationpostgres.OwnerMigrations()
@@ -325,10 +283,6 @@ func (s *catalogService) migrate(t *testing.T) {
 		t.Fatalf("table %s was not created by migration 7", PrivateArtifactsTable)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// literal row witnesses (the test's own pool, never the catalog's path)
-// ---------------------------------------------------------------------------
 
 type rowWitness struct {
 	ArtifactID        string
@@ -383,9 +337,6 @@ func (s *catalogService) requireNoRow(t *testing.T, artifactID string) {
 	}
 }
 
-// witnessSingleRow witnesses the only manifest in this test's isolated
-// database. The Manager generates its ArtifactID internally, so the test
-// recovers it from the stored row instead of trusting an accessor.
 func (s *catalogService) witnessSingleRow(t *testing.T) rowWitness {
 	t.Helper()
 	var total int
@@ -411,9 +362,6 @@ func (s *catalogService) witnessSingleRow(t *testing.T) rowWitness {
 	return row
 }
 
-// payloadMember returns the stored payload member's jsonb text for the
-// artifact at call time, so immutable members can be snapshotted before and
-// after a statement and compared literally.
 func (s *catalogService) payloadMember(t *testing.T, artifactID, member string) string {
 	t.Helper()
 	var value string
@@ -449,10 +397,6 @@ func (s *catalogService) rawExec(t *testing.T, sql string, args ...any) pgconn.C
 	}
 	return tag
 }
-
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
 
 func fixedTime() time.Time {
 	return time.Date(2026, 11, 9, 12, 0, 0, 123456789, time.UTC)
@@ -496,10 +440,6 @@ func idsOf(manifests []chartifact.Manifest) []string {
 	return ids
 }
 
-// ---------------------------------------------------------------------------
-// construction and context gates
-// ---------------------------------------------------------------------------
-
 func TestNewCatalogRejectsNilPoolAndUnsafeSchemas(t *testing.T) {
 	if _, err := NewCatalog(nil, "public"); err == nil {
 		t.Fatal("NewCatalog accepted a nil pool")
@@ -529,10 +469,6 @@ func TestCatalogMethodsPropagateCancellationBeforeQuerying(t *testing.T) {
 	s.guarded.check(t)
 }
 
-// ---------------------------------------------------------------------------
-// Create: insert-only, immutable, literal row fidelity
-// ---------------------------------------------------------------------------
-
 func TestCreateStoresLiteralRowAndDuplicatePreservesOriginal(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
@@ -561,7 +497,6 @@ func TestCreateStoresLiteralRowAndDuplicatePreservesOriginal(t *testing.T) {
 		got.SchemaDigest != want.SchemaDigest || got.ScopeDigest != want.ScopeDigest {
 		t.Fatalf("literal row mismatch:\n got %+v\nwant %+v", got, want)
 	}
-	// The payload is authoritative and carries the exact nanosecond stamp.
 	if payloadTime := s.payloadTextField(t, "art-create", "createdAt"); payloadTime != `"2026-11-09T12:00:00.123456789Z"` {
 		t.Fatalf("payload createdAt = %s, want the exact nanosecond JSON string", payloadTime)
 	}
@@ -580,8 +515,6 @@ func TestCreateStoresLiteralRowAndDuplicatePreservesOriginal(t *testing.T) {
 		t.Fatalf("duplicate Create mutated the stored manifest:\n before %+v\n after %+v", before, after)
 	}
 
-	// Rejected creations: untrimmed or blank IDs and unsupported manifest
-	// fields never reach the server.
 	if err := s.catalog.Create(s.ctx, sampleManifest(" spaced")); err == nil {
 		t.Fatal("Create accepted an untrimmed artifact ID")
 	}
@@ -597,12 +530,6 @@ func TestCreateStoresLiteralRowAndDuplicatePreservesOriginal(t *testing.T) {
 	}
 }
 
-// TestCreateRefusesRowsItCouldNeverReadBack pins the write/read symmetry:
-// decodeManifest refuses zero timestamps, so a Create that stored one would
-// poison the stable expired page and every later reconciliation of the
-// schema, and blank checked columns would only fail as raw SQLSTATE 23514
-// from the migration. Every refused input must fail in the catalog, before
-// any statement runs, and store no row.
 func TestCreateRefusesRowsItCouldNeverReadBack(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
@@ -659,8 +586,6 @@ func TestCreatePreservesMissingVersusNullVersusEmptyAndFailsOnNullishPayload(t *
 			t.Fatalf("Create %s = %v", manifest.ArtifactID, err)
 		}
 	}
-	// nil marshals to JSON null and empty to JSON []; the stored payload
-	// keeps the distinction and the decode round trip restores it.
 	if typeof := s.payloadTextField(t, "scope-nil", "identity"); typeof == "<absent>" {
 		t.Fatal("identity member absent")
 	}
@@ -697,8 +622,6 @@ func TestCreatePreservesMissingVersusNullVersusEmptyAndFailsOnNullishPayload(t *
 	if !ok || emptyRead.Identity.AuthResourcePaths == nil || len(emptyRead.Identity.AuthResourcePaths) != 0 {
 		t.Fatalf("empty paths did not round-trip as empty non-nil: %#v", emptyRead.Identity.AuthResourcePaths)
 	}
-	// Full manifest round trip is deep-equal, including Column member shapes
-	// (the omitempty members keep their missing-versus-present shape).
 	if !reflect.DeepEqual(nilRead.Columns, nilPaths.Columns) {
 		t.Fatalf("columns did not round-trip: got %#v want %#v", nilRead.Columns, nilPaths.Columns)
 	}
@@ -709,8 +632,6 @@ func TestCreatePreservesMissingVersusNullVersusEmptyAndFailsOnNullishPayload(t *
 		t.Fatalf("nanosecond stamps did not round-trip: created %v lease %v", nilRead.CreatedAt, nilRead.LeaseUntil)
 	}
 
-	// A nullish authoritative member is refused explicitly, never silently
-	// defaulted to a zero value: a null leaseUntil fails decode.
 	rawTime := fixedTime()
 	if _, err := s.iso.Exec(s.ctx,
 		"INSERT INTO "+s.qualified+" (artifact_id, physical_table, state, row_count, byte_count,"+
@@ -726,8 +647,6 @@ func TestCreatePreservesMissingVersusNullVersusEmptyAndFailsOnNullishPayload(t *
 		t.Fatalf("nullish payload ListExpired = %v, want an explicit refusal", err)
 	}
 
-	// Unsupported values fail at the storage boundary with SQLSTATE 23502
-	// (NOT NULL) or 23514 (CHECK), never silently.
 	cases := []struct {
 		name      string
 		sql       string
@@ -754,10 +673,6 @@ func TestCreatePreservesMissingVersusNullVersusEmptyAndFailsOnNullishPayload(t *
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Update: owner gate, monotonic lease, terminal cleanup, immutable fields
-// ---------------------------------------------------------------------------
-
 func TestUpdateRequiresLeaseOwnerAndPreservesIdentity(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
@@ -766,7 +681,6 @@ func TestUpdateRequiresLeaseOwnerAndPreservesIdentity(t *testing.T) {
 	if err := s.catalog.Create(s.ctx, manifest); err != nil {
 		t.Fatalf("Create = %v", err)
 	}
-	// Snapshot every immutable payload member before any mutation runs.
 	beforeMembers := map[string]string{}
 	for _, member := range []string{"identity", "columns", "physicalTable", "artifactId", "createdAt"} {
 		beforeMembers[member] = s.payloadMember(t, "art-update", member)
@@ -808,7 +722,6 @@ func TestUpdateRequiresLeaseOwnerAndPreservesIdentity(t *testing.T) {
 		!after.LeaseUntil.UTC().Equal(truncUS(progress.LeaseUntil)) {
 		t.Fatalf("progress not stored: %+v", after)
 	}
-	// Identity, schema, and table fields survive the update structurally.
 	beforeRow := s.witnessRow(t, "art-update")
 	for name, pair := range map[string][2]string{
 		"physical_table": {manifest.PhysicalTable, after.PhysicalTable},
@@ -832,7 +745,6 @@ func TestUpdateRequiresLeaseOwnerAndPreservesIdentity(t *testing.T) {
 			t.Errorf("Update mutated immutable payload member %q:\n before %s\n after %s", member, before, after)
 		}
 	}
-	// The mutable payload members moved with the columns.
 	if state := s.payloadTextField(t, "art-update", "state"); state != `"WRITING"` {
 		t.Fatalf("payload state = %s, want WRITING", state)
 	}
@@ -855,8 +767,6 @@ func TestUpdateLeaseIsMonotonicExceptCleanupAndCleanupIsTerminal(t *testing.T) {
 	}
 	storedLease := s.payloadTextField(t, "art-lease", "leaseUntil")
 
-	// An active-state update can never shorten the lease: neither column nor
-	// payload lease moves.
 	if err := s.catalog.Update(s.ctx, "art-lease", "writer-1", chartifact.Progress{
 		State: chartifact.StateReady, RowCount: 5, ByteCount: 4096,
 		LeaseUntil: now.Add(time.Minute), UpdatedAt: now.Add(time.Second),
@@ -874,10 +784,6 @@ func TestUpdateLeaseIsMonotonicExceptCleanupAndCleanupIsTerminal(t *testing.T) {
 		t.Fatalf("payload state = %s, want READY", state)
 	}
 
-	// CLEANUP_PENDING makes the lease immediately reclaimable: the stored
-	// lease may move to (or toward) the call instant, bypassing the active
-	// monotonic rule. It starts slightly ahead so the same-state retry
-	// below can still observe the still-owned lease and shorten it further.
 	reclaimAt := now.Add(30 * time.Minute)
 	if err := s.catalog.Update(s.ctx, "art-lease", "writer-1", chartifact.Progress{
 		State: chartifact.StateCleanupPending, RowCount: 5, ByteCount: 4096,
@@ -888,15 +794,12 @@ func TestUpdateLeaseIsMonotonicExceptCleanupAndCleanupIsTerminal(t *testing.T) {
 	if got := s.witnessRow(t, "art-lease"); !got.LeaseUntil.UTC().Equal(truncUS(reclaimAt)) || got.State != "CLEANUP_PENDING" {
 		t.Fatalf("cleanup lease not applied: %+v", got)
 	}
-	// CLEANUP_PENDING is terminal: the same owner cannot go back active.
 	if err := s.catalog.Update(s.ctx, "art-lease", "writer-1", chartifact.Progress{
 		State: chartifact.StateWriting, RowCount: 5, ByteCount: 4096,
 		LeaseUntil: now.Add(40 * time.Minute), UpdatedAt: now,
 	}); !errors.Is(err, chartifact.ErrLeaseLost) {
 		t.Fatalf("active transition from cleanup = %v, want ErrLeaseLost", err)
 	}
-	// A same-state cleanup retry may shorten the lease (toward immediate
-	// reclaim) while the cleanup owner still holds it.
 	shorter := now.Add(-time.Minute)
 	if err := s.catalog.Update(s.ctx, "art-lease", "writer-1", chartifact.Progress{
 		State: chartifact.StateCleanupPending, RowCount: 5, ByteCount: 4096,
@@ -940,10 +843,6 @@ func TestUpdateAndRenewRejectExpiredLeases(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Renew
-// ---------------------------------------------------------------------------
-
 func TestRenewExtendsOwnedActiveUnexpiredLeaseOnly(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
@@ -982,7 +881,6 @@ func TestRenewExtendsOwnedActiveUnexpiredLeaseOnly(t *testing.T) {
 		t.Fatalf("payload leaseUntil = %s, want the extended lease", lease)
 	}
 
-	// CLEANUP_PENDING is not renewable.
 	if err := s.catalog.Update(s.ctx, "art-renew", "writer-1", chartifact.Progress{
 		State: chartifact.StateCleanupPending, LeaseUntil: now.Add(-time.Minute), UpdatedAt: now,
 	}); err != nil {
@@ -992,10 +890,6 @@ func TestRenewExtendsOwnedActiveUnexpiredLeaseOnly(t *testing.T) {
 		t.Fatalf("cleanup-state Renew = (%t, %v), want (false, nil)", renewed, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ListExpired: bounded and stable
-// ---------------------------------------------------------------------------
 
 func TestListExpiredIsBoundedAndStableWithByteOrderTieBreak(t *testing.T) {
 	s := newCatalogService(t)
@@ -1008,9 +902,9 @@ func TestListExpiredIsBoundedAndStableWithByteOrderTieBreak(t *testing.T) {
 		}
 	}
 	expire("tie-B", 3*time.Minute)
-	expire("tie-a", 3*time.Minute) // same lease: COLLATE "C" puts "tie-B" first
+	expire("tie-a", 3*time.Minute)
 	expire("early-1", 1*time.Minute)
-	expire("late-1", 30*time.Minute) // beyond the first cutoff, inside the second
+	expire("late-1", 30*time.Minute)
 	active := sampleManifestWithLease("active-1", base.Add(100*time.Hour))
 	if err := s.catalog.Create(s.ctx, active); err != nil {
 		t.Fatalf("Create active = %v", err)
@@ -1033,7 +927,6 @@ func TestListExpiredIsBoundedAndStableWithByteOrderTieBreak(t *testing.T) {
 	if len(pageOne) != 2 || pageOne[0].ArtifactID != "early-1" || pageOne[1].ArtifactID != "tie-B" {
 		t.Fatalf("bounded page = %v, want [early-1 tie-B]", idsOf(pageOne))
 	}
-	// The page is stable across repeated calls.
 	again, err := s.catalog.ListExpired(s.ctx, base.Add(10*time.Minute), 2)
 	if err != nil || len(again) != 2 || again[0].ArtifactID != pageOne[0].ArtifactID || again[1].ArtifactID != pageOne[1].ArtifactID {
 		t.Fatalf("unstable page: %v vs %v (%v)", idsOf(pageOne), idsOf(again), err)
@@ -1055,8 +948,6 @@ func TestListExpiredCapsOversizedPages(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
 	base := fixedTime()
-	// One statement, 1003 distinct expired artifacts; the page must cap at
-	// maxExpiredPageSize in stable order.
 	tag := s.rawExec(t,
 		"INSERT INTO "+s.qualified+" (artifact_id, physical_table, state, row_count, byte_count,"+
 			" lease_owner, lease_until, created_at, updated_at, execution_id, output_id, stage_id,"+
@@ -1085,21 +976,17 @@ func TestListExpiredCapsOversizedPages(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ClaimCleanup: expiry recheck and one winner
-// ---------------------------------------------------------------------------
-
 func TestClaimCleanupRechecksExpiryAndHasOneWinner(t *testing.T) {
 	s := newCatalogService(t)
 	defer s.guarded.check(t)
 	base := fixedTime()
-	cutoff := base.Add(time.Hour) // expiredBefore for the claims
+	cutoff := base.Add(time.Hour)
 	claimLease := base.Add(3 * time.Hour)
-	manifest := sampleManifestWithLease("art-claim", base) // expired at cutoff
+	manifest := sampleManifestWithLease("art-claim", base)
 	if err := s.catalog.Create(s.ctx, manifest); err != nil {
 		t.Fatalf("Create = %v", err)
 	}
-	unexpired := sampleManifestWithLease("art-unexpired", base.Add(30*time.Minute)) // <= cutoff? no: 12:30 < 13:00 -> expired at cutoff
+	unexpired := sampleManifestWithLease("art-unexpired", base.Add(30*time.Minute))
 	if err := s.catalog.Create(s.ctx, unexpired); err != nil {
 		t.Fatalf("Create unexpired = %v", err)
 	}
@@ -1117,7 +1004,6 @@ func TestClaimCleanupRechecksExpiryAndHasOneWinner(t *testing.T) {
 		t.Fatal("claim with a blank owner succeeded")
 	}
 
-	// Two distinct PG backends race the same expired manifest: one winner.
 	catalogB, err := NewCatalog(s.isoB, s.schema)
 	if err != nil {
 		s.fail("build second catalog", err)
@@ -1156,8 +1042,6 @@ func TestClaimCleanupRechecksExpiryAndHasOneWinner(t *testing.T) {
 	if len(results) != 2 || (results[0] == results[1]) {
 		t.Fatalf("concurrent claims did not have exactly one winner: %v", results)
 	}
-	// The claimed manifest returns from the authoritative payload, so the
-	// nanosecond lease survives even though the column stores microseconds.
 	if winner.State != chartifact.StateCleanupPending ||
 		!winner.LeaseUntil.Equal(claimLease) ||
 		!reflect.DeepEqual(winner.Identity, manifest.Identity) ||
@@ -1174,15 +1058,10 @@ func TestClaimCleanupRechecksExpiryAndHasOneWinner(t *testing.T) {
 	if lease := s.payloadTextField(t, "art-claim", "state"); lease != `"CLEANUP_PENDING"` {
 		t.Fatalf("payload state = %s, want CLEANUP_PENDING", lease)
 	}
-	// The loser stands down because the row's lease is no longer expired.
 	if _, ok, err := s.catalog.ClaimCleanup(s.ctx, "art-claim", "cleanup-3", cutoff, claimLease); err != nil || ok {
 		t.Fatalf("claim after the winner moved the lease = (%t, %v), want (false, nil)", ok, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Delete and ReleaseCleanup: cleanup-owner validation
-// ---------------------------------------------------------------------------
 
 func TestDeleteAndReleaseCleanupValidateCleanupOwner(t *testing.T) {
 	s := newCatalogService(t)
@@ -1192,7 +1071,6 @@ func TestDeleteAndReleaseCleanupValidateCleanupOwner(t *testing.T) {
 	if err := s.catalog.Create(s.ctx, manifest); err != nil {
 		t.Fatalf("Create = %v", err)
 	}
-	// Before any claim: neither owner may delete or release.
 	if err := s.catalog.Delete(s.ctx, "art-delete", "writer-1"); !errors.Is(err, chartifact.ErrLeaseLost) {
 		t.Fatalf("pre-claim Delete = %v, want ErrLeaseLost", err)
 	}
@@ -1213,7 +1091,6 @@ func TestDeleteAndReleaseCleanupValidateCleanupOwner(t *testing.T) {
 	if err := s.catalog.ReleaseCleanup(s.ctx, "art-delete", "cleanup-2", now); !errors.Is(err, chartifact.ErrLeaseLost) {
 		t.Fatalf("wrong-owner ReleaseCleanup = %v, want ErrLeaseLost", err)
 	}
-	// Release keeps the row but makes it immediately reclaimable.
 	releaseAt := now.Add(-time.Minute)
 	if err := s.catalog.ReleaseCleanup(s.ctx, "art-delete", "cleanup-1", releaseAt); err != nil {
 		t.Fatalf("owner ReleaseCleanup = %v", err)
@@ -1225,12 +1102,10 @@ func TestDeleteAndReleaseCleanupValidateCleanupOwner(t *testing.T) {
 	if lease := s.payloadTextField(t, "art-delete", "leaseUntil"); lease != jsonTimeLiteral(t, releaseAt) {
 		t.Fatalf("payload leaseUntil = %s, want the released lease", lease)
 	}
-	// A released manifest can be re-claimed by another cleanup owner.
 	second, ok, err := s.catalog.ClaimCleanup(s.ctx, "art-delete", "cleanup-2", now.Add(time.Minute), now.Add(2*time.Hour))
 	if err != nil || !ok {
 		t.Fatalf("re-claim = (%#v, %t, %v)", second, ok, err)
 	}
-	// Delete removes only for the current cleanup owner.
 	if err := s.catalog.Delete(s.ctx, "art-delete", "cleanup-1"); !errors.Is(err, chartifact.ErrLeaseLost) {
 		t.Fatalf("stale-owner Delete = %v, want ErrLeaseLost", err)
 	}
@@ -1239,7 +1114,6 @@ func TestDeleteAndReleaseCleanupValidateCleanupOwner(t *testing.T) {
 	}
 	s.requireNoRow(t, "art-delete")
 
-	// An active (non-cleanup) manifest cannot be deleted even by its owner.
 	active := sampleManifestWithLease("art-active-delete", now.Add(10*time.Minute))
 	if err := s.catalog.Create(s.ctx, active); err != nil {
 		t.Fatalf("Create active = %v", err)
@@ -1248,10 +1122,6 @@ func TestDeleteAndReleaseCleanupValidateCleanupOwner(t *testing.T) {
 		t.Fatalf("active-state Delete = %v, want ErrLeaseLost", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// zero leftovers: the suite must not leave any pgprivcat01_it_* resource
-// ---------------------------------------------------------------------------
 
 func TestZZNoLeftoverOwnedResources(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -1263,8 +1133,6 @@ func TestZZNoLeftoverOwnedResources(t *testing.T) {
 	}
 	defer admin.Close()
 
-	// Ownership-scoped sweeps only: concurrent sibling tickets own their own
-	// prefixes and are never touched, and no global scan is performed.
 	var leftoverDBs int
 	if err := admin.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname LIKE 'pgprivcat01\_it\_%' ESCAPE '\'`).Scan(&leftoverDBs); err != nil {
@@ -1290,9 +1158,6 @@ func TestZZNoLeftoverOwnedResources(t *testing.T) {
 		`SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgprivcat01\_it\_%' ESCAPE '\'`).Scan(&leftoverSchemas); err != nil {
 		t.Fatalf("count leftover schemas: %v", err)
 	}
-	// Owned schemas live only inside the isolated databases and vanish with
-	// them, so a hit here can only mean a leak into the shared service
-	// database itself.
 	if leftoverSchemas != 0 {
 		t.Fatalf("%d owned schemas left behind in the service database", leftoverSchemas)
 	}

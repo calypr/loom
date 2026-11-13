@@ -11,24 +11,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// CompileResolvedGraphQueryWithPolicy compiles the explicit graph frontend
-// through the canonical physical optimizer and renderer. The public limit is
-// preserved in metadata while the physical graph return fetches limit+1 rows
-// for lookahead-based hasMore calculation.
 func CompileResolvedGraphQuery(target Target, resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledQuery, error) {
 	if err := target.validate(); err != nil {
 		return CompiledQuery{}, err
 	}
-	// Planner-facing command registration stays fail-closed for PostgreSQL
-	// exactly as in pg-sql-01/02/03/09/15/18: the graph path union is
-	// implemented and registered at the renderer entry, not here
-	// (render/postgres/graph.go RenderGraphPhysicalPlan, pg-sql-20, with
-	// direct graph-path oracle coverage). This named refusal is the
-	// arch-backend-11 contract receipt's anchor
-	// (selected_source_contract_test.go:124-127) and stays byte-stable this
-	// wave per the ratified plan ruling; the command-dispatch flip is
-	// banked as its own follow-up ticket and must arrive with the receipt
-	// update in the same wave.
 	if err := target.rejectPostgreSQL("graph query compilation"); err != nil {
 		return CompiledQuery{}, err
 	}
@@ -47,8 +33,6 @@ func CompileResolvedGraphQuery(target Target, resolved semantic.ResolvedRecipePl
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("render graph physical plan: %w", err)
 	}
-	// The graph frontend's rendering becomes execution input only as the
-	// parent-tagged AQL command; loose rendered text never reaches callers.
 	compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
 	if err != nil {
 		return CompiledQuery{}, fmt.Errorf("tag graph command: %w", err)

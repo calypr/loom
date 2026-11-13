@@ -35,10 +35,7 @@ type ExplorerStateV1 struct {
 	Draft     ExplorerStateV1Draft     `json:"draft"`
 	Active    ExplorerStateV1Active    `json:"active"`
 	Generated ExplorerStateV1Generated `json:"generated"`
-	// Runtime is explicit so an Explorer with no executable query is still a
-	// valid response. Clients can inspect generated.publication.state or the
-	// null runtime instead of treating a missing field as a malformed payload.
-	Runtime *ExplorerRuntimeV1 `json:"runtime"`
+	Runtime   *ExplorerRuntimeV1       `json:"runtime"`
 
 	ActiveURL string    `json:"activeUrl"`
 	UpdatedBy string    `json:"updatedBy,omitempty"`

@@ -32,7 +32,6 @@ const (
 	RowChoiceArray  RowChoiceShape = "ARRAY"
 )
 
-// RowChoiceFacts are detached values adapted from generated schema metadata.
 type RowChoiceFacts struct {
 	ResourceType  string
 	CanonicalPath string
@@ -44,7 +43,6 @@ type RowChoiceFacts struct {
 	Description   string
 }
 
-// RowChoiceOccurrence identifies one exact occurrence in an authorized route.
 type RowChoiceOccurrence struct {
 	OccurrenceID string
 	NodeID       string
@@ -97,7 +95,6 @@ type rowChoiceToken struct {
 
 type RowChoicePathResolver func(resourceType, canonicalPath string) (RowChoiceFacts, error)
 
-// NewRowChoice binds schema facts to exactly one authorized route occurrence.
 func NewRowChoice(snapshot Snapshot, occurrences []RowChoiceOccurrence, occurrenceID string, kind RowChoiceKind, facts RowChoiceFacts) (RowChoice, error) {
 	if err := snapshot.ValidateToken(snapshot.Token); err != nil {
 		return RowChoice{}, err
@@ -180,7 +177,6 @@ func rowChoiceValueType(facts RowChoiceFacts) string {
 	}
 }
 
-// ResolveRowChoiceID rechecks a choice against the current schema and route.
 func ResolveRowChoiceID(snapshot Snapshot, occurrences []RowChoiceOccurrence, choiceID string, resolve RowChoicePathResolver) (RowChoice, error) {
 	identity, err := DecodeRowChoiceID(choiceID)
 	if err != nil {

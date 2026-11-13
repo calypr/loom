@@ -1,5 +1,3 @@
-// Package repositoryseed validates a repository checkout before the local
-// launcher is allowed to mutate Docker or database state.
 package repositoryseed
 
 import (

@@ -1,15 +1,5 @@
 package server
 
-// Paired invariant for the Option-A admission of arch-backend-06: the
-// explicitly selected PostgreSQL source backend stays refused at startup
-// until pg-runtime-server-composition retargets the gate to the backend
-// factory. The refusal is asserted as a named sentinel (never a free-form
-// error), byte-stable (so the composition ticket must replace this exact
-// gate), dial-free (proven against a non-routable address), and backend-
-// scoped (Arango selection demonstrably passes this gate). The cross-package
-// half of this invariant lives in TestPostgresFactoryOwnershipContract at
-// internal/backends/postgres, which drives RunWithConfig.
-
 import (
 	"context"
 	"errors"
@@ -22,9 +12,6 @@ const postgreSQLRefusalMessage = "server.backend postgres is configured, but the
 
 func TestPostgreSQLBackendStartupRefusalInvariant(t *testing.T) {
 	t.Run("postgres_selection_refuses_with_the_named_sentinel", func(t *testing.T) {
-		// A non-routable TEST-NET-1 host: if the gate ever regressed into
-		// dialing before refusing, this context's deadline fires and the
-		// sentinel no longer arrives inside the budget -- sabotage bleeds.
 		cfg := Config{}
 		cfg.Server.Backend = sourceBackendPostgres
 		cfg.Server.PostgreSQL.Host = "192.0.2.1"
@@ -53,10 +40,6 @@ func TestPostgreSQLBackendStartupRefusalInvariant(t *testing.T) {
 	})
 
 	t.Run("alive_control_arango_selection_passes_the_gate", func(t *testing.T) {
-		// The gate is postgres-scoped, not a blanket refusal: an Arango
-		// selection proceeds past it. It then fails fast against a closed
-		// local port; the invariant under test is only that the error is
-		// NOT the PostgreSQL gate.
 		cfg := Config{}
 		cfg.Server.Backend = sourceBackendArango
 		cfg.Server.URL = "http://127.0.0.1:1"

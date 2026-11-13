@@ -1,32 +1,5 @@
 package postgres
 
-// P4 production-compiled leg for the G3(c) RelatedOccurrence group adapter
-// (plan §8 S9, §9): the recipe authoring channel — recipe.Bundle →
-// semantic.BuildRecipePlan → semantic.ResolveRecipePlan →
-// lower.CompileResolvedRecipePlan → RenderPhysicalPlan — with ZERO
-// hand-shaping of IR. The field sources ride
-// recipe.ConstructionGroupFieldSourceInput.RelatedOccurrence through the
-// compiler's own authoring APIs (lower.DescribeConstructionSourceStage and
-// lower.BindGroupRelatedOccurrenceSource, the lifecycle choice channel), so
-// plan.Validate's ">=1 bound field source referencing the adapter" law is
-// satisfied by construction, never by hand-attached adapters. Unlike the
-// hand-built legs, the adapter-internal columns arrive as a stage EXTENSION
-// of the lowered source projection (ir physicalGroupInputColumnsExtendSource,
-// physical_stage_validation.go:2659) — exactly the shape a producer emits.
-//
-// Door scope, per the wave law as integrated: the composition door registers
-// the RelatedOccurrence adapter (L-13.5, stage_sequence.go GROUP arm), while
-// a route-sourced Group.CodingKey stays the L-13.4 named gap and is refused
-// fail-closed at the composition payload gate. P4 therefore pins BOTH sides:
-// the registered SCALAR-keyed shape renders and executes through the door,
-// and the CODING_IDENTITY plan refuses with the registered twin text —
-// never a silent drop.
-//
-// The live cells execute the door-rendered statement on real PostgreSQL 18
-// under the owned verify_sql16_g3_p4_* namespace and prove the S9 share law
-// THROUGH the composition door: two prior scans on one engine never borrow
-// each other's expansion.
-
 import (
 	"errors"
 	"sort"
@@ -42,20 +15,12 @@ import (
 )
 
 const (
-	sql16roP4Project    = "sql16ro-proj"
-	sql16roP4Generation = "gen-1"
-	// sql16roP4CodingSelector is the repeated Coding path the identity key
-	// unnests; the route scalar key reads Observation.status.
+	sql16roP4Project        = "sql16ro-proj"
+	sql16roP4Generation     = "gen-1"
 	sql16roP4CodingSelector = "valueCodeableConcept.coding[]"
-	// sql16roP4CodingRefusal is the composition payload gate's registered
-	// wave-law twin (stage_sequence.go GROUP arm, group.go:444 twin) for a
-	// route-sourced CodingKey — the L-13.4 named gap.
-	sql16roP4CodingRefusal = "CodingKey group keys are refused at the composition payload gate until their registered arm lands (group.go:444 twin, wave law)"
+	sql16roP4CodingRefusal  = "CodingKey group keys are refused at the composition payload gate until their registered arm lands (group.go:444 twin, wave law)"
 )
 
-// sql16roP4Authoring is the two-phase recipe authoring the lifecycle channel
-// performs: compile the base source output once, describe its compiler-owned
-// GroupFieldSourceContext, then bind the related field sources against it.
 type sql16roP4Authoring struct {
 	base    recipe.Output
 	binding recipe.RuntimeBindings
@@ -102,8 +67,6 @@ func sql16roP4AuthoringFor(t *testing.T, project, generation string) sql16roP4Au
 	return sql16roP4Authoring{base: base, binding: bindings, context: descriptor.GroupFieldSourceContext}
 }
 
-// sql16roP4Source binds one related field source through the compiler's own
-// binding channel (never hand-shaped).
 func (a sql16roP4Authoring) sql16roP4Source(t *testing.T, valueKind, resourceType, candidateID, canonicalPath, codingSelector string) recipe.ConstructionGroupFieldSource {
 	t.Helper()
 	related := &recipe.ConstructionGroupRelatedOccurrenceFieldSource{
@@ -135,11 +98,6 @@ func (a sql16roP4Authoring) sql16roP4Source(t *testing.T, valueKind, resourceTyp
 	return bound
 }
 
-// sql16roP4Compiled runs the full channel to the compiled plan for one
-// related Group output over Observation.status: the SCALAR route key +
-// row count, plus the CODING_IDENTITY key when withCoding is set (the
-// L-13.4 composition gap). Zero IR hand-shaping: every structure below
-// comes from the recipe channel or the compiler.
 func (a sql16roP4Authoring) sql16roP4Compiled(t *testing.T, withCoding bool) lower.CompiledRecipeOutput {
 	t.Helper()
 	status := a.sql16roP4Source(t, "SCALAR", "string", "observation-status", "status", "")
@@ -188,11 +146,6 @@ func (a sql16roP4Authoring) sql16roP4Compiled(t *testing.T, withCoding bool) low
 	return compiled.Outputs[0]
 }
 
-// The compiler channel, offline: the lowered plan is one GROUP stage whose
-// adapter is entirely compiler-minted, the extension columns are the exact
-// adapter column set, and plan.Validate accepts the shape — including the
-// CODING_IDENTITY key (a lowering-side fact; its door status is the
-// composition gate's, pinned separately below).
 func TestSQL16RelatedOccurrenceP4CompiledChannel(t *testing.T) {
 	output := sql16roP4AuthoringFor(t, sql16roP4Project, sql16roP4Generation).sql16roP4Compiled(t, true)
 	if err := output.Plan.Validate(); err != nil {
@@ -210,8 +163,6 @@ func TestSQL16RelatedOccurrenceP4CompiledChannel(t *testing.T) {
 	if adapter.RouteID == "" || adapter.OccurrenceKeyColumn == "" || adapter.CodingMembershipColumn == "" {
 		t.Fatalf("compiler identity columns missing: %#v", adapter)
 	}
-	// The recipe GROUP coding-empty policy lowers to the registered unnest
-	// spelling: parents without items are preserved.
 	if adapter.CodingSelector != sql16roP4CodingSelector ||
 		adapter.CodingEmptyPolicy != ir.PhysicalUnnestPreserveParent ||
 		adapter.OrdinalSemantics != stageRelatedCodingOrdinalSemantics {
@@ -226,8 +177,6 @@ func TestSQL16RelatedOccurrenceP4CompiledChannel(t *testing.T) {
 		adapter.RelatedRecords.Route[0].MatchMode != "OPTIONAL" {
 		t.Fatalf("route facts drifted: %#v", adapter.RelatedRecords.Route)
 	}
-	// The extension law as the producer emits it: prior + exactly the
-	// adapter columns, each Internal with ID == Name.
 	prior := sequence.SourceColumns
 	extra := stage.InputColumns[len(prior):]
 	if len(stage.InputColumns) != len(prior)+3 {
@@ -247,10 +196,6 @@ func TestSQL16RelatedOccurrenceP4CompiledChannel(t *testing.T) {
 	if len(allowed) != 0 {
 		t.Fatalf("adapter column %v absent from the stage input extension", allowed)
 	}
-	// The compiler lowers the SCALAR status key into Keys[] and the
-	// CODING_IDENTITY key into Group.CodingKey.RelatedSource; both carry the
-	// compiler-issued stage/shape identity, so plan.Validate's ">=1 bound
-	// source" law is satisfied by construction (one per key, never hand-set).
 	bound := 0
 	for _, key := range stage.Group.Keys {
 		if key.FieldSource != nil && key.FieldSource.Kind == ir.PhysicalStageGroupFieldSourceRelatedOccurrence &&
@@ -268,9 +213,6 @@ func TestSQL16RelatedOccurrenceP4CompiledChannel(t *testing.T) {
 	}
 }
 
-// The composition door renders the REGISTERED compiled shape — the
-// SCALAR-keyed RelatedOccurrence GROUP — with the route legs present and no
-// plan data leaked as text.
 func TestSQL16RelatedOccurrenceP4DoorRender(t *testing.T) {
 	output := sql16roP4AuthoringFor(t, sql16roP4Project, sql16roP4Generation).sql16roP4Compiled(t, false)
 	rendered, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(output.Plan), mustBinding(t))
@@ -285,7 +227,6 @@ func TestSQL16RelatedOccurrenceP4DoorRender(t *testing.T) {
 	if strings.Contains(rendered.SQL, "__loom_group_related_coding_membership") {
 		t.Fatalf("a SCALAR-only plan must not grow the coding membership leg:\n%s", rendered.SQL)
 	}
-	// Zero hand-shaping includes the statement: no plan data leaks as text.
 	for _, leaked := range []string{sql16roP4Project, sql16roP4Generation, "subject_Patient", "observation-node", "group_related_id"} {
 		if strings.Contains(rendered.SQL, leaked) {
 			t.Fatalf("door statement leaked plan data %q:\n%s", leaked, rendered.SQL)
@@ -293,10 +234,6 @@ func TestSQL16RelatedOccurrenceP4DoorRender(t *testing.T) {
 	}
 }
 
-// The wave law through the compiled channel: the CODING_IDENTITY plan
-// (route-sourced Group.CodingKey, the L-13.4 named gap) refuses fail-closed
-// at the composition payload gate with the registered twin text — the door
-// never partially renders or silently drops the key.
 func TestSQL16RelatedOccurrenceP4CodingKeyGateRefusal(t *testing.T) {
 	output := sql16roP4AuthoringFor(t, sql16roP4Project, sql16roP4Generation).sql16roP4Compiled(t, true)
 	rendered, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(output.Plan), mustBinding(t))
@@ -312,22 +249,12 @@ func TestSQL16RelatedOccurrenceP4CodingKeyGateRefusal(t *testing.T) {
 	if rendered.SQL != "" || len(rendered.Args) != 0 {
 		t.Fatalf("a refused render must produce no statement: sql=%q args=%d", rendered.SQL, len(rendered.Args))
 	}
-	// Alive control: the registered SCALAR shape renders on the same authoring.
 	if _, err := RenderPhysicalPlan(ir.ClonePhysicalPlan(
 		sql16roP4AuthoringFor(t, sql16roP4Project, sql16roP4Generation).sql16roP4Compiled(t, false).Plan), mustBinding(t)); err != nil {
 		t.Fatalf("the registered SCALAR shape must render while the CodingKey refuses: %v", err)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live: the door statement on real rows (skips without the owned URL).
-// ---------------------------------------------------------------------------
-
-// sql16roP4Seed seeds one project partition under the plan's own
-// compiler-minted edge label (lockstep, as in the L5 leg): p-<tag>1 carries
-// statuses {final, final, preliminary}, p-<tag>2 carries no route. The
-// status vocabulary is partition-disjoint so the share killer can read
-// borrowing from opaque group identities.
 func sql16roP4Seed(t *testing.T, svc *pgir02Service, project, label string, statuses []string) {
 	t.Helper()
 	tag := p4Tag(project)
@@ -351,8 +278,6 @@ func p4Tag(project string) string {
 	return "a-"
 }
 
-// sql16roP4LivePlan compiles the registered SCALAR shape and returns the
-// compiler-minted edge label bind (lockstep seed value).
 func sql16roP4LivePlan(t *testing.T, project string) (lower.CompiledRecipeOutput, string) {
 	t.Helper()
 	output := sql16roP4AuthoringFor(t, project, sql16roP4Generation).sql16roP4Compiled(t, false)
@@ -370,17 +295,9 @@ func TestSQL16RelatedOccurrenceP4LiveRows(t *testing.T) {
 	rendered := coded19RenderSvc(t, svc, ir.ClonePhysicalPlan(output.Plan))
 	rows := svc.runRendered(t, rendered)
 
-	// Expected multiset: the three reachable observations group to
-	// (id(final),2) and (id(preliminary),1); the route-less p-a2 anchor is
-	// preserved (route EmptyPolicy PRESERVE_PARENT) as the all-key-null
-	// grand-total group (null,1) under MissingKeyPolicy GROUP.
 	type tuple struct{ status, count string }
 	got := make([]tuple, 0, len(rows))
 	for _, row := range rows {
-		// L1 law: the raw runner returns the internal __loom_row_id
-		// runtime-key identity as the final cell (the dataframe
-		// materializer omits it post-query); the registered production-
-		// compiled live legs assert it, they do not ignore it.
 		if len(row) != 3 {
 			t.Fatalf("row = %#v, want 3 cells (group columns + __loom_row_id identity)", row)
 		}
@@ -426,11 +343,6 @@ func TestSQL16RelatedOccurrenceP4LiveRows(t *testing.T) {
 	}
 }
 
-// The S9 share killer through the door: two prior scans (two project
-// partitions on one engine) render through the same door code and their
-// expansions never borrow each other's rows. Status vocabularies are
-// partition-disjoint, so any identity from A appearing in B (or vice
-// versa) is a borrowed expansion.
 func TestSQL16RelatedOccurrenceP4LiveShareLaw(t *testing.T) {
 	svc := newOwnedService(t, 0, "verify_sql16_g3_p4")
 	const projectA, projectB = "sql16ro-share-a", "sql16ro-share-b"
@@ -454,8 +366,6 @@ func TestSQL16RelatedOccurrenceP4LiveShareLaw(t *testing.T) {
 		return out
 	}
 	idsA, idsB := identitiesOf(rowsA), identitiesOf(rowsB)
-	// A groups its two final observations to ONE identity with count 2;
-	// B groups its two distinct statuses to TWO identities with count 1.
 	if len(idsA) != 1 || len(idsB) != 2 {
 		t.Fatalf("each partition must group only its own route: A=%v B=%v (A=%v B=%v)", idsA, idsB, rowsA, rowsB)
 	}

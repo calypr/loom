@@ -7,9 +7,6 @@ import (
 	"sort"
 )
 
-// ProfileRequest is the parameterized body accepted by ArangoDB's cursor
-// endpoint. Profile is intentionally opt-in because profiling adds execution
-// overhead and is not appropriate for normal dataframe requests.
 type ProfileRequest struct {
 	Query     string         `json:"query"`
 	BindVars  map[string]any `json:"bindVars,omitempty"`
@@ -23,10 +20,6 @@ type ProfileOptions struct {
 	Optimizer OptimizerOptions `json:"optimizer,omitempty"`
 }
 
-// ProfileResult is the first cursor response returned by a profiled query.
-// ArangoDB places profiling information under extra. Result is retained as
-// raw JSON because profile is a diagnostic API and must support arbitrary row
-// shapes without coupling this package to dataframe models.
 type ProfileResult struct {
 	Result       []json.RawMessage `json:"result,omitempty"`
 	HasMore      bool              `json:"hasMore,omitempty"`
@@ -70,8 +63,6 @@ type ProfileNode struct {
 	Runtime  float64 `json:"runtime,omitempty"`
 }
 
-// ProfilePhases contains the stable phase names emitted by ArangoDB. New
-// server versions may add phases; unknown fields are intentionally ignored.
 type ProfilePhases struct {
 	Initializing           float64 `json:"initializing,omitempty"`
 	Parsing                float64 `json:"parsing,omitempty"`
@@ -83,8 +74,6 @@ type ProfilePhases struct {
 	Finalizing             float64 `json:"finalizing,omitempty"`
 }
 
-// ProfileNodeSummary is a deterministic compact view suitable for logs and
-// benchmark artifacts. Node type comes from the profiled execution plan.
 type ProfileNodeSummary struct {
 	ID       int64
 	Type     string
@@ -112,9 +101,6 @@ type ProfileNodeGroup struct {
 	Runtime  float64
 }
 
-// ParseProfileResult decodes an Arango cursor response and rejects malformed
-// or error envelopes. It accepts profile level 1 (phase timings) and level 2
-// (plan plus per-node timings).
 func ParseProfileResult(data []byte) (ProfileResult, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var result ProfileResult
@@ -130,9 +116,6 @@ func ParseProfileResult(data []byte) (ProfileResult, error) {
 	return result, nil
 }
 
-// SummarizeProfile joins runtime node statistics to the returned execution
-// plan and groups them by node type. Ordering is stable: nodes and groups are
-// sorted by descending runtime and then by ID/type.
 func SummarizeProfile(result ProfileResult) ProfileSummary {
 	summary := ProfileSummary{
 		ScannedFull:  result.Extra.Stats.ScannedFull,

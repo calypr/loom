@@ -6,9 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// selectorHasNoArrays and the helpers below are shared by the physical
-// renderer and typed-filter compiler. They deliberately render only validated
-// Selector values and do not know anything about storage-plan representation.
 func selectorHasNoArrays(sel spec.Selector) bool {
 	for _, step := range sel.Steps {
 		if step.Iterate || step.Index != nil {

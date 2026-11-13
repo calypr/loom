@@ -68,9 +68,6 @@ func (s *Service) resolveConstructionCodedPivotChoices(
 			if !codedPivotSourceMatchesPinnedPrior(durableSource, prior.Source, family.Entry.Observation) {
 				return candidate, nil, conflict("construction-proposal", "STALE_CONSTRUCTION_CHOICE", "the selected family differs from the saved coded Pivot source", nil, nil)
 			}
-			// Reauthorization used the current inventory and current authorization
-			// route above. Keep the prior persisted identity so this edit does not
-			// silently add newly introduced fallback semantics to the saved step.
 			durableSource = prior.Source
 		}
 		priorKeys := make(map[string]bool, len(prior.Categories))

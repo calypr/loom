@@ -10,27 +10,6 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// Adversarial probes on top of TestGraphQLRecipeExecutionConcealsMalformedPersistedScope.
-//
-// Probe A (denial-class indistinguishability). The repair routes the R4
-// malformed-persisted-scope case into the reader's existing concealed
-// RECIPE_EXECUTION_NOT_FOUND arm. The attack: can a caller use the reader as
-// an oracle to tell "this execution's persisted declaration is malformed" from
-// "this execution does not exist", "I am not a member", "I lack one declared
-// path", or "this execution declares no non-blank path"? Every one of those
-// denials must carry one and the same envelope (payload nil, identical code,
-// retryability and message), while the backend-fault arms must stay outside
-// that envelope — otherwise the concealed class is either leaky or a
-// catch-all that hides faults.
-//
-// Probe B (shared-resolver-cache oracle). The production ScopeResolver caches
-// the project+generation path listing. A malformed-scope execution and a clean
-// execution can share that key, so the attack is to interleave reads and try
-// to poison coverage in either direction: a prior clean read must not make the
-// malformed execution readable, and a prior malformed denial must not make the
-// clean execution deniable. Verdicts and envelopes must be stable across every
-// interleaving on one shared resolver.
-
 type msoEnvelope struct {
 	code      string
 	retryable bool
@@ -70,12 +49,10 @@ func TestGraphQLRecipeExecutionMalformedScopeDenialIsIndistinguishableFromEveryD
 			return reader(mscContext(member), mscMissingID)
 		},
 		"non-member": func() (*RecipeExecution, error) {
-			// Same execution, same grants, but not a member of project P.
 			outsider := &authscope.Principal{Subject: "operator-outsider", Projects: []string{"P-ELSEWHERE"}, AuthResourcePaths: []string{mscGrantedPath}}
 			return reader(mscContext(outsider), mscExecID)
 		},
 		"restricted-member-missing-declared-path": func() (*RecipeExecution, error) {
-			// Declares [p1, p2]; this member holds only p1.
 			return reader(mscContext(member), mscMultiPathExecID)
 		},
 		"blank-declaration": func() (*RecipeExecution, error) {
@@ -100,7 +77,6 @@ func TestGraphQLRecipeExecutionMalformedScopeDenialIsIndistinguishableFromEveryD
 		}
 	}
 
-	// The fault arms must NOT collapse into the concealed envelope.
 	faulty := mscStoreWith(mscExecID, []string{mscGrantedPath, mscMalformedNUL})
 	faulty.fault = errors.New("arango connection reset")
 	faultReader := mscReader(faulty, &mscProbe{existing: []string{mscGrantedPath}})
@@ -124,8 +100,6 @@ func TestGraphQLRecipeExecutionMalformedScopeSharedResolverCacheIsNotAnOracle(t 
 		mscExecID:   mscBundle(mscExecID, []string{mscGrantedPath, mscMalformedNUL}),
 		"msc-clean": mscBundle("msc-clean", []string{mscGrantedPath}),
 	}}
-	// One resolver, one cache, both executions share project P + generation
-	// g-msc, so the listing entry is written by whichever read lands first.
 	probe := &mscProbe{existing: []string{mscGrantedPath}}
 	reader := mscReader(&store, probe)
 	member := mscMember(mscGrantedPath)
@@ -146,8 +120,6 @@ func TestGraphQLRecipeExecutionMalformedScopeSharedResolverCacheIsNotAnOracle(t 
 		}
 	}
 
-	// Every interleaving order converges to the same verdicts; the shared
-	// cache never poisons coverage in either direction.
 	cleanReadable("cold clean-first")
 	malformedDenied("after clean read")
 	cleanReadable("after malformed denial")
@@ -158,7 +130,6 @@ func TestGraphQLRecipeExecutionMalformedScopeSharedResolverCacheIsNotAnOracle(t 
 		malformedDenied("steady-state malformed")
 	}
 
-	// Reversing the priming order on a fresh resolver must be identical.
 	freshProbe := &mscProbe{existing: []string{mscGrantedPath}}
 	freshReader := mscReader(&store, freshProbe)
 	malformedDeniedWith := func(reader RecipeExecutionReader, why string) {
@@ -174,8 +145,6 @@ func TestGraphQLRecipeExecutionMalformedScopeSharedResolverCacheIsNotAnOracle(t 
 		t.Fatalf("a prior malformed denial must not deny the clean sibling, got payload=%#v err=%v", got, err)
 	}
 
-	// A member who holds every path the CLEAN sibling declares still cannot
-	// read the malformed execution through the warmed cache.
 	wide := mscMember(mscGrantedPath, "p2")
 	if _, err := freshReader(mscContext(wide), "msc-clean"); err != nil {
 		t.Fatalf("wide member must read the clean sibling: %v", err)

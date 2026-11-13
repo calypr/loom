@@ -1,30 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for Explorer draft saves with atomic
-// version/digest CAS and exact preimage history
-// (pg-state-explorer-draft-cas-v1; checks 3 and 4:
-// go test -count=1 ./internal/backends/postgres/internal/explorer/ and
-// go test -count=1 -run ^TestDraftCAS ./internal/backends/postgres/internal/explorer/).
-//
-// Every CAS claim is driven against the PostgreSQL 18 service named by
-// LOOM_TEST_POSTGRES_URL through real Store methods on real connections:
-// fixtures are literal rows inserted by direct SQL or store.Create, and
-// witnesses are literal rows read back by direct SQL through a separate
-// pool. Nothing is mocked. For the single-winner, stale-reject, and
-// revision-monotonicity proofs, the competing writer pools are pinned to
-// one physical connection each and their pg_backend_pid() values must
-// differ, so the outcome cannot be a session-local illusion. The
-// afterHistoryInsert seam only pauses or faults INSIDE the live
-// transaction -- the history insert and owner CAS are still executed as
-// real SQL by PostgreSQL, mirroring the Arango suite's controlled-failure
-// decorators.
-//
-// Fixture databases and schemas are uniquely owned as pgstate01_it_* and
-// dropped by the test that created them. The final TestZZ audit is
-// ownership-scoped: it checks each name this file created by exact match
-// and performs no global scan, so sibling workers sweeping their own
-// prefixes run concurrently without interference.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -46,18 +21,11 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// Ownership registry (audit target) and fixture namespace.
-// ---------------------------------------------------------------------------
-
 var pgstate01NameRe = regexp.MustCompile(`^pgstate01_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and TestZZ asserts each exact name is gone. Ownership
-// begins at verified CREATE, exactly as the per-test cleanup drops them.
 var (
 	draftCASOwnedMu  sync.Mutex
-	draftCASOwnedDBs = map[string]string{} // database -> owned schema
+	draftCASOwnedDBs = map[string]string{}
 )
 
 func draftCASRegister(db, schema string) {
@@ -66,11 +34,6 @@ func draftCASRegister(db, schema string) {
 	draftCASOwnedDBs[db] = schema
 }
 
-// newDraftFixture creates one isolated database (pgstate01_it_*) plus one
-// owned, fully migrated schema (pgstate01_it_*) inside it and registers
-// LIFO cleanups plus the ownership registry. It builds an ownerFixture
-// directly (same helper surface as the foundation tests) so every resource
-// carries this ticket's prefix.
 func newDraftFixture(t *testing.T) *ownerFixture {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -115,9 +78,6 @@ func newDraftFixture(t *testing.T) *ownerFixture {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
-	// Third-to-last: prove this test's exact database name is gone, then
-	// this test's exact schema name. Exact-name checks only: sibling
-	// workers hold their own namespaces and are never scanned.
 	t.Cleanup(func() {
 		var mine int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
@@ -140,8 +100,6 @@ func newDraftFixture(t *testing.T) *ownerFixture {
 	dsn := u.String()
 	secrets = append(secrets, dsn)
 
-	// Fourth-to-last: drop only the database this test created (after the
-	// schema drop and pool close, which are registered below it).
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
@@ -153,7 +111,6 @@ func newDraftFixture(t *testing.T) *ownerFixture {
 	if err != nil {
 		fail("connect to isolated database", err)
 	}
-	// Fifth-to-last: close the isolated-database pool before the drop.
 	t.Cleanup(iso.Close)
 
 	schema := fmt.Sprintf("pgstate01_it_%d_%s", time.Now().UnixNano(), randomHex(t))
@@ -164,7 +121,6 @@ func newDraftFixture(t *testing.T) *ownerFixture {
 		fail("create owned schema", err)
 	}
 	draftCASRegister(dbName, schema)
-	// Runs first: drop only the schema this test created.
 	t.Cleanup(func() {
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
@@ -175,16 +131,10 @@ func newDraftFixture(t *testing.T) *ownerFixture {
 	return &ownerFixture{ctx: ctx, admin: admin, iso: iso, dbName: dbName, schema: schema, dsn: dsn, scrub: scrub, fail: fail}
 }
 
-// historyTable renders the sanitized, schema-qualified history reference
-// for direct-SQL witnesses.
 func (f *ownerFixture) historyTable() string {
 	return pgx.Identifier{f.schema, DraftRevisionsTable}.Sanitize()
 }
 
-// newPinnedStore opens a Store over its own single-connection pool and
-// returns the store together with that pool's physical backend pid. A
-// MaxConns=1 pool can only ever talk through one backend, so pairing two of
-// these with distinct pids is a two-real-connection proof.
 func (f *ownerFixture) newPinnedStore(t *testing.T) (*Store, int64) {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -204,8 +154,6 @@ func (f *ownerFixture) newPinnedStore(t *testing.T) (*Store, int64) {
 	return store, draftClientBackendPID(t, f, client)
 }
 
-// newPinnedWitness opens a single-connection witness client whose backend
-// is guaranteed distinct from the writer backends it is compared against.
 func (f *ownerFixture) newPinnedWitness(t *testing.T) (*pgstore.Client, int64) {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -238,7 +186,6 @@ func draftClientBackendPID(t *testing.T, f *ownerFixture, client *pgstore.Client
 	return pid
 }
 
-// requireDistinctBackends fails unless every listed backend pid is distinct.
 func requireDistinctBackends(t *testing.T, where string, pids ...int64) {
 	t.Helper()
 	seen := make(map[int64]string, len(pids))
@@ -251,28 +198,16 @@ func requireDistinctBackends(t *testing.T, where string, pids ...int64) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures and literal witnesses.
-// ---------------------------------------------------------------------------
-
-// draftCfgOld is the stored workspace the first CAS replaces; draftCfgNew
-// adds one construction step. The preimage must contain col_age and never
-// col_ratio; the winner head must contain both.
 const draftCfgOld = `{"documents":[{"outputId":"patients","construction":{"steps":[{"id":"pivot","outputs":[{"id":"col_age","name":"age"}]}]}}]}`
 
 const draftCfgNew = `{"documents":[{"outputId":"patients","construction":{"steps":[{"id":"pivot","outputs":[{"id":"col_age","name":"age"}]},{"id":"derive","outputs":[{"id":"col_ratio","name":"ratio"}]}]}}]}`
 
 const draftResultsOK = `{"matchedRows": 12, "traceId": "trc_draft"}`
 
-// seedUpdatedAt is a microsecond-exact literal timestamp stored by the
-// fixture itself (the adapter later replaces updated_at with its own UTC
-// now), so the exact preimage's timestamp is checkable to the microsecond.
 var seedUpdatedAt = time.Date(2026, 2, 3, 4, 5, 6, 654321000, time.UTC)
 
 const seedUpdatedAtText = "2026-02-03 04:05:06.654321"
 
-// seedDraftOwner creates one Explorer owner at draft version 4 with the
-// full literal preimage state the first accepted CAS must snapshot exactly.
 func seedDraftOwner(t *testing.T, f *ownerFixture, store *Store, project, id string) explorer.Explorer {
 	t.Helper()
 	e := explorer.Explorer{
@@ -300,8 +235,6 @@ func seedDraftOwner(t *testing.T, f *ownerFixture, store *Store, project, id str
 	return e
 }
 
-// draftCandidate builds the winning write for one CAS round. The adapter
-// must ignore DraftVersion, UpdatedAt, and PreviousDraftRevisionID.
 func draftCandidate(seed explorer.Explorer, suffix, digest string) explorer.Explorer {
 	candidate := seed
 	candidate.Title = "Patients " + suffix
@@ -321,14 +254,13 @@ func draftCandidate(seed explorer.Explorer, suffix, digest string) explorer.Expl
 	return candidate
 }
 
-// literalHistoryRow is the physically stored form of one history row.
 type literalHistoryRow struct {
 	ID                       string
 	Title                    string
 	DraftVersion             int64
 	DraftDigest              string
 	DraftConfigText          string
-	DraftConfigKind          string // jsonb_typeof, or 'missing' for SQL NULL
+	DraftConfigKind          string
 	SnapshotToken            string
 	SourceGeneration         string
 	AuthorizationScopeDigest string
@@ -376,10 +308,6 @@ func (f *ownerFixture) historyCount(t *testing.T, project, explorerID string) in
 	return n
 }
 
-// requireExactPreimageRow asserts the history row for one version carries
-// the exact stored preimage of seedDraftOwner: derived id, every scalar,
-// the microsecond-exact seed timestamp, and a config containing col_age
-// without col_ratio (the prior workspace, not the candidate's).
 func requireExactPreimageRow(t *testing.T, r literalHistoryRow, project, explorerID string, version int64) {
 	t.Helper()
 	wantID := draftRevisionKey(project, explorerID, version)
@@ -400,25 +328,12 @@ func requireExactPreimageRow(t *testing.T, r literalHistoryRow, project, explore
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline contract tests: no PostgreSQL service required.
-// ---------------------------------------------------------------------------
-
-// TestDraftCASRevisionKeyDerivation pins the opaque id to the Arango
-// adapter's draftRevisionKey format: "draft_revision_" + lowercase hex
-// SHA-256 over each identity part with a leading 0x00 separator byte. The
-// expected values are computed here by an independent local implementation
-// (below), not by the production function, so the test pins the format
-// against an outside computation.
 func TestDraftCASRevisionKeyDerivation(t *testing.T) {
 	for _, c := range []struct {
 		project, explorerID string
 		version             int64
 		want                string
 	}{
-		// Literal hashes computed independently (python hashlib over
-		// 0x00||part per part); pinned here so a production drift in the
-		// derivation fails this test, not silently changes revision ids.
 		{"project-a", "patients", 4, "draft_revision_14a3b30bb25b88835660c485a8a8a6fdc4a4e40ec9a12444d2b1c7d283499c00"},
 		{"project-a", "patients", 0, "draft_revision_3a07ca4c963c00a696fb0d04080151732edf235771b51d96a8a6a92283b0b88a"},
 		{"proj state", "exp/ents", 12345, "draft_revision_e3966c30839b313412cb0b45895a98b51a323953645c56d9a34f5990745fa12e"},
@@ -439,8 +354,6 @@ func TestDraftCASRevisionKeyDerivation(t *testing.T) {
 	}
 }
 
-// sha256DraftKeyParts independently reproduces key(): SHA-256 over the
-// sequence 0x00||part for every part, lowercase hex.
 func sha256DraftKeyParts(parts ...string) string {
 	h := sha256.New()
 	for _, part := range parts {
@@ -450,9 +363,6 @@ func sha256DraftKeyParts(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// TestDraftCASStatementSQLContract checks the draft statement shapes
-// without a server: schema qualification, ordered placeholders, the CAS
-// guard, the digest guard, and the columns the CAS must never touch.
 func TestDraftCASStatementSQLContract(t *testing.T) {
 	store, err := New(&pgstore.Client{}, "loom_control")
 	if err != nil {
@@ -500,10 +410,6 @@ func TestDraftCASStatementSQLContract(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance: winner increments once and stores the exact preimage.
-// ---------------------------------------------------------------------------
-
 func TestDraftCASStoresExactPreimageAndPreservesPublishedHead(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -513,7 +419,6 @@ func TestDraftCASStoresExactPreimageAndPreservesPublishedHead(t *testing.T) {
 
 	seed := seedDraftOwner(t, f, writer, "proj_pre", "patients")
 
-	// The literal stored preimage before any CAS.
 	before := f.literalRow(t, "proj_pre", "patients")
 	if before.DraftVersion != 4 || before.DraftDigest != "sha256:old-draft" ||
 		before.PreviousDraftRevisionID != "" || before.ActiveRevisionID != "published-revision-9" ||
@@ -540,7 +445,6 @@ func TestDraftCASStoresExactPreimageAndPreservesPublishedHead(t *testing.T) {
 		t.Fatalf("updatedAt = %s, want the adapter-owned now after the seed literal", stored.UpdatedAt)
 	}
 
-	// Literal head witness on the second backend: incremented exactly once.
 	after := f.literalRow(t, "proj_pre", "patients")
 	if after.DraftVersion != 5 || after.DraftDigest != "sha256:new-draft" ||
 		after.DraftSnapshotToken != "snapshot-v2" || after.DraftSourceGeneration != "generation-v2" ||
@@ -557,14 +461,12 @@ func TestDraftCASStoresExactPreimageAndPreservesPublishedHead(t *testing.T) {
 		t.Fatalf("winner config must carry the candidate workspace: %+v", after)
 	}
 
-	// Exactly one history row: the exact preimage, scalars literal-checked.
 	rows := f.historyRows(t, "proj_pre", "patients")
 	if len(rows) != 1 {
 		t.Fatalf("history rows = %d, want exactly 1", len(rows))
 	}
 	requireExactPreimageRow(t, rows[0], "proj_pre", "patients", 4)
 
-	// The restore reader resolves the opaque id on the OTHER backend.
 	revision, err := func() (*explorer.DraftRevision, error) {
 		reader, err := New(witness, f.schema)
 		if err != nil {
@@ -587,10 +489,6 @@ func TestDraftCASStoresExactPreimageAndPreservesPublishedHead(t *testing.T) {
 	}
 }
 
-// TestDraftCASMissingAndJSONNullDraftConfigAreDistinct proves the CAS
-// preserves the three json.RawMessage states: the JSON-null literal is the
-// exact preimage, and a nil candidate draft config clears the head to SQL
-// NULL (missing), never to the JSON-null value.
 func TestDraftCASMissingAndJSONNullDraftConfigAreDistinct(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -599,8 +497,6 @@ func TestDraftCASMissingAndJSONNullDraftConfigAreDistinct(t *testing.T) {
 	requireDistinctBackends(t, "null-state round trip", writerPID, witnessPID)
 
 	seed := seedDraftOwner(t, f, writer, "proj_null", "patients")
-	// Replace the seeded config with the JSON-null literal through direct
-	// SQL so the stored row provably holds jsonb 'null' (not SQL NULL).
 	if _, err := f.iso.Exec(f.ctx,
 		`UPDATE `+f.ownerTable()+` SET draft_config = 'null'::jsonb WHERE project = $1 AND explorer_id = $2`,
 		"proj_null", "patients"); err != nil {
@@ -611,7 +507,7 @@ func TestDraftCASMissingAndJSONNullDraftConfigAreDistinct(t *testing.T) {
 	}
 
 	candidate := draftCandidate(seed, "cleared", "sha256:cleared")
-	candidate.DraftConfig = nil // missing -> SQL NULL on the head
+	candidate.DraftConfig = nil
 	stored, err := writer.SaveDraft(f.ctx, candidate, 4, "sha256:old-draft")
 	if err != nil {
 		f.fail("save draft with nil config", err)
@@ -628,10 +524,6 @@ func TestDraftCASMissingAndJSONNullDraftConfigAreDistinct(t *testing.T) {
 		t.Fatalf("preimage must retain the JSON-null literal: %+v", rows)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance: one winner for same version/digest, on two real connections.
-// ---------------------------------------------------------------------------
 
 func TestDraftCASConcurrentSameVersionWritesHaveOneWinnerTwoConnections(t *testing.T) {
 	f := newDraftFixture(t)
@@ -678,7 +570,6 @@ func TestDraftCASConcurrentSameVersionWritesHaveOneWinnerTwoConnections(t *testi
 		t.Fatalf("same version/digest produced %d winners, want exactly 1", wins)
 	}
 
-	// The winner owns the head and incremented exactly once.
 	head := f.literalRow(t, "proj_race", "patients")
 	if head.DraftVersion != 5 {
 		t.Fatalf("head draft_version = %d, want 5: two same-version CASes must increment once", head.DraftVersion)
@@ -693,7 +584,6 @@ func TestDraftCASConcurrentSameVersionWritesHaveOneWinnerTwoConnections(t *testi
 		t.Fatalf("winner did not link the preimage: %+v", head)
 	}
 
-	// Exactly one history row -- the loser left no history, on either path.
 	rows := f.historyRows(t, "proj_race", "patients")
 	if len(rows) != 1 {
 		t.Fatalf("history rows after the race = %d, want exactly 1", len(rows))
@@ -701,13 +591,6 @@ func TestDraftCASConcurrentSameVersionWritesHaveOneWinnerTwoConnections(t *testi
 	requireExactPreimageRow(t, rows[0], "proj_race", "patients", 4)
 }
 
-// TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause pins
-// the loser classification when both writers raced past the preimage read:
-// the stale writer blocks on the winner's uncommitted exact-preimage entry
-// and, once the winner commits, PostgreSQL rejects its history insert with
-// 23505. SaveDraft must return explorer.ErrDraftConflict retaining the real
-// *pgconn.PgError cause (class 23505, the identity constraint) -- never a
-// bare generic error and never a swallowed success.
 func TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -727,9 +610,6 @@ func TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause(t *test
 		}
 	}
 	t.Cleanup(release)
-	// Pause A inside its live transaction, after A's real history INSERT
-	// and before A's owner CAS, so B's identical-key insert piles up behind
-	// A's uncommitted unique entry.
 	storeA.afterHistoryInsert = func(ctx context.Context, _ pgx.Tx) error {
 		close(inserted)
 		select {
@@ -764,8 +644,6 @@ func TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause(t *test
 		resultsB <- outcome{suffix: "stale", saved: saved, err: err}
 	}()
 
-	// Observe (do not assume) that B is genuinely queued inside PostgreSQL
-	// on the unique index entry A has not committed yet.
 	if !waitForLockWait(f, pidB) {
 		release()
 		t.Fatalf("stale writer backend %d never entered a PostgreSQL lock wait behind the uncommitted preimage", pidB)
@@ -787,13 +665,11 @@ func TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause(t *test
 	if !errors.As(resB.err, &pgErr) {
 		t.Fatalf("stale writer lost the PostgreSQL cause: %v (%T)", resB.err, resB.err)
 	}
-	if pgErr.Code != duplicateKeySQLState || pgErr.ConstraintName != historyIdentityConstraint {
+	if pgErr.Code != "23505" || pgErr.ConstraintName != historyIdentityConstraint {
 		t.Fatalf("stale writer cause = %s/%s, want %s/%s (constraint %q)", pgErr.Code, pgErr.ConstraintName,
-			duplicateKeySQLState, "unique_violation", historyIdentityConstraint)
+			"23505", "unique_violation", historyIdentityConstraint)
 	}
 
-	// The loser wrote nothing anywhere: one head row (the winner's), one
-	// history row (the exact preimage), no stale-authored anything.
 	head := f.literalRow(t, "proj_cause", "patients")
 	if head.DraftVersion != 5 || head.LastAuthoringCommandID != "cmd-first" {
 		t.Fatalf("loser changed the head: %+v", head)
@@ -803,8 +679,6 @@ func TestDraftCASStaleWriterMapsToConflictWithPreservedDuplicateKeyCause(t *test
 	}
 }
 
-// waitForLockWait reports whether the backend entered a row/tuple lock wait
-// within a bounded window. It reads only pg_stat_activity.
 func waitForLockWait(f *ownerFixture, pid int64) bool {
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
@@ -819,10 +693,6 @@ func waitForLockWait(f *ownerFixture, pid int64) bool {
 	return false
 }
 
-// TestDraftCASStaleRetryAfterWinnerCommitIsRejected proves stale rejection
-// after the winner committed: a fresh store on a different backend retrying
-// with the loser's stale version/digest maps to ErrDraftConflict, leaves no
-// history row, and changes neither head nor anything else.
 func TestDraftCASStaleRetryAfterWinnerCommitIsRejected(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -846,8 +716,6 @@ func TestDraftCASStaleRetryAfterWinnerCommitIsRejected(t *testing.T) {
 	if _, err := staleStore.SaveDraft(f.ctx, stale, 4, "sha256:old-draft"); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("stale retry error = %v, want ErrDraftConflict", err)
 	}
-	// The CAS guard is the version, not just the digest: a stale version
-	// with no digest must conflict as well.
 	if _, err := staleStore.SaveDraft(f.ctx, stale, 4); !errors.Is(err, explorer.ErrDraftConflict) {
 		t.Fatalf("stale version without digest error = %v, want ErrDraftConflict", err)
 	}
@@ -864,15 +732,6 @@ func TestDraftCASStaleRetryAfterWinnerCommitIsRejected(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance: a fault after the history insert rolls both rows back.
-// ---------------------------------------------------------------------------
-
-// TestDraftCASRollsBackHistoryWhenOwnerCASFailsAfterInsert drives the real
-// interleaving: history INSERT committed inside the writer transaction, a
-// takeover commits a version bump on a third real backend, the owner CAS
-// then matches zero rows -- and the deferred rollback must erase the
-// history row too. Neither half may survive.
 func TestDraftCASRollsBackHistoryWhenOwnerCASFailsAfterInsert(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -919,9 +778,6 @@ func TestDraftCASRollsBackHistoryWhenOwnerCASFailsAfterInsert(t *testing.T) {
 		t.Fatal("writer never reached the post-insert seam")
 	}
 
-	// The takeover commits on its own backend: the head moves past the
-	// writer's expected version while the writer's history row is still
-	// only in its uncommitted transaction.
 	takeoverConn, err := takeover.Acquire(f.ctx)
 	if err != nil {
 		release()
@@ -945,9 +801,6 @@ func TestDraftCASRollsBackHistoryWhenOwnerCASFailsAfterInsert(t *testing.T) {
 	if res.saved != nil {
 		t.Fatalf("failed CAS returned a head: %+v", res.saved)
 	}
-	// Both rows rolled back: the writer's history row vanished, and the
-	// head shows only the takeover, with no previous-revision link from
-	// the aborted writer.
 	if rows := f.historyRows(t, "proj_roll", "patients"); len(rows) != 0 {
 		t.Fatalf("aborted writer left history behind: %+v", rows)
 	}
@@ -958,10 +811,6 @@ func TestDraftCASRollsBackHistoryWhenOwnerCASFailsAfterInsert(t *testing.T) {
 	}
 }
 
-// TestDraftCASRollsBackHistoryOnFaultAfterInsert proves the same atomicity
-// against a transport-class fault raised immediately after the real history
-// INSERT: the error surfaces unwrapped-but-tagged, and the witness sees
-// neither a head change nor a history row.
 func TestDraftCASRollsBackHistoryOnFaultAfterInsert(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -992,11 +841,6 @@ func TestDraftCASRollsBackHistoryOnFaultAfterInsert(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance: revision monotonicity across connections, with
-// repeated-owner correlation.
-// ---------------------------------------------------------------------------
-
 func TestDraftCASRevisionMonotonicityAcrossConnections(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -1022,8 +866,6 @@ func TestDraftCASRevisionMonotonicityAcrossConnections(t *testing.T) {
 			t.Fatalf("save %d: draftVersion = %d, want exactly %d (monotonic +1)", i, stored.DraftVersion, expected+1)
 		}
 
-		// Every claim re-read on the OTHER backend, so nothing below can
-		// come from a session-local cache of the writer's own transaction.
 		head, err := readerStore.Get(f.ctx, "proj_mono", "patients")
 		if err != nil {
 			f.fail("monotonic head read", err)
@@ -1043,9 +885,6 @@ func TestDraftCASRevisionMonotonicityAcrossConnections(t *testing.T) {
 			t.Fatalf("save %d: preimage = %+v, want version %d digest %q title %q",
 				i, revision, expected, digest, title)
 		}
-		// Repeated-owner correlation: every save here has the same
-		// updated_by ("bob") -- each version still owns its own distinct
-		// immutable preimage row.
 		digest = nextDigest
 		title = candidate.Title
 	}
@@ -1061,8 +900,6 @@ func TestDraftCASRevisionMonotonicityAcrossConnections(t *testing.T) {
 		if r.ID != draftRevisionKey("proj_mono", "patients", int64(4+i)) {
 			t.Fatalf("history[%d].id = %q, want derived key", i, r.ID)
 		}
-		// A preimage records the author of the state it snapshots, not the
-		// author of the CAS that replaced it.
 		wantAuthor := "bob"
 		if i == 0 {
 			wantAuthor = "alice"
@@ -1071,8 +908,6 @@ func TestDraftCASRevisionMonotonicityAcrossConnections(t *testing.T) {
 			t.Fatalf("history[%d].updated_by = %q, want the stored-state author %q", i, r.UpdatedBy, wantAuthor)
 		}
 	}
-	// Nothing beyond the last preimage exists, and every row was written by
-	// the same repeated owner identity with its own distinct snapshot.
 	var future int
 	if err := f.iso.QueryRow(f.ctx, `SELECT count(*) FROM `+f.historyTable()+
 		` WHERE project = $1 AND explorer_id = $2 AND draft_version >= 7`, "proj_mono", "patients").Scan(&future); err != nil {
@@ -1103,11 +938,6 @@ func TestDraftCASRevisionMonotonicityAcrossConnections(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance: foreign project/Explorer history IDs return concealed not
-// found.
-// ---------------------------------------------------------------------------
-
 func TestDraftCASGetDraftRevisionScopesOpaqueIDsToProjectExplorer(t *testing.T) {
 	f := newDraftFixture(t)
 	f.migrate(t)
@@ -1132,23 +962,17 @@ func TestDraftCASGetDraftRevisionScopesOpaqueIDsToProjectExplorer(t *testing.T) 
 		t.Fatal("different projects derived the same revision id")
 	}
 
-	// The legitimate read succeeds (from the stranger backend, too).
 	rev, err := stranger.GetDraftRevision(f.ctx, "proj_a", "patients", idA)
 	if err != nil || rev.ID != idA {
 		f.fail("legitimate scoped read", err)
 	}
 
-	// Foreign project: same Explorer id and same opaque id, different
-	// project. Concealed ErrNotFound -- identical to a nonexistent id.
 	if _, err := stranger.GetDraftRevision(f.ctx, "proj_b", "patients", idA); !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("cross-project read of %q = %v, want concealed ErrNotFound", idA, err)
 	}
-	// Same project, foreign Explorer: same opaque id can never cross
-	// Explorers inside one project either.
 	if _, err := stranger.GetDraftRevision(f.ctx, "proj_b", "labs", idB); !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("cross-explorer read of %q = %v, want concealed ErrNotFound", idB, err)
 	}
-	// A nonexistent id and the foreign reads are indistinguishable.
 	if _, err := stranger.GetDraftRevision(f.ctx, "proj_a", "patients", "draft_revision_"+strings.Repeat("0", 64)); !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("nonexistent id = %v, want concealed ErrNotFound", err)
 	}
@@ -1161,7 +985,6 @@ func TestDraftCASGetDraftRevisionScopesOpaqueIDsToProjectExplorer(t *testing.T) 
 		}
 	}
 
-	// Concealment changed nothing: all three preimages are still stored.
 	for _, pair := range []struct {
 		project, explorerID string
 	}{
@@ -1172,14 +995,6 @@ func TestDraftCASGetDraftRevisionScopesOpaqueIDsToProjectExplorer(t *testing.T) 
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit. It checks, by exact name only,
-// every database (and the schema that lived inside it) this file verified
-// into existence. It performs no global scan of pg_database or pg_namespace,
-// so concurrent sibling workers sweeping their own prefixes neither race
-// this audit nor trip it.
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverPgStateExplorerDraftCasFixtures(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -1235,12 +1050,6 @@ func TestZZZeroLeftoverPgStateExplorerDraftCasFixtures(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Small local helpers (kept out of the foundation fixture file).
-// ---------------------------------------------------------------------------
-
-// parseDraftURL validates the service URL form, exactly as the foundation
-// fixture does, and hands back a mutable URL for isolated-database DSNs.
 func parseDraftURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {

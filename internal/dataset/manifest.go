@@ -7,11 +7,8 @@ type State string
 const (
 	StateLoading State = "LOADING"
 	StateStaged  State = "STAGED"
-	// StateReady is retained for compatibility with manifests written before
-	// staged project releases became the visibility boundary. New workflows
-	// must write StateStaged.
-	StateReady  State = "READY"
-	StateFailed State = "FAILED"
+	StateReady   State = "READY"
+	StateFailed  State = "FAILED"
 )
 
 type Manifest struct {
@@ -52,8 +49,6 @@ func (m Manifest) Transition(next State) (Manifest, error) {
 	return m, nil
 }
 
-// IsStaged reports whether graph loading completed. READY is accepted only as
-// a legacy spelling; new transitions use STAGED.
 func (m Manifest) IsStaged() bool {
 	return m.Validate() == nil && (m.State == StateStaged || m.State == StateReady)
 }

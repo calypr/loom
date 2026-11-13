@@ -13,14 +13,8 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// T12: the deadlock-retry contract, pinned. Classification is by sentinel
-// (never by the statement that failed), the bounded fresh-transaction retry
-// really re-runs, and an exhausted budget surfaces ErrPublishContention.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
-	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
+	deadlock := &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
 	cases := []struct {
 		name string
 		err  error
@@ -34,6 +28,8 @@ func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
 		{"serialization-adjacent 40001", &pgconn.PgError{Code: "40001"}, false},
 		{"plain error", errors.New("connection reset by peer"), false},
 		{"nil", nil, false},
+		{"typed-nil driver error", error((*pgconn.PgError)(nil)), false},
+		{"wrapped typed-nil driver error", fmt.Errorf("publish leg: %w", error((*pgconn.PgError)(nil))), false},
 	}
 	for _, tc := range cases {
 		if got := isDeadlockError(tc.err); got != tc.want {
@@ -43,8 +39,6 @@ func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
 }
 
 func TestPublishAuthoringTypedRefusalClassification(t *testing.T) {
-	// Every publish refusal sentinel is terminal, through arbitrary
-	// wrapping -- and nothing else classifies as terminal.
 	typed := []error{
 		explorer.ErrCorruptReceipt,
 		explorer.ErrNotFound,
@@ -70,9 +64,6 @@ func TestPublishAuthoringTypedRefusalClassification(t *testing.T) {
 	}
 }
 
-// injectFault publishes with a crashAt seam that fails the first nAttempts
-// attempts with fault (nil fault disables injection) and reports how many
-// transactions reached the seam.
 func injectFault(t *testing.T, ps *PublishStore, nAttempts int, fault error) func() int {
 	t.Helper()
 	fires := 0
@@ -104,7 +95,7 @@ func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
 	project, explorerID, tag := "proj_pubauth_dl_retry", "exp_dl", "dlr"
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
-	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
+	deadlock := &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
 	transactions := injectFault(t, ps, 1, deadlock)
 
 	out, err := ps.PublishAuthoring(f.ctx, receipt, revision, release, 0)
@@ -117,8 +108,6 @@ func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
 	if transactions() != 2 {
 		t.Fatalf("seam reached %d times, want 2 (one deadlocked attempt + one retry)", transactions())
 	}
-	// The deadlocked attempt wrote nothing: the committed world is exactly
-	// what an uninterrupted single run stores.
 	fg := newPGPubAuthFixture(t)
 	fg.migrate(t)
 	gReceipt, gRevision, gRelease := fg.seedPublishedWorld(t, fg.newStore(t), project, explorerID, tag)
@@ -135,7 +124,7 @@ func TestPublishAuthoringExhaustedDeadlocksSurfaceErrPublishContention(t *testin
 	project, explorerID, tag := "proj_pubauth_dl_exhaust", "exp_dl", "dlex"
 	receipt, revision, release := f.seedPublishedWorld(t, store, project, explorerID, tag)
 	ps := f.newPublishStore(t)
-	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
+	deadlock := &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}
 	transactions := injectFault(t, ps, publishTxMaxAttempts+1, deadlock)
 	before := f.snapshotAll(t, false)
 
@@ -173,9 +162,6 @@ func TestPublishAuthoringNonDeadlockFaultIsNotRetried(t *testing.T) {
 }
 
 func TestPublishAuthoringTypedRefusalAtBackendSiteIsTerminal(t *testing.T) {
-	// A sentinel carried out of a statement the retry loop would otherwise
-	// retry still terminates after one transaction: classification follows
-	// the sentinel, not the statement.
 	f := newPGPubAuthFixture(t)
 	f.migrate(t)
 	store := f.newStore(t)

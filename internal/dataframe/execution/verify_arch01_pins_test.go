@@ -1,11 +1,5 @@
 package execution
 
-// Folded adversarial pins for arch-backend-01. These preserve the guarantees
-// the pg-exec-02 verifier proved (PR #99 probes P1, P11, P12) across the
-// typed compiled-command boundary migration: resolver panics fail closed, and
-// every preview marker-reset site (visitor error, non-limit query error, and
-// post-stream context error) clears the completed/truncated markers.
-
 import (
 	"context"
 	"errors"
@@ -148,11 +142,6 @@ func verifyArch01Command(t *testing.T) command.CompiledCommand {
 	return compiledCommand
 }
 
-// verifyArch01PostgreSQLPort is the source row port for a PostgreSQL-selected
-// engine: it records the dispatched statement (through tagged dispatch, so a
-// non-PostgreSQL tag fails before the record) and visits the fixed rows. An
-// AQL-tagged request on a PostgreSQL port is a composition violation and is
-// traced separately so fallback can never hide.
 func verifyArch01PostgreSQLPort(v *verifyArch01Trace, target *[]string, rows []map[string]any) SourceRows {
 	return func(ctx context.Context, request RowsRequest, visit RowVisitor) error {
 		sqlText, _, err := request.Command.PostgreSQLParameters()
@@ -177,14 +166,6 @@ func verifyArch01Rows() []map[string]any {
 	return []map[string]any{{"id": "one"}, {"id": "two"}}
 }
 
-// P1 (folded): a PANICKING resolver must surface the panic (fail closed) and
-// must not fall through to AQL nor touch any adapter.
-// P1 (folded, re-expressed for the selected-target seam): a PANICKING row
-// port must surface the panic (fail closed) and must not fall through to AQL
-// nor touch any adapter. The former composition resolver seam is gone — the
-// compiler produces the tagged command for the selected PostgreSQL target —
-// so the panic is injected at the one required row port, the seam where
-// source selection meets execution today.
 func TestVerifyArch01ResolverPanicFailsClosedNoCallbacks(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
@@ -211,15 +192,10 @@ func TestVerifyArch01ResolverPanicFailsClosedNoCallbacks(t *testing.T) {
 				aqlFull, aqlPreview, len(pgFull), controls, ch)
 		}
 	}()
-	// Streams only builds streams; the row port is consulted at consumption,
-	// so Run (which drives every stream to exhaustion) is the seam where a
-	// panicking port must surface.
 	_, err = engine.Run(context.Background(), verifyArch01PostgreSQLResolved("resources", []string{"id"}))
 	t.Fatalf("panic must propagate; Run returned err=%v", err)
 }
 
-// P11 (folded): an outer visitor error (visitorErr path) must clear the
-// completed marker on a PostgreSQL preview.
 func TestVerifyArch01VisitorErrorClearsMarkers(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
@@ -242,9 +218,6 @@ func TestVerifyArch01VisitorErrorClearsMarkers(t *testing.T) {
 	v.quietAQL(t, "visitor error")
 }
 
-// P12 (folded): a cancellation that lands after the final delivered row (the
-// stream completes cleanly, then the context error path fires) must clear the
-// completed marker.
 func TestVerifyArch01ContextErrorAfterFinalRowClearsMarkers(t *testing.T) {
 	v := &verifyArch01Trace{}
 	config := verifyArch01Config(v)
@@ -261,7 +234,7 @@ func TestVerifyArch01ContextErrorAfterFinalRowClearsMarkers(t *testing.T) {
 	summary, err := engine.PreviewOutput(ctx, verifyArch01PostgreSQLResolved("resources", []string{"id"}),
 		PreviewRequest{Output: "resources", Limit: 10}, func(map[string]any) error {
 			rows++
-			if rows == 2 { // cancel on the last row: the stream then ends cleanly
+			if rows == 2 {
 				cancel()
 			}
 			return nil

@@ -123,10 +123,6 @@ func validatePhysicalSelector(resourceType string, selector spec.Selector) error
 	return nil
 }
 
-// schemaDefinitionExists accepts both top-level FHIR resources and generated
-// backbone/choice definitions such as GroupMember. A definition may be a
-// valid selector source without being a graph collection or traversal node;
-// collection and route validation deliberately continue to use HasResource.
 func schemaDefinitionExists(resourceType string) bool {
 	return fhirschema.DefinitionExists(resourceType)
 }

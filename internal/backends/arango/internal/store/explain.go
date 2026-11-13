@@ -8,8 +8,6 @@ import (
 	"sort"
 )
 
-// ExplainRequest is the portable JSON body accepted by ArangoDB's AQL
-// explain endpoint. It intentionally has no dependency on the Arango driver.
 type ExplainRequest struct {
 	Query    string         `json:"query"`
 	BindVars map[string]any `json:"bindVars,omitempty"`
@@ -26,7 +24,6 @@ type OptimizerOptions struct {
 	Rules []string `json:"rules,omitempty"`
 }
 
-// ExplainResult models both single-plan and all-plans responses.
 type ExplainResult struct {
 	Plan      *ExplainPlan     `json:"plan,omitempty"`
 	Plans     []ExplainPlan    `json:"plans,omitempty"`
@@ -56,9 +53,6 @@ type ExplainNode struct {
 	IndexCoversOutProjections *bool          `json:"indexCoversOutProjections,omitempty"`
 }
 
-// ExplainIndexes accepts the shapes emitted by different ArangoDB plan nodes.
-// Index nodes use an array, while traversal and optimizer nodes can emit a
-// single object or an object keyed by an internal index role.
 type ExplainIndexes []ExplainIndex
 
 func (indexes *ExplainIndexes) UnmarshalJSON(data []byte) error {
@@ -75,10 +69,6 @@ func (indexes *ExplainIndexes) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// decodeExplainIndexes accepts every index shape emitted by the explain API:
-// a direct index object, an array, or nested traversal-index containers such
-// as {"base": [...], "levels": {...}}. Nested non-index metadata is ignored;
-// a malformed top-level indexes value still returns an error.
 func decodeExplainIndexes(data []byte, strict bool) ([]ExplainIndex, error) {
 	data = bytes.TrimSpace(data)
 	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
@@ -166,8 +156,6 @@ type ExplainStats struct {
 	PeakMemoryUsage uint64 `json:"peakMemoryUsage,omitempty"`
 }
 
-// ExplainIndexUse associates an index with the plan node and collection that
-// use it. Collection falls back to the node collection when omitted by Arango.
 type ExplainIndexUse struct {
 	Plan       int
 	NodeID     int64
@@ -184,8 +172,6 @@ type explainEnvelope struct {
 	Code         int    `json:"code,omitempty"`
 }
 
-// ParseExplainResult decodes an Arango explain response, rejects trailing JSON,
-// and promotes Arango error envelopes to Go errors.
 func ParseExplainResult(data []byte) (ExplainResult, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var envelope explainEnvelope
@@ -204,13 +190,6 @@ func ParseExplainResult(data []byte) (ExplainResult, error) {
 	return envelope.ExplainResult, nil
 }
 
-// ExtractPlanIndexes returns deterministic, deduplicated index uses from the
-// single plan followed by any alternative plans.
-
-// explainIndexCollection resolves the collection that owns an index across
-// Arango's node shapes. Traversal nodes typically omit `collection` and put
-// the edge collection in `edgeCollections`, while ordinary IndexNodes use
-// `collection` directly.
 func explainIndexCollection(node ExplainNode, index ExplainIndex) string {
 	if index.Collection != "" {
 		return index.Collection

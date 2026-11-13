@@ -22,29 +22,23 @@ const (
 	JSONTypeArray  JSONType = "array"
 )
 
-// Index is an immutable view of FHIR definition metadata.
 type Index struct {
 	definitions map[DefinitionName]Definition
 }
 
-// DefinitionView reads a definition's elements without exposing its slices.
-// Its zero value represents an empty definition.
 type DefinitionView struct {
 	requiredElements []string
 	elements         []Element
 }
 
-// ElementListView reads a list of elements without exposing its backing slice.
 type ElementListView struct {
 	elements []Element
 }
 
-// ElementView reads one element without exposing its nested slices.
 type ElementView struct {
 	element *Element
 }
 
-// Definition contains one generated or synthetic FHIR definition.
 type Definition struct {
 	Name             DefinitionName
 	Title            string
@@ -53,7 +47,6 @@ type Definition struct {
 	Elements         []Element
 }
 
-// Element contains schema metadata for one property.
 type Element struct {
 	Name                 string
 	JSONType             JSONType
@@ -77,7 +70,6 @@ type Element struct {
 	Description          string
 }
 
-// NewIndex copies definitions into an immutable lookup index.
 func NewIndex(definitions []Definition) (*Index, error) {
 	index := &Index{definitions: make(map[DefinitionName]Definition, len(definitions))}
 	for _, definition := range definitions {
@@ -100,8 +92,6 @@ func NewIndex(definitions []Definition) (*Index, error) {
 	return index, nil
 }
 
-// Definition returns a copy of one definition. Changes to the returned slices
-// do not alter the index.
 func (i *Index) Definition(name DefinitionName) (Definition, bool) {
 	if i == nil {
 		return Definition{}, false
@@ -113,8 +103,6 @@ func (i *Index) Definition(name DefinitionName) (Definition, bool) {
 	return cloneDefinition(definition), true
 }
 
-// ReadDefinition returns a read-only view for traversal. Use Definition when
-// callers need an independently mutable copy of all metadata.
 func (i *Index) ReadDefinition(name DefinitionName) (DefinitionView, bool) {
 	if i == nil {
 		return DefinitionView{}, false
@@ -129,28 +117,22 @@ func (i *Index) ReadDefinition(name DefinitionName) (DefinitionView, bool) {
 	}, true
 }
 
-// RequiredElements returns the names of members required by this definition.
-// The returned slice never aliases the immutable index.
 func (v DefinitionView) RequiredElements() []string {
 	return cloneStrings(v.requiredElements)
 }
 
-// Elements returns a read-only view of the definition's elements.
 func (v DefinitionView) Elements() ElementListView {
 	return ElementListView{elements: v.elements}
 }
 
-// Len returns the number of elements in the list.
 func (v ElementListView) Len() int {
 	return len(v.elements)
 }
 
-// At returns a read-only view of the indexed element.
 func (v ElementListView) At(index int) (ElementView, bool) {
 	return elementAt(v.elements, index)
 }
 
-// Name returns the element name.
 func (v ElementView) Name() string {
 	if v.element == nil {
 		return ""
@@ -158,7 +140,6 @@ func (v ElementView) Name() string {
 	return v.element.Name
 }
 
-// JSONType returns the element's JSON type.
 func (v ElementView) JSONType() JSONType {
 	if v.element == nil {
 		return ""
@@ -166,7 +147,6 @@ func (v ElementView) JSONType() JSONType {
 	return v.element.JSONType
 }
 
-// ReferencedType returns the element's referenced definition, if any.
 func (v ElementView) ReferencedType() DefinitionName {
 	if v.element == nil {
 		return ""
@@ -174,7 +154,6 @@ func (v ElementView) ReferencedType() DefinitionName {
 	return v.element.ReferencedType
 }
 
-// ItemJSONType returns the JSON type of an array item.
 func (v ElementView) ItemJSONType() JSONType {
 	if v.element == nil {
 		return ""
@@ -182,7 +161,6 @@ func (v ElementView) ItemJSONType() JSONType {
 	return v.element.ItemJSONType
 }
 
-// ArrayElementType returns the array item's referenced definition, if any.
 func (v ElementView) ArrayElementType() DefinitionName {
 	if v.element == nil {
 		return ""
@@ -190,7 +168,6 @@ func (v ElementView) ArrayElementType() DefinitionName {
 	return v.element.ArrayElementType
 }
 
-// Elements returns a read-only view of inline object elements.
 func (v ElementView) Elements() ElementListView {
 	if v.element == nil {
 		return ElementListView{}
@@ -198,7 +175,6 @@ func (v ElementView) Elements() ElementListView {
 	return ElementListView{elements: v.element.Elements}
 }
 
-// ArrayElements returns a read-only view of inline array-item elements.
 func (v ElementView) ArrayElements() ElementListView {
 	if v.element == nil {
 		return ElementListView{}
@@ -206,7 +182,6 @@ func (v ElementView) ArrayElements() ElementListView {
 	return ElementListView{elements: v.element.ArrayElements}
 }
 
-// Snapshot returns an independently mutable copy of the element metadata.
 func (v ElementView) Snapshot() Element {
 	if v.element == nil {
 		return Element{}
@@ -214,8 +189,6 @@ func (v ElementView) Snapshot() Element {
 	return cloneElement(*v.element)
 }
 
-// Definitions returns all definitions in name order. Each definition owns
-// its slices and can be changed without altering the index.
 func (i *Index) Definitions() []Definition {
 	if i == nil || len(i.definitions) == 0 {
 		return []Definition{}
@@ -239,7 +212,6 @@ var (
 	generatedIndexErr  error
 )
 
-// GeneratedIndex returns the immutable index built from generated FHIR metadata.
 func GeneratedIndex() (*Index, error) {
 	generatedIndexOnce.Do(func() {
 		generatedIndex, generatedIndexErr = newGeneratedIndex()

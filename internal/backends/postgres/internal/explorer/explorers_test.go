@@ -23,15 +23,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// Fixtures shared by the owner tests.
-// ---------------------------------------------------------------------------
-
-// cfgAlpha is a canonical ExplorerConfigV2-shaped draft packet used as the
-// lossless JSONB fixture. Its jsonb ::text form is asserted literally in
-// literalCfgAlphaText: PostgreSQL orders jsonb object members by key byte
-// length first, then bytes, renders separators as ": " and ", ", and keeps
-// every member and value (including the JSON null under "note").
 const cfgAlpha = `{"title": "Alpha", "filters": [{"column": "day", "op": "eq", "value": "2026-01-01"}], "beta": true, "limit": 25, "note": null}`
 
 const literalCfgAlphaText = `{"beta": true, "note": null, "limit": 25, "title": "Alpha", "filters": [{"op": "eq", "value": "2026-01-01", "column": "day"}]}`
@@ -44,9 +35,6 @@ const resultsOK = `{"matchedRows": 4021, "traceId": "trc_01"}`
 
 const literalResultsText = `{"traceId": "trc_01", "matchedRows": 4021}`
 
-// ownerUpdatedAt is a microsecond-exact literal timestamp: timestamptz
-// storage is exact to microseconds and Go time values built with time.Date
-// carry no monotonic reading, so the round trip is exactly checkable.
 var ownerUpdatedAt = time.Date(2026, 1, 2, 3, 4, 5, 123456000, time.UTC)
 
 const ownerUpdatedAtText = "2026-01-02 03:04:05.123456"
@@ -73,10 +61,6 @@ func fullOwner(project, id string) explorer.Explorer {
 	}
 }
 
-// jsonEqual compares two json.RawMessage values semantically (jsonb stores
-// documents normalized, so byte equality against the client text is the
-// wrong contract; literal ::text assertions cover physical form). Missing
-// (nil) is a distinct third state from the JSON-null literal.
 func jsonEqual(t *testing.T, want, got json.RawMessage, field string) {
 	t.Helper()
 	if (want == nil) != (got == nil) {
@@ -103,8 +87,6 @@ func jsonEqual(t *testing.T, want, got json.RawMessage, field string) {
 	}
 }
 
-// requireOwnerEqual asserts every Explorer field round-tripped: scalars
-// exactly, JSON payloads semantically, and UpdatedAt by instant.
 func requireOwnerEqual(t *testing.T, want, got explorer.Explorer, where string) {
 	t.Helper()
 	if got.Project != want.Project || got.ExplorerID != want.ExplorerID {
@@ -132,11 +114,6 @@ func requireOwnerEqual(t *testing.T, want, got explorer.Explorer, where string) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Isolated PostgreSQL fixture: one uniquely owned database plus one owned
-// schema per test, named pgstate01v1_it_*, never touching anything else.
-// ---------------------------------------------------------------------------
-
 var pgstate01v1NameRe = regexp.MustCompile(`^pgstate01v1_it_[0-9]+_[0-9a-f]+$`)
 
 func testPostgresURL(t *testing.T) string {
@@ -159,8 +136,8 @@ func randomHex(t *testing.T) string {
 
 type ownerFixture struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // shared service database
-	iso    *pgxpool.Pool // isolated database
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
 	dbName string
 	schema string
 	dsn    string
@@ -168,11 +145,6 @@ type ownerFixture struct {
 	fail   func(step string, err error)
 }
 
-// newOwnerFixture creates one isolated database (pgstate01v1_it_*) plus one
-// owned schema (pgstate01v1_it_*) inside it and registers LIFO cleanups:
-// drop schema, close iso pool, drop database, then a zero-leftover audit
-// scoped to this namespace, then close the admin pool, then cancel the
-// context. Only resources this fixture created are ever dropped.
 func newOwnerFixture(t *testing.T) *ownerFixture {
 	t.Helper()
 	raw := testPostgresURL(t)
@@ -182,9 +154,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string that could appear in a failure
-	// message: the raw service URL, the userinfo, the bare password, and the
-	// rewritten isolated-database DSN appended below.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -206,8 +175,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 		t.Fatalf("%s: %s", step, scrub(err))
 	}
 
-	// Registered first so it runs last: the cleanups below still need a live
-	// context.
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	t.Cleanup(cancel)
 
@@ -215,8 +182,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 	if err != nil {
 		fail("connect to test service", err)
 	}
-	// Registered second so it runs second-to-last: the zero-leftover audit
-	// below still needs this admin pool.
 	t.Cleanup(admin.Close)
 
 	dbName := fmt.Sprintf("pgstate01v1_it_%d_%s", time.Now().UnixNano(), randomHex(t))
@@ -224,9 +189,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
-	// Third-to-last: prove the database (and with it its schema) is gone,
-	// and that no pgstate01v1_it_* leftovers remain anywhere this fixture
-	// could have touched.
 	t.Cleanup(func() {
 		var mine int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
@@ -251,7 +213,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 		}
 	})
 
-	// Fourth-to-last: drop only the database this test created.
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
@@ -259,8 +220,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -280,7 +239,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 	if err != nil {
 		fail("connect to isolated database", err)
 	}
-	// Fifth-to-last: close the isolated-database pool before the drop.
 	t.Cleanup(iso.Close)
 
 	schema := fmt.Sprintf("pgstate01v1_it_%d_%s", time.Now().UnixNano(), randomHex(t))
@@ -290,7 +248,6 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
 		fail("create owned schema", err)
 	}
-	// Runs first: drop only the schema this test created.
 	t.Cleanup(func() {
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
@@ -305,10 +262,6 @@ func (f *ownerFixture) ownerTable() string {
 	return pgx.Identifier{f.schema, OwnerTable}.Sanitize()
 }
 
-// newStore opens a fresh, independent readiness-checked pool (its own
-// physical connections) and returns a Store over it. Tests use two stores:
-// one writes, the other -- opened later, on a brand-new pool -- reads back,
-// proving persistence past any single connection or session.
 func (f *ownerFixture) newStore(t *testing.T) *Store {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -347,8 +300,6 @@ func (f *ownerFixture) migrate(t *testing.T) pgstore.MigrateResult {
 	return result
 }
 
-// literalRow is the physically stored form of one owner row, read through
-// the isolated-database admin pool with literal SQL, not through the Store.
 type literalRow struct {
 	Title                      string
 	ManagementMode             string
@@ -364,7 +315,7 @@ type literalRow struct {
 	UpdatedBy                  string
 	UpdatedAtText              string
 	DraftConfigText            string
-	DraftConfigKind            string // jsonb_typeof, or 'missing' for SQL NULL
+	DraftConfigKind            string
 	ResultsText                string
 	ResultsKind                string
 }
@@ -403,8 +354,6 @@ func (f *ownerFixture) ownerCount(t *testing.T, project string) int {
 	return n
 }
 
-// requireLiteralFullOwner asserts the physical row matches the fullOwner
-// fixture exactly, column by column, including the jsonb literal text form.
 func (f *ownerFixture) requireLiteralFullOwner(t *testing.T, project, id string) {
 	t.Helper()
 	row := f.literalRow(t, project, id)
@@ -443,32 +392,15 @@ func requirePgErr(t *testing.T, err error, sqlstate, step string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests: no PostgreSQL service required. They run in every pass.
-// ---------------------------------------------------------------------------
-
 func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 	migrations, err := OwnerMigrations()
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
 	}
-	// Count is self-derived from the embedded migrations directory (the
-	// #84 pattern) so future owner-dir migrations never need an edit for
-	// the count itself; the checksum registry below stays the deliberate
-	// per-file pin that a new migration must update by hand.
 	embeddedHistoryFiles, _ := pgstate02EnumerateEmbeddedMigrations(t)
 	if len(migrations) != len(embeddedHistoryFiles) {
 		t.Fatalf("migration count = %d, want %d (one per file in the embedded migrations directory)", len(migrations), len(embeddedHistoryFiles))
 	}
-	// Literal checksum pins (the pg-store-02 wantEmbeddedChecksums
-	// convention): the sha256 of each file's exact bytes. Editing any
-	// migration SQL -- including a migration guard -- reddens this test
-	// until the pin is deliberately regenerated, and the runner refuses an
-	// already-migrated schema whose embedded history drifted from its
-	// ledger. Versions 4, 7, and 8 are the capability-artifacts,
-	// interpretation-library, and selection-revisions migrations of this
-	// same Explorer control-plane ledger, embedded here with bytes
-	// unchanged from their earlier fixture directories.
 	want := []struct {
 		version  int64
 		name     string
@@ -486,10 +418,6 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 		{10, "explorer_explicit_group_memberships", "02e0c9ab8bf9864e7d9c82471eacc7406fe2301b025e459784044c4a44489ccd"},
 		{11, "explorer_explicit_group_definition_guard_hardening", "fb45d8f8c312f8f6adb119465da5ed89ac0ddd14929a2c26aa4c917db6d704ec"},
 	}
-	// The literal checksum registry above is the deliberate per-file pin
-	// (pg-store-02 convention): it must name every embedded migration file,
-	// so a new migration fails here with an actionable message instead of
-	// indexing past a stale registry.
 	if len(want) != len(migrations) {
 		t.Fatalf("checksum registry holds %d entries, want %d (one per embedded migration file): add the new migration's name and sha256 pin deliberately", len(want), len(migrations))
 	}
@@ -502,11 +430,6 @@ func TestPostgresExplorerOwnerMigrationHistoryLoads(t *testing.T) {
 			t.Fatalf("migration %d/%s checksum = %s, want pinned %s: migration SQL drifted",
 				m.Version, m.Name, m.Checksum, want[i].checksum)
 		}
-		// Rerun safety admits two shapes: table-creating migrations
-		// (CREATE TABLE IF NOT EXISTS) and guard-hardening migrations
-		// that only CREATE OR REPLACE a function and recreate its
-		// trigger (000011), which converge identically on a rerun and
-		// never destroy durable state.
 		upperSQL := strings.ToUpper(m.SQL)
 		if !strings.Contains(upperSQL, "CREATE TABLE IF NOT EXISTS") &&
 			!strings.Contains(upperSQL, "CREATE OR REPLACE FUNCTION") {
@@ -592,17 +515,6 @@ func TestPostgresExplorerOwnerJSONBoundary(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 integration (service-gated by LOOM_TEST_POSTGRES_URL).
-// ---------------------------------------------------------------------------
-
-// TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows proves the first
-// concrete schema stores an Explorer owner under the unique (project,
-// explorer_id) identity with typed columns plus the lossless draft payload
-// JSONB: Create returns the persisted row, literal SQL reads every column
-// back exactly (including the jsonb-normalized payload text and the
-// microsecond-exact timestamp), and a Store on a fresh independent pool
-// reads the same owner back.
 func TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.migrate(t)
@@ -615,15 +527,11 @@ func TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows(t *testing.T) {
 	}
 	requireOwnerEqual(t, want, *created, "Create result")
 
-	// Literal row through the isolated-database pool: typed columns and the
-	// jsonb payload exactly as physically stored.
 	f.requireLiteralFullOwner(t, "proj_alpha", "exp_1")
 	if n := f.ownerCount(t, "proj_alpha"); n != 1 {
 		t.Fatalf("owner row count = %d, want exactly 1", n)
 	}
 
-	// Fresh connection for read-back: a brand-new pool opened after the
-	// write, with its own physical connections.
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_alpha", "exp_1")
 	if err != nil {
@@ -641,14 +549,6 @@ func TestPostgresExplorerOwnerCreateGetRoundTripLiteralRows(t *testing.T) {
 	requireOwnerEqual(t, want, listed[0], "fresh-pool List")
 }
 
-// TestPostgresExplorerOwnerCreateDuplicateInsertOnce proves Create's
-// insert-once conflict semantics: a second Create for the same
-// (project, explorer_id) -- even with entirely different content -- inserts
-// nothing, maps to explorer.ErrDraftConflict, and leaves the stored owner
-// byte-identical (read back through a fresh pool). The same explorer_id in
-// another project is a different identity and creates fine. A raw duplicate
-// INSERT must fail with unique_violation 23505: the constraint is enforced
-// by PostgreSQL, not simulated in Go.
 func TestPostgresExplorerOwnerCreateDuplicateInsertOnce(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.migrate(t)
@@ -674,8 +574,6 @@ func TestPostgresExplorerOwnerCreateDuplicateInsertOnce(t *testing.T) {
 		t.Fatalf("duplicate Create returned %+v, want nil", conflict)
 	}
 
-	// The stored owner is untouched: fresh-pool Get and the literal row both
-	// still show the first insert.
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_dup", "exp_same")
 	if err != nil {
@@ -684,7 +582,6 @@ func TestPostgresExplorerOwnerCreateDuplicateInsertOnce(t *testing.T) {
 	requireOwnerEqual(t, first, *got, "owner after duplicate Create")
 	f.requireLiteralFullOwner(t, "proj_dup", "exp_same")
 
-	// Same explorer_id, different project: a distinct identity.
 	other := fullOwner("proj_other", "exp_same")
 	if _, err := writer.Create(f.ctx, other); err != nil {
 		f.fail("create same id under another project", err)
@@ -696,8 +593,6 @@ func TestPostgresExplorerOwnerCreateDuplicateInsertOnce(t *testing.T) {
 		t.Fatalf("proj_other owner count = %d, want 1", n)
 	}
 
-	// Negative fixture: a raw duplicate INSERT is refused by the database
-	// itself with unique_violation 23505.
 	cols := strings.Join(ownerColumns, ", ")
 	placeholders := ownerPlaceholders()
 	_, err = f.iso.Exec(f.ctx, `INSERT INTO `+f.ownerTable()+` (`+cols+`) VALUES (`+placeholders+`)`,
@@ -705,12 +600,6 @@ func TestPostgresExplorerOwnerCreateDuplicateInsertOnce(t *testing.T) {
 	requirePgErr(t, err, "23505", "raw duplicate insert")
 }
 
-// TestPostgresExplorerOwnerGetAndListProjectScope proves Get enforces
-// project+Explorer identity (a missing id and an id that exists only in
-// another project both map to explorer.ErrNotFound) and List is project-
-// scoped and sorted by ExplorerID in exact byte order -- the identity
-// columns are COLLATE "C", so the listing is deterministic regardless of the
-// database collation and matches Arango's byte-order listing.
 func TestPostgresExplorerOwnerGetAndListProjectScope(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.migrate(t)
@@ -724,15 +613,12 @@ func TestPostgresExplorerOwnerGetAndListProjectScope(t *testing.T) {
 			}
 		}
 	}
-	// An owner that exists only in proj_scope_b must be invisible to
-	// proj_scope_a.
 	if _, err := writer.Create(f.ctx, fullOwner("proj_scope_b", "only_b")); err != nil {
 		f.fail("create only-b owner", err)
 	}
 
 	reader := f.newStore(t)
 
-	// Get enforces project + Explorer identity.
 	if _, err := reader.Get(f.ctx, "proj_scope_a", "only_b"); !errors.Is(err, explorer.ErrNotFound) {
 		t.Fatalf("cross-project Get error = %v, want explorer.ErrNotFound", err)
 	}
@@ -743,8 +629,6 @@ func TestPostgresExplorerOwnerGetAndListProjectScope(t *testing.T) {
 		f.fail("get only-b owner from owning project", err)
 	}
 
-	// List is project-scoped and byte-order sorted: 'Zeta' (0x5A) < '_x'
-	// (0x5F) < 'alpha' (0x61) < 'beta' < 'default'.
 	listed, err := reader.List(f.ctx, "proj_scope_a")
 	if err != nil {
 		f.fail("list proj_scope_a", err)
@@ -766,7 +650,6 @@ func TestPostgresExplorerOwnerGetAndListProjectScope(t *testing.T) {
 		}
 	}
 
-	// An unknown project lists as an empty, non-nil slice.
 	empty, err := reader.List(f.ctx, "proj_never_created")
 	if err != nil {
 		f.fail("list unknown project", err)
@@ -776,11 +659,6 @@ func TestPostgresExplorerOwnerGetAndListProjectScope(t *testing.T) {
 	}
 }
 
-// TestPostgresExplorerOwnerNullSemantics preserves the three json.RawMessage
-// states end to end: missing (nil) is stored as SQL NULL and read back as a
-// nil payload; JSON-null is stored as the jsonb value 'null' (IS NULL false,
-// jsonb_typeof 'null') and read back as RawMessage("null"); a document is
-// stored losslessly. Every distinction is asserted with literal rows.
 func TestPostgresExplorerOwnerNullSemantics(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.migrate(t)
@@ -808,8 +686,6 @@ func TestPostgresExplorerOwnerNullSemantics(t *testing.T) {
 
 	reader := f.newStore(t)
 
-	// Literal rows: SQL NULL vs jsonb 'null' vs document are three distinct
-	// physical states.
 	missingRow := f.literalRow(t, "proj_null", "exp_missing")
 	if missingRow.DraftConfigKind != "missing" || missingRow.DraftConfigText != "" {
 		t.Fatalf("missing draft_config physical form = %q/%q, want SQL NULL", missingRow.DraftConfigKind, missingRow.DraftConfigText)
@@ -830,7 +706,6 @@ func TestPostgresExplorerOwnerNullSemantics(t *testing.T) {
 		t.Fatalf("document draft_config literal = %q/%q, want %q", docRow.DraftConfigKind, docRow.DraftConfigText, literalCfgAlphaText)
 	}
 
-	// Read-back through a fresh pool preserves the distinction.
 	gotMissing, err := reader.Get(f.ctx, "proj_null", "exp_missing")
 	if err != nil {
 		f.fail("get missing-payload owner", err)
@@ -855,20 +730,10 @@ func TestPostgresExplorerOwnerNullSemantics(t *testing.T) {
 	requireOwnerEqual(t, doc, *gotDoc, "document-payload read-back")
 }
 
-// TestPostgresExplorerOwnerMigrateRerunPreservesState proves bootstrap can
-// rerun without truncating existing owner state: the first MigrateSchema
-// applies ledger + owner table + draft revision history, an owner is
-// inserted, a second and third MigrateSchema are no-ops that record nothing
-// new, return the identical history, and leave the owner fully readable
-// through a fresh pool. A run against a nil client or a nonexistent schema
-// fails with named errors.
 func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	f := newOwnerFixture(t)
 
 	first := f.migrate(t)
-	// Self-derived expectations (the #84 pattern): count = number of
-	// embedded migration files, latest = max version parsed from their
-	// names, so future owner-dir migrations never need an edit here.
 	embeddedFiles, embeddedMax := pgstate02EnumerateEmbeddedMigrations(t)
 	if first.LatestVersion != embeddedMax || len(first.Applied) != len(embeddedFiles) {
 		t.Fatalf("first migrate = %+v, want latest %d with %d applied rows (one per embedded migration file; version 4 is the capability ticket's reserved slot)", first, embeddedMax, len(embeddedFiles))
@@ -897,8 +762,6 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 		}
 	}
 
-	// The ledger holds exactly the two migrations, with the checksums the
-	// embedded history computes.
 	migrations, err := OwnerMigrations()
 	if err != nil {
 		t.Fatalf("OwnerMigrations() = %v", err)
@@ -935,7 +798,6 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 		}
 	}
 
-	// Owner state survived every rerun, readable through a brand-new pool.
 	reader := f.newStore(t)
 	got, err := reader.Get(f.ctx, "proj_rerun", "exp_keep")
 	if err != nil {
@@ -944,8 +806,6 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	requireOwnerEqual(t, want, *got, "owner after migrate reruns")
 	f.requireLiteralFullOwner(t, "proj_rerun", "exp_keep")
 
-	// Bootstrap failures are named errors, never silent: nil client, and a
-	// schema the caller never created.
 	if _, err := MigrateSchema(f.ctx, nil, f.schema); err == nil {
 		t.Fatal("MigrateSchema accepted a nil client")
 	}
@@ -961,22 +821,9 @@ func TestPostgresExplorerOwnerMigrateRerunPreservesState(t *testing.T) {
 	}
 }
 
-// TestPostgresExplorerOwnerMixedHistoryIsRefused pins the schema-ownership
-// invariant from the package comment: exactly one embedded history may ever
-// migrate one schema. Both directions are covered. (a) This history applied
-// first, then pgstore.MigrateSchema on the same schema: the runner refuses
-// with pgstore.ErrMigrationChecksumMismatch (version 1 bodies differ by
-// design) and persists nothing -- the ledger keeps exactly this package's
-// rows (1 ledger, 2 owner, 3 draft revision) and the owner row survives
-// untouched. (b) The source-store
-// history first, then this package's: the same named refusal fires and the
-// explorers table is never created. Failing closed before applying any
-// statement is the contract; a mixed schema never converges silently.
 func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	f := newOwnerFixture(t)
 
-	// (a) This package's history owns the schema; the source-store history
-	// must be refused on it.
 	f.migrate(t)
 	store := f.newStore(t)
 	owner := fullOwner("proj_ownership", "exp_keep")
@@ -993,7 +840,6 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if _, err := pgstore.MigrateSchema(f.ctx, client, f.schema); !errors.Is(err, pgstore.ErrMigrationChecksumMismatch) {
 		t.Fatalf("source-store history on this package's schema error = %v, want ErrMigrationChecksumMismatch", err)
 	}
-	// Refused before applying: ledger untouched, owner intact.
 	var ledgerVersions []int64
 	rows, err := f.iso.Query(f.ctx, `SELECT version FROM `+
 		pgx.Identifier{f.schema, pgstore.LedgerTable}.Sanitize()+` ORDER BY version`)
@@ -1012,12 +858,6 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		f.fail("read ledger after refused run", err)
 	}
-	// Self-derived ledger expectation (the #84 pattern): the version list
-	// is enumerated from this package's embedded migrations directory, so
-	// future owner-dir migrations (000007, 000008, ...) never need an edit
-	// here; the refused run must leave the ledger equal to the whole
-	// embedded history (version 4 is the capability ticket's reserved slot
-	// in the capability fixture's own file, absent from this dir).
 	embeddedFiles, _ := pgstate02EnumerateEmbeddedMigrations(t)
 	wantLedgerVersions := make([]int64, 0, len(ledgerVersions))
 	for _, file := range embeddedFiles {
@@ -1042,8 +882,6 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	}
 	requireOwnerEqual(t, owner, *got, "owner after refused mixed-history run")
 
-	// (b) The source-store history owns a fresh schema; this package's
-	// history must be refused on it, creating nothing.
 	pgStoreSchema := f.schema + "_source"
 	if _, err := f.iso.Exec(f.ctx, `CREATE SCHEMA "`+pgStoreSchema+`"`); err != nil {
 		f.fail("create source-store schema", err)
@@ -1071,17 +909,10 @@ func TestPostgresExplorerOwnerMixedHistoryIsRefused(t *testing.T) {
 	}
 }
 
-// TestPostgresExplorerOwnerSchemaConstraints proves the typed columns and
-// constraints are enforced by PostgreSQL itself: the management mode CHECK
-// refuses an unknown mode with 23514, the non-negative draft_version CHECK
-// refuses a negative version with 23514, and non-JSON text in the JSONB
-// payload is refused with invalid_text_representation 22P02.
 func TestPostgresExplorerOwnerSchemaConstraints(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.migrate(t)
 
-	// Constraint failures through the Store stay classifiable and are never
-	// mislabeled as a duplicate-owner conflict or a missing owner.
 	writer := f.newStore(t)
 	bogusMode := fullOwner("proj_checks", "exp_store_mode")
 	bogusMode.ManagementMode = explorer.ManagementMode("SOMETHING_ELSE")
@@ -1111,7 +942,6 @@ func TestPostgresExplorerOwnerSchemaConstraints(t *testing.T) {
 		"", "", "", "", "", "", "", nil, "", "", ownerUpdatedAt)
 	requirePgErr(t, err, "22P02", "non-JSON draft payload")
 
-	// The rejected statements persisted nothing.
 	if n := f.ownerCount(t, "proj_checks"); n != 0 {
 		t.Fatalf("rejected inserts left %d rows, want 0", n)
 	}

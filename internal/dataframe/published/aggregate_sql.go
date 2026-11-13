@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-// Aggregate statements can contain a large number of grouping sets. Keep the
-// query from competing with the rest of the Loom process for all pod memory:
-// ClickHouse spills aggregation/sort state before the container limit is hit,
-// and a small thread cap avoids one state arena per source worker. These are
-// statement-local settings and do not change the server-wide profile.
 const aggregateExternalMemoryBytes = 256 * 1024 * 1024
 
 const aggregateMaxThreads = 2
@@ -95,14 +90,6 @@ func buildGroupingSetSQL(dataset Materialization, req AggregateBatchRequest, sta
 	return buildTermsGroupingSetSQL(dataset, req, statement)
 }
 
-// buildLegacyGroupingSetSQL keeps the aggregate state narrow even when an
-// operation contains hundreds of one-column facets. ClickHouse expands a
-// large GROUPING SETS clause into one aggregation state per set; on the
-// production 156-facet shape that alone can exceed the server's memory cap.
-// We fan out the logical facet slot/key pairs once with arrayJoin and perform
-// one physical GROUPING SETS aggregation over the narrow pair. The source
-// union is still built once per statement, and every logical job remains
-// represented by its slot in the grouped key.
 func buildLegacyGroupingSetSQL(dataset Materialization, req AggregateBatchRequest, statement aggregateStatementPlan) (aggregateSQL, error) {
 	union, args, sourceColumns, err := aggregateSource(dataset, req, statement)
 	if err != nil {
@@ -242,10 +229,6 @@ func buildTermsGroupingSetSQL(dataset Materialization, req AggregateBatchRequest
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	// ClickHouse 25.7's analyzer rejects GROUPING() with
-	// group_by_use_nulls=1 (even when every argument is a grouping key).
-	// Keep the setting explicit at 0 and use the grouping masks to distinguish
-	// rolled-up defaults from real NULL values.
 	query += " GROUP BY GROUPING SETS (" + strings.Join(sets, ", ") + ") " + aggregateSettings() + ") AS __loom_grouped"
 	limitParts := make([]string, 0, len(statement.jobs)*2+1)
 	for i, planned := range statement.jobs {
@@ -294,12 +277,6 @@ func groupingCondition(all, groups, masks []string) string {
 	return strings.Join(conditions, " AND ")
 }
 
-// groupingMaskExpression deliberately calls GROUPING with one column at a
-// time. ClickHouse's analyzer has a compatibility bug for the variadic form
-// (GROUPING(a, b, ...)) when GROUPING SETS contains sparse sets: it can reject
-// a valid key as not being part of GROUP BY. Combining the scalar GROUPING
-// results into the same bit mask is semantically identical and works across
-// the ClickHouse versions supported by Loom.
 func groupingMaskExpression(columns []string) string {
 	if len(columns) == 0 {
 		return "toUInt64(0)"

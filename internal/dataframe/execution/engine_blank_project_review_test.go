@@ -23,8 +23,6 @@ func (r *reviewBlankRegistry) LoadRecipeVersion(context.Context, string, string)
 	return recipeexec.Entry{}, nil
 }
 
-// Review attack 1: direct engine entry with a caller-constructed blank
-// bindings, bypassing any GraphQL authorizer.
 func TestEngineResolveBlankProjectDirectClassification(t *testing.T) {
 	registry := &reviewBlankRegistry{}
 	engine, err := New(Config{
@@ -61,9 +59,6 @@ func TestEngineResolveBlankProjectDirectClassification(t *testing.T) {
 	}
 }
 
-// coverAllFiveGuards exercises every blank-project guard, including the two
-// unexported ones (resolveEntry, compileResolvedBundle) in-package, plus the
-// ResolveVersion lane that reaches resolveEntry without a preceding guard.
 func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	bundle := recipe.Bundle{RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "x", TranslationVersion: "t"}
 	blank := recipe.RuntimeBindings{Project: " \t\n "}
@@ -104,16 +99,11 @@ func TestEngineAllFiveBlankProjectGuards(t *testing.T) {
 	} else {
 		requireTyped("compileResolvedBundle(unexported)", err)
 	}
-	// ResolveVersion has no own guard: blank must be typed by resolveEntry.
 	_, err = engine.ResolveVersion(context.Background(), "x", "v1", blank)
 	requireTyped("ResolveVersion->resolveEntry lane", err)
 	if registry.loads == 0 {
 		t.Fatal("ResolveVersion lane must consult registry before the resolveEntry guard")
 	}
-	// Attack-2 divergence artifact: whitespace guard and Canonical emptiness
-	// predicates differ. "/" is non-blank per the guards yet Canonical("") —
-	// it reaches the registry instead of being classified. If this load
-	// attempt ever becomes a rejection, the two predicates converged.
 	divergeRegistry := &reviewBlankRegistry{}
 	divergeEngine, err := New(Config{
 		CompileTarget: compiler.ArangoTarget(),

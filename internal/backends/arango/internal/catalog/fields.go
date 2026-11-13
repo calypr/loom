@@ -36,9 +36,6 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 	return rows, err
 }
 
-// DiscoverFieldEnrichment reads profiler rows as optional, fail-closed
-// enrichment. A successful empty result is valid evidence; a query failure or
-// bounded distinct-value set is explicitly unavailable/incomplete.
 func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
 	if opts.CursorBatch <= 0 {
 		opts.CursorBatch = 1000
@@ -86,9 +83,6 @@ func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldE
 		}
 		field.ResourceType = resourceType
 		result.Values = append(result.Values, catalog.FieldEnrichmentObservation{Project: field.Project, DatasetGeneration: field.DatasetGeneration, AuthResourcePath: field.AuthResourcePath, ResourceType: field.ResourceType, Path: field.Path, Kind: field.Kind, DocCount: field.DocCount, MaxItems: field.MaxItems, SampleCount: field.SampleCount, DistinctValues: append([]string(nil), field.DistinctValues...), DistinctTruncated: field.DistinctTruncated, ExtensionValues: append([]catalog.ExtensionValueObservation(nil), field.ExtensionValues...), SemanticObservations: append([]catalog.SemanticObservation(nil), field.SemanticObservations...), PivotCandidate: field.PivotCandidate, PivotKind: field.PivotKind, PivotColumns: append([]string(nil), field.PivotColumns...), PivotFamily: field.PivotFamily, PivotColumnSelect: field.PivotColumnSelect, PivotValueSelect: field.PivotValueSelect, PivotItemSource: field.PivotItemSource, PivotItemResourceType: field.PivotItemResourceType, PivotValueSelectors: append([]string(nil), field.PivotValueSelectors...)})
-		// DistinctTruncated is per-field suggestion metadata. It is retained
-		// on the observation but does not make the complete enrichment artifact
-		// unusable; only an artifact-level marker can fail the snapshot.
 		if truncated, ok := row["enrichment_truncated"].(bool); ok && truncated {
 			result.Truncated = true
 		}

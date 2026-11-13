@@ -1,10 +1,5 @@
 package lower
 
-// This file is the narrow bridge from the persisted, backend-neutral
-// expression AST to the physical expression IR. It deliberately performs no
-// output-name or resource-specific dispatch: selectors and calls remain data
-// all the way to the renderer.
-
 import (
 	"fmt"
 	"strings"
@@ -15,10 +10,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// LowerRecipeExpression lowers one checked recipe expression into the typed
-// physical tree. bindVars receives literal values using deterministic,
-// collision-safe keys. resourceType is used to retain schema provenance for
-// selector validation; it is not used to select implementation behavior.
 func LowerRecipeExpression(input expression.Expression, bindVars map[string]any, resourceType string) (ir.PhysicalExpression, error) {
 	if bindVars == nil {
 		return ir.PhysicalExpression{}, fmt.Errorf("bind vars map is required")
@@ -38,9 +29,6 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 	case expression.NullEmpty:
 		behavior = ir.PhysicalEmptyOnNull
 	case expression.NullError:
-		// Physical execution has no error-valued AQL expression. Preserve null
-		// here and let the semantic checker reject error-sensitive recipes until
-		// an explicit error channel is added to the execution contract.
 		behavior = ir.PhysicalPreserveNull
 	}
 	result := ir.PhysicalExpression{Cardinality: cardinality, NullBehavior: behavior}
@@ -62,10 +50,6 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 		if err != nil {
 			return ir.PhysicalExpression{}, fmt.Errorf("parse selector %q: %w", selectorPath, err)
 		}
-		// Semantic recipe plans normally carry a checked expression type, but
-		// the narrow public lowering entrypoint also accepts the persisted AST.
-		// Recover repetition from generated schema metadata in that case so a
-		// repeated FHIR selector cannot silently become a scalar physical value.
 		if !input.Type.Valid() {
 			if metadata, ok := fhirschema.ResolveTerminalScalarMetadata(resourceType, selector.CanonicalPath()); ok && metadata.Repeated {
 				cardinality = ir.PhysicalArrayCardinality
@@ -102,9 +86,6 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 			call.TargetKind = string(input.Call.Target.Kind)
 		}
 		for index, arg := range input.Call.Args {
-			// Recipe wire syntax represents cast as (value, target literal),
-			// while the typed AST stores target in Call.Target. The target is
-			// metadata, not a runtime physical argument.
 			if call.Name == "cast" && input.Call.Target != nil && index == 1 {
 				continue
 			}
@@ -122,9 +103,6 @@ func lowerRecipeExpression(input expression.Expression, bindVars map[string]any,
 	}
 }
 
-// lowerDocumentRef materializes the storage envelope needed by whole-resource
-// consumers while retaining the payload as one nested object. It deliberately
-// uses only typed PhysicalValue nodes; no backend query text is embedded here.
 func lowerDocumentRef(ref expression.DocumentRef, behavior ir.PhysicalNullBehavior) ir.PhysicalExpression {
 	variable := strings.TrimSpace(ref.Context)
 	if variable == "" {

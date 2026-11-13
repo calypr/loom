@@ -18,9 +18,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestPivotPresenceArangoAudit executes the presence matrix against real AQL and
-// reports which offered columns would reach MISSING_UNSUPPORTED when the source
-// contains absent or explicit-null values. It is diagnostic and env-gated.
 func TestPivotPresenceArangoAudit(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -33,10 +30,6 @@ func TestPivotPresenceArangoAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := arangoBackend.Client
-	// Close is terminal, and t.Cleanup bodies run after deferred calls, so
-	// the close must also be a cleanup — registered first so LIFO ordering
-	// runs it last, after the fixture removal below still has an open
-	// client.
 	t.Cleanup(func() {
 		if err := client.Close(context.Background()); err != nil {
 			t.Errorf("close presence audit client: %v", err)

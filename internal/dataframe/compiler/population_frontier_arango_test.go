@@ -104,8 +104,6 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		}
 	}
 
-	// Each bad resource is attached by correctly scoped edges. If the resource
-	// scope is dropped, it leads to an otherwise disconnected root observation.
 	for index, mismatch := range []resource{
 		{patients, "patient-wrong-project", "patient-wrong-project", "Patient", "other-" + project, generation, "/allowed"},
 		{patients, "patient-wrong-generation", "patient-wrong-generation", "Patient", project, "other-" + generation, "/allowed"},
@@ -118,8 +116,6 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		insertEdge("resource-scope-witness-"+mismatch.key, observationID, mismatch.key, allowed)
 	}
 
-	// Each bad edge is the only path from a selected source to its disconnected
-	// bridge. Its valid bridge edge makes an omitted edge-scope filter observable.
 	for index, mismatch := range []edgeScope{
 		{project: "other-" + project, generation: generation, authPath: "/allowed"},
 		{project: project, generation: "other-" + generation, authPath: "/allowed"},

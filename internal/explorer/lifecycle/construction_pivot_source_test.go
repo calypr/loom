@@ -129,11 +129,6 @@ func TestConstructionCandidateWithPivotSourcesPreservesPrefixForValueLabelEdit(t
 	}
 }
 
-// ROW-SOURCE-03 S-C: the single display-label builder returns the first
-// non-blank TrimSpace'd server-truth display candidate and only then falls
-// back to the legacy 'ResourceType.path'. Snapshot candidates must never be
-// client input; the pinned empty-Title shape mirrors builder.go:296, where
-// the capability snapshot collapses a missing Title to the raw field path.
 func TestConstructionFieldDisplayLabelChainAndFallbacks(t *testing.T) {
 	rows := []struct {
 		name         string
@@ -236,8 +231,6 @@ func TestPivotSourcePresentationFailureIsPrefixScopeRejection(t *testing.T) {
 		t.Fatalf("broken regenerated prefix error = %v, want prefix-scope rejection for %q", err, construction.Steps[0].ID)
 	}
 }
-
-// --- ROW-SOURCE-03 S-A: precise per-skipped-class lane reason codes -------
 
 func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *testing.T) {
 	index, err := fhirschema.GeneratedIndex()
@@ -369,10 +362,6 @@ func TestConstructionPivotSourceCapabilityReportsPreciseSkipClassReasonCodes(t *
 	}
 }
 
-// TestConstructionFieldDisplayLabelRefusesControlBytes locks the reviewer
-// witness: a display candidate carrying NUL/ESC/other Unicode control
-// characters must never ride the advertised/durable label; the builder falls
-// through to the next candidate and ultimately to the legacy Type.path form.
 func TestConstructionFieldDisplayLabelRefusesControlBytes(t *testing.T) {
 	cases := []struct{ name, candidate, fallback, want string }{
 		{"nul-esc-in-title-falls-to-next", "Active\x00flag\x1b[31mred", "Clean Title", "Clean Title"},

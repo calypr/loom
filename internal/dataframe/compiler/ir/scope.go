@@ -13,17 +13,6 @@ const (
 	physicalScopeDatasetGenerationField    = datasetGenerationField
 )
 
-// ValidateGenericPhysicalPlanScope proves the authorization and project-scope
-// contract of the navigation-only physical plan built by
-// BuildGenericPhysicalPlan. It deliberately validates the physical operation
-// graph rather than rendered AQL, so a renderer cannot accidentally hide a
-// missing or reordered scope operation.
-//
-// This is intentionally narrower than PhysicalPlan.Validate: arbitrary
-// physical plans may have a different scope strategy, while the generic FHIR
-// navigation plan must use the exact project and authorization primitives
-// checked here. It also requires an exact dataset-generation predicate for
-// each scanned graph document, including the legacy null-generation case.
 func ValidateGenericPhysicalPlanScope(plan PhysicalPlan) error {
 	if err := plan.Validate(); err != nil {
 		return fmt.Errorf("validate physical plan before verifying generic scope: %w", err)
@@ -416,9 +405,6 @@ func physicalScopeLookupResource(description, variable string) physicalScopeReso
 	}
 }
 
-// physicalScopeWindowEnd returns the first subsequent operation that can
-// create another resource or terminate the plan. Scope must be established
-// before either happens; otherwise a traversal can observe an unscoped row.
 func physicalScopeWindowEnd(operations []PhysicalOperation, start int) int {
 	for index := start; index < len(operations); index++ {
 		switch operations[index].Kind {

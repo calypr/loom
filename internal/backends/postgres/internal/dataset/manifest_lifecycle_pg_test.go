@@ -1,13 +1,5 @@
 package postgres
 
-// Real PostgreSQL 18 integration for pg-store-03. Everything here runs
-// against the service named by LOOM_TEST_POSTGRES_URL: each test creates one
-// uniquely-named isolated database (pgstore03_it_*) plus one owned schema
-// (pgstore03_it_*) inside it and drops both in its cleanups, so the suite
-// leaves zero leftovers. Expected rows are asserted literally, through the
-// test's own witness pool. A skipped test proves nothing: the CI runner
-// fails on skips. CAS schedule tests run serially (no t.Parallel anywhere).
-
 import (
 	"context"
 	"crypto/sha256"
@@ -52,14 +44,11 @@ func randomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// pgService owns one isolated database and one owned schema inside it, both
-// named pgstore03_it_*, created for exactly one test and removed by that
-// test's cleanups. Nothing outside these two resources is touched.
 type pgService struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database (witness pool)
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -112,9 +101,6 @@ func newPGService(t *testing.T) *pgService {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Drop with a fresh bounded context: cleanup must be able to
-		// converge and report a failure even when the test context has
-		// burned its budget.
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
 		if _, err := admin.Exec(cleanupCtx,
@@ -123,8 +109,6 @@ func newPGService(t *testing.T) *pgService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -147,7 +131,6 @@ func newPGService(t *testing.T) *pgService {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		// Drop with a fresh bounded context (see the database cleanup above).
 		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelCleanup()
 		if _, err := iso.Exec(cleanupCtx,
@@ -159,8 +142,6 @@ func newPGService(t *testing.T) *pgService {
 	return &pgService{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// openClient opens one readiness-checked pg-store-01 pool against the
-// isolated database.
 func (s *pgService) openClient(t *testing.T) *storepostgres.Client {
 	t.Helper()
 	return s.openClientWithBounds(t, 2, 4)
@@ -181,9 +162,6 @@ func (s *pgService) openClientWithBounds(t *testing.T, minConns, maxConns int32)
 	return client
 }
 
-// mustMigrate applies the embedded history (including migration 000003)
-// through the production runner and proves this ticket's row is recorded
-// literally: version 3, this name, and the checksum of the embedded SQL.
 func (s *pgService) mustMigrate(t *testing.T, client *storepostgres.Client) {
 	t.Helper()
 	result, err := storepostgres.MigrateSchema(s.ctx, client, s.schema)
@@ -230,10 +208,6 @@ func (s *pgService) mustMigrate(t *testing.T, client *storepostgres.Client) {
 	}
 }
 
-// openStore migrates through the production runner (once per service) and
-// returns a live store over a fresh readiness-checked pool. Reopening a
-// store means closing the client and calling openStore again: a new pool
-// means new physical connections, so readback after reopen is honest.
 func (s *pgService) openStore(t *testing.T) (*Store, *storepostgres.Client) {
 	t.Helper()
 	client := s.openClient(t)
@@ -244,10 +218,6 @@ func (s *pgService) openStore(t *testing.T) (*Store, *storepostgres.Client) {
 	}
 	return store, client
 }
-
-// ---------------------------------------------------------------------------
-// literal row witnesses (test's own pool, never the store's connections)
-// ---------------------------------------------------------------------------
 
 func (s *pgService) rawExec(t *testing.T, sql string, args ...any) pgconn.CommandTag {
 	t.Helper()
@@ -270,9 +240,6 @@ func (s *pgService) dumpManifestRow(t *testing.T, project, generation string) st
 	return fmt.Sprintf("state=%s identity=%s", state, identity)
 }
 
-// assertManifestRowLiteral checks one manifest row against literal expected
-// values: exact state text and exact schema identity document (jsonb
-// equality against the canonical marshal of the expected snapshot).
 func (s *pgService) assertManifestRowLiteral(t *testing.T, ref publication.Ref, wantState string, wantIdentity publication.SchemaSnapshot) {
 	t.Helper()
 	identity, err := json.Marshal(wantIdentity)
@@ -328,10 +295,6 @@ func (s *pgService) assertPointerRowLiteral(t *testing.T, project, wantGeneratio
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
-
 func mustRef(t *testing.T, project, generation string) publication.Ref {
 	t.Helper()
 	ref, err := publication.NewRef(project, generation)
@@ -350,8 +313,6 @@ func mustSnapshot(t *testing.T, generation, digest string) publication.SchemaSna
 	return schema
 }
 
-// mustPersistStaged creates a LOADING manifest and transitions it to STAGED
-// through the production store, without touching the active pointer.
 func (s *pgService) mustPersistStaged(t *testing.T, store *Store, project, generation, digest string) publication.Manifest {
 	t.Helper()
 	ref := mustRef(t, project, generation)
@@ -381,10 +342,6 @@ const (
 	digestF = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
 
-// ---------------------------------------------------------------------------
-// lifecycle: literal persisted rows, identity bytes, typed conflicts
-// ---------------------------------------------------------------------------
-
 func TestManifestLifecyclePersistsLiteralRows(t *testing.T) {
 	s := newPGService(t)
 	store, _ := s.openStore(t)
@@ -405,8 +362,6 @@ func TestManifestLifecyclePersistsLiteralRows(t *testing.T) {
 	}
 	s.assertManifestRowLiteral(t, ref, "LOADING", schema)
 
-	// ReadManifest returns the persisted manifest; the schema identity
-	// bytes round-trip exactly.
 	read, err := store.ReadManifest(s.ctx, ref)
 	if err != nil {
 		t.Fatalf("ReadManifest: %v", err)
@@ -432,7 +387,6 @@ func TestManifestLifecyclePersistsLiteralRows(t *testing.T) {
 	}
 	s.assertManifestRowLiteral(t, ref, "STAGED", schema)
 
-	// READY is the retained legacy spelling of STAGED.
 	ref2 := mustRef(t, "pgstore03-project", "gen-ready")
 	schema2 := mustSnapshot(t, "gen-ready", digestB)
 	loading2, err := publication.NewManifest(ref2, schema2)
@@ -467,12 +421,9 @@ func TestCreateManifestDuplicateAndInvalid(t *testing.T) {
 		t.Fatalf("first CreateManifest: %v", err)
 	}
 
-	// Same generation, same bytes: still a conflict, never an overwrite.
 	if _, err := store.CreateManifest(s.ctx, loading); !errors.Is(err, ErrManifestAlreadyExists) {
 		t.Fatalf("duplicate create: %v, want ErrManifestAlreadyExists", err)
 	}
-	// Same generation, different identity bytes: also a conflict; the
-	// CAS is the generation identity, not the content.
 	other := loading
 	other.SchemaIdentity = mustSnapshot(t, "gen-dup", digestB)
 	if _, err := store.CreateManifest(s.ctx, other); !errors.Is(err, ErrManifestAlreadyExists) {
@@ -480,19 +431,16 @@ func TestCreateManifestDuplicateAndInvalid(t *testing.T) {
 	}
 	s.assertManifestRowLiteral(t, ref, "LOADING", schema)
 
-	// Only LOADING may be created.
 	staged := loading
 	staged.State = publication.StateStaged
 	if _, err := store.CreateManifest(s.ctx, staged); !errors.Is(err, publication.ErrInvalidTransition) {
 		t.Fatalf("create staged: %v, want ErrInvalidTransition", err)
 	}
-	// Invalid manifests are refused before any statement.
 	bad := loading
 	bad.SchemaIdentity.SchemaSHA256 = "not-a-digest"
 	if _, err := store.CreateManifest(s.ctx, bad); !errors.Is(err, publication.ErrInvalidManifest) {
 		t.Fatalf("create with bad digest: %v, want ErrInvalidManifest", err)
 	}
-	// Missing manifest reads as the public not-found sentinel.
 	missing := mustRef(t, "pgstore03-project", "gen-none")
 	if _, err := store.ReadManifest(s.ctx, missing); !errors.Is(err, publication.ErrManifestNotFound) {
 		t.Fatalf("ReadManifest missing: %v, want ErrManifestNotFound", err)
@@ -511,7 +459,6 @@ func TestTransitionManifestTypedConflictAndIllegalEdges(t *testing.T) {
 		return m
 	}
 
-	// CAS mismatch: the caller's copy says LOADING but the row is STAGED.
 	m := loading("gen-cas", digestA)
 	if _, err := store.CreateManifest(s.ctx, m); err != nil {
 		t.Fatal(err)
@@ -524,7 +471,6 @@ func TestTransitionManifestTypedConflictAndIllegalEdges(t *testing.T) {
 	}
 	s.assertManifestRowLiteral(t, m.Dataset, "STAGED", m.SchemaIdentity)
 
-	// CAS mismatch on immutable identity: correct state, edited identity.
 	edited := m
 	edited.SchemaIdentity = mustSnapshot(t, "gen-cas", digestF)
 	if _, err := store.TransitionManifest(s.ctx, edited, publication.StateFailed); !errors.Is(err, ErrManifestTransitionConflict) {
@@ -532,7 +478,6 @@ func TestTransitionManifestTypedConflictAndIllegalEdges(t *testing.T) {
 	}
 	s.assertManifestRowLiteral(t, m.Dataset, "STAGED", m.SchemaIdentity)
 
-	// Illegal edges never reach the database.
 	if _, err := store.TransitionManifest(s.ctx, m, publication.StateLoading); !errors.Is(err, publication.ErrInvalidTransition) {
 		t.Fatalf("STAGED -> LOADING: %v, want ErrInvalidTransition", err)
 	}
@@ -542,7 +487,6 @@ func TestTransitionManifestTypedConflictAndIllegalEdges(t *testing.T) {
 		t.Fatalf("FAILED -> STAGED: %v, want ErrInvalidTransition", err)
 	}
 
-	// LOADING -> FAILED works through the CAS path.
 	doomed := loading("gen-fail", digestC)
 	if _, err := store.CreateManifest(s.ctx, doomed); err != nil {
 		t.Fatal(err)
@@ -556,10 +500,6 @@ func TestTransitionManifestTypedConflictAndIllegalEdges(t *testing.T) {
 	}
 	s.assertManifestRowLiteral(t, doomed.Dataset, "FAILED", doomed.SchemaIdentity)
 }
-
-// ---------------------------------------------------------------------------
-// activation CAS
-// ---------------------------------------------------------------------------
 
 func TestActivateFirstPointerAndIdempotentReActivation(t *testing.T) {
 	s := newPGService(t)
@@ -578,9 +518,6 @@ func TestActivateFirstPointerAndIdempotentReActivation(t *testing.T) {
 	}
 	s.assertPointerRowLiteral(t, project, "gen-1")
 
-	// Repeated activation of the already-active exact manifest is
-	// idempotent: success with zero writes (ctid and updated_at are
-	// untouched, so no UPDATE ever ran).
 	before := s.witnessPointer(t, project)
 	for i := 0; i < 2; i++ {
 		if err := store.ActivateGeneration(s.ctx, staged, nil); err != nil {
@@ -600,13 +537,11 @@ func TestActivateFirstPointerAndIdempotentReActivation(t *testing.T) {
 		t.Fatalf("ResolveActiveManifest = %+v, want %+v", resolved, staged)
 	}
 
-	// The public resolver accepts the PG store as ActiveResolver.
 	resolvedViaResolver, err := publication.ResolveActive(s.ctx, store, project)
 	if err != nil || !reflect.DeepEqual(resolvedViaResolver, staged) {
 		t.Fatalf("ResolveActive = %+v, %v", resolvedViaResolver, err)
 	}
 
-	// Pointer rows are per project: another project stays unset.
 	other := s.mustPersistStaged(t, store, "pgstore03-other", "gen-1", digestB)
 	if err := store.ActivateGeneration(s.ctx, other, nil); err != nil {
 		t.Fatalf("activate other project: %v", err)
@@ -621,7 +556,6 @@ func TestActivateRequiresStagedAndPersistedCandidate(t *testing.T) {
 
 	const project = "pgstore03-project"
 
-	// LOADING candidate: typed not-ready, no pointer created.
 	loadingManifest := func(generation, digest string) publication.Manifest {
 		m, err := publication.NewManifest(mustRef(t, project, generation), mustSnapshot(t, generation, digest))
 		if err != nil {
@@ -634,7 +568,6 @@ func TestActivateRequiresStagedAndPersistedCandidate(t *testing.T) {
 	}
 	s.assertPointerRowLiteral(t, project, "")
 
-	// A manifest persisted as FAILED cannot become active.
 	failedSource := loadingManifest("gen-failed", digestB)
 	if _, err := store.CreateManifest(s.ctx, failedSource); err != nil {
 		t.Fatal(err)
@@ -648,16 +581,12 @@ func TestActivateRequiresStagedAndPersistedCandidate(t *testing.T) {
 	}
 	s.assertPointerRowLiteral(t, project, "")
 
-	// Candidate that was never persisted: typed conflict.
 	ghost := loadingManifest("gen-ghost", digestC)
 	ghost.State = publication.StateStaged
 	if err := store.ActivateGeneration(s.ctx, ghost, nil); !errors.Is(err, ErrActivationConflict) {
 		t.Fatalf("activate unpersisted: %v, want ErrActivationConflict", err)
 	}
 
-	// Staged candidate whose row moved to FAILED after the caller read it
-	// (corruption path exercised with a direct UPDATE, then reactivated
-	// with the stale staged value): typed conflict, pointer untouched.
 	staged := s.mustPersistStaged(t, store, project, "gen-corrupt", digestA)
 	s.rawExec(t, `UPDATE "`+s.schema+`".dataset_generation_manifest SET state = 'FAILED' WHERE project = $1 AND generation = $2`,
 		project, "gen-corrupt")
@@ -666,7 +595,6 @@ func TestActivateRequiresStagedAndPersistedCandidate(t *testing.T) {
 	}
 	s.assertPointerRowLiteral(t, project, "")
 
-	// Staged candidate whose identity bytes were edited after the read.
 	staged2 := s.mustPersistStaged(t, store, project, "gen-identity", digestB)
 	tampered := staged2
 	tampered.SchemaIdentity.SchemaSHA256 = digestF
@@ -675,7 +603,6 @@ func TestActivateRequiresStagedAndPersistedCandidate(t *testing.T) {
 	}
 	s.assertPointerRowLiteral(t, project, "")
 
-	// Expected Ref from a different project is an invalid argument.
 	if _, err := store.ResolveActiveManifest(s.ctx, project); !errors.Is(err, publication.ErrNoActiveGeneration) {
 		t.Fatalf("precondition: %v", err)
 	}
@@ -694,40 +621,33 @@ func TestActivateCompareAndSwapAgainstPointerValue(t *testing.T) {
 	g1 := s.mustPersistStaged(t, store, project, "gen-1", digestB)
 	g2 := s.mustPersistStaged(t, store, project, "gen-2", digestC)
 
-	// First activation: expected nil (no active generation).
 	if err := store.ActivateGeneration(s.ctx, g0, nil); err != nil {
 		t.Fatalf("activate gen-0: %v", err)
 	}
 	s.assertPointerRowLiteral(t, project, "gen-0")
 
-	// Wrong expected value: typed conflict, pointer untouched.
 	wrongExpected := mustRef(t, project, "gen-9")
 	if err := store.ActivateGeneration(s.ctx, g1, &wrongExpected); !errors.Is(err, ErrActivationConflict) {
 		t.Fatalf("activate with wrong expected: %v, want ErrActivationConflict", err)
 	}
 	s.assertPointerRowLiteral(t, project, "gen-0")
 
-	// Expected nil although gen-0 is active: conflict.
 	if err := store.ActivateGeneration(s.ctx, g1, nil); !errors.Is(err, ErrActivationConflict) {
 		t.Fatalf("activate expecting no pointer: %v, want ErrActivationConflict", err)
 	}
 	s.assertPointerRowLiteral(t, project, "gen-0")
 
-	// Correct expected value wins.
 	expectedG0 := g0.Dataset
 	if err := store.ActivateGeneration(s.ctx, g1, &expectedG0); err != nil {
 		t.Fatalf("activate gen-1 with expected gen-0: %v", err)
 	}
 	s.assertPointerRowLiteral(t, project, "gen-1")
 
-	// The pointer has moved, so the same expected value is now stale:
-	// the loser of the schedule gets the typed conflict.
 	if err := store.ActivateGeneration(s.ctx, g2, &expectedG0); !errors.Is(err, ErrActivationConflict) {
 		t.Fatalf("activate gen-2 with stale expected: %v, want ErrActivationConflict", err)
 	}
 	s.assertPointerRowLiteral(t, project, "gen-1")
 
-	// And again with the correct expected value: winner.
 	expectedG1 := g1.Dataset
 	if err := store.ActivateGeneration(s.ctx, g2, &expectedG1); err != nil {
 		t.Fatalf("activate gen-2 with expected gen-1: %v", err)
@@ -735,10 +655,6 @@ func TestActivateCompareAndSwapAgainstPointerValue(t *testing.T) {
 	s.assertPointerRowLiteral(t, project, "gen-2")
 }
 
-// TestConcurrentActivationsSameExpectedYieldOneWinner is the CAS schedule
-// test: two concurrent activations present the same expected generation.
-// Exactly one wins and the loser receives the typed conflict. Runs serially
-// with respect to every other test (the suite never calls t.Parallel).
 func TestConcurrentActivationsSameExpectedYieldOneWinner(t *testing.T) {
 	s := newPGService(t)
 	store, _ := s.openStore(t)
@@ -790,18 +706,12 @@ func TestConcurrentActivationsSameExpectedYieldOneWinner(t *testing.T) {
 	}
 	s.assertPointerRowLiteral(t, project, candidates[winner].Dataset.Generation)
 
-	// The loser may re-read the pointer and converge: with the fresh
-	// expected value its activation wins.
 	fresh := candidates[winner].Dataset
 	if err := store.ActivateGeneration(s.ctx, candidates[loser], &fresh); err != nil {
 		t.Fatalf("loser re-activation with fresh expected: %v", err)
 	}
 	s.assertPointerRowLiteral(t, project, candidates[loser].Dataset.Generation)
 }
-
-// ---------------------------------------------------------------------------
-// failure before commit
-// ---------------------------------------------------------------------------
 
 func TestInjectedFailureBeforeCommitLeavesManifestAndPointerUnchanged(t *testing.T) {
 	s := newPGService(t)
@@ -815,7 +725,6 @@ func TestInjectedFailureBeforeCommitLeavesManifestAndPointerUnchanged(t *testing
 	}
 	pointerBefore := s.witnessPointer(t, project)
 
-	// Injected failure before COMMIT on the activation path.
 	store.commitFault = func(string) error { return errors.New("injected commit failure") }
 	if err := store.ActivateGeneration(s.ctx, g1, &g0.Dataset); err == nil {
 		t.Fatal("activation with injected commit fault returned nil")
@@ -824,7 +733,6 @@ func TestInjectedFailureBeforeCommitLeavesManifestAndPointerUnchanged(t *testing
 	}
 	store.commitFault = nil
 
-	// The pointer row and both manifest rows are byte-identical.
 	after := s.witnessPointer(t, project)
 	if after != pointerBefore {
 		t.Fatalf("faulted activation moved the pointer: before=%+v after=%+v", pointerBefore, after)
@@ -833,8 +741,6 @@ func TestInjectedFailureBeforeCommitLeavesManifestAndPointerUnchanged(t *testing
 	s.assertManifestRowLiteral(t, g0.Dataset, "STAGED", g0.SchemaIdentity)
 	s.assertManifestRowLiteral(t, g1.Dataset, "STAGED", g1.SchemaIdentity)
 
-	// Same on the transition path: a faulted LOADING -> STAGED leaves the
-	// row LOADING.
 	doomed := func() publication.Manifest {
 		m, err := publication.NewManifest(mustRef(t, project, "gen-faulty"), mustSnapshot(t, "gen-faulty", digestC))
 		if err != nil {
@@ -852,8 +758,6 @@ func TestInjectedFailureBeforeCommitLeavesManifestAndPointerUnchanged(t *testing
 	store.commitFault = nil
 	s.assertManifestRowLiteral(t, doomed.Dataset, "LOADING", doomed.SchemaIdentity)
 
-	// Readback after reopen: a brand-new pool (new physical connections)
-	// returns the committed values, not the faulted writes.
 	client.Close()
 	reopened, _ := s.openStore(t)
 	resolved, err := reopened.ResolveActiveManifest(s.ctx, project)
@@ -868,15 +772,10 @@ func TestInjectedFailureBeforeCommitLeavesManifestAndPointerUnchanged(t *testing
 	}
 }
 
-// ---------------------------------------------------------------------------
-// negative schema fixtures: SQL NULL and invalid states are refused
-// ---------------------------------------------------------------------------
-
 func TestSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	s := newPGService(t)
 	store, _ := s.openStore(t)
 
-	// Seed one valid manifest for the FK/pointer fixtures.
 	staged := s.mustPersistStaged(t, store, "pgstore03-project", "gen-fk", digestA)
 
 	type negative struct {
@@ -932,7 +831,6 @@ func TestSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		}
 	}
 
-	// Duplicate pointer rows for one project are impossible.
 	if err := store.ActivateGeneration(s.ctx, staged, nil); err != nil {
 		t.Fatalf("activate for FK fixture: %v", err)
 	}
@@ -944,10 +842,6 @@ func TestSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		t.Fatalf("duplicate pointer insert: err = %v, want SQLSTATE 23505", s.scrub(err))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// zero leftovers: the suite must not leave any pgstore03_it_* resource
-// ---------------------------------------------------------------------------
 
 func TestZZNoLeftoverOwnedResources(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -984,10 +878,6 @@ func TestZZNoLeftoverOwnedResources(t *testing.T) {
 		`SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'pgstore03\_it\_%' ESCAPE '\'`).Scan(&leftoverSchemas); err != nil {
 		t.Fatalf("count leftover schemas: %v", err)
 	}
-	// This second probe guards a different leak than the database check:
-	// owned schemas are only ever created inside the isolated databases and
-	// vanish when those databases are dropped, so a hit here can only mean a
-	// pgstore03_it_* schema leaked into the shared service database itself.
 	if leftoverSchemas != 0 {
 		t.Fatalf("%d owned schemas left behind in the service database", leftoverSchemas)
 	}

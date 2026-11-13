@@ -16,21 +16,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-05 real PostgreSQL 18 acceptance (service-gated by
-// LOOM_TEST_POSTGRES_URL). Every case runs against a real server through the
-// shared owned-service harness under the ticket-owned verify_sql05_* prefix:
-// one uniquely owned isolated database and schema per test, literal rows
-// stored through the merged pg-store repositories, the rendered statement
-// executed with its ordered driver arguments, and comparison against literal
-// expected rows plus a hand-written direct-SQL witness. Fixture dimensions
-// are isolated by resource type so each matrix cell names exactly the rows
-// that must answer; rows are inserted in logical_id order, matching the
-// witness ORDER BY. A skipped required case is a blocker for this ticket's
-// acceptance, never a pass. The package TestMain (main_test.go) audits, after the
-// whole package has run, that nothing survives.
-// ---------------------------------------------------------------------------
-
 const (
 	sql05Prefix    = "verify_sql05_it"
 	sql05Project   = "verify_sql05-proj"
@@ -43,10 +28,6 @@ func newSQL05Service(t *testing.T) *pgir02Service {
 	return newOwnedService(t, 0, sql05Prefix)
 }
 
-// sql05Plan is the scoped restricted-auth read over one resource type for
-// this ticket's owned project and generation. Each fixture dimension uses
-// its own resource type so a filter over one dimension's keys can never be
-// answered by another dimension's rows.
 func sql05Plan(resourceType string) ir.PhysicalPlan {
 	return ir.PhysicalPlan{
 		Version: 1,
@@ -120,13 +101,6 @@ func sql05WitnessRows(t *testing.T, svc *pgir02Service, resourceType, predicate 
 			` ORDER BY logical_id, resource_seq`, sql05Project, sql05Gen, resourceType)
 }
 
-// ---------------------------------------------------------------------------
-// Independent rows: equality / inequality / range over string, code, date,
-// and decimal filter values, plus explicit stored JSON null and missing.
-// Each dimension (status / score / observed / recorded) lives in its own
-// resource type, inserted in logical_id order.
-// ---------------------------------------------------------------------------
-
 func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	svc := newSQL05Service(t)
 
@@ -137,13 +111,7 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	sql05Insert(t, svc, "Observation", "score-decimal", map[string]any{"score": 2.5})
 	sql05Insert(t, svc, "Observation", "score-missing", map[string]any{"unrelated": 2})
 	sql05Insert(t, svc, "Observation", "score-seven", map[string]any{"score": 7})
-	// String under a numeric kind: jsonb type order would place it below
-	// every number and over-select under LTE/LT against AQL; the type
-	// guard must exclude it from both range cells.
 	sql05Insert(t, svc, "Observation", "score-string", map[string]any{"score": "seven"})
-	// Invalid-calendar and leap-day controls: the guards must exclude
-	// these without ever casting them (a cast would abort the statement),
-	// while a true leap day orders normally.
 	sql05Insert(t, svc, "Condition", "date-feb29-leap", map[string]any{"observed": "2024-02-29"})
 	sql05Insert(t, svc, "Condition", "date-feb29-nonleap", map[string]any{"observed": "2023-02-29"})
 	sql05Insert(t, svc, "Condition", "date-invalid-day", map[string]any{"observed": "2024-02-30"})
@@ -151,12 +119,8 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	sql05Insert(t, svc, "Condition", "date-january", map[string]any{"observed": "2024-01-01"})
 	sql05Insert(t, svc, "Condition", "date-march", map[string]any{"observed": "2024-03-15"})
 	sql05Insert(t, svc, "Condition", "date-missing", map[string]any{"unrelated": 3})
-	// The named divergence witness row: a partial stored date that AQL's
-	// DATE_TIMESTAMP would coerce but the renderer's guards read as
-	// never-comparable (contract header, predicates.go).
 	sql05Insert(t, svc, "Condition", "date-partial", map[string]any{"observed": "2024"})
 	sql05Insert(t, svc, "Condition", "date-string", map[string]any{"observed": "not-a-date"})
-	// Out-of-range time and offset shapes: digit-valid, cast-fatal.
 	sql05Insert(t, svc, "Encounter", "instant-bad-offset", map[string]any{"recorded": "2024-03-15T10:20:30+99:99"})
 	sql05Insert(t, svc, "Encounter", "instant-bad-time", map[string]any{"recorded": "2024-01-01T25:70:99Z"})
 	sql05Insert(t, svc, "Encounter", "instant-early", map[string]any{"recorded": "2024-03-15T09:00:00+02:00"})
@@ -185,7 +149,7 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 		bindKey      string
 		bind         any
 		want         [][]string
-		witness      string // direct-SQL predicate with literals inline
+		witness      string
 	}{
 		{
 			label: "string equality", resourceType: "Patient", operator: "EQUALS", field: "status",
@@ -279,17 +243,8 @@ func TestPG18ScalarFilterIndependentRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Selector-extraction comparisons: quantifier truth tables over the
-// null-filtered 0..1-item multiset, element non-unpacking, IN lists.
-// gender selects Patient.gender; identifier selects the whole array item.
-// ---------------------------------------------------------------------------
-
 func TestPG18SelectorQuantifierTruthTables(t *testing.T) {
 	svc := newSQL05Service(t)
-	// The array-valued rows store raw JSON arrays under a non-repeating
-	// FHIR field: repeating fields require [] in the selector, which is an
-	// iterate step — still a typed refusal under the v1 contract.
 	sql05Insert(t, svc, "Patient", "g-array-ab", map[string]any{"gender": []any{"a", "b"}})
 	sql05Insert(t, svc, "Patient", "g-array-null-a", map[string]any{"gender": []any{nil, "a"}})
 	sql05Insert(t, svc, "Patient", "g-female", map[string]any{"gender": "female"})
@@ -343,8 +298,6 @@ func TestPG18SelectorQuantifierTruthTables(t *testing.T) {
 		})
 	}
 
-	// Selector existence separates present items from JSON null/missing —
-	// the quantifier-side reading of the three-state contract.
 	existsPlan := sql05Plan("Patient")
 	existsPlan = pgsq05AddFilter(existsPlan, selectorFilter("gender", "EXISTS", "", "", false))
 	sql05Compare(t, "selector EXISTS", sql05RenderedSelect(t, svc, existsPlan), sql05Rows("g-array-ab", "g-array-null-a", "g-female", "g-male"))
@@ -353,10 +306,6 @@ func TestPG18SelectorQuantifierTruthTables(t *testing.T) {
 	missingPlan = pgsq05AddFilter(missingPlan, selectorFilter("gender", "MISSING", "", "", false))
 	sql05Compare(t, "selector MISSING", sql05RenderedSelect(t, svc, missingPlan), sql05Rows("g-missing", "g-null"))
 }
-
-// ---------------------------------------------------------------------------
-// Boolean predicates: AND / OR / NOT truth table over independent rows.
-// ---------------------------------------------------------------------------
 
 func TestPG18BooleanPredicateTruthTable(t *testing.T) {
 	svc := newSQL05Service(t)
@@ -432,19 +381,12 @@ func TestPG18BooleanPredicateTruthTable(t *testing.T) {
 		})
 	}
 
-	// NOT over the payload equality keeps the missing-key row (AQL reads
-	// the missing-key comparison false, so NOT is true — the COALESCE
-	// guard is what reproduces that in SQL) and the JSON-null row.
 	notPlan := sql05Plan("Patient")
 	notPlan.BindVars["alpha_value"] = true
 	notPlan = pgsq05AddFilter(notPlan, pgsq05FilterByExpression(not(leaf("alpha", "alpha_value"))))
 	sql05Compare(t, "NOT keeps null and missing rows", sql05RenderedSelect(t, svc, notPlan),
 		sql05Rows("tt-ff", "tt-ft", "tt-missing", "tt-null"))
 }
-
-// ---------------------------------------------------------------------------
-// Hostile selector values stay inert data.
-// ---------------------------------------------------------------------------
 
 func TestPG18SelectorHostileValuesAreInert(t *testing.T) {
 	svc := newSQL05Service(t)
@@ -472,10 +414,6 @@ func TestPG18SelectorHostileValuesAreInert(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Typed column comparison over recorded_at with a full-precision literal.
-// ---------------------------------------------------------------------------
-
 func TestPG18RecordedAtTypedDateLiteral(t *testing.T) {
 	svc := newSQL05Service(t)
 	sql05Insert(t, svc, "Patient", "recent", map[string]any{"resourceType": "Patient"})
@@ -502,49 +440,8 @@ func TestPG18RecordedAtTypedDateLiteral(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// F7/F8 boundary sweep. Expected kept/excluded sets are derived in-test
-// from calendar rules by sql05ArmOrderableAtOrAfter2020 — an independent
-// implementation (Go stdlib calendar parsing plus one explicit
-// displacement bound) that shares no code with the renderer's regexes —
-// not from captured strings. The property under test is that the rendered
-// statement NEVER raises: every out-of-range stored shape must read
-// never-comparable and be excluded.
-//
-// Empirical anchors (read-only VALUES casts against the live service
-// before the fix): '2024-03-15T10:20:30+16:00', '-16:00', '+23:59' and
-// '-23:59' each raised ERROR: time zone displacement out of range,
-// SQLSTATE 22009; '2024-03-15T10:20:30,5' and '2024-03-15T10:20:30,5Z'
-// raised ERROR: invalid input syntax for type timestamp with time zone,
-// SQLSTATE 22007; control casts of '+15:59', '-15:59', '+14:00' and
-// '30.5Z' succeeded. Those hand-run observations are not
-// left as claims nobody re-checks:
-// TestPG18TemporalGuardExcludedSideProbes re-runs exactly those casts with
-// direct SQL on every live run and requires each documented SQLSTATE, and
-// the oracle reads the same bound through sql05MaxAdmittedOffsetSeconds.
-// If the server ever disagrees with this record, the guard pattern must be
-// widened, not the assertion relaxed — over-exclusion is a live divergence
-// from AQL, not a safe default.
-// ---------------------------------------------------------------------------
-
-// sql05MaxAdmittedOffsetSeconds is the largest UTC displacement, in
-// seconds, that a stored instant may carry before PostgreSQL refuses the
-// timestamptz cast with SQLSTATE 22009 — measured sixty seconds beyond
-// this value by TestPG18TemporalGuardExcludedSideProbes, which re-witnesses
-// the boundary on every live run. The renderer's offset regex and the
-// oracle below share this one figure through that test rather than each
-// asserting it independently.
 const sql05MaxAdmittedOffsetSeconds = 15*3600 + 59*60
 
-// TestPG18TemporalGuardExcludedSideProbes is the excluded-side witness for
-// the guard boundary. The sweep proves the guard excludes out-of-range
-// shapes; only these direct casts prove PostgreSQL would have rejected
-// them — without that proof, an over-tight pattern would silently drop
-// orderable stored instants that AQL DATE_TIMESTAMP folds and compares.
-// Each shape is cast in its own statement over a literal value (no schema,
-// no rows, read-only) and must either raise the documented SQLSTATE or
-// cast cleanly. If any assertion here ever disagrees with real server
-// behavior, widen the guard pattern; do not relax the assertion.
 func TestPG18TemporalGuardExcludedSideProbes(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
@@ -557,7 +454,7 @@ func TestPG18TemporalGuardExcludedSideProbes(t *testing.T) {
 	defer pool.Close()
 	probes := []struct {
 		value  string
-		expect string // SQLSTATE that must be raised; "" means must cast
+		expect string
 	}{
 		{"2024-03-15T10:20:30+16:00", "22009"},
 		{"2024-03-15T10:20:30-16:00", "22009"},
@@ -595,16 +492,6 @@ func TestPG18TemporalGuardExcludedSideProbes(t *testing.T) {
 	}
 }
 
-// TestPG18FixedZoneInstantBindReturnsNormalizedMatches witnesses the
-// time.Time bind normalization on the real parameter path: a +16:00
-// FixedZone instant — a displacement whose TEXT form PostgreSQL's
-// timestamptz casts refuse (SQLSTATE 22009, see
-// TestPG18TemporalGuardExcludedSideProbes) — is bound as the same instant
-// in UTC, so the statement executes without raising and orders exactly by
-// the UTC instant. The .UTC() normalization is a same-instant guarantee,
-// not raise prevention: pgx binds a typed time.Time as binary timestamptz.
-// (The time.Time bind form is registered on the recorded_at comparison
-// path; payload and selector comparisons require string literals.)
 func TestPG18FixedZoneInstantBindReturnsNormalizedMatches(t *testing.T) {
 	svc := newSQL05Service(t)
 	sql05Insert(t, svc, "Encounter", "fz-a", map[string]any{"recorded": "2024-01-01T00:00:00Z"})
@@ -623,9 +510,6 @@ func TestPG18FixedZoneInstantBindReturnsNormalizedMatches(t *testing.T) {
 	eastSixteen := func(t time.Time) *time.Location {
 		return time.FixedZone("Etc/GMT-16", 16*3600)
 	}
-	// Rows were ingested moments ago: GTE one hour ago keeps both, GTE
-	// one hour ahead keeps none — a +16:00 displacement reaching PG text
-	// would instead abort the statement (22009).
 	if got := sql05RenderedSelect(t, svc, recordedGTE(time.Now().Add(-time.Hour).In(eastSixteen(time.Now())))); !reflect.DeepEqual(got, sql05Rows("fz-a", "fz-b")) {
 		t.Fatalf("fixed-zone GTE (now-1h) rows = %v, want both", got)
 	}
@@ -634,27 +518,19 @@ func TestPG18FixedZoneInstantBindReturnsNormalizedMatches(t *testing.T) {
 	}
 }
 
-// sql05ArmOrderableAtOrAfter2020 decides, independently of the renderer,
-// whether a stored string is inside the space the guard may cast AND
-// orders at or after the filter instant 2020-01-01T00:00:00Z. The Go
-// stdlib owns the calendar (proleptic leap rules, month lengths, 0-23
-// hours, 0-59 minutes/seconds, '.'-only fractional seconds); PostgreSQL's
-// empirically admitted displacement range is applied explicitly.
 func sql05ArmOrderableAtOrAfter2020(value string) bool {
 	bound := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	if strings.Contains(value, ",") {
-		// PostgreSQL raises SQLSTATE 22007 on comma decimals; the guard
-		// must never cast them.
 		return false
 	}
 	if day, err := time.Parse("2006-01-02", value); err == nil {
 		return !day.UTC().Before(bound)
 	}
 	for _, layout := range []string{
-		time.RFC3339Nano,                // seconds + offset
-		"2006-01-02T15:04Z07:00",        // minute precision + offset
-		"2006-01-02T15:04:05.999999999", // seconds, no offset (guard appends +00:00)
-		"2006-01-02T15:04",              // minute precision, no offset
+		time.RFC3339Nano,
+		"2006-01-02T15:04Z07:00",
+		"2006-01-02T15:04:05.999999999",
+		"2006-01-02T15:04",
 	} {
 		instant, err := time.Parse(layout, value)
 		if err != nil {
@@ -663,8 +539,6 @@ func sql05ArmOrderableAtOrAfter2020(value string) bool {
 		_, offsetSeconds := instant.Zone()
 		if offsetSeconds > sql05MaxAdmittedOffsetSeconds ||
 			offsetSeconds < -sql05MaxAdmittedOffsetSeconds {
-			// SQLSTATE 22009 beyond the probe-witnessed bound: never
-			// cast, never-comparable.
 			return false
 		}
 		return !instant.UTC().Before(bound)
@@ -675,8 +549,6 @@ func sql05ArmOrderableAtOrAfter2020(value string) bool {
 func TestPG18TemporalGuardBoundarySweep(t *testing.T) {
 	svc := newSQL05Service(t)
 
-	// (row, stored recorded value, rule under test). Kept/excluded is NOT
-	// stored here: sql05ArmOrderableAtOrAfter2020 derives it per arm.
 	arms := []struct {
 		id    string
 		value string
@@ -725,13 +597,9 @@ func TestPG18TemporalGuardBoundarySweep(t *testing.T) {
 		Left:      ir.PhysicalValue{Variable: "root", Path: []string{"recorded"}},
 		Right:     &ir.PhysicalValue{BindKey: "when_value"},
 	}))
-	// A raise on any arm surfaces here as a fatal statement error.
 	sql05Compare(t, "temporal guard boundary sweep", sql05RenderedSelect(t, svc, plan), want)
 }
 
-// TestSQL05TemporalGuardOracleSelfCheck pins the independent oracle's own
-// decisions offline, so a broken oracle cannot silently weaken the live
-// sweep (which is service-gated and would merely skip).
 func TestSQL05TemporalGuardOracleSelfCheck(t *testing.T) {
 	keep := map[string]bool{
 		"2024-03-15T10:20:30+14:00":   true,
@@ -756,7 +624,7 @@ func TestSQL05TemporalGuardOracleSelfCheck(t *testing.T) {
 		"2024-03-15T24:00:00Z":        false,
 		"2024-03-15T10:20:60Z":        false,
 		"1900-02-29":                  false,
-		"2000-02-29":                  false, // valid but before the bound
+		"2000-02-29":                  false,
 		"2024-04-31":                  false,
 		"2024-09-31":                  false,
 		"0000-01-01":                  false,

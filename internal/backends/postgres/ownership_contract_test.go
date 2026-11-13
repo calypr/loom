@@ -1,34 +1,5 @@
 package postgres_test
 
-// TestPostgresFactoryOwnershipContract is the arch-backend-06 acceptance
-// suite for the single owned PostgreSQL backend factory. The offline half
-// (this file) runs everywhere; the live half (open_live_test.go) additionally
-// drives real PostgreSQL 18 Open/bootstrap/domain/failure-cleanup round trips
-// when LOOM_TEST_POSTGRES_URL is set, and the runner lane asserts it never
-// skips.
-//
-// What the offline half proves:
-//   - The public factory package imports no database driver (AST scan): the
-//     exported contract cannot leak pgx pools or driver types.
-//   - Production PostgreSQL driver imports stay confined to the backend home
-//     plus one named, dated exception; the set must match the allowlist
-//     exactly, so both a new offender AND an unexplained removal bleed (the
-//     ingest exception is scheduled for deletion by this ticket's caller
-//     migration and its removal must update the register deliberately).
-//   - No production file outside the backend tree imports backend privates.
-//   - The compiler leaf law holds repo-wide (driver + backends imports) —
-//     the Go twin of scripts/check_dataframe_package_boundaries.sh.
-//   - Config validation refuses every invalid shape with its named sentinel,
-//     each refusal paired with an alive control (fix only the defect, the
-//     same config validates) so a vacuous validator cannot pass.
-//   - The factory series set equals the arch-backend-05 manifest exactly.
-//   - The server's PostgreSQL startup refusal stays a named, byte-stable,
-//     dial-free gate (D1 Option A: proven-closed until
-//     pg-runtime-server-composition retargets it).
-//   - DSN redaction never leaks the registered secret in either accepted
-//     DSN form, while non-secret DSNs pass through untouched.
-//   - Sabotage bleeds named victims: planted offenders are reported by name.
-
 import (
 	"context"
 	"errors"
@@ -48,28 +19,12 @@ import (
 	"github.com/calypr/loom/internal/server"
 )
 
-// driverRegisterEntry is one line of the PostgreSQL driver confinement
-// register. claimedLive entries assert a CURRENT driver importer: the entry
-// must match at least one live production offender, so deleting the offender
-// without updating the register bleeds. Permissive zones (claimedLive=false)
-// grant reach without asserting an offender exists yet.
 type driverRegisterEntry struct {
 	prefix      string
 	claimedLive bool
 }
 
-// productionDriverImportAllowlist is the exact set of production (non-test)
-// file/dir prefixes allowed to import the PostgreSQL driver today.
 var productionDriverImportAllowlist = []driverRegisterEntry{
-	// The backend home: the private implementation tree under
-	// internal/backends/postgres/internal/ is the driver's only legitimate
-	// production resident (arch-backend-06 atomic move retired the nine
-	// per-package entries and the named ingest/generation_load.go pgconn
-	// exception in the move commit itself — the deliberate, loud deletion
-	// this register exists to force). claimedLive: the private store tree
-	// is a live offender, so relocating the driver elsewhere without
-	// updating this register bleeds. The public factory package itself must
-	// stay driver-free, checked by a separate subtest.
 	{prefix: "internal/backends/", claimedLive: true},
 }
 
@@ -79,7 +34,7 @@ func repoRoot(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller failed; cannot locate the repository root")
 	}
-	dir := filepath.Dir(file) // internal/backends/postgres
+	dir := filepath.Dir(file)
 	root := dir
 	for i := 0; i < 3; i++ {
 		root = filepath.Dir(root)
@@ -90,7 +45,6 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-// importsUnder lists the forbidden-prefix imports of one file.
 func fileImports(t *testing.T, path string) []string {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -105,8 +59,6 @@ func fileImports(t *testing.T, path string) []string {
 	return imports
 }
 
-// walkProductionGo walks root for production (non-test) .go files, invoking
-// fn with repo-relative paths.
 func walkProductionGo(t *testing.T, root string, fn func(relPath, absPath string)) {
 	t.Helper()
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
@@ -145,9 +97,6 @@ func allowedByDriverRegister(relPath string) bool {
 }
 
 func TestPostgresFactoryOwnershipContract(t *testing.T) {
-	// The live half lives in open_live_test.go as a named subtest so this
-	// suite's exact runner -run filter covers it and the lane's zero-skip
-	// anchors make a skipped PostgreSQL half a failure, never acceptance.
 	factoryOpenLiveAssembly(t)
 
 	root := repoRoot(t)
@@ -185,10 +134,6 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 		}
 
 		t.Run("register_is_not_stale", func(t *testing.T) {
-			// Every register entry must still be live: an entry that matches
-			// no current driver importer means the register drifted behind
-			// reality (e.g. the ingest exception was deleted without
-			// updating this contract).
 			live := map[string]bool{}
 			walkProductionGo(t, root, func(relPath, absPath string) {
 				for _, importPath := range fileImports(t, absPath) {
@@ -215,16 +160,6 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 		})
 
 		t.Run("named_exception_shrank_to_zero_in_the_move_commit", func(t *testing.T) {
-			// The register once carried a named exception for the single raw
-			// *pgconn.PgError classification in internal/ingest/generation_load.go
-			// and stated that its disappearance must update this register in
-			// the same commit, not silently. The arch-backend-06 caller
-			// migration retired it: ingest now reaches the driver classes only
-			// through control.CommitOutcomeUnknown, so the set is empty. Any
-			// re-introduction is caught twice over: this assertion and, for
-			// every production file outside the backend tree, the
-			// register-confinement scan above (internal/ingest is not a
-			// registered prefix).
 			var touched []string
 			walkProductionGo(t, filepath.Join(root, "internal", "ingest"), func(relPath, absPath string) {
 				for _, importPath := range fileImports(t, absPath) {
@@ -288,10 +223,6 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 			{"blank_assigned_schema", func(c *control.Config) { c.Schemas = control.SeriesSchemas{control.SeriesSource: " "} }, control.ErrSeriesAssignment},
 			{"unknown_series", func(c *control.Config) { c.Schemas = control.SeriesSchemas{"not_a_series": "ok"} }, control.ErrSeriesAssignment},
 			{"unsafe_schema_name", func(c *control.Config) {
-				// The store's ValidateAssignment applies the runner's
-				// identifier policy pre-pool; an unsafe name must never
-				// reach DDL. (Genuine shared-schema ledger conflicts are
-				// exercised end-to-end by the arch-backend-05 suite.)
 				c.Schemas = control.SeriesSchemas{control.SeriesSource: "Bad Name; DROP"}
 			}, control.ErrInvalidSchemaName},
 		}
@@ -303,8 +234,6 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 				if !errors.Is(err, tc.sentinel) {
 					t.Fatalf("defect %s: err = %v, want errors.Is(_, %v)", tc.name, err, tc.sentinel)
 				}
-				// Alive control: the identical config without the defect
-				// validates, proving the refusal is attributable to the defect.
 				fixed := base()
 				switch tc.name {
 				case "min_above_max":
@@ -339,14 +268,9 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 	})
 
 	t.Run("server_postgres_gate_stays_closed_named_and_dial_free", func(t *testing.T) {
-		// D1 (Option A): the composition ticket must retarget a gate that is
-		// provably closed right now -- a named sentinel, byte-stable message,
-		// refusal before any dial, and Arango selection demonstrably
-		// unaffected. The in-package mirror lives at
-		// internal/server/postgres_refusal_contract_test.go.
 		cfg := server.Config{}
 		cfg.Server.Backend = "postgres"
-		cfg.Server.PostgreSQL.Host = "192.0.2.1" // TEST-NET-1: unroutable by design
+		cfg.Server.PostgreSQL.Host = "192.0.2.1"
 		cfg.Server.PostgreSQL.Port = 60543
 		cfg.Server.PostgreSQL.Database = "loom_gate_witness"
 		cfg.Server.PostgreSQL.User = "loom_gate_witness"
@@ -365,7 +289,6 @@ func TestPostgresFactoryOwnershipContract(t *testing.T) {
 	})
 
 	t.Run("sabotage_named_victims_bleed", func(t *testing.T) {
-		// The confinement scanner must report planted offenders by name.
 		dir := t.TempDir()
 		victims := map[string]string{
 			"victim_driver_import.go": "package victim\n\nimport \"github.com/jackc/pgx/v5/pgxpool\"\n\nvar _ = pgxpool.Config{}\n",

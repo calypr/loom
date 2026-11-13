@@ -16,9 +16,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 )
 
-// blankProjectRegistryFailures prove the engine-level project guard fires
-// before any registry lookup, mirroring the deployed 500 ordering where a
-// whitespace-only project never reached LoadRecipe.
 type blankProjectRegistryFailures struct{ loads int }
 
 func (r *blankProjectRegistryFailures) LoadRecipe(context.Context, string) (recipeexec.Entry, error) {
@@ -74,8 +71,6 @@ func assertTypedProjectRequired(t *testing.T, err error, site string) dataframee
 	return userErr
 }
 
-// (a) Throwing-site reproduction: the deployed 500 escape path
-// Control.Run/Preview/Resolve -> Engine.Resolve raw guard error.
 func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 	engine, registry := blankProjectEngine(t)
 	control := dataframeexecution.Control{Engine: engine}
@@ -106,7 +101,6 @@ func TestRecipeControlBlankProjectGuardTypesThrowsAtEscapeSite(t *testing.T) {
 	}
 }
 
-// (b) Authorizer parity: whitespace-only == empty, both non-retryable typed.
 func TestRecipeAuthorizationTreatsWhitespaceProjectAsEmpty(t *testing.T) {
 	authorizer := recipeAuthorization{}
 	for name, authorize := range map[string]func(context.Context, recipe.RuntimeBindings) (recipe.RuntimeBindings, error){
@@ -159,9 +153,6 @@ func (c *blankProjectFamilyControl) Run(context.Context, string, recipe.RuntimeB
 	return dataframeexecution.Preview{}, c.rawFault()
 }
 
-// (b) Family legs: run/preview/preflight must reject whitespace-only with the
-// same typed PROJECT_REQUIRED the family already publishes for empty, before
-// the control plane is consulted.
 func TestRecipeFamilyLegsRejectWhitespaceProjectBeforeControl(t *testing.T) {
 	legs := []struct {
 		name string
@@ -230,9 +221,6 @@ func (s *blankProjectRevisionStore) List(context.Context, string, string) ([]rec
 	return nil, nil
 }
 
-// (b2) Revision-side family legs: register/revision(s)/explain must classify
-// whitespace-only exactly like empty, at the authorizer, before the revision
-// registry or control plane is consulted.
 func TestRecipeRevisionFamilyLegsRejectWhitespaceProjectBeforeStore(t *testing.T) {
 	legs := []struct {
 		name string
@@ -287,8 +275,6 @@ func TestRecipeRevisionFamilyLegsRejectWhitespaceProjectBeforeStore(t *testing.T
 	}
 }
 
-// (c) Foreign faults still surface untouched: genuinely unclassifiable
-// control errors keep falling through to INTERNAL_ERROR.
 func TestRecipeControlForeignFaultStillFallsThroughToInternal(t *testing.T) {
 	control := &blankProjectFamilyControl{}
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
@@ -311,8 +297,6 @@ func TestRecipeControlForeignFaultStillFallsThroughToInternal(t *testing.T) {
 	}
 }
 
-// (c) Auth resolver faults keep typing BACKEND_UNAVAILABLE retryable through
-// recipeAuthorizationError (unchanged semantics).
 func TestRecipeAuthorizationResolverFaultStaysBackendUnavailable(t *testing.T) {
 	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
 		ResourceAccess: fencedFaultClient{},

@@ -1,26 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the bounded, idempotent COPY batch
-// writer (pg-store-06; check-2:
-// go test ./internal/backends/postgres/internal/store -run BatchWriter -count=1).
-//
-// Every test drives the real BatchWriter against the PostgreSQL 18 service
-// named by LOOM_TEST_POSTGRES_URL through the readiness-checked pool.
-// Fixtures are literal rows inserted by direct SQL; witnesses are literal
-// rows read back by direct SQL. Nothing is mocked. Idempotency proofs are
-// non-vacuous: replay-after-crash paths run at every pre-commit step, ledger
-// and row fingerprints are pinned to literals, and mutation probes (tampered
-// ledger digest, mutated retry payload) show a broken guard would fail the
-// test rather than pass silently. The replay and claim races run on two
-// real connections with distinct pg_backend_pid, per the
-// publication/postgres leases precedent.
-//
-// Fixture databases and schemas are uniquely owned as pgstore06_it_* and
-// dropped by the test that created them; the final TestZZ audit is
-// ownership-scoped — it checks each exact name this file created, never a
-// global scan, so concurrent sibling workers sweeping their own prefixes
-// neither race this audit nor trip it.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -44,12 +23,9 @@ import (
 
 var pgstore06NamePattern = regexp.MustCompile(`^pgstore06_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and TestZZ asserts each exact name is gone. Ownership
-// begins at verified CREATE, exactly as the per-test cleanup drops them.
 var (
 	batchOwnedMu     sync.Mutex
-	batchOwnedByName = map[string]string{} // database -> owned schema
+	batchOwnedByName = map[string]string{}
 )
 
 func batchRegister(db, schema string) {
@@ -60,9 +36,9 @@ func batchRegister(db, schema string) {
 
 type batchService struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database (direct-SQL witnesses)
-	dsn    string        // isolated database DSN (credentials scrubbed on failure)
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
+	dsn    string
 	schema string
 	scrub  func(any) string
 	fail   func(step string, err error)
@@ -77,7 +53,6 @@ func newBatchService(t *testing.T) *batchService {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string from failure output.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -116,15 +91,12 @@ func newBatchService(t *testing.T) *batchService {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the database this test created.
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -147,7 +119,6 @@ func newBatchService(t *testing.T) *batchService {
 		fail("create owned schema", err)
 	}
 	t.Cleanup(func() {
-		// Drop only the schema this test created.
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
 			t.Errorf("drop owned schema: %s", scrub(err))
@@ -158,9 +129,6 @@ func newBatchService(t *testing.T) *batchService {
 	return &batchService{ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, fail: fail}
 }
 
-// migrate applies the full embedded history (ledger, fhir_resource,
-// fhir_edge_occurrence, the inventory tables, and batch_write_ledger) to the
-// owned schema through the readiness-checked pool.
 func (s *batchService) migrate(t *testing.T) {
 	t.Helper()
 	if _, err := MigrateSchema(s.ctx, s.openClient(t, 4), s.schema); err != nil {
@@ -168,8 +136,6 @@ func (s *batchService) migrate(t *testing.T) {
 	}
 }
 
-// openClient opens one readiness-checked, bounded pool against the isolated
-// database with the given connection bound.
 func (s *batchService) openClient(t *testing.T, maxConns int32) *Client {
 	t.Helper()
 	client, err := Open(s.ctx, Config{
@@ -185,9 +151,6 @@ func (s *batchService) openClient(t *testing.T, maxConns int32) *Client {
 	return client
 }
 
-// openAppClient opens a bounded pool whose backends carry app as
-// application_name, so pg_stat_activity can identify a specific pool's
-// connection during a race.
 func (s *batchService) openAppClient(t *testing.T, app string, maxConns int32) *Client {
 	t.Helper()
 	u, err := url.Parse(s.dsn)
@@ -235,7 +198,6 @@ func (s *batchService) exec(t *testing.T, sql string, args ...any) {
 	}
 }
 
-// mustInt64 witnesses one direct-SQL integer.
 func (s *batchService) mustInt64(t *testing.T, sql string, args ...any) int64 {
 	t.Helper()
 	var v int64
@@ -245,7 +207,6 @@ func (s *batchService) mustInt64(t *testing.T, sql string, args ...any) int64 {
 	return v
 }
 
-// mustText witnesses one direct-SQL text value.
 func (s *batchService) mustText(t *testing.T, sql string, args ...any) string {
 	t.Helper()
 	var v string
@@ -263,10 +224,6 @@ func (s *batchService) backendPID(t *testing.T, pool *pgxpool.Pool) int64 {
 	}
 	return pid
 }
-
-// ---------------------------------------------------------------------------
-// Literal fixtures.
-// ---------------------------------------------------------------------------
 
 const (
 	batchProject = "prj-batch"
@@ -297,11 +254,6 @@ func litEdge(label, srcType, srcID, tgtType, tgtID, sourcePath string, ordinal i
 
 func strPtr(s string) *string { return &s }
 
-// goldenBatch is the canonical fixture whose digest is pinned to a literal
-// below: four resources covering a nested payload, a present-null key, a
-// SQL NULL payload, and a JSON null document, plus two edge occurrences
-// (one with a logical edge key, one without) whose source publishes in the
-// same batch.
 func goldenBatch() Batch {
 	p1 := `{"resourceType":"Patient","id":"p-1","link":[{"type":{"coding":[{"code":"X"}]},"target":"Organization/o-1"}]}`
 	p2 := `{"resourceType":"Patient","id":"p-2","meta":{"tag":null}}`
@@ -326,14 +278,7 @@ func goldenBatch() Batch {
 	}
 }
 
-// goldenDigest is the pinned SHA-256 of goldenBatch()'s canonical encoding,
-// frozen as a literal so any drift in the digest encoding fails the suite
-// loudly instead of silently re-fingerprinting history.
 const goldenDigest = "7ad729506a5590958ed4b7dd8e9ea9eed486cbeedff700d6a51f6170e3faac99"
-
-// ---------------------------------------------------------------------------
-// Direct-SQL witnesses over literal expected rows.
-// ---------------------------------------------------------------------------
 
 func (s *batchService) requireResourceRow(t *testing.T, project, generation, rtype, lid, authPath string, wantPayload *string) {
 	t.Helper()
@@ -364,9 +309,6 @@ func (s *batchService) requireResourceRow(t *testing.T, project, generation, rty
 	}
 }
 
-// jsonEquivalent compares two JSON documents by decoded value, so the
-// witness pins semantics (key order and formatting are PostgreSQL's to
-// choose in canonical JSONB).
 func jsonEquivalent(got, want string) bool {
 	var g, w any
 	if err := json.Unmarshal([]byte(got), &g); err != nil {
@@ -460,10 +402,6 @@ func (s *batchService) requireNothingWritten(t *testing.T, project, generation, 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline validation tests.
-// ---------------------------------------------------------------------------
-
 func TestBatchWriterConstructorRejectsInvalidInputs(t *testing.T) {
 	if _, err := NewBatchWriter(nil, "ok_schema"); err == nil {
 		t.Error("nil connection source: want error")
@@ -555,10 +493,6 @@ func TestBatchWriterRejectsInvalidBatches(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1: COPY staging + atomic publish with exact commit accounting.
-// ---------------------------------------------------------------------------
-
 func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testing.T) {
 	s := newBatchService(t)
 	s.migrate(t)
@@ -572,15 +506,12 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 		stgEdgeVis  bool
 		txStart     time.Time
 	}
-	var facts sync.Map // batchID -> *probeFact
+	var facts sync.Map
 	var probeErrs []string
 	var probeMu sync.Mutex
 	seenSteps := map[string][]string{}
 	var seenMu sync.Mutex
 
-	// One connection in the pool: every write (and the after-the-fact
-	// staging-gone witness) runs on the same physical backend, so the
-	// ON COMMIT DROP witness is about that session's temp schema.
 	writer := s.newWriterOn(t, s.openClient(t, 1))
 	writer.inTxProbe = func(step, batchID string, tx pgx.Tx) {
 		seenMu.Lock()
@@ -605,7 +536,6 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 				note(err)
 			}
 		case stepCheckResources:
-			// Before publish, nothing has touched the scoped table.
 			if err := tx.QueryRow(s.ctx,
 				"SELECT count(*) FROM "+s.qualified(resourceTableName)+
 					" WHERE project = $1 AND dataset_generation = $2",
@@ -626,8 +556,6 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 				"prj-golden", "gen-golden-1").Scan(&f.pubEdgeCnt); err != nil {
 				note(err)
 			}
-			// Edges may reference the batch's own resources: they are
-			// already published inside this same transaction.
 			var resNow int64
 			if err := tx.QueryRow(s.ctx,
 				"SELECT count(*) FROM "+s.qualified(resourceTableName)+
@@ -642,10 +570,6 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 				note(err)
 			}
 		case stepFinalizeLedger:
-			// now() is the transaction snapshot: the ledger's
-			// committed_at must end up strictly after it, proving the
-			// finalize statement re-stamped with clock_timestamp()
-			// rather than keeping the claim-time default.
 			if err := tx.QueryRow(s.ctx, "SELECT now()").Scan(&f.txStart); err != nil {
 				note(err)
 			}
@@ -689,21 +613,16 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 	if f.stgEdgeCnt != 2 {
 		t.Errorf("staging edges before publish = %d, want 2", f.stgEdgeCnt)
 	}
-	// check-resources saw the scoped table EMPTY while staging held rows:
-	// rows reach the table only through the publish statement.
 	if seen := seenSteps[stepCheckResources]; len(seen) != 1 {
 		t.Errorf("check-resources fired %d times, want 1", len(seen))
 	}
 
-	// Literal expected rows, read back by direct SQL.
 	p1 := `{"resourceType":"Patient","id":"p-1","link":[{"type":{"coding":[{"code":"X"}]},"target":"Organization/o-1"}]}`
 	p2 := `{"resourceType":"Patient","id":"p-2","meta":{"tag":null}}`
 	s.requireResourceRow(t, "prj-golden", "gen-golden-1", "Patient", "p-1", "/fhir", &p1)
 	s.requireResourceRow(t, "prj-golden", "gen-golden-1", "Patient", "p-2", "", &p2)
 	s.requireResourceRow(t, "prj-golden", "gen-golden-1", "Observation", "obs-9", "/fhir", nil)
 	s.requireResourceRow(t, "prj-golden", "gen-golden-1", "Provenance", "prov-0", "/fhir", strPtr(`null`))
-	// Missing key vs present-null: p-1 has no meta, p-2 keeps meta.tag as a
-	// present JSON null (distinct from SQL NULL and from absence).
 	if has := s.mustInt64(t, "SELECT count(*) FROM "+s.qualified(resourceTableName)+
 		" WHERE project = $1 AND dataset_generation = $2 AND resource_type = 'Patient'"+
 		" AND logical_id = 'p-1' AND payload ? 'meta'", "prj-golden", "gen-golden-1"); has != 0 {
@@ -720,7 +639,6 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 	s.requireEdgeRow(t, "prj-golden", "gen-golden-1", "referenced-by", "Patient", "p-1",
 		"Organization", "o-1", "Patient.link.target", 1, "/fhir", nil)
 
-	// Ledger marker with exact commit accounting and the pinned digest.
 	lw, found := s.witnessLedger(t, "pgstore06/golden/0")
 	if !found {
 		t.Fatal("ledger marker missing after successful batch")
@@ -733,19 +651,12 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 	if total := s.mustInt64(t, "SELECT count(*) FROM "+s.qualified(batchLedgerTableName)); total != 1 {
 		t.Errorf("ledger rows = %d, want exactly 1", total)
 	}
-	// committed_at is the finalize moment, not the claim-time now()
-	// snapshot: it must be strictly after the transaction's snapshot time
-	// observed inside the same transaction. A writer that kept the
-	// DEFAULT now() would store the transaction start exactly, and this
-	// strict comparison would fail.
 	if !lw.committedAt.After(f.txStart) {
 		t.Errorf("ledger committed_at = %v, want strictly after the batch transaction start %v "+
 			"(finalize must stamp clock_timestamp(), not keep the claim-time now() default)",
 			lw.committedAt, f.txStart)
 	}
 
-	// ON COMMIT DROP: witnessed on the writer's own single-connection pool,
-	// so the check runs on the very backend that held the temp tables.
 	writerPool := writer.src.(*Client)
 	conn, err := writerPool.Acquire(s.ctx)
 	if err != nil {
@@ -763,19 +674,10 @@ func TestBatchWriterPublishesGoldenBatchViaStagingWithLedgerAccounting(t *testin
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 2: deterministic identity + digest make retries no-ops and
-// reuse-with-different-content a typed conflict. Two real connections.
-// ---------------------------------------------------------------------------
-
 func TestBatchWriterReplayOfIdenticalCommittedBatchIsNoOpTwoConnections(t *testing.T) {
 	s := newBatchService(t)
 	s.migrate(t)
 
-	// The replay must be a real second session, not a session-local
-	// illusion: two single-connection pools, two distinct physical
-	// backends, witnessed by pg_backend_pid on each writer's own batch
-	// transaction (the leases precedent).
 	writerA := s.newWriterOn(t, s.openClient(t, 1))
 	writerB := s.newWriterOn(t, s.openClient(t, 1))
 	var pidA, pidB int64
@@ -808,8 +710,6 @@ func TestBatchWriterReplayOfIdenticalCommittedBatchIsNoOpTwoConnections(t *testi
 		t.Fatal("ledger marker missing after first commit")
 	}
 
-	// Replay on the second writer: no-op, original accounting from the
-	// ledger, nothing written.
 	replay, err := writerB.WriteBatch(s.ctx, goldenBatch())
 	if err != nil {
 		s.fail("replay WriteBatch", err)
@@ -846,10 +746,6 @@ func TestBatchWriterIdentityReuseWithDifferentContentReturnsTypedConflict(t *tes
 		s.fail("seed WriteBatch", err)
 	}
 
-	// Mutation probe: retry the same identity with one payload mutated.
-	// A guard that only looked up batch_id (never compared digests) would
-	// pass this test vacuously — the typed conflict below is what makes a
-	// broken guard fail.
 	mutated := goldenBatch()
 	mutated.Resources[1].Payload = json.RawMessage(`{"resourceType":"Patient","id":"p-2","meta":{"tag":"mutated"}}`)
 	_, err := writer.WriteBatch(s.ctx, mutated)
@@ -863,8 +759,6 @@ func TestBatchWriterIdentityReuseWithDifferentContentReturnsTypedConflict(t *tes
 			idErr, goldenDigest)
 	}
 
-	// Nothing moved: the ledger keeps the original fingerprint and the
-	// stored rows keep their original payloads.
 	lw, found := s.witnessLedger(t, "pgstore06/golden/0")
 	if !found || lw.digest != goldenDigest || lw.resources != 4 || lw.edges != 2 {
 		t.Fatalf("ledger after refused retry = %+v, want the untouched golden row", lw)
@@ -884,10 +778,6 @@ func TestBatchWriterTamperedLedgerDigestRefusesIdenticalReplay(t *testing.T) {
 	if _, err := writer.WriteBatch(s.ctx, goldenBatch()); err != nil {
 		s.fail("seed WriteBatch", err)
 	}
-	// Simulate a ledger whose fingerprint authority was broken (e.g.
-	// hand-edited): an identical replay must NOT report a no-op against a
-	// digest it cannot vouch for. Without the digest comparison this would
-	// silently claim success — the mutation probe makes that fatal.
 	s.exec(t, "UPDATE "+s.qualified(batchLedgerTableName)+" SET digest = $1 WHERE batch_id = $2",
 		strings.Repeat("0", 64), "pgstore06/golden/0")
 	_, err := writer.WriteBatch(s.ctx, goldenBatch())
@@ -902,11 +792,6 @@ func TestBatchWriterTamperedLedgerDigestRefusesIdenticalReplay(t *testing.T) {
 		t.Errorf("fhir_resource rows = %d, want the batch to have written nothing", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 3: duplicate natural identities with different content return
-// typed conflicts and preserve the prior row; identical replay is idempotent.
-// ---------------------------------------------------------------------------
 
 func TestBatchWriterInBatchDuplicateResourceIdentityDifferentContentRollsBack(t *testing.T) {
 	s := newBatchService(t)
@@ -929,12 +814,8 @@ func TestBatchWriterInBatchDuplicateResourceIdentityDifferentContentRollsBack(t 
 		rowErr.Project != batchProject || rowErr.DatasetGeneration != batchGenA {
 		t.Fatalf("conflict fields = %+v, want the in-batch Patient/p-dup identity in batch scope", rowErr)
 	}
-	// The WHOLE batch rolled back: even the unrelated p-ok row is absent,
-	// and the rolled-back claim left no marker.
 	s.requireNothingWritten(t, batchProject, batchGenA, "prj/dup-inbatch")
 
-	// Control: the same batch identity minus the duplicate commits, which
-	// also proves the rolled-back claim never consumed the identity.
 	b := mk()
 	b.Resources = append(b.Resources[:0:2], b.Resources[0], b.Resources[2])
 	res, err := writer.WriteBatch(s.ctx, b)
@@ -958,8 +839,6 @@ func TestBatchWriterStoredResourceIdentityDifferentContentPreservesPriorRow(t *t
 		s.fail("seed WriteBatch", err)
 	}
 
-	// Different payload under the same natural identity: typed conflict,
-	// prior row preserved byte-for-byte.
 	mutated := first
 	mutated.ID = "prj/stored-second"
 	mutated.Resources = []source.Resource{
@@ -973,8 +852,6 @@ func TestBatchWriterStoredResourceIdentityDifferentContentPreservesPriorRow(t *t
 	prior := `{"id":"p-1","v":"stored"}`
 	s.requireResourceRow(t, batchProject, batchGenA, "Patient", "p-1", "/fhir", &prior)
 
-	// Same payload under the same identity but a different auth path is
-	// still different content (auth path is part of the row): conflict.
 	authMoved := first
 	authMoved.ID = "prj/stored-third"
 	authMoved.Resources = []source.Resource{
@@ -986,7 +863,6 @@ func TestBatchWriterStoredResourceIdentityDifferentContentPreservesPriorRow(t *t
 	}
 	s.requireResourceRow(t, batchProject, batchGenA, "Patient", "p-1", "/fhir", &prior)
 
-	// The refused attempts wrote no marker and no rows.
 	if _, found := s.witnessLedger(t, "prj/stored-second"); found {
 		t.Errorf("refused batch prj/stored-second left a marker")
 	}
@@ -1023,8 +899,6 @@ func TestBatchWriterIdenticalRowsCollapseWithinAndAcrossBatches(t *testing.T) {
 		t.Fatalf("ledger = %+v, want resource_count 2 (committed rows, not offered rows)", lw)
 	}
 
-	// Row-level idempotence across a NEW batch identity: identical content
-	// is skipped, not conflicted, and nothing duplicates.
 	b2 := Batch{ID: "prj/collapse-2", Project: batchProject, DatasetGeneration: batchGenA, Resources: []source.Resource{dup, dup}}
 	res2, err := writer.WriteBatch(s.ctx, b2)
 	if err != nil {
@@ -1051,8 +925,6 @@ func TestBatchWriterEdgeDuplicateOccurrenceDifferentContentPreservesPriorRow(t *
 		s.fail("seed edge WriteBatch", err)
 	}
 
-	// Same occurrence identity, different logical edge key: typed conflict,
-	// the stored key survives.
 	reshaped := first
 	reshaped.ID = "prj/edge-second"
 	reshaped.Resources = nil
@@ -1070,8 +942,6 @@ func TestBatchWriterEdgeDuplicateOccurrenceDifferentContentPreservesPriorRow(t *
 	s.requireEdgeRow(t, batchProject, batchGenA, "referenced-by", "Patient", "p-1",
 		"Organization", "o-1", "Patient.link.target", 0, "/fhir", strPtr("k1"))
 
-	// In-batch duplicate of one occurrence identity with differing auth
-	// path: typed conflict, whole batch rolls back.
 	dupe := Batch{ID: "prj/edge-dupe", Project: batchProject, DatasetGeneration: batchGenA,
 		Resources: []source.Resource{ownerRow},
 		Edges: []EdgeOccurrenceRow{
@@ -1106,10 +976,8 @@ func TestBatchWriterEdgeSourceMissingRollsBackWholeBatch(t *testing.T) {
 		missing.SourceResourceType != "Patient" || missing.SourceLogicalID != "p-ghost" {
 		t.Fatalf("missing-source fields = %+v, want Patient/p-ghost in batch scope", missing)
 	}
-	// The whole batch rolled back — including its valid resource row.
 	s.requireNothingWritten(t, batchProject, batchGenA, "prj/edge-ghost")
 
-	// Control: identical content except the source is present commits both.
 	ghost.ID = "prj/edge-ok"
 	ghost.Edges[0].SourceLogicalID = "p-ok"
 	res, err := writer.WriteBatch(s.ctx, ghost)
@@ -1120,11 +988,6 @@ func TestBatchWriterEdgeSourceMissingRollsBackWholeBatch(t *testing.T) {
 		t.Fatalf("control result = %+v, want 1/1", res)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 4: injected failure before commit leaves no rows, no marker;
-// result counts equal committed rows.
-// ---------------------------------------------------------------------------
 
 func TestBatchWriterInjectedFailureBeforeCommitLeavesNoRowsOrMarker(t *testing.T) {
 	s := newBatchService(t)
@@ -1150,9 +1013,6 @@ func TestBatchWriterInjectedFailureBeforeCommitLeavesNoRowsOrMarker(t *testing.T
 		s.requireNothingWritten(t, "prj-golden", "gen-golden-1", "pgstore06/golden/0")
 	}
 
-	// Non-vacuous witnesses: the same batch with no injected failure
-	// commits exactly its rows and marker into the very tables the loop
-	// above asserted empty, and reusing every burned identity works.
 	writer := s.newWriter(t)
 	res, err := writer.WriteBatch(s.ctx, goldenBatch())
 	if err != nil {
@@ -1177,9 +1037,6 @@ func TestBatchWriterResultCountsEqualCommittedRows(t *testing.T) {
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	// Pre-seed one row by direct SQL: the batch offers it again (identical
-	// content), so the committed counts must exclude it while the table
-	// total includes it.
 	s.exec(t, "INSERT INTO "+s.qualified(resourceTableName)+
 		" (project, dataset_generation, resource_type, logical_id, auth_resource_path, payload)"+
 		" VALUES ($1, $2, 'Patient', 'p-pre', '/fhir', $3::jsonb)",
@@ -1187,9 +1044,9 @@ func TestBatchWriterResultCountsEqualCommittedRows(t *testing.T) {
 
 	b := Batch{ID: "prj/counts", Project: batchProject, DatasetGeneration: batchGenA,
 		Resources: []source.Resource{
-			litResource("Patient", "p-pre", "/fhir", strPtr(`{"id":"p-pre"}`)), // already stored
+			litResource("Patient", "p-pre", "/fhir", strPtr(`{"id":"p-pre"}`)),
 			litResource("Patient", "p-new", "", nil),
-			litResource("Patient", "p-new", "", nil), // in-batch identical duplicate
+			litResource("Patient", "p-new", "", nil),
 		},
 		Edges: []EdgeOccurrenceRow{
 			litEdge("referenced-by", "Patient", "p-new", "Observation", "o-1", "a", 0, "", nil),
@@ -1217,10 +1074,6 @@ func TestBatchWriterResultCountsEqualCommittedRows(t *testing.T) {
 		t.Errorf("fhir_edge_occurrence rows = %d, want 1", n)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance (bounded): capacity limits hold at the boundary.
-// ---------------------------------------------------------------------------
 
 func TestBatchWriterBoundedCapacity(t *testing.T) {
 	s := newBatchService(t)
@@ -1251,28 +1104,18 @@ func TestBatchWriterBoundedCapacity(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 5: two concurrent independent batches for separate generations
-// do not share state or serialize on a process-wide mutex. Two real
-// connections with distinct pg_backend_pid.
-// ---------------------------------------------------------------------------
-
 func TestBatchWriterConcurrentIndependentBatchesOverlapTwoConnections(t *testing.T) {
 	s := newBatchService(t)
 	s.migrate(t)
 
-	// One writer instance, one pool with two connections: if any hidden
-	// process-wide (or writer-wide) mutex serialized batches, the second
-	// goroutine could never reach the publish step while the first waits
-	// there, and the rendezvous below would time out.
 	writer := s.newWriterOn(t, s.openClient(t, 2))
 
 	arrived := map[string]chan struct{}{
 		"prj/conc-a": make(chan struct{}),
 		"prj/conc-b": make(chan struct{}),
 	}
-	var pids sync.Map    // batchID -> int64
-	var stalled sync.Map // batchID -> bool
+	var pids sync.Map
+	var stalled sync.Map
 	writer.inTxProbe = func(step, batchID string, tx pgx.Tx) {
 		if step != stepPublishEdges {
 			return
@@ -1333,8 +1176,6 @@ func TestBatchWriterConcurrentIndependentBatchesOverlapTwoConnections(t *testing
 		t.Fatalf("concurrent batches ran on backends %v/%v, want two distinct real PG connections", vA, vB)
 	}
 
-	// Independent scopes: each generation holds exactly its own rows and
-	// its own marker; neither batch leaked rows into the other's scope.
 	for _, g := range []struct {
 		id, gen, prefix string
 	}{{"prj/conc-a", batchGenA, "ga"}, {"prj/conc-b", batchGenB, "gb"}} {
@@ -1371,12 +1212,6 @@ func concurrentBatch(id, generation, prefix string) Batch {
 		}}
 }
 
-// ---------------------------------------------------------------------------
-// Claim races on one identity: two real connections, distinct backends.
-// ---------------------------------------------------------------------------
-
-// waitBackendWaiting polls pg_stat_activity until the backend serving
-// application app is actively blocked on a lock, and returns its pid.
 func (s *batchService) waitBackendWaiting(t *testing.T, app string) int64 {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
@@ -1408,11 +1243,6 @@ func TestBatchWriterConcurrentClaimOfSameBatchCommitsOnceAndReplaysTwoConnection
 	var t1ProbeErr error
 	var t1PIDMu sync.Mutex
 	writer1 := s.newWriterOn(t, s.openAppClient(t, "pgstore06-t1", 1))
-	// The probe runs on the WriteBatch goroutine, so it must never call
-	// t.Fatalf there: a Goexit on that goroutine would strand the r1
-	// receive below into a package timeout. The probe records its outcome
-	// and the main goroutine fails after the channel handoff, like the
-	// golden test's probeErrs and the overlap test's stalled flag.
 	writer1.inTxProbe = func(step, batchID string, tx pgx.Tx) {
 		if step != stepClaimLedger {
 			return
@@ -1435,8 +1265,6 @@ func TestBatchWriterConcurrentClaimOfSameBatchCommitsOnceAndReplaysTwoConnection
 		r1 <- outcome{res, err}
 	}()
 
-	// T1 owns the claim, uncommitted; if it died before the probe, fail
-	// with its outcome instead of blocking forever.
 	select {
 	case <-claimHeld:
 	case o := <-r1:
@@ -1448,15 +1276,10 @@ func TestBatchWriterConcurrentClaimOfSameBatchCommitsOnceAndReplaysTwoConnection
 		r2 <- outcome{res, err}
 	}()
 
-	// T2 must be genuinely blocked on T1's in-flight ledger claim — a
-	// session-local illusion is impossible because these are separate
-	// pools (verified below via pg_stat_activity pid vs T1's tx pid).
 	t2PID := s.waitBackendWaiting(t, "pgstore06-t2")
 	close(release)
 	o1 := <-r1
 	o2 := <-r2
-	// Both writer goroutines have handed off; every failure now lands on
-	// the main test goroutine.
 	t1PIDMu.Lock()
 	heldT1, probeErr := t1PID, t1ProbeErr
 	t1PIDMu.Unlock()
@@ -1521,9 +1344,6 @@ func TestBatchWriterAbandonedClaimDoesNotBurnIdentityTwoConnections(t *testing.T
 		res, err := writer1.WriteBatch(s.ctx, goldenBatch())
 		r1 <- outcome{res, err}
 	}()
-	// If T1 died before the probe, fail with its outcome instead of
-	// blocking forever; the probe itself records nothing that could Goexit
-	// this goroutine.
 	select {
 	case <-claimHeld:
 	case o := <-r1:
@@ -1535,7 +1355,7 @@ func TestBatchWriterAbandonedClaimDoesNotBurnIdentityTwoConnections(t *testing.T
 		r2 <- outcome{res, err}
 	}()
 	s.waitBackendWaiting(t, "pgstore06-t2")
-	close(release) // T1 now aborts during resource publish; T2 must take over
+	close(release)
 
 	o1 := <-r1
 	if !errors.Is(o1.err, injected) {
@@ -1556,10 +1376,6 @@ func TestBatchWriterAbandonedClaimDoesNotBurnIdentityTwoConnections(t *testing.T
 		t.Fatalf("ledger = %+v found=%v, want the golden marker", lw, found)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Migration 000008: self-verified pin and runner double-apply probe.
-// ---------------------------------------------------------------------------
 
 func TestBatchWriterMigrationChecksumSelfVerifies(t *testing.T) {
 	const fileName = "migrations/000008_batch_write_ledger.sql"
@@ -1599,9 +1415,6 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 	if err != nil {
 		s.fail("first MigrateSchema", err)
 	}
-	// pg-catalog-05 appends migration 9 after batch_write_ledger, so the
-	// newest applied version is 9; this test pins its own migration 8 row
-	// by identity, not by position.
 	if first.LatestVersion != 9 {
 		t.Fatalf("latest version = %d, want 9", first.LatestVersion)
 	}
@@ -1614,8 +1427,6 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 		t.Fatalf("applied row 8 = %+v, want the pinned batch_write_ledger row", last)
 	}
 
-	// Double apply: the same history applies as a no-op and reports the
-	// identical ledger.
 	second, err := MigrateSchema(s.ctx, client, s.schema)
 	if err != nil {
 		s.fail("second MigrateSchema", err)
@@ -1627,20 +1438,11 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 		t.Fatalf("ledger rows for version 8 = %d, want exactly 1 after double apply", n)
 	}
 
-	// Crash window the runner documents: committed migrations whose ledger
-	// rows were lost. Re-applying must converge (the DDL is IF NOT EXISTS)
-	// and re-record each row exactly once. The loss must cover the whole
-	// trailing tail (version 8 and the pg-catalog-05 version 9): the
-	// runner refuses to re-record a middle version while a later one is
-	// still recorded, which is exactly the history-edit guard this ticket
-	// relies on.
 	s.exec(t, "DELETE FROM "+s.qualified(LedgerTable)+" WHERE version >= 8")
 	third, err := MigrateSchema(s.ctx, client, s.schema)
 	if err != nil {
 		s.fail("third MigrateSchema after lost ledger row", err)
 	}
-	// The converged history must match row-for-row except applied_at,
-	// which legitimately re-stamps the single re-recorded version 8.
 	type pin struct {
 		version  int64
 		name     string
@@ -1668,7 +1470,6 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 		t.Fatalf("ledger rows for version 9 after convergence = %d, want exactly 1", n)
 	}
 
-	// The converged schema is functional: a real batch commits through it.
 	writer := s.newWriterOn(t, client)
 	res, err := writer.WriteBatch(s.ctx, goldenBatch())
 	if err != nil {
@@ -1679,15 +1480,6 @@ func TestBatchWriterMigrationDoubleApplyAndCrashWindowConverge(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit.
-// ---------------------------------------------------------------------------
-
-// TestZZZeroLeftoverBatchWriterFixtures is the ownership-scoped zero-leftover
-// audit. It checks, by exact name only, every database (and the schema that
-// lived inside it) this file verified into existence. It performs no global
-// scan of pg_database or pg_namespace, so concurrent sibling workers
-// sweeping their own prefixes neither race this audit nor trip it.
 func TestZZZeroLeftoverBatchWriterFixtures(t *testing.T) {
 	raw := testPostgresURL(t)
 	batchOwnedMu.Lock()
@@ -1720,8 +1512,6 @@ func TestZZZeroLeftoverBatchWriterFixtures(t *testing.T) {
 		if count != 0 {
 			t.Errorf("leftover owned database %s after all cleanups", db)
 			if schema != "" {
-				// Report the schema inside the leftover database, exact
-				// name only.
 				u, err := url.Parse(raw)
 				if err == nil {
 					if q := u.Query(); q.Get("dbname") != "" {

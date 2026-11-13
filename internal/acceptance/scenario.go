@@ -570,8 +570,6 @@ func decodeAcceptanceCatalog(state map[string]any, project, explorerID, generati
 			RepeatedBoundaries: candidate.RepeatedBoundaries,
 		})
 	}
-	// These scope fields are omitted from the public catalog representation;
-	// bind them to the request and the Explorer created above before validation.
 	if catalog.SourceGeneration != generation {
 		return empty, fmt.Errorf("Builder catalog generation %q does not match acceptance generation %q", catalog.SourceGeneration, generation)
 	}
@@ -581,12 +579,6 @@ func decodeAcceptanceCatalog(state map[string]any, project, explorerID, generati
 	return catalog, nil
 }
 
-// The acceptance migration reads only node identity and field-candidate
-// identity/type/repetition metadata. Decode that public projection explicitly:
-// CatalogSnapshot cannot be unmarshaled directly because ConstructionChoice
-// contains a closed interface source. Complete and any explicit truncated
-// flag remain mandatory guards so this reduced view cannot consume a partial
-// catalog.
 type acceptanceCatalogWire struct {
 	AuthorizationScopeDigest string                           `json:"authorizationScopeDigest"`
 	Candidates               []acceptanceCatalogCandidateWire `json:"candidates"`

@@ -6,18 +6,12 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// PhysicalPlan is the renderer-independent AQL operation graph produced after
-// semantic planning. Operations are ordered because AQL variables have lexical
-// scope: an operation may reference only variables introduced before it.
 type PhysicalValue struct {
 	Variable string
 	Path     []string
 	BindKey  string
 }
 
-// PhysicalCardinality and PhysicalNullBehavior are deliberately explicit on
-// every rich expression. A renderer must not infer array/scalar/null behavior
-// from where an expression appears in an AQL template.
 type PhysicalCardinality string
 
 const (
@@ -37,9 +31,7 @@ const (
 type PhysicalExpressionKind string
 
 const (
-	PhysicalValueExpression PhysicalExpressionKind = "VALUE"
-	// PhysicalLiteralExpression is a typed bind-backed constant. Literals are
-	// kept out of generated AQL so recipe authors cannot inject query source.
+	PhysicalValueExpression        PhysicalExpressionKind = "VALUE"
 	PhysicalLiteralExpression      PhysicalExpressionKind = "LITERAL"
 	PhysicalExtractExpression      PhysicalExpressionKind = "EXTRACT"
 	PhysicalAggregateExpression    PhysicalExpressionKind = "AGGREGATE"
@@ -49,25 +41,13 @@ const (
 	PhysicalObjectLookupExpression PhysicalExpressionKind = "OBJECT_LOOKUP"
 	PhysicalKeyedMapExpression     PhysicalExpressionKind = "KEYED_MAP"
 	PhysicalObjectKeysExpression   PhysicalExpressionKind = "OBJECT_KEYS"
-	// PhysicalKeySetExpression returns the sorted distinct keys observed in a
-	// bounded source. It is executor metadata, not a public dataframe column.
-	PhysicalKeySetExpression PhysicalExpressionKind = "KEY_SET"
-	PhysicalObjectExpression PhysicalExpressionKind = "OBJECT"
-	// PhysicalSubplanExpression evaluates a compiler-owned correlated subquery
-	// as an array-valued projection, such as row-level population provenance.
-	PhysicalSubplanExpression PhysicalExpressionKind = "SUBPLAN"
-	// PhysicalCallExpression represents a recipe-neutral expression function.
-	// Name is validated against the compiler-owned operator registry and Args
-	// remain typed expressions; neither contains AQL source text.
-	PhysicalCallExpression PhysicalExpressionKind = "CALL"
-	// PhysicalRelatedFieldExpression loads one compiler-selected scalar path
-	// from a document identified by its exact retained Arango _id.
+	PhysicalKeySetExpression       PhysicalExpressionKind = "KEY_SET"
+	PhysicalObjectExpression       PhysicalExpressionKind = "OBJECT"
+	PhysicalSubplanExpression      PhysicalExpressionKind = "SUBPLAN"
+	PhysicalCallExpression         PhysicalExpressionKind = "CALL"
 	PhysicalRelatedFieldExpression PhysicalExpressionKind = "RELATED_FIELD"
 )
 
-// PhysicalSelectorExecutionMode records a schema-proven selector lowering.
-// Generic is the safe fallback for predicates, fallbacks, choice paths, and
-// unknown cardinality.
 type PhysicalSelectorExecutionMode string
 
 const (
@@ -76,9 +56,6 @@ const (
 	PhysicalSelectorConditionalArray PhysicalSelectorExecutionMode = "CONDITIONAL_ARRAY"
 )
 
-// PhysicalExpression is a closed, renderer-independent value tree. It carries
-// no AQL source text: selector paths have already been parsed and all literals
-// are represented by bind values.
 type PhysicalExpression struct {
 	Kind         PhysicalExpressionKind
 	Cardinality  PhysicalCardinality
@@ -100,16 +77,10 @@ type PhysicalExpression struct {
 	RelatedField *PhysicalRelatedField
 }
 
-// PhysicalLiteral references a value in the plan bind map. BindKey is
-// deliberately required even for primitive constants so all recipe data uses
-// the same parameterized execution boundary.
 type PhysicalLiteral struct {
 	BindKey string
 }
 
-// PhysicalCall is a backend-neutral expression operator. TargetKind is used
-// by cast and distinct_present_one to name a logical or table scalar type,
-// never a backend type or query fragment.
 type PhysicalCall struct {
 	Name       string
 	Args       []PhysicalExpression
@@ -120,36 +91,20 @@ type PhysicalRelatedField struct {
 	DocumentID   PhysicalValue
 	ResourceType string
 	Path         []string
-	// PresenceOnly asks the exact related-field lookup to return whether the
-	// selector path exists. An absent or out-of-scope terminal remains present
-	// for compatibility with RELATED_FIELD's existing null result.
 	PresenceOnly bool
 }
 
-// PhysicalExtract obtains one FHIR selector from a variable or prior set
-// element. ResourceType keeps schema validation available after semantic
-// lowering; fallbacks remain ordered value alternatives and are flattened
-// with the primary selector before FIRST, ALL, or DISTINCT projection.
 type PhysicalExtract struct {
-	Source       PhysicalValue
-	ResourceType string
-	Selector     spec.Selector
-	Fallbacks    []PhysicalSelectorFallback
-	// Distinct preserves the explicit DISTINCT projection mode after semantic
-	// lowering. It is meaningful only for an array-valued expression.
-	Distinct      bool
-	ExecutionMode PhysicalSelectorExecutionMode
-	// Prepared points at a selector value projected by a prepared child set.
-	// Source remains the owning set for scope validation and diagnostics.
-	Prepared *PhysicalPreparedReference
-	// UnitNormalization retains the original measurement and exact source
-	// identity selectors until the renderer applies one approved rule per item.
+	Source            PhysicalValue
+	ResourceType      string
+	Selector          spec.Selector
+	Fallbacks         []PhysicalSelectorFallback
+	Distinct          bool
+	ExecutionMode     PhysicalSelectorExecutionMode
+	Prepared          *PhysicalPreparedReference
 	UnitNormalization *PhysicalUnitNormalization
 }
 
-// PhysicalSelectorFallback is one ordered selector alternative. Keeping its
-// source and schema type with the selector lets recipes preserve fallbacks
-// whose lexical owner differs from the primary selector's owner.
 type PhysicalSelectorFallback struct {
 	Source       PhysicalValue
 	ResourceType string
@@ -165,15 +120,11 @@ type PhysicalUnitNormalization struct {
 	Rules         []unit.UnitConversionRule
 }
 
-// PhysicalPreparedReference identifies one selector column in a prepared set.
 type PhysicalPreparedReference struct {
 	SetVariable string
 	Field       string
 }
 
-// PhysicalPreparedSet describes selector projections shared by rich
-// consumers over one materialized relationship set. Preparation stays
-// attached to the correlated set so root row grain cannot change.
 type PhysicalPreparedSet struct {
 	Variable          string
 	SourceSetVariable string
@@ -231,13 +182,8 @@ type PhysicalAggregate struct {
 }
 
 type PhysicalPivotMap struct {
-	Source       PhysicalValue
-	ResourceType string
-	// ItemSource and ItemResourceType describe a repeated backbone item that
-	// owns the key/value pair. Keeping this scope in the physical operation is
-	// what prevents key and value selectors from being flattened independently
-	// (for example Observation.component[].code paired with the same
-	// component's value[x]).
+	Source              PhysicalValue
+	ResourceType        string
 	ItemSource          spec.Selector
 	ItemResourceType    string
 	KeySelector         spec.Selector
@@ -250,14 +196,9 @@ type PhysicalPivotMap struct {
 	ProjectionMode      string
 	PreparedKey         *PhysicalPreparedReference
 	PreparedValue       *PhysicalPreparedReference
-	// Correlation is optional for legacy pivots. When present, one owner item
-	// is iterated first, then its Coding items are matched by system+code in
-	// the same Coding object before ValueSelector is evaluated.
-	Correlation *PhysicalCorrelation
+	Correlation         *PhysicalCorrelation
 }
 
-// PhysicalOwnerRecords emits one ordered record per repeated FHIR owner while
-// preserving the surrounding dataframe row grain.
 type PhysicalOwnerRecords struct {
 	Correlation        PhysicalCorrelation
 	OwnerPathBindKey   string
@@ -265,10 +206,6 @@ type PhysicalOwnerRecords struct {
 	LogicalTypeBindKey string
 }
 
-// PhysicalCorrelation is the shared typed representation for correlated
-// terminology predicates and projections. Selectors are relative to Source's
-// owner payload, except SystemSelector and CodeSelector which are relative to
-// one item produced by KeySelector.
 type PhysicalCorrelation struct {
 	Source                PhysicalValue
 	ResourceType          string
@@ -293,10 +230,6 @@ type PhysicalCorrelation struct {
 	SystemBindKey         string
 	CodeBindKey           string
 	VersionBindKey        string
-	// ExtensionURLSelectors and ExtensionURLBindKeys describe an ancestor-
-	// aware extension correlation. Each selector is relative to the current
-	// Extension item and each bind is matched before descending to the next
-	// nested extension. When non-empty, coding fields above are unused.
 	ExtensionURLSelectors []spec.Selector
 	ExtensionURLBindKeys  []string
 }
@@ -335,8 +268,6 @@ type PhysicalKeySet struct {
 	ItemKey      PhysicalExpression
 }
 
-// PhysicalSlice is a bounded, stable, nested projection over a prior set.
-// Limit remains a bind variable so callers cannot synthesize query literals.
 type PhysicalSlice struct {
 	Source       PhysicalValue
 	Predicate    *PhysicalPredicateExpression
@@ -353,8 +284,3 @@ type PhysicalExpressionProjection struct {
 type PhysicalObject struct {
 	Fields []PhysicalExpressionProjection
 }
-
-// PhysicalSet is a correlated, array-valued subplan. Captures are declared
-// explicitly so validation can prevent accidental references to parent or
-// future variables. The set variable becomes visible only after its subplan
-// has validated successfully.

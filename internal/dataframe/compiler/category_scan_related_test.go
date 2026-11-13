@@ -250,10 +250,6 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		}
 	}
 
-	// s1 and s3 share one populated patient; s1 also has a sibling patient with
-	// no Observation. s2 has no Patient. The category query may deduplicate the
-	// shared patient identity, but the ordinary output must preserve each root's
-	// full row multiplicity and both empty boundaries.
 	s1 := insertResource(project, "Specimen", "s1", map[string]any{"status": "available"})
 	insertResource(project, "Specimen", "s2", map[string]any{"status": "available"})
 	s3 := insertResource(project, "Specimen", "s3", map[string]any{"status": "available"})
@@ -297,11 +293,6 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 	if want := map[string]int{"s1": 5, "s2": 1, "s3": 4}; !reflect.DeepEqual(rowsByRoot, want) {
 		t.Fatalf("native output multiplicity by Specimen = %v, want %v; category-scan identity dedup must not affect ordinary rows", rowsByRoot, want)
 	}
-	// The public no-Pivot output materializes optional related fields as nullable
-	// values, so its `category` property cannot distinguish a missing source
-	// path from explicit NULL. Discover chooser categories from an independent
-	// raw traversal that tracks both PRESERVE_PARENT boundaries and exact path
-	// presence instead.
 	rawCategoriesCommand := testAQLCommand(`FOR root IN Specimen
   FILTER root.project == @project AND root.dataset_generation == @generation
   LET patients = (
@@ -373,8 +364,6 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		t.Fatalf("independent raw traversal omitted its expected preserved/explicit NULL category: %v", want)
 	}
 
-	// This isolated project has only the category "d" on terminal records,
-	// so NULL can only come from the empty second-stage expansion.
 	witnessRoot := insertResource(witnessProject, "Specimen", "root", map[string]any{"status": "available"})
 	witnessFull := insertResource(witnessProject, "Patient", "full", map[string]any{})
 	witnessEmpty := insertResource(witnessProject, "Patient", "empty", map[string]any{})
@@ -395,8 +384,6 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		t.Fatalf("second-stage PRESERVE_PARENT NULL was lost: %v", witnessCategories)
 	}
 
-	// This project has one complete non-NULL chain and one root with no Patient,
-	// isolating the first PRESERVE_PARENT boundary.
 	firstFullRoot := insertResource(firstStageProject, "Specimen", "full-root", map[string]any{"status": "available"})
 	insertResource(firstStageProject, "Specimen", "empty-root", map[string]any{"status": "available"})
 	firstPatient := insertResource(firstStageProject, "Patient", "only-patient", map[string]any{})
@@ -416,8 +403,6 @@ func TestRelatedCategoryScanMatchesPreservedRowsAndCapsAfterEmptyWitnessAgainstA
 		t.Fatalf("first-stage PRESERVE_PARENT NULL was lost: %v", firstStageCategories)
 	}
 
-	// Exactly 256 distinct terminal strings plus one empty PRESERVE_PARENT
-	// category must return 257 rows so the scan can report overflow accurately.
 	capSpecimen := insertResource(capProject, "Specimen", "root", map[string]any{"status": "available"})
 	capFull := insertResource(capProject, "Patient", "full", map[string]any{})
 	capEmpty := insertResource(capProject, "Patient", "empty", map[string]any{})
@@ -514,7 +499,6 @@ func TestRelatedCategoryScanMatchesRestrictedRootEdgeAndTargetScopeAgainstArango
 	addObservation("second-edge-denied", allowedPatient, "second-edge-denied", blocked, allowed)
 	addObservation("terminal-denied", allowedPatient, "terminal-denied", allowed, blocked)
 	insertResource("Observation", "orphan", allowed, map[string]any{"valueQuantity": map[string]any{"code": "orphan"}})
-	// The orphan is intentionally not connected to any Patient by subject_Patient.
 
 	bindings := recipe.RuntimeBindings{
 		Project: project, SelectionProject: project, DatasetGeneration: generation,
@@ -634,8 +618,6 @@ func TestCompileRelatedCategoryScanFallsBackForUnsafeShapes(t *testing.T) {
 	}
 }
 
-// These tests keep invalid scan requests on the typed refusal path rather than
-// allowing the related-route specialization to guess at a schema.
 func TestCompileRelatedCategoryScanRejectsMismatchedOrInactiveColumnIDs(t *testing.T) {
 	output := compilePopulationMappingOutput(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}))
 	for _, test := range []struct {
@@ -695,8 +677,6 @@ type relatedCategoryScanOptions struct {
 	secondEmptyPolicy    recipe.ExpansionEmptyPolicy
 }
 
-// TerminalIDForTest returns the final stage ID for the matching recipe shape.
-// It lives on the options type so negative cases scan the same stage they build.
 func (options relatedCategoryScanOptions) TerminalIDForTest() string {
 	if options.valueFromPatient {
 		return "add_category"

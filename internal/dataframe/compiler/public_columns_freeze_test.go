@@ -1,14 +1,5 @@
 package compiler
 
-// C-FREEZE witness for the moved public-column projection.
-//
-// arch-backend-11 moved publicPostgreSQLColumns from
-//   git show 648f7c70:internal/dataframe/execution/engine.go | sed -n '936,955p'
-// onto the selected compile target as postgreSQLPublicColumns (target.go).
-// The moved body is source-identical to the base function; this witness
-// freezes the behavior the base had, so a future edit inside the compiler
-// cannot silently widen what a PostgreSQL preview publishes.
-
 import (
 	"reflect"
 	"testing"
@@ -52,8 +43,6 @@ func TestPostgreSQLPublicColumnsFreezeMatchesBase648f7c70(t *testing.T) {
 	})
 
 	t.Run("InternalProjectionEdgeCase", func(t *testing.T) {
-		// A compiler-only internal projection that also appears in the
-		// declared contract (the construction-leak edge) never publishes.
 		got := postgreSQLPublicColumns(
 			frozenSchema(
 				[2]any{"id", false},
@@ -68,8 +57,6 @@ func TestPostgreSQLPublicColumnsFreezeMatchesBase648f7c70(t *testing.T) {
 	})
 
 	t.Run("AllInternalRefused", func(t *testing.T) {
-		// The base returned the empty intersection as-is so the caller
-		// refuses the compilation rather than leaking internals.
 		got := postgreSQLPublicColumns(
 			frozenSchema([2]any{"__loom_internal", true}),
 			frozenColumns("__loom_internal"),

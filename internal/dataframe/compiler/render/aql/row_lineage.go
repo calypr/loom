@@ -357,9 +357,6 @@ func (r *physicalPlanRenderer) renderSemanticGroupRowLineage(
 	}
 	semantic := group.SemanticKey
 	lineageSemantic := *semantic
-	// The direct Group input row carries `_key`, but the row-lineage source
-	// projection exposes that same root identity under the hidden occurrence
-	// key column. Reuse the projected identity when rehydrating the resource.
 	lineageSemantic.SourceIdentityColumn = terminal.OccurrenceKeyColumn
 	input := r.newInternalVariable("row_lineage_semantic_group_input")
 	selected := r.newInternalVariable("row_lineage_semantic_selected_group")

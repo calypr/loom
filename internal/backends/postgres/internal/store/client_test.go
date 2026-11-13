@@ -85,8 +85,6 @@ func TestOpenRejectsMalformedDSNWithoutNetwork(t *testing.T) {
 }
 
 func TestOpenRejectsInvalidPoolBoundsWithoutNetwork(t *testing.T) {
-	// DSN points at a port that would refuse the connection if it were ever
-	// dialed; validation must reject the bounds first, without dialing.
 	cfg := validUnitConfig("postgres://loom@127.0.0.1:1/loom")
 	cfg.MaxConns = 0
 	_, err := Open(context.Background(), cfg)
@@ -127,10 +125,6 @@ func TestCheckServerVersion(t *testing.T) {
 	}
 }
 
-// TestRefusedConnectionReturnsClassifiableError dials a loopback port that is
-// guaranteed to have no listener, so the kernel answers with TCP RST. The
-// failure must surface as a wrapped, classifiable backend error. It needs no
-// PostgreSQL service and runs in every test pass.
 func TestRefusedConnectionReturnsClassifiableError(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -189,12 +183,6 @@ func randomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// TestPostgres18PoolIntegration exercises the real pool against the PostgreSQL
-// 18 service named by LOOM_TEST_POSTGRES_URL: it creates one uniquely-named
-// isolated database (pgstore01_it_*), opens a bounded pool, pings, acquires
-// and releases connections, verifies cancellation and acquire-timeout
-// classification, and closes the pool. The isolated database is always
-// dropped; the shared service database is never modified.
 func TestPostgres18PoolIntegration(t *testing.T) {
 	raw := testPostgresURL(t)
 
@@ -203,10 +191,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// The service DSN carries credentials. Scrub every credential-bearing
-	// string that can appear in a failure message: the raw service URL, the
-	// rewritten isolated-database URL added below, the userinfo component,
-	// and the bare password.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -228,8 +212,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatalf("%s: %s", step, scrub(err))
 	}
 
-	// Registered first so it runs last: the drop/cleanup steps below still
-	// need a live context.
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
 
@@ -237,8 +219,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	if err != nil {
 		fail("connect to test service", err)
 	}
-	// Registered before the drop cleanup below so it runs after it: the drop
-	// still needs this admin pool.
 	t.Cleanup(admin.Close)
 	if err := admin.Ping(ctx); err != nil {
 		fail("ping test service", err)
@@ -252,16 +232,11 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		fail("create isolated database", err)
 	}
 	t.Cleanup(func() {
-		// Only ever drop the uniquely-named database this test created.
 		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
 		}
 	})
 
-	// pgconn gives a dbname query parameter precedence over the URL path, so
-	// drop any dbname the service URL carries; otherwise the pool could keep
-	// talking to the shared service database while this test only *claims*
-	// isolation.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -274,8 +249,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatal("isolated test DSN does not provably target the isolated database")
 	}
 
-	// Open the bounded pool; the eager readiness ping doubles as the version
-	// check, so a successful Open proves the service reports PostgreSQL 18.
 	client, err := Open(ctx, Config{
 		DSN:            testDSN,
 		MaxConns:       4,
@@ -291,7 +264,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		fail("ping pool", err)
 	}
 
-	// Acquire a connection and run a real query against the isolated database.
 	conn, err := client.Acquire(ctx)
 	if err != nil {
 		fail("acquire connection", err)
@@ -307,7 +279,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	}
 	conn.Release()
 
-	// Confirm the live server really is PostgreSQL 18 (service contract).
 	versionProbe, err := client.Acquire(ctx)
 	if err != nil {
 		fail("acquire version probe connection", err)
@@ -323,11 +294,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatalf("service reports server_version_num %d, want a PostgreSQL 18 build", versionNum)
 	}
 
-	// Prove end-to-end that the pool talks only to the isolated database:
-	// create a marker table through the pool, then verify from an
-	// independently constructed keyword/value connection that the marker
-	// landed in the isolated database rather than the shared service
-	// database (a leaked dbname parameter would fail this check).
 	marker := "pgstore01_marker_" + randomHex(t)
 	markerConn, err := client.Acquire(ctx)
 	if err != nil {
@@ -338,11 +304,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 	if err != nil {
 		fail("create marker table through pool", err)
 	}
-	// Derive the witness from the parsed service config so credentials and
-	// TLS settings stay byte-exact, then override only the target database.
-	// Setting Database after parsing also outranks any dbname parameter, so
-	// the witness independently proves the pool targets the isolated
-	// database rather than the shared service database.
 	witnessCfg, err := pgxpool.ParseConfig(raw)
 	if err != nil {
 		fail("parse witness config", err)
@@ -362,7 +323,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatalf("marker table is absent from isolated database %s: the pool may not target the isolated database", dbName)
 	}
 
-	// A cancelled context must cancel an acquire and stay classifiable.
 	canceledCtx, canceledCancel := context.WithCancel(ctx)
 	canceledCancel()
 	_, err = client.Acquire(canceledCtx)
@@ -373,12 +333,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatalf("cancelled acquire error = %v, want ConnectError matching context.Canceled", err)
 	}
 
-	// An exhausted bounded pool must fail within AcquireTimeout, not block.
-	// pgxpool dials lazily, so Open and the sole reuse-acquire run under a
-	// generous bound: the eager ping already established the one physical
-	// connection, and the reuse then pulls that idle resource instantly. The
-	// tight 75ms bound is installed only around the deliberately exhausted
-	// second acquire, which is a pure wait on the capped pool (no dial).
 	bounded, err := Open(ctx, Config{
 		DSN:            testDSN,
 		MaxConns:       1,
@@ -408,7 +362,6 @@ func TestPostgres18PoolIntegration(t *testing.T) {
 		t.Fatalf("acquire timeout took %v, far beyond the 75ms bound", waited)
 	}
 
-	// Close must be safe and idempotent; the deferred close is the second call.
 	client.Close()
 	bounded.Close()
 }

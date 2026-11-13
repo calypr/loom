@@ -1092,8 +1092,6 @@ func TestCompileConstructionPivotRowLineageUsesTypedScopedPreimageAndPagination(
 		}
 	}
 
-	// Reducers consume only non-null values of the declared type, and an
-	// ERROR-on-missing Pivot validates that each requested cell has one.
 	compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot.DuplicatePolicy = "SUM"
 	compiledOutput.Plan.StageSequence.Stages[0].GroupedPivot.MissingCellPolicy = "ERROR"
 	summed, err := CompileRowLineageOutput(ArangoTarget(), compiledOutput, string(rowID), 0, 7, ir.DefaultPhysicalOptimizationPolicy())
@@ -1676,11 +1674,6 @@ func relatedExpandEmptyRowID(t *testing.T, parentKey, constructionID string) str
 	return string(encoded)
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL compile target (pg-sql-23): the bounded contributor page
-// renders through the registered terminal slice; nothing falls back to AQL.
-// ---------------------------------------------------------------------------
-
 func pg23LineageTarget(t *testing.T) Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("loom")
@@ -1733,7 +1726,6 @@ func TestCompileRowLineagePostgreSQLBoundedGroupPage(t *testing.T) {
 		compiled.HasMoreColumn != "hasMore" || compiled.Offset != 25 || compiled.Limit != 10 {
 		t.Fatalf("compiled page contract = %#v", compiled)
 	}
-	// The row id and the page coordinates cross as typed parameters.
 	var sawRowID bool
 	var bigints []int64
 	for _, parameter := range args {
@@ -1752,8 +1744,6 @@ func TestCompileRowLineagePostgreSQLBoundedGroupPage(t *testing.T) {
 	if len(bigints) != 3 || bigints[0] != 25 || bigints[1] != 11 || bigints[2] != 10 {
 		t.Fatalf("page coordinates = %v, want [25 11 10]", bigints)
 	}
-	// The AQL twin is untouched: the same output on the AQL target still
-	// renders AQL with the canonical bounded collector shape.
 	aqlCompiled, err := CompileRowLineageOutput(ArangoTarget(), output, "opaque-group-row", 25, 10, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("aql twin: %v", err)
@@ -1768,7 +1758,6 @@ func TestCompileRowLineagePostgreSQLPageSeal(t *testing.T) {
 		Project: "row-lineage-project", DatasetGeneration: "row-lineage-generation",
 	})
 	target := pg23LineageTarget(t)
-	// Unselected target refuses with the named sentinel, before lowering.
 	if _, err := CompileRowLineageOutput(Target{}, output, "row", 0, 10, ir.DefaultPhysicalOptimizationPolicy()); err == nil ||
 		!errorsIsTargetNotSelected(err) {
 		t.Fatalf("unselected target: %v", err)
@@ -1787,7 +1776,6 @@ func TestCompileRowLineagePostgreSQLPageSeal(t *testing.T) {
 		!strings.Contains(err.Error(), "between 1 and") {
 		t.Fatalf("over-limit: %v", err)
 	}
-	// limit 0 takes the registered default and the fetch lookahead follows.
 	compiled, err := CompileRowLineageOutput(target, output, "row", 0, 0, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("default limit: %v", err)
@@ -1867,10 +1855,6 @@ func TestCompileRowLineagePostgreSQLRefusals(t *testing.T) {
 		{"semantic-family", func(t *testing.T) lower.CompiledRecipeOutput {
 			return lowerConstructionOutput(t, semanticGroupOutputForLineageTest(), pipelineBindings)
 		}, "semantic-row-id", "semantic-family contributor page"},
-		// The expanded CodingKey fixture lowers to a CODED_GROUP stage, so
-		// the registered coded-group door claims it and raises its own
-		// merged closed-surface voice (coded_group.go:455); the row-lineage
-		// door only claims single GROUP-stage terminals.
 		{"coded-group-fixture-uses-the-coded-group-door-voice", func(t *testing.T) lower.CompiledRecipeOutput {
 			return expandedCodingGroupFixtureLineageOutput(t)
 		}, "fixture-expanded-coded-group-row", "row-lineage, cell-trace, and population-mapping returns have no PostgreSQL compiled route (compiler/row_lineage.go:655, cell_trace.go:54, population_mapping.go:38)"},

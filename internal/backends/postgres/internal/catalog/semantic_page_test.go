@@ -1,53 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the pg-catalog-06 bounded semantic
-// inventory page and selection-resolution reads (check-2:
-// go test ./internal/backends/postgres/internal/catalog -run SemanticInventory -count=1).
-//
-// Every live claim here drives the real SemanticReadRepository against the
-// PostgreSQL 18 service named by LOOM_TEST_POSTGRES_URL. Fixtures are
-// literal rows seeded by direct SQL (build identity digests are the real
-// catalog derivations for their scope); witnesses are the decoded page /
-// resolve values compared against pinned literals. Nothing is mocked: the
-// only wrapper around the real repository injects timing of a schema
-// mutation between statements, never fake results. One anchor test re-derives
-// its golden entry through the real emitter, the real pg-catalog-05 writer,
-// and this reader, so the pinned literals stay load-bearing rather than
-// self-fulfilling, and every pinned comparison carries a break-one control.
-//
-// Coverage against the acceptance clauses: exact and family pages return the
-// same ordered page and next-cursor semantics (golden ordering, interleaving,
-// aggregation, limit+1 cursor rule, continuation equality with the unpaged
-// read); a cursor replayed under a changed project/generation/filter/auth/
-// limit/mode scope fails with the existing typed
-// catalog.ErrSemanticInventoryCursorMismatch; exact references and versioned/
-// unversioned system-version families resolve without cross-scope records;
-// every statement is bounded and EXPLAIN is captured as plan-shape evidence
-// on the target-contract indexes from migration 000009 only, never a speed
-// claim. Explicit restricted-empty results and the unknown-state empty pages
-// are pinned literally, and the entries-materialization boundary refuses by
-// name.
-//
-// Concurrency surfaces (>= 10 rounds each, two real connections with
-// distinct pg_backend_pid witnesses): an in-flight writer invisible to page
-// and resolve until commit (byte-identical witnesses before, during, and
-// after abort), committed visibility at the commit instant, and crash
-// injection at the read path's seams — a peer backend terminated while its
-// statement is blocked on a lock, and the contribution table dropped between
-// the reader's existence check and its page statement (which must surface a
-// named error, never a disguised empty page).
-//
-// Guard non-vacuity: exact-named refusals are dropped-and-re-probed on the
-// same data (entry_index_version flip, auth-scope flip, constraint live
-// states), so a missing guard cannot pass vacuously.
-//
-// Fixture databases and schemas are uniquely owned as verify_cat06_* and
-// dropped by the test that created them; the final TestZZ audit is
-// ownership-scoped — every name this file created is checked by exact name
-// and no name matching this file's private prefix survives. Foreign
-// namespaces (sibling batch workers sweeping their own prefixes) are never
-// scanned or tolerated under this prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -77,12 +29,9 @@ const pgcat06FixturePrefix = "verify_cat06_"
 
 var pgcat06NamePattern = regexp.MustCompile(`^verify_cat06_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and the TestZZ audit asserts each exact name is gone and no
-// name matching this file's private prefix survives.
 var (
 	pgcat06OwnedMu     sync.Mutex
-	pgcat06OwnedByName = map[string]string{} // database -> owned schema
+	pgcat06OwnedByName = map[string]string{}
 )
 
 func pgcat06Register(db, schema string) {
@@ -167,7 +116,6 @@ func newPgcat06Service(t *testing.T) *pgcat06Service {
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
 		fail("create isolated database", err)
 	}
-	// Ownership begins here: this exact database is this test's to drop.
 	pgcat06Register(dbName, "")
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
@@ -227,9 +175,6 @@ func (s *pgcat06Service) openClient(t *testing.T) *storepostgres.Client {
 	return client
 }
 
-// openDedicatedClient returns a single-connection pool whose backend pid is
-// witnessed live. Racing surfaces use two of these and re-witness that the
-// pids differ in every round.
 func (s *pgcat06Service) openDedicatedClient(t *testing.T, label string) (*storepostgres.Client, int32) {
 	t.Helper()
 	client, err := storepostgres.Open(s.ctx, storepostgres.Config{
@@ -300,18 +245,11 @@ func (s *pgcat06Service) ledgerFQN() string {
 	return pgx.Identifier{s.schema, storepostgres.LedgerTable}.Sanitize()
 }
 
-// pgcat06Hex64 derives a stable, shape-valid 64-hex identity from a label,
-// so seeded contribution keys and payload digests satisfy the table CHECKs
-// without pretending to be emitter output (the anchor test covers real
-// emitter output separately).
 func pgcat06Hex64(label string) string {
 	sum := sha256.Sum256([]byte("pgcat06/" + label))
 	return hex.EncodeToString(sum[:])
 }
 
-// buildSeed lays one literal build row. Identity columns are the real
-// catalog derivations for the scope, so the reader's derived-identity lookup
-// finds exactly this row.
 type buildSeed struct {
 	Project            string
 	Generation         string
@@ -332,9 +270,7 @@ type buildSeed struct {
 func pgcat06DefaultBuildSeed(project, generation string) buildSeed {
 	return buildSeed{
 		Project: project, Generation: generation,
-		State: catalog.SemanticInventoryComplete,
-		// Versions the current emitter contract produces; the reader never
-		// interprets them beyond echoing observation schema.
+		State:              catalog.SemanticInventoryComplete,
 		ObservationSchema:  catalog.SemanticObservationSchemaVersion,
 		InventorySchema:    catalog.SemanticInventorySchemaVersion,
 		EntryIndexVersion:  0,
@@ -375,9 +311,6 @@ func (s *pgcat06Service) seedBuild(t *testing.T, seed buildSeed) catalog.Semanti
 	return build
 }
 
-// contributionSeed lays one literal contribution row. (source_id, ordinal)
-// must be unique inside the scope (the table primary key); contribution_key
-// is globally unique.
 type contributionSeed struct {
 	Key              string
 	Project          string
@@ -391,7 +324,7 @@ type contributionSeed struct {
 	ConceptID        string
 	BindingID        string
 	Example          string
-	Observation      string // JSON object text, cast to jsonb on insert
+	Observation      string
 }
 
 func (s *pgcat06Service) seedContribution(t *testing.T, seed contributionSeed) {
@@ -412,8 +345,6 @@ func (s *pgcat06Service) seedContribution(t *testing.T, seed contributionSeed) {
 		seed.ConceptID, seed.BindingID, seed.Example, pgcat06Hex64("digest/"+seed.Key), seed.Observation)
 }
 
-// pageWitness canonicalizes a page for byte-identical witness comparisons
-// across rounds and connections.
 func pageWitness(t *testing.T, page catalog.SemanticInventoryPage) string {
 	t.Helper()
 	raw, err := json.Marshal(page)
@@ -432,9 +363,6 @@ func resolveWitness(t *testing.T, result catalog.SemanticInventoryResolveResult)
 	return string(raw)
 }
 
-// pgcat06CursorPayload decodes the opaque base64 cursor back to its JSON
-// fields, so the family selection bytes the cursor carries are directly
-// pinnable (they are otherwise unobservable).
 type pgcat06CursorPayload struct {
 	Version       int    `json:"v"`
 	RequestDigest string `json:"r"`
@@ -455,10 +383,6 @@ func pgcat06DecodeCursor(t *testing.T, cursor string) pgcat06CursorPayload {
 	return payload
 }
 
-// pgcat06ObsJSON encodes a typed observation exactly as the only real writer
-// encodes it (Go struct marshaling), so fixtures carry reachable states.
-// Adversarial states the encoder cannot produce (JSON-null leaves, hostile
-// populations) are seeded as explicit raw literals.
 func pgcat06ObsJSON(t *testing.T, observation catalog.SemanticObservation) string {
 	t.Helper()
 	raw, err := json.Marshal(observation)
@@ -468,8 +392,6 @@ func pgcat06ObsJSON(t *testing.T, observation catalog.SemanticObservation) strin
 	return string(raw)
 }
 
-// pgcat06Observation is the ordinary observation every fixture varies from:
-// a source, a key, a value, completeness, status, and a population.
 func pgcat06Observation(population int64) catalog.SemanticObservation {
 	return catalog.SemanticObservation{
 		SchemaVersion: catalog.SemanticObservationSchemaVersion,
@@ -493,18 +415,8 @@ func pgcat06Observation(population int64) catalog.SemanticObservation {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Offline contract tests: every request-shape refusal is raised before any
-// statement runs, the shared opaque cursor keeps its typed mismatch error,
-// and the emitted SQL carries the load-bearing parity structure. These run
-// without a database; the live tests below pin behavior.
-// ---------------------------------------------------------------------------
-
 var errPgcat06DeadSource = errors.New("pgcat06 offline test: database must not be touched")
 
-// pgcat06DeadSource fails loudly if a supposedly-offline path reaches for a
-// connection: a validation refusal that reached the database would trip the
-// test, proving the guard ran before any statement.
 type pgcat06DeadSource struct{ hits *int }
 
 func (d *pgcat06DeadSource) Acquire(context.Context) (*pgxpool.Conn, error) {
@@ -550,8 +462,6 @@ func TestSemanticInventoryPageRequestRefusalsBeforeAnyStatement(t *testing.T) {
 			t.Errorf("%s: PageSemanticInventory error = %v, want ErrInvalidSemanticInventoryPage", tc.name, err)
 		}
 	}
-	// Accepted shapes must advance past validation into storage territory:
-	// the dead source proves the guard order without any database.
 	for _, mode := range []catalog.SemanticInventorySelectionMode{"", catalog.SemanticInventoryExactConcept, catalog.SemanticInventorySystemVersionCategory} {
 		opts := base()
 		opts.SelectionMode = mode
@@ -669,7 +579,6 @@ func TestSemanticInventoryResolveRequestRefusalsBeforeAnyStatement(t *testing.T)
 			t.Errorf("%s: ResolveSemanticInventorySelections error = %v, want ErrInvalidSemanticInventorySelection", tc.name, err)
 		}
 	}
-	// Accepted shape reaches storage (dead source proves guard order).
 	if _, err := repo.ResolveSemanticInventorySelections(context.Background(), base()); !errors.Is(err, errPgcat06DeadSource) {
 		t.Fatalf("accepted resolve error = %v, want the dead-source sentinel", err)
 	}
@@ -721,8 +630,6 @@ func TestSemanticInventoryCursorMismatchUnderScopeChanges(t *testing.T) {
 			t.Errorf("%s: changed-scope cursor error = %v, want ErrSemanticInventoryCursorMismatch", tc.name, err)
 		}
 	}
-	// Whitespace-padded generation converges onto the same request digest
-	// (NormalizeDatasetGeneration is the single canonicalization point).
 	padded := base
 	padded.DatasetGeneration = "  gen-1\t"
 	if _, _, err := catalog.DecodeSemanticInventoryCursor(cursor, padded, buildID); err != nil {
@@ -764,27 +671,15 @@ func TestSemanticInventoryPageSQLCarriesTheParityContract(t *testing.T) {
 			t.Errorf("%s: budget parameter = %v, want limit+1 = 51", name, args[11])
 		}
 		wants := []string{
-			// Authorization scope is six ordered parameters.
 			`c.project = $1 AND c.dataset_generation = $2 AND c.build_id = $3 AND c.source_kind = $4`,
 			`($5 OR c.auth_resource_path = ANY($6::text[]))`,
-			// The reference re-applies the resource-type filter in the
-			// identity stage AND again in the aggregation stage, so the
-			// aggregation of rows that share an identity but differ in
-			// resource_type cannot fold them in.
 			`($7 = '' OR c.resource_type = $7)`,
-			// Byte-order keyset and sort: COLLATE "C" on both sides of the
-			// keyset operators and on every sort key.
 			`candidates.binding_id COLLATE "C" > $10 COLLATE "C"`,
 			`candidates.selection_id COLLATE "C" > $11 COLLATE "C"`,
 			`ORDER BY i.binding_id COLLATE "C", i.selection_id COLLATE "C", i.is_category`,
 			`LIMIT $12`,
-			// The query filter folds ASCII-only, and null-skipping
-			// concat_ws arguments mirror the reference's null-skipping
-			// CONCAT_SEPARATOR (an absent leaf adds no slot at all).
 			`strpos(lower(concat_ws(' ', c.resource_type,`,
 			`COLLATE "C"), lower($9 COLLATE "C")) > 0`,
-			// Aggregations: MIN skips the typed-empty example like the
-			// missing attribute in Arango; population is guarded.
 			`min(NULLIF(c.example, '') COLLATE "C") AS agg_example`,
 			`~ '^-?[0-9]+$'`,
 		}
@@ -796,9 +691,6 @@ func TestSemanticInventoryPageSQLCarriesTheParityContract(t *testing.T) {
 		if got := strings.Count(sql, `($7 = '' OR c.resource_type = $7)`); got != 2 {
 			t.Errorf("%s statement applies the resource-type filter %d times, want 2 (identity + aggregation stages)", name, got)
 		}
-		// Search folding must skip absent leaves entirely (no COALESCE'd
-		// empty slots), matching the reference's null-skipping
-		// CONCAT_SEPARATOR over raw leaves.
 		if !strings.Contains(sql, `concat_ws(' ', c.resource_type, (c.observation #>> '{source,path}')`) {
 			t.Errorf("%s statement must feed raw leaves into concat_ws: %s", name, sql)
 		}
@@ -874,10 +766,6 @@ func TestSemanticInventoryResolveSQLCarriesTheParityContract(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live fixtures.
-// ---------------------------------------------------------------------------
-
 const (
 	pgcat06Project     = "cat06-proj"
 	pgcat06Generation  = "gen-1"
@@ -889,11 +777,6 @@ const (
 
 func pgcat06Unrestricted(v bool) *bool { return catalog.ExplicitAuthResourcePathsUnrestricted(v) }
 
-// TestSemanticInventoryEmitterWriterReaderGoldenAnchor drives the real
-// emitter, the real pg-catalog-05 writer, and this reader end to end, and
-// pins the resulting page entry to the literals below. The break-one control
-// at the end proves the comparison is load-bearing: the same assertion must
-// reject a perturbed expectation.
 func TestSemanticInventoryEmitterWriterReaderGoldenAnchor(t *testing.T) {
 	s := newPgcat06Service(t)
 	anchorSeed := pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation)
@@ -905,10 +788,6 @@ func TestSemanticInventoryEmitterWriterReaderGoldenAnchor(t *testing.T) {
 	if len(contributions) != 1 {
 		t.Fatalf("emitter produced %d contributions, want exactly 1", len(contributions))
 	}
-	// The emitter's contribution carries the same pinned concept/binding
-	// identity the pg-catalog-05 golden anchor pins for this payload
-	// (concept and binding digests exclude project/scope, so the literals
-	// carry over unchanged).
 	if contributions[0].ConceptID != "ec572479ea77eabd0c8014f33810f458e9f009a27adb8fd77fb9fab3121ad62f" ||
 		contributions[0].BindingID != "b498c06c58e286f4cc9ceb74942c8a7872ad49b0220e65f0ea754fd936f4a53d" {
 		t.Fatalf("emitter concept/binding drifted from the pinned anchor: %s/%s",
@@ -934,8 +813,6 @@ func TestSemanticInventoryEmitterWriterReaderGoldenAnchor(t *testing.T) {
 		ConceptID: "ec572479ea77eabd0c8014f33810f458e9f009a27adb8fd77fb9fab3121ad62f",
 		BindingID: "b498c06c58e286f4cc9ceb74942c8a7872ad49b0220e65f0ea754fd936f4a53d",
 		Observation: catalog.SemanticObservation{
-			// The page labels the aggregate with the build's schema, and
-			// the identity's single population keeps truncation false.
 			SchemaVersion: catalog.SemanticObservationSchemaVersion,
 			Source: catalog.SemanticObservationSource{
 				Canonical: "Observation.code.coding[]",
@@ -964,8 +841,6 @@ func TestSemanticInventoryEmitterWriterReaderGoldenAnchor(t *testing.T) {
 	if !reflect.DeepEqual(page.Entries[0], want) {
 		t.Fatalf("anchor page entry =\n%#v\nwant\n%#v", page.Entries[0], want)
 	}
-	// Break-one control: the same comparison must reject a perturbed
-	// expectation, so the literal above cannot pass vacuously.
 	perturbed := want
 	perturbed.Observation.Population = 2
 	if reflect.DeepEqual(page.Entries[0], perturbed) {
@@ -978,10 +853,6 @@ func TestSemanticInventoryEmitterWriterReaderGoldenAnchor(t *testing.T) {
 	}
 }
 
-// TestSemanticInventoryPageExactGolden pins exact-mode ordering, per-identity
-// aggregation (population SUM, example MIN that skips the typed-empty
-// column, truncation rules, units min/max), foreign-scope exclusion, the
-// restricted-empty result, and the restricted build-internals scrub.
 func TestSemanticInventoryPageExactGolden(t *testing.T) {
 	s := newPgcat06Service(t)
 	build := s.seedBuild(t, func() buildSeed {
@@ -1021,21 +892,12 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 		return o
 	}
 
-	// cpt-alpha: two contributors, one with an empty example column that
-	// must not erase the real example (the Arango encoder omits the
-	// attribute entirely, so MIN must skip the typed empty).
 	put("src-1", 0, "bnd-alpha", "cpt-alpha", pgcat06PathGlucose, "ex-alpha-1", alpha(3))
 	put("src-2", 0, "bnd-alpha", "cpt-alpha", pgcat06PathGlucose, "", alpha(2))
-	// cpt-beta lives on a second auth path only.
 	put("src-3", 0, "bnd-alpha", "cpt-beta", pgcat06PathVisit, "beta-ex", beta())
-	// cpt-gamma: two rows with different observed units exercise the
-	// min/max truncation rule.
 	put("src-4", 0, "bnd-beta", "cpt-gamma", pgcat06PathGlucose, "g1", gammaUnits([]string{"kg"}))
 	put("src-4", 1, "bnd-beta", "cpt-gamma", pgcat06PathGlucose, "g2", gammaUnits([]string{"g"}))
 
-	// Foreign-scope rows that must never appear or perturb aggregates:
-	// wrong project, wrong generation, wrong build_id, wrong source_kind,
-	// and (below) a path outside a restricted grant.
 	foreign := contributionSeed{
 		Project: "cat06-other", Generation: pgcat06Generation, BuildID: buildID,
 		SourceKind: catalog.SemanticInventorySourceFile, AuthResourcePath: pgcat06PathGlucose,
@@ -1080,9 +942,6 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 		}
 	}
 
-	// Unrestricted page: three identities in byte order with full
-	// aggregation, foreign rows excluded, secret path included in the
-	// cpt-alpha aggregate.
 	opts := baseOpts()
 	opts.AuthResourcePathsUnrestricted = pgcat06Unrestricted(true)
 	page, err := repo.PageSemanticInventory(s.ctx, opts)
@@ -1092,10 +951,6 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 	if len(page.Entries) != 3 {
 		t.Fatalf("unrestricted page returned %d entries: %+v", len(page.Entries), page.Entries)
 	}
-	// Unrestricted authorizes every path, so the secret contributor joins
-	// the aggregate: population 3+2+4; MIN(example) skips the typed-empty
-	// column ("secret-ex" also loses the byte-order MIN); population > 1
-	// truncates even though no stored flag says so.
 	wantPopulation := int64(3 + 2 + 4)
 	got := page.Entries[0]
 	if got.ConceptID != "cpt-alpha" || got.BindingID != "bnd-alpha" {
@@ -1122,15 +977,12 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 	if page.NextCursor != "" {
 		t.Fatalf("short page must not carry a cursor, got %q", page.NextCursor)
 	}
-	// The build internals are visible to an unrestricted caller verbatim.
 	if page.Build.LeaseToken != "lease-live" || page.Build.LeaseExpiresAt != 1_700_000_000_000 ||
 		page.Build.ScannedResources != 7 || page.Build.AuthResourcePath != "fhir/secret/internal" ||
 		!reflect.DeepEqual(page.Build.Diagnostics, []string{"stale-diagnostic"}) {
 		t.Fatalf("unrestricted build internals = %+v", page.Build)
 	}
 
-	// Restricted to the glucose path: cpt-beta (visit path only) drops out
-	// and the secret contributor is excluded from the cpt-alpha aggregate.
 	opts = baseOpts()
 	opts.AuthResourcePathsUnrestricted = pgcat06Unrestricted(false)
 	opts.AuthResourcePaths = []string{pgcat06PathGlucose}
@@ -1152,8 +1004,6 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 		t.Fatalf("restricted page lost the build identity/state: %+v", page.Build)
 	}
 
-	// Restricted-empty: a matching-nothing path list returns an explicit
-	// empty page, not an error and not an unknown state.
 	opts = baseOpts()
 	opts.AuthResourcePathsUnrestricted = pgcat06Unrestricted(false)
 	opts.AuthResourcePaths = []string{pgcat06PathNone}
@@ -1166,8 +1016,6 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 		t.Fatalf("restricted-empty page = %+v, want explicit non-nil empty page with the completed build", page)
 	}
 
-	// Mutation probe: adding one in-scope contributor to cpt-gamma must
-	// move exactly its population and nothing else.
 	put("src-5", 0, "bnd-beta", "cpt-gamma", pgcat06PathGlucose, "g3", gammaUnits([]string{"g"}))
 	opts = baseOpts()
 	opts.AuthResourcePathsUnrestricted = pgcat06Unrestricted(true)
@@ -1180,10 +1028,6 @@ func TestSemanticInventoryPageExactGolden(t *testing.T) {
 	}
 }
 
-// Family-scope fixtures for the binding below. The escaped pair forces the
-// family selection string through JSON escaping: the selection bytes the
-// cursor carries are only observable by decoding the cursor, and they are
-// pinned literally.
 const (
 	pgcat06EscapedPath      = "a\"b\\c\t\u001f"
 	pgcat06EscapedSystem    = "urn:fam\"x"
@@ -1211,12 +1055,6 @@ func pgcat06PlainObs(population int64) catalog.SemanticObservation {
 	return o
 }
 
-// TestSemanticInventoryPageFamilyGolden pins family-mode grouping, the
-// byte-ordered interleaving of family and concept identities, the JSON
-// escape set inside the cursor-carried selection bytes, the limit+1 cursor
-// rule across both lists, continuation equality with the unpaged read, and
-// the category predicate's live participation (drop the extension leaf and
-// the escaped-invisible decoy row must merge into its twin family).
 func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -1236,9 +1074,6 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 	put("f-2", 0, "cpt-fam-nv-a", "code.coding[]", "urn:family-a", "", "", pgcat06FamilyObs("code.coding[]", "urn:family-a", "", 1))
 	put("f-2", 1, "cpt-fam-nv-b", "code.coding[]", "urn:family-a", "", "", pgcat06FamilyObs("code.coding[]", "urn:family-a", "", 1))
 	put("f-3", 0, "cpt-fam-esc", pgcat06EscapedPath, pgcat06EscapedSystem, "v1", "esc-ex", pgcat06FamilyObs(pgcat06EscapedPath, pgcat06EscapedSystem, "v1", 1))
-	// Plain identities, including the two decoys that must NOT become
-	// families (extension path set; empty system) and the concept whose
-	// literal name starts with "family:" but is not a category row.
 	put("p-1", 0, "0-numeric", "value.coding[]", "urn:sys-a", "", "", pgcat06PlainObs(1))
 	put("p-2", 0, "cpt-fam-ext", "code.coding[]", "urn:family-a", "v1", "ext-ex", func() catalog.SemanticObservation {
 		o := pgcat06FamilyObs("code.coding[]", "urn:family-a", "v1", 4)
@@ -1269,9 +1104,6 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 	if len(page.Families) != 3 {
 		t.Fatalf("family page returned %d families: %+v", len(page.Families), page.Families)
 	}
-	// Byte-ordered identities: 0x30 "0-numeric" < "cpt-*" < "family:[..."
-	// (escaped family first: 'a' < 'c' in the second element; versionless
-	// before "v1": '"' (0x22) < 'v' (0x76)) < "family:zz-plain" ('[' < 'z').
 	gotOrder := []string{
 		page.Entries[0].ConceptID, page.Entries[1].ConceptID,
 		page.Entries[2].ConceptID, page.Entries[3].ConceptID,
@@ -1286,8 +1118,6 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 		t.Fatalf("interleaved identity order = %v, want %v", gotOrder, wantOrder)
 	}
 
-	// The escaped family, pinned whole — including the JSON escape set
-	// (quote, backslash, \t, \u001f) inside its aggregate-derived identity.
 	escaped := catalog.SemanticInventoryFamily{
 		SemanticInventoryFamilyReference: catalog.SemanticInventoryFamilyReference{
 			FamilyID:  "f32acc4bd611d5349f64539c4280579b644d414660bb37c6d0a42a239801dd58",
@@ -1333,16 +1163,11 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 	if !reflect.DeepEqual(page.Families[2], versioned) {
 		t.Fatalf("versioned family =\n%#v\nwant\n%#v", page.Families[2], versioned)
 	}
-	// The extension decoy keeps its array verbatim in its entry.
 	if !reflect.DeepEqual(page.Entries[1].Observation.ExtensionURLPath, []string{"http://ext"}) ||
 		page.Entries[1].Observation.Population != 4 {
 		t.Fatalf("decoy entry = %+v", page.Entries[1])
 	}
 
-	// limit-1 paging walks the exact interleaved identity sequence through
-	// decoded cursors, pinning the escaped selection bytes the cursor
-	// carries (otherwise unobservable), and the full walk equals the
-	// unpaged read.
 	var walkedEntries []catalog.SemanticInventoryEntry
 	var walkedFamilies []catalog.SemanticInventoryFamily
 	cursor := ""
@@ -1364,8 +1189,6 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 		walkedEntries = append(walkedEntries, small.Entries...)
 		walkedFamilies = append(walkedFamilies, small.Families...)
 		if small.NextCursor == "" {
-			// The final page carries no cursor; record its identity from
-			// the returned row so the walk covers every identity once.
 			if len(small.Entries) == 1 {
 				identitySequence = append(identitySequence, small.Entries[0].ConceptID)
 			} else {
@@ -1397,24 +1220,16 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 		t.Fatalf("paged walk diverged from the unpaged read:\n%s\nvs\n%s", pageWitness(t, walked), pageWitness(t, full))
 	}
 
-	// Exact mode over the same rows: every concept stays separate, no
-	// families are emitted. The family split must be mode-local.
 	exactOpts := opts
 	exactOpts.SelectionMode = catalog.SemanticInventoryExactConcept
 	exact, err := repo.PageSemanticInventory(s.ctx, exactOpts)
 	if err != nil {
 		s.fail("exact page over family fixtures", err)
 	}
-	// Ten distinct concepts: the family grouping only merges in family
-	// mode, so every seeded concept is its own entry here.
 	if len(exact.Entries) != 10 || exact.Families != nil {
 		t.Fatalf("exact mode over family fixtures returned %d entries, %d families", len(exact.Entries), len(exact.Families))
 	}
 
-	// Guard-drop re-probe: clearing the decoy's extension leaf makes it a
-	// category row; it must merge into its twin family identity (same
-	// tuple), proving the extension predicate participates live. Then the
-	// leaf is restored and the original page witness returns byte-identical.
 	origWitness := pageWitness(t, page)
 	s.exec(t, "UPDATE "+s.contributionFQN()+
 		" SET observation = observation - 'extension_url_path' WHERE concept_id = 'cpt-fam-ext'")
@@ -1440,16 +1255,11 @@ func TestSemanticInventoryPageFamilyGolden(t *testing.T) {
 	}
 }
 
-// escapedSelectionOf re-derives the reference selection string from a
-// returned family so the cursor pin cannot be checked against a stale
-// constant alone.
 func escapedSelectionOf(family catalog.SemanticInventoryFamily) string {
 	return `family:[` + pgcat06JSONString(family.Source.Type) + "," + pgcat06JSONString(family.SourcePath) + "," +
 		pgcat06JSONString(family.System) + "," + pgcat06JSONString(family.Version) + `]`
 }
 
-// pgcat06JSONString renders one string exactly as the pinned PostgreSQL
-// jsonb text form does for the fixture's escape set.
 func pgcat06JSONString(value string) string {
 	var sb strings.Builder
 	sb.WriteByte('"')
@@ -1477,15 +1287,6 @@ func pgcat06JSONString(value string) string {
 	return sb.String()
 }
 
-// ---------------------------------------------------------------------------
-// Selection resolution.
-// ---------------------------------------------------------------------------
-
-// TestSemanticInventoryResolveExactGolden pins request-order results, the
-// least-contribution_key tie-break, authorization-scoped selection (the
-// lowest key sits on a path outside the restricted grant, so restricted and
-// unrestricted callers legitimately resolve DIFFERENT rows for one
-// reference), foreign-scope exclusion, and unmatched-reference drops.
 func TestSemanticInventoryResolveExactGolden(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -1509,8 +1310,6 @@ func TestSemanticInventoryResolveExactGolden(t *testing.T) {
 	lowObs := obsAt("low", "SecretLow", 1)
 	highObs := obsAt("high", "GlucoseHigh", 2)
 	foreignObs := obsAt("foreign", "ForeignWinsIfLeaked", 99)
-	// The lowest contribution_key row lives on the secret path; the
-	// restricted grant therefore resolves the OTHER row.
 	seed := func(key, path, example string, observation catalog.SemanticObservation, sourceID string) {
 		s.seedContribution(t, contributionSeed{
 			Key: key, Project: pgcat06Project, Generation: pgcat06Generation, BuildID: buildID,
@@ -1522,7 +1321,6 @@ func TestSemanticInventoryResolveExactGolden(t *testing.T) {
 	}
 	seed(low, pgcat06PathSecret, "low-ex", lowObs, "res-low")
 	seed(high, pgcat06PathGlucose, "high-ex", highObs, "res-high")
-	// A foreign-generation row with an even lower key must never surface.
 	s.seedContribution(t, contributionSeed{
 		Key: pgcat06Hex64("resolve-foreign"), Project: pgcat06Project, Generation: "gen-2", BuildID: buildID,
 		SourceKind: catalog.SemanticInventorySourceFile, AuthResourcePath: pgcat06PathGlucose,
@@ -1575,19 +1373,12 @@ func TestSemanticInventoryResolveExactGolden(t *testing.T) {
 		t.Fatalf("resolve must return the fully identified build: %+v", unrestricted.Build)
 	}
 
-	// An all-unmatched request resolves to an explicit empty result, not an
-	// error, with the completed build attached.
 	empty := request(true, nil, catalog.SemanticInventoryReference{ConceptID: "cpt-none", BindingID: "bnd-none"})
 	if empty.Entries == nil || len(empty.Entries) != 0 || empty.State != catalog.SemanticInventoryComplete {
 		t.Fatalf("all-unmatched resolve = %+v, want non-nil empty entries with the completed build", empty)
 	}
 }
 
-// TestSemanticInventoryResolveFamilyGolden pins family resolution: exact
-// tuple matching (the JSON-null version leaf is neither versioned nor
-// versionless), category/extension predicates, the build source-kind guard,
-// authorization-scoped aggregates, request-order output, unmatched drops,
-// and a live mutation probe on the JSON-null guard.
 func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -1617,8 +1408,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 	put("r-2", "cpt-rv2-b", "code.coding", fam("code.coding", "urn:sys-f", "v2", 2), pgcat06PathVisit)
 	put("r-3", "cpt-rv2-c", "code.coding", fam("code.coding", "urn:sys-f", "v2", 100), pgcat06PathSecret)
 	put("r-4", "cpt-rnv-a", "code.coding", fam("code.coding", "urn:sys-f", "", 5), pgcat06PathGlucose)
-	// Decoys that must never match: extension path, wrong rule hint,
-	// observation source type disagrees with the requested resource type.
 	put("r-5", "cpt-rv2-ext", "code.coding", func() catalog.SemanticObservation {
 		o := fam("code.coding", "urn:sys-f", "v2", 77)
 		o.ExtensionURLPath = []string{"http://ext"}
@@ -1634,8 +1423,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 		o.Source.Type = "Encounter"
 		return o
 	}(), pgcat06PathGlucose)
-	// The JSON-null version leaf: absent reads as versionless, but an
-	// explicit null is a value and must match neither selection.
 	s.seedContribution(t, contributionSeed{
 		Project: pgcat06Project, Generation: pgcat06Generation, BuildID: buildID,
 		SourceKind: catalog.SemanticInventorySourceFile, AuthResourcePath: pgcat06PathGlucose,
@@ -1643,7 +1430,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 		ConceptID: "cpt-rnull", BindingID: "bnd-resolve-family",
 		Observation: `{"source":{"type":"Observation","path":"code.coding"},"key":{"selector":"code.coding[]","system":"urn:sys-f","version":null},"rule_hint":"CODED_CONCEPT_V1","population":40}`,
 	})
-	// Foreign-generation twin.
 	s.seedContribution(t, contributionSeed{
 		Project: pgcat06Project, Generation: "gen-2", BuildID: buildID,
 		SourceKind: catalog.SemanticInventorySourceFile, AuthResourcePath: pgcat06PathGlucose,
@@ -1683,7 +1469,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 	if err != nil {
 		s.fail("resolve families", err)
 	}
-	// Request order survives; unmatched and source-kind-mismatched drop.
 	if len(result.Families) != 2 ||
 		result.Families[0].FamilyID != nvRef.FamilyID || result.Families[1].FamilyID != v2Ref.FamilyID {
 		t.Fatalf("family resolve = %+v, want [versionless, v2] in request order", result.Families)
@@ -1692,8 +1477,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 		t.Fatalf("restricted family populations = %d, %d; want 5 and 1 (visit/secret rows excluded)",
 			result.Families[0].Population, result.Families[1].Population)
 	}
-	// The requested selector fields are authoritative; the aggregate
-	// supplies observed payload values only.
 	want := catalog.SemanticInventoryFamily{
 		SemanticInventoryFamilyReference: v2Ref,
 		Source: catalog.SemanticObservationSource{
@@ -1728,9 +1511,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 		t.Fatalf("unrestricted v2 family population = %+v, want 103 (1+2+100 across all paths)", unrestrictedResult.Families)
 	}
 
-	// Mutation probe on the JSON-null guard: deleting the null version
-	// leaf turns the row versionless (population 5+40); spelling it null
-	// again removes it. The null-vs-absent distinction is load-bearing.
 	s.exec(t, "UPDATE "+s.contributionFQN()+" SET observation = observation #- '{key,version}' WHERE source_id = 'r-8'")
 	nullProbe, err := repo.ResolveSemanticInventorySelections(s.ctx, catalog.SemanticInventoryResolveOptions{
 		Project: pgcat06Project, DatasetGeneration: pgcat06Generation,
@@ -1741,8 +1521,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 	if err != nil {
 		s.fail("resolve families after null-leaf mutation", err)
 	}
-	// Key deleted entirely: system becomes absent, so the row no longer
-	// even names the family tuple — population stays 5.
 	if len(nullProbe.Families) != 1 || nullProbe.Families[0].Population != 45 {
 		t.Fatalf("absent-version row did not join the versionless family: %+v", nullProbe.Families)
 	}
@@ -1762,9 +1540,6 @@ func TestSemanticInventoryResolveFamilyGolden(t *testing.T) {
 	}
 }
 
-// TestSemanticInventoryStorageStates pins the three storage shapes the
-// Arango adapter distinguishes, and that none of them is a disguised empty
-// success on the resolve path.
 func TestSemanticInventoryStorageStates(t *testing.T) {
 	s := newPgcat06Service(t)
 	repo := s.readRepository(t)
@@ -1780,8 +1555,6 @@ func TestSemanticInventoryStorageStates(t *testing.T) {
 		}
 	}
 
-	// Unmigrated-shape unknown: a schema with NO build table reads as the
-	// unknown-state empty page on both paths.
 	if _, err := s.iso.Exec(s.ctx, "DROP TABLE "+s.buildFQN()+" CASCADE"); err != nil {
 		s.fail("drop build table", err)
 	}
@@ -1801,12 +1574,6 @@ func TestSemanticInventoryStorageStates(t *testing.T) {
 		t.Fatalf("resolve without build table = %+v, want unknown-state empty", result)
 	}
 
-	// MigrateSchema is ledger-gated and will not re-create a dropped table
-	// while its version is recorded: delete the ledger rows at and above the
-	// dropped migration's version so the idempotent files re-apply. Then
-	// re-migrate; seed a complete build with an EMPTY contribution table —
-	// page returns a complete-state empty page, resolve names the missing
-	// storage rather than reporting an empty result.
 	if _, err := s.iso.Exec(s.ctx, "DELETE FROM "+s.ledgerFQN()+" WHERE version >= 6"); err != nil {
 		s.fail("reset ledger below the build migration", err)
 	}
@@ -1844,15 +1611,6 @@ func TestSemanticInventoryStorageStates(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Named boundary refusals, races, and crash seams.
-// ---------------------------------------------------------------------------
-
-// TestSemanticInventoryEntryIndexBoundaryRefusesByName pins that a build
-// claiming a materialized entry index is refused by name on both read paths
-// even though contribution rows exist that the reader could otherwise
-// serve, and that the refusal disappears when the version drops back below
-// the boundary (guard non-vacuity).
 func TestSemanticInventoryEntryIndexBoundaryRefusesByName(t *testing.T) {
 	s := newPgcat06Service(t)
 	seed := pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation)
@@ -1890,8 +1648,6 @@ func TestSemanticInventoryEntryIndexBoundaryRefusesByName(t *testing.T) {
 		t.Fatalf("resolve at the entry-index boundary error = %v, want the named boundary error", err)
 	}
 
-	// Guard drop: below the boundary the very same data serves normally —
-	// the refusal above was not vacuous over an empty page.
 	s.exec(t, "UPDATE "+s.buildFQN()+" SET entry_index_version = $1", catalog.SemanticInventoryEntryIndexVersion-1)
 	page, err := repo.PageSemanticInventory(s.ctx, pageOpts)
 	if err != nil || len(page.Entries) != 1 || page.Entries[0].ConceptID != "cpt-idx" {
@@ -1906,8 +1662,6 @@ func TestSemanticInventoryEntryIndexBoundaryRefusesByName(t *testing.T) {
 	}
 }
 
-// pgcat06ContributionInsert renders the single-row contribution insert so
-// the race tests can run it on their own transaction connections.
 func pgcat06ContributionInsert(fqn string, seed contributionSeed) (string, []any) {
 	if seed.Key == "" {
 		seed.Key = pgcat06Hex64(seed.Project + "/" + seed.Generation + "/" + seed.BuildID + "/" +
@@ -1922,13 +1676,6 @@ func pgcat06ContributionInsert(fqn string, seed contributionSeed) (string, []any
 			seed.ConceptID, seed.BindingID, seed.Example, pgcat06Hex64("digest/" + seed.Key), seed.Observation}
 }
 
-// TestSemanticInventoryTwoConnectionReadConsistency runs 10 rounds against
-// two dedicated single-connection readers and a dedicated writer. Every
-// round re-witnesses three distinct pg_backend_pid values, and the readers'
-// page and resolve witnesses must be byte-identical to each other and to
-// the pinned baseline while the writer's transaction is open — including
-// across aborts — and must both flip to the committed witness at the commit
-// instant.
 func TestSemanticInventoryTwoConnectionReadConsistency(t *testing.T) {
 	const rounds = 10
 	s := newPgcat06Service(t)
@@ -1977,7 +1724,6 @@ func TestSemanticInventoryTwoConnectionReadConsistency(t *testing.T) {
 
 	for round := 0; round < rounds; round++ {
 		commit := round >= rounds/2
-		// Re-witness distinct live backends every round.
 		for _, pair := range []struct {
 			label  string
 			client *storepostgres.Client
@@ -2006,8 +1752,6 @@ func TestSemanticInventoryTwoConnectionReadConsistency(t *testing.T) {
 			conn.Release()
 			s.fail("insert inside writer transaction", err)
 		}
-		// In-flight: both readers still see exactly the baseline, byte for
-		// byte, from two different backends.
 		for name, repo := range map[string]*SemanticReadRepository{"A": repoA, "B": repoB} {
 			page, err := repo.PageSemanticInventory(s.ctx, pageOpts)
 			if err != nil {
@@ -2070,16 +1814,11 @@ func TestSemanticInventoryTwoConnectionReadConsistency(t *testing.T) {
 				t.Fatalf("round %d: aborted write leaked into the readers' witness: %s", round, w)
 			}
 		} else {
-			// Committed rows join the steady state both readers must agree
-			// on in every later round.
 			expectedPageWitness = pageWitness(t, pageA)
 		}
 	}
 }
 
-// pgcat06SeamSource wraps the real connection source and fires a one-shot
-// mutation immediately before the nth Acquire, placing a DDL crash exactly
-// between two statements of one repository call.
 type pgcat06SeamSource struct {
 	inner  storepostgres.ConnSource
 	mu     sync.Mutex
@@ -2108,13 +1847,6 @@ func pgcat06PgErrorCode(err error) string {
 	return ""
 }
 
-// TestSemanticInventoryCrashSeams injects real backend crashes at the read
-// path's durability seams: a lock-holding peer terminated while a reader is
-// blocked on its lock (the reader must complete, and the crashed pool must
-// heal on a new distinct backend), a blocked reader terminated mid-statement
-// (the repository must recover on a fresh backend), and the contribution
-// table dropped between the reader's existence check and its page/resolve
-// statement (a named 42P01 failure, never a disguised empty page).
 func TestSemanticInventoryCrashSeams(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -2174,7 +1906,6 @@ func TestSemanticInventoryCrashSeams(t *testing.T) {
 		}
 	}
 
-	// Seam A: the reader outlives the crash of the peer holding its lock.
 	locker, lockerPid := s.openDedicatedClient(t, "lock-holder")
 	lockConn, err := locker.Acquire(s.ctx)
 	if err != nil {
@@ -2212,8 +1943,6 @@ func TestSemanticInventoryCrashSeams(t *testing.T) {
 		t.Fatalf("crashed lock-holder pool reused backend pid %d", lockerPid)
 	}
 
-	// Seam B: a reader terminated while blocked recovers on a fresh
-	// backend and the same repository serves again.
 	lockConn, err = locker.Acquire(s.ctx)
 	if err != nil {
 		s.fail("re-acquire lock holder", err)
@@ -2258,9 +1987,6 @@ func TestSemanticInventoryCrashSeams(t *testing.T) {
 		t.Fatalf("recovered reader returned the wrong page: %s", w)
 	}
 
-	// Seam C: the contribution table vanishes between the reader's
-	// existence check and its page statement — the statement must fail
-	// with the named undefined-table error, not return an empty page.
 	dropSeam := func() {
 		if _, err := s.iso.Exec(s.ctx, "DROP TABLE "+s.contributionFQN()+" CASCADE"); err != nil {
 			s.fail("drop contribution table at seam", err)
@@ -2309,15 +2035,6 @@ func TestSemanticInventoryCrashSeams(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Plan-shape and storage contract evidence.
-// ---------------------------------------------------------------------------
-
-// TestSemanticInventoryPlanShapeEvidence seeds a table large enough that a
-// sequential scan is a real cost and captures EXPLAIN output for the page
-// and both resolve statements. This is plan-shape evidence that the
-// statements can use the migration-000009 target-contract indexes — not a
-// speed claim.
 func TestSemanticInventoryPlanShapeEvidence(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -2393,10 +2110,6 @@ func TestSemanticInventoryPlanShapeEvidence(t *testing.T) {
 	}
 }
 
-// TestSemanticInventoryStorageContract pins the target-contract indexes the
-// reads rely on (names and column order from migration 000009, exactly as
-// shipped — no new migration and no extra index is introduced by this
-// slice) and that MigrateSchema left a contiguous ledger.
 func TestSemanticInventoryStorageContract(t *testing.T) {
 	s := newPgcat06Service(t)
 	var indexDef string
@@ -2445,12 +2158,6 @@ func TestSemanticInventoryStorageContract(t *testing.T) {
 		t.Fatalf("the pg-catalog-05 contribution migration (version 9) is not applied: %v", ledgerVersions)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Fixture audit. Runs last (TestZZ) and is ownership-scoped: every resource
-// this file created is checked by exact name, and no name under this file's
-// private prefix survives anywhere. Sibling prefixes are never scanned.
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverSemanticInventoryPageFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
@@ -2501,12 +2208,6 @@ func TestZZZeroLeftoverSemanticInventoryPageFixtures(t *testing.T) {
 	}
 }
 
-// TestSemanticInventoryPageAggregationHonorsResourceTypeFilter pins the
-// reference's aggregation-stage resource-type re-filter: rows that share an
-// identity but carry a different resource_type column (the schema permits
-// the mismatch; only the emitters keep the pair in step) are excluded from
-// population and every MIN when a resource-type filter is set, and are
-// folded in when it is not — the exclusion is not vacuous.
 func TestSemanticInventoryPageAggregationHonorsResourceTypeFilter(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -2520,10 +2221,8 @@ func TestSemanticInventoryPageAggregationHonorsResourceTypeFilter(t *testing.T) 
 			Observation: pgcat06ObsJSON(t, observation),
 		})
 	}
-	// Same (binding, concept) identity, mismatched resource_type column.
 	put("rt-1", "Observation", "bnd-rt", "cpt-rt", pgcat06Observation(1))
 	put("rt-2", "Encounter", "bnd-rt", "cpt-rt", pgcat06Observation(99))
-	// Category twins for the family-mode half of the same contract.
 	fam := func(population int64) catalog.SemanticObservation {
 		o := pgcat06FamilyObs("code.coding[]", "urn:rt-family", "v1", population)
 		return o
@@ -2561,9 +2260,6 @@ func TestSemanticInventoryPageAggregationHonorsResourceTypeFilter(t *testing.T) 
 			t.Fatalf("filtered %s page = %+v, want cpt-rt alone with population 1 (Encounter-column sibling excluded)",
 				tc.label, page.Entries)
 		}
-		// Guard drop: with the filter absent the mismatched sibling folds
-		// in, so the exclusion above reflects the filter, not an empty
-		// aggregate.
 		unfiltered := filtered
 		unfiltered.ResourceType = ""
 		page, err = repo.PageSemanticInventory(s.ctx, unfiltered)
@@ -2580,12 +2276,6 @@ func TestSemanticInventoryPageAggregationHonorsResourceTypeFilter(t *testing.T) 
 	}
 }
 
-// TestSemanticInventoryPageQueryFoldingGolden pins the search-fold parity
-// the reference's CONCAT_SEPARATOR null-skipping gives: a phrase whose two
-// words land in tokens separated by an absent leaf (value.selector and
-// owning_scope missing, routine for the omitempty encoder) must match. An
-// implementation that COALESCEs absent leaves to empty strings inserts
-// extra spaces and silently misses this row.
 func TestSemanticInventoryPageQueryFoldingGolden(t *testing.T) {
 	s := newPgcat06Service(t)
 	s.seedBuild(t, pgcat06DefaultBuildSeed(pgcat06Project, pgcat06Generation))
@@ -2621,9 +2311,6 @@ func TestSemanticInventoryPageQueryFoldingGolden(t *testing.T) {
 		}
 		return len(page.Entries)
 	}
-	// "beta" is the tail of source.path; "gamma" leads key.system. The
-	// reference folds them into one single-spaced token run because the
-	// value.selector and owning_scope slots are absent, not empty.
 	if got := search("beta gamma"); got != 1 {
 		t.Fatalf("phrase spanning absent leaves matched %d entries, want 1", got)
 	}
@@ -2635,9 +2322,6 @@ func TestSemanticInventoryPageQueryFoldingGolden(t *testing.T) {
 	}
 }
 
-// pgcat05EmitContribution duplicated from semantic_contribution_test.go
-// (that file moved to the external test package to break the
-// ingest-driven backfill witness's import cycle with the factory).
 func pgcat05EmitContribution(t *testing.T, project, generation, authPath, resourceType, sourceID, payload string) []catalog.SemanticInventoryContribution {
 	t.Helper()
 	var decoded map[string]any
@@ -2653,7 +2337,3 @@ func pgcat05EmitContribution(t *testing.T, project, generation, authPath, resour
 	}
 	return out
 }
-
-// pgcat05GoldensBatch rebuilds the golden contribution batch through the
-// real emitter, so test writes always carry genuine emitter output while
-// every expected stored value is compared against the pinned literals.

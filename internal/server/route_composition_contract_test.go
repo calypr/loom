@@ -1,11 +1,5 @@
 package server
 
-// Unit B tests for the typed route composition contract
-// (arch-backend-08, backend-architecture-coverage-20261109-v1 amendment):
-// the optional ...any route-dependency locator is replaced by named typed
-// fields, the scoped-auth policy is explicit per auth mode, and incomplete
-// scoped composition is refused before any route installs.
-
 import (
 	"net/http"
 	"net/http/httptest"
@@ -61,11 +55,6 @@ func TestRegisterRoutesRefusesIncompleteScopedCompositionBeforeInstall(t *testin
 	if !strings.Contains(err.Error(), "requires its scope resolver") {
 		t.Fatalf("refusal must name the missing resolver, got %v", err)
 	}
-	// The refusal must reach the caller as a startup failure, not a panic
-	// or a half-installed route table: the app must still answer its
-	// dependency-free liveness route, and no generated route may have been
-	// registered -- the load route a successful composition would have
-	// installed must 404 rather than serve.
 	if _, status := server.Liveness(nil); status != 200 {
 		t.Fatalf("liveness must stay dependency-free, got %d", status)
 	}
@@ -87,7 +76,6 @@ func TestRegisterRoutesUnsetPolicyIsRefused(t *testing.T) {
 }
 
 func TestWireAuthScopePoliciesAreExplicit(t *testing.T) {
-	// no-auth: explicit unrestricted.
 	noAuth, err := wireAuth(Config{}, true, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +83,6 @@ func TestWireAuthScopePoliciesAreExplicit(t *testing.T) {
 	if noAuth.scopePolicy.mode != routeScopeUnrestricted || noAuth.scopePolicy.resolverOrNil() != nil {
 		t.Fatalf("no-auth must be explicitly unrestricted, got %+v", noAuth.scopePolicy)
 	}
-	// basic: explicit unrestricted, no resolver.
 	basic, err := wireAuth(Config{Auth: AuthConfig{Mode: "basic", Basic: BasicAuthConfig{Username: "u", Password: "p"}}}, false, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +90,6 @@ func TestWireAuthScopePoliciesAreExplicit(t *testing.T) {
 	if basic.scopePolicy.mode != routeScopeUnrestricted || basic.scopePolicy.resolverOrNil() != nil {
 		t.Fatalf("basic must be explicitly unrestricted, got %+v", basic.scopePolicy)
 	}
-	// calypr: scoped policy carrying its required resolver.
 	calypr, err := wireAuth(Config{Auth: AuthConfig{Mode: "calypr", Calypr: CalyprAuthConfig{TrustedIssuer: "https://issuer.example"}}}, false, nil)
 	if err != nil {
 		t.Fatal(err)

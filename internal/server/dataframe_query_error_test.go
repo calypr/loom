@@ -1,13 +1,5 @@
 package server
 
-// The 14-branch vendor classifier moved verbatim into the ArangoDB adapter
-// (internal/backends/arango/internal/store/errors.go, pinned by the golden table in
-// internal/backends/arango/internal/store/errors_test.go). These tests keep the composition
-// side of the boundary: adapter-classified errors must route exactly as the
-// classifier's output did, unknown errors pass through, and the neutral
-// execution budget is wired into the ArangoDB adapter mechanism by
-// configuredAQLSourceRows.
-
 import (
 	"context"
 	"errors"
@@ -139,7 +131,6 @@ func TestPreserveConfiguredQueryErrorLeavesOtherFailuresUntouched(t *testing.T) 
 	if got := preserveConfiguredQueryError(want); !errors.Is(got, want) || got != want {
 		t.Fatalf("preserveConfiguredQueryError() = %v, want original error", got)
 	}
-	// An unrecognized ASSERT must stay exactly as the adapter returned it.
 	unrecognized := shared.ArangoError{
 		HasError: true, Code: 500, ErrorNum: shared.ErrQueryUserAssert,
 		ErrorMessage: "AQL: row expansion construction expand_tags has no items for row row-17 (while executing)",
@@ -186,8 +177,6 @@ func TestConfiguredAQLQueryRowsWiresExecutionBudgetIntoArangoAdapter(t *testing.
 	}
 }
 
-// Golden diagnostic rendering: the exact server-side cause strings the
-// composition logger produced before the move, now supplied by the adapter.
 func TestDiagnosticErrorCauseGoldenArangoRenderings(t *testing.T) {
 	t.Run("value_with_message", func(t *testing.T) {
 		err := fmt.Errorf("arango query: %w", shared.ArangoError{HasError: true, Code: 500, ErrorNum: shared.ErrResourceLimit, ErrorMessage: "boom"})

@@ -11,21 +11,6 @@ import (
 	"github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// Adversarial verification for reconcileExecution (bundle_store.go:1056-1102).
-// Hypothesis: the claim (:1076) and DropTable loop (:1084) never revalidate
-// the bundle-key lease or the pointer, and the cleanup-lease renewal tick
-// (cleanupLeaseRenewal = 30s, bundle_store.go:238) can never fire inside the
-// 10s boundedBundleCleanupContext region. If the reconciler's lease dies
-// before the region arms (stall between :1058 and :1066 counts against the
-// 2-min lease but not the 10-s context), a runner retrying a retryable FAILED
-// execution (:1092) can publish between the fresh GetPointer (:1068) and the
-// drop, and the reconciler deletes the just-published tables. The fenced
-// SaveExecution (:1097) then fails AFTER the deletion.
-//
-// leaseTTL = -1s stages the identical DB state a >=leaseTTL stall produces
-// (lease doc expired at the moment the reconciler enters its region) without
-// modifying production code.
-
 type tocFakeCatalog struct {
 	mu         sync.Mutex
 	leases     map[string]tocLease
@@ -71,7 +56,6 @@ func (f *tocFakeCatalog) state(execID string) *tocExecState {
 	return s
 }
 
-// AcquireBundleLease mirrors bundle_registry.go:315.
 func (f *tocFakeCatalog) AcquireBundleLease(_ context.Context, key, owner string, expires time.Time) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -123,7 +107,6 @@ func (f *tocFakeCatalog) CompareAndSwapPointer(_ context.Context, name, expected
 	return nil
 }
 
-// PublishExecution mirrors the single-AQL guard set bundle_registry.go:287-291.
 func (f *tocFakeCatalog) PublishExecution(_ context.Context, name, expected string, execution publication.BundleExecution) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -144,7 +127,6 @@ func (f *tocFakeCatalog) PublishExecution(_ context.Context, name, expected stri
 	return nil
 }
 
-// SaveExecution mirrors the fenced save bundle_registry.go:26-47.
 func (f *tocFakeCatalog) SaveExecution(_ context.Context, execution publication.BundleExecution, fenceOwner string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -182,7 +164,6 @@ func (f *tocFakeCatalog) ListExecutions(_ context.Context, _ publication.BundleS
 	return nil, nil
 }
 
-// VisitExecutionPages feeds the stale page for the seeded state only.
 func (f *tocFakeCatalog) VisitExecutionPages(_ context.Context, state publication.BundleState, _ time.Time, _ int, visit publication.BundleExecutionPageFunc) error {
 	f.mu.Lock()
 	page := make([]publication.BundleExecution, 0, 1)
@@ -237,11 +218,6 @@ func (f *tocFakeCatalog) ReleaseExecutionReadPin(_ context.Context, execID, owne
 	return nil
 }
 
-// ClaimExecutionCleanup mirrors bundle_registry.go:414-422 exactly: no lease,
-// state, or pointer check; pins must all be expired; slot free/expired/self.
-// The injected race commits before the claim is evaluated, modelling Arango
-// ordering where the publish lands after GetPointer (:1068) but before the
-// claim query executes.
 func (f *tocFakeCatalog) ClaimExecutionCleanup(_ context.Context, execID, owner string) (bool, error) {
 	if f.race != nil && !f.raceRan {
 		f.raceRan = true
@@ -296,7 +272,6 @@ type tocFakeClickHouse struct {
 	drop  func(ctx context.Context) error
 }
 
-// DropTable mirrors driver context honoring: a dead ctx aborts the drop.
 func (c *tocFakeClickHouse) DropTable(ctx context.Context, table string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -350,16 +325,6 @@ func tocStore(t *testing.T, ch *tocFakeClickHouse, cat *tocFakeCatalog, leaseTTL
 	return s
 }
 
-// TestReconcileDropsJustPublishedBundleStagesLeaseLoss is the converted F-B1
-// TOCTOU reproduction: lease dead (stall-equivalent) + racing publish that
-// lands after the pre-claim GetPointer and before the claim. Pre-Repair-1b
-// the reconciler's one-shot guard let the drop through onto that live
-// pointer (archived CONFIRMED-BUG red; guardless copy reproduces it verbatim:
-// "deleted the physical tables of a bundle the pointer advertises as live").
-// With the post-claim live pointer re-check the drop is denied, so the test
-// now PASSES naturally and the former CONFIRMED branch is retained as the
-// regression direction: if the table ever disappears under a live pointer,
-// this fails again.
 func TestReconcileDropsJustPublishedBundleStagesLeaseLoss(t *testing.T) {
 	cat := newTOCCatalog()
 	ch := &tocFakeClickHouse{table: tocTable}
@@ -408,8 +373,6 @@ func TestReconcileDropsJustPublishedBundleStagesLeaseLoss(t *testing.T) {
 	}
 }
 
-// TestReconcileSkipsPointerNamedExecution is the control for the :1073 guard:
-// publish lands BEFORE GetPointer, reconciler must leave tables alone.
 func TestReconcileSkipsPointerNamedExecution(t *testing.T) {
 	cat := newTOCCatalog()
 	ch := &tocFakeClickHouse{table: tocTable}
@@ -426,8 +389,6 @@ func TestReconcileSkipsPointerNamedExecution(t *testing.T) {
 	}
 }
 
-// TestReconcileDropsLongStaleUnpublishedExecution is the ordinary-path control:
-// with a live lease and no pointer the reconciler must delete and fence-save.
 func TestReconcileDropsLongStaleUnpublishedExecution(t *testing.T) {
 	cat := newTOCCatalog()
 	ch := &tocFakeClickHouse{table: tocTable}

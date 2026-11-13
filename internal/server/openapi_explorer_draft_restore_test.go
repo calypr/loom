@@ -137,7 +137,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		t.Fatalf("restore idempotency status=%d body=%s", replayed.StatusCode, replayed.Body)
 	}
 
-	assertReload() // Duplicate command must not advance or overwrite the restored draft.
+	assertReload()
 
 	staleCASBody := fmt.Sprintf(`{"commandId":"stale-restore-cas","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":4,"expectedDraftDigest":%q,"commands":[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]}`,
 		authoringv2.CurrentSemanticsVersion, snapshot.Token, currentDigest, restored.PreviousDraftRevisionID)
@@ -146,7 +146,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 		t.Fatalf("stale restore CAS status=%d body=%s", staleCAS.StatusCode, staleCAS.Body)
 	}
 
-	assertReload() // A rejected compare-and-swap must leave the saved workspace intact.
+	assertReload()
 
 	store.mu.Lock()
 	key := testExplorerKey(owner.Project, owner.ExplorerID) + "\x00" + restored.PreviousDraftRevisionID
@@ -160,7 +160,7 @@ func TestRestoreDraftRevisionPublicAPIIsScopedAndReloadVisible(t *testing.T) {
 	if staleScope.StatusCode != http.StatusConflict || !strings.Contains(staleScope.Body, `"code":"STALE_DRAFT_SOURCE_CONTEXT"`) {
 		t.Fatalf("stale restore source scope status=%d body=%s", staleScope.StatusCode, staleScope.Body)
 	}
-	assertReload() // A rejected source-scope check must not write draft state.
+	assertReload()
 }
 
 func containsJSONField(raw, key, value string) bool {

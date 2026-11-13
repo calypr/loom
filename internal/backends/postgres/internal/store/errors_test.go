@@ -1,23 +1,5 @@
 package postgres
 
-// Runtime error-boundary tests for errors.go (ticket pg-runtime-error-boundary).
-//
-// Coverage mirrors the admission error-condition bar: SQLSTATE 57014,
-// 40001, 40P01, 23505, 25P02, admin shutdown (57P01), and connection loss
-// each map to a stable typed Loom error, and ZERO SQL text, bound argument
-// values, DSN material, or schema/constraint names may appear in any
-// rendered error surface (asserted on rendered strings, including the JSON
-// HTTP payload). Real PostgreSQL 18 witnesses come from
-// LOOM_TEST_POSTGRES_URL; fixtures are uniquely owned as verify_reb_* and
-// audited ownership-scoped (exact names plus own-prefix baseline count —
-// never a global sweep). Offline runs skip the live tests honestly; the
-// synthetic suite still runs everywhere.
-//
-// Non-vacuity: every guard has a paired control that passes (a translation
-// that dropped or swallowed everything would fail its controls), each live
-// condition pins the witnessed raw SQLSTATE before translation, and each
-// predicate has negative controls on near-miss errors.
-
 import (
 	"context"
 	"crypto/rand"
@@ -43,11 +25,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// Secret canaries and rendering assertions (synthetic suite).
-// ---------------------------------------------------------------------------
-
-// Synthetic canaries that must never appear in any rendered error surface.
 const (
 	rebCanarySQL        = "SELECT reb_canary_select FROM reb_schema_canary.reb_table_canary WHERE reb_col_canary = 'reb_bind_canary'"
 	rebCanaryDSN        = "postgres://rebuser:rebpassword@rebhost:5432/rebdb"
@@ -66,9 +43,6 @@ var rebForbidden = []string{
 	"deadlock detected", "could not serialize", "current transaction is aborted",
 }
 
-// rebSecretPgError builds a server error whose every free-text field carries
-// leakage bait: messages, details, hints, schema/table/constraint names, and
-// the internal query text.
 func rebSecretPgError(severity, code string) *pgconn.PgError {
 	return &pgconn.PgError{
 		Severity:            severity,
@@ -86,7 +60,6 @@ func rebSecretPgError(severity, code string) *pgconn.PgError {
 	}
 }
 
-// rebHttpJSON renders the exact HTTP payload the transport would write.
 func rebHttpJSON(t *testing.T, err error) (string, httpapi.MappedError) {
 	t.Helper()
 	mapped := httpapi.MapDataframeError(err, "reb-test")
@@ -97,7 +70,6 @@ func rebHttpJSON(t *testing.T, err error) (string, httpapi.MappedError) {
 	return string(body), mapped
 }
 
-// rebAssertSafeRendering asserts zero leakage across every rendered surface.
 func rebAssertSafeRendering(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
@@ -126,7 +98,6 @@ func rebAssertSafeRendering(t *testing.T, err error) {
 	}
 }
 
-// rebUserErr extracts the embedded typed error for semantic assertions.
 func rebUserErr(t *testing.T, err error) dataframeerrors.UserError {
 	t.Helper()
 	userErr, ok := dataframeerrors.AsUserError(err)
@@ -135,10 +106,6 @@ func rebUserErr(t *testing.T, err error) dataframeerrors.UserError {
 	}
 	return userErr
 }
-
-// ---------------------------------------------------------------------------
-// Guard non-vacuity: pass-through and idempotence.
-// ---------------------------------------------------------------------------
 
 func TestTranslatePostgresErrorNilAndPassThrough(t *testing.T) {
 	if translated, ok := TranslateError(nil); translated != nil || ok {
@@ -215,8 +182,6 @@ func TestTranslatePostgresErrorPredicatesNonVacuity(t *testing.T) {
 		t.Fatal("RetryableTransactionConflict must reject foreign errors")
 	}
 
-	// Raw (untranslated) chains also drive the predicates: policy code may
-	// consult them before any translation happened.
 	if !RetryableTransactionConflict(fmt.Errorf("seam: %w", rebSecretPgError("ERROR", sqlStateSerializationFailure))) {
 		t.Fatal("RetryableTransactionConflict must see raw unwrapped-chain SQLSTATEs")
 	}
@@ -228,10 +193,6 @@ func TestTranslatePostgresErrorPredicatesNonVacuity(t *testing.T) {
 		t.Fatal("TranslateCommitError(nil) must reject nil")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Connectivity conditions (synthetic).
-// ---------------------------------------------------------------------------
 
 func TestTranslatePostgresErrorConnectionConditions(t *testing.T) {
 	t.Run("client connect failure", func(t *testing.T) {
@@ -331,8 +292,6 @@ func TestTranslatePostgresErrorConnectionConditions(t *testing.T) {
 	})
 
 	t.Run("pure context errors stay owned sentinels", func(t *testing.T) {
-		// Cancellation not routed through the pool must pass through
-		// untouched so existing lifecycle semantics keep owning it.
 		canceled := fmt.Errorf("query: %w", context.Canceled)
 		if translated, ok := TranslateError(canceled); translated != canceled || ok {
 			t.Fatalf("pure context.Canceled = (%v, %v), want pass-through", translated, ok)
@@ -343,10 +302,6 @@ func TestTranslatePostgresErrorConnectionConditions(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Server SQLSTATE conditions (synthetic, full evidence bar).
-// ---------------------------------------------------------------------------
 
 type rebConditionCase struct {
 	name        string
@@ -471,8 +426,6 @@ func TestTranslatePostgresErrorServerConditions(t *testing.T) {
 			}
 			rebAssertSafeRendering(t, translated)
 
-			// The raw (untranslated) form must also render safely at the
-			// transport: MapDataframeError redacts unknown causes.
 			rawBody, rawMapped := rebHttpJSON(t, wrapped)
 			if rawMapped.Body.Error.Code != "INTERNAL_ERROR" {
 				t.Fatalf("raw untranslated mapped = %s, want INTERNAL_ERROR redaction", rawMapped.Body.Error.Code)
@@ -487,8 +440,6 @@ func TestTranslatePostgresErrorServerConditions(t *testing.T) {
 }
 
 func TestTranslatePostgresErrorUniqueConflictIsTargeted(t *testing.T) {
-	// Acceptance: unique conflict becomes a domain conflict only for a
-	// targeted CAS/insert path, never for every unique violation.
 	raw := rebSecretPgError("ERROR", sqlStateUniqueViolation)
 
 	translated, ok := TranslateError(raw)
@@ -503,8 +454,6 @@ func TestTranslatePostgresErrorUniqueConflictIsTargeted(t *testing.T) {
 		t.Fatalf("generic translation must not advertise a conflict code, got %s", userErr.Code())
 	}
 
-	// A targeted CAS/insert caller that proved the statement's meaning gets
-	// the domain-conflict form.
 	conflict, ok := AsUniqueConflict(fmt.Errorf("cas insert: %w", raw))
 	if !ok || conflict == nil {
 		t.Fatal("targeted CAS path must obtain the unique conflict")
@@ -514,7 +463,6 @@ func TestTranslatePostgresErrorUniqueConflictIsTargeted(t *testing.T) {
 	}
 	rebAssertSafeRendering(t, conflict)
 
-	// Non-vacuity: near misses are refused.
 	if _, ok := AsUniqueConflict(rebSecretPgError("ERROR", sqlStateDeadlockDetected)); ok {
 		t.Fatal("AsUniqueConflict must refuse a deadlock")
 	}
@@ -523,21 +471,10 @@ func TestTranslatePostgresErrorUniqueConflictIsTargeted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Commit classification: ambiguous outcomes stay ambiguous.
-// ---------------------------------------------------------------------------
-
 type rebSafeToRetryError struct{ error }
 
 func (rebSafeToRetryError) SafeToRetry() bool { return true }
 
-// TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous pins the
-// ambiguous-COMMIT guarantee against localized server sessions: PostgreSQL
-// translates the protocol Severity field (S) under non-English lc_messages
-// while SeverityUnlocalized (V) stays English, so classification must read
-// V. A localized "SCHWERWIEGEND" (FATAL) at COMMIT must still be ambiguous
-// and never retryable, never falling through to the retryable admin-shutdown
-// advertisement.
 func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -550,16 +487,8 @@ func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.
 		{"plain_fatal", "FATAL", "FATAL", sqlStateAdminShutdown, ConditionAdminShutdown},
 		{"localized_severity_with_panic_v", "PANIK", "PANIC", sqlStateAdminShutdown, ConditionAdminShutdown},
 		{"unlocalized_missing_falls_back", "SCHWERWIEGEND", "", sqlStateAdminShutdown, ConditionAdminShutdown},
-		// On a non-session-end SQLSTATE only the unlocalized field can
-		// recognize FATAL: the old localized-only comparison would miss it.
 		{"fatal_v_on_internal_error_state", "SCHWERWIEGEND", "FATAL", "XX001", ConditionServerRejected},
 		{"english_severity_fallback", "FATAL", "", "XX001", ConditionServerRejected},
-		// Session-death SQLSTATE classes stay uncertain even when BOTH
-		// severity fields read non-fatal: these messages terminate the
-		// session by protocol definition, so the COMMIT outcome is unknown
-		// whatever the severity strings claim. Without this short-circuit a
-		// pure severity check would fall into translateSQLState and return
-		// a retryable advertisement for an unconfirmed commit.
 		{"session_end_57P01_nonfatal_severity", "SCHWERWIEGEND", "ERROR", sqlStateAdminShutdown, ConditionAdminShutdown},
 		{"session_end_08006_nonfatal_severity", "FEHLER", "ERROR", "08006", ConditionConnectionLost},
 		{"session_end_25P03_nonfatal_severity", "FEHLER", "ERROR", sqlStateIdleInTxTerminated18, ConditionSessionTerminated},
@@ -589,8 +518,6 @@ func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.
 			rebAssertSafeRendering(t, translated)
 		})
 	}
-	// Non-vacuity: an unlocalized ERROR severity must NOT be ambiguous —
-	// the server answered the commit.
 	pgErr := rebSecretPgError("FEHLER", sqlStateUniqueViolation)
 	pgErr.SeverityUnlocalized = "ERROR"
 	translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
@@ -602,17 +529,11 @@ func TestTranslatePostgresErrorLocalizedSeverityKeepsCommitAmbiguous(t *testing.
 	}
 }
 
-// rebTypedNilPgErr and rebTypedNilTranslated are typed-nil pointers stored
-// in interface-typed chains. errors.As reports them as matches, so every
-// field access after a successful As is a nil-dereference panic unless the
-// extraction checked the pointer. These are the verifier sabotage targets:
-// deleting the pointer guard in pgErrorFrom must fail the tests below.
 var (
 	rebTypedNilPgErr      *pgconn.PgError
 	rebTypedNilTranslated *TranslatedError
 )
 
-// rebNoPanic runs fn and fails the test on any panic.
 func rebNoPanic(t *testing.T, what string, fn func()) {
 	t.Helper()
 	defer func() {
@@ -623,13 +544,6 @@ func rebNoPanic(t *testing.T, what string, fn func()) {
 	fn()
 }
 
-// TestTranslatePostgresErrorTypedNilDriverErrorDoesNotPanic pins the single
-// typed-nil-safe extraction (pgErrorFrom): every entry point that inspects
-// *pgconn.PgError fields — translate via TranslateError/TranslateCommitError,
-// all four predicates, and hasSQLState — must treat a typed-nil
-// (*pgconn.PgError)(nil), bare or wrapped, as carrying no server condition
-// instead of dereferencing it. Deleting the pointer ok-check in pgErrorFrom
-// fails these subtests.
 func TestTranslatePostgresErrorTypedNilDriverErrorDoesNotPanic(t *testing.T) {
 	typedNil := error(rebTypedNilPgErr)
 	inputs := map[string]func() error{
@@ -697,12 +611,6 @@ func TestTranslatePostgresErrorTypedNilDriverErrorDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestTranslatePostgresErrorExoticChainInputsDoNotPanic pins the boundary
-// against chain forms callers can construct by accident: typed-nil
-// *TranslatedError in the chain (field reads after errors.As), a translated
-// error whose unexported cause is a typed-nil driver error, and conflict
-// wrappers over typed-nils. No chain shape may panic and none may conjure a
-// condition the chain does not carry.
 func TestTranslatePostgresErrorExoticChainInputsDoNotPanic(t *testing.T) {
 	typedNilTranslated := error(rebTypedNilTranslated)
 	typedNilWrapped := fmt.Errorf("exec: %w", rebTypedNilPgErr)
@@ -755,8 +663,6 @@ func TestTranslatePostgresErrorExoticChainInputsDoNotPanic(t *testing.T) {
 	})
 
 	t.Run("translated_error_still_translates_with_typed_nil_in_chain", func(t *testing.T) {
-		// A chain carrying BOTH a real translated error and a typed-nil
-		// driver error must stay idempotent, not crash.
 		real, _ := TranslateError(rebSecretPgError("ERROR", sqlStateUniqueViolation))
 		chain := fmt.Errorf("wrapped: %w and %v", real, typedNilWrapped)
 		rebNoPanic(t, "TranslateError over mixed chain", func() {
@@ -767,12 +673,6 @@ func TestTranslatePostgresErrorExoticChainInputsDoNotPanic(t *testing.T) {
 	})
 }
 
-// TestTranslatePostgresErrorIsAsNeverReachesRawDriverCause pins the redaction
-// contract: the raw driver cause is excluded from Unwrap, so neither
-// errors.Is nor errors.As may reach the underlying *pgconn.PgError (or its
-// secret-bearing fields) through a translated error, directly or wrapped.
-// Reaching only curated sentinels is the guarantee; making the cause visible
-// to Is/As fails this test.
 func TestTranslatePostgresErrorIsAsNeverReachesRawDriverCause(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -808,8 +708,6 @@ func TestTranslatePostgresErrorIsAsNeverReachesRawDriverCause(t *testing.T) {
 			if errors.As(wrapped, &pgErr) || errors.Is(wrapped, raw) {
 				t.Fatal("raw driver cause reachable through a further wrapper")
 			}
-			// Curated reachability stays: the redaction excludes only
-			// the raw cause, never the safe chain.
 			if _, ok := dataframeerrors.AsUserError(translated); !ok {
 				t.Fatal("curated typed error no longer reachable through the chain")
 			}
@@ -824,12 +722,6 @@ func TestTranslatePostgresErrorIsAsNeverReachesRawDriverCause(t *testing.T) {
 	}
 }
 
-// TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit pins
-// that PANIC severity makes a COMMIT outcome uncertain on ANY SQLSTATE, not
-// only the session-end classes: a PANIC aborts the whole cluster, so the
-// server may or may not have applied the commit whatever the code says.
-// Dropping PANIC from the severity classification fails these subtests; the
-// ERROR control pins that non-fatal severities stay definitive.
 func TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -839,9 +731,6 @@ func TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit(t *te
 		wantCondition DriverCondition
 	}{
 		{"panic_v_on_internal_error", "KRITISCH", "PANIC", "XX001", ConditionServerRejected},
-		// On a non-session-death SQLSTATE the ambiguous-commit branch maps
-		// via shutdownCondition (default server_rejected); the SQLState
-		// field keeps the witnessed code, asserted below.
 		{"panic_v_on_unique_violation", "FEHLER", "PANIC", sqlStateUniqueViolation, ConditionServerRejected},
 		{"panic_v_on_serialization", "FEHLER", "PANIC", sqlStateSerializationFailure, ConditionServerRejected},
 		{"panic_s_fallback_without_v", "PANIC", "", "42P01", ConditionServerRejected},
@@ -874,8 +763,6 @@ func TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit(t *te
 			rebAssertSafeRendering(t, translated)
 		})
 	}
-	// Control: non-fatal ERROR severity on a non-session-death SQLSTATE
-	// stays definitive — the server answered the COMMIT.
 	pgErr := rebSecretPgError("FEHLER", "XX001")
 	pgErr.SeverityUnlocalized = "ERROR"
 	translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
@@ -887,13 +774,6 @@ func TestTranslatePostgresErrorPanicSeverityIsIntrinsicallyAmbiguousCommit(t *te
 	}
 }
 
-// TestTranslatePostgresErrorClass08CommitAlwaysAmbiguous pins that any
-// class-08 connection-exception SQLSTATE observed at COMMIT is ambiguous
-// regardless of the severity strings: these messages arrive on a dying
-// transport, so a severity field reading below fatal cannot establish that
-// the server rejected the COMMIT. Removing the class-08 arm of the
-// session-end short-circuit fails these subtests; the ERROR control at a
-// non-08 code pins the non-vacuity direction.
 func TestTranslatePostgresErrorClass08CommitAlwaysAmbiguous(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -932,7 +812,6 @@ func TestTranslatePostgresErrorClass08CommitAlwaysAmbiguous(t *testing.T) {
 			rebAssertSafeRendering(t, translated)
 		})
 	}
-	// Control: a non-08 code with non-fatal severity is NOT ambiguous.
 	pgErr := rebSecretPgError("FEHLER", "XX001")
 	pgErr.SeverityUnlocalized = "ERROR"
 	translated, ok := TranslateCommitError(fmt.Errorf("commit: %w", pgErr))
@@ -969,8 +848,6 @@ func TestTranslatePostgresErrorCommitClassification(t *testing.T) {
 		if mapped.Body.Error.Retryable || mapped.Status != 500 {
 			t.Fatalf("ambiguous commit mapped = %#v, want non-retryable 500", mapped)
 		}
-		// Never a rollback claim: the rendered contract says nothing about
-		// whether the write landed.
 		for _, forbidden := range []string{"rolled back", "rollback confirmed", "not written", "no write"} {
 			if strings.Contains(strings.ToLower(translated.Error()), forbidden) {
 				t.Fatalf("ambiguous commit rendering claims %q: %s", forbidden, translated.Error())
@@ -980,7 +857,6 @@ func TestTranslatePostgresErrorCommitClassification(t *testing.T) {
 	})
 
 	t.Run("server-answered commit error is definitive", func(t *testing.T) {
-		// A non-FATAL error answered the COMMIT: the server rejected it.
 		raw := fmt.Errorf("commit: %w", rebSecretPgError("ERROR", sqlStateUniqueViolation))
 		translated, ok := TranslateCommitError(raw)
 		if !ok {
@@ -1079,11 +955,6 @@ func TestTranslatePostgresErrorCommitClassification(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Races: concurrent failures sharing the same raw errors must not share
-// mutable state.
-// ---------------------------------------------------------------------------
-
 func TestTranslatePostgresErrorConcurrentTranslationSharesNoState(t *testing.T) {
 	sharedRaw := []error{
 		rebSecretPgError("ERROR", sqlStateDeadlockDetected),
@@ -1115,8 +986,6 @@ func TestTranslatePostgresErrorConcurrentTranslationSharesNoState(t *testing.T) 
 						results[worker] = []string{fmt.Sprintf("worker %d refused input %d", worker, i)}
 						return
 					}
-					// Concurrent predicate consultation over the same
-					// shared error must also be race-free.
 					_ = RetryableTransactionConflict(translated)
 					_ = IsUniqueViolation(translated)
 					_ = httpapi.MapDataframeError(translated, "race")
@@ -1139,10 +1008,6 @@ func TestTranslatePostgresErrorConcurrentTranslationSharesNoState(t *testing.T) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 acceptance (LOOM_TEST_POSTGRES_URL).
-// ---------------------------------------------------------------------------
-
 const (
 	rebFixturePrefix  = "verify_reb_"
 	rebFixtureNameFmt = rebFixturePrefix + "%d_%s"
@@ -1150,11 +1015,9 @@ const (
 
 var rebFixturePattern = regexp.MustCompile(`^verify_reb_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: databases this file verified into existence, audited
-// by exact name plus an own-prefix baseline count (never a global sweep).
 var (
 	rebOwnedMu     sync.Mutex
-	rebOwnedByName = map[string]string{} // database -> owned schema
+	rebOwnedByName = map[string]string{}
 )
 
 func rebRegister(db, schema string) {
@@ -1200,15 +1063,13 @@ func rebURL(t *testing.T) string {
 }
 
 type rebService struct {
-	ctx    context.Context
-	admin  *pgxpool.Pool // service database
-	iso    *pgxpool.Pool // isolated database (witness reads)
-	schema string
-	dsn    string
-	scrub  func(any) string
-	fail   func(step string, err error)
-	// canaries this test scattered into the isolated database; every
-	// rendered error surface must stay free of them.
+	ctx      context.Context
+	admin    *pgxpool.Pool
+	iso      *pgxpool.Pool
+	schema   string
+	dsn      string
+	scrub    func(any) string
+	fail     func(step string, err error)
 	canaries []string
 }
 
@@ -1255,7 +1116,6 @@ func newRebService(t *testing.T) *rebService {
 	}
 	t.Cleanup(admin.Close)
 
-	// PostgreSQL 18 only: refuse any other server rather than claim parity.
 	var versionNum int64
 	var version string
 	if err := admin.QueryRow(ctx,
@@ -1322,13 +1182,10 @@ func rebRandomHex(t *testing.T) string {
 	return hex.EncodeToString(b[:])
 }
 
-// rebQualified quotes the owned schema and appends an already-quoted table.
 func (s *rebService) rebQualified(table string) string {
 	return strconv.Quote(s.schema) + "." + table
 }
 
-// rebScrubbedRendering asserts every rendered surface of err stays free of
-// this fixture's canaries and the connection-string secrets.
 func (s *rebService) rebScrubbedRendering(t *testing.T, where string, err error) {
 	t.Helper()
 	forbidden := append([]string{}, s.canaries...)
@@ -1352,8 +1209,6 @@ func (s *rebService) rebScrubbedRendering(t *testing.T, where string, err error)
 	for surface, text := range renderings {
 		for _, token := range forbidden {
 			if token != "" && strings.Contains(text, token) {
-				// Never print the offending surface raw: it may carry the
-				// connection string. Report the surface name only.
 				t.Fatalf("%s: %s leaks a forbidden canary token (%d chars); rendered=%s",
 					where, surface, len(token), strings.ReplaceAll(s.scrub(text), token, "<canary>"))
 			}
@@ -1361,8 +1216,6 @@ func (s *rebService) rebScrubbedRendering(t *testing.T, where string, err error)
 	}
 }
 
-// rebWitnessSQLState extracts the raw SQLSTATE a server failure witnessed
-// before translation (non-vacuity: the condition really fired).
 func rebWitnessSQLState(t *testing.T, err error) string {
 	t.Helper()
 	var pgErr *pgconn.PgError
@@ -1397,10 +1250,6 @@ func (s *rebService) acquire(t *testing.T, client *Client) *pgxpool.Conn {
 	return conn
 }
 
-// TestTranslatePostgresErrorRealServerConditions drives every admitted
-// error condition against the live PostgreSQL 18 server, witnesses the raw
-// SQLSTATE, translates it, and asserts the typed contract plus rendered
-// redaction.
 func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 	t.Run("query_canceled_57014", func(t *testing.T) {
 		s := newRebService(t)
@@ -1430,8 +1279,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 			t.Fatalf("typed = %s retryable=%v, want non-retryable QUERY_RESOURCE_LIMIT_EXCEEDED", userErr.Code(), userErr.Retryable())
 		}
 		s.rebScrubbedRendering(t, "57014", translated)
-		// Control: the same session still executes fast statements, so the
-		// translation is not a dropped connection in disguise.
 		var one int
 		if err := conn.QueryRow(s.ctx, "SELECT 1").Scan(&one); err != nil || one != 1 {
 			t.Fatalf("post-cancel control failed: %v", err)
@@ -1507,8 +1354,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 		}
 		s.rebScrubbedRendering(t, "40001", translated)
 
-		// Witness: exactly one transaction's update landed — the loser's
-		// writes really vanished and the winner's really persisted.
 		var shifted int
 		if err := s.iso.QueryRow(s.ctx,
 			"SELECT count(*) FROM "+s.rebQualified(table)+" WHERE id > 100").Scan(&shifted); err != nil {
@@ -1583,8 +1428,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 		}
 		s.rebScrubbedRendering(t, "40P01", translated)
 
-		// Convergence witness: the surviving transaction commits and its
-		// two increments are visible; the victim wrote nothing.
 		var winner, loserTx pgx.Tx
 		if e1 == nil {
 			winner, loserTx = tx1, tx2
@@ -1644,16 +1487,12 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 		}
 		s.rebScrubbedRendering(t, "23505 generic", translated)
 
-		// Targeted CAS/insert path: this test code issued the guarded
-		// insert itself and owns the constraint, so the conflict is proven.
 		conflict, ok := AsUniqueConflict(err)
 		if !ok || conflict == nil {
 			t.Fatal("targeted insert path must obtain the proven conflict")
 		}
 		s.rebScrubbedRendering(t, "23505 conflict", conflict)
 
-		// Control: a different key inserts fine — the guard fires only on
-		// the actual violation.
 		if _, err := s.iso.Exec(s.ctx,
 			"INSERT INTO "+s.rebQualified(table)+" VALUES ('reb_other_key_canary')"); err != nil {
 			t.Fatalf("control insert refused: %s", s.scrub(err))
@@ -1698,7 +1537,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 		if !IsAbortedTransaction(translated) {
 			t.Fatal("policy predicate must recognize the aborted transaction")
 		}
-		// The translation must not claim the earlier write was rolled back.
 		if strings.Contains(strings.ToLower(translated.Error()), "rollback") {
 			t.Fatalf("25P02 rendering claims rollback: %s", translated.Error())
 		}
@@ -1706,8 +1544,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 		if err := tx.Rollback(s.ctx); err != nil {
 			s.fail("explicit rollback", err)
 		}
-		// Convergence witness (observed state, not inferred by the error):
-		// the explicit ROLLBACK removed both tentative writes.
 		var count int
 		if err := s.iso.QueryRow(s.ctx,
 			"SELECT count(*) FROM "+s.rebQualified(table)).Scan(&count); err != nil {
@@ -1752,8 +1588,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 			t.Fatalf("admin shutdown = %s retryable=%v, want retryable BACKEND_UNAVAILABLE", userErr.Code(), userErr.Retryable())
 		}
 		s.rebScrubbedRendering(t, "57P01", translated)
-		// Control: the service still admits fresh sessions; only the
-		// terminated one died.
 		fresh := s.acquire(t, client)
 		if err := fresh.QueryRow(s.ctx, "SELECT 1").Scan(&one); err != nil || one != 1 {
 			t.Fatalf("fresh session failed: %s", s.scrub(err))
@@ -1773,8 +1607,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 			s.fail("terminate victim", err)
 		}
 		time.Sleep(300 * time.Millisecond)
-		// Drain the queued FATAL so the transport is genuinely dead
-		// client-side; the next use must surface connection loss.
 		var sink int
 		_ = victim.QueryRow(s.ctx, "SELECT 1").Scan(&sink)
 		err := victim.QueryRow(s.ctx, "SELECT 1").Scan(&sink)
@@ -1830,7 +1662,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 			t.Fatalf("refused = %s retryable=%v, want retryable BACKEND_UNAVAILABLE", userErr.Code(), userErr.Retryable())
 		}
 		s.rebScrubbedRendering(t, "refused", translated)
-		// Control: Open against the live isolated database succeeds.
 		if control := s.client(t, 1); control == nil {
 			t.Fatal("control Open failed")
 		}
@@ -1915,9 +1746,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 			t.Fatal("ambiguous commit must not advertise retry at HTTP")
 		}
 		s.rebScrubbedRendering(t, "ambiguous commit", translated)
-		// The outcome itself stays unasserted on purpose: the boundary
-		// never infers rollback, so the test only asserts that the error
-		// surface refuses to claim either answer.
 		for _, forbidden := range []string{"rolled back", "committed", "no write", "not written"} {
 			if strings.Contains(strings.ToLower(translated.Error()), forbidden) {
 				t.Fatalf("ambiguous commit rendering claims %q: %s", forbidden, translated.Error())
@@ -1970,11 +1798,6 @@ func TestTranslatePostgresErrorRealServerConditions(t *testing.T) {
 	})
 }
 
-// TestZZZeroLeftoverRebPostgresErrorFixtures is the ownership-scoped
-// zero-leftover audit: exact names this file created, plus its own
-// verify_reb_* prefix count against the pre-test baseline. It never inspects
-// foreign prefixes, so sibling workers sweeping their own fixtures cannot
-// trip it.
 func TestZZZeroLeftoverRebPostgresErrorFixtures(t *testing.T) {
 	raw := rebURL(t)
 	rebOwnedMu.Lock()

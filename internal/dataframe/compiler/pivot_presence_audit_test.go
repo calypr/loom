@@ -12,8 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// TestPivotPresenceAudit is a diagnostic matrix, not a regression gate. Run it
-// with LOOM_PIVOT_PRESENCE_AUDIT=1 when changing category discovery support.
 func TestPivotPresenceAudit(t *testing.T) {
 	if os.Getenv("LOOM_PIVOT_PRESENCE_AUDIT") == "" {
 		t.Skip("set LOOM_PIVOT_PRESENCE_AUDIT=1 to print the Pivot category presence matrix")

@@ -1,8 +1,3 @@
-// Runtime composition regression (defect PG-PG-CAPABILITY-EVIDENCE-
-// COMPOSITION-PANIC): the value the server hands the Explorer capability
-// resolver (Runtime.Catalog) must complete all three
-// catalog.ReadCapabilityEvidence reads without a nil dereference, and must
-// be the same assembled Store behind every source-series catalog port.
 package control
 
 import (
@@ -20,18 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestRuntimeCatalogSatisfiesCapabilityEvidenceReader is the regression the
-// benchmark session asked for: on a runtime opened with the source series
-// assigned (the block that composes the catalog ports),
-// ReadCapabilityEvidence(runtime.Catalog, ...) never panics and every leg
-// answers with a typed posture. The source-series block is the only place
-// these ports are assembled, so the two-series harness (source +
-// dataset_release) exercises the full composition law.
 func TestRuntimeCatalogSatisfiesCapabilityEvidenceReader(t *testing.T) {
 	s := newCTLService(t, true)
 	runtime := s.runtime
 
-	// One assembled value behind all four catalog ports.
 	full := reflect.ValueOf(runtime.Catalog).Pointer()
 	for name, port := range map[string]any{
 		"Inventory":     runtime.Inventory,
@@ -53,7 +40,6 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReader(t *testing.T) {
 		AuthResourcePathsUnrestricted: unrestricted,
 	}
 
-	// Fresh migrated schema: every leg must answer typed, never panic.
 	evidence, err := func() (evidence catalog.CapabilityEvidence, err error) {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -65,7 +51,6 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReader(t *testing.T) {
 	if err == nil {
 		t.Fatal("a migrated-but-unloaded generation must not report a complete aggregate")
 	}
-	// Inventory: no published build yet -> typed unavailable sentinel.
 	if !errors.Is(err, catalogstore.ErrResourceInventoryBuildUnavailable) {
 		t.Fatalf("inventory leg must refuse with the typed build-unavailable error, got %v", err)
 	}
@@ -73,21 +58,15 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReader(t *testing.T) {
 		t.Fatalf("inventory leg posture = available=%v status=%v, want typed unavailable",
 			evidence.ResourceInventory.Available, evidence.ResourceInventory.Status)
 	}
-	// Relationships: the scan runs and legitimately answers empty.
 	if !evidence.Relationships.Available || len(evidence.Relationships.Values) != 0 {
 		t.Fatalf("relationship leg on an empty schema = available=%v values=%d, want available/empty",
 			evidence.Relationships.Available, len(evidence.Relationships.Values))
 	}
-	// Field enrichment: never persisted -> typed unavailable (this is the
-	// leg that panicked before the composition fix).
 	if evidence.FieldEnrichment.Available || evidence.FieldEnrichment.Status != catalog.EvidenceUnavailable {
 		t.Fatalf("enrichment leg posture = available=%v status=%v, want typed unavailable",
 			evidence.FieldEnrichment.Available, evidence.FieldEnrichment.Status)
 	}
 
-	// Write profiles through the runtime's own port: the enrichment leg
-	// must flip to available on the SAME Catalog value -- proof that the
-	// capability reader carries the profile repository, not just refuses.
 	s.writeProfiles(t)
 	evidence, err = func() (evidence catalog.CapabilityEvidence, err error) {
 		defer func() {
@@ -106,12 +85,6 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReader(t *testing.T) {
 	}
 }
 
-// TestRuntimeCatalogSatisfiesCapabilityEvidenceReaderSixSeries is the
-// benchmark's literal ask (coordinator ACK condition 2): the value handed
-// to newExplorerCapabilityResolver completes all three ReadCapabilityEvidence
-// reads, with typed per-leg statuses and no panic, on a runtime opened with
-// ALL SIX series assigned -- the exact placement the server and the
-// benchmark deploy.
 func TestRuntimeCatalogSatisfiesCapabilityEvidenceReaderSixSeries(t *testing.T) {
 	s := newCTLServiceSixSeries(t)
 	runtime := s.runtime
@@ -132,10 +105,6 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReaderSixSeries(t *testing.T) 
 		}()
 		return catalog.ReadCapabilityEvidence(s.ctx, runtime.Catalog, opts)
 	}()
-	// Migrated but unloaded: every leg answers typed; none panics. The
-	// inventory sentinel plus available-empty relationships and typed
-	// unavailable enrichment is the honest posture (the legs that panicked
-	// pre-fix are the relationships and enrichment ones).
 	if !errors.Is(err, catalogstore.ErrResourceInventoryBuildUnavailable) {
 		t.Fatalf("six-series aggregate must refuse with the typed build-unavailable error, got %v", err)
 	}
@@ -151,8 +120,6 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReaderSixSeries(t *testing.T) 
 		t.Fatalf("enrichment leg posture = available=%v status=%v, want typed unavailable",
 			evidence.FieldEnrichment.Available, evidence.FieldEnrichment.Status)
 	}
-	// Through the runtime's own write port, the enrichment leg flips to
-	// available on the same six-series Catalog value.
 	s.writeProfiles(t)
 	evidence, err = func() (evidence catalog.CapabilityEvidence, err error) {
 		defer func() {
@@ -171,11 +138,6 @@ func TestRuntimeCatalogSatisfiesCapabilityEvidenceReaderSixSeries(t *testing.T) 
 	}
 }
 
-// TestRuntimeWithoutSourceSeriesKeepsNilPorts pins the other half of the
-// posture law: a genuinely unassigned source series leaves the catalog
-// ports nil for the server's typed configuration refusal -- the runtime
-// must not fabricate a half-wired store, and consumers must never receive
-// a value that panics.
 func TestRuntimeWithoutSourceSeriesKeepsNilPorts(t *testing.T) {
 	s := newCTLService(t, false)
 	runtime := s.runtime
@@ -187,12 +149,6 @@ func TestRuntimeWithoutSourceSeriesKeepsNilPorts(t *testing.T) {
 	}
 }
 
-// newCTLServiceSixSeries mints one isolated database with all six series
-// schemas (pgctl_it_* namespace, same drop-and-audit discipline as
-// newCTLService) and opens the runtime with every series assigned under
-// SetupMigrate. It exists for the benchmark-shaped placement: the server's
-// capability resolver always rides the six-series runtime, not the
-// two-series minimum.
 func newCTLServiceSixSeries(t *testing.T) *ctlService {
 	t.Helper()
 	raw := ctlTestPostgresURL(t)

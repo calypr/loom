@@ -161,7 +161,7 @@ func TestComposedCohortCellTraceIdentityMismatchAgainstPreviewObject(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	previewRowID := string(previewIdentityBytes) // Preview GraphQL marshals row maps; the client later JSON.stringify's the parsed object.
+	previewRowID := string(previewIdentityBytes)
 	for _, rowID := range []string{
 		previewRowID,
 		`{"group_id":"cohort-a","group_revision_id":"grouprev_cell_trace_identity"}`,
@@ -608,6 +608,51 @@ func TestCellTraceCompiledReturnsTypedSemanticFailureStatuses(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCellTraceCompiledRejectsInvalidStatusBeforeEvidenceDecoding(t *testing.T) {
+	t.Run("aql", func(t *testing.T) {
+		query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+		engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
+			return visit(map[string]any{"identity": "row", "status": "MAYBE", "contributors": "not-an-array"})
+		}}
+		_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "o", RowID: "row", Column: "c"})
+		if err == nil || !strings.Contains(err.Error(), "cell trace row has an invalid status") || strings.Contains(err.Error(), "invalid contributions") {
+			t.Fatalf("status error = %v, want the status refusal to precede contribution decoding", err)
+		}
+	})
+	t.Run("postgres", func(t *testing.T) {
+		query := compiler.CompiledCellTraceQuery{
+			Command: exec02PostgreSQLCommand(t), ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
+			StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
+			OmissionColumn: ir.PhysicalCellTraceOmissionField, IdentityPartsColumn: ir.PhysicalCellTraceIdentityPartsField,
+			RowIdentity: &spec.RowIdentity{Fields: []string{"id"}},
+		}
+		rowID := exec09PreviewRowID(t, query.RowIdentity, map[string]any{"id": "patient-one"})
+		spies := &dispatchSpies{}
+		engine, _ := exec02pgEngine(t, spies, []map[string]any{{
+			ir.PhysicalCellTraceIdentityPartsField: json.RawMessage(`["patient-one"]`),
+			ir.PhysicalCellTraceValueField:         json.RawMessage(`{bad`),
+			ir.PhysicalCellTraceStatusField:        "MAYBE",
+			ir.PhysicalCellTraceHasMoreField:       false,
+			ir.PhysicalCellTraceOmissionField:      "",
+			ir.PhysicalCellTraceContributionsField: json.RawMessage(`{bad`),
+		}})
+		result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "resources", RowID: rowID, Column: "name", Limit: 2})
+		if err == nil || !strings.Contains(err.Error(), "cell trace row has an invalid status") ||
+			strings.Contains(err.Error(), "invalid contributions") || strings.Contains(err.Error(), "traced value") {
+			t.Fatalf("status error = %v, want the status refusal to precede JSONB decoding: %#v", err, result)
+		}
+		if errors.Is(err, ErrCellTraceRowNotFound) {
+			t.Fatalf("invalid status with malformed JSONB was classified as row absence: %v", err)
+		}
+	})
 }
 
 func TestCellTraceCompiledRejectsMalformedEvidenceAndMissingRows(t *testing.T) {

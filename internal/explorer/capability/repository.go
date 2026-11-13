@@ -14,9 +14,6 @@ var (
 	ErrTokenCollision  = errors.New("capability snapshot token collision")
 )
 
-// Repository persists complete snapshots. Put is content-addressed and never
-// changes an existing document. GetByIdentity returns a READY snapshot when
-// one exists; otherwise it returns the best available diagnostic snapshot.
 type Repository interface {
 	GetByToken(context.Context, string) (*Snapshot, error)
 	GetByIdentity(context.Context, SnapshotIdentity) (*Snapshot, error)
@@ -37,8 +34,6 @@ func validateSnapshot(snapshot Snapshot) error {
 	return nil
 }
 
-// ValidateSnapshot applies repository invariants without requiring a caller
-// to select a particular persistence adapter.
 func ValidateSnapshot(snapshot Snapshot) error { return validateSnapshot(snapshot) }
 
 func snapshotToken(snapshot Snapshot) string {

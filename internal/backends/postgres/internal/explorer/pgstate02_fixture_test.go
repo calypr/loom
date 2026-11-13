@@ -1,12 +1,5 @@
 package postgres
 
-// Test fixtures for the pg-state-receipt-revision-immutable-v1 state tests
-// (receipts_test.go, revisions_test.go). Everything this package creates is
-// named pgstate02_it_* -- a namespace disjoint from the owner tests'
-// pgstate01v1_it_* and from concurrent sibling workers' prefixes -- and is
-// dropped by the test that created it. TestZZNoLeftoverPGState02Resources
-// audits the namespace prefix at the end of the file order.
-
 import (
 	"context"
 	"crypto/rand"
@@ -20,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -48,8 +42,8 @@ func pgstate02RandomHex(t *testing.T) string {
 
 type pgState02Fixture struct {
 	ctx    context.Context
-	admin  *pgxpool.Pool // shared service database
-	iso    *pgxpool.Pool // isolated database
+	admin  *pgxpool.Pool
+	iso    *pgxpool.Pool
 	dbName string
 	schema string
 	dsn    string
@@ -57,11 +51,6 @@ type pgState02Fixture struct {
 	fail   func(step string, err error)
 }
 
-// newPGState02Fixture creates one isolated database (pgstate02_it_*) plus
-// one owned schema (pgstate02_it_*) inside it and registers LIFO cleanups:
-// drop schema, close iso pool, drop database, then a zero-leftover audit
-// scoped to this namespace, then close the admin pool, then cancel the
-// context. Only resources this fixture created are ever dropped.
 func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 	t.Helper()
 	raw := pgstate02TestPostgresURL(t)
@@ -71,9 +60,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 		t.Fatal("LOOM_TEST_POSTGRES_URL must be a postgres:// or postgresql:// URL")
 	}
 
-	// Scrub every credential-bearing string that could appear in a failure
-	// message: the raw service URL, the userinfo, the bare password, and the
-	// rewritten isolated-database DSN appended below.
 	var secrets []string
 	secrets = append(secrets, raw)
 	if u.User != nil {
@@ -95,8 +81,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 		t.Fatalf("%s: %s", step, scrub(err))
 	}
 
-	// Registered first so it runs last: the cleanups below still need a live
-	// context.
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	t.Cleanup(cancel)
 
@@ -104,8 +88,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 	if err != nil {
 		fail("connect to test service", err)
 	}
-	// Registered second so it runs second-to-last: the zero-leftover audit
-	// below still needs this admin pool.
 	t.Cleanup(admin.Close)
 
 	dbName := fmt.Sprintf("pgstate02_it_%d_%s", time.Now().UnixNano(), pgstate02RandomHex(t))
@@ -113,11 +95,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 		t.Fatalf("isolated database name %q does not match the required pattern", dbName)
 	}
 
-	// Third-to-last: prove the database (and with it its schema) is gone,
-	// and that no pgstate02_it_* leftovers remain anywhere this fixture
-	// could have touched. The scan is scoped to this package's own prefix,
-	// never a global sweep, so concurrent siblings in other namespaces
-	// cannot make it fail.
 	t.Cleanup(func() {
 		var mine int
 		if err := admin.QueryRow(ctx, `SELECT count(*) FROM pg_database WHERE datname = $1`, dbName).Scan(&mine); err != nil {
@@ -142,7 +119,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 		}
 	})
 
-	// Fourth-to-last: drop only the database this test created.
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
@@ -150,8 +126,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -171,7 +145,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 	if err != nil {
 		fail("connect to isolated database", err)
 	}
-	// Fifth-to-last: close the isolated-database pool before the drop.
 	t.Cleanup(iso.Close)
 
 	schema := fmt.Sprintf("pgstate02_it_%d_%s", time.Now().UnixNano(), pgstate02RandomHex(t))
@@ -181,7 +154,6 @@ func newPGState02Fixture(t *testing.T) *pgState02Fixture {
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
 		fail("create owned schema", err)
 	}
-	// Runs first: drop only the schema this test created.
 	t.Cleanup(func() {
 		if _, err := iso.Exec(context.WithoutCancel(ctx),
 			`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
@@ -200,17 +172,6 @@ func (f *pgState02Fixture) revisionTable() string {
 	return sanitizeTableRef(f.schema, RevisionsTable)
 }
 
-// migrate applies this package's full history through the shared runner.
-// The Explorer control-plane ledger (coordinator ruling) is the ONE owner
-// history embedded under migrations/: the ledger bootstrap plus owner,
-// drafts, receipts, revisions, capability artifacts (4), interpretation
-// libraries (7), selection revisions (8), and the explicit-group series
-// (9-11). The double-apply therefore witnesses the FULL ledger [1..11] on
-// the one shared version space. The capability/interpretation/selection DDL
-// moved in from their earlier state-scoped own-dir fixture directories with
-// bytes unchanged and carries byte-frozen pins via
-// pgstate02EmbeddedMigrationPins (revisions_test.go); those files must never
-// drift under this suite.
 func (f *pgState02Fixture) migrate(t *testing.T) pgstore.MigrateResult {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -238,11 +199,6 @@ func (f *pgState02Fixture) migrate(t *testing.T) pgstore.MigrateResult {
 	return result
 }
 
-// rerunMigration applies one embedded migration's exact SQL text again
-// through direct SQL. The migrations are convergent (IF NOT EXISTS /
-// CREATE OR REPLACE / DROP TRIGGER IF EXISTS + CREATE TRIGGER), so a rerun
-// restores the identical guard after a guard-removal probe -- proving the
-// same text that created the guard is what blocks the violating write.
 func (f *pgState02Fixture) rerunMigration(t *testing.T, version int64) {
 	t.Helper()
 	migrations, err := OwnerMigrations()
@@ -251,9 +207,6 @@ func (f *pgState02Fixture) rerunMigration(t *testing.T, version int64) {
 	}
 	for _, m := range migrations {
 		if m.Version == version {
-			// Mirror the runner: SET LOCAL search_path to the target schema
-			// so the migration's unqualified DDL (tables, functions,
-			// triggers) resolves inside this fixture's schema, not public.
 			conn, err := f.iso.Acquire(f.ctx)
 			if err != nil {
 				f.fail("acquire connection for migration rerun", err)
@@ -264,7 +217,7 @@ func (f *pgState02Fixture) rerunMigration(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.schema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.schema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}
@@ -281,10 +234,6 @@ func (f *pgState02Fixture) rerunMigration(t *testing.T, version int64) {
 	t.Fatalf("migration version %d is absent from the embedded history", version)
 }
 
-// newStore opens a fresh, independent readiness-checked pool (its own
-// physical connections) and returns a Store over it. Tests use two stores:
-// one writes, the other -- opened later, on a brand-new pool -- reads back,
-// proving persistence past any single connection or session.
 func (f *pgState02Fixture) newStore(t *testing.T) *Store {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -304,11 +253,6 @@ func (f *pgState02Fixture) newStore(t *testing.T) *Store {
 	return store
 }
 
-// newDedicatedStore opens a MaxConns=1 pool -- one single physical backend
-// connection -- warms it, and returns the Store plus that backend's
-// pg_backend_pid. Two dedicated stores are the two real PG connections for
-// CAS/claim race proofs: their pids must differ, and every statement that
-// store runs provably executes on that one backend.
 func (f *pgState02Fixture) newDedicatedStore(t *testing.T) (*Store, int32) {
 	t.Helper()
 	client, err := pgstore.Open(f.ctx, pgstore.Config{
@@ -340,9 +284,6 @@ func (f *pgState02Fixture) newDedicatedStore(t *testing.T) (*Store, int32) {
 	return store, pid
 }
 
-// newDedicatedPool is the raw-SQL sibling of newDedicatedStore: one physical
-// backend connection for direct SQL (guard probes, raw CAS/claim attempts,
-// transactions) with its backend pid witnessed up front.
 func (f *pgState02Fixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32) {
 	t.Helper()
 	poolConfig, err := pgxpool.ParseConfig(f.dsn)
@@ -366,9 +307,6 @@ func (f *pgState02Fixture) newDedicatedPool(t *testing.T) (*pgxpool.Pool, int32)
 	return pool, pid
 }
 
-// requireDistinctBackends fails unless the two witnessed backend pids are
-// genuinely different PostgreSQL server processes -- the non-illusion
-// precondition for every two-connection race proof.
 func requireDistinctBackendsPGState02(t *testing.T, pidA, pidB int32, labelA, labelB string) {
 	t.Helper()
 	if pidA == pidB {
@@ -376,9 +314,6 @@ func requireDistinctBackendsPGState02(t *testing.T, pidA, pidB int32, labelA, la
 	}
 }
 
-// rowSnapshot renders the complete physically stored row as one deterministic
-// text value. Byte-identical snapshots before and after a refused operation
-// are the row witness that the refusal wrote nothing.
 func (f *pgState02Fixture) rowSnapshot(t *testing.T, table, where string, args ...any) string {
 	t.Helper()
 	rows, err := f.iso.Query(f.ctx,
@@ -407,9 +342,6 @@ func (f *pgState02Fixture) rowSnapshot(t *testing.T, table, where string, args .
 	return out
 }
 
-// frozenSnapshot renders only the revision's frozen columns (the exact
-// trigger-guarded set) as one deterministic text value, so a legal lifecycle
-// transition can be proven to have left frozen content byte-identical.
 func (f *pgState02Fixture) frozenSnapshot(t *testing.T, id string) string {
 	t.Helper()
 	var out string
@@ -433,8 +365,6 @@ func (f *pgState02Fixture) frozenSnapshot(t *testing.T, id string) string {
 	return out
 }
 
-// columnKinds reads jsonb typeof witnesses (or 'missing' for SQL NULL) for
-// one row, for literal tri-state assertions.
 func (f *pgState02Fixture) columnKinds(t *testing.T, table, where string, args []any, columns ...string) []string {
 	t.Helper()
 	selects := make([]string, len(columns))

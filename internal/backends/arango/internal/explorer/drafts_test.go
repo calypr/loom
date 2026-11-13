@@ -130,7 +130,7 @@ func TestSaveDraftPersistsExactPreimageAtomicallyAndPreservesActiveRevision(t *t
 
 	updated := previous
 	updated.DraftConfig = json.RawMessage(`{"documents":[{"outputId":"patients","construction":{"steps":[{"id":"pivot","outputs":[{"id":"col_age","name":"age"}]},{"id":"derive","outputs":[{"id":"col_ratio","name":"ratio"}]}]}}]}`)
-	updated.DraftVersion = 999 // The adapter owns the monotonic CAS version.
+	updated.DraftVersion = 999
 	updated.DraftDigest = "sha256:new-draft"
 	updated.DraftSnapshotToken = "snapshot-new"
 	updated.DraftSourceGeneration = "generation-new"

@@ -93,7 +93,6 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		nil,
 	)
 
-	// Use the same production catalog projection that emits signed choice IDs.
 	catalog := authoringV2Catalog(snapshot, explorerID)
 	var choiceID string
 	for _, candidate := range catalog.Candidates {
@@ -144,9 +143,6 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
 		CompileTarget: compiler.ArangoTarget(),
 		Registry:      compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		// QueryRows stands in for Arango at the database boundary; the renderer test
-		// checks the generated assertion, while this route test supplies the two
-		// literal IDs from the retained raw fixture as the query result oracle.
 		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
 			query, _, deriveErr := request.Command.AQLParameters()
 			if deriveErr != nil {

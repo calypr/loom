@@ -182,8 +182,6 @@ func TestTableShapeCapabilityRepositoryIsCreateOnceAndTenantScoped(t *testing.T)
 
 	other := tableShapeTestCatalog(t, binding)
 	other.Columns[0].Label = "Different label"
-	// Simulate an existing short-key collision after insert-ignore by storing a
-	// different valid receipt under the incoming outer key.
 	other, err = tableshapecap.NewCatalogReceipt(binding, other.Columns, other.Availability, other.Choices, tableshapecap.SavedShapeSummary{}, other.CreatedAt)
 	if err != nil {
 		t.Fatal(err)

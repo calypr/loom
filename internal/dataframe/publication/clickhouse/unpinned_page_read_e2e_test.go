@@ -1,95 +1,5 @@
 package clickhouse
 
-// F-B18 (adversarial adjudication of the "unpinned GraphQL page read" hypothesis).
-//
-// This file owns EXACTLY one verification artifact. It never mutates product
-// code and never removes a production guard; the honest verdict is asserted
-// against unmodified production source read live from disk plus a real Arango +
-// real ClickHouse execution driven only through production entry points.
-//
-// ---------------------------------------------------------------------------
-// SOURCE-VERIFIED FACTS (quoted verbatim from the compiled repo at run time by
-// the quote gate below; the gate FAILS the test if any anchor drifts, so the
-// claim can never survive a silent refactor).
-//
-//  1. The GraphQL page-read surface resolves the current PUBLISHED execution and
-//     immediately queries its ClickHouse table with NO execution read pin:
-//       - internal/api/graphql/graph/dataframe/rows.go:62 resolves via
-//         `value, access, err := s.currentProjectDataset(...)` and rows.go:67
-//         forwards to the reader with `page, err := s.reader.Page(ctx, value, ...)`.
-//       - internal/dataframe/published/page.go:36 `func (r *Reader) Page(...)`
-//         builds, at :72, `query := fmt.Sprintf("SELECT %s FROM `%s`", selectColumns,
-//         materialization.PhysicalTable)` and issues it, at :114, with
-//         `rows, err := r.ClickHouse.QueryRowsArgs(ctx, query, readColumns, args...)`
-//         — a bare FROM on the resolved table with no pin acquisition anywhere
-//         in the resolve->query path.
-//     Verified by the quote gate's forgotten-symbol scan (uprQuotes entries with
-//     forgotten: AcquireExecutionReadPin / WithExecutionReadPins) that
-//     rows.go, page.go and current.go each contain ZERO occurrences of them.
-//  2. Resolution is pointer-gated, so a page read can ONLY ever target a
-//     pointer-named PUBLISHED output: internal/dataframe/published/current.go:117
-//     `pointer, err := r.Catalog.GetPointer(ctx, execution.PointerName())` and
-//     current.go:121 `if pointer.ExecutionID != execution.ID {`.
-//  3. The two, and only two, non-test execution read pins are on the EXPORT /
-//     exact-stream path, not the page-read path:
-//       - internal/dataframe/published/read_pins.go:63
-//         `owned, err := pins.AcquireExecutionReadPin(ctx, id, owner, ...)`
-//         (inside withExecutionReadPins, which resolves revisions INSIDE visit so
-//         cleanup cannot drop a table between metadata lookup and pin acquire), and
-//       - internal/dataframe/published/export.go:135
-//         `acquired, err := pins.AcquireExecutionReadPin(ctx, result.ExecutionID,
-//         result.ReaderID, expires)` (StreamExactExport).
-//     These are the pinned contrast. (The brief cited internal/dataframe/pinned/
-//     executor.go; that package does not exist at this commit — the pins live as
-//     Reader methods in published/read_pins.go and published/export.go. Reported
-//     as a correction, not an assumption.)
-//  4. The production reconcile sweep cannot reach the page read's target:
-//       - Reconcile enumerates only RUNNING/VALIDATING/FAILED, EXCLUDING PUBLISHED
-//         (bundle_store.go:1043).
-//       - reconcileExecution re-reads the visibility pointer AFTER claiming the
-//         key and returns after releasing the lease when it still names the
-//         execution (bundle_store.go:1068-1075); the DropTable is reachable only
-//         when that guard is blind (`stale execution reconciled` at :1090).
-//
-// EXPERIMENT (real Arango + real ClickHouse + real Reconcile):
-//
-//   Baseline (PREVENTED expected; FAILED-ON-PURPOSE if a real drop hits the
-//   page read's resolved-but-not-yet-queried execution with no fault):
-//     - publish E2 through production publication.Publish against the real
-//       ClickHouse client (real table, 3 rows, pointer names it, 0 read pins);
-//     - simulate a live page-read session: resolve via the same production
-//       current.go pointer check (reader.CurrentProjectDataset), then query via
-//       reader.Page;
-//     - run the production Reconcile sweep CONCURRENTLY in the same process with
-//       a hard synchronization point so the sweep runs BETWEEN resolve and query.
-//     Companion controls in the same sweep make the result non-vacuous:
-//       - KEEP: a stale (old updatedAt) RUNNING doc whose pointer still names it
-//         -> the :1073 guard must skip it (table retained, no marker);
-//       - DROP: a stale RUNNING doc never named by any pointer -> must be dropped
-//         + demoted with the reconcile marker (sweep is live).
-//   Verdict PREVENTED, preventing lines: bundle_store.go:1043 (excludes
-//   PUBLISHED) and bundle_store.go:1068-1075 (guard, guarded by :1073).
-//
-//   Absent-guard CONTROL ONLY (never feeds the verdict; the F-B12 / release_dangle
-//   pointer-blindness shape, reproduced at the ClickHouse boundary with a
-//   page-read victim added): a PUBLISHED pointer-named output's table must be
-//   reachable ONLY after both baseline protections are removed by fixture data —
-//   the row flipped RUNNING (raw AQL) AND the pointer repointed away
-//   (production CompareAndSwapPointer, i.e. the pointer row replaced), so the
-//   guard's precondition is false while the page read is mid resolve->query.
-//   If the unpinned page read's query then errors on the dropped table, that
-//   records the amplifier as a FAULT CONTROL — it does not establish a baseline
-//   drop and does not make the test fail.
-//
-// Opt-in (SKIP-clean without the env):
-//
-//	docker exec loom-dev-qwen-current-loom-api-1 sh -c \
-//	  'cd /workspace && LOOM_TEST_ARANGO_URL=http://arangodb:8529 \
-//	   LOOM_CLICKHOUSE_URL=http://clickhouse:8123 LOOM_CLICKHOUSE_DATABASE=loom_dev \
-//	   LOOM_CLICKHOUSE_USERNAME=loom_dev LOOM_CLICKHOUSE_PASSWORD=loom_dev_password \
-//	   go test -count=1 -timeout 150s -v -run TestUnpinnedPageRead \
-//	     ./internal/dataframe/publication/clickhouse/'
-
 import (
 	"context"
 	"encoding/json"
@@ -112,22 +22,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// uprDatabasePrefix owns this suite's databases; residue is greppable as
-// loom_verify_upr_*. uprOwnedTag is embedded in every ClickHouse table this
-// file creates (owned canaries, hand-seeded reconciler targets, and the
-// production-published execution's output name) so every table name contains
-// "upr" and is individually deletable + residue-greppable.
 const (
 	uprDatabasePrefix = "loom_verify_upr_"
 	uprOwnedTag       = "upr"
 	uprReconcileAge   = 90 * time.Minute
 	uprOlderThan      = 60 * time.Minute
-	uprReconcileMark  = "stale execution reconciled" // bundle_store.go:1090
+	uprReconcileMark  = "stale execution reconciled"
 )
-
-// ---------------------------------------------------------------------------
-// observed bookkeeping
-// ---------------------------------------------------------------------------
 
 type uprLog struct {
 	mu    sync.Mutex
@@ -149,10 +50,6 @@ func (l *uprLog) emit(t *testing.T) {
 	}
 }
 
-// uprCatalog observes lease claims / pointer reads / read-pin acquisitions so the
-// sweep's decisions (not just its effects) are recorded. It embeds the real
-// *Registry and overrides only observers — every decision is still made by real
-// Arango AQL in the embedded registry; this wrapper never gates or decides.
 type uprCatalog struct {
 	*arangofactory.PublishedRegistry
 	mu           sync.Mutex
@@ -208,10 +105,6 @@ func (c *uprCatalog) pinAcquireCount() int {
 	return c.pinsAcquired
 }
 
-// ---------------------------------------------------------------------------
-// harness (owned database + owned ClickHouse tables; SKIP-clean opt-in)
-// ---------------------------------------------------------------------------
-
 type uprHarness struct {
 	ctx      context.Context
 	endpoint string
@@ -256,8 +149,6 @@ func uprOpen(t *testing.T) *uprHarness {
 	}
 	client := arangoBackend.Client
 	t.Logf("UPR_DATABASE=%s", database)
-	// Registered FIRST so it runs LAST: ClickHouse artifacts must be dropped and
-	// asserted empty before the Arango database disappears (LIFO cleanup order).
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		uprDropDatabase(t, endpoint, database)
@@ -296,8 +187,6 @@ func uprOpen(t *testing.T) *uprHarness {
 	return harness
 }
 
-// uprOwnedPrefix returns a globally-unique ClickHouse table prefix that contains
-// the uprOwnedTag marker, e.g. "loom_bundle_upr5f3a..._".
 func (h *uprHarness) uprOwnedPrefix(label string) string {
 	return "loom_bundle_" + uprOwnedTag + h.suffix + "_" + label
 }
@@ -331,7 +220,6 @@ func (h *uprHarness) seedPublishedOutputRecord(name, table, project, generation,
 	}
 }
 
-// tablePresent reports whether a ClickHouse table exists via system.tables.
 func (h *uprHarness) tablePresent(ctx context.Context, table string) bool {
 	rows, err := h.ch.QueryRowsArgs(ctx, "SELECT count() AS c FROM system.tables WHERE database = currentDatabase() AND name = ?", []string{"c"}, table)
 	if err != nil || len(rows) != 1 {
@@ -353,8 +241,6 @@ func (h *uprHarness) drainTablesAndClose(t *testing.T) {
 			t.Errorf("UPR CH drop %s: %v", table, err)
 		}
 	}
-	// Residue gate scoped to THIS file's unique prefix so it cannot collide with
-	// the sibling workers sharing loom_dev.
 	tagged := "%" + uprOwnedTag + h.suffix + "%"
 	names, err := h.ch.QueryRowsArgs(ctx, fmt.Sprintf("SELECT name FROM system.tables WHERE database = currentDatabase() AND name LIKE '%s' ORDER BY name", tagged), []string{"name"})
 	if err != nil {
@@ -397,10 +283,6 @@ func uprDropDatabase(t *testing.T, endpoint, database string) {
 	t.Logf("UPR_DATABASE_REMOVED=%s", database)
 }
 
-// ---------------------------------------------------------------------------
-// direct-AQL fact readers / state fixture helpers
-// ---------------------------------------------------------------------------
-
 func uprCount(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case uint64:
@@ -419,8 +301,6 @@ func uprCount(value any) (int64, bool) {
 	return 0, false
 }
 
-// uprRawExecutionRow reads the doc verbatim (no GetExecution canonicalization) to
-// observe the raw reconcile-written `state` and `error` marker.
 func (h *uprHarness) rawExecutionRow(ctx context.Context, execID string) (state, errField string) {
 	err := h.client.QueryRows(ctx, `RETURN DOCUMENT(@@collection, @key)`, 32, map[string]interface{}{
 		"@collection": arangofactory.BundleExecutionsCollection, "key": execID,
@@ -445,12 +325,6 @@ func (h *uprHarness) rawExecutionRow(ctx context.Context, execID string) (state,
 	return state, errField
 }
 
-// flipToRunningStale parks an execution at RUNNING with an old updatedAt, the
-// end state of a stalled publisher that reconcile is meant to reclaim. It is the
-// identical direct-data technique release_dangle's rdlFlipToRunning /
-// dangling_binding / export_pin_crash_window harnesses use (a data-plane fixture
-// for an otherwise-unreachable state; it does not touch product code or any
-// guard).
 func (h *uprHarness) flipToRunningStale(t *testing.T, ctx context.Context, execID string) {
 	t.Helper()
 	patched := false
@@ -469,10 +343,6 @@ RETURN {patched: true}`, 32, map[string]interface{}{
 		t.Fatalf("flip %s to stale RUNNING: patched=%v err=%v", execID, patched, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// source-quote gate (drift-proof)
-// ---------------------------------------------------------------------------
 
 func uprRepoRoot(t *testing.T) string {
 	t.Helper()
@@ -495,7 +365,7 @@ func uprRepoRoot(t *testing.T) string {
 type uprQuote struct {
 	file       string
 	needles    []string
-	forgotten  []string // substrings that must NOT appear (pin never added to this path)
+	forgotten  []string
 	anchorDesc string
 }
 
@@ -508,7 +378,6 @@ var uprQuotes = []uprQuote{
 			"page, err := s.reader.Page(ctx, value, dfmaterialization.PageRequest",
 			"s.logReadFailure(ctx, \"clickhouse_rows\"",
 		},
-		// No read pin may ever be acquired on the page-read surface.
 		forgotten: []string{"AcquireExecutionReadPin", "WithExecutionReadPins"},
 	},
 	{
@@ -591,10 +460,6 @@ func uprQuoteAndVerifySource(t *testing.T) string {
 	return builder.String()
 }
 
-// ---------------------------------------------------------------------------
-// page-read session driven through the same primitives rows.go uses
-// ---------------------------------------------------------------------------
-
 type uprReader interface {
 	CurrentProjectDataset(ctx context.Context, project string, selector dataframepublished.DataframeSelector) (dataframepublished.Materialization, error)
 	CurrentProjectDatasets(ctx context.Context, project string) ([]dataframepublished.Materialization, error)
@@ -627,15 +492,6 @@ func uprMaterializationDigest(value dataframepublished.Materialization) string {
 	return fmt.Sprintf("{ID=%q Name=%q PhysicalTable=%q State=%q}", value.ID, value.Name, value.PhysicalTable, value.State)
 }
 
-// ---------------------------------------------------------------------------
-// 1) BASELINE: unpinned GraphQL page read vs concurrent production reconcile.
-//    Pre-stated expectation: the page read is PREVENTED from being a victim,
-//    because reconcile excludes PUBLISHED (:1043) and skips pointer-named rows
-//    (:1068-1075), and the page read can only resolve pointer-named PUBLISHED
-//    rows (current.go:117/121). FAILED-ON-PURPOSE only if a real drop hits the
-//    page read's resolved-but-not-yet-queried execution with no fault.
-// ---------------------------------------------------------------------------
-
 func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	quote := uprQuoteAndVerifySource(t)
 	t.Logf("OBSERVED STEP 0 quoted verified source (anchors located live; drift fails the test):\n%s", quote)
@@ -643,8 +499,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	h := uprOpen(t)
 	ctx := h.ctx
 
-	// Two stores: one wraps the catalog for observation (the sweep is driven
-	// through it), one is plain (the page-read resolution store mirrors rows.go).
 	observeCatalog := newUprCatalog(h.registry)
 	sweepStore, err := NewBundleStore(h.ch, observeCatalog)
 	if err != nil {
@@ -655,13 +509,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		t.Fatalf("NewBundleStore(publish): %v", err)
 	}
 
-	// =========================================================================
-	// STEP 1 — publish E2 (the page-read victim) through production.Publish.
-	// Real ClickHouse client creates a real table with 3 rows; PublishExecution
-	// names the pointer; the bundle lease is then released (frees the key), which
-	// is the ONLY extra step vs the production commit path and merely drops a
-	// completed publisher's lease. 0 execution read pins are present anywhere.
-	// =========================================================================
 	e2Project := "upr.e2.project"
 	e2Recipe := "upr.e2.recipe"
 	e2Output := uprOwnedTag + h.suffix + "_out"
@@ -706,8 +553,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	}
 	e2Key := e2Bundle.Key()
 	e2Pointer := e2Bundle.PointerName()
-	// Free the completed publisher's lease so the sweep COULD claim the key if it
-	// were ever eligible (proves survival is the guard, not a held lease).
 	_ = h.registry.ReleaseBundleLease(ctx, e2Key, "upr-e2-seed")
 	_ = h.registry.ReleaseBundleLease(ctx, e2Key, "owner")
 
@@ -731,8 +576,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	}
 	_ = h.registry.ReleaseBundleLease(ctx, e2Key, "upr-precheck")
 
-	// Resolution must use the production current.go pointer check; assert
-	// pointer-named, state PUBLISHED, queryable, matching selector.
 	selector := dataframepublished.DataframeSelector{Recipe: e2Recipe, TranslationVersion: "v1", Output: e2Output}
 	reader := uprNewReader(h)
 	baselineMat, err := reader.CurrentProjectDataset(ctx, e2Project, selector)
@@ -746,11 +589,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	h.log.addf("STEP 1 E2: production.Publish created PUBLISHED exec %q (table %s, 3 real ClickHouse rows), pointer %q names it, key lease is FREE, reader.CurrentProjectDataset resolves it via the current.go:117/121 pointer check and Reader.Page returns 3 rows, all with 0 execution read pins — pinsAcquired=%d",
 		e2ID, e2Table, e2Pointer, observeCatalog.pinAcquireCount())
 
-	// =========================================================================
-	// STEP 2 — companion controls so the sweep is demonstrably LIVE:
-	//   KEEP: stale RUNNING doc whose pointer still names it -> guard skips it;
-	//   DROP: stale RUNNING doc never pointer-named           -> reclaimed.
-	// =========================================================================
 	keepPrefix := h.uprOwnedPrefix("keep")
 	keepTable := keepPrefix + "t"
 	if err := h.seedTable(ctx, keepTable, 3); err != nil {
@@ -779,13 +617,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 
 	h.log.addf("STEP 2 controls: KEEP=%s (state RUNNING stale via fixture, pointer names it), DROP=%s (stale RUNNING, never pointer-named); both are stale-enumeration snapshots reconcile enumerates", keepExec.ID, dropExec.ID)
 
-	// =========================================================================
-	// STEP 3 — CONCURRENT page read vs production Reconcile, with a hard
-	// synchronization point so the sweep runs strictly BETWEEN the page read's
-	// resolve (reader.CurrentProjectDataset) and its query (reader.Page).
-	// (Controlled interleaving — labeled scope limit: this is a controlled
-	// interleaving, not a real scheduler race.)
-	// =========================================================================
 	type pageOutcome struct {
 		phase string
 		table string
@@ -806,7 +637,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		resolvedMat, resolveErr = reader.CurrentProjectDataset(ctx, e2Project, selector)
 		close(resolveDone)
 		if resolveErr != nil {
-			// Never block the sweep if resolution itself failed.
 			close(sweepDone)
 			race.phase = "resolve"
 			race.err = resolveErr
@@ -828,9 +658,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// =========================================================================
-	// STEP 4 — classify.
-	// =========================================================================
 	e2StillPresent := h.tablePresent(ctx, e2Table)
 	keepStillPresent := h.tablePresent(ctx, keepTable)
 	dropDropped := !h.tablePresent(ctx, dropTable)
@@ -849,7 +676,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		race.table, race.phase, race.rows, uprErrChain(race.err), observeCatalog.pinAcquireCount())
 	h.log.emit(t)
 
-	// Non-vacuity: the sweep must be genuinely live (DROP reclaimed and marked).
 	if !dropDropped {
 		t.Fatalf("INCONCLUSIVE: production Reconcile did not drop the never-pointer-named stale control %q (state=%q marker=%q) — the sweep may have been a no-op, which would make any E2 survival vacuous", dropExec.ID, dropState, dropErrField)
 	}
@@ -860,8 +686,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		t.Fatalf("INCONCLUSIVE: reconcile never claimed the stale control under a reconciler ID (owner=%q claimed=%v) — the sweep may not have reached cleanup", dropOwner, dropClaimed)
 	}
 
-	// KEEP must not be dropped; the guard skips it. Attributed live because the
-	// concurrent DROP in the SAME sweep was reclaimed.
 	if !keepStillPresent {
 		t.Fatalf("REGRESSION: the pointer guard did not hold — a stale RUNNING execution still named by its pointer (%s) was dropped by reconcile", keepExec.ID)
 	}
@@ -875,9 +699,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 		t.Fatalf("guard-skip not proven: reconcile never reached GetPointer on the KEEP pointer %q (reads=%d)", keepExec.PointerName(), reads)
 	}
 
-	// PRIMARY page-read verdict gate: FAILED-ON-PURPOSE only if a real drop hit
-	// the resolved-but-not-yet-queried page read with no product change / guard
-	// removal.
 	if !e2StillPresent || race.err != nil {
 		_, hardErr := reader.Page(ctx, resolvedMat, uprPageRequest())
 		_, e2Marker := h.rawExecutionRow(ctx, e2ID)
@@ -887,7 +708,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	if race.phase != "query" || race.rows != 3 {
 		t.Fatalf("baseline page read did not complete the resolve->query cycle: phase=%s rows=%d err=%s", race.phase, race.rows, uprErrChain(race.err))
 	}
-	// The sweep must never even have reached the PUBLISHED page-read target.
 	if e2Claimed {
 		t.Fatalf("attribution check: reconcile claimed the PUBLISHED E2 key (owner=%q) despite the :1043 exclusion — investigate why PUBLISHED was enumerated", e2Owner)
 	}
@@ -899,17 +719,6 @@ func TestUnpinnedPageReadBaselineAgainstArango(t *testing.T) {
 	t.Logf("VERDICT PREVENTED (F-B18 baseline): an unpinned GraphQL page read (rows.go Rows -> published.Reader.Page, 0 execution read pins) resolved the current PUBLISHED pointer-named output via production current.go and queried it via production reader.Page; a CONCURRENT production reconcile sweep (with the page read resolved) dropped the never-pointer-named stale control %q but left BOTH the page-read target %q (table present=%v, page returned %d rows, no error) and the pointer-named stale control %q intact. Preventing lines: %s",
 		dropExec.ID, e2ID, e2StillPresent, race.rows, keepExec.ID, preventing)
 }
-
-// ---------------------------------------------------------------------------
-// 2) ABSENT-GUARD CONTROL ONLY (never feeds the verdict): reproduce the F-B12 /
-//    release_dangle pointer-blindness shape at the ClickHouse boundary with an
-//    unpinned page-read victim added. The drop must be reachable ONLY after BOTH
-//    baseline protections are removed by fixture data (row flipped RUNNING via
-//    raw AQL AND the pointer row replaced via production CompareAndSwapPointer),
-//    which makes the :1073 guard's precondition false while the page read is mid
-//    resolve->query. If the unpinned query then errors on the dropped table, that
-//    records the amplifier as a fault control; it does NOT fail the test.
-// ---------------------------------------------------------------------------
 
 func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	quote := uprQuoteAndVerifySource(t)
@@ -928,7 +737,6 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 		t.Fatalf("NewBundleStore(publish): %v", err)
 	}
 
-	// Publish the victim through production so its table is a real product table.
 	proj := "upr.fault.project"
 	recipe := "upr.fault.recipe"
 	output := uprOwnedTag + h.suffix + "_fault_out"
@@ -967,7 +775,6 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	}
 	key := bundle.Key()
 	pointerName := bundle.PointerName()
-	// Free the completed publisher's lease so a (blind) sweep could claim it.
 	_ = h.registry.ReleaseBundleLease(ctx, key, "upr-fault-seed")
 	_ = h.registry.ReleaseBundleLease(ctx, key, "owner")
 
@@ -984,8 +791,6 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	h.log.addf("CONTROL setup: PUBLISHED pointer-named victim %q (table %s) resolves and pages 3 rows via current.go pointer check, 0 read pins (pinsAcquired=%d)",
 		victimID, table, observeCatalog.pinAcquireCount())
 
-	// Resolve -> [sweep] -> query, with the absent-guard fault injected by the
-	// sweep side between resolve and query.
 	resolveDone := make(chan struct{})
 	sweepDone := make(chan struct{})
 	var (
@@ -1017,9 +822,6 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-resolveDone
-		// ABSENT-GUARD FAULT (fixture data only; no product-code change):
-		// (a) remove the PUBLISHED-state protection, (b) replace the pointer row
-		// (F-B12 / release_dangle) so the :1073 guard's precondition is false.
 		h.flipToRunningStale(t, ctx, victimID)
 		if csErr := h.registry.CompareAndSwapPointer(ctx, pointerName, victimID, uprOwnedTag+"-shadow-"+uuid.NewString()[:8]); csErr != nil {
 			h.log.addf("CONTROL repoint pointer %q away from victim failed: %v", pointerName, uprErrChain(csErr))
@@ -1035,9 +837,6 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	h.log.addf("CONTROL post-sweep: victim table %s present=%v (raw state=%q marker=%q), key claimed=%v by=%q; sweep err=%v; page read phase=%s rows=%d queryErr=%s; pinsAcquired=%d",
 		table, stillPresent, state, errField, claimed, owner, uprErrChain(sweepErr), racePhase, raceRows, uprErrChain(queryErr), observeCatalog.pinAcquireCount())
 
-	// Preconditions of the fault being truly "absent guard" (not the baseline
-	// protections standing): sweep must have claimed the key and re-read (and
-	// then ignored) the pointer because it no longer named the victim.
 	if !claimed || !strings.HasPrefix(owner, "reconciler-") {
 		t.Errorf("fault-control precondition unmet: sweep never claimed the victim key under a reconciler ID (owner=%q claimed=%v)", owner, claimed)
 	}
@@ -1056,10 +855,6 @@ func TestUnpinnedPageReadAbsentGuardFaultControlAgainstArango(t *testing.T) {
 	t.Logf("VERDICT PREVENTED-at-baseline, FAULT-CONTROL-ONLY amplifier note. Baseline protections that must all be removed by fixture data to reach victim %q's table: bundle_store.go:1043 (excludes PUBLISHED — removed by the RUNNING flip) AND bundle_store.go:1068-1075 pointer guard (blinded by replacing the pointer row via production CompareAndSwapPointer, i.e. the F-B12 release_dangle shape). With BOTH gone mid resolve->query, the UNPINNED reader.Page query on the resolved table %s then errors (dropped=%v, queryErr=%s). Absent any fault, the page read cannot be dropped (see the baseline test); this control records the reachable window WITHOUT modifying product code or removing a guard. It never feeds a CONFIRMED amplifier: the fault is guard-REMoval-equivalent, not a page-read-specific baseline defect.",
 		victimID, table, !stillPresent, uprErrChain(queryErr))
 }
-
-// ---------------------------------------------------------------------------
-// shared seeded-execution helpers (RUNNING docs the sweep claims)
-// ---------------------------------------------------------------------------
 
 type uprExecSpec struct {
 	id         string
@@ -1100,10 +895,6 @@ func (h *uprHarness) buildRunningExec(spec uprExecSpec, owner, table string) pub
 	}
 }
 
-// seedRunningWithPointer: RUNNING doc (old updatedAt) under a live seed lease,
-// pointer created naming it via production CompareAndSwapPointer, then lease
-// freed. State stays RUNNING so reconcile enumerates it; the LIVE pointer must
-// make the :1073 guard skip it.
 func (h *uprHarness) seedRunningWithPointer(t *testing.T, ctx context.Context, spec uprExecSpec, table string) pubpublication.BundleExecution {
 	t.Helper()
 	owner := "upr-seed-" + uuid.NewString()[:8]
@@ -1123,8 +914,6 @@ func (h *uprHarness) seedRunningWithPointer(t *testing.T, ctx context.Context, s
 	return exec
 }
 
-// seedRunningNoPointer: RUNNING doc (old updatedAt) never named by any pointer,
-// lease freed. Reconcile must reclaim it (live-machinery control).
 func (h *uprHarness) seedRunningNoPointer(t *testing.T, ctx context.Context, spec uprExecSpec, table string) pubpublication.BundleExecution {
 	t.Helper()
 	owner := "upr-seed-" + uuid.NewString()[:8]
@@ -1141,12 +930,6 @@ func (h *uprHarness) seedRunningNoPointer(t *testing.T, ctx context.Context, spe
 	return exec
 }
 
-// ---------------------------------------------------------------------------
-// misc helpers
-// ---------------------------------------------------------------------------
-
-// mustE2ID resolves the execution ID for a bundle Key via production
-// FindExecutionByKey (the store generates an opaque ID we cannot predict).
 func mustE2ID(t *testing.T, h *uprHarness, key string) string {
 	t.Helper()
 	exec, err := h.registry.FindExecutionByKey(h.ctx, key)

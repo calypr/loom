@@ -34,10 +34,6 @@ func (s *Store) BeginSelection(ctx context.Context, selection explorer.Selection
 	if selection.Complete {
 		return nil, fmt.Errorf("selection must begin incomplete")
 	}
-	// A crashed creator leaves a staging header behind. Reap only expired
-	// leases, in a bounded batch, before idempotency lookup so a retry with the
-	// same key can claim a clean immutable revision. Active writers are
-	// protected by writerExpiresAt and are never touched here.
 	if err := s.CleanupSelectionStaging(ctx, time.Now().UTC(), selectionCleanupLimit); err != nil {
 		return nil, err
 	}
@@ -95,9 +91,6 @@ func (s *Store) AppendSelectionMembers(ctx context.Context, selectionID, writerT
 	if len(members) == 0 {
 		return nil, nil
 	}
-	// A batch is intentionally bounded by the lifecycle caller. The adapter
-	// inserts each member with an immutable key so retries are idempotent and
-	// never require buffering the complete membership.
 	inserted := make([]explorer.SelectionMember, 0, len(members))
 	err := s.client.WithTransaction(ctx, store.TransactionCollections{Write: []string{SelectionsCollection, SelectionMembersCollection}}, func(txCtx context.Context, tx store.RowQueryer) error {
 		var header *explorer.SelectionRevision
@@ -157,9 +150,6 @@ IN @@c
 RETURN {key: NEW._key, inserted: OLD == null}`, len(docs), map[string]any{"@c": SelectionMembersCollection, "docs": docs}, func(row map[string]any) error {
 			key, _ := row["key"].(string)
 			value, _ := row["inserted"].(bool)
-			// A duplicate key can occur within one parameter batch. Arango
-			// reports the first UPSERT as inserted and the retry as existing;
-			// preserve the fact that this call created the member.
 			created[key] = created[key] || value
 			return nil
 		}); err != nil {
@@ -378,9 +368,6 @@ func (s *Store) readSelection(ctx context.Context, query string, binds map[strin
 	return result, nil
 }
 
-// CleanupSelectionStaging removes bounded abandoned staging records. It is
-// deliberately explicit so startup callers can budget cleanup work rather
-// than scanning all selections into memory.
 func (s *Store) CleanupSelectionStaging(ctx context.Context, before time.Time, limit int) error {
 	if limit <= 0 {
 		limit = 100

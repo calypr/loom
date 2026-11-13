@@ -58,8 +58,6 @@ func main() {
 	}
 }
 
-// commandRoutes is the single dispatch table shared by main() and its tests so
-// that command wiring stays observable without executing os.Exit.
 func commandRoutes() map[string]func(context.Context, []string) error {
 	return map[string]func(context.Context, []string) error{
 		"load":                          runLoad,
@@ -75,10 +73,6 @@ func commandRoutes() map[string]func(context.Context, []string) error {
 	}
 }
 
-// signalGuardedCommands lists the commands that mutate a dataset lifecycle
-// manifest or an immutable generation. A cancelled run there can leave a
-// half-mutated manifest, so main() runs them under a context that cancels on
-// SIGINT/SIGTERM. Read and mutable-data commands stay unwrapped.
 func signalGuardedCommands() map[string]bool {
 	return map[string]bool{
 		"load-generation":             true,
@@ -139,9 +133,6 @@ func parseLoadMutableCommand(args []string, errorHandling flag.ErrorHandling) (l
 	if err := config.parseMemoryLimit(); err != nil {
 		return loadCommandConfig{}, err
 	}
-	// The mutable loader owns no dataset generation: it preserves the
-	// overwrite/upsert contract, so Dataset stays nil and ingest.Load selects
-	// loadResource (generation_orchestration.go:20-25).
 	config.Options.Dataset = nil
 	return config, nil
 }
@@ -170,16 +161,11 @@ func parseLoadCommand(args []string, errorHandling flag.ErrorHandling) (loadComm
 	return config, nil
 }
 
-// configureLoadFlags registers every load flag, including the required
-// --generation, for the immutable generation loaders.
 func configureLoadFlags(fs *flag.FlagSet, config *loadCommandConfig) {
 	configureLoadFlagsCore(fs, config)
 	fs.StringVar(&config.Generation, "generation", "", "Required opaque immutable dataset generation identifier")
 }
 
-// configureLoadFlagsCore registers the load flags shared by the mutable and
-// immutable loaders. --generation is deliberately excluded so the mutable
-// `load` command cannot advertise a flag whose dataset reference it ignores.
 func configureLoadFlagsCore(fs *flag.FlagSet, config *loadCommandConfig) {
 	fs.StringVar(&config.CPUProfile, "cpu-profile", "", "Write CPU profile to file")
 	fs.StringVar(&config.MemProfile, "mem-profile", "", "Write heap profile to file at end of run")
@@ -287,11 +273,6 @@ func parseMemoryBytes(raw string) (int64, error) {
 	return int64(value * factor), nil
 }
 
-// requireDatabaseExists refuses to operate against a database that has not been
-// created. It mirrors the refuse-missing-database precedent in
-// scripts/local-preview-index-migration.go:149-159 so an operator typo cannot
-// have the CLI silently auto-create an empty database. The store's Open keeps
-// auto-creating for the server/tests/harness; only the CLI adds this gate.
 func requireDatabaseExists(ctx context.Context, url, database string) error {
 	databaseExists, err := arangofactory.DatabaseExists(ctx, url, database)
 	if err != nil {
@@ -303,10 +284,6 @@ func requireDatabaseExists(ctx context.Context, url, database string) error {
 	return nil
 }
 
-// openClientRequiringDatabase gates the CLI on an existing database before it
-// opens the shared store client. It never disables the store's auto-create; it
-// simply declines to open when the database is absent, so no CLI path creates
-// one implicitly.
 func openClientRequiringDatabase(ctx context.Context, url, database string) (*arangofactory.Client, error) {
 	if err := requireDatabaseExists(ctx, url, database); err != nil {
 		return nil, err
