@@ -64,7 +64,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go"
           }
         },
@@ -86,7 +86,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go"
           }
         }
@@ -198,7 +198,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go"
           }
         }
@@ -247,7 +247,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
           }
         }
@@ -296,7 +296,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
           }
         }
@@ -373,7 +373,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/dataset/release_requirements_e2e_test.go"
           }
         }
@@ -449,7 +449,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go"
           }
         }
@@ -499,7 +499,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go"
           }
         }
@@ -545,7 +545,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go"
           }
         }
@@ -677,7 +677,7 @@
           },
           "sha256Verification": {
             "method": "head-blob",
-            "commit": "8f65f3c5",
+            "commit": "a2e87763",
             "queriedPath": "internal/dataframe/published/nullsort_page_cursor_e2e_test.go"
           }
         }
@@ -2601,7 +2601,17 @@
         "movedAt": "7e081f49"
       }
     },
-    "internal/backends/arango/internal/chartifact/catalog.go": "F-B8 anchor: sole chartifact REMOVE :262 gated to PrivateArtifactsCollection + leaseOwner + cleanupPending (parent-verified)",
+    "internal/backends/arango/internal/chartifact/catalog.go": {
+      "note": "F-B8 anchor: sole chartifact REMOVE :262 gated to PrivateArtifactsCollection + leaseOwner + cleanupPending (parent-verified)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "repointFrom": "internal/dataframe/execution/chartifact/arango/catalog.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)"
+      }
+    },
     "internal/backends/arango/internal/publication/bundle_registry.go": {
       "md5": "3e0a489e532a3c765759661c3df7c623",
       "role": "r59 re-pin: prior entry text held stale pre-publication-refactor SHA-256 1f0a6cde…; live byte-identical to r58 publication anchor (zero publication commits since 218edabb reconfirmed)",
@@ -2638,7 +2648,17 @@
         "movedAt": "8f65f3c5"
       }
     },
-    "internal/backends/arango/internal/publication/name_latest_binding_e2e_test.go": "F-B6 sanctioned artifact (531 lines, bug-documenting PASS-with-CONFIRMED pattern): registry CONFIRMED (identity ignored), Bug-3 case asymmetry CONFIRMED, verifier->ReleaseService.Create chain CONFIRMED via production code; four product-reachability preconditions listed; env-gated; vet clean; DBs removed",
+    "internal/backends/arango/internal/publication/name_latest_binding_e2e_test.go": {
+      "note": "F-B6 sanctioned artifact (531 lines, bug-documenting PASS-with-CONFIRMED pattern): registry CONFIRMED (identity ignored), Bug-3 case asymmetry CONFIRMED, verifier->ReleaseService.Create chain CONFIRMED via production code; four product-reachability preconditions listed; env-gated; vet clean; DBs removed",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "repointFrom": "internal/dataframe/publication/arango/name_latest_binding_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)"
+      }
+    },
     "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go": {
       "md5": "c3f039e5227a781be2364c295884f1e8",
       "role": "rrd r29: harness reader wiring; citation guard drift-proofed (containment); env PASS-O-DISP (candidate PUBLISHED+table intact+bound, list len=2) replacing archived FAILED-ON-PURPOSE",
@@ -2675,7 +2695,17 @@
         "movedAt": "48783199"
       }
     },
-    "internal/backends/arango/internal/dataset/manifest_lifecycle.go": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
+    "internal/backends/arango/internal/dataset/manifest_lifecycle.go": {
+      "note": "brief audited; see FINDINGS verification/release section (F-B6 candidate + ruled-sound list)",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "repointFrom": "internal/dataset/arango/manifest_lifecycle.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)"
+      }
+    },
     "internal/backends/arango/internal/dataset/release_store.go": {
       "md5": "a242453ba947fbe1584ff77552c1d3b1",
       "role": "F-B15 REPAIRED: alreadyActive revision-clause-free true zero-write no-op (LENGTH(patched)==LENGTH(updates)); saveReleaseAQL compat excludes only createdAt",
@@ -2731,8 +2761,28 @@
         "movedAt": "48783199"
       }
     },
-    "internal/backends/arango/internal/explorer/selections.go": "H3 targets: BeginSelection auto-cleanup :41; Append tx renews writerExpiresAt :168; CleanupSelectionStaging :388-402 missing complete!=true guard (5 siblings carry it); CompleteSelection atomic complete+terminal :231-233,244-247; paging :197-225 measured 10ms/50 pages, no idle>10min phase found",
-    "internal/backends/arango/internal/explorer/selections_cleanup_e2e_test.go": "Worker C sanctioned H3 artifact (3 tests; PASS/SKIP correctly gated; DBs loom_exv_* dropped, residue empty); H3-a disproven / H3-b verification finding",
+    "internal/backends/arango/internal/explorer/selections.go": {
+      "note": "H3 targets: BeginSelection auto-cleanup :41; Append tx renews writerExpiresAt :168; CleanupSelectionStaging :388-402 missing complete!=true guard (5 siblings carry it); CompleteSelection atomic complete+terminal :231-233,244-247; paging :197-225 measured 10ms/50 pages, no idle>10min phase found",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "repointFrom": "internal/explorer/arango/selections.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)"
+      }
+    },
+    "internal/backends/arango/internal/explorer/selections_cleanup_e2e_test.go": {
+      "note": "Worker C sanctioned H3 artifact (3 tests; PASS/SKIP correctly gated; DBs loom_exv_* dropped, residue empty); H3-a disproven / H3-b verification finding",
+      "pubbundleRepin": {
+        "ticket": "pubbundle-final-re-pin (AO session loom-experiment-249, branch ao/pubbundle/final-re-pin)",
+        "date": "2026-11-13",
+        "reason": "final pubbundle ledger re-pin sweep: every derivation-claiming field recomputed from the git blob at HEAD (git show <ref>:<path>); stale values replaced with true computed digests, expectations never adjusted",
+        "fields": {},
+        "repointFrom": "internal/explorer/arango/selections_cleanup_e2e_test.go",
+        "viaCommit": "32e8ad39 (arch-backend-07 PR-2: adapter trees moved under internal/backends/arango)"
+      }
+    },
     "internal/backends/arango/internal/catalog/resources.go": {
       "md5": "aee76f9698211e14dff6056d3775e478",
       "role": "catalog arango resources (F-B6 era anchor; not touched by row-source wave)",

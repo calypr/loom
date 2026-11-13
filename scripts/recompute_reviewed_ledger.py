@@ -548,6 +548,8 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
             newrow["role"] = (prior + " || " if prior else "") + merged_note
             continue
         row = files.pop(old)
+        if isinstance(row, str):
+            row = {"note": row}
         if isinstance(row, dict):
             row["pubbundleRepin"] = receipt(
                 None, {}, {"repointFrom": old,
