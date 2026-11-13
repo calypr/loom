@@ -166,6 +166,20 @@ class LedgerBound(Harness):
         self.assertEqual([], [v for v in s["violations"]
                               if v["path"] in bad])
 
+    def test_unresolvable_key_inventory_reporting_survives_with_synthetic_ledger(self):
+        original = chk.ledger_bound_paths
+        fake = os.path.join(chk.REPO, "internal/definitely/not/a/real/path.go")
+        chk.ledger_bound_paths = lambda: {fake: "fixture-ledger"}
+        self.addCleanup(setattr, chk, "ledger_bound_paths", original)
+        path = self.write("target.go", "package p\n\nvar X = 1\n")
+        s = self.scan(path)
+        entries = s["inventory"]["unresolvable-ledger-key"]
+        self.assertEqual(["internal/definitely/not/a/real/path.go"],
+                         [e["path"] for e in entries])
+        self.assertTrue(all(e.get("ledger") == "fixture-ledger" for e in entries))
+        self.assertEqual([], [v for v in s["violations"]
+                              if v["path"] in {e["path"] for e in entries}])
+
     def test_ledger_files_keys_all_resolve_to_tracked_paths(self):
         for rel in chk.REVIEWED_SOURCE_LEDGERS:
             full = os.path.join(chk.REPO, rel)
