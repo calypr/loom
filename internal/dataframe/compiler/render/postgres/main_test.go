@@ -12,18 +12,20 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	code := sql24RunDeltaAudit(func() int {
-		return sql22RunDeltaAudit(func() int {
-			return sql23RunDeltaAudit(func() int {
-				return excl26RunDeltaAudit(func() int {
-					return sql25RunDeltaAudit(func() int {
-						return sql16RunDeltaAudit(func() int {
-							return pivot14RunDeltaAudit(func() int {
-								return group13RunDeltaAudit(func() int {
-									return sql21RunDeltaAudit(func() int {
-										return coded19RunDeltaAudit(func() int {
-											return obj11RunDeltaAudit(func() int {
-												return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+	code := pwin01RunDeltaAudit(func() int {
+		return sql24RunDeltaAudit(func() int {
+			return sql22RunDeltaAudit(func() int {
+				return sql23RunDeltaAudit(func() int {
+					return excl26RunDeltaAudit(func() int {
+						return sql25RunDeltaAudit(func() int {
+							return sql16RunDeltaAudit(func() int {
+								return pivot14RunDeltaAudit(func() int {
+									return group13RunDeltaAudit(func() int {
+										return sql21RunDeltaAudit(func() int {
+											return coded19RunDeltaAudit(func() int {
+												return obj11RunDeltaAudit(func() int {
+													return graph20RunDeltaAudit(func() int { return unpRunDeltaAudit(func() int { return sets08RunDeltaAudit(m) }) })
+												})
 											})
 										})
 									})

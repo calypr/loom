@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -134,6 +135,20 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 	)
 	rendered := renderOK(t, plan)
 	sql := rendered.SQL
+
+	// Alias-scope structure (live-proven by TestPostWindowLiveReducersExecuteWithPredicates):
+	// the items subselect's predicate must read the reached target row's payload, never the
+	// items alias that names the subselect itself — PostgreSQL rejects that back-reference
+	// (SQLSTATE 42P01) and substring checks alone cannot see it.
+	itemsRegion := regexp.MustCompile(`(?s)\(SELECT x1\."logical_id".*?\) AS a\d+`)
+	for _, region := range itemsRegion.FindAllString(sql, -1) {
+		if regexp.MustCompile(`\ba\d+\."payload"`).MatchString(region) {
+			t.Fatalf("items subselect references its own alias (unexecutable plan analysis):\n%s", region)
+		}
+		if !strings.Contains(region, `x1."payload"`) {
+			t.Fatalf("items subselect predicate must read the reached target's payload column:\n%s", region)
+		}
+	}
 
 	for _, forbidden := range []string{"LEFT JOIN", "DISTINCT"} {
 		if strings.Contains(sql, forbidden) {

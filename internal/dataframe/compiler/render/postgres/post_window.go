@@ -377,7 +377,12 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 
 	whereParts := []string{corr.where}
 	if aggregate.Predicate != nil {
-		clause, clauseErr := r.aggregatePredicateFragment(plan, setVariable, fields, corr, itemAlias, aggregate.Predicate)
+		// The predicate lands in the items subselect's WHERE, where the items alias a<seq> is
+		// not yet visible (it names that very subselect; PostgreSQL rejects the back-reference
+		// with SQLSTATE 42P01). The item row there is corr.targetAlias, whose payload column
+		// the subselect projects — the only legal base. The value slot keeps itemAlias because
+		// it renders in the outer query's CROSS JOIN LATERAL, where itemAlias is in scope.
+		clause, clauseErr := r.aggregatePredicateFragment(plan, setVariable, fields, corr, corr.targetAlias, aggregate.Predicate)
 		if clauseErr != nil {
 			return "", fmt.Errorf("projection %q: aggregate predicate: %w", projection.Name, clauseErr)
 		}
@@ -458,14 +463,14 @@ func (r *planRenderer) aggregatePredicateFragment(
 	setVariable string,
 	fields map[string]ir.PhysicalSetProjectionField,
 	corr correlatedSetBody,
-	itemAlias string,
+	baseAlias string,
 	predicate *ir.PhysicalPredicateExpression,
 ) (string, error) {
 	if predicate.Kind != ir.PhysicalComparisonPredicate || predicate.Comparison == nil {
 		return "", fmt.Errorf("%w: only a comparison predicate is registered on a set aggregate (the AQL reading at render/aql/collections.go renderAggregateItems refuses other forms)",
 			ErrUnsupportedPostgresPlan)
 	}
-	values, err := r.aggregateSlotValues(setVariable, fields, corr, itemAlias, predicate.Comparison.LeftExpression, "predicate")
+	values, err := r.aggregateSlotValues(setVariable, fields, corr, baseAlias, predicate.Comparison.LeftExpression, "predicate")
 	if err != nil {
 		return "", err
 	}
@@ -484,7 +489,7 @@ func (r *planRenderer) aggregateSlotValues(
 	setVariable string,
 	fields map[string]ir.PhysicalSetProjectionField,
 	corr correlatedSetBody,
-	itemAlias string,
+	baseAlias string,
 	expression *ir.PhysicalExpression,
 	role string,
 ) (string, error) {
@@ -545,7 +550,7 @@ func (r *planRenderer) aggregateSlotValues(
 		return "", fmt.Errorf("%w: aggregate %s validates its selector against %q, but the slot declares %q",
 			ErrUnsupportedPostgresPlan, role, extract.ResourceType, field.ResourceType)
 	}
-	base := itemAlias + "." + r.storage.Resource.MustColumn("payload").SQLText()
+	base := baseAlias + "." + r.storage.Resource.MustColumn("payload").SQLText()
 	name := "ags" + strconv.Itoa(r.nextTraversalSequence())
 	return r.pivotSelectorArray(base, field.Selector, name)
 }
