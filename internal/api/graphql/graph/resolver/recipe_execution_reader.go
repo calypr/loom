@@ -11,17 +11,10 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// RecipeExecutionStore is the durable subset needed by the GraphQL execution
-// status query. Keeping this interface narrower than BundleCatalog makes the
-// transport adapter usable with both the production Arango registry and small
-// test fakes.
 type RecipeExecutionStore interface {
 	GetExecution(context.Context, string) (materialization.BundleExecution, error)
 }
 
-// NewAuthorizedRecipeExecutionReader performs the project/scope check before
-// exposing durable publication status. Execution IDs are opaque and are not
-// themselves authorization credentials.
 func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolver *authscope.ScopeResolver) RecipeExecutionReader {
 	return func(ctx context.Context, id string) (*RecipeExecution, error) {
 		if store == nil {
@@ -68,18 +61,6 @@ func NewAuthorizedRecipeExecutionReader(store RecipeExecutionStore, scopeResolve
 				return nil, dataframeerrors.Wrap(err, dataframeerrors.CodeInternalError, "")
 			}
 			rowCount := int(output.RowCount)
-			// REPAIR-20c (phantom trio): the output error MIRROR of the single
-			// execution-level message applies only while the output itself is
-			// not healthy. The lease-lost reconciliation (bundle_store.go
-			// :1207-1214) fails the execution while READY outputs stay
-			// untouched, and the per-output sanitizer would stamp a healthy
-			// fully-published page with its own INTERNAL_ERROR trio whose
-			// retryability contradicts the execution truth (top-level state
-			// FAILED, errorCode PUBLICATION_LEASE_LOST, retryable=true).
-			// Healthy = the durable success states READY/PUBLISHED. Genuine
-			// per-output failures (failPhase bundle_store.go:989-995) are
-			// FAILED or persist a own FailureCode, and still project
-			// unconditionally through ErrorCode/ErrorRetryable/Phase below.
 			mirroredError := ""
 			if outputState != "READY" && outputState != "PUBLISHED" {
 				mirroredError = execution.Error

@@ -8,10 +8,6 @@ import (
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 )
 
-// The public diagnostics object exposes one source-query measurement under a
-// backend-neutral name. arangoQueryMs remains only as a legacy transport
-// projection: identical bytes for AQL-served requests, explicitly zero for
-// PostgreSQL, and never an independent second timer.
 func TestDataframeDiagnosticsProjectsSourceQueryMsOnBothBackends(t *testing.T) {
 	const sourceQuery = 1234567 * time.Microsecond
 	for _, lane := range []struct {

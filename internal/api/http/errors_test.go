@@ -232,11 +232,6 @@ func TestMapDataframeErrorDescribesUnknownAdapterUserCode(t *testing.T) {
 	}
 }
 
-// TestMapDataframeErrorRedactsPostgresDriverCause proves the HTTP payload
-// for PostgreSQL failures — translated or not — never carries SQL text,
-// bound argument values, DSN material, or schema/constraint names, and that
-// retryability follows the boundary contract (connectivity yes;
-// serialization/deadlock/unique/aborted/ambiguous-commit never blanket).
 func TestMapDataframeErrorRedactsPostgresDriverCause(t *testing.T) {
 	canaries := []string{
 		"reb_http_canary_select", "reb_http_schema", "reb_http_table",

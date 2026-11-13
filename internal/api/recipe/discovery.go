@@ -1,5 +1,3 @@
-// Package recipeapi owns transport-neutral adapters used by recipe
-// resolution entrypoints.
 package recipeapi
 
 import (
@@ -12,15 +10,10 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe/schema"
 )
 
-// FieldDiscovery adapts the scoped field catalog to recipe schema resolution.
-// Both one-shot and stored-recipe callers use this policy so metadata and
-// pivot declarations cannot drift between transports.
 type FieldDiscovery struct {
 	Read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)
 }
 
-// NewFieldDiscovery returns the shared catalog adapter used by every
-// recipe-resolution entrypoint.
 func NewFieldDiscovery(read func(context.Context, catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error)) schema.Discovery {
 	return FieldDiscovery{Read: read}
 }
@@ -35,10 +28,6 @@ func (d FieldDiscovery) Fields(ctx context.Context, scope schema.Scope, resource
 		value := false
 		unrestricted = &value
 	default:
-		// Fail closed. authscope.Covers denies unknown modes, and a nil
-		// pointer here would silently fall through the catalog's legacy
-		// "empty paths mean unrestricted" compatibility rule — the two
-		// consumers of one persisted scope must agree on the fail posture.
 		value := false
 		unrestricted = &value
 	}

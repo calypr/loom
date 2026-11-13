@@ -17,7 +17,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// RunFhirDataframe is the resolver for the runFhirDataframe field.
 func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.FhirDataframeInput, limit *int) (*model.FhirDataframeResult, error) {
 	result, err := r.query.Run(ctx, input, limit)
 	if err != nil {
@@ -35,10 +34,6 @@ func (r *mutationResolver) RunFhirDataframe(ctx context.Context, input model.Fhi
 	}, nil
 }
 
-// RunDataframeRecipe executes a registered recipe completely and returns all
-// selected rows. This is intentionally separate from preview and from the
-// streaming publication mutation; callers should use materialization for
-// large production exports.
 func (r *mutationResolver) RunDataframeRecipe(ctx context.Context, input model.RunDataframeRecipeInput) (*model.DataframeRecipeResult, error) {
 	bindings, err := graphqlRecipeBindings(input.Bindings)
 	if err != nil {
@@ -59,7 +54,6 @@ func (r *mutationResolver) RunDataframeRecipe(ctx context.Context, input model.R
 	return fullRecipeResult(recipePreviewView{plan: result.Plan, outputs: result.Outputs}, input.Name)
 }
 
-// ValidateDataframeRecipe is the resolver for the validateDataframeRecipe field.
 func (r *mutationResolver) ValidateDataframeRecipe(ctx context.Context, input model.ValidateDataframeRecipeInput) (*model.DataframeRecipeValidation, error) {
 	bindings, err := graphqlRecipeBindings(input.Bindings)
 	if err != nil {
@@ -83,7 +77,6 @@ func (r *mutationResolver) ValidateDataframeRecipe(ctx context.Context, input mo
 	return &model.DataframeRecipeValidation{Name: input.Name, RecipeDigest: validated.Plan.RecipeDigest, TranslationVersion: validated.Plan.TranslationVersion, Outputs: outputs}, nil
 }
 
-// PreviewDataframeRecipe is the resolver for the previewDataframeRecipe field.
 func (r *mutationResolver) PreviewDataframeRecipe(ctx context.Context, input model.PreviewDataframeRecipeInput) (*model.DataframeRecipePreview, error) {
 	bindings, err := graphqlRecipeBindings(input.Bindings)
 	if err != nil {
@@ -110,7 +103,6 @@ func (r *mutationResolver) PreviewDataframeRecipe(ctx context.Context, input mod
 	return previewResult(recipePreviewView{plan: preview.Plan, outputs: preview.Outputs}, input.Name)
 }
 
-// RegisterDataframeRecipeRevision is the resolver for the registerDataframeRecipeRevision field.
 func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, input model.RegisterDataframeRecipeRevisionInput) (*model.DataframeRecipeRevision, error) {
 	if r.recipeRevisions == nil {
 		return nil, recipeGraphQLError(fmt.Errorf("recipe revision store is unavailable"))
@@ -134,7 +126,6 @@ func (r *mutationResolver) RegisterDataframeRecipeRevision(ctx context.Context, 
 	return recipeRevisionModel(value), nil
 }
 
-// ProjectDataframeDatasets is the resolver for the projectDataframeDatasets field.
 func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID string) ([]*model.DataframeMaterialization, error) {
 	values, err := r.dataframes.ProjectDatasets(ctx, projectID)
 	if err != nil {
@@ -147,7 +138,6 @@ func (r *queryResolver) ProjectDataframeDatasets(ctx context.Context, projectID 
 	return result, nil
 }
 
-// DataframeDataset is the resolver for the dataframeDataset field.
 func (r *queryResolver) DataframeDataset(ctx context.Context, input model.DataframeDatasetInput) (*model.DataframeMaterialization, error) {
 	value, err := r.dataframes.Dataset(ctx, input)
 	if err != nil {
@@ -156,7 +146,6 @@ func (r *queryResolver) DataframeDataset(ctx context.Context, input model.Datafr
 	return dataframeapi.Model(*value), nil
 }
 
-// DataframeRows is the resolver for the dataframeRows field.
 func (r *queryResolver) DataframeRows(ctx context.Context, input model.DataframeRowsInput) (*model.DataframeRowConnection, error) {
 	page, err := r.dataframes.Rows(ctx, input)
 	if err != nil {
@@ -178,7 +167,6 @@ func (r *queryResolver) DataframeRows(ctx context.Context, input model.Dataframe
 	}, nil
 }
 
-// DataframeAggregate is the resolver for the dataframeAggregate field.
 func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.DataframeAggregateInput) (*model.DataframeAggregateResult, error) {
 	result, err := r.dataframes.AggregateInput(ctx, input)
 	if err != nil {
@@ -191,7 +179,6 @@ func (r *queryResolver) DataframeAggregate(ctx context.Context, input model.Data
 	return &model.DataframeAggregateResult{Materialization: dataframeapi.Model(result.Materialization), Columns: result.Columns, Rows: rows}, nil
 }
 
-// DataframeAggregations is the resolver for the dataframeAggregations field.
 func (r *queryResolver) DataframeAggregations(ctx context.Context, input model.DataframeAggregationsInput) (*model.DataframeAggregationsResult, error) {
 	result, err := r.dataframes.AggregationsInput(ctx, input)
 	if err != nil {
@@ -204,7 +191,6 @@ func (r *queryResolver) DataframeAggregations(ctx context.Context, input model.D
 	return &model.DataframeAggregationsResult{Materialization: dataframeapi.Model(result.Materialization), Aggregations: aggregations}, nil
 }
 
-// DataframeRecipeExecution is the resolver for the dataframeRecipeExecution field.
 func (r *queryResolver) DataframeRecipeExecution(ctx context.Context, id string) (*model.DataframeRecipeExecution, error) {
 	if r.recipeExecutions == nil {
 		return nil, recipeGraphQLError(dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true)))
@@ -219,7 +205,6 @@ func (r *queryResolver) DataframeRecipeExecution(ctx context.Context, id string)
 	return executionModel(*execution), nil
 }
 
-// DataframeRecipeRevision is the resolver for the dataframeRecipeRevision field.
 func (r *queryResolver) DataframeRecipeRevision(ctx context.Context, projectID string, name string, digest string) (*model.DataframeRecipeRevision, error) {
 	if r.recipeRevisions == nil {
 		return nil, nil
@@ -235,7 +220,6 @@ func (r *queryResolver) DataframeRecipeRevision(ctx context.Context, projectID s
 	return recipeRevisionModel(value), nil
 }
 
-// DataframeRecipeRevisions is the resolver for the dataframeRecipeRevisions field.
 func (r *queryResolver) DataframeRecipeRevisions(ctx context.Context, projectID string, name string) ([]*model.DataframeRecipeRevision, error) {
 	if r.recipeRevisions == nil {
 		return []*model.DataframeRecipeRevision{}, nil
@@ -255,7 +239,6 @@ func (r *queryResolver) DataframeRecipeRevisions(ctx context.Context, projectID 
 	return result, nil
 }
 
-// ExplainDataframeRecipe is the resolver for the explainDataframeRecipe field.
 func (r *queryResolver) ExplainDataframeRecipe(ctx context.Context, input model.ExplainDataframeRecipeInput) (*model.DataframeRecipeExplanation, error) {
 	bindings, err := graphqlRecipeBindings(input.Bindings)
 	if err != nil {
@@ -281,7 +264,6 @@ func (r *queryResolver) ExplainDataframeRecipe(ctx context.Context, input model.
 	return result, nil
 }
 
-// PreflightDataframeRecipe is the resolver for the preflightDataframeRecipe field.
 func (r *queryResolver) PreflightDataframeRecipe(ctx context.Context, input model.PreflightDataframeRecipeInput) (*model.DataframeRecipePreflight, error) {
 	bindings, err := graphqlRecipeBindings(input.Bindings)
 	if err != nil {
@@ -301,20 +283,16 @@ func (r *queryResolver) PreflightDataframeRecipe(ctx context.Context, input mode
 	return preflightResult(plan, input.Name), nil
 }
 
-// FhirGraph is the resolver for the fhirGraph field.
 func (r *queryResolver) FhirGraph(ctx context.Context, input model.FhirGraphQueryInput) (*model.FhirGraphQueryResult, error) {
 	return r.resolveFHIRGraph(ctx, input)
 }
 
-// ExplainFhirGraph is the resolver for the explainFhirGraph field.
 func (r *queryResolver) ExplainFhirGraph(ctx context.Context, input model.FhirGraphQueryInput, live *bool) (*model.FhirGraphQueryExplanation, error) {
 	return r.resolveExplainFHIRGraph(ctx, input, live)
 }
 
-// Mutation returns executor.MutationResolver implementation.
 func (r *Resolver) Mutation() executor.MutationResolver { return &mutationResolver{r} }
 
-// Query returns executor.QueryResolver implementation.
 func (r *Resolver) Query() executor.QueryResolver { return &queryResolver{r} }
 
 type (
