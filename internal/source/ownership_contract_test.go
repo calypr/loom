@@ -1,10 +1,3 @@
-// Pure ownership/contract controls for arch-backend-04: the logical source
-// contracts are backend-neutral, the generic catalog exports no PostgreSQL
-// storage DTOs, and physical row layout (including the server-assigned
-// storage sequence) is owned solely by the PostgreSQL store implementation.
-// No database, network, or backend package is touched: every check here is
-// reflection or source-AST analysis of repository files.
-
 package source
 
 import (
@@ -20,20 +13,18 @@ import (
 	"testing"
 )
 
-// namedFile pairs a parsed file with its base name.
 type namedFile struct {
 	name string
 	f    *ast.File
 }
 
-// repoRoot resolves the module root from this test file's own location.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed; cannot locate the repository root")
 	}
-	dir := filepath.Dir(file) // internal/source
+	dir := filepath.Dir(file)
 	root := filepath.Dir(filepath.Dir(dir))
 	if fi, err := os.Stat(filepath.Join(root, "go.mod")); err != nil || fi.IsDir() {
 		t.Fatalf("resolved root %q has no go.mod: %v", root, err)
@@ -41,8 +32,6 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-// isStdlibImport reports whether an import path is a standard-library path
-// (its first element contains no dot, unlike a domain-qualified module path).
 func isStdlibImport(path string) bool {
 	first := path
 	if i := strings.Index(path, "/"); i >= 0 {
@@ -51,8 +40,6 @@ func isStdlibImport(path string) bool {
 	return !strings.Contains(first, ".")
 }
 
-// parsePackageFiles parses every non-test Go file of one directory
-// (non-recursive) and returns the parsed files with their base names.
 func parsePackageFiles(t *testing.T, dir string, withTests bool) []namedFile {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -81,7 +68,6 @@ func parsePackageFiles(t *testing.T, dir string, withTests bool) []namedFile {
 	return files
 }
 
-// importedPaths returns every import path used by the given files.
 func importedPaths(files []namedFile) []string {
 	var out []string
 	for _, nf := range files {
@@ -92,8 +78,6 @@ func importedPaths(files []namedFile) []string {
 	return out
 }
 
-// selectorName renders expr as pkg.Type for selector expressions and
-// pkg.Type[elem] style slices are unwrapped by the caller first.
 func selectorName(t *testing.T, expr ast.Expr) string {
 	t.Helper()
 	switch e := expr.(type) {
@@ -164,8 +148,6 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 				t.Errorf("field %s kind = %v, want string", f.Name, f.Type.Kind())
 			}
 		}
-		// No sequence/storage identity may be representable on the contract:
-		// no integer field of any kind may carry a storage ordinal.
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)
 			switch f.Type.Kind() {
@@ -207,9 +189,6 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 		if omittedGeneration.DatasetGeneration != "" {
 			t.Error("omitted dataset generation must be the empty legacy namespace")
 		}
-		// The omitted-generation zero value is a distinct state from any
-		// concrete generation, so it is never an all-generation query; and a
-		// nil flag stays a separate, rejected state from either explicit mode.
 		nilFlag := ResourceScope{Project: "p"}
 		if nilFlag.AuthResourcePathsUnrestricted != nil {
 			t.Error("zero-value scope must leave the unrestricted flag nil (rejected state)")
@@ -256,9 +235,7 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 
 	t.Run("PhysicalRowAndWriteSurfacesHaveOneOwnerEach", func(t *testing.T) {
 		files := parsePackageFiles(t, storeDir, false)
-		// Exactly one production struct in the store may carry the physical
-		// storage sequence: the store-owned physical row.
-		holders := map[string]string{} // struct name -> file
+		holders := map[string]string{}
 		structs := map[string]*ast.StructType{}
 		for _, nf := range files {
 			for _, decl := range nf.f.Decls {
@@ -315,9 +292,7 @@ func TestSourceResourceOwnershipContract(t *testing.T) {
 			}
 		}
 
-		// The public write surfaces must take the logical contract, never a
-		// caller-settable physical row.
-		surfaces := map[string]string{} // "file:subject" -> expected type
+		surfaces := map[string]string{}
 		for _, nf := range files {
 			base := nf.name
 			for _, decl := range nf.f.Decls {

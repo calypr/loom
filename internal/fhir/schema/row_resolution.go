@@ -21,7 +21,6 @@ const (
 	RowPathUnknown RowPathShape = "UNKNOWN"
 )
 
-// RowPathFacts contains detached structural facts used to mint row choices.
 type RowPathFacts struct {
 	ResourceType  DefinitionName
 	CanonicalPath string
@@ -33,7 +32,6 @@ type RowPathFacts struct {
 	Description   string
 }
 
-// ResolveRowPath resolves one canonical path against immutable schema metadata.
 func (i *Index) ResolveRowPath(resourceType DefinitionName, path string) (RowPathFacts, error) {
 	segments, err := parseRowPath(path)
 	if err != nil {
@@ -67,9 +65,6 @@ func (i *Index) ResolveRowPath(resourceType DefinitionName, path string) (RowPat
 		if index == len(segments)-1 {
 			break
 		}
-		// Reference payload members such as reference and display are fields on
-		// the same JSON object. Only an explicit construction route follows the
-		// referenced resource itself.
 		switch element.JSONType {
 		case JSONTypeArray:
 			current, err = i.elementChildren(element, true)

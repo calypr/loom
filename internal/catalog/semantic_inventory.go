@@ -11,16 +11,13 @@ import (
 )
 
 const (
-	SemanticInventoryCollection        = "fhir_semantic_inventory"
-	SemanticInventoryEntryCollection   = "fhir_semantic_inventory_entries"
-	SemanticInventoryBuildCollection   = "fhir_semantic_inventory_builds"
-	SemanticInventorySchemaVersion     = 1
-	SemanticInventoryEntryIndexVersion = 2
-	SemanticObservationRuleVersion     = 5
-	// SemanticInventoryEmitterVersion changes when retained-resource emission changes independently of observation or binding identity.
-	SemanticInventoryEmitterVersion = 3
-	// These are the only prior observation versions whose primary-only
-	// semantic binding identity is still accepted for saved frames.
+	SemanticInventoryCollection              = "fhir_semantic_inventory"
+	SemanticInventoryEntryCollection         = "fhir_semantic_inventory_entries"
+	SemanticInventoryBuildCollection         = "fhir_semantic_inventory_builds"
+	SemanticInventorySchemaVersion           = 1
+	SemanticInventoryEntryIndexVersion       = 2
+	SemanticObservationRuleVersion           = 5
+	SemanticInventoryEmitterVersion          = 3
 	SemanticObservationLegacyV1SchemaVersion = 3
 	SemanticObservationLegacyV1RuleVersion   = 4
 	SemanticInventoryPageLimit               = 50
@@ -49,7 +46,6 @@ const (
 	SemanticInventorySourceAvailabilityUnproven = "unproven"
 )
 
-// SemanticInventoryBuild records completeness for one immutable source generation.
 type SemanticInventoryBuild struct {
 	Key                string                      `json:"_key"`
 	Project            string                      `json:"project"`
@@ -71,16 +67,11 @@ type SemanticInventoryBuild struct {
 	Diagnostics        []string                    `json:"diagnostics,omitempty"`
 }
 
-// SemanticInventoryCheckpoint is a typed keyset cursor over immutable retained
-// resource collections. Key is scoped to Collection and advances only after
-// its source contributions have been persisted.
 type SemanticInventoryCheckpoint struct {
 	Collection string `json:"collection,omitempty"`
 	Key        string `json:"key,omitempty"`
 }
 
-// SemanticInventoryContribution is one semantic-emitter event tied to a
-// stable source record locator. Replaying a generation replaces the same key.
 type SemanticInventoryContribution struct {
 	Key               string              `json:"_key"`
 	Project           string              `json:"project"`
@@ -110,8 +101,6 @@ const (
 	SemanticInventorySystemVersionCategory SemanticInventorySelectionMode = "SYSTEM_VERSION_CATEGORY"
 )
 
-// SemanticInventoryFamilyReference selects every code in one binding, system,
-// and exact version. An empty Version selects only versionless Codings.
 type SemanticInventoryFamilyReference struct {
 	FamilyID     string `json:"family_id"`
 	BindingID    string `json:"binding_id"`
@@ -122,9 +111,6 @@ type SemanticInventoryFamilyReference struct {
 	Version      string `json:"version"`
 }
 
-// SemanticInventoryFamily carries a coding selector without an exact code.
-// It is a separate selection type; SemanticObservation.Key.Code retains its
-// existing exact-code meaning.
 type SemanticInventoryFamily struct {
 	SemanticInventoryFamilyReference
 	Source            SemanticObservationSource       `json:"source"`
@@ -159,15 +145,11 @@ type SemanticInventoryPageOptions struct {
 	Limit                         int
 }
 
-// SemanticInventoryReference identifies one immutable catalog row without
-// including observed payload or caller-chosen storage identities.
 type SemanticInventoryReference struct {
 	ConceptID string `json:"concept_id"`
 	BindingID string `json:"binding_id"`
 }
 
-// SemanticInventoryResolveOptions is the bounded, authorization-scoped lookup
-// used when a user applies selected catalog rows to an authoring workspace.
 type SemanticInventoryResolveOptions struct {
 	Project                       string
 	DatasetGeneration             string
@@ -239,9 +221,6 @@ func NewSemanticInventoryBuild(project, datasetGeneration, authResourcePath stri
 	}
 }
 
-// SemanticInventoryEmitter runs the same semantic walker as the profiler but
-// does not retain field summaries or per-scope maps. It is intended for
-// bounded scans of already-retained resources.
 type SemanticInventoryEmitter struct {
 	project           string
 	datasetGeneration string
@@ -287,9 +266,6 @@ func (e SemanticInventoryEmitter) ObservePayload(payload map[string]any, resourc
 	return p.observeSemanticObservations(payload, sourceID, sink)
 }
 
-// ObservePayloadWithCoverage emits the same semantic observations as
-// ObservePayload and adds one aggregated independent coverage contribution,
-// including for sources that produce no semantic observations.
 func (e SemanticInventoryEmitter) ObservePayloadWithCoverage(
 	payload map[string]any,
 	resourceType string,
@@ -420,10 +396,6 @@ func semanticBindingID(observation SemanticObservation) string {
 	return catalogIdentityDigest(parts...)
 }
 
-// LegacySemanticBindingIDV1 reconstructs the pinned semantic-binding/v1
-// identity for schema 3 / rule 4 observations. Saved frames use this identity
-// to preserve their primary-only value binding while current inventory
-// observations gain fallback selectors.
 func LegacySemanticBindingIDV1(observation SemanticObservation) string {
 	parts := []string{
 		"semantic-binding/v1",
@@ -460,8 +432,6 @@ func SemanticInventoryPageDigest(opts SemanticInventoryPageOptions, buildID stri
 		opts.Query,
 		strconv.Itoa(limit),
 	}
-	// Keep legacy exact cursors valid, including callers that explicitly name
-	// their previous default mode.
 	if opts.SelectionMode != "" && opts.SelectionMode != SemanticInventoryExactConcept {
 		parts[0] = "semantic-inventory-page/" + string(opts.SelectionMode) + "/v1"
 	}

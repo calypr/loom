@@ -1,12 +1,5 @@
 package catalog
 
-// Semantic coverage lookup is the consumer-facing read contract for asking
-// whether candidate canonical paths are covered by a semantic coverage
-// build. It is a neutral domain contract: Explorer lifecycle consumes it,
-// and source adapters implement the read against their own storage. The
-// build/write-side machinery (source-set accumulators, expectations,
-// materialization limits) stays with the implementing adapter.
-
 type SemanticCoverageBuildState string
 
 const (

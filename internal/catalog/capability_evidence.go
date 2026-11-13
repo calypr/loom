@@ -126,9 +126,6 @@ func cloneFieldEnrichment(in []FieldEnrichmentObservation) []FieldEnrichmentObse
 	return out
 }
 
-// ReadCapabilityEvidence keeps the three evidence sources independent while
-// providing a convenient aggregate for snapshot compilers. It returns the
-// first dependency error but still returns all successfully read evidence.
 func ReadCapabilityEvidence(ctx context.Context, reader CapabilityEvidenceReader, opts CapabilityEvidenceOptions) (CapabilityEvidence, error) {
 	var result CapabilityEvidence
 	var firstErr error

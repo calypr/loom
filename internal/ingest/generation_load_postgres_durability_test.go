@@ -1,37 +1,5 @@
 package ingest
 
-// Durability, crash, race, and cancellation acceptance for the pg-ingest-03
-// generation-load orchestrator (second half of check-2).
-//
-// These tests kill real backends and real OS processes mid-load and prove
-// the convergence contract on PostgreSQL 18:
-//
-//   - pg_terminate_backend injection at every durability seam (manifest
-//     create, resource batch, edge batch, field profile, inventory, semantic
-//     contributions, staged transition). The kill is witnessed: the victim
-//     backend is seen parked on the seam's lock (wait_event_type = 'Lock')
-//     before termination, and the termination count must be >= 1. After the
-//     kill: the manifest is never STAGED with missing data, the active
-//     generation pointer never moves, and the ledger agrees exactly with
-//     the committed rows. A replay then converges to the byte-stable
-//     fingerprint of a clean load.
-//   - Separate-OS-process crash and replay: a child test binary process
-//     loads; the parent SIGKILLs it mid-load (no client-side failure
-//     handling can run); a second, distinct OS process replays the load and
-//     must converge the generation to STAGED with the exact reference
-//     fingerprint, and repeat runs read back ErrGenerationAlreadyStaged
-//     without writing anything. A modified schema identity is refused by
-//     name with a passing non-vacuity control.
-//   - Same-generation load races and activation CAS races: at least ten
-//     rounds each on two real pools with distinct pg_backend_pid rows,
-//     sampled live from pg_stat_activity for a positive overlap witness,
-//     with sequential controls that fail when the witness logic itself is
-//     broken.
-//   - Cancellation branches: a safe-point cancellation (the only branch
-//     allowed to mark FAILED) versus a cancellation that races an
-//     in-flight statement (must keep the manifest LOADING for replay),
-//     each with its paired control.
-
 import (
 	"bufio"
 	"context"
@@ -53,11 +21,6 @@ import (
 	publication "github.com/calypr/loom/internal/dataset"
 )
 
-// ---------------------------------------------------------------------------
-// Ledger <-> rows equality: every committed batch is accounted exactly once
-// and no row exists without its batch's accounting.
-// ---------------------------------------------------------------------------
-
 func ing03AssertLedgerEquality(t *testing.T, service *ing03Service) {
 	t.Helper()
 	ledger := ing03QIdent(t, service.schema, "batch_write_ledger")
@@ -78,10 +41,6 @@ func ing03AssertLedgerEquality(t *testing.T, service *ing03Service) {
 	}
 }
 
-// ing03WaitBothWaiting polls pg_stat_activity until one sample shows at
-// least two distinct pids (from the named applications) waiting on a lock
-// simultaneously, and returns those pids. A single sample is required so
-// the witness proves genuine simultaneity, not two sequential waits.
 func ing03WaitBothWaiting(t *testing.T, service *ing03Service, appNames []string, timeout time.Duration) []int32 {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -111,12 +70,7 @@ func ing03AssertNeverActive(t *testing.T, service *ing03Service, where string) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pg_terminate_backend at every durability seam.
-// ---------------------------------------------------------------------------
-
 func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) {
-	// Clean reference load for the byte-stable convergence target.
 	reference := newIngest03Service(t)
 	referenceDir := t.TempDir()
 	ing03WriteFixtures(t, referenceDir, 2, false)
@@ -129,18 +83,11 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 	referenceFingerprint := reference.fingerprint()
 
 	seams := []struct {
-		name  string
-		table string
-		// manifestExpected is the required manifest state right after the
-		// kill: absent (create never committed) or LOADING (create
-		// committed; the creator is not allowed to mark FAILED when the
-		// commit outcome is unknown).
+		name             string
+		table            string
 		manifestExpected string
-		// rowBarrier: the seam's rows must be absent while the kill holds;
-		// table is locked and its statements never committed.
-		rowBarrier func(t *testing.T, service *ing03Service)
-		// blockRowLevel uses the manifest row lock instead of a table lock.
-		rowLevel bool
+		rowBarrier       func(t *testing.T, service *ing03Service)
+		rowLevel         bool
 	}{
 		{name: "manifest-create", table: "dataset_generation_manifest", manifestExpected: "absent"},
 		{name: "resource-batch", table: "fhir_resource", manifestExpected: "LOADING",
@@ -165,9 +112,6 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 			ref := ing03Ref(t, ing03Project, ing03Generation)
 			app := ing03AppBase + "-dur-" + seam.name
 
-			// The row-level blocker needs the committed manifest row, so
-			// it is acquired after the manifest-create event; table-level
-			// blockers park the statement before the seam is reached.
 			manifestCreated := make(chan struct{})
 			var manifestOnce sync.Once
 			var release func()
@@ -197,15 +141,9 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 				case <-time.After(60 * time.Second):
 					t.Fatal("manifest create never happened: kill injection never armed")
 				}
-				// The parent arms the row lock as soon as the committed
-				// manifest exists: the load's own transition UPDATE parks
-				// behind it on its way to STAGED.
 				release = service.blockManifestRow(ing03Project, ing03Generation)
 			}
 
-			// Positive witness: the victim backend is parked on the seam
-			// lock before anything is terminated. If this fails, the kill
-			// would be vacuous and the test must fail.
 			if _, parked := service.waitForBackendWaiting(app, 60*time.Second); !parked {
 				t.Fatalf("no backend for %s was ever witnessed waiting on the seam lock: the kill injection is vacuous", app)
 			}
@@ -231,7 +169,6 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 					loadErr, loadErr, ErrGenerationManifestOutcomeUnknown)
 			}
 
-			// Invariants at the moment of the kill: never visible-partial.
 			state, found := service.manifestState(ing03Project, ing03Generation)
 			switch seam.manifestExpected {
 			case "absent":
@@ -249,9 +186,6 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 			}
 			ing03AssertLedgerEquality(t, service)
 
-			// Replay convergence: a fresh attempt (resumer of the LOADING
-			// claim, or fresh create where absent) must converge to the
-			// clean-load fingerprint, byte-stable business content.
 			replayCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 			defer cancel()
 			if _, err := LoadPostgresGeneration(replayCtx,
@@ -270,9 +204,6 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 		})
 	}
 
-	// Non-vacuity control: the identical fixture without any kill stages on
-	// the first attempt with the reference fingerprint, so every kill
-	// assertion above could genuinely have failed.
 	control := newIngest03Service(t)
 	controlDir := t.TempDir()
 	ing03WriteFixtures(t, controlDir, 2, false)
@@ -287,13 +218,6 @@ func TestPostgresGenerationLoadKillInjectionAtEveryDurabilitySeam(t *testing.T) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Separate-OS-process crash and replay convergence.
-// ---------------------------------------------------------------------------
-
-// ing03HelperConfig configures the replay-helper child process. The DSN is
-// never carried here: the child derives it from its own inherited
-// LOOM_TEST_POSTGRES_URL plus the shared database name.
 type ing03HelperConfig struct {
 	Database       string `json:"database"`
 	Schema         string `json:"schema"`
@@ -345,8 +269,6 @@ func TestPostgresGenerationLoadReplayHelper(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	// The catalog evidence writers are wired by the caller exactly as a
-	// production composition would, over the child's own pool.
 	catalogCfg, cfgErr := pgxpool.ParseConfig(dsn)
 	if cfgErr != nil {
 		fmt.Printf("EVENT helper-pool-config %v\n", cfgErr)
@@ -386,8 +308,6 @@ func TestPostgresGenerationLoadReplayHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-// ing03HelperDSN swaps the database of the service URL; the credential
-// material stays inside the returned string and is never printed.
 func ing03HelperDSN(raw, database string) (string, error) {
 	u, err := parsePostgresURL(raw)
 	if err != nil {
@@ -412,9 +332,6 @@ func parsePostgresURL(raw string) (*url.URL, error) {
 	return u, nil
 }
 
-// ing03DatabaseFromDSN extracts the database name component the parent
-// created, so child processes can address the same owned fixture without
-// the parent ever echoing credentials.
 func ing03DatabaseFromDSN(t *testing.T, dsn string) string {
 	t.Helper()
 	u, err := parsePostgresURL(dsn)
@@ -480,7 +397,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 	ing03WriteFixtures(t, metaDir, 2, false)
 	schemaFile := repoPath(t, "schemas", "graph-fhir.json")
 
-	// Reference fingerprint for the crashing generation's literal name.
 	crashGeneration := "gen-crash-03"
 	reference := newIngest03Service(t)
 	referenceDir := t.TempDir()
@@ -499,11 +415,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 		Project: ing03Project, Generation: crashGeneration, AuthPath: ing03AuthPath,
 	}
 
-	// First process crashes mid-load. The edge table is locked first, and
-	// the parent SIGKILLs the child the moment both resource batches are
-	// witnessed committed while it is parked on the first edge statement:
-	// the crash point is deterministic, and no client failure handling can
-	// run — only socket closure reaps the backend.
 	crashBlockRelease := shared.blockTable("fhir_edge_occurrence")
 	crashConfig := baseConfig
 	crashConfig.Application = ing03AppBase + "-crash-victim"
@@ -570,14 +481,8 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 		crashBlockRelease()
 		t.Fatal("crash helper reported clean exit after SIGKILL: it never crashed mid-load")
 	}
-	// The crashed process is gone; free the edge lock so the replay's edge
-	// pass can proceed.
 	crashBlockRelease()
 
-	// After the crash: manifest must be LOADING (create was committed —
-	// the witnessed batch commits came after it) and never STAGED/FAILED;
-	// the pointer never moved; the ledger still equals the committed rows;
-	// the parked edge batch wrote nothing.
 	state, found := shared.manifestState(ing03Project, crashGeneration)
 	if !found || state != string(publication.StateLoading) {
 		t.Fatalf("post-crash manifest state = %q found=%v, want LOADING", state, found)
@@ -591,7 +496,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 		t.Fatalf("post-crash edge rows = %d, want 0 (the parked batch never committed)", edges)
 	}
 
-	// Replay from a distinct second OS process converges the generation.
 	replayConfig := baseConfig
 	replayConfig.Application = ing03AppBase + "-crash-replay"
 	code, events, stderr := runIngest03Helper(t, shared, replayConfig)
@@ -607,8 +511,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 		t.Fatalf("cross-process replay fingerprint = %s, want the clean-load %s (byte-stable content)", got, referenceFingerprint)
 	}
 
-	// Third distinct process: committed success is read back, never
-	// re-run; nothing new is written.
 	ledgerBefore := shared.countTable("batch_write_ledger", "")
 	repeatConfig := baseConfig
 	repeatConfig.Application = ing03AppBase + "-crash-repeat"
@@ -623,8 +525,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 		t.Fatalf("already-staged repeat changed the fingerprint to %s, want %s unchanged", got, referenceFingerprint)
 	}
 
-	// Identity conflict: a differently-spaced copy of the same schema has
-	// a different SHA-256, so the claim must refuse by name.
 	tamperedDir := t.TempDir()
 	original, err := os.ReadFile(schemaFile)
 	if err != nil {
@@ -646,9 +546,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 		t.Fatalf("refused identity conflict changed content to %s, want %s unchanged", got, referenceFingerprint)
 	}
 
-	// Non-vacuity: the tampered schema file is loadable for a fresh
-	// generation, proving the refusal above came from the identity
-	// mismatch against the stored manifest, not a broken file.
 	freshConfig := baseConfig
 	freshConfig.Application = ing03AppBase + "-crash-tampered-fresh"
 	freshConfig.Generation = "gen-crash-tampered"
@@ -658,10 +555,6 @@ func TestPostgresGenerationLoadSeparateProcessCrashReplayConvergence(t *testing.
 			code, events, stderr)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Same-generation load races.
-// ---------------------------------------------------------------------------
 
 func TestPostgresGenerationLoadSameGenerationLoadRace(t *testing.T) {
 	var referenceFingerprint string
@@ -701,9 +594,6 @@ func TestPostgresGenerationLoadSameGenerationLoadRace(t *testing.T) {
 		close(done)
 		overlap := <-sampling
 
-		// Positive overlap witness: both racing pools were live
-		// simultaneously with distinct application tags; a race that
-		// silently serialized must fail here.
 		if overlap < 2 {
 			t.Fatalf("round %d overlap witness = %d distinct concurrent apps, want >= 2: the race serialized", round, overlap)
 		}
@@ -755,9 +645,6 @@ func TestPostgresGenerationLoadSameGenerationLoadRace(t *testing.T) {
 		}
 	}
 
-	// Sequential control: the identical flow serialized under a mutex must
-	// show no concurrency; a witness that still reports overlap proves the
-	// sampling itself is broken.
 	service := newIngest03Service(t)
 	metaDir := t.TempDir()
 	ing03WriteFixtures(t, metaDir, 2, false)
@@ -795,10 +682,6 @@ func TestPostgresGenerationLoadSameGenerationLoadRace(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Activation CAS races.
-// ---------------------------------------------------------------------------
-
 func TestPostgresGenerationLoadActivationCASRace(t *testing.T) {
 	for round := 1; round <= ing03RaceRounds; round++ {
 		service := newIngest03Service(t)
@@ -816,11 +699,6 @@ func TestPostgresGenerationLoadActivationCASRace(t *testing.T) {
 			ing03AppBase + fmt.Sprintf("-act-race-a-%02d", round),
 			ing03AppBase + fmt.Sprintf("-act-race-b-%02d", round),
 		}
-		// The pointer table is locked so both activations are verifiably
-		// in flight on the CAS path at once (parked on the same lock with
-		// distinct pg_backend_pid rows) instead of hoping a sampler catches
-		// a millisecond-scale overlap. The CAS semantics run when the lock
-		// releases: the loser's compare-and-swap sees the winner's commit.
 		release := service.blockTable("dataset_active_generation")
 		start := make(chan struct{})
 		var wg sync.WaitGroup
@@ -863,8 +741,6 @@ func TestPostgresGenerationLoadActivationCASRace(t *testing.T) {
 		}
 	}
 
-	// Sequential control: a plainly serialized activation succeeds, so the
-	// CAS verdict above was reachable.
 	service := newIngest03Service(t)
 	metaDir := t.TempDir()
 	ing03WriteFixtures(t, metaDir, 2, false)
@@ -883,10 +759,6 @@ func TestPostgresGenerationLoadActivationCASRace(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Cancellation branches.
-// ---------------------------------------------------------------------------
-
 func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 	t.Run("safe-point cancellation marks FAILED", func(t *testing.T) {
 		service := newIngest03Service(t)
@@ -898,9 +770,6 @@ func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 		defer cancel()
 		var events []string
 		opts := service.loadOptions(metaDir, ing03Project, &ref)
-		// Cancel synchronously inside the manifest-create safe point: the
-		// very next ctx check runs before any store statement is dispatched,
-		// so the safe-point branch is deterministic, not timing-dependent.
 		opts.EventSink = func(event string, _ map[string]any) {
 			events = append(events, event)
 			if event == "go_pg_manifest_create" {
@@ -974,8 +843,6 @@ func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 			loadErrCh <- err
 		}()
 
-		// The load must be parked mid-statement on the edge batch (the
-		// resource pass is already witnessed committed) before the cancel.
 		if _, parked := service.waitForBackendWaiting(app, 60*time.Second); !parked {
 			release()
 			t.Fatal("the edge statement was never witnessed parked: the cancellation would not race an in-flight statement")
@@ -1005,8 +872,6 @@ func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 		ing03AssertNeverActive(t, service, "in-flight cancellation")
 		ing03AssertLedgerEquality(t, service)
 
-		// Replay converges: the resumer completes what the cancelled
-		// attempt left at an unknown point.
 		if _, err := LoadPostgresGeneration(context.Background(),
 			service.loadOptions(metaDir, ing03Project, &ref),
 			service.pgOptions(app+"-replay")); err != nil {
@@ -1020,8 +885,6 @@ func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 			t.Fatalf("replayed fingerprint = %s, want the clean-load %s", got, referenceFingerprint)
 		}
 
-		// Non-vacuity: without the cancellation the same flow stages
-		// directly, so the LOADING outcome above was not the ordinary path.
 		control := newIngest03Service(t)
 		controlDir := t.TempDir()
 		ing03WriteFixtures(t, controlDir, 2, false)
@@ -1036,15 +899,6 @@ func TestPostgresGenerationLoadCancellationBranches(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// Mid-load semantic spill: kill during a spill statement and replay to the
-// reference convergence. The spill branch (generation_load.go's mid-scan
-// flush at len(buffer) >= SemanticFlushThreshold) is only reachable when
-// contribution volume exceeds the threshold, so this fixture scales coded
-// observations with unique concepts and the load sets an explicit flush
-// threshold (the default floors at max(2*BatchSize, 2000)).
-// ---------------------------------------------------------------------------
 
 func ing03WriteSpillFixtures(t *testing.T, dir string, codedRows int) {
 	t.Helper()
@@ -1063,14 +917,6 @@ func ing03WriteSpillFixtures(t *testing.T, dir string, codedRows int) {
 				"code":   fmt.Sprintf("spill-%06d", i),
 			}}},
 		}
-		// Non-uniform edge weight (a [4,4,4,2] subject/focus cycle):
-		// uniform per-row edge counts make the window accumulator land
-		// exactly on the 1000-edge cap and never cross it, which kept the
-		// first cap fix untested. With this cycle the accumulation reaches
-		// 998 and the next row alone would push it to 1002, so the
-		// lookahead split must fire at 998 - asserted below via the batch
-		// events. Every reference target (Patient/pat-0000,
-		// Observation/obs-s-000000) is itself written by this fixture.
 		if i%4 != 3 {
 			document["focus"] = []any{
 				map[string]any{"reference": "Observation/obs-s-000000"},
@@ -1099,8 +945,6 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	refRef := ing03Ref(t, ing03Project, "gen-build-spill-ref")
 	refKill := ing03Ref(t, ing03Project, "gen-build-spill-kill")
 
-	// Reference: the same fixture and threshold, uninterrupted. Its spill
-	// write count is the non-vacuity witness that the mid-load spill branch runs.
 	refOpts := service.loadOptions(metaDir, ing03Project, &refRef)
 	refSpillWrites := 0
 	var refEdgeOffers []int64
@@ -1130,12 +974,6 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 		t.Fatalf("reference load emitted %d semantic writes at threshold %d with %d coded rows: the mid-load spill never ran (vacuous)",
 			refSpillWrites, flushThreshold, spillRows)
 	}
-	// Edge-window boundary witness: the [4,4,4,2] reference pattern makes
-	// the accumulator reach 998 while the next row alone carries 4 more,
-	// so the lookahead split must fire BEFORE the crossing row. Every
-	// offered batch stays within the store cap, and a crossing commit in
-	// [MaxBatchEdges-6, MaxBatchEdges-1] proves the split actually fired
-	// (uniform fixtures would only ever commit exactly at the cap).
 	if len(refEdgeOffers) == 0 {
 		t.Fatal("reference load emitted no edge batch commits: the boundary witness is vacuous")
 	}
@@ -1158,8 +996,6 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 			refContribs, 2*flushThreshold)
 	}
 
-	// Killed load: arm the contribution-table block once the first spill
-	// has committed, so the victim statement is verifiably a spill write.
 	spillFirst := make(chan struct{}, 1)
 	killOpts := service.loadOptions(metaDir, ing03Project, &refKill)
 	killOpts.EventSink = func(event string, _ map[string]any) {
@@ -1222,8 +1058,6 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 		t.Fatalf("partial contributions = %d, want < reference %d: the killed load persisted as if complete", partial, refContribs)
 	}
 
-	// Replay: the resumer re-spills from scratch and must converge to the
-	// reference content exactly (deterministic keys make rewrites idempotent).
 	resumeOpts := service.loadOptions(metaDir, ing03Project, &refKill)
 	resumeSpills := 0
 	resumeOpts.EventSink = func(event string, _ map[string]any) {
@@ -1251,14 +1085,6 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	ing03AssertLedgerEquality(t, service)
 }
 
-// TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows proves both
-// summary counters net replays out: the first attempt commits its first
-// edge window, is killed while the second window is parked (manifest
-// LOADING), and the resumer replays the first window (the store reports
-// the original commit count with Replay=true) while committing the rest
-// for real. A resumed load must therefore report exactly the newly
-// inserted rows - unguarded counters would report the replayed window's
-// original counts as fresh inserts.
 func TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows(t *testing.T) {
 	service := newIngest03Service(t)
 	service.migrate()
@@ -1334,8 +1160,6 @@ func TestPostgresGenerationLoadReplaySummaryCountsOnlyNewRows(t *testing.T) {
 		t.Fatalf("resumed EdgesInserted = %d, want only the %d new rows (before=%d after=%d): replayed batches inflated the counter",
 			summary.EdgesInserted, edgesAfter-edgesBefore, edgesBefore, edgesAfter)
 	}
-	// Every resource window was committed before the edge kill, so the
-	// resume is a pure resource replay: zero fresh rows.
 	if summary.VerticesInserted != 0 {
 		t.Fatalf("resumed VerticesInserted = %d, want 0 (all resource windows were already durable): replayed batches inflated the counter", summary.VerticesInserted)
 	}
