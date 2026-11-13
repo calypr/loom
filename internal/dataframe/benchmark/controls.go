@@ -10,12 +10,38 @@ import (
 // block; the verifier independently re-checks their bounds, so a run that
 // skips a control cannot forge one.
 
-// passedWarm returns the samples that carry timing meaning: warm cache,
-// measured (not warmup), successful.
-func passedWarm(samples []Sample) []Sample {
+// passedStable returns samples whose timing carries steady-state meaning:
+// a measured (not warmup), successful sample in a non-cold regime — warm
+// (harness-owned process at steady state) or service-warm (attached
+// external service, no restart ownership). Process-cold samples (review
+// r4559430568) are honest measurements but belong to a different regime:
+// they legitimately cost more, so they neither seed stability controls nor
+// feed speed claims.
+func passedStable(samples []Sample) []Sample {
 	var out []Sample
 	for _, s := range samples {
-		if s.Warmup || s.Cache != CacheWarm || s.Outcome != OutcomePassed {
+		if s.Warmup || s.Outcome != OutcomePassed {
+			continue
+		}
+		if s.Cache != CacheWarm && s.Cache != CacheServiceWarm {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// passedMeasured returns every measured (not warmup), successful sample in
+// any regime. The round-robin protocol gives every round an identical cache
+// composition (process-cold first iteration after a restart, steady
+// afterwards), so comparing round halves across all regimes is a fair
+// environment-stability check for spawned and attached arms alike — and a
+// spawned run, which produces no warm-only cells, still gets a self-ratio
+// (a spawned timing leg must never abort for lack of cells).
+func passedMeasured(samples []Sample) []Sample {
+	var out []Sample
+	for _, s := range samples {
+		if s.Warmup || s.Outcome != OutcomePassed {
 			continue
 		}
 		out = append(out, s)
@@ -33,15 +59,15 @@ func cellSamples(samples []Sample, workload, backend string) []Sample {
 	return out
 }
 
-// ControlUnstableCells returns "workload/backend" cells whose passed-warm
-// coefficient of variation exceeds the ceiling. The driver excludes these
+// ControlUnstableCells returns "workload/backend" cells whose passed
+// steady-regime coefficient of variation exceeds the ceiling. The driver excludes these
 // cells from claims; with fewer than 3 samples a cell cannot demonstrate
 // stability and is reported unstable (never silently trusted).
 func ControlUnstableCells(samples []Sample, limit float64) []string {
 	type cell struct{ workload, backend string }
 	seen := map[cell]bool{}
 	var cells []cell
-	for _, s := range passedWarm(samples) {
+	for _, s := range passedStable(samples) {
 		c := cell{s.WorkloadID, s.Backend}
 		if !seen[c] {
 			seen[c] = true
@@ -66,7 +92,8 @@ func ControlUnstableCells(samples []Sample, limit float64) []string {
 
 // ControlSelfRatio computes the backend-vs-itself sanity ratio across
 // halves of the iteration sequence: for every cell, medians of the first
-// and second half of passed-warm samples ordered by (round, iteration);
+// and second half of measured samples (any cache regime; rounds are regime-
+// symmetric under the interleaved protocol) ordered by (round, iteration);
 // the reported value is the WORST deviation across cells (always >= 1).
 // ok=false when any evaluated cell cannot be split (fewer than 4 samples)
 // or no cells exist: a missing self-ratio control cannot pass the verifier.
@@ -74,7 +101,7 @@ func ControlSelfRatio(samples []Sample, backend string) (float64, bool) {
 	type cell struct{ workload, backend string }
 	seen := map[cell]bool{}
 	var cells []cell
-	for _, s := range passedWarm(samples) {
+	for _, s := range passedMeasured(samples) {
 		if s.Backend != backend {
 			continue
 		}
@@ -90,7 +117,7 @@ func ControlSelfRatio(samples []Sample, backend string) (float64, bool) {
 	worst := 1.0
 	for _, c := range cells {
 		cellSamplesSorted := cellSamples(samples, c.workload, c.backend)
-		passed := passedWarm(cellSamplesSorted)
+		passed := passedMeasured(cellSamplesSorted)
 		if len(passed) < 4 {
 			return 0, false
 		}
@@ -118,9 +145,9 @@ func ControlSelfRatio(samples []Sample, backend string) (float64, bool) {
 }
 
 // ControlEmptyFloorMillis turns empty-result floor samples into the control
-// value (median of passed warm samples); ok=false without evidence.
+// value (median of passed steady-regime samples); ok=false without evidence.
 func ControlEmptyFloorMillis(samples []Sample) (float64, bool) {
-	passed := passedWarm(samples)
+	passed := passedStable(samples)
 	if len(passed) == 0 {
 		return 0, false
 	}

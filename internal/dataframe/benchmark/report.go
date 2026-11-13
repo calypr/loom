@@ -137,6 +137,36 @@ func BuildReport(identity RunIdentity, plan RunPlan, controls ControlRuns, gateR
 	return report, nil
 }
 
+// claimCellPair resolves the steady-regime cell a claim may cite for each
+// arm (review r4559430568): warm preferred; service-warm for an attached
+// arm that never restarts; process-cold cells are diagnostic only and are
+// never claimed. The same helper drives buildClaims and VerifyReport, so a
+// claim can only ever cite what the policy would choose.
+func claimCellPair(summaryOf map[string]Summary, workloadID string) (Summary, Summary, bool) {
+	var a, p Summary
+	ok := true
+	for _, backend := range []string{BackendArango, BackendPostgres} {
+		found := false
+		for _, cache := range []CacheLabel{CacheWarm, CacheServiceWarm} {
+			s := summaryOf[workloadID+"|"+backend+"|"+string(cache)]
+			if s.Count > 0 && s.FailedCount == 0 {
+				if backend == BackendArango {
+					a = s
+				} else {
+					p = s
+				}
+				found = true
+				break
+			}
+		}
+		ok = ok && found
+	}
+	if !ok {
+		return Summary{}, Summary{}, false
+	}
+	return a, p, true
+}
+
 func buildClaims(gateReports []WorkloadGateReport, summaries []SummaryRow, controls ControlRuns) []Claim {
 	byCell := map[string]Summary{}
 	for _, row := range summaries {
@@ -154,9 +184,8 @@ func buildClaims(gateReports []WorkloadGateReport, summaries []SummaryRow, contr
 		if unstable[gate.WorkloadID+"/"+BackendArango] || unstable[gate.WorkloadID+"/"+BackendPostgres] {
 			continue // stability control
 		}
-		a := byCell[gate.WorkloadID+"|"+BackendArango+"|"+string(CacheWarm)]
-		p := byCell[gate.WorkloadID+"|"+BackendPostgres+"|"+string(CacheWarm)]
-		if a.Count == 0 || p.Count == 0 || a.FailedCount != 0 || p.FailedCount != 0 {
+		a, p, ok := claimCellPair(byCell, gate.WorkloadID)
+		if !ok {
 			continue
 		}
 		ratio, err := NewSpeedRatio(a.MedianMillis, p.MedianMillis)
@@ -526,13 +555,12 @@ func VerifyReport(report *Report) error {
 		if !ok || !gate.Claimable {
 			return fmt.Errorf("benchmark report: claim for %s is not gate-claimable", claim.WorkloadID)
 		}
-		na := summaryOf[claim.WorkloadID+"|"+BackendArango+"|"+string(CacheWarm)]
-		np := summaryOf[claim.WorkloadID+"|"+BackendPostgres+"|"+string(CacheWarm)]
+		na, np, pairOK := claimCellPair(summaryOf, claim.WorkloadID)
+		if !pairOK {
+			return fmt.Errorf("benchmark report: claim for %s rests on cells with failures or no samples", claim.WorkloadID)
+		}
 		if !summaryNearEqual(na, claim.Arango) || !summaryNearEqual(np, claim.Postgres) {
 			return fmt.Errorf("benchmark report: claim for %s cites summaries that do not recompute", claim.WorkloadID)
-		}
-		if na.Count == 0 || np.Count == 0 || na.FailedCount != 0 || np.FailedCount != 0 {
-			return fmt.Errorf("benchmark report: claim for %s rests on cells with failures or no samples", claim.WorkloadID)
 		}
 		expected, err := NewSpeedRatio(na.MedianMillis, np.MedianMillis)
 		if err != nil || math.Abs(expected.ArangoOverPostgres-claim.Ratio.ArangoOverPostgres) > 1e-9 {

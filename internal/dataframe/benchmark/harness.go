@@ -239,10 +239,21 @@ type RunOptions struct {
 }
 
 // MeasureArms runs the interleaved round-robin timing protocol for one
-// workload on both arms. A non-nil coldRestart is invoked before the first
-// measured iteration of each round to earn the process-cold label; otherwise
-// samples are warm. Rounds interleave arm-by-arm so clock and host drift hit
-// both sides alike.
+// workload on both arms. Cache labels follow the contract in measure.go
+// exactly (review r4559430564):
+//
+//   - an arm the harness owns (Proc != nil) is restarted before the first
+//     measured iteration of each round; ONLY the single sample that
+//     directly follows a successful restart is process-cold, the rest of
+//     the round is warm;
+//   - an attached arm (Proc == nil) never restarts and is therefore
+//     service-warm on every sample, regardless of whether the peer arm is
+//     spawned;
+//   - a failed restart yields an OutcomeError sample carrying its Round,
+//     Iteration, and the process-cold regime it attempted, never a silent
+//     hole.
+//
+// Rounds interleave arm-by-arm so clock and host drift hit both sides alike.
 func MeasureArms(ctx context.Context, clock Clock, workloadID string, arango, postgres *Arm, opts RunOptions, receiptIDs map[string]string, outputIDs map[string]string, coldRestart func(ctx context.Context, arm *Arm) error) ([]Sample, map[string]PreviewResult, error) {
 	if err := opts.Config.Validate(); err != nil {
 		return nil, nil, err
@@ -254,14 +265,23 @@ func MeasureArms(ctx context.Context, clock Clock, workloadID string, arango, po
 	runPhase := func(warmup bool, rounds, iters int) {
 		iteration := 0
 		for round := 1; round <= rounds; round++ {
+			coldEarned := map[string]bool{}
 			if !warmup && coldRestart != nil {
 				for _, backend := range []string{BackendArango, BackendPostgres} {
-					if arms[backend] == nil {
-						continue // leg not participating in this scope
+					arm := arms[backend]
+					if arm == nil || arm.Proc == nil {
+						continue // not participating, or no restart ownership
 					}
-					if err := coldRestart(ctx, arms[backend]); err != nil {
-						samples = append(samples, Sample{WorkloadID: workloadID, Backend: backend, Outcome: OutcomeError, ErrorCode: "cold restart: " + err.Error()})
+					if err := coldRestart(ctx, arm); err != nil {
+						samples = append(samples, Sample{
+							WorkloadID: workloadID, Backend: backend,
+							Round: round, Iteration: iteration + 1,
+							StartedAt: clock.Now(), Cache: CacheProcessCold,
+							Outcome: OutcomeError, ErrorCode: "cold restart: " + err.Error(),
+						})
+						continue
 					}
+					coldEarned[backend] = true
 				}
 			}
 			for i := 0; i < iters; i++ {
@@ -271,18 +291,21 @@ func MeasureArms(ctx context.Context, clock Clock, workloadID string, arango, po
 					if arm == nil {
 						continue
 					}
+					cache := CacheWarm
+					if arm.Proc == nil {
+						cache = CacheServiceWarm // external service: never claimed cold
+					}
+					if coldEarned[backend] && i == 0 {
+						cache = CacheProcessCold // the sample that directly followed the restart
+						coldEarned[backend] = false
+					}
 					started := clock.Now()
 					result, err := arm.ExecuteOutput(ctx, tokenFor(backend, opts), opts.Project, opts.Explorer,
 						receiptIDs[backend], outputIDs[backend], opts.PreviewLimit)
 					sample := Sample{
 						WorkloadID: workloadID, Backend: backend, Round: round, Iteration: iteration, Warmup: warmup,
 						StartedAt: started,
-						Cache: func() CacheLabel {
-							if coldRestart != nil && !warmup {
-								return CacheProcessCold
-							}
-							return CacheWarm
-						}(),
+						Cache:     cache,
 					}
 					if err != nil {
 						sample.Outcome = classifyArmError(err)

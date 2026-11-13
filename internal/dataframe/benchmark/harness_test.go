@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -441,5 +442,154 @@ func TestFetchBuilderStateRefusesMissingToken(t *testing.T) {
 	if _, err := arm.FetchBuilderState(context.Background(), "Bearer t", "proj", "exp-1"); err == nil ||
 		!strings.Contains(err.Error(), "snapshot token") {
 		t.Fatalf("missing snapshot token must fail closed, got %v", err)
+	}
+}
+
+// --- cache-label contract (review r4559430564) --------------------------------
+
+// spawnSleeperProcess starts a real OS process (sh+sleep) that stands in
+// for a spawned arm whose HTTP surface is the fakeArm server: restarts are
+// genuine process restarts, observable by the harness without any backend.
+func spawnSleeperProcess(t *testing.T, readyURL, backend string) *ServerProcess {
+	t.Helper()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "dummy-arm.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec := ServerSpec{
+		Backend: backend, BinaryPath: script, ConfigYAML: "listen: unused",
+		ReadyURL: readyURL, Timeout: 15 * time.Second, StderrDir: dir,
+	}
+	proc, err := SpawnServer(context.Background(), spec, nil, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("spawn dummy arm: %v", err)
+	}
+	t.Cleanup(proc.Stop)
+	return proc
+}
+
+func TestMeasureArmsColdLabelContract(t *testing.T) {
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ready.Close()
+	fa, fp := newFakeArm(BackendArango), newFakeArm(BackendPostgres)
+	defer fa.close()
+	defer fp.close()
+	fa.rows["w"] = []map[string]any{{"patient_id": "p", "gender": "female"}}
+	fp.rows["w"] = []map[string]any{{"patient_id": "p", "gender": "female"}}
+	arango := fa.arm(BackendArango)
+	arango.Proc = spawnSleeperProcess(t, ready.URL, BackendArango)
+	postgres := fp.arm(BackendPostgres) // attached arm: Proc == nil, never cold
+
+	restarts := 0
+	cold := func(ctx context.Context, arm *Arm) error {
+		if arm == nil || arm.Proc == nil {
+			return nil
+		}
+		restarts++
+		return arm.Proc.Restart(ctx)
+	}
+	clock := &scriptedClock{base: time.Unix(1700000000, 0)}
+	opts := RunOptions{Project: "p", Generation: "g", Explorer: "w", UnrestrictedToken: "Bearer x", PreviewLimit: 100,
+		Config: RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2}}
+	samples, finals, err := MeasureArms(context.Background(), clock, "w", arango, postgres, opts,
+		map[string]string{BackendArango: "r-a", BackendPostgres: "r-p"},
+		map[string]string{BackendArango: "w", BackendPostgres: "w"}, cold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restarts != 2 {
+		t.Fatalf("restarts=%d want 2 (one per round, owned arms only)", restarts)
+	}
+	if _, ok := finals[BackendArango]; !ok {
+		t.Fatal("arango final preview missing")
+	}
+	for _, s := range samples {
+		if s.Outcome != OutcomePassed {
+			t.Fatalf("sample outcome %s: %s", s.Outcome, s.ErrorCode)
+		}
+		switch s.Backend {
+		case BackendArango:
+			if s.Warmup {
+				if s.Cache != CacheWarm {
+					t.Fatalf("warmup sample on owned arm must be warm, got %s", s.Cache)
+				}
+				continue
+			}
+			// itersPerRound == 2: the first iteration of each round
+			// directly followed a successful restart; the second is warm.
+			firstOfRound := (s.Iteration-1)%2 == 0
+			want := CacheWarm
+			if firstOfRound {
+				want = CacheProcessCold
+			}
+			if s.Cache != want {
+				t.Fatalf("arango round %d iteration %d: cache %s want %s", s.Round, s.Iteration, s.Cache, want)
+			}
+		case BackendPostgres:
+			if s.Cache != CacheServiceWarm {
+				t.Fatalf("attached arm labeled %s on round %d iteration %d: attached arms are service-warm regardless of the peer being spawned",
+					s.Cache, s.Round, s.Iteration)
+			}
+		}
+	}
+}
+
+func TestMeasureArmsFailedColdRestartIsLabeled(t *testing.T) {
+	fa, fp := newFakeArm(BackendArango), newFakeArm(BackendPostgres)
+	defer fa.close()
+	defer fp.close()
+	fa.rows["w"] = []map[string]any{{"patient_id": "p", "gender": "female"}}
+	fp.rows["w"] = []map[string]any{{"patient_id": "p", "gender": "female"}}
+	arango := fa.arm(BackendArango)
+	// A process owner that never started: every Restart attempt fails with
+	// "arm never started", the cheapest honest reproduction of a failed
+	// cold restart.
+	arango.Proc = &ServerProcess{}
+	postgres := fp.arm(BackendPostgres)
+	cold := func(ctx context.Context, arm *Arm) error {
+		if arm == nil || arm.Proc == nil {
+			return nil
+		}
+		return arm.Proc.Restart(ctx)
+	}
+	clock := &scriptedClock{base: time.Unix(1700000000, 0)}
+	opts := RunOptions{Project: "p", Generation: "g", Explorer: "w", UnrestrictedToken: "Bearer x", PreviewLimit: 100,
+		Config: RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2}}
+	samples, _, err := MeasureArms(context.Background(), clock, "w", arango, postgres, opts,
+		map[string]string{BackendArango: "r-a", BackendPostgres: "r-p"},
+		map[string]string{BackendArango: "w", BackendPostgres: "w"}, cold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failures := 0
+	for _, s := range samples {
+		if s.Backend != BackendArango || s.Warmup {
+			continue
+		}
+		if s.Outcome == OutcomeError && strings.Contains(s.ErrorCode, "cold restart:") {
+			failures++
+			// The failed attempt must sit at its position with the
+			// regime it attempted, never as a naked hole (review:
+			// empty Cache, no Round/Iteration).
+			if s.Cache != CacheProcessCold {
+				t.Fatalf("cold-restart failure sample lacks its regime label: %q", s.Cache)
+			}
+			if s.Round < 1 || s.Iteration < 1 {
+				t.Fatalf("cold-restart failure sample lacks Round/Iteration: %+v", s)
+			}
+			if s.Millis != 0 {
+				t.Fatalf("failed restart must not report a duration: %v", s.Millis)
+			}
+			continue
+		}
+		if s.Cache != CacheWarm {
+			t.Fatalf("arango sample after a failed restart attempt must be warm (no cold was earned), got %s", s.Cache)
+		}
+	}
+	if failures != 2 {
+		t.Fatalf("cold-restart failures=%d want 2 (one per round)", failures)
 	}
 }
