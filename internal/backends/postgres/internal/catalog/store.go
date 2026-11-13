@@ -13,6 +13,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/catalog"
@@ -72,11 +73,31 @@ type FieldProfileStore interface {
 var _ FieldProfileStore = (*storepostgres.FieldProfileRepository)(nil)
 
 // Store is the PostgreSQL catalog adapter for this slice. Create one with
-// New, NewFieldProfileStore, or NewRelationshipEvidenceStore.
+// NewFullStore (every repository, the shape Runtime.Catalog must carry), or
+// with the single-leg New / NewFieldProfileStore / NewRelationshipEvidenceStore
+// for a port that consumes only its own method family. A method whose
+// repository is absent refuses through requireLeg as a typed unavailability —
+// it never dereferences nil (PG-PG-CAPABILITY-EVIDENCE-COMPOSITION-PANIC:
+// the capability resolver consumes all three reads from one value).
 type Store struct {
 	inventory     InventoryStore
 	profiles      FieldProfileStore
 	relationships RelationshipStore
+}
+
+// ErrStoreLegNotAssembled reports that a Store method ran on a Store built
+// without its repository. Like every other unassigned PostgreSQL port, the
+// consumer must treat it as a configuration refusal; it is returned instead
+// of dereferencing the nil field.
+var ErrStoreLegNotAssembled = errors.New("postgres catalog: store leg is not assembled")
+
+// requireLeg names the missing repository before any query runs. The
+// method-name argument keeps the refusal attributable to the call site.
+func requireLeg(leg string, present bool, method string) error {
+	if !present {
+		return fmt.Errorf("%w: %s was called on a Store without the %s repository", ErrStoreLegNotAssembled, method, leg)
+	}
+	return nil
 }
 
 // New validates the persistence boundary. The store holds no state beyond
@@ -111,4 +132,27 @@ func NewRelationshipEvidenceStore(relationships RelationshipStore) (*Store, erro
 		return nil, errors.New("catalog PostgreSQL relationship evidence store is required")
 	}
 	return &Store{relationships: relationships}, nil
+}
+
+// NewFullStore assembles the complete catalog adapter over all three
+// persistence boundaries: inventory, field profiles, and relationship
+// evidence. This is the shape that satisfies the CapabilityEvidenceReader
+// contract (DiscoverResourceInventory, DiscoverRelationshipObservations,
+// DiscoverFieldEnrichment all read from one value), mirroring the Arango
+// lane's single full store. Every repository is required; a genuinely
+// unassigned series must stay a nil port at the runtime level, where
+// consumers treat it as a configuration refusal. The store holds no state
+// beyond the injected repositories; the caller owns the pool and schema
+// lifecycle.
+func NewFullStore(inventory InventoryStore, profiles FieldProfileStore, relationships RelationshipStore) (*Store, error) {
+	if inventory == nil {
+		return nil, errors.New("catalog PostgreSQL inventory store is required")
+	}
+	if profiles == nil {
+		return nil, errors.New("catalog PostgreSQL field profile store is required")
+	}
+	if relationships == nil {
+		return nil, errors.New("catalog PostgreSQL relationship evidence store is required")
+	}
+	return &Store{inventory: inventory, profiles: profiles, relationships: relationships}, nil
 }

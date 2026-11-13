@@ -58,6 +58,9 @@ var ErrAllGenerationsWithGeneration = errors.New("AllGenerations conflicts with 
 // (resource_type, path) verbatim; see the file comment for the registered
 // divergence from populatedFieldsAQL's sort.
 func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
+	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverFields"); err != nil {
+		return nil, err
+	}
 	fields := []catalog.PopulatedField{}
 	datasetGeneration := catalog.NormalizeDatasetGeneration(opts.DatasetGeneration)
 	authPathsUnrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)
@@ -133,6 +136,9 @@ func (s *Store) DiscoverFields(ctx context.Context, opts catalog.PopulatedFieldO
 // bootstrap posture, unchanged from the reference, reachable only via a
 // real zero-row union read and never via a refusal.
 func (s *Store) DiscoverExistingAuthResourcePaths(ctx context.Context, opts catalog.AuthResourcePathOptions) ([]string, error) {
+	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverExistingAuthResourcePaths"); err != nil {
+		return nil, err
+	}
 	datasetGeneration := catalog.NormalizeDatasetGeneration(opts.DatasetGeneration)
 	if opts.AllGenerations {
 		if datasetGeneration != "" {
