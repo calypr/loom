@@ -140,8 +140,15 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 	// the items subselect's predicate must read the reached target row's payload, never the
 	// items alias that names the subselect itself — PostgreSQL rejects that back-reference
 	// (SQLSTATE 42P01) and substring checks alone cannot see it.
-	itemsRegion := regexp.MustCompile(`(?s)\(SELECT x1\."logical_id".*?\) AS a\d+`)
-	for _, region := range itemsRegion.FindAllString(sql, -1) {
+	// Items carry SELECT DISTINCT: lower/child_sets.go:88 always sets Unique and the AQL arm
+	// always wraps the item array in UNIQUE (render/aql/navigation_render.go:294-296), so two
+	// occurrences reaching one document must collapse to one item on both arms.
+	itemsRegion := regexp.MustCompile(`(?s)\(SELECT DISTINCT x1\."logical_id".*?\) AS a\d+`)
+	regions := itemsRegion.FindAllString(sql, -1)
+	if len(regions) != 4 {
+		t.Fatalf("every aggregate needs its own DISTINCT items subselect, got %d:\n%s", len(regions), sql)
+	}
+	for _, region := range regions {
 		if regexp.MustCompile(`\ba\d+\."payload"`).MatchString(region) {
 			t.Fatalf("items subselect references its own alias (unexecutable plan analysis):\n%s", region)
 		}
@@ -150,10 +157,8 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 		}
 	}
 
-	for _, forbidden := range []string{"LEFT JOIN", "DISTINCT"} {
-		if strings.Contains(sql, forbidden) {
-			t.Fatalf("aggregate sublinks must not add outer joins or deduplicate item rows (%q present):\n%s", forbidden, sql)
-		}
+	if strings.Contains(sql, "LEFT JOIN") {
+		t.Fatalf("aggregate sublinks must not add outer joins:\n%s", sql)
 	}
 	for _, want := range []string{
 		// SUM: registered numeric parity (operand clamp + IEEE band), empty -> NULL, non-numeric guard.
@@ -168,7 +173,7 @@ func TestPostWindowAggregateReducersRenderAsCorrelatedSublinks(t *testing.T) {
 		"ORDER BY",
 		"LIMIT 1",
 		// The predicate is the ANY-quantified match over the code slot; the reached items join
-		// the edge occurrence table (per occurrence, not deduplicated).
+		// the edge occurrence table (SELECT DISTINCT collapses occurrences of one document).
 		"EXISTS (SELECT 1 FROM jsonb_array_elements(",
 		"fhir_edge_occurrence",
 	} {
@@ -275,6 +280,46 @@ func TestPostWindowEndpointLookupIsAdmittedOnlyForAggregateConsumers(t *testing.
 	wantUnsupported(t, err, "endpoint-lookup on the reduction surface")
 	if !strings.Contains(err.Error(), "no proven PostgreSQL contract for this consumer") {
 		t.Fatalf("the reduction surface must keep the fail-closed refusal: %v", err)
+	}
+}
+
+func TestPostWindowEndpointLookupRefusesFieldsThatDisagreeWithDirection(t *testing.T) {
+	// The rewrite to Native renders the direction-derived join; the AQL arm renders on the
+	// named fields (render/aql/navigation_render.go:44-51). Equating them is sound only when
+	// the planner paired the fields with the direction (lower/storage_route.go:30-39); a
+	// plan whose fields disagree must fail closed rather than silently render AQL's other join.
+	withTraversal := func(mutate func(*ir.PhysicalTraversal)) ir.PhysicalPlan {
+		set := postWindowAggregateSet(true)
+		mutate(set.Subplan.Operations[0].Traversal)
+		return postWindowAggregatePlan(set,
+			postWindowAggregateProjection("count_age", ir.PhysicalCountAggregate, false, false))
+	}
+
+	inboundPairOnOutbound := withTraversal(func(traversal *ir.PhysicalTraversal) {
+		traversal.EndpointField, traversal.EndpointJoinField = "_to", "_from"
+		traversal.EndpointIndexFields = []string{"_to", "project", "dataset_generation", "label", "from_type"}
+	})
+	_, err := RenderPhysicalPlan(inboundPairOnOutbound, mustBinding(t))
+	wantUnsupported(t, err, "endpoint fields paired for the opposite direction")
+	if !strings.Contains(err.Error(), "must fail closed") {
+		t.Fatalf("the direction mismatch must fail closed, not normalize: %v", err)
+	}
+
+	swapOnlyJoinField := withTraversal(func(traversal *ir.PhysicalTraversal) {
+		traversal.EndpointJoinField = "_from"
+	})
+	_, err = RenderPhysicalPlan(swapOnlyJoinField, mustBinding(t))
+	wantUnsupported(t, err, "endpoint join field swapped against the direction")
+
+	// A direction outside {inbound, outbound} never reaches the rewrite: plan validation
+	// (ir/navigation.go:11) already refuses it, and the renderer's own default branch keeps
+	// a fail-closed guard for any value that validation changes to admit.
+	unknownDirection := withTraversal(func(traversal *ir.PhysicalTraversal) {
+		traversal.Direction = ir.PhysicalTraversalDirection("SELF")
+	})
+	_, err = RenderPhysicalPlan(unknownDirection, mustBinding(t))
+	if err == nil || !strings.Contains(err.Error(), "invalid traversal direction") {
+		t.Fatalf("an undirected endpoint lookup must be refused, got: %v", err)
 	}
 }
 

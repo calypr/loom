@@ -79,6 +79,25 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup traversal payload is incomplete (the planner always names EndpointField and EndpointJoinField, lower/traversal.go:143-147)",
 						ErrUnsupportedPostgresPlan, index)
 				}
+				// The rendered join is direction-derived, so the rewrite is result-equivalent
+				// to the AQL arm's field-driven join (render/aql/navigation_render.go:44-51)
+				// only when the planner-named fields agree with the direction. lower/storage_route.go:30-39
+				// always pairs them; a divergence must fail closed, the way graph.go:355-357
+				// refuses a planner-metadata mismatch.
+				expectedField, expectedJoinField := "_from", "_to"
+				switch traversal.Direction {
+				case ir.PhysicalInbound:
+					expectedField, expectedJoinField = "_to", "_from"
+				case ir.PhysicalOutbound:
+				default:
+					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup direction %q carries no direction-derived join contract to check the named fields against",
+						ErrUnsupportedPostgresPlan, index, string(traversal.Direction))
+				}
+				if traversal.EndpointField != expectedField || traversal.EndpointJoinField != expectedJoinField {
+					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup names (%s, %s) but direction %q derives (%s, %s) (lower/storage_route.go:30-39 always agrees; a divergence must fail closed)",
+						ErrUnsupportedPostgresPlan, index, traversal.EndpointField, traversal.EndpointJoinField,
+						string(traversal.Direction), expectedField, expectedJoinField)
+				}
 				traversal.Strategy = ir.PhysicalTraversalNative
 			}
 			if traversal.SourceVariable != nextSourceVariable {

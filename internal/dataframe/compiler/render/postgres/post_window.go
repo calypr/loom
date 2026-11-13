@@ -388,13 +388,14 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 		}
 		whereParts = append(whereParts, clause)
 	}
-	// One row per edge occurrence, not per reached resource: the AQL set LET materializes one
-	// entry per (edge, target) row and wraps in UNIQUE() only when set.Unique is set
-	// (render/aql/navigation_render.go:294-296), which the child-set lowering never does
-	// (lower/child_sets.go buildOptionalChildPhysicalSet). A COUNT/SUM over a child reached by
-	// two occurrences (same label and endpoints, different source_path/ordinal) must count it
-	// twice here exactly as LENGTH(items) does there.
-	items := "(SELECT " + corr.targetAlias + "." + logicalIDColumn + " AS " + logicalIDColumn +
+	// One row per reached document: lower/child_sets.go:88 builds every child set with
+	// Unique: true / SortByKey: true (this package refuses their absence at sets.go:174-177),
+	// so the AQL set LET always wraps the item array in UNIQUE(...)
+	// (render/aql/navigation_render.go:294-296). Two edge occurrences that reach the same
+	// target document therefore collapse into one item there, and the items subselect must
+	// collapse identically here or COUNT/SUM and the per-item predicate filtering diverge
+	// from the AQL arm. Same shape as setReductionSublink's SELECT DISTINCT (sets.go:274).
+	items := "(SELECT DISTINCT " + corr.targetAlias + "." + logicalIDColumn + " AS " + logicalIDColumn +
 		", " + corr.targetAlias + "." + resourceTypeColumn + " AS " + resourceTypeColumn +
 		", " + corr.targetAlias + "." + payloadColumn + " AS " + payloadColumn +
 		" " + corr.from + " WHERE " + strings.Join(whereParts, " AND ") + ")"
@@ -438,8 +439,11 @@ func (r *planRenderer) renderSetAggregateExpression(plan ir.PhysicalPlan, projec
 		// ::numeric, not ::double precision: jsonb numbers are numeric-backed, and a value
 		// outside the double range (jsonb accepts 1e400) must order, not raise out-of-range.
 		numberKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'number' THEN (" + elementAlias + ".v #>> '{}')::numeric END"
-		booleanKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'boolean' THEN (" + elementAlias + ".v #>> '{}') END"
-		stringKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'string' THEN (" + elementAlias + ".v #>> '{}') END"
+		// COLLATE "C" pins byte-order ranking so string/boolean winners match ArangoDB's
+		// byte-order MIN/MAX in any database locale (category_scan.go:287 and
+		// groupAggregateExpression, group.go:943-954, pin the same shape).
+		booleanKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'boolean' THEN (" + elementAlias + ".v #>> '{}') END COLLATE \"C\""
+		stringKey := "CASE WHEN jsonb_typeof(" + elementAlias + ".v) = 'string' THEN (" + elementAlias + ".v #>> '{}') END COLLATE \"C\""
 		// ArangoDB sorts values by type: null < booleans < numbers < strings < arrays < objects
 		// (the order MIN/MAX consume); nulls are already excluded above. Within booleans, the
 		// text keys order false before true.
