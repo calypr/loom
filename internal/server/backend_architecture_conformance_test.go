@@ -170,7 +170,16 @@ func ab10PagedQueryBody(limit int) string {
 // value is kept as raw bytes and its presence is tracked separately.
 type ab10Row map[string]json.RawMessage
 
-func ab10DecodeRows(t *testing.T, what, body string) ab10RowBy {
+// ab10OracleTester is the minimal tester surface the literal-oracle helpers
+// use. The live *testing.T satisfies it; a fresh &testing.T{} serves as the
+// shadow so a negative control's mutated expectation can never reach the
+// live cell's Fatalf.
+type ab10OracleTester interface {
+	Helper()
+	Fatalf(format string, args ...any)
+}
+
+func ab10DecodeRows(t ab10OracleTester, what, body string) ab10RowBy {
 	t.Helper()
 	var envelope struct {
 		Errors []struct {
@@ -210,7 +219,7 @@ type ab10RowBy struct {
 	Rows     []ab10DecodedRow
 }
 
-func ab10RawText(t *testing.T, what string, row ab10Row, column string) string {
+func ab10RawText(t ab10OracleTester, what string, row ab10Row, column string) string {
 	t.Helper()
 	raw, ok := row[column]
 	if !ok {
@@ -224,7 +233,7 @@ func ab10RawText(t *testing.T, what string, row ab10Row, column string) string {
 }
 
 // ab10ScalarLiteral asserts one row/column against a literal string value.
-func ab10ScalarLiteral(t *testing.T, what string, row ab10Row, column, want string) {
+func ab10ScalarLiteral(t ab10OracleTester, what string, row ab10Row, column, want string) {
 	t.Helper()
 	raw, present := row[column]
 	if !present {
@@ -1182,7 +1191,7 @@ type ab10WantRow struct {
 	Values map[string]*string
 }
 
-func ab10CheckRowsLiteral(t *testing.T, arm *ab10Arm, what string, body string, want []ab10WantRow) {
+func ab10CheckRowsLiteral(t ab10OracleTester, arm *ab10Arm, what string, body string, want []ab10WantRow) {
 	t.Helper()
 	got := ab10DecodeRows(t, what, body)
 	if len(got.Rows) != len(want) {
@@ -1202,7 +1211,7 @@ func ab10CheckRowsLiteral(t *testing.T, arm *ab10Arm, what string, body string, 
 	}
 }
 
-func ab10CheckNoRows(t *testing.T, arm *ab10Arm, what string, body string) {
+func ab10CheckNoRows(t ab10OracleTester, arm *ab10Arm, what string, body string) {
 	t.Helper()
 	got := ab10DecodeRows(t, what, body)
 	if got.RowCount != 0 || len(got.Rows) != 0 {
@@ -1236,24 +1245,36 @@ func ab10CellScalarQuery(t *testing.T, arm *ab10Arm) {
 				t.Fatalf("%s arm: scalar query lost column %q, got %v", arm.name, required, decoded.Columns)
 			}
 		}
-		// Negative control: the same evaluator fed a mutated literal fails.
+		// Negative control: the same evaluator, fed a mutated expectation,
+		// must go red against a shadow tester — the live cell is never
+		// reached by the mutated assertion.
 		if t.Failed() {
 			return
 		}
 		mutated := []ab10WantRow{{Key: "ab10-patient-ada", Values: map[string]*string{"gender": ab10Str("male")}}}
-		if red := ab10OracleGoesRed(func() { ab10CheckRowsLiteral(t, arm, "scalar patient query", body, mutated) }); !red {
+		if red := ab10OracleGoesRed(func(shadow ab10OracleTester) {
+			ab10CheckRowsLiteral(shadow, arm, "scalar patient query", body, mutated)
+		}); !red {
 			t.Fatalf("%s arm: literal oracle accepted a mutated expected value — oracle is vacuous", arm.name)
 		}
 	})
 }
 
 // ab10OracleGoesRed runs a supposed-fatal oracle on a shadow tester and
-// reports whether it actually failed.
-func ab10OracleGoesRed(assert func()) bool {
-	probe := &testing.T{}
-	defer func() { _ = recover() }()
-	assert()
-	return probe.Failed()
+// reports whether the shadow actually failed. The oracle runs in its own
+// goroutine because a shadow Fatalf ends with runtime.Goexit: the channel
+// (closed even under Goexit) lets this test survive the shadow's death.
+// A panic is not recovered — a broken oracle helper must crash loudly
+// rather than masquerade as a red verdict.
+func ab10OracleGoesRed(assert func(t ab10OracleTester)) bool {
+	shadow := &testing.T{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		assert(shadow)
+	}()
+	<-done
+	return shadow.Failed()
 }
 
 // ---------------------------------------------------------------------------
