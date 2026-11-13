@@ -401,6 +401,9 @@ type fieldCatalogStats struct {
 	pivotItemSource       string
 	pivotItemResourceType string
 	pivotValueSelectors   []string
+	pivotColumnArms       map[string]struct{}
+	pivotValueArms        map[string]struct{}
+	pivotSpecApplied      bool
 	extensionValues       []ExtensionValueObservation
 	extensionValueSet     map[string]struct{}
 	semanticObservations  map[string]*semanticObservationStats
