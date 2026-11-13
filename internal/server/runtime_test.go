@@ -24,7 +24,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	backendsarango "github.com/calypr/loom/internal/backends/arango"
-	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
@@ -36,7 +36,7 @@ import (
 // structurally: this compile-time pair is the no-backend-decision proof.
 var (
 	_ receiptExecutionFinder = (*backendsarango.PublishedRegistry)(nil)
-	_ receiptExecutionFinder = (*backendspostgres.BundleCatalog)(nil)
+	_ receiptExecutionFinder = (*control.BundleCatalog)(nil)
 )
 
 func fullLadderSchemas() map[string]string {
@@ -59,10 +59,10 @@ func TestPostgresRuntimeAssignmentAcceptsFullLadder(t *testing.T) {
 		t.Fatalf("assignment must carry all six series, got %v", assignment)
 	}
 	for series, schema := range fullLadderSchemas() {
-		if string(assignment[backendspostgres.Series(series)]) != schema {
+		if string(assignment[control.Series(series)]) != schema {
 			t.Fatalf("series %s must bind schema %s, got %v", series, schema, assignment)
 		}
-		if names[backendspostgres.Series(series)] != schema {
+		if names[control.Series(series)] != schema {
 			t.Fatalf("resolved names must mirror the assignment for %s", series)
 		}
 	}
@@ -151,7 +151,7 @@ func TestPostgresRuntimeDispatchReachesThePostgreSQLPathPreDial(t *testing.T) {
 }
 
 func TestPostgresRuntimeExplorerStoreTypedRefusals(t *testing.T) {
-	store := pgExplorerStore{ExplorerStore: &backendspostgres.ExplorerStore{}}
+	store := pgExplorerStore{ExplorerStore: &control.ExplorerStore{}}
 	if err := store.ActivateRepositoryGeneration(context.Background(), "p", "g", "r"); err == nil {
 		t.Fatal("repository-generation activation must refuse without an Arango fall-through")
 	} else if !isTypedExplicitUnavailable(err, "Repository-generation activation") {
@@ -500,9 +500,9 @@ func TestPostgresRuntimeActivationOutcomeClassification(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"store commit-outcome-unknown sentinel", backendspostgres.ErrCommitOutcomeUnknown},
-		{"connect sentinel", fmt.Errorf("dial postgres: %w", backendspostgres.ErrConnect)},
-		{"batch-write sentinel", fmt.Errorf("copy rows: %w", backendspostgres.ErrBatchWrite)},
+		{"store commit-outcome-unknown sentinel", control.ErrCommitOutcomeUnknown},
+		{"connect sentinel", fmt.Errorf("dial postgres: %w", control.ErrConnect)},
+		{"batch-write sentinel", fmt.Errorf("copy rows: %w", control.ErrBatchWrite)},
 		{"sqlstate connection exception", &pgconn.PgError{Code: "08006", Message: "connection failure"}},
 		{"sqlstate admin shutdown", &pgconn.PgError{Code: "57P01", Message: "admin shutdown"}},
 		{"sqlstate crash shutdown", &pgconn.PgError{Code: "57P02", Message: "crash shutdown"}},
@@ -529,10 +529,10 @@ func TestPostgresRuntimeActivationOutcomeClassification(t *testing.T) {
 		name string
 		err  error
 	}{
-		{"activation conflict", backendspostgres.ErrActivationConflict},
+		{"activation conflict", control.ErrActivationConflict},
 		{"generation not ready", publicationcontract.ErrGenerationNotReady},
 		{"invalid active generation", publicationcontract.ErrInvalidActiveGeneration},
-		{"conflict outranks connectivity", fmt.Errorf("%w: %w", backendspostgres.ErrActivationConflict, backendspostgres.ErrConnect)},
+		{"conflict outranks connectivity", fmt.Errorf("%w: %w", control.ErrActivationConflict, control.ErrConnect)},
 		{"plain store refusal", errors.New("no such staged manifest")},
 	}
 	for _, tc := range knownRefusalCases {

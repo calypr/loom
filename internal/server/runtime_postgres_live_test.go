@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
 )
@@ -55,15 +56,15 @@ const (
 // Six-series placement: one minted schema per series inside one minted
 // database. The tokens are fixed so the census regex can enumerate them.
 var pgCompSeriesTokens = []struct {
-	series backendspostgres.Series
+	series control.Series
 	token  string
 }{
-	{backendspostgres.SeriesSource, "src"},
-	{backendspostgres.SeriesExplorerControl, "exp"},
-	{backendspostgres.SeriesPublicationControl, "pub"},
-	{backendspostgres.SeriesDatasetRelease, "rel"},
-	{backendspostgres.SeriesRecipeChains, "rcp"},
-	{backendspostgres.SeriesRecipeExecRegistries, "exe"},
+	{control.SeriesSource, "src"},
+	{control.SeriesExplorerControl, "exp"},
+	{control.SeriesPublicationControl, "pub"},
+	{control.SeriesDatasetRelease, "rel"},
+	{control.SeriesRecipeChains, "rcp"},
+	{control.SeriesRecipeExecRegistries, "exe"},
 }
 
 var (
@@ -161,7 +162,7 @@ func pgCompCaptureBaseline(t *testing.T, raw string) {
 
 type pgCompFixture struct {
 	dsn      string
-	schemas  map[backendspostgres.Series]string
+	schemas  map[control.Series]string
 	scrub    func(any) string
 	secrets  []string
 	admin    *pgxpool.Pool
@@ -235,7 +236,7 @@ func newPgCompFixture(t *testing.T) *pgCompFixture {
 		t.Fatalf("connect to isolated database: %s", scrub(err))
 	}
 	defer iso.Close()
-	schemas := map[backendspostgres.Series]string{}
+	schemas := map[control.Series]string{}
 	for _, placement := range pgCompSeriesTokens {
 		schema := fmt.Sprintf(pgCompSchemaFmt, time.Now().UnixNano(), pgCompRandomHex(t), placement.token)
 		if !pgCompSchemaPattern.MatchString(schema) {
@@ -254,13 +255,13 @@ func newPgCompFixture(t *testing.T) *pgCompFixture {
 // here is what makes a schema "arranged" the way the factory's law requires.
 func (f *pgCompFixture) migrate(t *testing.T) {
 	t.Helper()
-	runtime, err := backendspostgres.Open(context.Background(), backendspostgres.Config{
+	runtime, err := backendspostgres.Open(context.Background(), control.Config{
 		DSN:            f.dsn,
 		MaxConns:       4,
 		MinConns:       1,
 		AcquireTimeout: 30 * time.Second,
-		Schemas:        backendspostgres.SeriesSchemas(f.schemas),
-		Setup:          backendspostgres.SetupMigrate,
+		Schemas:        control.SeriesSchemas(f.schemas),
+		Setup:          control.SetupMigrate,
 	})
 	if err != nil {
 		t.Fatalf("migrate six-series fixture: %s", f.scrub(err))
@@ -274,13 +275,13 @@ func (f *pgCompFixture) migrate(t *testing.T) {
 // ingest lane requires, exactly as the loom-data CLI composes them.
 func (f *pgCompFixture) catalogRuntime(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
-	runtime, err := backendspostgres.Open(context.Background(), backendspostgres.Config{
+	runtime, err := backendspostgres.Open(context.Background(), control.Config{
 		DSN:            f.dsn,
 		MaxConns:       4,
 		MinConns:       1,
 		AcquireTimeout: 30 * time.Second,
-		Schemas:        backendspostgres.SeriesSchemas(f.schemas),
-		Setup:          backendspostgres.SetupNone,
+		Schemas:        control.SeriesSchemas(f.schemas),
+		Setup:          control.SetupNone,
 	})
 	if err != nil {
 		t.Fatalf("open catalog fixture runtime: %s", f.scrub(err))
@@ -295,8 +296,8 @@ func (f *pgCompFixture) catalogRuntime(t *testing.T) *backendspostgres.Runtime {
 func (f *pgCompFixture) pgOptions(application string) ingest.PGSourceOptions {
 	return ingest.PGSourceOptions{
 		DSN:             f.dsn,
-		Schema:          f.schemas[backendspostgres.SeriesSource],
-		ManifestSchema:  f.schemas[backendspostgres.SeriesDatasetRelease],
+		Schema:          f.schemas[control.SeriesSource],
+		ManifestSchema:  f.schemas[control.SeriesDatasetRelease],
 		ApplicationName: application,
 	}
 }
@@ -738,7 +739,7 @@ func TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware(t *testing.T)
 		// The ledger table name is the store-owned "schema_migrations"; the
 		// minted schema names are lowercase [a-z0-9_] by the census pattern,
 		// so quoting is exact.
-		ledger := `"` + fixture.schemas[backendspostgres.SeriesSource] + `".schema_migrations`
+		ledger := `"` + fixture.schemas[control.SeriesSource] + `".schema_migrations`
 		var version int64
 		var original string
 		if err := pool.QueryRow(ctx, "SELECT version, checksum FROM "+ledger+" ORDER BY version LIMIT 1").Scan(&version, &original); err != nil {
@@ -843,7 +844,7 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
-	client, err := backendspostgres.OpenPool(ctx, backendspostgres.ClientConfig{DSN: fixture.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second})
+	client, err := control.OpenPool(ctx, control.ClientConfig{DSN: fixture.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second})
 	if err != nil {
 		t.Fatalf("open store client for read-only proof: %s", fixture.scrub(err))
 	}
@@ -885,7 +886,7 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 		return out
 	}
 
-	for _, series := range backendspostgres.AllSeries() {
+	for _, series := range control.AllSeries() {
 		schema, assigned := fixture.schemas[series]
 		if !assigned {
 			continue
@@ -895,18 +896,18 @@ func TestPostgresRuntimeVerifySchemaIsReadOnly(t *testing.T) {
 			pre := fingerprint(schema)
 			var err error
 			switch series {
-			case backendspostgres.SeriesSource:
-				err = backendspostgres.VerifySchema(ctx, client, schema)
-			case backendspostgres.SeriesExplorerControl:
-				err = backendspostgres.VerifyExplorerControlSchema(ctx, client, schema)
-			case backendspostgres.SeriesPublicationControl:
-				err = backendspostgres.VerifyPublicationControlSchema(ctx, client, schema)
-			case backendspostgres.SeriesDatasetRelease:
-				err = backendspostgres.VerifyDatasetReleaseSchema(ctx, client, schema)
-			case backendspostgres.SeriesRecipeChains:
-				err = backendspostgres.VerifyRecipeChainsSchema(ctx, client, schema)
-			case backendspostgres.SeriesRecipeExecRegistries:
-				err = backendspostgres.VerifyRecipeExecRegistriesSchema(ctx, client, schema)
+			case control.SeriesSource:
+				err = control.VerifySchema(ctx, client, schema)
+			case control.SeriesExplorerControl:
+				err = control.VerifyExplorerControlSchema(ctx, client, schema)
+			case control.SeriesPublicationControl:
+				err = control.VerifyPublicationControlSchema(ctx, client, schema)
+			case control.SeriesDatasetRelease:
+				err = control.VerifyDatasetReleaseSchema(ctx, client, schema)
+			case control.SeriesRecipeChains:
+				err = control.VerifyRecipeChainsSchema(ctx, client, schema)
+			case control.SeriesRecipeExecRegistries:
+				err = control.VerifyRecipeExecRegistriesSchema(ctx, client, schema)
 			default:
 				t.Fatalf("series %q is assigned but outside the probe dispatch", series)
 			}
@@ -940,7 +941,7 @@ func TestPostgresRuntimeReadinessReportsMissingSchema(t *testing.T) {
 
 	cfg := pgCompBootConfig(t, fixture, "127.0.0.1:0")
 	// Well-formed name the fixture deliberately never created.
-	cfg.Server.PostgreSQL.Schemas[string(backendspostgres.SeriesRecipeExecRegistries)] =
+	cfg.Server.PostgreSQL.Schemas[string(control.SeriesRecipeExecRegistries)] =
 		fmt.Sprintf(pgCompSchemaFmt, time.Now().UnixNano(), pgCompRandomHex(t), "exec_missing")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)

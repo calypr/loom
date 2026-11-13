@@ -14,7 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"net/http"
 	"strings"
 	"testing"
@@ -161,7 +161,7 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 			Code: "57014", SeverityUnlocalized: "ERROR",
 			Message: `canceling statement due to statement_timeout; while binding {"secret":"hunter2","bind":"SELECT SECRET_COLUMN"}`,
 		}
-		translated, ok := postgres.TranslateError(fmt.Errorf("postgres rows: query: %w", pgErr))
+		translated, ok := control.TranslateError(fmt.Errorf("postgres rows: query: %w", pgErr))
 		if !ok {
 			t.Fatal("boundary did not classify the server cancel")
 		}
@@ -207,8 +207,8 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 		// The PG boundary keeps the same identity through its translation:
 		// a caller cancel while waiting for the pool stays Is-visible as
 		// context.Canceled and never becomes retryable.
-		poolWait := fmt.Errorf("acquire: %w: %w", postgres.ErrConnect, context.Canceled)
-		translated, ok := postgres.TranslateError(poolWait)
+		poolWait := fmt.Errorf("acquire: %w: %w", control.ErrConnect, context.Canceled)
+		translated, ok := control.TranslateError(poolWait)
 		if !ok {
 			t.Fatalf("pool cancellation not classified by the boundary: %v", poolWait)
 		}
@@ -227,14 +227,14 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 			ConstraintName: "uq_explorer_draft_revision_internal",
 			Detail:         `Key (draft_id)=(42) already exists.`,
 		}
-		translated, ok := postgres.TranslateError(fmt.Errorf("postgres rows: query: %w", pgErr))
+		translated, ok := control.TranslateError(fmt.Errorf("postgres rows: query: %w", pgErr))
 		if !ok {
 			t.Fatal("boundary did not classify the unique violation")
 		}
-		if errors.Is(translated, postgres.ErrUniqueConflict) {
+		if errors.Is(translated, control.ErrUniqueConflict) {
 			t.Fatal("a bare unique violation was labeled as a proven domain conflict")
 		}
-		if postgres.RetryableTransactionConflict(translated) {
+		if control.RetryableTransactionConflict(translated) {
 			t.Fatal("unique violation must not invite transaction retries")
 		}
 		mapped := httpapi.MapDataframeError(translated, "req-5")
@@ -257,24 +257,24 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 
 	t.Run("ambiguous_commit_stays_distinguishable_from_proven_rollback", func(t *testing.T) {
 		// Proven rejection: the driver confirmed the commit rolled back.
-		proven, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
+		proven, ok := control.TranslateCommitError(fmt.Errorf("commit: %w", pgx.ErrTxCommitRollback))
 		if !ok {
 			t.Fatal("commit rollback not classified")
 		}
-		if errors.Is(proven, postgres.ErrCommitOutcomeUnknown) {
+		if errors.Is(proven, control.ErrCommitOutcomeUnknown) {
 			t.Fatal("a proven rollback must not be labeled ambiguous")
 		}
 		// Ambiguous: the session died mid-COMMIT (server-policy SQLSTATEs and
 		// the boundary's own FATAL severity literal spelling).
 		ambiguousPG := &pgconn.PgError{Code: "57P01", SeverityUnlocalized: "FATAL", Message: "terminating connection due to administrator command"}
-		ambiguous, ok := postgres.TranslateCommitError(fmt.Errorf("commit: %w", ambiguousPG))
+		ambiguous, ok := control.TranslateCommitError(fmt.Errorf("commit: %w", ambiguousPG))
 		if !ok {
 			t.Fatal("mid-commit shutdown not classified")
 		}
-		if !errors.Is(ambiguous, postgres.ErrCommitOutcomeUnknown) {
+		if !errors.Is(ambiguous, control.ErrCommitOutcomeUnknown) {
 			t.Fatal("session death mid-commit must be labeled outcome-unknown")
 		}
-		var translatedErr *postgres.TranslatedError
+		var translatedErr *control.TranslatedError
 		if !errors.As(ambiguous, &translatedErr) || !translatedErr.AmbiguousCommit {
 			t.Fatalf("ambiguous flag missing: %#v", ambiguous)
 		}
@@ -295,11 +295,11 @@ func TestBackendErrorBoundaryContract(t *testing.T) {
 
 	t.Run("retryable_transaction_states_do_not_cause_blanket_write_retries", func(t *testing.T) {
 		serialization := &pgconn.PgError{Code: "40001", SeverityUnlocalized: "ERROR", Message: "could not serialize access due to concurrent update"}
-		translated, ok := postgres.TranslateError(fmt.Errorf("postgres rows: query: %w", serialization))
+		translated, ok := control.TranslateError(fmt.Errorf("postgres rows: query: %w", serialization))
 		if !ok {
 			t.Fatal("serialization failure not classified")
 		}
-		if !postgres.RetryableTransactionConflict(translated) {
+		if !control.RetryableTransactionConflict(translated) {
 			t.Fatal("operation policy must still recognize the serialization conflict")
 		}
 		userErr, isUser := dataframeerrors.AsUserError(translated)

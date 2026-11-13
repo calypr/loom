@@ -1,0 +1,23 @@
+# Pre-refactor concrete package import paths (the "bolt-on" layout), one
+# per line; # comments and blanks ignored. Nobody — production, tests,
+# tools — may import them again; the implementations live under
+# internal/backends/*/internal. This list is guard data kept out of .go
+# source text so the retired-path text guards (which scan Go files
+# including comments) can hold their zero-citation rule while the guard
+# itself keeps matching these paths.
+internal/store/postgres
+internal/store/arango
+internal/catalog/postgres
+internal/catalog/arango
+internal/dataset/postgres
+internal/dataset/arango
+internal/explorer/postgres
+internal/explorer/arango
+internal/dataframe/postgres
+internal/dataframe/recipe/postgres
+internal/dataframe/recipe/exec/postgres
+internal/dataframe/recipe/exec/arango
+internal/dataframe/publication/postgres
+internal/dataframe/publication/arango
+internal/dataframe/execution/chartifact/postgres
+internal/dataframe/execution/chartifact/arango

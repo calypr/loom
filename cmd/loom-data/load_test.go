@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 	"github.com/calypr/loom/internal/ingest"
@@ -153,7 +153,7 @@ func (s *spyState) runner() loadRunner {
 // network, never standing in for a commit (no positive claims ride on them).
 type stubFieldProfiles struct{}
 
-func (stubFieldProfiles) WriteFieldProfile(context.Context, postgres.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
+func (stubFieldProfiles) WriteFieldProfile(context.Context, control.FieldProfileScope, []catalog.FieldCatalogDocument, int) error {
 	return nil
 }
 
@@ -1097,7 +1097,10 @@ const cliDispPrefix = "verify_clidisp_"
 var (
 	cliDispDBNamePattern     = regexp.MustCompile(`^verify_clidisp_[0-9]+_[0-9a-f]+$`)
 	cliDispSchemaNamePattern = regexp.MustCompile(`^verify_clidisp_s_[0-9]+_[0-9a-f]+$`)
-	cliDispAppPattern        = regexp.MustCompile(`^verify-clidisp-[0-9a-f]+$`)
+	// The dataset_release series lives on its own schema (ingest.PGSourceOptions.ManifestSchema);
+	// the CLI refuses a postgres load without it.
+	cliDispManifestSchemaNamePattern = regexp.MustCompile(`^verify_clidisp_sm_[0-9]+_[0-9a-f]+$`)
+	cliDispAppPattern                = regexp.MustCompile(`^verify-clidisp-[0-9a-f]+$`)
 )
 
 var (
@@ -1177,15 +1180,16 @@ func cliDispRandomHex(t *testing.T) string {
 }
 
 type cliDispService struct {
-	t         *testing.T
-	ctx       context.Context
-	admin     *pgxpool.Pool
-	iso       *pgxpool.Pool
-	dsn       string
-	schema    string
-	scrub     func(any) string
-	appProbe  string
-	witnesses *cliDispWitnessPoller
+	t              *testing.T
+	ctx            context.Context
+	admin          *pgxpool.Pool
+	iso            *pgxpool.Pool
+	dsn            string
+	schema         string
+	manifestSchema string
+	scrub          func(any) string
+	appProbe       string
+	witnesses      *cliDispWitnessPoller
 }
 
 func newCLIDispService(t *testing.T) *cliDispService {
@@ -1300,7 +1304,15 @@ func newCLIDispService(t *testing.T) *cliDispService {
 	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
 		t.Fatalf("create owned schema: %s", scrub(err))
 	}
-	return &cliDispService{t: t, ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, scrub: scrub, appProbe: "verify_clidisp_admin_probe"}
+	// The dataset_release series schema the CLI must be told about explicitly.
+	manifestSchema := fmt.Sprintf("%ssm_%d_%s", cliDispPrefix, time.Now().UnixNano(), cliDispRandomHex(t))
+	if !cliDispManifestSchemaNamePattern.MatchString(manifestSchema) {
+		t.Fatalf("owned manifest schema name %q violates the pattern", manifestSchema)
+	}
+	if _, err := iso.Exec(ctx, `CREATE SCHEMA "`+manifestSchema+`"`); err != nil {
+		t.Fatalf("create owned manifest schema: %s", scrub(err))
+	}
+	return &cliDispService{t: t, ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, manifestSchema: manifestSchema, scrub: scrub, appProbe: "verify_clidisp_admin_probe"}
 }
 
 // cliDispWitnessPoller observes pg_stat_activity for a bound application_name
@@ -1432,6 +1444,7 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 		"--generation=" + generation,
 		"--pg-dsn=" + svc.dsn,
 		"--pg-schema=" + svc.schema,
+		"--pg-manifest-schema=" + svc.manifestSchema,
 		"--meta-dir=" + staging,
 		"--schema=" + filepath.Join("..", "..", "schemas", "graph-fhir.json"),
 		"--pg-application-name=" + app,
@@ -1478,8 +1491,10 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 
 	// Literal-row witness through direct SQL: STAGED manifest and an
 	// untouched active-generation pointer (the STAGED-not-activated boundary).
-	manifestTable := pgx.Identifier{svc.schema, "dataset_generation_manifest"}.Sanitize()
-	activeTable := pgx.Identifier{svc.schema, "dataset_active_generation"}.Sanitize()
+	// The dataset_release series (manifest, active pointers) lives on the
+	// manifest schema, not the data schema (store.SeriesDatasetRelease).
+	manifestTable := pgx.Identifier{svc.manifestSchema, "dataset_generation_manifest"}.Sanitize()
+	activeTable := pgx.Identifier{svc.manifestSchema, "dataset_active_generation"}.Sanitize()
 	var state string
 	if err := svc.iso.QueryRow(svc.ctx,
 		"SELECT state FROM "+manifestTable+" WHERE project = $1 AND generation = $2", project, generation).Scan(&state); err != nil {
@@ -1517,6 +1532,13 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 	if _, err := svc.iso.Exec(svc.ctx, `CREATE SCHEMA "`+virginSchema+`"`); err != nil {
 		t.Fatalf("create virgin schema: %s", svc.scrub(err))
 	}
+	virginManifest := fmt.Sprintf("%ssm_%d_%s", cliDispPrefix, time.Now().UnixNano(), cliDispRandomHex(t))
+	if !cliDispManifestSchemaNamePattern.MatchString(virginManifest) {
+		t.Fatalf("virgin manifest schema name %q violates the pattern", virginManifest)
+	}
+	if _, err := svc.iso.Exec(svc.ctx, `CREATE SCHEMA "`+virginManifest+`"`); err != nil {
+		t.Fatalf("create virgin manifest schema: %s", svc.scrub(err))
+	}
 	emptyDir := t.TempDir()
 	_, _ = captureOutput(t, func() {
 		err := dispatchLoadGeneration(svc.ctx, []string{
@@ -1525,6 +1547,7 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 			"--generation=gen-empty",
 			"--pg-dsn=" + svc.dsn,
 			"--pg-schema=" + virginSchema,
+			"--pg-manifest-schema=" + virginManifest,
 			"--meta-dir=" + emptyDir,
 			"--schema=" + filepath.Join("..", "..", "schemas", "graph-fhir.json"),
 		}, defaultRunner())
@@ -1534,11 +1557,20 @@ func TestCLIPostgresLoadGenerationLiveStagedLoad(t *testing.T) {
 	})
 	var missing bool
 	if err := svc.iso.QueryRow(svc.ctx,
-		"SELECT to_regclass($1) IS NULL", virginSchema+".dataset_generation_manifest").Scan(&missing); err != nil {
-		t.Fatalf("probe virgin schema: %s", svc.scrub(err))
+		"SELECT to_regclass($1) IS NULL", virginManifest+".dataset_generation_manifest").Scan(&missing); err != nil {
+		t.Fatalf("probe virgin manifest schema: %s", svc.scrub(err))
 	}
 	if !missing {
-		t.Fatal("the zero-files guard still migrated the virgin schema")
+		t.Fatal("the zero-files guard still migrated the virgin manifest schema")
+	}
+	var virginRelations int
+	if err := svc.iso.QueryRow(svc.ctx,
+		"SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1",
+		virginSchema).Scan(&virginRelations); err != nil {
+		t.Fatalf("probe virgin data schema: %s", svc.scrub(err))
+	}
+	if virginRelations != 0 {
+		t.Fatal("the zero-files guard still migrated the virgin data schema")
 	}
 }
 

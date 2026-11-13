@@ -461,13 +461,14 @@ func (r *Runtime) NewPublicationReconciler(releases publicationcontract.ActiveRe
 // the runtime's own pool without naming the pool type.
 func (r *Runtime) ConnSource() ConnSource { return r.client }
 
-// QuerierAsAny hands the pool client to the postgres package, the only
-// legal importer of the rows adapter, as an untyped value: the rows
-// adapter's Querier contract is then asserted at compile time in that
-// package (var _ rows.Querier = (*store.Client)(nil)) and re-checked once
-// here with a fail-closed assertion, so the bridge never silently degrades
-// to reflection at row-consumption time.
-func (r *Runtime) QuerierAsAny() any {
+// PoolClient hands the typed pool client to the postgres factory package,
+// the only legal importer of the rows adapter. The adapter's Querier
+// contract is asserted at compile time in that package
+// (var _ rows.Querier = (*store.Client)(nil)); nothing travels untyped, so
+// the bridge cannot silently degrade to a runtime reflection check at
+// row-consumption time. A closed runtime yields nil, which the factory
+// treats as a bootstrap failure.
+func (r *Runtime) PoolClient() *Client {
 	if r.isClosed() {
 		return nil
 	}

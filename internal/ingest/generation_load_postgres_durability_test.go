@@ -38,7 +38,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"net/url"
 	"os"
 	"os/exec"
@@ -848,7 +848,7 @@ func TestPostgresGenerationLoadActivationCASRace(t *testing.T) {
 			switch {
 			case err == nil:
 				nils++
-			case errors.Is(err, postgres.ErrActivationConflict):
+			case errors.Is(err, control.ErrActivationConflict):
 				conflicts++
 			default:
 				t.Fatalf("activation round %d racer %d error = %T %v, want success or ErrActivationConflict",
@@ -1141,16 +1141,16 @@ func TestPostgresGenerationLoadSemanticSpillMidLoadKillReplayConvergence(t *test
 	}
 	crossed := false
 	for _, offered := range refEdgeOffers {
-		if offered > postgres.MaxBatchEdges {
-			t.Fatalf("edge batch offered %d, exceeding the store cap %d (batch events: %v)", offered, postgres.MaxBatchEdges, refEdgeOffers)
+		if offered > control.MaxBatchEdges {
+			t.Fatalf("edge batch offered %d, exceeding the store cap %d (batch events: %v)", offered, control.MaxBatchEdges, refEdgeOffers)
 		}
-		if offered >= postgres.MaxBatchEdges-6 && offered < postgres.MaxBatchEdges {
+		if offered >= control.MaxBatchEdges-6 && offered < control.MaxBatchEdges {
 			crossed = true
 		}
 	}
 	if !crossed {
 		t.Fatalf("no edge batch committed in the crossing band [%d,%d): the lookahead split never fired (offers: %v)",
-			postgres.MaxBatchEdges-6, postgres.MaxBatchEdges, refEdgeOffers)
+			control.MaxBatchEdges-6, control.MaxBatchEdges, refEdgeOffers)
 	}
 	refContribs := service.countTable("fhir_semantic_inventory_contribution", "dataset_generation = $1", refRef.Generation)
 	if refContribs < 2*flushThreshold {

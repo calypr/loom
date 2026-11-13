@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 )
 
 // httpConfigLiteral returns the HTTPConfig composite literal passed to the
@@ -164,15 +164,15 @@ func TestPostgreSQLCoreReadinessStateClassification(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"closed", fmt.Errorf("postgres backend: %w", backendspostgres.ErrRuntimeClosed), pgReadinessStateClosed},
-		{"connectivity", fmt.Errorf("postgres backend: schema readiness for series %q: %w", "source", backendspostgres.ErrConnect), pgReadinessStateConnectivityDown},
-		{"version", fmt.Errorf("ping: %w", backendspostgres.ErrUnsupportedVersion), pgReadinessStateUnsupportedVer},
-		{"schema missing", fmt.Errorf("verify: %w: schema \"x\" does not exist", backendspostgres.ErrInvalidSchemaName), pgReadinessStateSchemaMissing},
-		{"unmigrated", fmt.Errorf("verify: %w: 7 pending migration(s), first version 1 (ledger)", backendspostgres.ErrMigrationPending), pgReadinessStateSchemaUnmigrated},
-		{"checksum", fmt.Errorf("verify: %w", backendspostgres.ErrMigrationChecksumMismatch), pgReadinessStateSchemaMismatch},
-		{"future", fmt.Errorf("verify: %w", backendspostgres.ErrFutureSchemaVersion), pgReadinessStateSchemaMismatch},
-		{"vanished", fmt.Errorf("verify: %w", backendspostgres.ErrMigrationMissing), pgReadinessStateSchemaMismatch},
-		{"out of order", fmt.Errorf("verify: %w", backendspostgres.ErrMigrationOutOfOrder), pgReadinessStateSchemaMismatch},
+		{"closed", fmt.Errorf("postgres backend: %w", control.ErrRuntimeClosed), pgReadinessStateClosed},
+		{"connectivity", fmt.Errorf("postgres backend: schema readiness for series %q: %w", "source", control.ErrConnect), pgReadinessStateConnectivityDown},
+		{"version", fmt.Errorf("ping: %w", control.ErrUnsupportedVersion), pgReadinessStateUnsupportedVer},
+		{"schema missing", fmt.Errorf("verify: %w: schema \"x\" does not exist", control.ErrInvalidSchemaName), pgReadinessStateSchemaMissing},
+		{"unmigrated", fmt.Errorf("verify: %w: 7 pending migration(s), first version 1 (ledger)", control.ErrMigrationPending), pgReadinessStateSchemaUnmigrated},
+		{"checksum", fmt.Errorf("verify: %w", control.ErrMigrationChecksumMismatch), pgReadinessStateSchemaMismatch},
+		{"future", fmt.Errorf("verify: %w", control.ErrFutureSchemaVersion), pgReadinessStateSchemaMismatch},
+		{"vanished", fmt.Errorf("verify: %w", control.ErrMigrationMissing), pgReadinessStateSchemaMismatch},
+		{"out of order", fmt.Errorf("verify: %w", control.ErrMigrationOutOfOrder), pgReadinessStateSchemaMismatch},
 		{"unknown", errors.New("some other fault"), pgReadinessStateUnknown},
 	} {
 		tt := tt
@@ -186,7 +186,7 @@ func TestPostgreSQLCoreReadinessStateClassification(t *testing.T) {
 		t.Fatalf("a healthy check must classify to the empty token, got %q", got)
 	}
 	// Credential discipline: the classifier reads only sentinel identities.
-	credErr := fmt.Errorf(`acquire: dial tcp postgres://svc:hunter2@db.internal:5432/loom: %w`, backendspostgres.ErrConnect)
+	credErr := fmt.Errorf(`acquire: dial tcp postgres://svc:hunter2@db.internal:5432/loom: %w`, control.ErrConnect)
 	if token := postgreSQLCoreReadinessState(credErr); token != pgReadinessStateConnectivityDown || strings.Contains(token, "hunter2") {
 		t.Fatalf("classifier must report the fixed token only, got %q", token)
 	}
@@ -198,7 +198,7 @@ func TestPostgreSQLCoreReadinessStateClassification(t *testing.T) {
 		pgReadinessStateSchemaUnmigrated: true, pgReadinessStateSchemaMismatch: true,
 		pgReadinessStateUnknown: true, "": true,
 	}
-	for _, err := range []error{nil, errors.New("x"), backendspostgres.ErrConnect, backendspostgres.ErrMigrationPending} {
+	for _, err := range []error{nil, errors.New("x"), control.ErrConnect, control.ErrMigrationPending} {
 		if !published[postgreSQLCoreReadinessState(err)] {
 			t.Fatalf("classifier produced an unpublishable token %q", postgreSQLCoreReadinessState(err))
 		}
