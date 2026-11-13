@@ -13,12 +13,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// T12: the deadlock-retry contract, pinned. Classification is by sentinel
-// (never by the statement that failed), the bounded fresh-transaction retry
-// really re-runs, and an exhausted budget surfaces ErrPublishContention.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
 	deadlock := &pgconn.PgError{Code: publishDeadlockState, Message: "deadlock detected"}
 	cases := []struct {
@@ -43,8 +37,6 @@ func TestPublishAuthoringIsDeadlockErrorClassification(t *testing.T) {
 }
 
 func TestPublishAuthoringTypedRefusalClassification(t *testing.T) {
-	// Every publish refusal sentinel is terminal, through arbitrary
-	// wrapping -- and nothing else classifies as terminal.
 	typed := []error{
 		explorer.ErrCorruptReceipt,
 		explorer.ErrNotFound,
@@ -70,9 +62,6 @@ func TestPublishAuthoringTypedRefusalClassification(t *testing.T) {
 	}
 }
 
-// injectFault publishes with a crashAt seam that fails the first nAttempts
-// attempts with fault (nil fault disables injection) and reports how many
-// transactions reached the seam.
 func injectFault(t *testing.T, ps *PublishStore, nAttempts int, fault error) func() int {
 	t.Helper()
 	fires := 0
@@ -117,8 +106,6 @@ func TestPublishAuthoringDeadlockVictimRetriesOnFreshTransaction(t *testing.T) {
 	if transactions() != 2 {
 		t.Fatalf("seam reached %d times, want 2 (one deadlocked attempt + one retry)", transactions())
 	}
-	// The deadlocked attempt wrote nothing: the committed world is exactly
-	// what an uninterrupted single run stores.
 	fg := newPGPubAuthFixture(t)
 	fg.migrate(t)
 	gReceipt, gRevision, gRelease := fg.seedPublishedWorld(t, fg.newStore(t), project, explorerID, tag)
@@ -173,9 +160,6 @@ func TestPublishAuthoringNonDeadlockFaultIsNotRetried(t *testing.T) {
 }
 
 func TestPublishAuthoringTypedRefusalAtBackendSiteIsTerminal(t *testing.T) {
-	// A sentinel carried out of a statement the retry loop would otherwise
-	// retry still terminates after one transaction: classification follows
-	// the sentinel, not the statement.
 	f := newPGPubAuthFixture(t)
 	f.migrate(t)
 	store := f.newStore(t)

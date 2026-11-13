@@ -6,10 +6,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
-// RenderPreviewGroupProjectionFactorization renders the exact semantic Group
-// alternative after the runtime has selected its root scan. An empty indexName
-// leaves the planner choice unchanged; disableIndex requests a full scan. The
-// alternative reaches runtime only as a parent-tagged AQL command.
 func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan, indexName, disableIndex)
 	if err != nil {
@@ -18,10 +14,6 @@ func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName s
 	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
-// RenderPreviewGroupProjectionAssessment returns bounded metadata about the
-// exact complete Coding-array projections seen under the plan's source scope.
-// Its result contains no source values and reaches runtime only as a
-// parent-tagged AQL command.
 func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan, indexName, disableIndex)
 	if err != nil {

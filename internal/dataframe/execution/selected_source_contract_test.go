@@ -1,14 +1,5 @@
 package execution
 
-// arch-backend-11 selected-source contract.
-//
-// These named tests are the ticket centerpieces: every source row read
-// travels on exactly one compile target and one row port. The stream runs
-// the command the selected target compiled, the Arango-only auxiliary
-// surfaces refuse or stay dark per surface (never silently, never by
-// falling back to AQL), and the mutation probes prove the guards run
-// before any driver call.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -97,9 +88,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	})
 
 	t.Run("PreviewCoveringIndexIsArangoOnly", func(t *testing.T) {
-		// The compiler never attaches an Arango covering-index plan to a
-		// PostgreSQL command, and the Arango index controls stay dark for
-		// the whole PostgreSQL preview.
 		resolved := exec02TestResolved()
 		pgQuery, err := compiler.CompileRecipeOutput(exec02PostgreSQLTarget(t),
 			resolved.Compiled.Outputs[0], resolved.Semantic.SemanticPlan.Bindings, 5, ir.DefaultPhysicalOptimizationPolicy())
@@ -136,9 +124,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		if pgQuery.PreviewGroupProjection != nil {
 			t.Fatalf("PostgreSQL command carries a group-projection spec: %+v", pgQuery.PreviewGroupProjection)
 		}
-		// A construction leak that attaches the group-preview decision to a
-		// PostgreSQL stream still runs the single statement exactly once
-		// and touches no Arango callback.
 		spies := &dispatchSpies{}
 		calls := 0
 		stream := OutputStream{
@@ -162,10 +147,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	})
 
 	t.Run("RootPageBindsAreArangoOnly", func(t *testing.T) {
-		// The root-key page loop and its binds (compiler.RootPageAfterKeyBind)
-		// are an Arango policy: a PostgreSQL stream that leaked the page
-		// fields still issues one statement, while the AQL control runs the
-		// key loop through the same port.
 		pgCalls := 0
 		pgStream := OutputStream{
 			Name: "resources", Columns: []string{"id", "name"},
@@ -220,7 +201,7 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 				if expectKeys {
 					expectKeys = false
 					if keysServed {
-						return nil // short page ends the loop
+						return nil
 					}
 					keysServed = true
 					return visit(map[string]any{"_key": "k1"})
@@ -237,22 +218,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 		}
 	})
 
-	// pg-sql-24 amendment (coordinator ruling, option a): the retired arm
-	// CellTraceSurfaceRefusesPostgreSQLTargetByName asserted the pre-pg-sql-24
-	// voice, when every cell-trace compile refused the PostgreSQL target by
-	// name. pg-sql-24 registered the whole-plan cell-trace slice, so that
-	// refusal is retired here and inverted into the run-arm twin of the
-	// RowLineage positive below. The executor entry (cellTraceCompiled) is
-	// port-transparent today — pg-exec-09 has not landed, so nothing refuses
-	// at the executor itself; it carries the command the selected target
-	// compiled to the one shared source row port and never compiles AQL.
-	// The exec02 "resources" output (Patient root scalar EXTRACT, RowIdentity
-	// [id]) is the registered arm B (root-extract contributor) shape. The
-	// arm A (reduced-set contributor) page is registered at the renderer,
-	// but no exec-path fixture reaches it: CompileResolvedBundle lowers with
-	// the default policy, whose traversal lowering carries the
-	// endpoint-lookup planner label, and the renderer refuses that shape
-	// fail-closed by name — pinned as the second refusal arm below.
 	t.Run("CellTracePostgreSQLRunArmServesEvidenceThroughTheSharedPort", func(t *testing.T) {
 		resolved := exec02TestResolved()
 		compiled, err := compiler.CompileCellTraceOutput(exec02PostgreSQLTarget(t),
@@ -387,12 +352,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	})
 
 	t.Run("RowLineagePostgreSQLRunArmServesBoundedColumnContractThroughTheSharedPort", func(t *testing.T) {
-		// pg-exec-08: the positive twin of the refusal above. The registered
-		// pg-sql-23 GROUP plan is compiled by the selected target and runs on
-		// the one shared source row port, carrying the bounded result column
-		// contract (found, contributors, hasMore) the PostgreSQL row adapter
-		// enforces, and decoding the jsonb contributor page to typed
-		// contributors. The Arango surface stays dark.
 		spies := &dispatchSpies{}
 		engine, _ := exec02pgEngine(t, spies, []map[string]any{{
 			"found": true, "contributors": json.RawMessage(exec08PageOneA), "hasMore": false,
@@ -424,12 +383,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	})
 
 	t.Run("PopulationMappingPostgreSQLRunArmServesWitnessContractThroughTheSharedPort", func(t *testing.T) {
-		// pg-exec-07: the population mapping witness terminal (pg-sql-22)
-		// compiles on the selected target and runs on the one shared source
-		// row port, carrying the two-positional-column witness contract
-		// (compiler-owned member field, then the single identity column) the
-		// PostgreSQL row adapter enforces. Exact membership is reported from
-		// the streamed witnesses; the Arango surface stays dark.
 		spies := &dispatchSpies{}
 		engine, _ := exec02pgEngine(t, spies, []map[string]any{
 			{ir.PhysicalPopulationMappingMemberField: "obs-1", ir.PhysicalPopulationMappingIdentityPartsField: []any{"P1", "obs-1"}},
@@ -467,8 +420,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 
 	t.Run("MisTaggedPostgreSQLCommandThroughAQLFakeFailsClosed", func(t *testing.T) {
 		spies := &dispatchSpies{}
-		// An AQL-target engine handing a PostgreSQL-tagged command to the
-		// AQL row adapter: the envelope guard refuses before the port runs.
 		stream := OutputStream{
 			Name: "resources", Columns: []string{"id", "name"},
 			command:         mustExec11PostgreSQLCommand(t),
@@ -559,12 +510,8 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	})
 
 	t.Run("PostgreSQLCommandNeverReachesTheArangoPreviewLane", func(t *testing.T) {
-		// Wrong-target composition: a PostgreSQL-selected engine wired with
-		// an AQL preview adapter must fail closed on the tag dispatch with
-		// zero Arango records — a PostgreSQL command can never ride the
-		// preview path into an AQL driver.
 		spies := &dispatchSpies{}
-		config := spies.arangoEngine() // PreviewSourceRows is the AQL fake
+		config := spies.arangoEngine()
 		config.CompileTarget = exec02PostgreSQLTarget(t)
 		config.SourceRows = exec02pgPort(spies, &spies.pgFull, exec02Rows())
 		engine := config.newEngineForTest(t)
@@ -577,11 +524,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 			t.Fatalf("PostgreSQL command touched the AQL adapters: preview=%v full=%v", spies.aqlPreviewQueries, spies.aqlQueries)
 		}
 	})
-	// pg-exec-11: the private workspace artifact capture reads through the
-	// same selected target and one source row port. The stream must run
-	// exactly the command the selected PostgreSQL target compiled for the
-	// capture bindings (row-level authorization path included), with the
-	// compiled declared column contract forwarded unchanged.
 	t.Run("PrivateCaptureRunsExactlyTheSelectedTargetCompiledCommand", func(t *testing.T) {
 		fixture := newExec11Capture(t, exec11PortRows("Ada"))
 		captureBindings := exec11RestrictedBindings()
@@ -619,9 +561,6 @@ func TestSelectedSourceCompilerAndRowsContract(t *testing.T) {
 	})
 }
 
-// mustExec11PostgreSQLCommand renders the canonical fixture through the
-// selected target so the hand-built stream tests carry a real tagged
-// command rather than a struct forgery.
 func mustExec11PostgreSQLCommand(t *testing.T) command.CompiledCommand {
 	t.Helper()
 	resolved := exec02TestResolved()

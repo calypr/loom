@@ -1,17 +1,5 @@
 package execution_test
 
-// pg-exec-06 offline battery: the PostgreSQL executor arm of category scans
-// (engine dispatch, declared-column contract, three-state value decode,
-// honest statuses) plus the AQL contract-free control. Live real-PostgreSQL-18
-// legs live in engine_postgres_category_pg18_test.go (verify_exec06_cs_*);
-// nothing in this file contacts a service, so no cell here may skip.
-//
-// The fakes here mirror the production PostgreSQL row port exactly as
-// internal/backends/postgres/internal/rows delivers it: rows keyed by the
-// received DeclaredColumns, SQL NULL as nil, jsonb as non-nil json.RawMessage
-// (JSON null included), and the declared contract required for PostgreSQL
-// commands while the AQL arm stays contract-free.
-
 import (
 	"context"
 	"encoding/json"
@@ -36,16 +24,9 @@ type exec06Call struct {
 	tag      command.CompiledBackend
 }
 
-// exec06Port records each row-port call and enforces the declared-contract
-// law per backend tag before handing out canned adapter-shaped rows: a
-// PostgreSQL command must arrive with exactly the [present, value] pair, and
-// an AQL command must arrive with no declared columns at all (the S6 twin of
-// the sibling exclusions catch).
 type exec06Port struct {
-	calls []exec06Call
-	rows  []map[string]any
-	// visitBefore, when set, runs for the first n rows before they are
-	// handed out (cancellation control); errors abort like a visitor error.
+	calls       []exec06Call
+	rows        []map[string]any
 	visitBefore func(index int) error
 	fail        error
 }
@@ -95,8 +76,6 @@ func (p *exec06Port) port(ctx context.Context, request dataframeexecution.RowsRe
 
 func (p *exec06Port) counts() int { return len(p.calls) }
 
-// exec06JSONB mirrors the adapter's jsonb decode: non-nil raw bytes, JSON
-// null included.
 func exec06JSONB(t *testing.T, text string) json.RawMessage {
 	t.Helper()
 	if !json.Valid([]byte(text)) {
@@ -180,10 +159,6 @@ func (exec06RefusingRegistry) LoadRecipeVersion(context.Context, string, string)
 	return exec.Entry{}, errors.New("the exec06 offline battery compiles authored bundles only")
 }
 
-// exec06Landmines arms every non-PostgreSQL control as an error, mirroring
-// the live battery's exec04pvForbidArango: an index prepare, covering-index
-// scan, revision, count, ClickHouse callback, or AQL row dispatch reaching
-// this engine fails the test.
 func exec06Landmines() dataframeexecution.Config {
 	return dataframeexecution.Config{
 		Registry: exec06RefusingRegistry{},
@@ -233,12 +208,6 @@ func exec06Engine(t *testing.T, backend command.CompiledBackend, port *exec06Por
 	return engine
 }
 
-// TestExec06PGCategoryExactValuesDecode (O1): the seven-group adapter-shaped
-// page decodes to the exact CategoryValue sequence — ABSENT as {false,nil},
-// stored JSON null converging to {true,nil} (distinct from ABSENT only by
-// presence), and falsy values "" / false / 0 surviving as Go natives — with
-// the declared [present value] contract, the PostgreSQL tag, exactly one
-// bounded statement, and the proof echoed unchanged.
 func TestExec06PGCategoryExactValuesDecode(t *testing.T) {
 	port := &exec06Port{rows: []map[string]any{
 		{"present": false, "value": nil},
@@ -295,9 +264,6 @@ func TestExec06PGCategoryExactValuesDecode(t *testing.T) {
 	}
 }
 
-// TestExec06PGCategoryOverflowCapsPageAtBound (O2): maxValues+1 rows on the
-// single page yield exactly maxValues values, Overflow=true, Complete=false,
-// and still exactly one statement.
 func TestExec06PGCategoryOverflowCapsPageAtBound(t *testing.T) {
 	port := &exec06Port{rows: []map[string]any{
 		{"present": true, "value": exec06JSONB(t, `"a"`)},
@@ -320,10 +286,6 @@ func TestExec06PGCategoryOverflowCapsPageAtBound(t *testing.T) {
 	}
 }
 
-// TestExec06PGCategoryDecodeFailuresFailLoud (O4): every malformed or
-// out-of-contract row shape is a loud typed error with a zero result and no
-// value leak: empty or malformed jsonb bytes, a Go-native value (miswired
-// arm), a missing value key, and a missing or non-bool presence marker.
 func TestExec06PGCategoryDecodeFailuresFailLoud(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -362,9 +324,6 @@ func TestExec06PGCategoryDecodeFailuresFailLoud(t *testing.T) {
 	}
 }
 
-// TestExec06PGCategoryWitnessAndForeignTagRefusedBeforePort (O5): the PG arm
-// refuses a hand-attached witness and a foreign/unregistered command tag as
-// hard typed errors before any port call — no fallback, no dispatch.
 func TestExec06PGCategoryWitnessAndForeignTagRefusedBeforePort(t *testing.T) {
 	t.Run("hand-attached witness refused", func(t *testing.T) {
 		port := &exec06Port{}
@@ -415,10 +374,6 @@ func TestExec06PGCategoryWitnessAndForeignTagRefusedBeforePort(t *testing.T) {
 	})
 }
 
-// TestExec06PGCategoryPortErrorsHonestStatuses (O6): a generic port failure
-// and a cancellation that fires mid-stream are both errors with a zero
-// result — never a complete-looking page — and the same engine converges on
-// an uncancelled rerun (ALIVE control).
 func TestExec06PGCategoryPortErrorsHonestStatuses(t *testing.T) {
 	t.Run("generic port failure is a wrapped hard error", func(t *testing.T) {
 		port := &exec06Port{fail: errors.New("boom")}
@@ -463,10 +418,6 @@ func TestExec06PGCategoryPortErrorsHonestStatuses(t *testing.T) {
 	})
 }
 
-// TestExec06PGCategoryStatusInvariants (O7): the PG arm never fabricates the
-// Arango witness outcome ConclusiveMissing (even for an all-absent page, the
-// total presence bit keeps it a complete scan), and hand-attached Arango
-// accelerator specs cannot smuggle an index callback into a PostgreSQL scan.
 func TestExec06PGCategoryStatusInvariants(t *testing.T) {
 	port := &exec06Port{rows: []map[string]any{{"present": false, "value": nil}}}
 	engine := exec06Engine(t, command.CompiledBackendPostgreSQL, port)
@@ -488,9 +439,6 @@ func TestExec06PGCategoryStatusInvariants(t *testing.T) {
 	}
 }
 
-// TestExec06PGCategoryUsesPreviewPortOverride: the PostgreSQL arm streams
-// through the same preview row port the AQL arm prefers (previewRowsPort
-// parity), not the canonical port.
 func TestExec06PGCategoryUsesPreviewPortOverride(t *testing.T) {
 	preview := &exec06Port{rows: []map[string]any{{"present": true, "value": exec06JSONB(t, `"female"`)}}}
 	config := exec06Landmines()
@@ -515,9 +463,6 @@ func TestExec06PGCategoryUsesPreviewPortOverride(t *testing.T) {
 	}
 }
 
-// exec06ConstructionBundle mirrors the construction-stage output the package
-// offline battery uses, so the identity-refusal cells run against a real
-// resolved plan with stage descriptors.
 func exec06ConstructionBundle() recipe.Bundle {
 	two := int64(2)
 	return recipe.Bundle{
@@ -571,15 +516,6 @@ func exec06Resolve(t *testing.T) dataframeexecution.Resolved {
 	return dataframeexecution.Resolved{Compiled: compiled}
 }
 
-// TestExec06CategoryIdentityRefusalsStayTypedAtTheCompileEntry (coverage
-// condition): naming a stage or column absent from the resolved plan is
-// refused by the compiler entry with its existing typed CategoryScanRefusal
-// codes (pinning the layer from source: CompileCategoryScanStage's
-// compiledStageByID -> CATEGORY_STAGE_UNKNOWN and categoryScanStageColumn ->
-// CATEGORY_COLUMN_UNKNOWN; the output-name lookup is the executor's own
-// layer), with zero port calls, and the refusal must not soften into an
-// empty Complete page. The valid stage-form control (source_projection)
-// proves the refusals are not over-broad.
 func TestExec06CategoryIdentityRefusalsStayTypedAtTheCompileEntry(t *testing.T) {
 	resolved := exec06Resolve(t)
 	if len(resolved.Compiled.Outputs) != 1 || len(resolved.Compiled.Outputs[0].Stages) == 0 {

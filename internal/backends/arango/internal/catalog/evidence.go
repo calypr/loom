@@ -8,8 +8,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// Read* aliases make the capability boundary explicit while retaining the
-// Discover* naming used by the pre-existing catalog reader.
 func (s *Store) ReadResourceInventory(ctx context.Context, opts catalog.ResourceInventoryOptions) (catalog.ResourceInventoryResult, error) {
 	return s.DiscoverResourceInventory(ctx, opts)
 }

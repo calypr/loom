@@ -1,15 +1,5 @@
 package arango
 
-// F-2 durable control for the F-B27 all-generations discovery (REPAIR-15),
-// relocated into the adapter tree with the implementation (arch-backend-07
-// Wave B). Auth-path discovery asks for either one dataset generation or the
-// union over all of them, never both: the all-generations query ignores
-// @dataset_generation, so accepting both would silently discard the
-// caller's selection. The producer-side half of this control stays in
-// internal/authscope (auth_resource_path_options_conflict_test.go), where
-// authscope remains the only producer of AllGenerations requests. The fake
-// Arango client keeps it hermetic.
-
 import (
 	"context"
 	"encoding/json"
@@ -52,9 +42,6 @@ func (c *fb27ctlArangoClient) Bootstrap(context.Context, store.BootstrapSpec) er
 	panic("unused by the auth path discovery controls")
 }
 
-// fb27ctlDiscover runs one discovery against a fresh fake client and asserts
-// the guard/query boundary: a rejected request must not reach Arango, an
-// accepted one must issue exactly one query.
 func fb27ctlDiscover(t *testing.T, opts catalog.AuthResourcePathOptions) ([]string, error) {
 	t.Helper()
 	client := &fb27ctlArangoClient{}

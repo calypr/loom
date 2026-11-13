@@ -72,10 +72,6 @@ func selectorExecutionMode(resourceType string, selector spec.Selector, fallback
 	})
 }
 
-// selectorExecutionModeForExpression is the shared selector classifier used
-// by expression frontends. It resolves schema metadata once and passes the
-// complete physical expression context through the same proof used by
-// generic field lowering.
 func selectorExecutionModeForExpression(resourceType string, selector spec.Selector, fallbacks []spec.Selector) ir.PhysicalSelectorExecutionMode {
 	return selectorExecutionModeWithContext(selectorModeContext{
 		ResourceType: resourceType,

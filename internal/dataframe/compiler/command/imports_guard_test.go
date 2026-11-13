@@ -9,11 +9,6 @@ import (
 	"testing"
 )
 
-// TestCommandLeafIsStdlibOnly pins the ownership boundary: the executable
-// command representation leaf depends on the standard library alone. A new
-// non-stdlib import here would reintroduce a shared-IR/dialect/renderer
-// dependency into the one owner every backend shares, and the compiler
-// package DAG could no longer keep renderers off the compiler root.
 func TestCommandLeafIsStdlibOnly(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

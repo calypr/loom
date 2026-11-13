@@ -31,10 +31,6 @@ type populationProfileCase struct {
 	MembershipDriven ProfileSummary `json:"membershipDriven"`
 }
 
-// TestPopulationPlanProfilesAgainstArango compares the former target-scan
-// semijoin with the membership-driven root access path used by the compiler.
-// It owns uniquely named collections and is opt-in because it inserts a
-// synthetic corpus into a disposable development database.
 func TestPopulationPlanProfilesAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_POPULATION_PROFILE") == "" {
 		t.Skip("set LOOM_POPULATION_PROFILE=1 to run population plan profiling")

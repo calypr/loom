@@ -1,5 +1,3 @@
-// Package arango provides the durable exec.Store adapter used by Loom
-// deployments that already persist dataset metadata in ArangoDB.
 package arango
 
 import (

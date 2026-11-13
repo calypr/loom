@@ -17,10 +17,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// This exercises standalone explicit-cohort row lineage against the same
-// pinned membership documents used by GROUP_ROWS rendering. It intentionally
-// uses a restricted scope so a revoked member cannot be confused with a
-// missing source resource.
 func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
 	const (
@@ -43,8 +39,6 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	}
 
 	project := "loom_cohort_lineage_" + uuid.NewString()
-	// Production selection/group metadata uses canonical project identity;
-	// resource documents retain the legacy storage alias.
 	selectionProject := projectid.Canonical(project)
 	if selectionProject == project {
 		t.Fatal("fixture must exercise distinct selection and resource project identities")
@@ -119,8 +113,6 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		map[string]any{"_key": project + "_resource_" + revokedID, "id": revokedID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/revoked", "payload": map[string]any{"id": revokedID}},
 		map[string]any{"_key": project + "_resource_" + unassignedID, "id": unassignedID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/allowed", "payload": map[string]any{"id": unassignedID}},
 	)
-	// missing-c has a verified selection and assigned membership but no current
-	// resource document. GROUP_ROWS preserves that identity with a null payload.
 
 	bindings := recipe.RuntimeBindings{
 		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
@@ -185,9 +177,6 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	unassigned := executeRowLineageOracleQuery(t, ctx, client, compilePage("__loom_unassigned__", 0, 2))
 	assertPage(unassigned, []string{unassignedID}, []string{project + "_selected_" + unassignedID}, true, false)
 
-	// Compare these identities with canonical GROUP_ROWS materialization so
-	// revoked members are filtered and a missing current resource remains an
-	// identity-only contributor in both renderers.
 	groupRowsQuery, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile canonical standalone GROUP_ROWS fixture: %v", err)
@@ -230,8 +219,6 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	}
 	assertPage(executeRowLineageOracleQuery(t, ctx, client, forged), nil, nil, false, false)
 
-	// A stale source membership digest must fail the same guard used by the
-	// canonical GROUP_ROWS renderer, before any contributor page is returned.
 	insert(revisionsCollection, map[string]any{
 		"_key": staleRevisionID, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "sourceSelectionRevisionId": staleSelectionID,

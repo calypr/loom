@@ -98,9 +98,6 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	}
 	insert(patients, patientDocs...)
 
-	// Each selected Observation is routed to a Patient. The fixture table is
-	// the source oracle: only the first two rows satisfy every scope check and
-	// survive the authored patient_id filter; both route to the same Patient.
 	type memberSeed struct {
 		id, patientID                         string
 		sourceProject, sourceGeneration, auth string
@@ -292,8 +289,6 @@ func TestPopulationMappingRoutedCohortPreservesSelectedMembersAgainstArango(t *t
 	bindCollections(testAQLBinds(t, mapping.Command))
 	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: mapping.Command})
 
-	// Derive the witness oracle from the fixture rows used above, without using
-	// the compiler preview or mapping result to decide which members should map.
 	wantMembers := make([]string, 0, len(members))
 	for _, member := range members {
 		patient := patientsByID[member.patientID]
@@ -386,9 +381,6 @@ FOR target IN @@roots
 		t.Fatalf("seed-derived witness oracle changed unexpectedly: %#v", wantMembers)
 	}
 
-	// Exercise original selected-member witnesses across GROUP→PIVOT→cohort.
-	// The same fixture oracle must still map both selected Observations to the
-	// exact final cohort identity after two contributor-set reductions.
 	pivotOutput := routedPopulationGroupPivotCohortOutput(output.Population, cohortRevisionID, excludedPatientID)
 	pivotPlan, err := semantic.BuildRecipePlan(recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "population-routed-group-pivot-cohort",

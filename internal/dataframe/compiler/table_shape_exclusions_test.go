@@ -116,16 +116,6 @@ func assertExclusionRefusal(t *testing.T, err error, want TableShapeExclusionRef
 	}
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL target (pg-sql-26): the compiler boundary for the evidence
-// terminal. The renderer contract itself lives in
-// render/postgres/table_shape_exclusions{,_live}_test.go; these legs own
-// only the target dispatch: selected PG target renders through the
-// registered slice, the AQL voice stays byte-own to AQL, producer refusals
-// fire before any backend is consulted, and a PostgreSQL-surface refusal is
-// typed and never falls back to AQL.
-// ---------------------------------------------------------------------------
-
 func exclusionPostgreSQLTarget(t *testing.T) Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("loom")
@@ -185,8 +175,6 @@ func TestCompileTableShapeExclusionsPostgreSQLTargetRendersTheTerminal(t *testin
 			t.Fatalf("evidence statement missing %q:\n%s", want, sql)
 		}
 	}
-	// The window rides the tail as the two ordered bigint parameters:
-	// OFFSET @offset, LIMIT @fetchLimit (limit+1 probe, AQL :102).
 	if len(args) < 2 {
 		t.Fatalf("statement carries only %d parameters", len(args))
 	}
@@ -196,9 +184,6 @@ func TestCompileTableShapeExclusionsPostgreSQLTargetRendersTheTerminal(t *testin
 	if fetch, ok := args[len(args)-1].Value.(int64); !ok || fetch != 13 {
 		t.Fatalf("fetch-limit parameter = %#v, want int64 13", args[len(args)-1])
 	}
-	// Target-seal law, observable form: the same compiled output on the
-	// AQL target keeps its canonical AQL voice, byte-own to AQL — the
-	// PostgreSQL landing rerouted nothing.
 	aqlQuery, err := CompileTableShapeExclusions(ArangoTarget(), compiled, 7, 12, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("aql control compile: %v", err)
@@ -214,9 +199,6 @@ func TestCompileTableShapeExclusionsPostgreSQLTargetRendersTheTerminal(t *testin
 }
 
 func TestCompileTableShapeExclusionsPostgreSQLTargetRefusalsStayTyped(t *testing.T) {
-	// Producer-side refusals fire before the backend is consulted: an
-	// unpivot-shaped output refuses with the registered code on BOTH
-	// targets, naming no AQL fallback.
 	unsupported := lowerOutputForExclusionTest(t, recipe.Output{
 		Name: "UnpivotPG", RootResourceType: "Observation", RowGrain: "observation",
 		Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}},
@@ -228,10 +210,6 @@ func TestCompileTableShapeExclusionsPostgreSQLTargetRefusalsStayTyped(t *testing
 	_, err := CompileTableShapeExclusions(exclusionPostgreSQLTarget(t), unsupported, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 	assertExclusionRefusal(t, err, TableShapeExclusionUnsupported)
 
-	// A registered producer shape that renders at AQL but sits outside the
-	// PostgreSQL slice (here a non-canonical FILTER, X7) fails closed with
-	// the renderer's typed error and no AQL fallback: the selected target
-	// is honored to the refusal.
 	filtered := reshapeOracleOutput("ObservationsFiltered", &recipe.TableReshape{
 		Kind: recipe.TableReshapeGroupedPivot,
 		GroupedPivot: &recipe.GroupedPivot{
@@ -259,8 +237,4 @@ func TestCompileTableShapeExclusionsPostgreSQLTargetRefusalsStayTyped(t *testing
 	if err == nil || !errors.Is(err, renderpostgres.ErrUnsupportedPostgresPlan) {
 		t.Fatalf("outside-slice shape must fail closed with the typed renderer error, got %v", err)
 	}
-	// (The seal law is the typed error with no compiled command: the
-	// message may NAME AQL — the pg-sql-16 X7 wording attests the
-	// renders-at-AQL divergence — it may only never OFFER a fallback, and
-	// no command is produced on any error above.)
 }

@@ -8,11 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// T11 (ZZ, runs last by file order): after every fixture has run its own
-// cleanup, the whole ownership-scoped namespace must be back at baseline.
-// ---------------------------------------------------------------------------
-
 func TestPublishAuthoringZZNoLeftoverResources(t *testing.T) {
 	raw := pubauthTestPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

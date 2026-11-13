@@ -227,9 +227,6 @@ func (p Pivot) validateAt(path string, budget *int) error {
 			return validationError("invalid_correlation", path+".correlation", "selected version requires a versionPath")
 		}
 		if p.ItemResourceType == "" && p.ColumnExpr.zero() && p.ValueExpr.zero() && p.ItemSource.zero() && len(p.ValueFallbacks) == 0 {
-			// Correlated pivots are a closed binding variant. Their selectors are
-			// validated from Correlation and are deliberately not duplicated as
-			// writable legacy expressions.
 			return nil
 		}
 		return validationError("ambiguous_correlation", path, "correlated pivot must not carry legacy selector expressions")
@@ -246,8 +243,6 @@ func (p Pivot) validateAt(path string, budget *int) error {
 		}
 		return nil
 	}
-	// A catalog-backed pivot may omit selectors: the scoped resolver fills them
-	// from the catalog's validated pivot metadata before semantic compilation.
 	if p.Discovery != nil && p.ColumnExpr.Select == "" && p.ValueExpr.Select == "" && p.ColumnExpr.Call == "" && p.ValueExpr.Call == "" {
 		return nil
 	}
@@ -306,9 +301,6 @@ func (p CatalogProjection) validateAt(path string) error {
 	return nil
 }
 
-// Validate checks a standalone catalog projection before it is attached to an
-// output or traversal. Bundle validation uses the path-aware variant so
-// callers still receive the precise location of malformed declarations.
 func (p CatalogProjection) Validate() error {
 	return p.validateAt("catalogProjection")
 }

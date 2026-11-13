@@ -1,6 +1,3 @@
-// Package control exposes the backend-neutral control-plane operations
-// needed by GraphQL or HTTP adapters. It deliberately contains no transport
-// types and no translation-specific output names.
 package execution
 
 import (
@@ -23,8 +20,3 @@ type OutputRows struct {
 	Columns []string
 	Rows    []map[string]any
 }
-
-// ExplainPhysical returns compiler diagnostics and, when requested by the
-// caller, a live Arango assessment for every resolved output. Semantic Explain
-// remains available through Explain and is intentionally not replaced by this
-// backend-facing view.

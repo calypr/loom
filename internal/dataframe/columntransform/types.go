@@ -1,5 +1,3 @@
-// Package columntransform defines closed, backend-neutral transformations
-// that operate on one already-selected output column value.
 package columntransform
 
 import "fmt"
@@ -17,8 +15,6 @@ const (
 	UnknownKeepOriginal UnknownPolicy = "KEEP_ORIGINAL"
 )
 
-// ValueTransformation is a closed union. The selected column remains the
-// identity-bearing output; this value only changes its scalar contents.
 type ValueTransformation struct {
 	Kind                Kind                 `json:"kind"`
 	ExactCategoryRecode *ExactCategoryRecode `json:"exactCategoryRecode,omitempty"`

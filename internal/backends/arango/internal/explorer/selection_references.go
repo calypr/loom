@@ -13,11 +13,6 @@ import (
 
 const selectionReferenceBatchSize = 1000
 
-// ValidateSelectionReferences verifies explicit selection references against
-// the concrete resource collection for the requested immutable generation.
-// It intentionally runs in the storage adapter: HTTP callers must not be
-// able to turn guessed IDs into persisted members by skipping the active
-// generation and auth_resource_path predicates.
 func (s *Store) ValidateSelectionReferences(ctx context.Context, project, generation string, scope authscope.ReadScope, refs []explorer.ResourceRef) error {
 	project = projectid.Canonical(project)
 	generation = strings.TrimSpace(generation)
@@ -80,10 +75,6 @@ func (s *Store) ValidateSelectionReferences(ctx context.Context, project, genera
 			if _, ok := found[id]; ok {
 				continue
 			}
-			// Under a restricted scope, absence is deliberately reported as a
-			// stale/scope error rather than silently filtering the reference.
-			// This covers both unauthorized IDs and IDs from a changed active
-			// generation without disclosing which predicate failed.
 			if !scope.Unrestricted() {
 				return fmt.Errorf("%w: resource reference is unavailable in the authorized scope", explorer.ErrResourceRefScopeMismatch)
 			}

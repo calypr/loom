@@ -1,45 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for staged selection revision
-// identity, project-scoped idempotency key, and expiring writer owner
-// (pg-state-selection-revision-owner-v1; check-2:
-// go test -count=1 -run ^TestSelectionStorageAgainstPostgres$ ./internal/backends/postgres/internal/explorer/,
-// plus the full-package run go test -count=1 ./internal/backends/postgres/internal/explorer/).
-//
-// Everything here runs against the service named by
-// LOOM_TEST_POSTGRES_URL: each test creates one uniquely-named isolated
-// database (pgstate05_it_*) plus one owned schema (pgstate05_it_*) inside
-// it and drops both in its cleanups, so the suite leaves zero leftovers.
-// The fixture history is this package's complete embedded owner history --
-// the selection-revisions DDL (000008_selection_revisions) is part of that
-// same Explorer control-plane ledger with bytes unchanged from its earlier
-// own-dir fixture; NewMigrationRunner applies the loader-sorted sequence
-// onto the ONE shared per-schema ledger (proven precedent: the capability
-// migration at version 4 sits inside the same sequence), and the ledger rows
-// are asserted literally with the checksum self-recomputed from the embedded
-// bytes.
-//
-// Every lifecycle claim is driven through real Store methods on real
-// connections; expected rows are asserted literally through direct SQL on a
-// witness pool that is a third, physically distinct backend connection, and
-// concurrent proofs run over two single-connection clients with provably
-// distinct pg_backend_pid() values, at least 10 rounds per racing surface,
-// with byte-identical row witnesses (every column plus ctid) and
-// post-abort convergence checks. Database-enforced immutability is proven
-// non-vacuous by live guard-drop probes: the violating write must fail with
-// the trigger in place (SQLSTATE 45501, exact message), succeed with the
-// trigger dropped, and fail again once restored; every constraint refusal
-// asserts its exact SQLSTATE and constraint name. Crash windows are
-// injected through the in-transaction seams. Nothing is mocked and no test
-// here passes by skipping: a run presented as acceptance evidence requires
-// the live service (see testPostgresURL). Concurrency tests run serially
-// (no t.Parallel anywhere).
-//
-// The TestZZ zero-leftover audit is ownership-scoped: it checks each
-// exact name this file created and verified, with no global scan, so
-// sibling suites sweeping their own prefixes run concurrently without
-// interference. Foreign prefixes are not this file's business.
-
 import (
 	"context"
 	"crypto/sha256"
@@ -64,29 +24,16 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// The fixture pins below follow the coordinator allocation: version 8 of
-// the Explorer control-plane ledger, one migration covering both selection
-// tables (000004's two-table precedent), now embedded in the owner history.
-// The Explorer ledger and the store-dir ledger are separate tables in
-// separate dirs -- the store history's own 000008
-// (internal/backends/postgres/internal/store/migrations/000008_batch_write_ledger.sql) is a
-// different ledger, so the shared number is not a collision. Ledger
-// expectations elsewhere in this file are self-derived from the loaded
-// history, never literal counts.
 const (
 	pgstate05FixtureName     = "selection_revisions"
 	pgstate05FixtureVersion  = int64(8)
 	pgstate05FixtureChecksum = "562a61ef33786cf674f1c87552e2dc8e70691b34116b7f415d5f81960ed8d65d"
 	pgstate05ImmutableCode   = "45501"
-	// pgstate05RaceRounds is the per-surface race floor; the racing
-	// surfaces each run at least this many fresh rounds.
-	pgstate05RaceRounds = 10
+	pgstate05RaceRounds      = 10
 
 	pgstate05Project = "pgstate05-p"
 )
 
-// requireOwnerMigration extracts one expected version/name migration from
-// an owner history, failing when it is absent, duplicated, or misnamed.
 func requireOwnerMigration(t *testing.T, history []pgstore.Migration, version int64, name string) (pgstore.Migration, error) {
 	t.Helper()
 	var found pgstore.Migration
@@ -106,9 +53,6 @@ func requireOwnerMigration(t *testing.T, history []pgstore.Migration, version in
 	return found, nil
 }
 
-// Golden member-key hexes for (pgstate05-p, gen-a, DocumentReference,
-// files00N), pinned independently of the adapter's derivation so a drift
-// in selectionMemberKey breaks the literal, not just its mirror.
 const (
 	pgstate05GoldenKeyFiles001 = "881744de4921fab22a53cec80560023da4ef4071cbe1fec6130e0222c525724a"
 	pgstate05GoldenKeyFiles002 = "a88d58e2d139439341429d35e241c7911ed4a42893a9ac38b21a80d70b684f3f"
@@ -117,13 +61,10 @@ const (
 
 var pgstate05NameRe = regexp.MustCompile(`^pgstate05_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and TestZZ asserts each exact name is gone. Ownership
-// begins at verified CREATE, exactly as the per-test cleanup drops them.
 var (
 	pgstate05OwnedMu      sync.Mutex
-	pgstate05OwnedRes     = map[string]string{} // database -> owned schema
-	pgstate05ExtraSchemas []string              // schemas created outside per-test fixtures (fail-closed probe)
+	pgstate05OwnedRes     = map[string]string{}
+	pgstate05ExtraSchemas []string
 )
 
 func pgstate05Register(db, schema string) {
@@ -137,12 +78,6 @@ func pgstate05RegisterExtraSchema(schema string) {
 	defer pgstate05OwnedMu.Unlock()
 	pgstate05ExtraSchemas = append(pgstate05ExtraSchemas, schema)
 }
-
-// ---------------------------------------------------------------------------
-// Isolated PostgreSQL fixture: one uniquely owned database plus one owned
-// schema per test, named pgstate05_it_*; three single-connection clients
-// (witness + writer A + writer B) with provably distinct backends.
-// ---------------------------------------------------------------------------
 
 type selectionService struct {
 	ctx     context.Context
@@ -218,8 +153,6 @@ func newSelectionService(t *testing.T) *selectionService {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -228,10 +161,6 @@ func newSelectionService(t *testing.T) *selectionService {
 	dsn := u.String()
 	secrets = append(secrets, dsn)
 
-	// Each client is capped at one physical connection, and pgstore.Open
-	// pings the server and refuses anything but PostgreSQL 18, so the
-	// witness, writer A, and writer B are provably three distinct PG18
-	// backends.
 	newClient := func(label string) *pgstore.Client {
 		client, err := pgstore.Open(ctx, pgstore.Config{
 			DSN:            dsn,
@@ -290,8 +219,6 @@ func newSelectionService(t *testing.T) *selectionService {
 	return s
 }
 
-// backendPID asks one client (a single physical connection) to name its
-// server backend.
 func (s *selectionService) backendPID(t *testing.T, client *pgstore.Client, label string) int32 {
 	t.Helper()
 	var pid int32
@@ -304,14 +231,6 @@ func (s *selectionService) backendPID(t *testing.T, client *pgstore.Client, labe
 	return pid
 }
 
-// migrate applies this package's complete embedded owner history -- which
-// includes the selection-revisions migration at version 8 on the ONE shared
-// per-schema ledger -- through the real pg-store-02 runner, and asserts the
-// ledger literally with the checksum self-recomputed from the embedded bytes.
-// The apply-and-sort behavior is the proven capability precedent:
-// NewMigrationRunner copies, recomputes checksums, and sorts by version, so
-// the single owner history [1..11] forms one ascending sequence regardless of
-// file enumeration order.
 func (s *selectionService) migrate(t *testing.T) {
 	t.Helper()
 	owner, err := OwnerMigrations()
@@ -326,9 +245,6 @@ func (s *selectionService) migrate(t *testing.T) {
 	if err != nil {
 		s.fail("selection-revisions migration", err)
 	}
-	// Self-recomputed sha256 pin: the ledger row the runner records must
-	// equal the digest this test computes independently over the exact
-	// embedded bytes, and both must equal the byte-frozen merge pin.
 	sum := sha256.Sum256([]byte(fixture.SQL))
 	if got := hex.EncodeToString(sum[:]); got != fixture.Checksum || got != pgstate05FixtureChecksum {
 		t.Fatalf("checksum self-recompute = %s, runner computed %s, want the byte-frozen merge pin %s",
@@ -376,10 +292,6 @@ func (s *selectionService) migrate(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// direct-SQL witnesses (test's own client, never a store connection)
-// ---------------------------------------------------------------------------
-
 func (s *selectionService) qualified(table string) string {
 	return pgx.Identifier{s.schema, table}.Sanitize()
 }
@@ -398,7 +310,6 @@ func (s *selectionService) witnessExecErr(sql string, args ...any) error {
 	return execOn(s.ctx, s.witness, sql, args...)
 }
 
-// witnessExecTag runs a witness write and reports the affected row count.
 func (s *selectionService) witnessExecTag(t *testing.T, sql string, args ...any) int64 {
 	t.Helper()
 	conn, err := s.witness.Acquire(s.ctx)
@@ -422,8 +333,6 @@ func (s *selectionService) mustWitnessBool(t *testing.T, sql string, args ...any
 	return value
 }
 
-// parseWitnessTime decodes the text rendering of a timestamptz column
-// (PostgreSQL's DateStyle ISO output, e.g. "2026-09-19 00:00:00+00").
 func parseWitnessTime(t *testing.T, text string) time.Time {
 	t.Helper()
 	for _, layout := range []string{
@@ -448,9 +357,6 @@ func (s *selectionService) execCount(t *testing.T, sql string, args ...any) int 
 	return n
 }
 
-// witnessedSelection is the literal content of one selection_revisions row:
-// every column rendered as text (byte-identity witness) plus the physical
-// ctid, which moves on any UPDATE.
 type witnessedSelection struct {
 	id, project, generation, resourceType            string
 	ruleDigest, scopeDigest, idempotencyKey          string
@@ -512,8 +418,6 @@ func (s *selectionService) assertSelectionStable(t *testing.T, id string, before
 	return after
 }
 
-// assertHeaderJSONB witnesses jsonb equality of the rule/source/exclusions
-// payloads against literal documents.
 func (s *selectionService) assertHeaderJSONB(t *testing.T, id, column string, want any, isNull bool) {
 	t.Helper()
 	if isNull {
@@ -541,7 +445,6 @@ func (s *selectionService) assertHeaderJSONB(t *testing.T, id, column string, wa
 	}
 }
 
-// witnessedMember is the literal content of one selection_members row.
 type witnessedMember struct {
 	selectionID, memberKey, project, generation, resourceType, id string
 	ordinal                                                       int64
@@ -584,15 +487,8 @@ func (s *selectionService) assertMemberAbsent(t *testing.T, selectionID, memberK
 	}
 }
 
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
-
 func pgstate05Hex(t *testing.T) string { return randomHex(t) }
 
-// selectionHeaderFixture builds a valid, rich, incomplete selection
-// revision: an ALL_MATCHING rule with typed filters, a fully bound
-// published source, and per-instance digests/key.
 func selectionHeaderFixture(id, key string) explorer.SelectionRevision {
 	return explorer.SelectionRevision{
 		ID: id, Project: pgstate05Project, Generation: "gen-a", ResourceType: "DocumentReference",
@@ -617,8 +513,6 @@ func selectionRef(id string) explorer.SelectionMember {
 	}}
 }
 
-// goldenMemberKey mirrors the derivation independently of the adapter:
-// selectionID + "_" + hex(sha256 over 0x00-prefixed parts).
 func goldenMemberKey(t *testing.T, selectionID string, ref explorer.ResourceRef) string {
 	t.Helper()
 	h := sha256.New()
@@ -663,9 +557,6 @@ func membershipFacts(refs []explorer.SelectionMember) (string, int64, int64) {
 	return hex.EncodeToString(hash.Sum(nil)), count, byteTotal
 }
 
-// assertRevisionEquals compares the returned revision against the expected
-// domain value field by field (instants via Equal, canonical rule/source,
-// exclusions order).
 func assertRevisionEquals(t *testing.T, label string, got *explorer.SelectionRevision, want explorer.SelectionRevision) {
 	t.Helper()
 	if got == nil {
@@ -689,9 +580,6 @@ func assertRevisionEquals(t *testing.T, label string, got *explorer.SelectionRev
 		t.Fatalf("%s exclusions = %+v, want %+v", label, got.Exclusions, want.Exclusions)
 	}
 	if !got.CreatedAt.Truncate(time.Microsecond).Equal(want.CreatedAt.Truncate(time.Microsecond)) {
-		// timestamptz has microsecond precision; the stored instant is
-		// authoritative and callers compare at that grain (the Arango
-		// adapter round-trips the same field at millisecond precision).
 		t.Fatalf("%s createdAt: got %s want %s", label, got.CreatedAt, want.CreatedAt)
 	}
 	switch {
@@ -703,11 +591,6 @@ func assertRevisionEquals(t *testing.T, label string, got *explorer.SelectionRev
 		t.Fatalf("%s completedAt: got %v want %v", label, *got.CompletedAt, *want.CompletedAt)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// literal witness-INSERT builders (schema-complete defaults, per-column
-// overrides for the constraint probes)
-// ---------------------------------------------------------------------------
 
 var selectionHeaderDefaults = []struct{ column, literal string }{
 	{"id", "'p5-header-1'"},
@@ -763,8 +646,6 @@ func (s *selectionService) memberInsertSQL(overrides map[string]string) string {
 	return fmt.Sprintf(selectionInsertSQL(selectionMemberDefaults, overrides), s.membersFQN())
 }
 
-// assertPgError witnesses an exact SQLSTATE plus constraint name so every
-// refusal is attributed to the named database object, not just the class.
 func assertPgError(t *testing.T, label string, err error, wantState, wantConstraint string) {
 	t.Helper()
 	var pgErr *pgconn.PgError
@@ -780,12 +661,6 @@ func assertPgError(t *testing.T, label string, err error, wantState, wantConstra
 	}
 }
 
-// guardDropProbe proves a guard is not vacuous (the pg-catalog-04 /
-// pg-state-immutable-capability bar): the violating statement must fail
-// with SQLSTATE 45501 while the trigger is attached, must SUCCEED once the
-// trigger is dropped, and must fail again once restored. reseed, when
-// non-nil, runs after the successful unguarded write to restore the probe
-// row for the restore check.
 func (s *selectionService) guardDropProbe(t *testing.T, trigger, table, guardFunction string, reseed func(), stmt string, args ...any) {
 	t.Helper()
 	tableFQN := s.qualified(table)
@@ -842,13 +717,6 @@ func (s *selectionService) triggerPresent(t *testing.T, trigger, table string) b
 	return present
 }
 
-// guardThenCheckProbe proves a layered defense: the BEFORE UPDATE trigger
-// refuses the write first (45501); with the trigger dropped the statement
-// must be refused by the named table CHECK instead (a different layer
-// catching what the guard would have blocked), and with the trigger
-// restored the guard refuses first again. Used for tamper attempts whose
-// payload is ALSO illegal by table constraint (un-completing a row), so
-// the guard's first-line refusal is what is proven non-vacuous.
 func (s *selectionService) guardThenCheckProbe(t *testing.T, trigger, table, guardFunction, stmt string, wantState, wantConstraint string, args ...any) {
 	t.Helper()
 	tableFQN := s.qualified(table)
@@ -866,10 +734,6 @@ func (s *selectionService) guardThenCheckProbe(t *testing.T, trigger, table, gua
 	assertPgError(t, "restored-guard write "+stmt, s.witnessExecErr(stmt, args...), pgstate05ImmutableCode, "")
 }
 
-// expireLease moves a staged row's writer lease into the past through the
-// witness backend. writer_expires_at is deliberately OUTSIDE the frozen
-// identity set, so this is a legal unguarded write even with the trigger
-// attached (proven as a control in the guard test).
 func (s *selectionService) expireLease(t *testing.T, id string) {
 	t.Helper()
 	if n := s.witnessExecTag(t,
@@ -878,9 +742,6 @@ func (s *selectionService) expireLease(t *testing.T, id string) {
 	}
 }
 
-// beginConcurrently runs two store.BeginSelection calls on the two
-// physically distinct writer backends, released together. Each side may
-// carry its own revision and token.
 func (s *selectionService) beginConcurrently(storeA *Store, selectionA explorer.SelectionRevision, storeB *Store, selectionB explorer.SelectionRevision, tokenA, tokenB string) (*explorer.SelectionRevision, error, *explorer.SelectionRevision, error) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -902,12 +763,6 @@ func (s *selectionService) beginConcurrently(storeA *Store, selectionA explorer.
 	return revA, errA, revB, errB
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1-3 headline mirror: the full staged-selection lifecycle
-// against real PG18, mirroring TestSelectionStorageAgainstArango, with the
-// racing surfaces (>= 10 rounds each) and byte-identical row witnesses.
-// ---------------------------------------------------------------------------
-
 func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	s := newSelectionService(t)
 	suffix := pgstate05Hex(t)
@@ -915,7 +770,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	writerToken := "writer-" + suffix
 	header := selectionHeaderFixture(selectionID, "key-"+suffix)
 
-	// --- begin binds identity, idempotency key, and a live writer lease --
 	started, err := s.storeA.BeginSelection(s.ctx, header, writerToken)
 	if err != nil {
 		s.fail("begin selection", err)
@@ -935,7 +789,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	s.assertHeaderJSONB(t, selectionID, "source", header.Canonical().Source, false)
 	s.assertHeaderJSONB(t, selectionID, "exclusions", nil, true)
 
-	// --- idempotent retry converges on the identical stored row ----------
 	retry, err := s.storeB.BeginSelection(s.ctx, header, writerToken)
 	if err != nil {
 		s.fail("idempotent begin", err)
@@ -943,7 +796,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	assertRevisionEquals(t, "retry", retry, header)
 	s.assertSelectionStable(t, selectionID, w)
 
-	// --- insert-once membership, lease renewal, foreign-writer refusal ---
 	refs := []explorer.SelectionMember{selectionRef("files001"), selectionRef("files002"), selectionRef("files001")}
 	inserted, err := s.storeA.AppendSelectionMembers(s.ctx, selectionID, writerToken, refs)
 	if err != nil {
@@ -976,7 +828,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	}
 	s.assertMemberAbsent(t, "no-such-selection", mk001)
 
-	// --- digest streams exactly the frozen membership facts -------------
 	digest, count, byteTotal, err := s.storeA.DigestSelectionMembers(s.ctx, pgstate05Project, selectionID)
 	if err != nil {
 		s.fail("digest members", err)
@@ -986,7 +837,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("digest = %s/%d/%d, want %s/%d/%d", digest, count, byteTotal, wantDigest, wantCount, wantBytes)
 	}
 
-	// --- completion CAS freezes the facts; post-complete guards ---------
 	completedAt := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 	completed, err := s.storeA.CompleteSelection(s.ctx, selectionID, writerToken, digest, count, byteTotal, completedAt)
 	if err != nil {
@@ -1007,7 +857,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("append after complete = %v, want ErrSelectionConflict", err)
 	}
 
-	// --- idempotent begin after completion, changed intent refused ------
 	again, err := s.storeB.BeginSelection(s.ctx, header, "post-complete-"+suffix)
 	if err != nil {
 		s.fail("begin after complete", err)
@@ -1023,12 +872,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	}
 	s.assertSelectionStable(t, selectionID, done)
 
-	// --- unexpired writer cannot be claimed; expired recovery follows the
-	// current lease boundary -----------------------------------------------
-	// CreatedAt is deliberately ahead of "now" so the row is outside the
-	// cleanup sweep's age predicate: recovery must then succeed only via
-	// the database-evaluated lease-boundary claim, never because cleanup
-	// happened to reap the row first.
 	activeID := "selection-active-" + suffix
 	active := selectionHeaderFixture(activeID, "active-key-"+suffix)
 	active.CreatedAt = time.Now().UTC().Add(time.Hour)
@@ -1062,7 +905,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("expired recovery tampered with identity: before=%+v after=%+v", activeRow, rebound)
 	}
 
-	// --- expired cleanup: same-key retry recovers a clean revision ------
 	expiredMultiID := "selection-expired-multi-" + suffix
 	expiredMulti := selectionHeaderFixture(expiredMultiID, "expired-multi-key-"+suffix)
 	expiredWriter := "expired-writer-" + suffix
@@ -1089,7 +931,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("recovered revision is not a clean fresh insert: %+v", fresh)
 	}
 
-	// --- owner abort removes header and members; foreign abort is a no-op
 	multiID := "selection-abort-multi-" + suffix
 	multi := selectionHeaderFixture(multiID, "abort-multi-key-"+suffix)
 	multiWriter := "abort-writer-" + suffix
@@ -1114,7 +955,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("owner abort left %d member rows", n)
 	}
 
-	// --- mixed-project batch is refused with zero leaked rows -----------
 	partialID := "selection-partial-" + suffix
 	partial := selectionHeaderFixture(partialID, "partial-key-"+suffix)
 	partialWriter := "partial-writer-" + suffix
@@ -1130,7 +970,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("partial append leaked rows: count=%d", n)
 	}
 
-	// --- project-scoped reads conceal foreign rows -----------------------
 	if _, err := s.storeA.GetSelection(s.ctx, "other-project", selectionID); !errors.Is(err, explorer.ErrSelectionNotFound) {
 		t.Fatalf("foreign-project GetSelection = %v, want ErrSelectionNotFound", err)
 	}
@@ -1141,10 +980,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("missing GetSelection = %v, want ErrSelectionNotFound", err)
 	}
 
-	// --- member visit walks byte-order keys ------------------------------
-	// One page per call, pinned against Arango parity (a drain loop that
-	// visited every member in one call fails these per-call bounds): the
-	// caller drives the walk, an empty page returns after unchanged.
 	visited := []string{}
 	last, err := s.storeA.VisitSelectionMembers(s.ctx, pgstate05Project, selectionID, "", 1, func(member explorer.SelectionMember) error {
 		visited = append(visited, member.MemberKey)
@@ -1187,8 +1022,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		t.Fatalf("visit on STAGING = %v, want ErrSelectionIncomplete", err)
 	}
 
-	// --- race surface 1: concurrent same-key/same-content begin converges
-	// (>= pgstate05RaceRounds rounds on two distinct pg_backend_pid writers)
 	for round := 0; round < pgstate05RaceRounds; round++ {
 		id := fmt.Sprintf("selection-race-converge-%d-%s", round, suffix)
 		key := fmt.Sprintf("race-converge-key-%d-%s", round, suffix)
@@ -1208,15 +1041,12 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		if row.writerToken != sharedToken || row.state != "STAGING" {
 			t.Fatalf("round %d converged row = %+v", round, row)
 		}
-		// Post-abort convergence: the shared writer's abort erases all.
 		if err := s.storeB.AbortSelection(s.ctx, id, sharedToken); err != nil {
 			s.fail("race cleanup abort", err)
 		}
 		s.assertSelectionAbsent(t, id)
 	}
 
-	// --- race surface 2: concurrent same-key/same-content/different-token:
-	// exactly one owner; the other is refused while the lease is live.
 	for round := 0; round < pgstate05RaceRounds; round++ {
 		id := fmt.Sprintf("selection-race-owner-%d-%s", round, suffix)
 		key := fmt.Sprintf("race-owner-key-%d-%s", round, suffix)
@@ -1249,8 +1079,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		s.assertSelectionAbsent(t, id)
 	}
 
-	// --- race surface 3: stale foreign abort cannot remove a live
-	// writer's staged members (Arango's 50-round loop, 10-round floor here).
 	for round := 0; round < pgstate05RaceRounds; round++ {
 		id := fmt.Sprintf("selection-race-abort-%d-%s", round, suffix)
 		key := fmt.Sprintf("race-abort-key-%d-%s", round, suffix)
@@ -1289,8 +1117,6 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 		if _, err := s.storeA.CompleteSelection(s.ctx, id, owner, dig, cnt, 0, completedAt); err != nil {
 			t.Fatalf("round %d post-race complete = %v", round, err)
 		}
-		// Foreign abort after completion is a documented no-op; the
-		// completed row is byte-identical across it.
 		completedRow := s.witnessSelection(id)
 		if err := s.storeB.AbortSelection(s.ctx, id, "stale-"+suffix); err != nil {
 			s.fail("post-complete foreign abort", err)
@@ -1299,17 +1125,11 @@ func TestSelectionStorageAgainstPostgres(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 1 deep: key/content mismatch refuses under race, with
-// byte-identical winner witnesses and post-abort convergence.
-// ---------------------------------------------------------------------------
-
 func TestSelectionBeginConcurrentMismatchRefused(t *testing.T) {
 	s := newSelectionService(t)
 	suffix := pgstate05Hex(t)
 
 	for round := 0; round < pgstate05RaceRounds; round++ {
-		// (a) same (project, idempotency_key), different ids.
 		key := fmt.Sprintf("mismatch-key-%d-%s", round, suffix)
 		headerA := selectionHeaderFixture(fmt.Sprintf("selection-mismatch-a-%d-%s", round, suffix), key)
 		headerB := headerA
@@ -1347,16 +1167,12 @@ func TestSelectionBeginConcurrentMismatchRefused(t *testing.T) {
 			loser = headerA
 		}
 		s.assertSelectionAbsent(t, loser.ID)
-		// Post-abort convergence: the winner's abort leaves zero rows for
-		// either id behind.
 		if err := s.storeA.AbortSelection(s.ctx, winner.ID, "mw-"+suffix); err != nil {
 			s.fail("mismatch abort", err)
 		}
 		s.assertSelectionAbsent(t, winner.ID)
 		s.assertSelectionAbsent(t, loser.ID)
 
-		// (b) same id, different intent (rule digest) -- content mismatch
-		// under the id arbiter.
 		id := fmt.Sprintf("selection-mismatch-id-%d-%s", round, suffix)
 		first := selectionHeaderFixture(id, fmt.Sprintf("mismatch-id-key-%d-%s", round, suffix))
 		if _, err := s.storeA.BeginSelection(s.ctx, first, "imw-"+suffix); err != nil {
@@ -1382,12 +1198,6 @@ func TestSelectionBeginConcurrentMismatchRefused(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 2 deep: the lease boundary is evaluated by PostgreSQL itself.
-// A direct-SQL replica of the claim statement must match zero rows while
-// the writer is unexpired -- no adapter-side check is trusted for this.
-// ---------------------------------------------------------------------------
-
 func TestSelectionWriterLeaseBoundaryIsDatabaseEnforced(t *testing.T) {
 	s := newSelectionService(t)
 	suffix := pgstate05Hex(t)
@@ -1401,9 +1211,6 @@ func TestSelectionWriterLeaseBoundaryIsDatabaseEnforced(t *testing.T) {
 	claimSQL := `UPDATE ` + s.headersFQN() + ` SET writer_token = $2, writer_expires_at = $3` +
 		` WHERE id = $1 AND state = 'STAGING' AND writer_expires_at < $4 RETURNING writer_token`
 
-	// (1) Unexpired: the boundary predicate -- evaluated against the
-	// CURRENT instant, exactly as the adapter binds it -- matches zero
-	// rows and the row is byte-identical afterwards.
 	conn, err := s.witness.Acquire(s.ctx)
 	if err != nil {
 		s.fail("acquire claim witness", err)
@@ -1419,13 +1226,11 @@ func TestSelectionWriterLeaseBoundaryIsDatabaseEnforced(t *testing.T) {
 	}
 	s.assertSelectionStable(t, id, base)
 
-	// The adapter agrees: a foreign token conflicts while the lease lives.
 	if _, err := s.storeB.BeginSelection(s.ctx, header, "usurper"); !errors.Is(err, explorer.ErrSelectionConflict) {
 		t.Fatalf("adapter begin on live lease = %v, want ErrSelectionConflict", err)
 	}
 	s.assertSelectionStable(t, id, base)
 
-	// (2) Expired: the same statement now matches the row.
 	s.expireLease(t, id)
 	tag, err = func() (pgconn.CommandTag, error) {
 		c, aerr := s.witness.Acquire(s.ctx)
@@ -1451,8 +1256,6 @@ func TestSelectionWriterLeaseBoundaryIsDatabaseEnforced(t *testing.T) {
 		t.Fatalf("boundary claim tampered with identity columns: %+v", claimed)
 	}
 
-	// (3) The fresh lease is again unclaimable by a foreign token through
-	// the adapter, and the owner's own begin round-trips idempotently.
 	if _, err := s.storeB.BeginSelection(s.ctx, header, "second-usurper"); !errors.Is(err, explorer.ErrSelectionConflict) {
 		t.Fatalf("adapter begin after direct claim = %v, want ErrSelectionConflict", err)
 	}
@@ -1461,10 +1264,6 @@ func TestSelectionWriterLeaseBoundaryIsDatabaseEnforced(t *testing.T) {
 		t.Fatalf("owner begin under claimed lease = %+v err=%v", own, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Database-enforced immutability with non-vacuity guard-drop probes.
-// ---------------------------------------------------------------------------
 
 func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 	s := newSelectionService(t)
@@ -1476,11 +1275,6 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		s.fail("seed begin", err)
 	}
 
-	// Capture the pristine column values so each guard-drop probe reseeds
-	// the tampered value back BEFORE the trigger is restored: the restore
-	// check must fail again for the same reason (the guard fires on
-	// NEW IS DISTINCT FROM OLD, so a stuck-tampered value would silently
-	// make the restored guard look vacuous).
 	var (
 		origGeneration, origResourceType string
 		origRuleDigest, origScopeDigest  string
@@ -1505,14 +1299,11 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		}
 	}()
 
-	// Identity columns are insert-once: each tampering attempt is refused
-	// by 45501 while the trigger stands, succeeds once dropped, and is
-	// refused again once restored (value reseeded in between).
 	type tamper struct {
 		column   string
 		tampered any
 		restore  any
-		cast     string // "", "::timestamptz", or "::jsonb"
+		cast     string
 	}
 	var exclusionsRestore any
 	if origExclusionsText != "<sql-null>" {
@@ -1541,17 +1332,12 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		s.guardDropProbe(t, "selection_revisions_immutable", SelectionRevisionsTable, "loom_selection_revision_immutable", reseed, stmt, id, tm.tampered)
 	}
 
-	// Controls proving the guard does not over-block: the writer lease and
-	// pre-completion staging facts are OUTSIDE the frozen set and update
-	// legally with the trigger attached (this is the same witness write
-	// expireLease relies on).
 	s.expireLease(t, id)
 	if n := s.witnessExecTag(t,
 		`UPDATE `+s.headersFQN()+` SET membership_digest = 'staging-is-live', writer_token = 'guard-writer' WHERE id = $1`, id); n != 1 {
 		t.Fatalf("staging-fact control write affected %d rows, want 1", n)
 	}
 
-	// Completion freezes the facts one-way.
 	digest, count, byteTotal, err := s.storeA.DigestSelectionMembers(s.ctx, pgstate05Project, id)
 	if err != nil {
 		s.fail("digest", err)
@@ -1577,9 +1363,6 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		}(tm)
 		s.guardDropProbe(t, "selection_revisions_immutable", SelectionRevisionsTable, "loom_selection_revision_immutable", reseed, stmt, id, tm.tampered)
 	}
-	// Un-completing a row is refused FIRST by the guard; with the guard
-	// dropped, the named table CHECK refuses the same write -- completion
-	// irreversibility is enforced by two independent database layers.
 	for _, tamper := range []struct{ column, literal string }{
 		{"complete", "false"},
 		{"state", "'STAGING'"},
@@ -1589,12 +1372,9 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 			stmt, "23514", "selection_revisions_complete_matches_state", id)
 	}
 
-	// The member guard blocks UPDATE (content is insert-once) and, as a
-	// lifecycle control, still allows DELETE with the trigger attached.
 	if _, err := s.storeA.AppendSelectionMembers(s.ctx, id, "guard-writer", []explorer.SelectionMember{selectionRef("files001")}); !errors.Is(err, explorer.ErrSelectionConflict) {
 		t.Fatalf("append after complete = %v, want conflict (row is COMPLETE)", err)
 	}
-	// Re-stage via a fresh selection for member probes.
 	memberSelID := "selection-guard-member-" + suffix
 	mk := goldenMemberKey(t, memberSelID, selectionRef("files001").Ref)
 	memberSel := selectionHeaderFixture(memberSelID, "guard-member-key-"+suffix)
@@ -1615,14 +1395,11 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 		}
 	}
 	s.guardDropProbe(t, "selection_members_immutable", SelectionMembersTable, "loom_selection_member_immutable", reseed, memberUpdate, memberSelID, mk)
-	// Member tampering on identity parts is blocked by the same guard:
 	s.guardDropProbe(t, "selection_members_immutable", SelectionMembersTable, "loom_selection_member_immutable", func() {
 		if n := s.witnessExecTag(t, `UPDATE `+s.membersFQN()+` SET id = 'files001' WHERE selection_id = $1 AND member_key = $2`, memberSelID, mk); n != 1 {
 			t.Fatalf("member id reseed affected %d rows, want 1", n)
 		}
 	}, `UPDATE `+s.membersFQN()+` SET id = 'tampered' WHERE selection_id = $1 AND member_key = $2`, memberSelID, mk)
-	// Lifecycle control: DELETE of a whole member row is legal WITH the
-	// trigger attached (abort/cleanup remove rows; they never rewrite one).
 	if n := s.witnessExecTag(t, `DELETE FROM `+s.membersFQN()+` WHERE selection_id = $1 AND member_key = $2`, memberSelID, mk); n != 1 {
 		t.Fatalf("lifecycle member DELETE affected %d rows, want 1 (guard must not over-block)", n)
 	}
@@ -1631,14 +1408,9 @@ func TestSelectionDatabaseGuardsAreEnforcedAtDatabaseLevel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Exact named constraint refusals via direct SQL, with legal controls.
-// ---------------------------------------------------------------------------
-
 func TestSelectionSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	s := newSelectionService(t)
 
-	// Seed the rows the duplicate probes collide with.
 	if err := s.witnessExecErr(s.headerInsertSQL(nil)); err != nil {
 		s.fail("seed header", err)
 	}
@@ -1676,8 +1448,6 @@ func TestSelectionSchemaConstraintsRejectInvalidRows(t *testing.T) {
 		assertPgError(t, c.name, s.witnessExecErr(c.sql), c.wantState, c.wantConstraint)
 	}
 
-	// Controls: the documented legal shapes insert cleanly, so every
-	// refusal above was the named constraint doing its job.
 	if err := s.witnessExecErr(s.headerInsertSQL(map[string]string{
 		"id": "'p5-h-complete-legal'", "idempotency_key": "'key-legal-complete'",
 		"state": "'COMPLETE'", "complete": "true",
@@ -1707,18 +1477,10 @@ func TestSelectionSchemaConstraintsRejectInvalidRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Crash-window injection through the in-transaction seams: aborted writes
-// converge (nothing half-applied survives), and the retry after the crash
-// completes cleanly.
-// ---------------------------------------------------------------------------
-
 func TestSelectionCrashWindowConvergence(t *testing.T) {
 	s := newSelectionService(t)
 	suffix := pgstate05Hex(t)
 
-	// (1) Crash between the member inserts and the lease renewal: the
-	// whole append transaction vanishes -- no members, no renewal.
 	id := "selection-crash-append-" + suffix
 	header := selectionHeaderFixture(id, "crash-append-key-"+suffix)
 	writer := "crash-writer-" + suffix
@@ -1738,18 +1500,13 @@ func TestSelectionCrashWindowConvergence(t *testing.T) {
 	if n := s.memberCount(t, id); n != 0 {
 		t.Fatalf("crashed append leaked %d member rows", n)
 	}
-	s.assertSelectionStable(t, id, base) // lease not renewed, row byte-identical
-	// Post-crash convergence: the retry (with the injected crash removed)
-	// commits the full batch.
+	s.assertSelectionStable(t, id, base)
 	s.storeB.afterMemberInsert = nil
 	inserted, err := s.storeB.AppendSelectionMembers(s.ctx, id, writer, refs)
 	if err != nil || len(inserted) != 2 {
 		t.Fatalf("post-crash retry append inserted %d err=%v, want 2", len(inserted), err)
 	}
 
-	// (2) Crash between the cleanup delete pair and its commit: the
-	// abandoned revision AND its members survive together (cleanup is one
-	// atomic unit), and the retry after the crash reaps both.
 	victimID := "selection-crash-cleanup-" + suffix
 	victim := selectionHeaderFixture(victimID, "crash-cleanup-key-"+suffix)
 	if _, err := s.storeA.BeginSelection(s.ctx, victim, "victim-writer-"+suffix); err != nil {
@@ -1774,7 +1531,6 @@ func TestSelectionCrashWindowConvergence(t *testing.T) {
 	if after := s.witnessMember(victimID, victimMemberKey); !after.same(victimMember) {
 		t.Fatalf("crashed cleanup removed members: %+v", after)
 	}
-	// Post-crash convergence: the same cleanup now removes header+members.
 	s.storeA.beforeCleanupCommit = nil
 	if err := s.storeA.CleanupSelectionStaging(s.ctx, time.Now().UTC(), 100); err != nil {
 		s.fail("post-crash cleanup", err)
@@ -1784,10 +1540,6 @@ func TestSelectionCrashWindowConvergence(t *testing.T) {
 		t.Fatalf("post-crash cleanup left %d members", n)
 	}
 
-	// (3) A cleanup racing a live writer's renewal converges to exactly one
-	// outcome per row: the writer's FOR UPDATE serialization means the
-	// batch either reaps a fully expired revision or leaves it whole. Run
-	// the racing pair across rounds on the two distinct backends.
 	for round := 0; round < pgstate05RaceRounds; round++ {
 		raceID := fmt.Sprintf("selection-crash-race-%d-%s", round, suffix)
 		raceHeader := selectionHeaderFixture(raceID, fmt.Sprintf("crash-race-key-%d-%s", round, suffix))
@@ -1838,11 +1590,6 @@ func TestSelectionCrashWindowConvergence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance 3 deep: identity includes project/generation/resource/rule/
-// scope and is reread after conflict -- every field probed individually.
-// ---------------------------------------------------------------------------
-
 func TestSelectionIdentityRereadAfterConflict(t *testing.T) {
 	s := newSelectionService(t)
 	suffix := pgstate05Hex(t)
@@ -1881,17 +1628,12 @@ func TestSelectionIdentityRereadAfterConflict(t *testing.T) {
 		s.assertSelectionStable(t, id, base)
 	}
 
-	// The reread is the decision point: after a conflict the stored row is
-	// byte-identical AND GetSelection still round-trips the frozen identity.
 	reread, err := s.storeA.GetSelection(s.ctx, pgstate05Project, id)
 	if err != nil {
 		s.fail("reread", err)
 	}
 	assertRevisionEquals(t, "reread", reread, stored)
 
-	// Completion validation runs on the reread path: a COMPLETE row whose
-	// stored facts are coherent returns; the guard already proved
-	// incoherent writes impossible at the database.
 	digest, count, byteTotal, err := s.storeA.DigestSelectionMembers(s.ctx, pgstate05Project, id)
 	if err != nil {
 		s.fail("digest", err)
@@ -1907,11 +1649,6 @@ func TestSelectionIdentityRereadAfterConflict(t *testing.T) {
 	s.assertSelectionStable(t, id, completeRow)
 }
 
-// ---------------------------------------------------------------------------
-// Offline contract checks: statement construction, derivation parity, and
-// the self-recomputed fixture digest. No connection is opened.
-// ---------------------------------------------------------------------------
-
 func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 	if _, err := New(nil, "ctl"); err == nil {
 		t.Fatal("New(nil, schema) = nil error, want refusal")
@@ -1921,9 +1658,6 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 	}
 
 	sql := newSelectionSQL("ctl")
-	// The membership statement set is built by selection_members.go
-	// (pg-state-selection-members-v1 file split); this contract covers
-	// both halves of the selection lifecycle.
 	memberSQL := newSelectionMemberSQL("ctl")
 	headersFQN := `"ctl"."selection_revisions"`
 	membersFQN := `"ctl"."selection_members"`
@@ -1961,8 +1695,6 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 		t.Fatalf("memberInsert placeholders = %d, want %d", got, len(memberColumns)+1)
 	}
 
-	// Derivation parity: the adapter's member key equals an independent
-	// reimplementation AND the pinned golden literals.
 	for _, tc := range []struct{ id, wantHex string }{
 		{"files001", pgstate05GoldenKeyFiles001},
 		{"files002", pgstate05GoldenKeyFiles002},
@@ -1979,7 +1711,6 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 		}
 	}
 
-	// Owner digest self-recompute (offline half of the ledger pin).
 	ownerMigrations, err := OwnerMigrations()
 	if err != nil {
 		t.Fatal(err)
@@ -2000,10 +1731,6 @@ func TestSelectionStoreValidationAndSQLContract(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Digest paging across the 1000-row page boundary + member visit walk.
-// ---------------------------------------------------------------------------
 
 func TestSelectionDigestPagingAndVisitWalk(t *testing.T) {
 	s := newSelectionService(t)
@@ -2038,11 +1765,6 @@ func TestSelectionDigestPagingAndVisitWalk(t *testing.T) {
 	if _, err := s.storeA.CompleteSelection(s.ctx, id, writer, digest, count, byteTotal, time.Now().UTC()); err != nil {
 		s.fail("complete", err)
 	}
-	// Visit walk at pageSize 7: every member exactly once in byte order,
-	// with the per-call bound pinned against Arango parity -- one call
-	// visits at most pageSize members (a drain loop would visit all 1001
-	// on the first call and blow this bound) and the caller drives the
-	// walk to a terminal empty page that returns the cursor unchanged.
 	seen := []string{}
 	cursor := ""
 	calls := 0
@@ -2080,24 +1802,16 @@ func TestSelectionDigestPagingAndVisitWalk(t *testing.T) {
 	if !sort.StringsAreSorted(seen) {
 		t.Fatal("visit walk is not in byte order")
 	}
-	// Idempotent facts: the COMPLETE digest reread streams nothing new.
 	digest2, count2, _, err := s.storeA.DigestSelectionMembers(s.ctx, pgstate05Project, id)
 	if err != nil || digest2 != digest || count2 != count {
 		t.Fatalf("complete digest reread = %s/%d err=%v, want %s/%d", digest2, count2, err, digest, count)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CleanupSelectionStaging: strict boundary (unexpired untouched, expired
-// reaped with members) and the bounded limit.
-// ---------------------------------------------------------------------------
-
 func TestSelectionCleanupBoundaryAndLimit(t *testing.T) {
 	s := newSelectionService(t)
 	suffix := pgstate05Hex(t)
 
-	// Three victim-shaped rows via witness INSERTs with literal, fixed
-	// created_at instants and explicit lease states (golden literals).
 	type probe struct {
 		id      string
 		created string
@@ -2136,8 +1850,6 @@ func TestSelectionCleanupBoundaryAndLimit(t *testing.T) {
 		before[p.id] = s.witnessSelection(p.id)
 	}
 
-	// Boundary + limit: only the two expired rows qualify (older
-	// created_at first); limit 2 reaps exactly them.
 	if err := s.storeA.CleanupSelectionStaging(s.ctx, time.Now().UTC(), 2); err != nil {
 		s.fail("bounded cleanup", err)
 	}
@@ -2158,14 +1870,11 @@ func TestSelectionCleanupBoundaryAndLimit(t *testing.T) {
 		}
 	}
 
-	// The remaining unexpired row is untouched by an unbounded sweep.
 	if err := s.storeB.CleanupSelectionStaging(s.ctx, time.Now().UTC(), 0); err != nil {
 		s.fail("default-limit cleanup", err)
 	}
 	s.assertSelectionStable(t, probes[2].id, before[probes[2].id])
 
-	// Same-key retry against an abandoned revision recovers cleanly through
-	// BeginSelection's own reclamation (Arango's expired-empty path).
 	abandoned := "selection-cleanup-retry-" + suffix
 	abandonedKey := "cleanup-retry-key-" + suffix
 	abandonedHeader := selectionHeaderFixture(abandoned, abandonedKey)
@@ -2184,16 +1893,8 @@ func TestSelectionCleanupBoundaryAndLimit(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// No-fallback guarantee: an unmigrated schema surfaces the missing relation
-// (SQLSTATE 42P01) on every selection method -- never a typed miss, never a
-// fallback.
-// ---------------------------------------------------------------------------
-
 func TestSelectionStoresFailClosedWithoutTheirTables(t *testing.T) {
 	s := newSelectionService(t)
-	// One extra owned schema, NO selection tables: same database, distinct
-	// owned name, registered for the TestZZ audit.
 	bare := fmt.Sprintf("pgstate05_it_%d_%s", time.Now().UnixNano(), pgstate05Hex(t))
 	if !pgstate05NameRe.MatchString(bare) {
 		t.Fatalf("bare schema name %q does not match the pattern", bare)
@@ -2209,10 +1910,6 @@ func TestSelectionStoresFailClosedWithoutTheirTables(t *testing.T) {
 			t.Errorf("drop bare schema: %s", s.scrub(err))
 		}
 	})
-	// Owner tables exist here only through the ledger bootstrap of the
-	// migrated schema; the bare schema has NOTHING. Build the store against
-	// it directly on the witness-backed client is not possible (one conn),
-	// so reuse writer A: the methods only prepare statements server-side.
 	bareStore, err := New(s.storeA.client, bare)
 	if err != nil {
 		s.fail("build bare store", err)
@@ -2233,11 +1930,6 @@ func TestSelectionStoresFailClosedWithoutTheirTables(t *testing.T) {
 		t.Fatal("complete on unmigrated schema succeeded, want an error")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit: exact names this file created, no
-// global scan (concurrent sibling suites own their prefixes).
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverPgstate05Fixtures(t *testing.T) {
 	raw := testPostgresURL(t)
@@ -2263,8 +1955,6 @@ func TestZZZeroLeftoverPgstate05Fixtures(t *testing.T) {
 			t.Fatalf("audit database %s: %v", db, err)
 		}
 		if count != 0 {
-			// The owned schema lived inside that database, so a surviving
-			// database is itself the leftover; name it for the operator.
 			t.Fatalf("isolated database %s (owning schema %s) was left behind", db, schema)
 		}
 	}

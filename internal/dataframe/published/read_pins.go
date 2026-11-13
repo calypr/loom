@@ -12,10 +12,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// WithExecutionReadPins holds renewable retention pins for every exact
-// published execution while visit resolves its outputs and streams rows.
-// Callers must resolve the supplied revisions inside visit so cleanup cannot
-// remove a table between metadata lookup and pin acquisition.
 func (r *Reader) WithExecutionReadPins(ctx context.Context, executionIDs []string, visit func(context.Context) error) error {
 	return r.withExecutionReadPins(ctx, executionIDs, defaultReadPinTTL, defaultReadPinInterval, visit)
 }

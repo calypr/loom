@@ -7,10 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// renderGraphPhysicalPlan is the graph/path counterpart to the dataframe
-// navigation layout. It deliberately shares the same root scope operations
-// and traversal renderer primitives, but keeps path rows correlated until a
-// single final union/dedupe/sort/limit operation.
 func renderGraphPhysicalPlan(plan ir.PhysicalPlan, collectionKeys map[string]struct{}) (RenderedPhysicalPlan, error) {
 	if len(plan.Operations) < 3 || plan.Operations[0].Kind != ir.PhysicalRootScanOp {
 		return RenderedPhysicalPlan{}, fmt.Errorf("graph renderer requires ROOT_SCAN followed by path operations")
@@ -159,8 +155,6 @@ func (r *physicalPlanRenderer) renderGraphReturn(graph ir.PhysicalGraphReturn, r
 		rowSets[index] = fmt.Sprintf("%s[*].s%d", rows, index)
 	}
 	lines := []string{
-		// rows[*].sN is one array per root; the outer list adds the route-set
-		// dimension, so flatten two levels to obtain individual path objects.
 		fmt.Sprintf("LET %s = FLATTEN([%s], 2)", all, strings.Join(rowSets, ", ")),
 		fmt.Sprintf("  FOR %s IN %s", path, all),
 		fmt.Sprintf("    COLLECT __loom_path_identity = %s.__loom_path_identity INTO %s", path, group),

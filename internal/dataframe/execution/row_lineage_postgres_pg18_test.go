@@ -1,39 +1,5 @@
 package execution_test
 
-// pg-exec-08 live acceptance battery: Engine.RowLineage over the merged
-// pg-sql-23 contributor-page terminal (check-2: go test -count=1
-// ./internal/dataframe/execution -run PostgresRowLineage under
-// LOOM_TEST_POSTGRES_URL against the isolated PostgreSQL 18 service; at the
-// branch point this selector matched zero tests — that vacuity is what this
-// battery closes).
-//
-// Every leg is production-compiled end to end: an authored recipe.Bundle
-// (schema version, RootResourceType, RowGrain, schema-validated selectors,
-// one construction GROUP step) goes through the real
-// Engine.CompileResolvedBundle and the selected PostgreSQL compile target;
-// execution streams the parent-tagged command onto the real server through
-// the production internal/backends/postgres row adapter. The stale-receipt
-// legs drive the real explorer lifecycle Service with engine-backed hooks in
-// the shape the PostgreSQL runtime wires, so "stale receipt rejects before
-// execution" is witnessed at the row port (statement-count-0), not asserted
-// by a mock. No leg hand-builds a lower.CompiledRecipeOutput. Fixtures are
-// stored through the production resource repository in a schema installed by
-// the production migration runner; the contributor identity columns read the
-// stored payload "id" property and logical_id exactly as pg-sql-23 registers.
-//
-// Witnesses are literal values: the contributor triple set per leg, the
-// paging progression, ordered typed statement arguments pinned at the port,
-// statement counts taken at the port, and the typed not-found/contract/
-// stale-receipt error classes. Non-vacuity: every refusal has a paired
-// control that proceeds on the same fixture; the exec04 landmine set is
-// armed on every leg, so a PostgreSQL-served lineage page that touches any
-// Arango or ClickHouse control fails. Foreign project/generation/auth
-// witnesses are seeded as real rows in the same table.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec08_rl_* and
-// dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -77,9 +43,6 @@ const (
 	exec08Explorer   = "observations"
 )
 
-// exec08GroupRowID is the published identity of the group row whose
-// grouped status is "final", in the minted identity-cell form the pg-sql-23
-// terminal parses.
 const exec08GroupRowID = `[["construction","exec08_group"],["operation","GROUP"],["grouped_status_id","final"]]`
 
 var exec08NamePattern = regexp.MustCompile(`^verify_exec08_rl_[0-9]+_[0-9a-f]+$`)
@@ -158,9 +121,6 @@ type exec08Service struct {
 	adapter dataframeexecution.SourceRows
 }
 
-// newExec08Service gates on the service URL (package convention: absent URL
-// skips these legs; when the URL is set every leg must run and pass — no
-// leg may skip for any other reason once service-backed).
 func newExec08Service(t *testing.T) *exec08Service {
 	t.Helper()
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
@@ -270,13 +230,6 @@ func newExec08Service(t *testing.T) *exec08Service {
 	return &exec08Service{ctx: ctx, iso: iso, schema: schema, target: target, scrub: scrub, fail: fail, adapter: adapter}
 }
 
-// ---------------------------------------------------------------------------
-// Fixtures.
-// ---------------------------------------------------------------------------
-
-// exec08Bundle authors the lineage-capable construction Group output: one
-// direct Observation root scan plus one ordinary GROUP stage — the exact
-// shape the registered pg-sql-23 contributor-page slice renders.
 func exec08Bundle() recipe.Bundle {
 	return recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion,
@@ -315,10 +268,6 @@ type exec08SeedRow struct {
 	project, generation, logicalID, authPath, status string
 }
 
-// seed stores production-shaped resources whose payload carries an explicit
-// id equal to the logical id: the contributor resourceId reads the payload
-// "id" property and the occurrenceKey reads logical_id, so a full identity
-// publishes the literal triple {Observation, logicalID, logicalID}.
 func (s *exec08Service) seed(t *testing.T, rows []exec08SeedRow) {
 	t.Helper()
 	repo, err := storepg.NewResourceRepository(s.iso, s.schema)
@@ -343,9 +292,6 @@ func (s *exec08Service) seed(t *testing.T, rows []exec08SeedRow) {
 	}
 }
 
-// seedStoredNullID seeds a row whose stored payload carries an explicit JSON
-// null id (the stored-JSON-null shape, distinct from a missing key): its
-// contributor publishes without a FHIR resource identity.
 func (s *exec08Service) seedStoredNullID(t *testing.T, project, generation, logicalID, authPath, status string) {
 	t.Helper()
 	repo, err := storepg.NewResourceRepository(s.iso, s.schema)
@@ -361,10 +307,6 @@ func (s *exec08Service) seedStoredNullID(t *testing.T, project, generation, logi
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Recorder around the production adapter.
-// ---------------------------------------------------------------------------
-
 type exec08Call struct {
 	sql      string
 	args     []command.PostgreSQLParameter
@@ -372,10 +314,6 @@ type exec08Call struct {
 	tag      command.CompiledBackend
 }
 
-// exec08Recorder wraps the production row adapter: the backend tag, the
-// ordered typed parameters, and the declared column contract of every
-// statement are recorded at the port — statement counts are taken here,
-// never by timing.
 type exec08Recorder struct {
 	adapter dataframeexecution.SourceRows
 	mu      sync.Mutex
@@ -405,12 +343,6 @@ func (r *exec08Recorder) last() exec08Call {
 	return r.calls[len(r.calls)-1]
 }
 
-// ---------------------------------------------------------------------------
-// Engine wiring: PostgreSQL compile target, the recorder as the single
-// source row port, and the exec04 landmine set armed on every Arango and
-// ClickHouse control.
-// ---------------------------------------------------------------------------
-
 func (s *exec08Service) engine(t *testing.T, recorder *exec08Recorder) *dataframeexecution.Engine {
 	t.Helper()
 	config := exec04pvForbidArango()
@@ -425,10 +357,6 @@ func (s *exec08Service) engine(t *testing.T, recorder *exec08Recorder) *datafram
 	return engine
 }
 
-// previewIdentity runs the production preview with IncludeRowIdentity and
-// returns the published identity of the group row whose status equals the
-// wanted key. The identity is taken OUT of the executed preview, never
-// re-derived (the pg-sql-23 L1 law).
 func (s *exec08Service) previewIdentity(t *testing.T, engine *dataframeexecution.Engine, resolved dataframeexecution.Resolved, wantStatus string) string {
 	t.Helper()
 	var identity string
@@ -453,7 +381,6 @@ func (s *exec08Service) previewIdentity(t *testing.T, engine *dataframeexecution
 	return identity
 }
 
-// contributorTriple is the literal witness for one explained FHIR record.
 type contributorTriple struct {
 	resourceType string
 	resourceID   string
@@ -492,11 +419,6 @@ func exec08TriplesEqual(got, want []contributorTriple) bool {
 	return true
 }
 
-// ---------------------------------------------------------------------------
-// L5a: the known row explains its contributors, from the receipt's own
-// published identity, with literal witnesses and stable page order.
-// ---------------------------------------------------------------------------
-
 func TestPostgresRowLineageKnownRowExplainsContributors(t *testing.T) {
 	s := newExec08Service(t)
 	s.seed(t, []exec08SeedRow{
@@ -526,21 +448,16 @@ func TestPostgresRowLineageKnownRowExplainsContributors(t *testing.T) {
 	if want := []string{"found", "contributors", "hasMore"}; strings.Join(call.declared, ",") != strings.Join(want, ",") {
 		t.Fatalf("declared column contract = %v, want %v", call.declared, want)
 	}
-	// The published contributor set is the two final Observations in
-	// COLLATE "C" occurrence order; the amended row is not a contributor.
 	if want := exec08WantTriples("obs-a", "obs-b"); !exec08TriplesEqual(exec08Triples(result), want) {
 		t.Fatalf("contributors = %v, want %v", exec08Triples(result), want)
 	}
 	if result.HasMore || result.NextOffset != 0 {
 		t.Fatalf("paging summary = %#v, want complete page", result)
 	}
-	// Determinism: re-execution publishes the identical ordered page.
 	again, err := engine.RowLineage(s.ctx, resolved, dataframeexecution.RowLineageRequest{Output: exec08Explorer, RowID: identity, Offset: 0, Limit: 25})
 	if err != nil || !exec08TriplesEqual(exec08Triples(again), exec08WantTriples("obs-a", "obs-b")) {
 		t.Fatalf("page drifted between executions: %#v (%s)", again, s.scrub(err))
 	}
-	// No plan value leaked into statement text; identity and scope values
-	// arrive only as ordered parameters.
 	for _, leaked := range []string{exec08Project, exec08Generation, exec08AuthPath, "final", "obs-a", identity} {
 		if strings.Contains(call.sql, leaked) {
 			t.Fatalf("value %q leaked into statement text: %s", leaked, call.sql)
@@ -556,10 +473,6 @@ func TestPostgresRowLineageKnownRowExplainsContributors(t *testing.T) {
 		t.Fatalf("the requested row identity never arrived as a bound parameter")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L5b: an unknown row is the existing typed not-found, one statement.
-// ---------------------------------------------------------------------------
 
 func TestPostgresRowLineageUnknownRowReturnsTypedNotFound(t *testing.T) {
 	s := newExec08Service(t)
@@ -585,11 +498,6 @@ func TestPostgresRowLineageUnknownRowReturnsTypedNotFound(t *testing.T) {
 		t.Fatalf("unknown-row result leaked a page: %#v", result)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L5c: paging advances without duplicate contributors and stops at the
-// terminal page.
-// ---------------------------------------------------------------------------
 
 func TestPostgresRowLineagePagingAdvancesWithoutDuplicatesAndStopsAtTerminalPage(t *testing.T) {
 	s := newExec08Service(t)
@@ -656,7 +564,6 @@ func TestPostgresRowLineagePagingAdvancesWithoutDuplicatesAndStopsAtTerminalPage
 	if !hasMore[0] || !hasMore[1] || hasMore[2] {
 		t.Fatalf("hasMore progression = %v, want true,true,false", hasMore)
 	}
-	// The pages, concatenated, are exactly the full ordered contributor set.
 	var union []contributorTriple
 	for _, page := range pages {
 		union = append(union, page...)
@@ -666,21 +573,13 @@ func TestPostgresRowLineagePagingAdvancesWithoutDuplicatesAndStopsAtTerminalPage
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L5d: foreign project/generation/auth contributors are excluded, and the
-// in-scope receipt preview is unaffected.
-// ---------------------------------------------------------------------------
-
 func TestPostgresRowLineageForeignWitnessesAreExcluded(t *testing.T) {
 	s := newExec08Service(t)
 	s.seed(t, []exec08SeedRow{
 		{exec08Project, exec08Generation, "obs-a", exec08AuthPath, "final"},
 		{exec08Project, exec08Generation, "obs-b", exec08AuthPath, "final"},
-		// Same group key, foreign project: never a contributor.
 		{"project-b", exec08Generation, "obs-foreign-project", exec08AuthPath, "final"},
-		// Same group key, foreign dataset generation.
 		{exec08Project, "gen-b", "obs-foreign-generation", exec08AuthPath, "final"},
-		// Same project/generation, auth-excluded resource path.
 		{exec08Project, exec08Generation, "obs-foreign-auth", "FHIR/Restricted", "final"},
 	})
 	recorder := &exec08Recorder{adapter: s.adapter}
@@ -698,16 +597,12 @@ func TestPostgresRowLineageForeignWitnessesAreExcluded(t *testing.T) {
 	if got := recorder.count() - before; got != 1 {
 		t.Fatalf("lineage ran %d statements, want exactly one", got)
 	}
-	// The three foreign witnesses share the group key; none may appear, and
-	// none may inflate the hasMore lookahead: the page is complete.
 	if want := exec08WantTriples("obs-a", "obs-b"); !exec08TriplesEqual(exec08Triples(result), want) {
 		t.Fatalf("foreign witnesses leaked: contributors = %v, want %v", exec08Triples(result), want)
 	}
 	if result.HasMore {
 		t.Fatalf("foreign witnesses inflated hasMore: %#v", result)
 	}
-	// Control at the same receipt frame: the preview of the same compiled
-	// output sees only the two in-scope contributors.
 	groups := 0
 	rows := 0
 	_, err = engine.PreviewOutput(s.ctx, resolved, dataframeexecution.PreviewRequest{Output: exec08Explorer, Limit: 50}, func(row map[string]any) error {
@@ -725,18 +620,11 @@ func TestPostgresRowLineageForeignWitnessesAreExcluded(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// L5e: a malformed contributor identity over real stored data is a contract
-// error — the page ran (statement counted) and was refused at decode.
-// ---------------------------------------------------------------------------
-
 func TestPostgresRowLineageMalformedContributorIdentityIsContractError(t *testing.T) {
 	s := newExec08Service(t)
 	s.seed(t, []exec08SeedRow{
 		{exec08Project, exec08Generation, "obs-clean", exec08AuthPath, "final-clean"},
 	})
-	// Stored payload id is the JSON null scalar: the contributor publishes
-	// without a FHIR resource identity.
 	s.seedStoredNullID(t, exec08Project, exec08Generation, "obs-null-id", exec08AuthPath, "final-null")
 	recorder := &exec08Recorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
@@ -753,22 +641,12 @@ func TestPostgresRowLineageMalformedContributorIdentityIsContractError(t *testin
 	if got := recorder.count() - before; got != 1 {
 		t.Fatalf("malformed page ran %d statements, want exactly one (refused at decode, not before execution)", got)
 	}
-	// Control: the clean group on the same fixture publishes its page.
 	cleanIdentity := s.previewIdentity(t, engine, resolved, "final-clean")
 	result, err := engine.RowLineage(s.ctx, resolved, dataframeexecution.RowLineageRequest{Output: exec08Explorer, RowID: cleanIdentity, Offset: 0, Limit: 25})
 	if err != nil || !exec08TriplesEqual(exec08Triples(result), exec08WantTriples("obs-clean")) {
 		t.Fatalf("clean control failed: %#v %s", result, s.scrub(err))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// L7: stale receipt rejects before execution. The lifecycle Service must
-// refuse with its existing typed rejection (ClassConflict / RECEIPT_STALE,
-// the classification at internal/explorer/lifecycle/row_lineage.go:37-43 and
-// policy.go validateAuthorizedReceiptExecution) with zero hook invocations
-// and a statement-count-0 witness on the recorder. The engine-backed hooks
-// are wired in the shape the PostgreSQL runtime composes.
-// ---------------------------------------------------------------------------
 
 type exec08ExplorerStore struct {
 	explorer.Store
@@ -800,9 +678,6 @@ func (a *exec08Authorized) calls() int {
 	return a.hookCalls
 }
 
-// exec08ScopeDigest reproduces the lifecycle policy digest over a read scope
-// exactly as internal/explorer/lifecycle/policy.go
-// validateAuthorizedReadScope computes it.
 func exec08ScopeDigest(scope authscope.ReadScope) string {
 	paths := append([]string(nil), scope.AuthResourcePaths...)
 	sort.Strings(paths)
@@ -821,8 +696,6 @@ func exec08Snapshot(project, generation, token string, scope authscope.ReadScope
 	}
 }
 
-// exec08Receipt builds a native execution receipt for the group bundle,
-// bound to the snapshot identity exactly as the compile path binds it.
 func exec08Receipt(t *testing.T, snapshot capability.Snapshot) explorer.CompilationReceipt {
 	t.Helper()
 	bundle := exec08Bundle()
@@ -870,11 +743,6 @@ func exec08Receipt(t *testing.T, snapshot capability.Snapshot) explorer.Compilat
 	return receipt
 }
 
-// exec08LifecycleService wires the real lifecycle Service with engine-backed
-// hooks in the shape the PostgreSQL runtime composes: the RowLineage hook
-// compiles the receipt bundle through the production engine entry and
-// executes on the given engine. Staleness is decided by the mutable
-// authorized snapshot, exactly as the capability resolver does in runtime.
 func exec08LifecycleService(t *testing.T, authorized *exec08Authorized, engine *dataframeexecution.Engine, receipts ...explorer.CompilationReceipt) *lifecycle.Service {
 	t.Helper()
 	byID := map[string]explorer.CompilationReceipt{}
@@ -924,9 +792,6 @@ func exec08LifecycleRequest(receipt explorer.CompilationReceipt, rowID string, o
 	}
 }
 
-// exec08OfflineEngine builds the engine the offline classification cell
-// runs: PostgreSQL compile target with a recording fake port serving the
-// adapter-shaped jsonb page (the decode arm the fix added).
 func exec08OfflineEngine(t *testing.T, calls *[]exec08Call, mu *sync.Mutex) *dataframeexecution.Engine {
 	t.Helper()
 	fakeAdapter := func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
@@ -959,11 +824,6 @@ func exec08OfflineEngine(t *testing.T, calls *[]exec08Call, mu *sync.Mutex) *dat
 	return engine
 }
 
-// TestPostgresRowLineageStaleReceiptClassification runs in every profile
-// (offline error-classification cell, zero skips): the existing typed
-// stale-receipt rejection must stand with zero hook invocations and zero
-// statements on the recorder. The controls prove the same service proceeds
-// while fresh and again after the snapshot is restored.
 func TestPostgresRowLineageStaleReceiptClassification(t *testing.T) {
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{exec08AuthPath}}
 	fresh := exec08Snapshot(exec08Project, exec08Generation, "token-1", scope)
@@ -974,8 +834,6 @@ func TestPostgresRowLineageStaleReceiptClassification(t *testing.T) {
 	engine := exec08OfflineEngine(t, &calls, &mu)
 	service := exec08LifecycleService(t, authorized, engine, receipt)
 
-	// Control: fresh receipt proceeds through the hook and publishes the
-	// page (hook and port both witness).
 	result, err := service.RowLineage(context.Background(), exec08LifecycleRequest(receipt, exec08GroupRowID, 0, 25))
 	if err != nil || len(result.Contributors) != 1 || result.Contributors[0].ResourceID != "obs-a" {
 		t.Fatalf("fresh receipt failed: %#v %v", result, err)
@@ -1031,19 +889,12 @@ func TestPostgresRowLineageStaleReceiptClassification(t *testing.T) {
 		})
 	}
 
-	// Recovery control: restoring the fresh snapshot proceeds again.
 	authorized.set(fresh, scope)
 	if _, err := service.RowLineage(context.Background(), exec08LifecycleRequest(receipt, exec08GroupRowID, 0, 25)); err != nil {
 		t.Fatalf("restored fresh receipt failed: %v", err)
 	}
 }
 
-// TestPostgresRowLineageStaleReceiptRejectsBeforeExecution is the live
-// negative leg: against real PostgreSQL state, moving the published
-// generation past the receipt's capability snapshot must refuse with the
-// existing typed rejection and execute zero further statements at the
-// production adapter, while the fresh control runs on the same service and
-// the current generation compiles and explains its own row.
 func TestPostgresRowLineageStaleReceiptRejectsBeforeExecution(t *testing.T) {
 	s := newExec08Service(t)
 	seedProject := projectid.Legacy(exec08Project)
@@ -1054,21 +905,16 @@ func TestPostgresRowLineageStaleReceiptRejectsBeforeExecution(t *testing.T) {
 	s.seed(t, []exec08SeedRow{
 		{seedProject, exec08Generation, "obs-a", exec08AuthPath, "final"},
 		{seedProject, exec08Generation, "obs-b", exec08AuthPath, "final"},
-		// Published state moves on: the new generation exists in the source
-		// table while the receipt's snapshot still names the old one.
 		{seedProject, "gen-b", "obs-new", exec08AuthPath, "final"},
 	})
 
 	recorder := &exec08Recorder{adapter: s.adapter}
 	engine := s.engine(t, recorder)
 	authorized := &exec08Authorized{snapshot: fresh, scope: scope}
-	// The current-generation receipt is registered with the service up
-	// front so the recovery control runs its own receipt, not the stale one.
 	current := exec08Snapshot(exec08Project, "gen-b", "token-2", scope)
 	currentReceipt := exec08Receipt(t, current)
 	service := exec08LifecycleService(t, authorized, engine, receipt, currentReceipt)
 
-	// Fresh control on the same live service: the receipt explains its row.
 	identity := s.previewIdentity(t, engine, mustExec08Resolve(t, s, engine, seedProject, exec08Generation), "final")
 	result, err := service.RowLineage(s.ctx, exec08LifecycleRequest(receipt, identity, 0, 25))
 	if err != nil || !exec08TriplesEqual(exec08TriplesFrom(result.Contributors), exec08WantTriples("obs-a", "obs-b")) {
@@ -1092,8 +938,6 @@ func TestPostgresRowLineageStaleReceiptRejectsBeforeExecution(t *testing.T) {
 		t.Fatalf("stale receipt executed %d statements, want the statement-count-0 witness at the production adapter", got)
 	}
 
-	// Recovery control: the current generation compiles and explains its
-	// own row — the refusal is staleness, not the fixture.
 	authorized.set(current, scope)
 	newIdentity := s.previewIdentity(t, engine, mustExec08Resolve(t, s, engine, seedProject, "gen-b"), "final")
 	freshResult, err := service.RowLineage(s.ctx, exec08LifecycleRequest(currentReceipt, newIdentity, 0, 25))
@@ -1114,14 +958,10 @@ func mustExec08Resolve(t *testing.T, s *exec08Service, engine *dataframeexecutio
 	return resolved
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit, ownership-scoped to this file's prefix.
-// ---------------------------------------------------------------------------
-
 func TestZZPostgresRowLineageZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		return // no service was used; nothing could have been created
+		return
 	}
 	exec08CaptureBaseline(raw)
 	if exec08BaselineErr != nil {

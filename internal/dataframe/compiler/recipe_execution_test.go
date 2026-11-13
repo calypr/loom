@@ -71,9 +71,6 @@ func prefixTestExpectedSchema(composite ir.PhysicalPlan) []string {
 	return columns
 }
 
-// TestCompileClickHousePrefixAQLPreservesExactPrefixBytes pins the AQL arm of
-// the prefix seam to the pre-tag baseline bytes and named binds. Any change
-// to AQL prefix rendering must fail this test with an explicit review.
 func TestCompileClickHousePrefixAQLPreservesExactPrefixBytes(t *testing.T) {
 	composite := prefixTestComposite(t, ir.PhysicalPrefixSourceAQL, prefixTestBindings(authscope.ReadScopeRestricted))
 	compiledPrefix, err := compiler.CompileClickHousePrefix(compiler.ArangoTarget(), composite)
@@ -174,10 +171,6 @@ func TestCompileClickHousePrefixRejectsNonCompositePlans(t *testing.T) {
 	}
 }
 
-// TestCompileRecipeOutputRefusesCompositePlans proves the terminal output
-// path never renders a composite plan through a source renderer: the prefix
-// goes through CompileClickHousePrefix and the combine through the ClickHouse
-// stream path.
 func TestCompileRecipeOutputRefusesCompositePlans(t *testing.T) {
 	composite := prefixTestComposite(t, ir.PhysicalPrefixSourceAQL, prefixTestBindings(authscope.ReadScopeRestricted))
 	output := lower.CompiledRecipeOutput{Name: "composite", Plan: composite}
@@ -230,9 +223,6 @@ func TestCompileClickHousePrefixPostgreSQLRendersParameterizedSQL(t *testing.T) 
 		t.Fatal("PostgreSQL prefix command has no fingerprint")
 	}
 
-	// The statement must carry the row identity the terminal Combine consumes:
-	// a prefix whose typed sequence points at a missing identity column fails
-	// closed instead of producing an unjoinable private artifact.
 	broken := ir.ClonePhysicalPlan(composite)
 	broken.StageSequence.FinalRowIdentity = "__loom_missing_row_id"
 	if _, err := compiler.CompileClickHousePrefix(target, broken); err == nil || !strings.Contains(err.Error(), "row identity") {
@@ -240,17 +230,6 @@ func TestCompileClickHousePrefixPostgreSQLRendersParameterizedSQL(t *testing.T) 
 	}
 }
 
-// TestCompileClickHousePrefixRefusesDirectlyBuiltRestrictedPostgreSQLPrefix
-// pins that the seam itself enforces the composite IR contract. The
-// PostgreSQL arm renders a stripped standalone clone, so the full composite
-// validation must run at the seam before backend dispatch — otherwise every
-// composite refusal (restricted PostgreSQL prefix, cell-trace/row-lineage,
-// preview/LIMIT, GROUP/COHORT_GROUP, prefix-to-final-stage binding,
-// OutputAuthResourcePathBindKey equality) would be contingent on the caller
-// having gone through ComposeClickHouseCombine. A hand-built PG-tagged
-// restricted prefix — exactly the artifact the contract promises to refuse
-// before any rendering or I/O — must fail here, including in non-canonical
-// restricted-mode spellings the exact-match denylist would miss.
 func TestCompileClickHousePrefixRefusesDirectlyBuiltRestrictedPostgreSQLPrefix(t *testing.T) {
 	target, err := compiler.PostgreSQLTarget(mustPostgresBinding(t, "verify_ir03v1_offline"))
 	if err != nil {
@@ -279,9 +258,6 @@ func TestCompileClickHousePrefixRefusesDirectlyBuiltRestrictedPostgreSQLPrefix(t
 			}
 		})
 	}
-	// The unmodified composer-built plan still compiles, proving the refusal
-	// is the scope gate and not the added composite validation rejecting
-	// legitimate plans.
 	if _, err := compiler.CompileClickHousePrefix(target, base); err != nil {
 		t.Fatalf("composer-built unrestricted PostgreSQL prefix: %v", err)
 	}

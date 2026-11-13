@@ -1,42 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the bounded, idempotent edge
-// occurrence batch writer (pg-ingest-02 store surface; run with
-// go test ./internal/backends/postgres/internal/store -run PostgresEdge -count=1).
-//
-// Every test drives the real EdgeWriter against the PostgreSQL 18 service
-// named by LOOM_TEST_POSTGRES_URL through readiness-checked pools. Fixtures
-// are literal resource and occurrence rows inserted by this file; witnesses
-// are literal values read back by direct SQL: typed columns, source_path,
-// source_ordinal, logical_edge_key (SQL NULL versus the empty string
-// included), the ledger marker, and digest are pinned to golden literals
-// captured from PostgreSQL 18 itself, not computed by the writer under
-// test, and the digest golden carries a break-one proof (one changed field
-// must move it). Nothing is mocked for a live claim: the only double is a
-// dead-endpoint connection source used exclusively for the "refused before
-// any round trip" claim.
-//
-// Non-vacuity discipline: every refusal has a paired control that commits
-// through the same writer and schema (a guard that always refused would
-// fail its control), and the replay guard is mutation-probed — a tampered
-// ledger digest turns the idempotent no-op into the typed identity
-// conflict, proving the replay path really reads the digest. Atomicity
-// claims run crash-window fault injection at every durability seam the
-// edge path reaches (begin, ledger read, claim, staging, guards, publish,
-// finalize, commit), each followed by a control that must fully converge
-// on the same identity. Race surfaces run at least ten rounds each on two
-// real single-connection pools whose distinct pg_backend_pid values are
-// witnessed, and every round converges to a witness byte-identical to a
-// pinned expectation.
-//
-// Fixture databases and schemas are uniquely owned as verify_ing02_store_*
-// and dropped by the test that created them. The final TestZZ audit is
-// ownership-scoped: it checks each exact name this file created and counts
-// only its own verify_ing02_store_* prefix against the baseline captured
-// before this process created anything, so concurrent sibling workers
-// sweeping their own prefixes (verify_ing01_*, verify_ing02_ing_*) neither
-// race this audit nor trip it.
-
 import (
 	"context"
 	"errors"
@@ -277,8 +240,6 @@ func (s *ing02StoreService) mustInt64(t *testing.T, sql string, args ...any) int
 	return v
 }
 
-// seedResource inserts one literal resource row directly so occurrence
-// preconditions hold without involving any writer under test.
 func (s *ing02StoreService) seedResource(t *testing.T, project, generation, rtype, lid, authPath string) {
 	t.Helper()
 	s.exec(t, "INSERT INTO "+s.qualified("fhir_resource")+
@@ -308,9 +269,6 @@ func (s *ing02StoreService) witnessLedger(t *testing.T, batchID string) (digest 
 	return digest, edges, true
 }
 
-// requireEdgeRow witnesses one stored occurrence by its full occurrence
-// identity against literal expectations, including the SQL-NULL-versus-
-// empty-string distinction on logical_edge_key.
 func (s *ing02StoreService) requireEdgeRow(t *testing.T, project, generation, authPath, label,
 	srcType, srcID, tgtType, tgtID, sourcePath string, sourceOrdinal int64, wantKey *string,
 ) {
@@ -343,9 +301,6 @@ func (s *ing02StoreService) requireEdgeRow(t *testing.T, project, generation, au
 	}
 }
 
-// edgeFingerprint projects the whole scope's occurrence set into one
-// ordered md5: every identity column plus the content columns, so any
-// drift in path, ordinal, endpoints, label, auth, or key moves it.
 func (s *ing02StoreService) edgeFingerprint(t *testing.T, project, generation string) string {
 	t.Helper()
 	var fp string
@@ -395,10 +350,6 @@ func (s *ing02StoreService) waitBackendWaiting(t *testing.T, app string) int64 {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Literal fixtures.
-// ---------------------------------------------------------------------------
-
 func ing02Edge(label, srcType, srcID, tgtType, tgtID, sourcePath string, ordinal int64, key *string) EdgeOccurrenceRow {
 	return EdgeOccurrenceRow{
 		Project: ing02StoreProject, DatasetGeneration: ing02StoreGen, AuthResourcePath: ing02StoreAuth,
@@ -408,10 +359,6 @@ func ing02Edge(label, srcType, srcID, tgtType, tgtID, sourcePath string, ordinal
 	}
 }
 
-// duplicateFocusOccurrences is the store-side image of the fixture the
-// ingest surface proves end to end: one Observation owning two identical
-// focus references at distinct repeated-array positions plus one forward
-// occurrence whose target stays missing (unresolved typed endpoint).
 func duplicateFocusOccurrences() []EdgeOccurrenceRow {
 	return []EdgeOccurrenceRow{
 		ing02Edge("focus_Observation", "Observation", "obs-1", "Observation", "focus-1", "focus", 0, strPtr("cc574af6-dup-key")),
@@ -427,10 +374,6 @@ func seedDuplicateFocusScope(t *testing.T, s *ing02StoreService, generation stri
 	s.seedResource(t, ing02StoreProject, generation, "Observation", "focus-1", ing02StoreAuth)
 }
 
-// ---------------------------------------------------------------------------
-// Constructor and pre-round-trip refusals.
-// ---------------------------------------------------------------------------
-
 func TestPostgresEdgeWriterConstructorRejectsInvalidInputs(t *testing.T) {
 	if _, err := NewEdgeWriter(nil, "ok_schema"); err == nil {
 		t.Fatal("NewEdgeWriter(nil) accepted a nil connection source")
@@ -442,9 +385,6 @@ func TestPostgresEdgeWriterConstructorRejectsInvalidInputs(t *testing.T) {
 	}
 }
 
-// deadConnSource can never serve a connection: any attempted round trip
-// fails with a pool/connection error, so a typed validation error against
-// it proves refusal happened before any connection was acquired.
 type deadConnSource struct{}
 
 func (deadConnSource) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
@@ -513,10 +453,6 @@ func TestPostgresEdgeWriterRejectsInvalidBatchesBeforeAnyRoundTrip(t *testing.T)
 		}
 	}
 
-	// Non-vacuity: the engine would happily accept this row set — the same
-	// rows reach the store when the pool is live (control witnessed in the
-	// golden commit test), so the refusals above are about the defect, not
-	// about the shape.
 	if _, err := writer.WriteEdgeBatch(context.Background(), EdgeBatch{
 		ID: "b/valid-looking", Project: ing02StoreProject, DatasetGeneration: ing02StoreGen,
 		Rows: []EdgeOccurrenceRow{ok},
@@ -525,12 +461,6 @@ func TestPostgresEdgeWriterRejectsInvalidBatchesBeforeAnyRoundTrip(t *testing.T)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Exact writes: multiplicity, typed columns, unresolved target, ledger.
-// ---------------------------------------------------------------------------
-
-// ing02DuplicateBatchID and its digest are the golden literals captured
-// from PostgreSQL 18 through the ledger.
 const (
 	ing02DuplicateBatchID     = "ing02-store/duplicate/0"
 	ing02DuplicateBatchDigest = "12fe2c7b603cd41b8f0a32f869738598b3f4aca5406ff5ab34cb1411693e38cb"
@@ -556,17 +486,12 @@ func TestPostgresEdgeWriterWritesDuplicateReferenceOccurrencesWithExactColumns(t
 		t.Fatalf("digest = %s, want the golden %s", res.Digest, ing02DuplicateBatchDigest)
 	}
 
-	// Direct-SQL witnesses by full occurrence identity: the two identical
-	// focus references persist as two independently addressable rows.
 	s.requireEdgeRow(t, ing02StoreProject, ing02StoreGen, ing02StoreAuth,
 		"focus_Observation", "Observation", "obs-1", "Observation", "focus-1", "focus", 0, strPtr("cc574af6-dup-key"))
 	s.requireEdgeRow(t, ing02StoreProject, ing02StoreGen, ing02StoreAuth,
 		"focus_Observation", "Observation", "obs-1", "Observation", "focus-1", "focus", 1, strPtr("cc574af6-dup-key"))
 	s.requireEdgeRow(t, ing02StoreProject, ing02StoreGen, ing02StoreAuth,
 		"focus_observation", "Observation", "focus-1", "Observation", "obs-1", "focus", 0, strPtr("82685ede-rev-key"))
-	// The missing-target occurrence persists with its typed endpoint and a
-	// SQL NULL logical key (no key supplied), distinct from the empty
-	// string stored by the other rows.
 	s.requireEdgeRow(t, ing02StoreProject, ing02StoreGen, ing02StoreAuth,
 		"subject_Patient", "Observation", "obs-1", "Patient", "patient-missing", "subject", 0, nil)
 
@@ -579,19 +504,12 @@ func TestPostgresEdgeWriterWritesDuplicateReferenceOccurrencesWithExactColumns(t
 		t.Fatalf("distinct edge_seq = %d, want 4 — occurrences must be independently addressable", distinct)
 	}
 
-	// The ledger marker carries the digest and the committed count — not
-	// the offered count with duplicates collapsed away by luck: the
-	// offered set here had no duplicates, so count equality alone is
-	// proven by the collapse test below instead.
 	digest, edges, found := s.witnessLedger(t, ing02DuplicateBatchID)
 	if !found || digest != ing02DuplicateBatchDigest || edges != 4 {
 		t.Fatalf("marker = (%s, %d, found %v), want the golden digest with 4 committed rows",
 			digest, edges, found)
 	}
 
-	// Break-one proof that the digest golden is load-bearing: reuse the
-	// batch identity with one occurrence's ordinal changed — the ledger
-	// must refuse it as the typed identity conflict and store nothing.
 	mutated := duplicateFocusOccurrences()
 	mutated[1].SourceOrdinal = 7
 	_, err = writer.WriteEdgeBatch(s.ctx, EdgeBatch{
@@ -614,12 +532,6 @@ func TestPostgresEdgeWriterWritesDuplicateReferenceOccurrencesWithExactColumns(t
 	}
 }
 
-// TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted proves
-// the offered-versus-committed distinction and the replay no-op: a batch
-// that re-offers already-stored occurrences commits zero and reports them
-// as identical; a full replay of a committed identity returns the original
-// accounting byte-identically; and a tampered digest turns the replay into
-// the typed conflict (mutation probe of the replay guard).
 func TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted(t *testing.T) {
 	s := newIng02StoreService(t)
 	s.migrate(t)
@@ -635,10 +547,6 @@ func TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted(t *testin
 	}
 	before := s.edgeFingerprint(t, ing02StoreProject, ing02StoreGen)
 
-	// Identical rows re-offered under a fresh identity: nothing to write,
-	// everything accounted as skipped-identical, committed stays zero, and
-	// the ledger records zero — the counts follow the commit, never the
-	// offer.
 	second, err := writer.WriteEdgeBatch(s.ctx, EdgeBatch{
 		ID: "ing02-store/collapse/second", Project: ing02StoreProject, DatasetGeneration: ing02StoreGen, Rows: rows,
 	})
@@ -655,8 +563,6 @@ func TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted(t *testin
 		t.Fatalf("scope drifted on identical re-offer: %s != %s", fp, before)
 	}
 
-	// Full replay of the first identity: byte-identical accounting except
-	// the Replay flag.
 	for attempt := 0; attempt < 3; attempt++ {
 		replay, err := writer.WriteEdgeBatch(s.ctx, EdgeBatch{
 			ID: "ing02-store/collapse/first", Project: ing02StoreProject, DatasetGeneration: ing02StoreGen, Rows: rows,
@@ -670,10 +576,6 @@ func TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted(t *testin
 		}
 	}
 
-	// Mutation probe: tamper the stored digest (to other valid hex — the
-	// ledger CHECKs the shape) and the same-content replay must become the
-	// typed identity conflict — proving the replay path really reads the
-	// digest rather than trusting batch identity alone.
 	s.exec(t, "UPDATE "+s.qualified("batch_write_ledger")+" SET digest = $2 WHERE batch_id = $1",
 		"ing02-store/collapse/first", strings.Repeat("a", 64))
 	_, err = writer.WriteEdgeBatch(s.ctx, EdgeBatch{
@@ -688,15 +590,6 @@ func TestPostgresEdgeWriterEmptyReplayCollapseAndLedgerCountsCommitted(t *testin
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Missing target, missing source, and duplicate-content guards.
-// ---------------------------------------------------------------------------
-
-// TestPostgresEdgeWriterMissingTargetStaysUnresolvedTypedEndpoint proves a
-// missing target is not an error: the occurrence persists with its typed
-// endpoint, and repository traversal reports it unresolved while a target
-// that exists in the same scope reads back resolved — resolution is a
-// read-time fact about fhir_resource, never a stored flag.
 func TestPostgresEdgeWriterMissingTargetStaysUnresolvedTypedEndpoint(t *testing.T) {
 	s := newIng02StoreService(t)
 	s.migrate(t)
@@ -752,18 +645,11 @@ func TestPostgresEdgeWriterMissingTargetStaysUnresolvedTypedEndpoint(t *testing.
 	}
 }
 
-// TestPostgresEdgeWriterMissingSourceRollsBackWholeBatch proves the store
-// keeps the edge source precondition on the bulk surface: one occurrence
-// whose source is absent from the scope returns the typed
-// *EdgeSourceMissingError, persists nothing (not even the valid rows), and
-// leaves no marker; seeding the missing source and retrying commits the
-// identical batch (guard non-vacuity).
 func TestPostgresEdgeWriterMissingSourceRollsBackWholeBatch(t *testing.T) {
 	s := newIng02StoreService(t)
 	s.migrate(t)
 	writer := s.newWriter(t)
 
-	// obs-1 and focus-1 are deliberately not seeded.
 	_, err := writer.WriteEdgeBatch(s.ctx, EdgeBatch{
 		ID: "ing02-store/missing-source/0", Project: ing02StoreProject, DatasetGeneration: ing02StoreGen,
 		Rows: duplicateFocusOccurrences(),
@@ -784,7 +670,6 @@ func TestPostgresEdgeWriterMissingSourceRollsBackWholeBatch(t *testing.T) {
 		t.Fatal("refused batch left a ledger marker")
 	}
 
-	// Non-vacuity: the identical batch commits once its sources exist.
 	seedDuplicateFocusScope(t, s, ing02StoreGen)
 	res, err := writer.WriteEdgeBatch(s.ctx, EdgeBatch{
 		ID: "ing02-store/missing-source/control", Project: ing02StoreProject, DatasetGeneration: ing02StoreGen,
@@ -795,11 +680,6 @@ func TestPostgresEdgeWriterMissingSourceRollsBackWholeBatch(t *testing.T) {
 	}
 }
 
-// TestPostgresEdgeWriterDuplicateOccurrenceDifferentContentPreservesPrior
-// proves the occurrence-identity guard on the bulk surface: re-storing one
-// fully identical occurrence identity with a different logical key is the
-// typed *BatchEdgeConflictError, the whole batch rolls back, the prior row
-// keeps its content, and the batch's other (new) row persists nothing.
 func TestPostgresEdgeWriterDuplicateOccurrenceDifferentContentPreservesPrior(t *testing.T) {
 	s := newIng02StoreService(t)
 	s.migrate(t)
@@ -840,24 +720,15 @@ func TestPostgresEdgeWriterDuplicateOccurrenceDifferentContentPreservesPrior(t *
 	if _, _, found := s.witnessLedger(t, "ing02-store/conflict/second"); found {
 		t.Fatal("refused batch left a ledger marker")
 	}
-	// The prior row still holds the original key (content preserved).
 	s.requireEdgeRow(t, ing02StoreProject, ing02StoreGen, ing02StoreAuth,
 		"focus_Observation", "Observation", "obs-1", "Observation", "focus-1", "focus", 0, strPtr("cc574af6-dup-key"))
 }
-
-// ---------------------------------------------------------------------------
-// Crash injection at every durability seam the edge path reaches.
-// ---------------------------------------------------------------------------
 
 func TestPostgresEdgeWriterInjectedFailureAtEverySeamLeavesNoRowsOrMarker(t *testing.T) {
 	s := newIng02StoreService(t)
 	s.migrate(t)
 	seedDuplicateFocusScope(t, s, ing02StoreGen)
 
-	// The steps an edge-only batch traverses, in engine order. The
-	// resource-side steps are unreachable for this surface (guarded by a
-	// non-empty Resources slice), so the seam list is exactly the edge
-	// path's durability seams.
 	seams := []string{stepBegin, stepReadLedger, stepClaimLedger,
 		stepStageEdges, stepCheckEdges, stepPublishEdges, stepFinalizeLedger, stepCommit}
 	injected := errors.New("injected crash")
@@ -890,8 +761,6 @@ func TestPostgresEdgeWriterInjectedFailureAtEverySeamLeavesNoRowsOrMarker(t *tes
 		}
 	}
 
-	// Non-vacuity: with no injected failure the same identity and the same
-	// rows commit fully into the tables the loop asserted empty.
 	writer := s.newWriter(t)
 	res, err := writer.WriteEdgeBatch(s.ctx, EdgeBatch{
 		ID: "ing02-store/crash/" + stepCommit, Project: ing02StoreProject, DatasetGeneration: ing02StoreGen,
@@ -904,11 +773,6 @@ func TestPostgresEdgeWriterInjectedFailureAtEverySeamLeavesNoRowsOrMarker(t *tes
 		t.Fatalf("control = %+v, want a fresh 4-row commit on the burned identity", res)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Two-real-connection races (>= 10 rounds each, distinct pg_backend_pid,
-// byte-identical witnesses).
-// ---------------------------------------------------------------------------
 
 func TestPostgresEdgeWriterConcurrentIdenticalBatchCommitsOnceTwoConnections(t *testing.T) {
 	const rounds = 12
@@ -968,8 +832,6 @@ func TestPostgresEdgeWriterConcurrentIdenticalBatchCommitsOnceTwoConnections(t *
 		if o1.res.Committed != 4 || o1.res.Digest == "" {
 			t.Fatalf("round %d shared accounting = %+v, want 4 committed under a real digest", round, o1.res)
 		}
-		// Post-convergence witness: committed once, marker once, digest
-		// shared with the ledger.
 		if n := s.countEdges(t, ing02StoreProject, generation); n != 4 {
 			t.Fatalf("round %d rows = %d, want exactly 4 (committed once)", round, n)
 		}
@@ -981,11 +843,6 @@ func TestPostgresEdgeWriterConcurrentIdenticalBatchCommitsOnceTwoConnections(t *
 	}
 }
 
-// TestPostgresEdgeWriterConcurrentOccurrenceContentConflictOneWins races
-// two distinct batch identities writing the same occurrence identity with
-// different logical keys on two real connections. Exactly one batch must
-// commit; the loser receives the typed stored-row conflict; the converged
-// scope must be byte-identical to the winner's expected fingerprint.
 func TestPostgresEdgeWriterConcurrentOccurrenceContentConflictOneWinsTwoConnections(t *testing.T) {
 	const rounds = 10
 	s := newIng02StoreService(t)
@@ -1056,11 +913,6 @@ func TestPostgresEdgeWriterConcurrentOccurrenceContentConflictOneWinsTwoConnecti
 			s.fail(fmt.Sprintf("round %d", round),
 				fmt.Errorf("expected exactly one commit, got A=%v B=%v", o1.err, o2.err))
 		}
-		// The loser must carry one of the two engine-designed typed
-		// refusals for this interleaving, both of which roll the whole
-		// batch back: the stored-row content conflict when its guard
-		// observed the winner, or the commit-accounting divergence when
-		// the winner landed between the loser's guard and its publish.
 		var conflict *BatchEdgeConflictError
 		var accounting *BatchAccountingError
 		typedRefusal := (errors.As(loser.err, &conflict) && errors.Is(loser.err, ErrBatchRowConflict) && !conflict.InBatch) ||
@@ -1072,10 +924,6 @@ func TestPostgresEdgeWriterConcurrentOccurrenceContentConflictOneWinsTwoConnecti
 		if winner.res.Committed != 4 || winner.res.Replay {
 			t.Fatalf("round %d winner = %+v, want a fresh 4-row commit", round, winner.res)
 		}
-		// Once the picture stabilizes, re-offering the loser's content
-		// under a fresh identity must get the exact-named stored-row
-		// conflict (the guard's typed verdict when it is not racing) and
-		// persist nothing.
 		_, err := writerA.WriteEdgeBatch(context.Background(), EdgeBatch{
 			ID: fmt.Sprintf("ing02-store/conflict-retry/%d", round), Project: ing02StoreProject,
 			DatasetGeneration: generation, Rows: mk(loserKey),
@@ -1084,9 +932,6 @@ func TestPostgresEdgeWriterConcurrentOccurrenceContentConflictOneWinsTwoConnecti
 		if !errors.As(err, &retryConflict) || !errors.Is(err, ErrBatchRowConflict) || retryConflict.InBatch {
 			t.Fatalf("round %d loser retry = %v, want stored-row *BatchEdgeConflictError", round, err)
 		}
-		// The converged witness must match the winner's expectation
-		// byte-identically: exactly the four occurrences, every logical
-		// key from the winning batch.
 		rows := mk(winnerKey)
 		for _, row := range rows {
 			if row.LogicalEdgeKey != nil {
@@ -1102,12 +947,6 @@ func TestPostgresEdgeWriterConcurrentOccurrenceContentConflictOneWinsTwoConnecti
 	}
 }
 
-// TestPostgresEdgeWriterCountsChangeOnlyAtCommitTwoConnections pins that
-// reported persisted counts move only at commit: while a second real
-// connection holds the edge table exclusively, the batch blocks before any
-// occurrence lands (mid-transaction count unchanged, no marker visible
-// from an independent pool), and only after the lock releases does the
-// count move to exactly the reported value.
 func TestPostgresEdgeWriterCountsChangeOnlyAtCommitTwoConnections(t *testing.T) {
 	s := newIng02StoreService(t)
 	s.migrate(t)
@@ -1205,10 +1044,6 @@ func TestPostgresEdgeWriterCountsChangeOnlyAtCommitTwoConnections(t *testing.T) 
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit.
-// ---------------------------------------------------------------------------
 
 func TestZZZeroLeftoverEdgeWriterFixtures(t *testing.T) {
 	raw := testPostgresURL(t)

@@ -23,8 +23,6 @@ func mustBinding(t *testing.T) ir.PostgresStorageBinding {
 	return binding
 }
 
-// basePlan builds the smallest plan that passes ir validation and the
-// PostgreSQL gate: a scoped direct root scan with a positional return.
 func basePlan() ir.PhysicalPlan {
 	return ir.PhysicalPlan{
 		Version: 1,
@@ -68,10 +66,6 @@ func wantUnsupported(t *testing.T, err error, context string) {
 		t.Fatalf("%s: error = %v (%T), want ErrUnsupportedPostgresPlan", context, err, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Trusted identifier contract
-// ---------------------------------------------------------------------------
 
 func TestStorageBindingAcceptsOnlyRegisteredIdentifiers(t *testing.T) {
 	binding := mustBinding(t)
@@ -136,10 +130,6 @@ func TestColumnAllowlistsMatchMigrationsLiterally(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Deterministic SQL and ordered arguments
-// ---------------------------------------------------------------------------
-
 func TestRenderScopedRootScanIsExactAndParameterized(t *testing.T) {
 	plan := basePlan()
 	plan.Operations = plan.Operations[:1]
@@ -182,15 +172,6 @@ func TestRenderScopedRootScanIsExactAndParameterized(t *testing.T) {
 		t.Fatalf("rendered PostgreSQL SQL carries AQL bind syntax: %s", rendered.SQL)
 	}
 }
-
-// The depth-one traversal renderings moved to traversal_test.go with
-// pg-sql-06, where traversal.go is the single authority for the edge-join
-// SQL shape (LEFT JOIN LATERAL child join plus the REQUIRED match EXISTS
-// semi-join) and pins its literals beside the code contract.
-
-// ---------------------------------------------------------------------------
-// Filter rendering: values and paths never become SQL text
-// ---------------------------------------------------------------------------
 
 func TestRenderFiltersBindValuesAndPaths(t *testing.T) {
 	binding := mustBinding(t)
@@ -302,17 +283,10 @@ func TestRenderCompoundPredicateExpression(t *testing.T) {
 		}}},
 	}
 	rendered := renderOK(t, plan)
-	// The payload child is three-valued (missing key -> SQL NULL), so NOT
-	// must be COALESCE-guarded: AQL keeps the row (NOT(false) after its
-	// null coercion), an unguarded NOT (NULL) would drop it.
 	if !strings.Contains(rendered.SQL, `COALESCE(NOT ((r0."payload" #> $7::text[]) = ($8::jsonb)), true)`) {
 		t.Fatalf("compound predicate SQL:\n%s", rendered.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Injection: plan strings never become SQL
-// ---------------------------------------------------------------------------
 
 func TestPlanStringsNeverBecomeSQLText(t *testing.T) {
 	plan := basePlan()
@@ -339,7 +313,6 @@ func TestPlanStringsNeverBecomeSQLText(t *testing.T) {
 			t.Fatalf("plan text %q leaked into SQL:\n%s", leaked, rendered.SQL)
 		}
 	}
-	// The hostile values survive as bound data.
 	if rendered.OutputColumns[0] != evil {
 		t.Fatalf("output name not carried as data: %v", rendered.OutputColumns)
 	}
@@ -359,10 +332,6 @@ func TestPlanStringsNeverBecomeSQLText(t *testing.T) {
 			sawProject, sawGeneration, sawAuth, sawValue, rendered.Args)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Typed errors: unsupported cases fail closed, never fall back
-// ---------------------------------------------------------------------------
 
 func TestRenderFailsClosedForScopeDefects(t *testing.T) {
 	for _, tc := range []struct {
@@ -408,11 +377,6 @@ func TestRenderExplicitUnrestrictedDropsAuthPredicate(t *testing.T) {
 }
 
 func TestRenderRejectsUnsupportedSurfaceWithTypedErrors(t *testing.T) {
-	// Cases marked gate=true must reach the PostgreSQL capability gate and
-	// fail with ErrUnsupportedPostgresPlan. The rest are rejected fail-closed
-	// (rendering must never succeed) but may stop earlier at the frozen
-	// ir.Validate invariants; a silent fallback is the only unacceptable
-	// outcome.
 	cases := []struct {
 		name   string
 		gate   bool
@@ -526,10 +490,6 @@ func TestRenderRejectsInvalidPlanStructurally(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Determinism and non-aliasing
-// ---------------------------------------------------------------------------
-
 func filteredPlan() ir.PhysicalPlan {
 	plan := basePlan()
 	plan.BindVars["status_value"] = "final"
@@ -554,11 +514,9 @@ func TestRenderIsDeterministicAndDoesNotAliasPlanData(t *testing.T) {
 		t.Fatalf("repeated render changed args:\n%#v\n%#v", first.Args, second.Args)
 	}
 
-	// Freeze what the first render captured.
 	capturedSQL, capturedArgs := first.SQL, first.Args
 	capturedColumns := first.OutputColumns
 
-	// Mutate every class of plan data the renderer read.
 	plan.BindVars["project"] = "mutated"
 	plan.BindVars["dataset_generation"] = "mutated"
 	plan.BindVars["auth_resource_paths"].([]string)[0] = "MUTATED"
@@ -573,13 +531,11 @@ func TestRenderIsDeterministicAndDoesNotAliasPlanData(t *testing.T) {
 		t.Fatalf("rendered result aliased input plan data")
 	}
 
-	// A fresh, identical plan must re-render byte-identically to the first.
 	third := renderOK(t, filteredPlan())
 	if third.SQL != capturedSQL || !reflect.DeepEqual(third.Args, capturedArgs) {
 		t.Fatalf("identical re-plan did not re-render identically:\n first %#v\n third %#v", first, third)
 	}
 
-	// Mutating the result slices must not affect later renders.
 	first.Args[0].Value = "tampered"
 	first.OutputColumns[0] = "tampered"
 	fourth := renderOK(t, filteredPlan())
@@ -644,8 +600,6 @@ func TestRenderEmptyColumnINBindsEmptyArray(t *testing.T) {
 	if !strings.Contains(rendered.SQL, `r0."logical_id" = ANY (SELECT jsonb_array_elements_text($5::jsonb))`) {
 		t.Fatalf("empty IN SQL:\n%s", rendered.SQL)
 	}
-	// JSON null would make jsonb_array_elements_text raise at execution; an
-	// empty array makes ANY false, matching the AQL x IN [] reading.
 	if got := rendered.Args[4]; got.Type != command.PostgreSQLParameterJSONB || string(got.Value.(json.RawMessage)) != `[]` {
 		t.Fatalf("empty IN arg = %#v, want JSONB []", got)
 	}
@@ -675,9 +629,6 @@ func TestRenderExistsMissingOverTypedColumnsUseNullTests(t *testing.T) {
 }
 
 func TestRenderPayloadNullLiteralComparisons(t *testing.T) {
-	// AQL sorts null below every other value, so each operator against the
-	// JSON null literal has one exact two-valued form; anything else would
-	// silently diverge from the AQL reading.
 	cases := []struct {
 		operator string
 		want     string
@@ -693,16 +644,11 @@ func TestRenderPayloadNullLiteralComparisons(t *testing.T) {
 			if !strings.Contains(rendered.SQL, tc.want) {
 				t.Fatalf("%s against null literal missing %q:\n%s", tc.operator, tc.want, rendered.SQL)
 			}
-			// The null literal never becomes a bound jsonb value: only the
-			// four scope parameters plus the path parameter exist.
 			if len(rendered.Args) != 5 {
 				t.Fatalf("%s null literal bound extra args: %#v", tc.operator, rendered.Args)
 			}
 		})
 	}
-	// AQL constants LT/GTE against null to false/true, but a bare constant
-	// would strand the resolved path parameter, so the v1 surface rejects
-	// them with a typed error instead of rendering a wrong or stranded plan.
 	for _, operator := range []string{"LT", "GTE"} {
 		t.Run(operator, func(t *testing.T) {
 			_, err := RenderPhysicalPlan(nullLiteralPlan(operator), mustBinding(t))

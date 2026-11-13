@@ -64,8 +64,6 @@ func TestTransitionAndResolveManifest(t *testing.T) {
 
 func TestActivateOnlyRevisionChecksActivePointer(t *testing.T) {
 	ready := fixtureManifest(t, "project-a", "generation-a", publication.StateReady)
-	// The first query is the idempotency read. An empty result means there is
-	// no active manifest, so activation proceeds to the compare-and-swap query.
 	fake := &fakeQueryClient{responses: [][]map[string]any{{}, {{"dataset": jsonObject(t, ready.Dataset)}}}}
 	store := mustStore(t, fake)
 	if err := store.Activate(context.Background(), ready); err != nil {

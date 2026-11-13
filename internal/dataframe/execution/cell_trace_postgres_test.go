@@ -1,21 +1,5 @@
 package execution
 
-// pg-exec-09 offline battery: the PostgreSQL executor arm of cell-value
-// traces (engine tag dispatch, sealed six-column declared contract,
-// adapter-shape fail-closed decode, identity-digest convergence with the
-// preview side, honest witness-cap refusals) plus the byte-verbatim AQL
-// control. Live real-PostgreSQL-18 execution lives in
-// engine_postgres_cell_trace_pg18_test.go (TestPostgresCellTrace*).
-//
-// Honesty line: the registered PostgreSQL cell-trace terminal cannot raise
-// the semantic failure codes (temporal tie, unit, invalid data) from the
-// server itself, so the failure-status classification cells below exercise
-// the dialect-neutral executor contract on a PostgreSQL-tagged command
-// through a port that raises them. No live coverage of those codes is
-// claimed. Likewise RECORDED_NULL is published here in adapter shape only;
-// the live battery probes whether the registered arm-A expansion can
-// publish a JSON-null candidate and adds a live leg only if it can.
-
 import (
 	"context"
 	"encoding/json"
@@ -30,9 +14,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
-// exec09AdapterRow builds one adapter-shaped PostgreSQL trace row: jsonb
-// columns arrive as json.RawMessage from the row adapter's decodeColumn;
-// text/boolean columns arrive as Go natives.
 func exec09AdapterRow(t *testing.T, identity any, value any, status string, hasMore bool, contributions any) map[string]any {
 	t.Helper()
 	return map[string]any{
@@ -45,9 +26,6 @@ func exec09AdapterRow(t *testing.T, identity any, value any, status string, hasM
 	}
 }
 
-// exec09ArmB compiles the registered arm B (root-extract contributor) trace
-// over the canonical exec02 PostgreSQL output: RowIdentity [id], column
-// "name" (lowered payload selector EXTRACT gender).
 func exec09ArmB(t *testing.T, offset, limit int) (compiler.CompiledCellTraceQuery, Resolved) {
 	t.Helper()
 	resolved := exec02TestResolved()
@@ -62,9 +40,6 @@ func exec09ArmB(t *testing.T, offset, limit int) (compiler.CompiledCellTraceQuer
 	return compiled, resolved
 }
 
-// exec09PreviewRowID mints the published row ID exactly the way the preview
-// stream does, so every adapter-shape decode below is matched against an
-// identity the publication path itself produced.
 func exec09PreviewRowID(t *testing.T, identity *spec.RowIdentity, row map[string]any) string {
 	t.Helper()
 	if err := ensureStableRowIdentity(row, identity, nil); err != nil {
@@ -81,10 +56,6 @@ func exec09Request(rowID string) CellTraceRequest {
 	return CellTraceRequest{Output: "resources", RowID: rowID, Column: "name", Offset: 0, Limit: 2}
 }
 
-// L-seam 1: the PostgreSQL arm carries the renderer's sealed six-column
-// contract, in the renderer's outputColumns order, with every scope and page
-// fact travelling as an ordered parameter; the traced literals never appear
-// in the SQL text.
 func TestPostgresCellTraceOfflineArmCarriesSealedDeclaredContract(t *testing.T) {
 	compiled, resolved := exec09ArmB(t, 0, 2)
 	rowID := exec09PreviewRowID(t, resolved.Compiled.Outputs[0].RowIdentity, map[string]any{"id": "patient-one"})
@@ -122,9 +93,6 @@ func TestPostgresCellTraceOfflineArmCarriesSealedDeclaredContract(t *testing.T) 
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// L-seam 2: adapter-shape decode with digest convergence. The identity parts
-// arrive as raw jsonb bytes; the executor must decode them to natives before
-// the shared digest, converging byte-for-byte with the preview-published ID.
 func TestPostgresCellTraceOfflineIdentityPartsDigestConvergesWithPreview(t *testing.T) {
 	compiled, resolved := exec09ArmB(t, 0, 2)
 	rowID := exec09PreviewRowID(t, resolved.Compiled.Outputs[0].RowIdentity, map[string]any{"id": "patient-one"})
@@ -152,11 +120,6 @@ func TestPostgresCellTraceOfflineIdentityPartsDigestConvergesWithPreview(t *test
 	exec02AssertUntouchedArango(t, spies)
 }
 
-// L-seam 3: the traced value column keeps the cross-backend three-state
-// contract on the PostgreSQL arm: SQL NULL stays nil, a stored JSON value
-// (including the JSON null scalar) decodes through encoding/json, and
-// adapter-free natives pass through for the convergence contract. The
-// status column stays the sole absence/null authority.
 func TestPostgresCellTraceOfflineThreeStateValueDecode(t *testing.T) {
 	compiled, resolved := exec09ArmB(t, 0, 2)
 	rowID := exec09PreviewRowID(t, resolved.Compiled.Outputs[0].RowIdentity, map[string]any{"id": "patient-one"})
@@ -188,11 +151,6 @@ func TestPostgresCellTraceOfflineThreeStateValueDecode(t *testing.T) {
 	}
 }
 
-// L-seam 4: the poison matrix. Published jsonb pages are always JSON arrays
-// (the registered renderer COALESCEs them), the value column is valid JSON or
-// SQL NULL, and identity parts are a full-length non-null array. Every
-// malformed shape is refused fail-closed with a typed error and no result —
-// never a silent empty page, never a nil-valued success.
 func TestPostgresCellTraceOfflinePoisonMatrixRefusesFailClosed(t *testing.T) {
 	compiled, resolved := exec09ArmB(t, 0, 2)
 	rowID := exec09PreviewRowID(t, resolved.Compiled.Outputs[0].RowIdentity, map[string]any{"id": "patient-one"})
@@ -205,11 +163,6 @@ func TestPostgresCellTraceOfflinePoisonMatrixRefusesFailClosed(t *testing.T) {
 			if err == nil {
 				t.Fatalf("poison shape %s was accepted: %#v", label, result)
 			}
-			// The refusal must be the shape violation itself, never the
-			// not-found the scan reports when a malformed row is silently
-			// skipped instead of refused: a skipped row leaves the published
-			// identity unmatched and answers "no such row", which would hide
-			// a decode arm that stopped refusing at all.
 			if errors.Is(err, ErrCellTraceRowNotFound) {
 				t.Fatalf("poison shape %s was skipped as row absence, not refused: %v", label, err)
 			}
@@ -255,8 +208,6 @@ func TestPostgresCellTraceOfflinePoisonMatrixRefusesFailClosed(t *testing.T) {
 		bad[ir.PhysicalCellTraceStatusField] = status
 		poison("status", bad)
 	}
-	// A contribution member that is not an object is refused by the shared
-	// per-contribution law the raw page re-enters after decode.
 	bad := map[string]any{}
 	for k, v := range good {
 		bad[k] = v
@@ -269,9 +220,6 @@ func TestPostgresCellTraceOfflinePoisonMatrixRefusesFailClosed(t *testing.T) {
 	poison("contribution-member-null", bad)
 }
 
-// L-seam 5: explicit-identity PostgreSQL rows. Scalars and cohort objects
-// arrive as raw JSON; the same canonicalization law applies, and forged or
-// blank identities are refused, never matched.
 func TestPostgresCellTraceOfflineExplicitIdentityRawShapes(t *testing.T) {
 	pgCommand := exec02PostgreSQLCommand(t)
 	newQuery := func(mutate func(*compiler.CompiledCellTraceQuery)) compiler.CompiledCellTraceQuery {
@@ -345,10 +293,6 @@ func TestPostgresCellTraceOfflineExplicitIdentityRawShapes(t *testing.T) {
 	}
 }
 
-// L-seam 6: the witness cap on the PostgreSQL arm reports INCOMPLETE, never
-// absence: a target row ordered past the cap over the spine stream yields
-// TRACE_WITNESS_INCOMPLETE with Complete=false, while the same rows under a
-// permissive cap read VALUE.
 func TestPostgresCellTraceOfflineWitnessCapReportsIncompleteNotAbsence(t *testing.T) {
 	compiled, resolved := exec09ArmB(t, 0, 2)
 	target := exec09PreviewRowID(t, resolved.Compiled.Outputs[0].RowIdentity, map[string]any{"id": "patient-three"})
@@ -374,10 +318,6 @@ func TestPostgresCellTraceOfflineWitnessCapReportsIncompleteNotAbsence(t *testin
 	}
 }
 
-// L-seam 7: cross-tag routing and unregistered tags. A PostgreSQL-tagged
-// command reaching the AQL-shaped port and an AQL command reaching the
-// PostgreSQL-shaped port are routing defects refused with the typed
-// mismatch; a zero/unregistered tag is refused by name BEFORE any port call.
 func TestPostgresCellTraceOfflineCrossTagAndUnregisteredRefusals(t *testing.T) {
 	t.Run("postgres-tag-into-aql-port", func(t *testing.T) {
 		compiled, _ := exec09ArmB(t, 0, 2)
@@ -410,9 +350,6 @@ func TestPostgresCellTraceOfflineCrossTagAndUnregisteredRefusals(t *testing.T) {
 			t.Fatalf("AQL command through the PostgreSQL port = %v, want the typed mismatch", err)
 		}
 	})
-	// The zero tag is the reachable unregistered case: the command package
-	// refuses to mint any other tag, so no named foreign tag can exist. The
-	// executor must still refuse it by name before any port call.
 	t.Run("unregistered-zero-tag", func(t *testing.T) {
 		calls := 0
 		query := compiler.CompiledCellTraceQuery{
@@ -435,11 +372,6 @@ func TestPostgresCellTraceOfflineCrossTagAndUnregisteredRefusals(t *testing.T) {
 	})
 }
 
-// L-seam 8: the sealed contract's identity pick law and distinctness. A
-// forged duplicate contract name makes the adapter's positional check
-// meaningless and is refused before the port; when both identity columns are
-// hand-attached the contract carries the explicit pick, matching the
-// lookup law cellTraceRowIdentity applies.
 func TestPostgresCellTraceOfflineSealedContractRefusals(t *testing.T) {
 	pgCommand := exec02PostgreSQLCommand(t)
 	base := func() compiler.CompiledCellTraceQuery {
@@ -486,8 +418,6 @@ func TestPostgresCellTraceOfflineSealedContractRefusals(t *testing.T) {
 	})
 }
 
-// L-seam 9: admission refusals run zero port calls on the PostgreSQL arm:
-// blank output, blank row/column, unknown output name.
 func TestPostgresCellTraceOfflineAdmissionRefusalsRunZeroStatements(t *testing.T) {
 	compiled, _ := exec09ArmB(t, 0, 2)
 	spies := &dispatchSpies{}
@@ -509,8 +439,6 @@ func TestPostgresCellTraceOfflineAdmissionRefusalsRunZeroStatements(t *testing.T
 	}
 }
 
-// L-seam 10: the dialect-neutral failure classification runs unchanged on
-// the PostgreSQL arm (see the file-level honesty line).
 func TestPostgresCellTraceOfflineFailureClassificationOnPostgresArm(t *testing.T) {
 	compiled, _ := exec09ArmB(t, 0, 2)
 	for _, test := range []struct {
@@ -539,9 +467,6 @@ func TestPostgresCellTraceOfflineFailureClassificationOnPostgresArm(t *testing.T
 	}
 }
 
-// L-seam 11: the AQL control stays byte-verbatim: an AQL-tagged command
-// travels with NO declared contract, and the native-shape parsers keep their
-// nil-page leniency the PostgreSQL arm must not inherit.
 func TestPostgresCellTraceOfflineAQLControlStaysContractFree(t *testing.T) {
 	resolved := exec02TestResolved()
 	aqlTrace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(),
@@ -574,7 +499,6 @@ func TestPostgresCellTraceOfflineAQLControlStaysContractFree(t *testing.T) {
 	if capturedSet || captured != nil {
 		t.Fatalf("AQL arm must travel contract-free: %#v", captured)
 	}
-	// The AQL page leniency (nil page = empty page) must survive untouched.
 	if len(result.Contributions) != 0 {
 		t.Fatalf("AQL nil-page leniency changed: %#v", result.Contributions)
 	}

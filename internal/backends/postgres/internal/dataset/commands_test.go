@@ -35,7 +35,6 @@ func TestNewPostgreSQLCommandValidatesOrderedParameters(t *testing.T) {
 	if len(args) != 4 || args[0] != "p" || args[3] != `{"schemaSha256":"a"}` {
 		t.Fatalf("ordered args = %v", args)
 	}
-	// Mutating the returned slice must not reorder the command itself.
 	args[0] = "mutated"
 	_, again, err := good.PostgreSQL()
 	if err != nil {
@@ -69,12 +68,9 @@ func TestNewPostgreSQLCommandValidatesOrderedParameters(t *testing.T) {
 }
 
 func TestCommandBackendDispatchFailsClosed(t *testing.T) {
-	// The zero value carries no backend and must never reach the executor.
 	if _, _, err := (Command{}).PostgreSQL(); !errors.Is(err, ErrCommandBackendMismatch) {
 		t.Fatalf("zero command: %v", err)
 	}
-	// Dispatch failure must surface before pgx is ever touched: a nil tx
-	// would panic if the statement reached it.
 	if _, err := execCommand(context.Background(), nil, Command{}); !errors.Is(err, ErrCommandBackendMismatch) {
 		t.Fatalf("execCommand with untagged command: %v", err)
 	}
@@ -115,7 +111,5 @@ func TestValidateProjectAndActiveResolverContract(t *testing.T) {
 	if err := validateProject("ok-project"); err != nil {
 		t.Fatalf("valid project rejected: %v", err)
 	}
-	// The store must satisfy the public resolver contract used by
-	// dataset.ResolveActive.
 	var _ publication.ActiveResolver = (*Store)(nil)
 }

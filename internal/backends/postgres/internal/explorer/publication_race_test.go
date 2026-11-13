@@ -11,13 +11,6 @@ import (
 	"github.com/calypr/loom/internal/explorer"
 )
 
-// ---------------------------------------------------------------------------
-// T9: two-real-connection races. Every publisher runs on its own dedicated
-// physical backend (witnessed by distinct pg_backend_pid), >=10 rounds per
-// surface, and the post-converged world is byte-identical to a solo golden
-// run of the same sequence (clock and schema names normalized).
-// ---------------------------------------------------------------------------
-
 const pubAuthRaceRounds = 12
 
 type pubAuthAttempt struct {
@@ -31,8 +24,6 @@ type pubAuthAttempt struct {
 	err      error
 }
 
-// runPubAuthRace releases both attempts from a shared gate so their
-// transaction legs interleave under real MVCC.
 func runPubAuthRace(t *testing.T, a, b *pubAuthAttempt) {
 	t.Helper()
 	start := make(chan struct{})
@@ -55,8 +46,6 @@ func TestPublishAuthoringRacingIdenticalCandidateConverges(t *testing.T) {
 			project, explorerID := "proj_pubauth_race_same", "exp_race_same"
 			tag0, tagRace := "r0", "rx"
 
-			// Racer fixture: solo first publish, then two backends race the
-			// identical second candidate.
 			fr := newPGPubAuthFixture(t)
 			fr.migrate(t)
 			storeR := fr.newStore(t)
@@ -72,9 +61,6 @@ func TestPublishAuthoringRacingIdenticalCandidateConverges(t *testing.T) {
 			a := &pubAuthAttempt{ctx: fr.ctx, ps: psA, receipt: raceReceipt, revision: raceRevision, release: raceRelease, expected: 1}
 			b := &pubAuthAttempt{ctx: fr.ctx, ps: psB, receipt: raceReceipt, revision: raceRevision, release: raceRelease, expected: 1}
 			runPubAuthRace(t, a, b)
-			// Identical canonical claims: the winner activates and the
-			// loser converges through the zero-write replay guard -- both
-			// succeed, and the pointer moved exactly once.
 			if a.err != nil {
 				t.Fatalf("publisher A: %v", a.err)
 			}
@@ -88,8 +74,6 @@ func TestPublishAuthoringRacingIdenticalCandidateConverges(t *testing.T) {
 				t.Fatalf("%d revision rows after identical race, want 2", got)
 			}
 
-			// Byte-identical witness: a solo fixture running the same
-			// sequence uninterrupted must store the same world.
 			fg := newPGPubAuthFixture(t)
 			fg.migrate(t)
 			storeG := fg.newStore(t)
@@ -115,7 +99,6 @@ func TestPublishAuthoringRacingDifferentCandidatesSingleWinner(t *testing.T) {
 			rcpt0, rev0, rel0 := fr.seedPublishedWorld(t, storeR, project, explorerID, "r0")
 			fr.publishOK(t, fr.newPublishStore(t), rcpt0, rev0, rel0, 0)
 
-			// Two DISTINCT ready candidates race the same pointer slot.
 			receiptX, revisionX, releaseX :=
 				secondPublishInputsSameExplorer(t, fr, project, explorerID, "candX")
 			receiptY, revisionY, releaseY :=
@@ -128,8 +111,6 @@ func TestPublishAuthoringRacingDifferentCandidatesSingleWinner(t *testing.T) {
 			b := &pubAuthAttempt{ctx: fr.ctx, ps: psB, receipt: receiptY, revision: revisionY, release: releaseY, expected: 1}
 			runPubAuthRace(t, a, b)
 
-			// Exactly one wins the pointer; the loser surfaces the typed
-			// CAS loss and its whole transaction is gone.
 			loser, winnerName, winnerReleaseID, winnerRevisionID := singleRaceWinner(t, a, b)
 			if !errors.Is(loser.err, dataset.ErrReleaseActivationConflict) {
 				t.Fatalf("loser error = %v, want dataset.ErrReleaseActivationConflict", loser.err)
@@ -159,9 +140,6 @@ func TestPublishAuthoringRacingDifferentCandidatesSingleWinner(t *testing.T) {
 				t.Fatalf("raced owner = %s, want %s (%s won)", ownerActive, winnerRevisionID, winnerName)
 			}
 
-			// Post-abort convergence: the loser retries with the true
-			// expected revision and the world must match the solo golden
-			// run of the same two publishes in the same order.
 			var trueExpected int64 = 2
 			loser.expected = trueExpected
 			if _, err := loser.ps.PublishAuthoring(fr.ctx, loser.receipt, loser.revision, loser.release, loser.expected); err != nil {
@@ -176,7 +154,6 @@ func TestPublishAuthoringRacingDifferentCandidatesSingleWinner(t *testing.T) {
 				secondPublishInputsSameExplorer(t, fg, project, explorerID, "candX")
 			secondReceipt, secondRevision, secondRelease :=
 				secondPublishInputsSameExplorer(t, fg, project, explorerID, "candY")
-			// Order the solo run the way the race resolved.
 			if winnerName == "X" {
 				fg.publishOK(t, fg.newPublishStore(t), firstReceipt, firstRevision, firstRelease, 1)
 				fg.publishOK(t, fg.newPublishStore(t), secondReceipt, secondRevision, secondRelease, 2)
@@ -191,8 +168,6 @@ func TestPublishAuthoringRacingDifferentCandidatesSingleWinner(t *testing.T) {
 	}
 }
 
-// singleRaceWinner asserts exactly one attempt committed and returns the
-// loser, the winner's name, and the winner's release/revision identities.
 func singleRaceWinner(t *testing.T, a, b *pubAuthAttempt) (loser *pubAuthAttempt, winnerName, winnerReleaseID, winnerRevisionID string) {
 	t.Helper()
 	aOK, bOK := a.err == nil, b.err == nil

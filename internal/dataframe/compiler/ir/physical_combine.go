@@ -54,9 +54,6 @@ type PhysicalCombineOutputColumn struct {
 	Repeated       bool
 }
 
-// PhysicalClickHouseCombine is the closed semantic/physical contract for a
-// constructed-table operation. Published table names and authorization are
-// request scoped and are attached only after exact revision resolution.
 type PhysicalClickHouseCombine struct {
 	Kind             PhysicalCombineKind
 	Inputs           []PhysicalCombineInputRef
@@ -72,22 +69,14 @@ func (combine PhysicalClickHouseCombine) Validate() error {
 	return combine.validate(false, false)
 }
 
-// ValidateWithPrivateStage is used only by a typed composite physical plan.
-// Standalone combines continue to require exact published table revisions.
 func (combine PhysicalClickHouseCombine) ValidateWithPrivateStage() error {
 	return combine.validate(true, false)
 }
 
-// ValidateForWorkspaceCompilation accepts typed sibling-output refs after the
-// workspace resolver has supplied their schemas. It does not authorize
-// execution; ordinary Validate deliberately rejects those unresolved refs.
 func (combine PhysicalClickHouseCombine) ValidateForWorkspaceCompilation() error {
 	return combine.validate(false, true)
 }
 
-// ValidateWithWorkspaceArtifacts validates a typed terminal Combine that will
-// resolve same-bundle workspace references through server-owned artifacts.
-// Standard Validate deliberately continues to reject unresolved references.
 func (combine PhysicalClickHouseCombine) ValidateWithWorkspaceArtifacts() error {
 	if err := combine.validate(false, true); err != nil {
 		return fmt.Errorf("validate workspace artifact combine: %w", err)
@@ -257,27 +246,13 @@ func (combine PhysicalClickHouseCombine) validate(allowPrivateStage, allowWorksp
 	return nil
 }
 
-// PhysicalPrefixSourceBackend names the storage backend whose renderer
-// compiles and executes a ClickHouse Combine prefix's typed construction
-// stage sequence. The tag is required: the closed typed plan has no default
-// source backend, and an untagged or unknown tag is refused by plan
-// validation before any private artifact can be created. The terminal
-// Combine itself always executes on ClickHouse regardless of this tag; the
-// tag routes only the prefix's source query.
 type PhysicalPrefixSourceBackend string
 
 const (
-	// PhysicalPrefixSourceAQL compiles the prefix through the canonical AQL
-	// renderer for ArangoDB execution.
-	PhysicalPrefixSourceAQL PhysicalPrefixSourceBackend = "AQL"
-	// PhysicalPrefixSourcePostgreSQL compiles the prefix through the
-	// PostgreSQL renderer for execution against the PostgreSQL source store.
+	PhysicalPrefixSourceAQL        PhysicalPrefixSourceBackend = "AQL"
 	PhysicalPrefixSourcePostgreSQL PhysicalPrefixSourceBackend = "POSTGRESQL"
 )
 
-// Validate reports whether the tag names a registered prefix source backend.
-// The empty tag is unsupported: callers never receive AQL semantics by
-// omission.
 func (backend PhysicalPrefixSourceBackend) Validate() error {
 	switch backend {
 	case PhysicalPrefixSourceAQL, PhysicalPrefixSourcePostgreSQL:
@@ -287,14 +262,6 @@ func (backend PhysicalPrefixSourceBackend) Validate() error {
 	}
 }
 
-// PhysicalClickHousePrefix binds a terminal ClickHouse Combine input to the
-// exact final typed construction stage on the prefix's explicit source
-// backend. A restricted prefix is supported only for one immutable
-// authorization path; the AQL renderer emits that bound path as hidden row
-// metadata instead of guessing it from result rows. Restricted scope is not
-// yet supported on the PostgreSQL source backend because the composed
-// PostgreSQL renderer has no registered bound authorization path column;
-// such prefixes are refused here, before any private artifact exists.
 type PhysicalClickHousePrefix struct {
 	SourceBackend           PhysicalPrefixSourceBackend
 	StageID                 string
@@ -304,10 +271,6 @@ type PhysicalClickHousePrefix struct {
 	AuthResourcePathBindKey string
 }
 
-// Validate dispatches on the prefix's explicit source backend. Both backends
-// share the closed structural contract over the backend-neutral stage
-// sequence and its scope bindings; unsupported or mismatched tags fail
-// before any private artifact can be created.
 func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence, bindVars map[string]any) error {
 	switch prefix.SourceBackend {
 	case PhysicalPrefixSourceAQL:
@@ -334,13 +297,6 @@ func (prefix PhysicalClickHousePrefix) validateSourceAQL(sequence *PhysicalStage
 }
 
 func (prefix PhysicalClickHousePrefix) validateSourcePostgreSQL(sequence *PhysicalStageSequence, bindVars map[string]any) error {
-	// Allowlist, not a denylist: anything that is not the literal
-	// "unrestricted" is restricted semantics here. validateShared treats
-	// every non-"unrestricted" mode with restricted-semantics binds as a
-	// restricted prefix, so a non-canonical variant ("Restricted", padded,
-	// empty) must not slip past this gate into the PostgreSQL backend with
-	// restricted binds and no bound authorization path column. There is no
-	// restricted semantics by omission on this tag.
 	if prefix.AuthScopeMode != "unrestricted" {
 		return fmt.Errorf("restricted private ClickHouse prefixes are unsupported on the PostgreSQL source backend: the composed PostgreSQL renderer has no registered bound authorization path column")
 	}
@@ -441,8 +397,6 @@ func validatePhysicalCombineKeys(keys []PhysicalCombineKey) error {
 	return nil
 }
 
-// ResolvedClickHouseTable is populated by the exact revision resolver after
-// project, output, schema, scope, and authorization checks succeed.
 type ResolvedClickHouseTable struct {
 	TableID             string
 	RevisionID          string
@@ -464,9 +418,6 @@ type ResolvedClickHouseTable struct {
 	ScopeEvidenceDigest string
 }
 
-// ClickHouseArtifactIdentity carries the exact identity used by the private
-// artifact writer. Expected and actual values are compared in full before the
-// artifact can become a ClickHouse input.
 type ClickHouseArtifactIdentity struct {
 	ExecutionID         string
 	OutputID            string

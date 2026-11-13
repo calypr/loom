@@ -1,11 +1,3 @@
-// Package postgres implements the PostgreSQL 18 source-store connection pool.
-//
-// PostgreSQL 18 is an alternative to Arango for the source graph/catalog and
-// control persistence; Arango remains supported and ClickHouse remains the
-// publication data plane. This package never falls back to another backend on
-// its own: Open and Ping return explicit, classifiable errors and callers must
-// surface them instead of silently retrying against a different store.
-// Schema/migrations are owned elsewhere and are not part of this slice.
 package postgres
 
 import (
@@ -23,39 +15,22 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// RequiredMajorVersion is the only PostgreSQL major version the source store
-// accepts. The readiness check rejects every other server.
 const RequiredMajorVersion = 18
 
-// Sentinel errors for classifying failures without string matching.
 var (
-	// ErrInvalidDSN reports a blank or malformed connection string.
-	ErrInvalidDSN = errors.New("postgres: invalid dsn")
-	// ErrInvalidPoolConfig reports pool bounds outside their valid range.
-	ErrInvalidPoolConfig = errors.New("postgres: invalid pool config")
-	// ErrConnect reports a failure to reach or talk to the PostgreSQL server.
-	ErrConnect = errors.New("postgres: connect failed")
-	// ErrUnsupportedVersion reports a server that is not PostgreSQL 18.
+	ErrInvalidDSN         = errors.New("postgres: invalid dsn")
+	ErrInvalidPoolConfig  = errors.New("postgres: invalid pool config")
+	ErrConnect            = errors.New("postgres: connect failed")
 	ErrUnsupportedVersion = errors.New("postgres: unsupported server version")
 )
 
-// Config is a fully explicit, bounded pool configuration. There are no hidden
-// defaults: Validate rejects incomplete settings so a misconfigured pool fails
-// before it can open a network connection.
 type Config struct {
-	// DSN is a PostgreSQL connection string in URL or keyword/value form.
-	DSN string
-	// MaxConns bounds the number of pooled connections. Must be >= 1.
-	MaxConns int32
-	// MinConns is the number of idle connections the pool keeps warm.
-	// Must satisfy 0 <= MinConns <= MaxConns.
-	MinConns int32
-	// AcquireTimeout bounds how long Acquire waits for a free connection.
-	// Must be positive.
+	DSN            string
+	MaxConns       int32
+	MinConns       int32
 	AcquireTimeout time.Duration
 }
 
-// Validate checks the configuration without opening a network connection.
 func (c Config) Validate() error {
 	if strings.TrimSpace(c.DSN) == "" {
 		return fmt.Errorf("%w: dsn is blank", ErrInvalidDSN)
@@ -76,15 +51,8 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ConnectError wraps any failure to reach or talk to the server. Callers
-// classify store-connectivity problems with errors.Is(err, ErrConnect) while
-// still inspecting the cause, e.g. errors.Is(err, context.Canceled) for a
-// cancelled acquire, errors.Is(err, context.DeadlineExceeded) for an acquire
-// timeout, or IsRefusedConnection for a refused TCP connection.
 type ConnectError struct {
-	// Op is the failing operation: "open", "acquire", or "ping".
-	Op string
-	// Err is the underlying driver or context error.
+	Op  string
 	Err error
 }
 
@@ -92,18 +60,12 @@ func (e *ConnectError) Error() string {
 	return fmt.Sprintf("postgres: %s: %v", e.Op, e.Err)
 }
 
-// Unwrap exposes both the class sentinel and the cause for errors.Is/As.
 func (e *ConnectError) Unwrap() []error { return []error{ErrConnect, e.Err} }
 
-// UnsupportedVersionError reports a server whose major version is not
-// RequiredMajorVersion. It matches errors.Is(err, ErrUnsupportedVersion).
 type UnsupportedVersionError struct {
-	// VersionNum is PostgreSQL's server_version_num, e.g. 180006.
 	VersionNum int64
-	// Version is server_version, e.g. "18.6".
-	Version string
-	// Major is the derived major version, e.g. 17 for 170014.
-	Major int
+	Version    string
+	Major      int
 }
 
 func (e *UnsupportedVersionError) Error() string {
@@ -113,8 +75,6 @@ func (e *UnsupportedVersionError) Error() string {
 
 func (e *UnsupportedVersionError) Unwrap() error { return ErrUnsupportedVersion }
 
-// CheckServerVersion maps a server_version_num to a readiness verdict. It is
-// pure so the version policy is unit-testable without a non-18 server.
 func CheckServerVersion(versionNum int64, version string) error {
 	major := int(versionNum / 10000)
 	if major != RequiredMajorVersion {
@@ -123,19 +83,11 @@ func CheckServerVersion(versionNum int64, version string) error {
 	return nil
 }
 
-// Client is a bounded, readiness-checked PostgreSQL 18 connection pool.
 type Client struct {
 	pool *pgxpool.Pool
 	cfg  Config
 }
 
-// Open validates cfg, builds the pool, and performs one readiness round trip
-// (Ping). It fails fast: invalid settings return ErrInvalidDSN or
-// ErrInvalidPoolConfig before any connection attempt, and connectivity or
-// version failures return a classifiable error (ConnectError or
-// UnsupportedVersionError). A failed Open never leaves a half-initialized
-// pool behind; callers must treat the error as terminal, not as a cue to fall
-// back to another backend.
 func Open(ctx context.Context, cfg Config) (*Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -158,11 +110,6 @@ func Open(ctx context.Context, cfg Config) (*Client, error) {
 	return c, nil
 }
 
-// Ping confirms server availability and that the server runs PostgreSQL 18.
-// An unreachable server returns a *ConnectError matching ErrConnect (chain
-// with errors.Is for syscall.ECONNREFUSED or context errors); a server on the
-// wrong major version returns an *UnsupportedVersionError matching
-// ErrUnsupportedVersion.
 func (c *Client) Ping(ctx context.Context) error {
 	conn, err := c.Acquire(ctx)
 	if err != nil {
@@ -183,13 +130,6 @@ func (c *Client) Ping(ctx context.Context) error {
 	return CheckServerVersion(versionNum, version)
 }
 
-// Acquire takes a connection from the pool, waiting at most AcquireTimeout or
-// until ctx is done, whichever comes first. On failure the returned error is a
-// *ConnectError matching ErrConnect and wraps the cause, so callers can
-// classify an acquire timeout with errors.Is(err, context.DeadlineExceeded)
-// and cancellation with errors.Is(err, context.Canceled).
-//
-// The caller must Release the returned connection.
 func (c *Client) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.cfg.AcquireTimeout)
 	defer cancel()
@@ -200,22 +140,6 @@ func (c *Client) Acquire(ctx context.Context) (*pgxpool.Conn, error) {
 	return conn, nil
 }
 
-// Query acquires a pool connection under AcquireTimeout, then streams rows
-// on that connection with the CALLER's context — it exists so the
-// pool-shaped rows.Querier (internal/backends/postgres/internal/rows) is
-// satisfied by the client without exporting the pool itself: the factory
-// assembly passes the client as the Querier and the compile-time assertion
-// (var _ rows.Querier = (*store.Client)(nil)) makes any signature drift fail
-// the build. This split matters: pgx binds rows to the context passed to
-// Query for the full row lifetime, so the caller owns that lifetime — keep
-// ctx alive until the rows are closed, and closing the rows releases the
-// connection back to the pool. AcquireTimeout bounds only waiting for a free
-// connection, never execution or iteration (a per-query cancellation here
-// would nondeterministically kill live row streams with context.Canceled).
-// On failure the returned error is a *ConnectError matching ErrConnect
-// wrapping the cause, same as Acquire.
-//
-// The caller must close the returned pgx.Rows.
 func (c *Client) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	conn, err := c.Acquire(ctx)
 	if err != nil {
@@ -229,12 +153,6 @@ func (c *Client) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, 
 	return &leasedRows{Rows: rows, conn: conn}, nil
 }
 
-// QueryRow acquires under AcquireTimeout and runs the statement with the
-// caller's context, mirroring Query's context split: pgx binds the row to
-// ctx until it is consumed, so Scan before canceling ctx. The connection
-// returns to the pool when the row is consumed (Scan) — or never, if the
-// row is discarded unconsumed, which is a caller bug like any unclosed
-// pgx.Rows.
 func (c *Client) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	conn, err := c.Acquire(ctx)
 	if err != nil {
@@ -243,8 +161,6 @@ func (c *Client) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row 
 	return &leasedRow{Row: conn.QueryRow(ctx, sql, args...), conn: conn}
 }
 
-// leasedRows ties the acquired connection's release to the rows' close:
-// the pool only reuses a connection after the rows built on it are closed.
 type leasedRows struct {
 	pgx.Rows
 	conn   *pgxpool.Conn
@@ -258,8 +174,6 @@ func (l *leasedRows) Close() {
 	})
 }
 
-// leasedRow ties the connection's release to the single row's consumption
-// (Scan), the same lifecycle pgx's own row contract implies.
 type leasedRow struct {
 	pgx.Row
 	conn    *pgxpool.Conn
@@ -272,22 +186,16 @@ func (r *leasedRow) Scan(dest ...any) error {
 	return err
 }
 
-// queryRowError is a pgx.Row whose only possible outcome is the acquisition
-// failure, keeping QueryRow's contract total without a nil pool client.
 type queryRowError struct{ err error }
 
 func (r *queryRowError) Scan(_ ...any) error { return r.err }
 
-// Close releases every connection held by the pool. The Client must not be
-// used afterwards. Close is safe to call more than once.
 func (c *Client) Close() {
 	if c.pool != nil {
 		c.pool.Close()
 	}
 }
 
-// IsRefusedConnection reports whether err ultimately comes from the operating
-// system refusing the TCP connection (nothing listening on the address).
 func IsRefusedConnection(err error) bool {
 	if err == nil {
 		return false

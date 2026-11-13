@@ -1,21 +1,5 @@
 package execution
 
-// Sanitized live PostgreSQL Explain (pg-exec-10).
-//
-// This file turns one parent-tagged PostgreSQL compiled command into a
-// transport-safe plan assessment. The only path to a PostgreSQL EXPLAIN is
-// through the typed CompiledCommand boundary established by arch-backend-01:
-// statement SQL and ordered arguments are read exclusively via
-// CompiledCommand.PostgreSQLParameters, the EXPLAIN wrapper is re-tagged
-// through command.NewPostgreSQLCommand, and the injected runner receives
-// nothing but that tagged command. Raw EXPLAIN JSON stays inside this file:
-// the parser lifts only the agreed backend/node/estimate fields into
-// PostgreSQLPlanAssessment and drops every other key, so statement text,
-// bound values (which PostgreSQL deparses into Filter/Index Cond strings),
-// relation and index names, aliases, and schema internals never reach a
-// transport adapter. There is no AQL fallback and no AQL-to-SQL conversion
-// anywhere in this path.
-
 import (
 	"context"
 	"encoding/json"
@@ -33,29 +17,16 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// postgreSQLExplainPrefix is the fixed EXPLAIN wrapper. Only this constant
-// is prepended to the typed statement; nothing in a compiled command can
-// change the EXPLAIN context itself.
 const postgreSQLExplainPrefix = "EXPLAIN (FORMAT JSON)\n"
 
-// postgresqlPlanJSONExecutor bounds keep a hostile or malfunctioning backend
-// response from turning the parser into an unbounded resource sink.
 const (
-	postgresExplainMaxRawBytes = 4 << 20 // 4 MiB of plan JSON
+	postgresExplainMaxRawBytes = 4 << 20
 	postgresExplainMaxNodes    = 512
 	postgresExplainMaxDepth    = 64
 )
 
-// postgresExplainNodePattern gates kept "Node Type" strings. PostgreSQL node
-// types come from its fixed operator vocabulary (letters, digits, and
-// spaces). Anything outside this shape — quotes, parentheses, dollar signs,
-// SQL punctuation — cannot be a node type and is rejected fail-closed.
 var postgresExplainNodePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9 ]{0,63}$`)
 
-// postgresExplainSequentialNodeTypes and postgresExplainIndexNodeTypes are
-// the closed scan classifications. A stored-relation full read is a
-// sequential scan; index access is any index scan shape, including bitmap
-// index scans. Every other node type is structural only.
 var (
 	postgresExplainSequentialNodeTypes = map[string]bool{
 		"Seq Scan":    true,
@@ -68,22 +39,8 @@ var (
 	}
 )
 
-// PostgreSQLPlanJSONExecutor runs one parent-tagged EXPLAIN command against
-// PostgreSQL and returns the raw FORMAT JSON plan text. It is the transport
-// seam the server owns: driver calls, connection pooling, and parameter
-// binding belong to the adapter (internal/backends/postgres/internal/rows.(*Executor)
-// satisfies the dispatch requirement). The raw JSON it returns is internal
-// to PostgreSQLExplainPlan and never escapes the sanitizer.
 type PostgreSQLPlanJSONExecutor func(ctx context.Context, command command.CompiledCommand) (json.RawMessage, error)
 
-// BuildPostgreSQLExplainCommand derives the EXPLAIN-tagged command for one
-// compiled query through closed dispatch. The statement SQL and ordered
-// typed arguments come only from PostgreSQLParameters; the result is a new
-// PostgreSQL-tagged command with the fixed EXPLAIN prefix and the same
-// argument list. An AQL-tagged command is rejected with
-// ErrCompiledCommandBackendMismatch and an untagged or unknown-tag command
-// with ErrCompiledCommandBackendNotRegistered, so no command can reach the
-// PostgreSQL EXPLAIN context without naming PostgreSQL.
 func BuildPostgreSQLExplainCommand(compiled compiler.CompiledQuery) (command.CompiledCommand, error) {
 	sqlText, args, err := compiled.Command.PostgreSQLParameters()
 	if err != nil {
@@ -96,25 +53,6 @@ func BuildPostgreSQLExplainCommand(compiled compiler.CompiledQuery) (command.Com
 	return explainCommand, nil
 }
 
-// PostgreSQLExplainPlan executes one parent-tagged EXPLAIN for the compiled
-// query and returns the sanitized assessment. The executor receives only the
-// re-tagged EXPLAIN command; the raw plan JSON it returns is parsed and
-// reduced here and is never returned or embedded in an error message.
-// Failures are typed: executor failures become backend-unavailable user
-// errors with the cause chain preserved for server-side classification,
-// context aborts keep their context identity, and plan-shape violations
-// become non-retryable backend-unavailable user errors reporting only the
-// violated invariant.
-//
-// Error-boundary seam (pg-store-01 #101 merged; arch-backend-03 wired): the
-// PostgreSQL rows adapter classifies driver and server failures at the
-// store/postgres boundary, so failures arriving here already carry their
-// authoritative Loom identity (stable condition, SQLSTATE, retryability).
-// Such errors pass through unchanged — execution never re-types a
-// boundary classification. Only failures the boundary did not classify
-// (custom executors, unclassified causes) get the coarse
-// retryable-backend-unavailable fallback, with the cause chain preserved
-// through QueryError for server-side logs.
 func PostgreSQLExplainPlan(ctx context.Context, executor PostgreSQLPlanJSONExecutor, compiled compiler.CompiledQuery) (PostgreSQLPlanAssessment, error) {
 	if executor == nil {
 		return PostgreSQLPlanAssessment{}, fmt.Errorf("live PostgreSQL Explain requires a plan JSON executor; PostgreSQL requests never fall back to Arango")
@@ -134,14 +72,6 @@ func PostgreSQLExplainPlan(ctx context.Context, executor PostgreSQLPlanJSONExecu
 	return assessment, nil
 }
 
-// postgreSQLExplainExecutorError types one executor failure without echoing
-// the backend message: the cause is retained for errors.Is/errors.As and
-// server logs, while the user-facing message stays sentinel-free.
-// Failures already carrying a Loom user-error identity — including every
-// store/postgres boundary classification surfaced by the rows adapter —
-// pass through unchanged so the boundary's condition, SQLSTATE, and
-// retryability stay authoritative; only unclassified failures receive the
-// coarse fallback.
 func postgreSQLExplainExecutorError(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
@@ -158,10 +88,6 @@ func postgreSQLExplainExecutorError(ctx context.Context, err error) error {
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "live PostgreSQL recipe Explain failed", dataframeerrors.WithRetryable(true))
 }
 
-// postgreSQLExplainShapeError types one plan-shape violation. The reported
-// message names the violated invariant only; the raw plan JSON never
-// appears. Shape violations are not retryable: the same statement will
-// produce the same malformed assessment.
 func postgreSQLExplainShapeError(err error) error {
 	return dataframeerrors.Wrap(err, dataframeerrors.CodeBackendUnavailable, "PostgreSQL EXPLAIN returned an unexpected plan shape",
 		dataframeerrors.WithRetryable(false),
@@ -169,10 +95,6 @@ func postgreSQLExplainShapeError(err error) error {
 	)
 }
 
-// postgresExplainRawNode decodes only the recognized EXPLAIN JSON keys.
-// Every other key (Relation Name, Index Name, Alias, Filter, Index Cond,
-// Output, Sort Key, Planning Time, and every future vendor field) is
-// dropped by construction, not by blocklist.
 type postgresExplainRawNode struct {
 	NodeType    *string                  `json:"Node Type"`
 	StartupCost *float64                 `json:"Startup Cost"`
@@ -182,10 +104,6 @@ type postgresExplainRawNode struct {
 	Plans       []postgresExplainRawNode `json:"Plans"`
 }
 
-// sanitizePostgreSQLPlanJSON parses one EXPLAIN (FORMAT JSON) document into
-// the agreed sanitized assessment. It accepts exactly the shape PostgreSQL
-// emits for a single statement: a JSON array with one element carrying a
-// "Plan" object whose recursive "Plans" children form the plan tree.
 func sanitizePostgreSQLPlanJSON(raw json.RawMessage) (PostgreSQLPlanAssessment, error) {
 	if len(raw) > postgresExplainMaxRawBytes {
 		return PostgreSQLPlanAssessment{}, fmt.Errorf("plan JSON exceeds %d bytes", postgresExplainMaxRawBytes)
@@ -244,8 +162,6 @@ func (b *postgresExplainTreeBuilder) build(raw postgresExplainRawNode, depth, pa
 	}
 	nodeType := *raw.NodeType
 	if !postgresExplainNodePattern.MatchString(nodeType) {
-		// The reported node type is not a PostgreSQL operator name; refuse to
-		// render it rather than smuggle arbitrary text into the response.
 		return PostgreSQLPlanNode{}, errors.New("plan node reports a Node Type outside the PostgreSQL operator vocabulary")
 	}
 	estimate, err := rawEstimate(raw)
@@ -306,12 +222,6 @@ func requiredEstimate(value *float64, field string) (float64, error) {
 	return *value, nil
 }
 
-// explainCompiledForOutput compiles one resolved output for ExplainPhysical
-// through the same selected target as the stream path. The compiler owns
-// backend selection: a PostgreSQL target yields the exact PostgreSQL-tagged
-// compiler.CompiledQuery the stream will run, so Explain always assesses the command
-// execution actually uses. Unsupported physical engines fail before any
-// compile, and there is no AQL fallback for a PostgreSQL plan.
 func (c Control) explainCompiledForOutput(ctx context.Context, resolved Resolved, output lower.CompiledRecipeOutput, limit int) (compiler.CompiledQuery, error) {
 	if output.Plan.Engine != "" && output.Plan.Engine != ir.PhysicalEngineAQL && output.Plan.Engine != ir.PhysicalEngineClickHouse {
 		return compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)

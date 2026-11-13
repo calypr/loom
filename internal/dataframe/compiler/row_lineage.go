@@ -130,9 +130,6 @@ func RowLineageCapabilityForOutput(output lower.CompiledRecipeOutput) RowLineage
 	return RowLineageCapability{Available: true}
 }
 
-// rowLineageRelatedCodingGroup admits only the terminal direct-root Group
-// shape whose Coding tuple and scalar sources are prepared by one typed route
-// adapter. All other related Groups keep the existing unsupported behavior.
 func rowLineageRelatedCodingGroup(output lower.CompiledRecipeOutput) bool {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 ||
@@ -357,9 +354,6 @@ func rowLineageExpandedCodingGroup(output lower.CompiledRecipeOutput) bool {
 		sourceUnnest.Expression.Extract != nil && sourceUnnest.Expression.Extract.Selector.CanonicalPath() == group.CodingKey.CodingPath
 }
 
-// rowLineageConstructionPivotPreimage admits only a direct terminal ordinary
-// construction Pivot. Its typed key tuple selects the multi-root preimage;
-// mixed-owner sequences remain unsupported until their owner chain is decoded.
 func rowLineageConstructionPivotPreimage(output lower.CompiledRecipeOutput) bool {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 1 ||
@@ -378,11 +372,6 @@ func rowLineageConstructionPivotPreimage(output lower.CompiledRecipeOutput) bool
 		output.RootResourceType != "" && rowLineageHasPhysicalIdentity(output, stage, sequence)
 }
 
-// rowLineageConstructionGroupPivotPreimage admits the bounded first composed
-// construction shape: a direct-source scalar GROUP with COUNT_ROWS only,
-// followed by an ordinary Pivot over every Group dimension. The Group is a
-// fan-in owner set; the final Pivot's typed key tuple selects the relevant
-// Group tuples, whose source preimage is streamed from the original root rows.
 func rowLineageConstructionGroupPivotPreimage(output lower.CompiledRecipeOutput) bool {
 	sequence := output.Plan.StageSequence
 	if sequence == nil || sequence.SourceRowIdentity != "_key" || len(sequence.Stages) != 2 ||
@@ -625,7 +614,6 @@ func rowLineageGroupFilterSuffix(sequence *ir.PhysicalStageSequence) bool {
 }
 
 func rowLineageHasPhysicalIdentity(output lower.CompiledRecipeOutput, stage ir.PhysicalConstructionStage, sequence *ir.PhysicalStageSequence) bool {
-	// Publication-grain metadata need not name a construction stage's physical row ID.
 	return output.RowIdentity != nil && stage.RowIdentityColumn != "" && stage.RowIdentityColumn == sequence.FinalRowIdentity
 }
 
@@ -647,13 +635,6 @@ func rowLineageHasDirectRootSource(operations []ir.PhysicalOperation) bool {
 }
 
 func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, rowID string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledRowLineageQuery, error) {
-	// Row lineage is a per-dialect auxiliary surface. The PostgreSQL target
-	// renders its bounded contributor pages through the registered terminal
-	// slice (render/postgres/row_lineage.go, pg-sql-23); the surfaces that
-	// still have no PostgreSQL source — the cohort and explicit-group-rows
-	// membership renderers, and every traced or coded contributor page —
-	// refuse by name inside that path. There is no AQL-to-SQL translation:
-	// neither dialect can produce the other's command.
 	if err := target.validate(); err != nil {
 		return CompiledRowLineageQuery{}, err
 	}
@@ -677,7 +658,7 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 	if output.RowIdentity == nil {
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage requires stable output row identity")
 	}
-	_ = policy // Row lineage uses the canonical pre-optimization stage semantics.
+	_ = policy
 	if rowLineageCohortGroupFilterSuffix(output) {
 		sequence := output.Plan.StageSequence
 		groupStage := sequence.Stages[0]
@@ -740,16 +721,6 @@ func CompileRowLineageOutput(target Target, output lower.CompiledRecipeOutput, r
 	}, nil
 }
 
-// compileRowLineagePostgreSQL compiles one bounded exact-row lineage
-// contributor page for the PostgreSQL compile target. It shares every
-// admission step with the AQL path — the same page bounds, the same
-// capability decision, and the same physical-plan preparation, including the
-// hidden resource-id and occurrence-key projections and the request/output
-// proof metadata the terminal carries — and then renders through the
-// PostgreSQL terminal slice and tags a PostgreSQL command. Shapes the
-// terminal slice does not register refuse with the renderer's typed
-// unsupported-plan error; there is no AQL fallback and no AQL-to-SQL
-// translation anywhere on this path.
 func compileRowLineagePostgreSQL(target Target, output lower.CompiledRecipeOutput, rowID string, offset, limit int) (CompiledRowLineageQuery, error) {
 	rowID, offset, limit, err := normalizeRowLineagePage(rowID, offset, limit)
 	if err != nil {
@@ -757,19 +728,9 @@ func compileRowLineagePostgreSQL(target Target, output lower.CompiledRecipeOutpu
 	}
 	capability := RowLineageCapabilityForOutput(output)
 	if !capability.Available {
-		// The sealed contract (selected_source_contract_test.go) requires a
-		// PostgreSQL target's refusal of an uncompilable lineage shape to
-		// name its surface and carry the renderer's typed unsupported-plan
-		// error, exactly like every other PostgreSQL-refused surface. The
-		// capability error stays in the chain: the reason code remains the
-		// diagnostic authority for why the shape has no lineage at all.
 		return CompiledRowLineageQuery{}, fmt.Errorf("row lineage compilation is unsupported on the PostgreSQL compile target: %w", errors.Join(
 			&RowLineageUnsupportedError{Capability: capability}, postgresrender.ErrUnsupportedPostgresPlan))
 	}
-	// The two membership-row lineage surfaces render through dedicated AQL
-	// entry points over the group-membership collections, which have no
-	// PostgreSQL source at all (population.go owns those roots); they refuse
-	// here by name rather than reach a renderer that cannot bind them.
 	if rowLineageStandaloneGroupRows(output) {
 		return CompiledRowLineageQuery{}, fmt.Errorf("explicit group row lineage is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
 	}
@@ -796,9 +757,6 @@ func compileRowLineagePostgreSQL(target Target, output lower.CompiledRecipeOutpu
 	}, nil
 }
 
-// normalizeRowLineagePage is the single page-boundary contract shared by both
-// dialects: a trimmed non-empty row identity, a non-negative offset, and a
-// limit in [1, MaxRowLineageContributors] with the default applied.
 func normalizeRowLineagePage(rowID string, offset, limit int) (string, int, int, error) {
 	rowID = strings.TrimSpace(rowID)
 	if rowID == "" {
@@ -816,14 +774,6 @@ func normalizeRowLineagePage(rowID string, offset, limit int) (string, int, int,
 	return rowID, offset, limit, nil
 }
 
-// prepareRowLineagePhysicalPlan is the single preparation both dialects
-// render: it clones the canonical pre-optimization plan, applies the
-// execution window, anchors the direct root source (the authored RELATED
-// owner chain or the Pivot preimage identities, when the capability gate
-// admitted one), mints the two hidden contributor identity columns on the
-// terminal projection, binds the page coordinates, and attaches the typed
-// PhysicalRowLineageReturn that carries the request/output proof metadata.
-// Neither dialect mutates the request contract after this point.
 func prepareRowLineagePhysicalPlan(output lower.CompiledRecipeOutput, rowID string, offset, limit int) (ir.PhysicalPlan, error) {
 	physical := ir.ClonePhysicalPlan(output.Plan)
 	if physical.StageSequence == nil {
@@ -852,8 +802,6 @@ func prepareRowLineagePhysicalPlan(output lower.CompiledRecipeOutput, rowID stri
 		rootKey, decoded, decodedOK := decodeRelatedRowLineageIdentity(rowID, physical.StageSequence.Stages, physical.BindVars)
 		var rootKeyValue any = rootKey
 		if !decodedOK {
-			// Null cannot be a stored Arango _key, so malformed, wrong-stage, and
-			// wrong-owner identities become an unmatchable query.
 			rootKeyValue = nil
 			for stageIndex, stage := range physical.StageSequence.Stages {
 				if stage.Kind != ir.PhysicalStageRelatedExpandOp {

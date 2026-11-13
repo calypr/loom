@@ -1,32 +1,3 @@
-// TestPostgresMigrationOwnershipContract is the arch-backend-05 acceptance
-// suite for the authoritative migration-ownership record in
-// migration_ownership.go. It runs without PostgreSQL for the offline parts
-// and, when LOOM_TEST_POSTGRES_URL is set, additionally drives real
-// PostgreSQL state through every production owner path.
-//
-// What this suite proves:
-//   - The authored manifest equals the embedded bytes of every owner
-//     package, exactly and in order (no extra, no missing, no drift).
-//   - The pre-refactor fixture bytes preserved under
-//     testdata/ab05_pre_refactor are byte-identical to the migrations now
-//     embedded in their owner packages (the move changed paths, not bytes).
-//   - Shared bootstrap migrations (ledger v1, dataset_generation_manifest
-//     v3, the recipe ledger v1) are byte-identical across the series that
-//     pin them, which is exactly what ValidateAssignment permits to share a
-//     schema.
-//   - ValidateAssignment refuses, before any DDL, every two-series
-//     assignment whose pinned ledgers disagree at a shared version.
-//   - On PostgreSQL: each series bootstraps fresh through its owner and
-//     converges on rerun; a representative domain operation per series runs
-//     on the migrated tables; an incompatible history is refused with the
-//     ledger and catalog witnesses unchanged; and a schema seeded from the
-//     frozen pre-refactor bytes upgrades to the owner history with the
-//     ledger unchanged.
-//   - The TestZZ sweep leaves zero verify_ab05_* schemas behind.
-//
-// Every schema this suite creates is named verify_ab05_* so the sweep can
-// prove zero-survivor cleanup, and every mutation runs only when the test
-// URL is present (CI asserts zero skips through the runner lane).
 package postgres_test
 
 import (
@@ -67,33 +38,13 @@ import (
 )
 
 const (
-	// ab05Prefix namespaces every schema this suite creates so the
-	// zero-survivor sweep can scan for exactly its leftovers.
-	ab05Prefix = "verify_ab05_"
-	// preRefactorRoot pins the permanent snapshot of the migration files
-	// as they existed at their old fixture-directory paths before this
-	// ticket moved them into their owner packages (git mv, bytes frozen).
-	// Coordinator-ratified as IMMUTABLE EVIDENCE, like the migrations
-	// themselves: any byte change under this directory must intentionally
-	// redden PreRefactorBytesFrozenInOwners -- never loosen the check.
+	ab05Prefix      = "verify_ab05_"
 	preRefactorRoot = "testdata/ab05_pre_refactor"
 )
 
-// ab05SourceFS reads the source-series migrations directly from this
-// package's own embed surface, with no migration loader between the bytes
-// and the assertion (condition C1: non-circularity needs at least one
-// path from embed FS to manifest literal that trusts no shared code).
-//
 //go:embed migrations/*.sql
 var ab05SourceFS embed.FS
 
-// ---------------------------------------------------------------------------
-// offline: manifest <-> embedded owner bytes
-// ---------------------------------------------------------------------------
-
-// ab05OwnerHistories maps every registered series to the function that
-// returns the owner package's embedded history. A new series without an
-// entry here fails TestPostgresMigrationOwnershipContract immediately.
 var ab05OwnerHistories = map[pgstore.SeriesID]func() ([]pgstore.Migration, error){
 	pgstore.SeriesSource:               pgstore.EmbeddedMigrations,
 	pgstore.SeriesExplorerControl:      explorerpg.OwnerMigrations,
@@ -103,9 +54,6 @@ var ab05OwnerHistories = map[pgstore.SeriesID]func() ([]pgstore.Migration, error
 	pgstore.SeriesRecipeExecRegistries: recipeexecpg.RegistryMigrations,
 }
 
-// ab05SignatureTable is one real (not just the ledger) table each series'
-// DDL creates, used to witness that the owner history actually built the
-// schema it claims to own.
 var ab05SignatureTable = map[pgstore.SeriesID]string{
 	pgstore.SeriesSource:               "fhir_resource",
 	pgstore.SeriesExplorerControl:      explorerpg.OwnerTable,
@@ -148,8 +96,6 @@ func ab05ManifestMatchesOwners(t *testing.T) {
 				t.Fatalf("series %s: owner history not strictly ascending at entry %d", m.Series, i)
 			}
 		}
-		// LookupManifest must agree with the ordered Manifest() view and
-		// hand out copies, not views into the authored record.
 		looked, ok := pgstore.LookupManifest(m.Series)
 		if !ok {
 			t.Fatalf("LookupManifest(%s) not found", m.Series)
@@ -163,7 +109,6 @@ func ab05ManifestMatchesOwners(t *testing.T) {
 			t.Fatalf("LookupManifest(%s) hands out views into the authored record, not copies", m.Series)
 		}
 	}
-	// ManifestJSON is the on-demand rendering of the same record.
 	raw, err := pgstore.ManifestJSON()
 	if err != nil {
 		t.Fatalf("ManifestJSON: %v", err)
@@ -188,7 +133,6 @@ func ab05ManifestRecordInvariants(t *testing.T) {
 		t.Fatalf("series count = %d, want exactly the six production series", len(manifest))
 	}
 	for i, m := range manifest {
-		// Manifest() sorts by series ID; want is alphabetical.
 		if m.Series != want[i] {
 			t.Fatalf("Manifest() order = %v, want sorted %v", manifest[i].Series, want[i])
 		}
@@ -217,9 +161,6 @@ func ab05ManifestRecordInvariants(t *testing.T) {
 	}
 }
 
-// ab05MovedFiles records each migration this ticket relocated into its
-// owner package: the frozen pre-refactor path and the series/version the
-// owner now embeds it as.
 var ab05MovedFiles = []struct {
 	preRefactor string
 	series      pgstore.SeriesID
@@ -329,18 +270,6 @@ func ab05SharedBootstrapBytesIdentical(t *testing.T) {
 	}
 }
 
-// ab05ManifestChecksumsNonCircular discharges condition C1: the manifest
-// literals are hand-authored, so a manifest that only agreed with itself
-// would prove nothing. This recomputes the SHA-256 in the test itself over
-// the exact SQL bytes each owner package served from its embed FS (via the
-// shared loader) and ties three independent identities together: the
-// test-recomputed hash, the loader-computed ledger identity, and the
-// manifest literal. For the source series it additionally reads the files
-// through this package's own embed surface with no loader at all, so at
-// least one comparison runs embed FS -> manifest literal directly. A future
-// edit that changes a migration's bytes without re-deriving the manifest
-// literal reddens here, and a manifest literal retyped to match tampered
-// SQL reddens the ledger checks against deployed databases.
 func ab05ManifestChecksumsNonCircular(t *testing.T) {
 	t.Helper()
 	for _, m := range pgstore.Manifest() {
@@ -366,7 +295,6 @@ func ab05ManifestChecksumsNonCircular(t *testing.T) {
 		if m.Series != pgstore.SeriesSource {
 			continue
 		}
-		// Loader-free path straight from this package's embed FS.
 		for _, e := range m.Entries {
 			file := fmt.Sprintf("migrations/%06d_%s.sql", e.Version, e.Name)
 			raw, err := ab05SourceFS.ReadFile(file)
@@ -380,10 +308,6 @@ func ab05ManifestChecksumsNonCircular(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// offline: ValidateAssignment matrix
-// ---------------------------------------------------------------------------
 
 func ab05AssignmentValidation(t *testing.T) {
 	t.Helper()
@@ -416,17 +340,12 @@ func ab05AssignmentValidation(t *testing.T) {
 			},
 		},
 		{
-			// Condition C5, accept side: the only shared version is pinned
-			// byte-identical, so one ledger can validate both histories.
 			name: "publication and dataset release may share (ledger v1 byte-identical)",
 			assign: pgstore.Assignment{
 				pgstore.SeriesPublicationControl: "s_shared", pgstore.SeriesDatasetRelease: "s_shared",
 			},
 		},
 		{
-			// Condition C5, distinct-schema side: identical pinned shared
-			// versions across separate schemas are pure byte-copy legality
-			// and must pass.
 			name: "identical shared versions on distinct schemas",
 			assign: pgstore.Assignment{
 				pgstore.SeriesRecipeChains: "s_chains_a", pgstore.SeriesRecipeExecRegistries: "s_chains_b",
@@ -508,8 +427,6 @@ func ab05AssignmentValidation(t *testing.T) {
 					conflict.SeriesA, conflict.SeriesB, conflict.Version,
 					tc.conflict.a, tc.conflict.b, tc.conflict.version)
 			}
-			// The conflict must name the schema both series were pinned
-			// onto -- the identity a server-surface caller reports.
 			if conflict.Schema != tc.assign[tc.conflict.a] {
 				t.Fatalf("conflict schema = %q, want the shared assignment %q",
 					conflict.Schema, tc.assign[tc.conflict.a])
@@ -520,10 +437,6 @@ func ab05AssignmentValidation(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// PostgreSQL harness
-// ---------------------------------------------------------------------------
 
 func ab05PostgresURL(t *testing.T) string {
 	t.Helper()
@@ -548,15 +461,6 @@ func ab05Admin(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return pool
 }
 
-// ab05Schema creates one verify_ab05_* schema and registers its removal.
-// ab05Expiry returns an absolute expiry measured from the REAL wall clock
-// at call time. Lease, read-pin, and artifact expiries must never derive
-// from the fixed fixture timestamps: the owning stores fence these against
-// time.Now() (Registry.SaveExecution, the chartifact catalog, read-pin
-// checks), so a fixed-date expiry turns every suite run once real time
-// passes that date into a spurious "bundle lease ownership was lost"
-// failure -- exactly the CI flake that bit the 10:04 UTC run on
-// 2026-11-10. Row DATA timestamps stay fixed for determinism.
 func ab05Expiry(d time.Duration) time.Time { return time.Now().UTC().Add(d) }
 
 func ab05Schema(t *testing.T, ctx context.Context, admin *pgxpool.Pool, name string) string {
@@ -575,7 +479,6 @@ func pgxIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-// ab05ReadLedger returns the literal rows of one schema's ledger.
 func ab05ReadLedger(t *testing.T, ctx context.Context, admin *pgxpool.Pool, schema string) []pgstore.LedgerRecord {
 	t.Helper()
 	rows, err := admin.Query(ctx, "SELECT version, name, checksum, applied_at FROM "+
@@ -622,7 +525,6 @@ func ab05RegclassExists(t *testing.T, ctx context.Context, admin *pgxpool.Pool, 
 	return present
 }
 
-// ab05OwnerMigrate applies one series' production owner entry point.
 func ab05OwnerMigrate(t *testing.T, ctx context.Context, client *pgstore.Client, admin *pgxpool.Pool,
 	series pgstore.SeriesID, schema string) (pgstore.MigrateResult, error) {
 	t.Helper()
@@ -667,10 +569,6 @@ func ab05Client(t *testing.T, ctx context.Context) *pgstore.Client {
 	return client
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL: fresh bootstrap convergence through the owner entry points
-// ---------------------------------------------------------------------------
-
 func ab05FreshBootstrapsConverge(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -699,10 +597,6 @@ func ab05FreshBootstrapsConverge(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// PostgreSQL: one representative real domain operation per series
-// ---------------------------------------------------------------------------
 
 func ab05RepresentativeDomainOperations(t *testing.T) {
 	t.Helper()
@@ -950,10 +844,6 @@ func ab05RepresentativeDomainOperations(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL: the runner refuses histories ValidateAssignment already refused
-// ---------------------------------------------------------------------------
-
 func ab05IncompatibleHistoriesRefused(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -1022,10 +912,6 @@ func ab05IncompatibleHistoriesRefused(t *testing.T) {
 	})
 }
 
-// ab05AssertUpgradeLedger discharges the ledger-preservation half of
-// conditions C2/C3: every seeded ledger row must survive an owner upgrade
-// byte-identical (the upgrade never re-runs or rewrites applied rows), and
-// the rows the upgrade adds must be exactly wantAdded, ascending.
 func ab05AssertUpgradeLedger(t *testing.T, schema string, seeded, after []pgstore.LedgerRecord, wantAdded []pgstore.HistoryEntry) {
 	t.Helper()
 	seededVersions := make(map[int64]bool, len(seeded))
@@ -1056,21 +942,12 @@ func ab05AssertUpgradeLedger(t *testing.T, schema string, seeded, after []pgstor
 	}
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL: a schema seeded from the frozen pre-refactor bytes upgrades
-// to the owner history with the ledger unchanged (condition C2 for all
-// three test-composed series S2/S3/S4, with the S2 ledger-preservation
-// witness of condition C3)
-// ---------------------------------------------------------------------------
-
 func ab05PreRefactorUpgradeConverges(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
 	admin := ab05Admin(t, ctx)
 	client := ab05Client(t, ctx)
 
-	// loadPreRefactor reads the frozen snapshot directory through the real
-	// runner loader, exactly as the pre-refactor fixture suites did.
 	loadPreRefactor := func(t *testing.T, dir string) []pgstore.Migration {
 		t.Helper()
 		migrations, err := pgstore.LoadMigrations(os.DirFS(preRefactorRoot), dir)
@@ -1096,28 +973,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 	now := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 
 	t.Run("ExplorerDeployedSchemaRefusesRetroactive478", func(t *testing.T) {
-		// Condition C3, runtime law half. The pre-refactor DEPLOYED
-		// explorer history was the old owner embed: 1,2,3,5,6,9,10,11 --
-		// versions 4,7,8 existed only as test fixtures, exactly the
-		// ownership gap this ticket closes. The shared runner refuses to
-		// apply any pending version below the highest recorded one
-		// ("add a new version instead of editing history"), so an
-		// already-deployed 11-maximum schema can NEVER retroactively gain
-		// 4/7/8: history editing is impossible, which is the manifest's
-		// immutability clause enforced by the runner. This refusal is
-		// DELIBERATE DESIGN, not a deferred fix -- an upgrade that
-		// silently filled version holes would be the bug. No production
-		// gap-schema exists today: S2/S3/S4 (explorer_control,
-		// publication_control, dataset_release) have no production
-		// startup callers yet, so no deployed ledger can sit at version
-		// 11 without 4/7/8 (the source series' only production migrator
-		// is generation load, and its history has never had gaps). If a
-		// future deployment ever reports this typed error, it is the
-		// actionable signal that its schema was assembled by a non-owner
-		// path, and the OutOfOrderMigrationError (pending version vs
-		// recorded max) names the exact disagreement. The supported
-		// upgrade witness for the pre-refactor state is the adjacent
-		// fixture-composition subtest.
 		owner, err := explorerpg.OwnerMigrations()
 		if err != nil {
 			t.Fatalf("owner history: %v", err)
@@ -1172,13 +1027,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 	})
 
 	t.Run("ExplorerControlPlanePreRefactorFixtureCompositionUpgrade", func(t *testing.T) {
-		// Condition C3, no-rerun half: the schema as the pre-refactor
-		// suites actually deployed it -- the old owner embed plus the
-		// three fixture migrations loaded from the frozen snapshots --
-		// upgrades through the new owner entry point to a ledger-identical
-		// no-op: every applied row (including 4/7/8) keeps its exact
-		// (version, name, checksum) identity, the added set is empty, and
-		// a durable row survives.
 		owner, err := explorerpg.OwnerMigrations()
 		if err != nil {
 			t.Fatalf("owner history: %v", err)
@@ -1196,9 +1044,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		schema, seeded := seed(t, "up_explorer", legacy)
 		expManifest, _ := pgstore.LookupManifest(pgstore.SeriesExplorerControl)
 		ab05ledgerEqual(t, schema, seeded, expManifest.Entries)
-		// The fixture-supplied 4/7/8 ledger rows equal the sha256 of the
-		// frozen pre-refactor snapshot bytes: what the fixtures applied
-		// then is what the owner embeds now, byte for byte.
 		for _, movedFile := range ab05MovedFiles {
 			if movedFile.series != pgstore.SeriesExplorerControl {
 				continue
@@ -1245,15 +1090,10 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 			t.Fatalf("owner upgrade of a fixture-seeded explorer schema: %v", err)
 		}
 		ab05ledgerEqual(t, schema, after.Applied, expManifest.Entries)
-		// The composition already carries the full owner history: the
-		// upgrade must add nothing and rewrite nothing -- no applied row
-		// is ever re-run.
 		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied, nil)
 		if got, err := store.Get(ctx, e.Project, e.ExplorerID); err != nil || got.Title != "Upgrade Survivor" {
 			t.Fatalf("explorer row did not survive the upgrade: %+v, %v", got, err)
 		}
-		// Double-apply through the owner entry point is a ledger-identical
-		// no-op.
 		twice, err := explorerpg.MigrateSchema(ctx, client, schema)
 		if err != nil {
 			t.Fatalf("owner double-apply of explorer schema: %v", err)
@@ -1278,8 +1118,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		schema, seeded := seed(t, "up_pub", legacy)
 		pubManifest, _ := pgstore.LookupManifest(pgstore.SeriesPublicationControl)
 		ab05ledgerEqual(t, schema, seeded, pubManifest.Entries)
-		// Durable rows exist before the upgrade: a lease and a private
-		// artifact row, each written through its production store.
 		registry, err := publicationpg.New(admin, schema)
 		if err != nil {
 			t.Fatalf("publication registry: %v", err)
@@ -1324,8 +1162,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 			t.Fatalf("owner upgrade of a fixture-seeded publication schema: %v", err)
 		}
 		ab05ledgerEqual(t, schema, after.Applied, pubManifest.Entries)
-		// The pre-refactor composition already covers the full owner
-		// history: the upgrade must add nothing and rewrite nothing.
 		ab05AssertUpgradeLedger(t, schema, seeded, after.Applied, nil)
 		renewed, err := catalog.Renew(ctx, artifactID, "ab05-owner", ab05Expiry(2*time.Hour))
 		if err != nil || !renewed {
@@ -1354,8 +1190,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 		schema, seeded := seed(t, "up_rel", legacy)
 		relManifest, _ := pgstore.LookupManifest(pgstore.SeriesDatasetRelease)
 		ab05ledgerEqual(t, schema, seeded, relManifest.Entries)
-		// A staged generation manifest is persisted through the production
-		// dataset store before the upgrade.
 		gen, err := datasetpg.New(client, schema)
 		if err != nil {
 			t.Fatalf("dataset store: %v", err)
@@ -1398,10 +1232,6 @@ func ab05PreRefactorUpgradeConverges(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// zero-survivor sweep
-// ---------------------------------------------------------------------------
-
 func ab05ZeroSurvivorSweep(t *testing.T) {
 	t.Helper()
 	if os.Getenv("LOOM_TEST_POSTGRES_URL") == "" {
@@ -1425,7 +1255,6 @@ func ab05ZeroSurvivorSweep(t *testing.T) {
 	}
 	rows.Close()
 	for _, name := range leftovers {
-		// Defensive, never silent: drop, then fail so the leak is loud.
 		_, _ = admin.Exec(ctx, "DROP SCHEMA IF EXISTS "+pgxIdentifier(name)+" CASCADE")
 	}
 	if len(leftovers) > 0 {
@@ -1433,12 +1262,7 @@ func ab05ZeroSurvivorSweep(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// the single named acceptance test
-// ---------------------------------------------------------------------------
-
 func TestPostgresMigrationOwnershipContract(t *testing.T) {
-	// Offline record integrity runs always, with no database present.
 	t.Run("ManifestMatchesEmbeddedOwners", ab05ManifestMatchesOwners)
 	t.Run("ManifestChecksumsNonCircular", ab05ManifestChecksumsNonCircular)
 	t.Run("ManifestRecordInvariants", ab05ManifestRecordInvariants)
@@ -1446,8 +1270,6 @@ func TestPostgresMigrationOwnershipContract(t *testing.T) {
 	t.Run("SharedBootstrapBytesIdentical", ab05SharedBootstrapBytesIdentical)
 	t.Run("ValidateAssignmentMatrix", ab05AssignmentValidation)
 
-	// PostgreSQL halves: the runner lane asserts this suite runs with zero
-	// skips against the CI PostgreSQL-18 service.
 	t.Run("FreshBootstrapsConverge", ab05FreshBootstrapsConverge)
 	t.Run("RepresentativeDomainOperations", ab05RepresentativeDomainOperations)
 	t.Run("IncompatibleHistoriesRefused", ab05IncompatibleHistoriesRefused)
@@ -1455,12 +1277,6 @@ func TestPostgresMigrationOwnershipContract(t *testing.T) {
 	t.Run("TestZZZeroSurvivorSweep", ab05ZeroSurvivorSweep)
 }
 
-// repoRootForOwnerStat locates the repository root by walking up from this
-// test file until a go.mod is found, so the owner-package directory checks
-// stay correct no matter how deep the store package itself moves (the
-// arch-backend-06 relocation from internal/store/postgres to
-// internal/backends/postgres/internal/store would otherwise silently
-// out-distance a fixed "../../../" prefix).
 func repoRootForOwnerStat(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

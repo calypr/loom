@@ -1,117 +1,5 @@
 package postgres
 
-// This file registers the correlated related-record set and its reductions
-// as an implemented, closed PostgreSQL operation slice (pg-sql-08), plus
-// the hop-only canonical RELATED existence shape (see the RELATED section
-// below for its exact reachability from current lowering). It is the single
-// authority in this package for the ir.PhysicalSetOp surface.
-//
-// The AQL counterpart of the set is render/aql/navigation_render.go
-// renderSet (lines 217-332): a LET over a FOR loop inside a LET, so the set
-// never changes the parent row count, and a parent with an empty set is
-// still emitted. The registered PostgreSQL spelling keeps that reading with
-// per-field scalar sublinks in the SELECT list: the set materializes no
-// join, so the outer row count is untouched by construction, and each
-// reduction field reads exactly its own aggregate over the correlated child
-// items (a NULL-correlated parent — an OPTIONAL anchor with no matching
-// occurrence — aggregates over zero rows, which is AQL's empty-set reading
-// with the parent preserved).
-//
-// The closed child-set shape is the one lower/child_sets.go
-// buildOptionalChildPhysicalSet (lines 13-153) produces:
-//
-//   - Subplan: exactly one capture (the correlation anchor), exactly one
-//     depth-one TRAVERSAL step anchored on it (the shared
-//     validateTraversalContract re-reads every discriminator), the one
-//     canonical project/dataset_generation/auth block
-//     lower/plan_orchestration.go emits for the hop's edge and target rows
-//     (consumed via population.go matchCanonicalScopeBlock and ignored:
-//     scope.go's re-read structural predicates are the single scope
-//     authority, D5), then zero or more typed FILTER operations rendered by
-//     the shared renderPredicateFragmentScoped contract over subplan-local
-//     rows, and the child_sets.go:88 canonical return: a VALUE expression,
-//     OBJECT cardinality, PRESERVE_NULL null behavior, over the reached
-//     target document.
-//   - Set flags: Unique and SortByKey are pinned true (child_sets.go:88);
-//     the renderer's deterministic (logical_id, element-ordinality) order
-//     implements the SortByKey contract, and UNIQUE(items) is the
-//     SELECT-DISTINCT item dedup below.
-//   - Reduction: FIRST/ALL/DISTINCT over selector slots projected in the
-//     child subquery (child_sets.go:507-531), read downstream as
-//     {variable: <set>_reduced, path: [name]}. The reduced variable is
-//     registered as a renderer-derived jsonb value (unnest.go
-//     registerDerivedValue), so it reads only through
-//     resolveValue/resolveDerivedValue — never as a join, filter, sort, or
-//     selector source.
-//
-// Reduction parity (render/aql/navigation_render.go
-// renderPhysicalSetReduction, lines 371-392):
-//
-//   - FIRST  ~ FIRST(FLATTEN(items[*].slot)):  first element in set order
-//     (SORT BY target._key → logical_id, then slot-array ordinality), NULL
-//     over the empty set exactly as AQL FIRST([]) reads NULL.
-//   - ALL    ~ FLATTEN(items[*].slot):        every element in set order,
-//     duplicates preserved, '[]' over the empty set.
-//   - DISTINCT ~ SORTED_UNIQUE(FLATTEN(...)):  cited-and-diverged (plan
-//     ruling D1, accepted on the ticket's identity-aware acceptance): the
-//     PostgreSQL rendering dedups by (child identity, value) — duplicate
-//     values inside one child collapse, equal values from two different
-//     children both survive. See the DISTINCT sublink below.
-//
-// Items are the deduped child documents: SELECT DISTINCT
-// (logical_id, resource_type, payload) over the edge INNER JOIN resource
-// occurrence join. That mirrors AQL UNIQUE(set) over identical reached
-// documents (navigation_render.go:311-314): two occurrences of the same
-// edge to the same child contribute one item, while unresolved targets
-// never join (the INNER edge-to-target join is the traversal.go exactness
-// decision).
-//
-// The RELATED existence surface registered here is the hop-only canonical
-// shape: a bounded correlated EXISTS over one or more chained hops, each
-// hop closing with its canonical scope block, typed FILTER operations over
-// reached rows, and the canonical scalar {_id} return physicalValueExpression
-// emits (recipe_construction_related_expand.go:336). EXISTS is a semi-join:
-// it never multiplies parent rows, is total (never SQL NULL), so the
-// registered top-level NOT(EXISTS) form needs no COALESCE guard. The
-// predicate dispatch in predicates.go classifies each whole-FILTER EXISTS:
-// the REQUIRED constant-1 return stays with traversal.go
-// renderRequiredMatchExists unchanged; the canonical RELATED {_id} return is
-// rendered here; anything else keeps the legacy traversal.go refusal, so
-// every pre-existing golden error stays byte-identical.
-//
-// What production lowering emits today is NOT yet this reachable shape.
-// lowerConstructionRelatedEligibility (recipe_construction_related_eligibility.go
-// :93-130) prefixes every eligibility subplan with an anchor operation — a
-// COLLECTION_SCAN plus a variable-right Predicate FILTER for the
-// root/rootContributors kind, or a DOCUMENT_LOOKUP for activeRelatedRecord —
-// followed by the anchor variable's own canonical scope block, and its
-// filter attaches only as stage.Filter on a PhysicalStageRelatedEligibilityOp
-// (recipe_construction.go:1483), which RenderPhysicalPlan refuses before
-// operation dispatch (StageSequence != nil). Both anchor operations are
-// subplan-argument calls that stay unregistered this wave by the batch
-// ruling, so the anchor-prefixed eligibility plan fails closed here (witnessed
-// by TestRelatedExistsAnchorPrefixedProductionShapeStaysRefused), and the
-// registration above is what the later subplan-argument registration will
-// hand off to. No current lowering output reaches the hop-only renderer.
-//
-// Refusals (all ErrUnsupportedPostgresPlan, never an AQL fallback): shared
-// subsets over a materialized set (renderSharedSubset has no registered
-// PostgreSQL contract), prepared sets, node-path sets, a set without a
-// reduction contract (nothing downstream can read the items), a set
-// without its selector projection, subplan projection modifiers
-// (Sort/Unique/DistinctBy), nested SET or UNNEST inside a subplan,
-// CollectionScan/KeySetLookup/DocumentLookup steps (the subplan-argument
-// call surface stays unregistered this wave), plan-authored scope blocks
-// that are not exactly canonical, OPTIONAL anchors for EXISTS (the
-// traversal.go:350-354 rule — a NULL-extended anchor column would let
-// subplan FILTERs compare absent rows), and every return shape outside the
-// two canonical pins.
-//
-// All plan data still crosses only the $n boundary: labels, types, paths,
-// filter values, selector paths, and the reduction field names reaching
-// jsonb_build_object are bound parameters; only registry-validated
-// identifiers and renderer-owned aliases reach SQL text.
-
 import (
 	"fmt"
 	"strconv"
@@ -120,14 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// correlatedSetBody is the one validated, one-time rendering of a child
-// subplan's correlated occurrence join: the FROM list (edge relation plus
-// the INNER edge-to-target join), the WHERE conjunction (correlated edge
-// predicates, the canonical-ignored scope block's structural replacement,
-// and the typed subplan FILTERs), and the reached target row's binding.
-// Every SELECT-list sublink for one set reuses this text, so a multi-field
-// reduction executes the same correlated scan per field without ever
-// re-adding duplicate bind parameters.
 type correlatedSetBody struct {
 	from        string
 	where       string
@@ -136,14 +16,6 @@ type correlatedSetBody struct {
 	targetVar   string
 }
 
-// renderCorrelatedChildSteps validates and renders the operation list both
-// registered correlated surfaces share. allowOptionalCapture distinguishes
-// the SET anchor (an OPTIONAL row's NULL correlation aggregates over zero
-// child rows, the AQL LET-set reading) from the EXISTS anchor
-// (traversal.go:350-354: NULL-extended anchor columns may not correlate a
-// semi-join). multipleTraversals distinguishes the single-hop child set
-// (child_sets.go emits exactly one) from the chained related-eligibility
-// route.
 func (r *planRenderer) renderCorrelatedChildSteps(
 	plan ir.PhysicalPlan,
 	subplan ir.PhysicalSubplan,
@@ -197,8 +69,6 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 			targetAlias := "x" + strconv.Itoa(seq)
 			edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, targetAlias, nextSource.alias)
 			if !sawTraversal {
-				// The first hop's edge relation is the subplan FROM; its
-				// predicates carry the outer correlation and land in WHERE.
 				fromParts = append(fromParts, "FROM "+r.storage.Edge.Identifier().SQLText()+" AS "+edgeAlias)
 				whereParts = append(whereParts, edgeWhere)
 			} else {
@@ -212,12 +82,6 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 			nextSourceVariable = traversal.TargetVariable
 			sawTraversal = true
 			index++
-			// The lowering always emits the canonical scope block for a
-			// hop's edge and target rows (lower/child_sets.go:24-26 and
-			// recipe_construction_related_eligibility.go:155-160). It is
-			// consumed exactly and ignored: the structural predicates from
-			// scope.go above are the single scope authority, and any block
-			// that is not canonically exact is a typed refusal.
 			if err := matchCanonicalScopeBlock(subplan.Operations, &index,
 				[]string{traversal.EdgeVariable, traversal.TargetVariable}); err != nil {
 				return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: canonical subplan scope block: %s",
@@ -259,21 +123,6 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 	}, nil
 }
 
-// renderSet registers one ir.PhysicalSetOp: it validates the closed
-// child-set contract, renders each reduction field as one correlated
-// scalar sublink over the deduped child items, and binds the reduced
-// variable as a renderer-derived jsonb value. The set variable itself is
-// deliberately never bound: the registered item-array consumers — the
-// FIRST/ALL/DISTINCT reductions here, and the pg-sql-11 SLICE over the
-// stashed body (objects.go renderSliceOverChildSet) — read the validated
-// body, so any direct read of the set fails closed as an unbound variable
-// instead of rendering an unregistered aggregate.
-//
-// Derived reads inline their expression, so each projection of the reduced
-// variable repeats the sublink text once per reader. That duplication is
-// textual only: PostgreSQL's planner merges structurally equal scalar
-// sublinks into one SubPlan (backend/optimizer/README sameexpr rules), so
-// each distinct correlated scan still executes once per outer row.
 func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error {
 	if set.SourceSetVariable != "" {
 		return fmt.Errorf("%w: shared subsets over a materialized set (source set %q) have no registered PostgreSQL contract (the AQL counterpart is render/aql/navigation_render.go renderSharedSubset)",
@@ -311,9 +160,6 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 		return fmt.Errorf("set %q: %w", set.Variable, err)
 	}
 
-	// The child_sets.go:88 canonical return: the whole reached target
-	// document, OBJECT cardinality, PRESERVE_NULL. EXISTS-style value
-	// returns and selector returns are other capabilities' shapes.
 	ret := set.Subplan.Return
 	if ret.Kind != ir.PhysicalValueExpression || ret.Cardinality != ir.PhysicalObjectCardinality ||
 		ret.NullBehavior != ir.PhysicalPreserveNull || ret.Value == nil ||
@@ -322,15 +168,6 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 			ErrUnsupportedPostgresPlan, set.Variable)
 	}
 
-	// D2 handoff stash (pg-sql-11): a registered SLICE over this set
-	// renders over exactly this validated occurrence-join body — the same
-	// text the reductions below read — so one child scan contract serves
-	// both surfaces. The registered projection slots are stashed alongside
-	// so a slice extract's Extract.Prepared reference resolves against
-	// the same compact-projection contract the reductions read (the
-	// Option A ruling: resolution, not refusal, for Prepared refs naming
-	// these slots). Stashed only after every structural pin above and
-	// the canonical-return pin have passed.
 	if r.setBodies == nil {
 		r.setBodies = make(map[string]correlatedSetBody)
 	}
@@ -342,9 +179,6 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 		r.setProjections[set.Variable] = append([]ir.PhysicalSetProjectionField(nil), set.Projection.Fields...)
 	}
 	if set.Reduction == nil {
-		// Registered consumer is a SLICE (the nil guard above proved one
-		// exists): the set contributes its item relation only, no reduced
-		// variable is bound.
 		return nil
 	}
 
@@ -368,22 +202,12 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 		if err != nil {
 			return fmt.Errorf("set %q reduction field %q: %w", set.Variable, field.Name, err)
 		}
-		// jsonb_build_object is variadic "any": the bound key parameter
-		// carries no inferable type, so it is cast to text explicitly
-		// (SQLSTATE 42P18 otherwise; the sublink values are jsonb-typed by
-		// construction).
 		objectArgs = append(objectArgs, "$"+strconv.Itoa(keyIndex)+"::text, "+value)
 	}
 	object := "jsonb_build_object(" + strings.Join(objectArgs, ", ") + ")"
 	return r.registerDerivedValue(set.Reduction.Variable, object, true)
 }
 
-// setProjectionSlotExpression renders one projection slot's null-free
-// 0..1-item value list over the deduped item row: the shared
-// selectorValuesExpression normalization (missing or JSON-null document
-// path → '[]', present value → the value whole), evaluated against the
-// item subquery's payload column. A stored array is never unpacked here —
-// FLATTEN happens in the reduction sublink's WITH ORDINALITY expansion.
 func (r *planRenderer) setProjectionSlotExpression(
 	field ir.PhysicalSetProjectionField,
 	corr correlatedSetBody,
@@ -408,35 +232,6 @@ func (r *planRenderer) setProjectionSlotExpression(
 	return slot, nil
 }
 
-// setReductionSublink renders one reduction field as a correlated scalar
-// sublink over the set's deduped child items.
-//
-// The item subquery is the SELECT-DISTINCT dedup of (logical_id,
-// resource_type, payload) over the correlated occurrence join — the
-// counterpart of AQL UNIQUE(set) (navigation_render.go:311-314), so
-// repeated edge occurrences to one child contribute one item. The
-// WITH ORDINALITY expansion of each item's slot list is the FLATTEN;
-// the deterministic total order is (logical_id, element ordinality),
-// the AQL SORT BY target._key (SortByKey) plus slot-array order:
-//
-//   - FIRST:  ORDER BY that total order LIMIT 1 — NULL over zero elements,
-//     AQL FIRST([]) parity.
-//   - ALL:    jsonb_agg over the total order, COALESCE'd to '[]'.
-//   - DISTINCT: identity-aware (plan ruling D1 on the ticket's
-//     acceptance): DISTINCT ON (item identity, element value) keeping the
-//     lowest ordinality inside the group, then jsonb_agg over
-//     (logical_id, element ordinality). Duplicate values inside one child
-//     collapse as SORTED_UNIQUE does; equal values from two different
-//     children both survive, which the AQL value-level SORTED_UNIQUE
-//     (navigation_render.go:384-385) would erase. Elements of a jsonb
-//     array are never SQL NULL (a stored null is the jsonb 'null' value),
-//     so nulls flow through exactly as AQL FLATTEN keeps them.
-//
-// The registered single-hop join fixes the child resource type, so
-// logical_id is unique across items of one set: (logical_id, element
-// ordinality) is a total order (no FIRST tie can flip between executions),
-// and the item dedup still carries resource_type because logical_id only
-// identifies a document within its type at the storage layer.
 func (r *planRenderer) setReductionSublink(
 	setVariable string,
 	mode ir.PhysicalSetReductionMode,
@@ -484,15 +279,6 @@ func (r *planRenderer) setReductionSublink(
 	}
 }
 
-// isRelatedExistsSubplan is the cheap shape gate the predicates.go dispatch
-// uses to split whole-FILTER EXISTS subplans between the two registered
-// correlated surfaces. It never errors: the REQUIRED constant-1 return
-// (validateRequiredMatchReturn) stays with traversal.go untouched, the
-// canonical related-eligibility {_id} return routes here, and every other
-// shape falls through to the legacy traversal.go refusal so all
-// pre-existing golden errors stay byte-identical. The two canonical return
-// shapes are disjoint: REQUIRED binds an integer constant with no variable,
-// RELATED reads the last hop's target row at ["_id"].
 func isRelatedExistsSubplan(subplan *ir.PhysicalSubplan) bool {
 	if subplan == nil || len(subplan.Captures) != 1 {
 		return false
@@ -518,20 +304,6 @@ func isRelatedExistsSubplan(subplan *ir.PhysicalSubplan) bool {
 		len(ret.Value.Path) == 1 && ret.Value.Path[0] == "_id"
 }
 
-// renderRelatedExists renders the hop-only RELATED existence semi-join:
-// chained hops, each closing with its canonical scope block, typed FILTERs
-// over reached rows, and the canonical scalar {_id} return
-// physicalValueExpression emits (recipe_construction_related_expand.go:336).
-// That is the return shape lower/recipe_construction_related_eligibility.go
-// :208-213 puts on RelatedEligibilityExists (and its NOT form), but the
-// emitted subplan additionally carries the anchor prefix refused this wave
-// (see the file header): no production lowering reaches this renderer yet,
-// so it registers the canonical hand-off shape rather than a live route.
-// EXISTS discards the value; the pin keeps the renderer from silently
-// accepting another surface's return. Like the REQUIRED match, projection
-// modifiers are refused (the AQL bounded renderSubplan refuses them too,
-// render/aql/predicates.go:315-317). The result is total — EXISTS is never
-// SQL NULL — so the registered NOT form wraps it unguarded.
 func (r *planRenderer) renderRelatedExists(plan ir.PhysicalPlan, subplan ir.PhysicalSubplan) (string, error) {
 	if subplan.Sort != nil || subplan.Unique || subplan.DistinctBy != nil {
 		return "", fmt.Errorf("%w: related-existence subplan cannot carry projection-only sort or unique modifiers (render/aql/predicates.go:315-317 refuses them for bounded EXISTS too; count-style eligibility is a separate capability)",

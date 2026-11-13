@@ -1,16 +1,5 @@
 package control
 
-// Public control- and read-plane vocabulary.
-//
-// These re-exports complete what a caller needs to drive and verify a
-// PostgreSQL generation through the factory boundary: batch conflict
-// identities, the resource/edge repository constructors used for bounded
-// fixture writes, the field-profile and inventory read/coverage types, and
-// the catalog adapters' input contracts (so test doubles can name them).
-// Same discipline as vocabulary.go: aliases of the implementation types,
-// no new semantics, implementation stays under
-// internal/backends/postgres/internal/.
-
 import (
 	catalogstore "github.com/calypr/loom/internal/backends/postgres/internal/catalog"
 	chartifactstore "github.com/calypr/loom/internal/backends/postgres/internal/chartifact"
@@ -24,9 +13,6 @@ import (
 	publicationcontract "github.com/calypr/loom/internal/dataset"
 )
 
-// Batch conflict identities: sentinel chains and the typed errors that
-// carry them, so callers classify ledger outcomes with errors.As without
-// importing the store package.
 var (
 	ErrBatchIdentityConflict = pgstore.ErrBatchIdentityConflict
 	ErrBatchRowConflict      = pgstore.ErrBatchRowConflict
@@ -42,20 +28,16 @@ type (
 	EdgeSourceMissingError     = pgstore.EdgeSourceMissingError
 )
 
-// Dataset manifest refusals carried by the lifecycle port.
 var (
 	ErrManifestNotFound  = datasetstore.ErrManifestNotFound
 	ErrInvalidSchemaName = datasetstore.ErrInvalidSchemaName
 )
 
-// Edge write vocabulary (rows and scope) used by the ingest writer seam.
 type (
 	EdgeOccurrenceRow = pgstore.EdgeOccurrenceRow
 	EdgeScope         = pgstore.EdgeScope
 )
 
-// Bounded repositories for direct resource/edge fixture writes over a
-// ConnSource, keeping every store-side validation.
 type (
 	ResourceRepository = pgstore.ResourceRepository
 	EdgeRepository     = pgstore.EdgeRepository
@@ -69,7 +51,6 @@ func NewEdgeRepository(src ConnSource, schema string) (*EdgeRepository, error) {
 	return pgstore.NewEdgeRepository(src, schema)
 }
 
-// Field-profile and inventory read/coverage vocabulary.
 type (
 	FieldProfileCoverage = pgstore.FieldProfileCoverage
 	FieldProfileFilter   = pgstore.FieldProfileFilter
@@ -77,16 +58,12 @@ type (
 	InventoryCountScope  = pgstore.InventoryCountScope
 )
 
-// Catalog adapter input contracts: the store-shaped interfaces the catalog
-// constructors accept, re-exported so consumer test doubles can name them.
 type (
 	FieldProfileStore = catalogstore.FieldProfileStore
 	InventoryStore    = catalogstore.InventoryStore
 	RelationshipStore = catalogstore.RelationshipStore
 )
 
-// Relationship read vocabulary and the semantic read repository used to
-// verify contribution materialization.
 type (
 	RelationshipScope           = catalogstore.RelationshipScope
 	RelationshipOccurrenceGroup = catalogstore.RelationshipOccurrenceGroup
@@ -97,8 +74,6 @@ func NewSemanticReadRepository(src ConnSource, schema string) (*SemanticReadRepo
 	return catalogstore.NewSemanticReadRepository(src, schema)
 }
 
-// Store-side repository constructors for fixture and bootstrap wiring over
-// a ConnSource, keeping every store-side validation.
 type (
 	FieldProfileRepository = pgstore.FieldProfileRepository
 	InventoryRepository    = pgstore.InventoryRepository
@@ -112,8 +87,6 @@ func NewInventoryRepository(src ConnSource, schema string) (*InventoryRepository
 	return pgstore.NewInventoryRepository(src, schema)
 }
 
-// Catalog adapter constructors over store-shaped inputs, re-exported for
-// the generation-load production recipe and test doubles.
 type CatalogStore = catalogstore.Store
 
 func NewCatalogStore(inventory InventoryStore) (*CatalogStore, error) {
@@ -138,8 +111,6 @@ func NewSemanticContributionRepository(src ConnSource, schema string) (*Semantic
 	return catalogstore.NewSemanticContributionRepository(src, schema)
 }
 
-// Explorer control-plane adapters over the runtime pool, re-exported for
-// witness fixtures that establish selection and explicit-group state.
 type (
 	ExplorerStore      = explorerstore.Store
 	ExplicitGroupStore = explorerstore.ExplicitGroupStore
@@ -153,11 +124,6 @@ func NewExplicitGroupStore(client *Client, schema string) (*ExplicitGroupStore, 
 	return explorerstore.NewExplicitGroupStore(client, schema)
 }
 
-// Data-plane adapters (pg-runtime-server-composition). The composed server
-// consumes these through control.Runtime fields; the types and constructors
-// are re-exported so witnesses and fixtures can name them and establish
-// publication, recipe, interpretation, or Explorer state directly over a
-// ConnSource without importing the private packages.
 type (
 	PublishStore              = explorerstore.PublishStore
 	InterpretationStore       = explorerstore.InterpretationStore

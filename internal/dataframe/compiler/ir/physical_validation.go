@@ -371,10 +371,6 @@ func (p PhysicalPlan) Validate() error {
 	return nil
 }
 
-// ValidateForWorkspaceCompilation validates the closed typed shape of a
-// terminal workspace-output Combine. It is a resolver-only boundary: normal
-// physical validation and all execution/render entry points still reject the
-// unresolved sibling references until server-owned capture is implemented.
 func (p PhysicalPlan) ValidateForWorkspaceCompilation() error {
 	if p.Engine != PhysicalEngineClickHouse || p.ClickHouseCombine == nil || p.ClickHousePrefix != nil {
 		return p.Validate()

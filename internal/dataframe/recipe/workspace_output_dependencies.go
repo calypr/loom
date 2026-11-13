@@ -2,9 +2,6 @@ package recipe
 
 import "fmt"
 
-// OutputDependencyOrder returns bundle output indexes in stable dependency
-// order. The normal Validate path is closed over this bundle and therefore
-// rejects missing sibling IDs rather than consulting a mutable publication.
 func (b Bundle) OutputDependencyOrder() ([]int, error) {
 	return b.outputDependencyOrder(nil)
 }

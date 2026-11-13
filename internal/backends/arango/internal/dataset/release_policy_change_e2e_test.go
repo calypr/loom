@@ -18,24 +18,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// R2 durable control: a required->optional reclassification of the SAME selector
-// under the SAME execution is a genuinely different immutable snapshot. The
-// pre-widening releaseID hashed only project/generation plus each publication's
-// (Selector.Key(), ExecutionID), so SaveRelease's full-content comparison
-// rejected the new candidate with "release already exists with different
-// content" while the identity said the document already existed. This test runs
-// the production ReleaseService.Create/Activate against a real Arango and
-// asserts the policy change saves AND activates a distinct immutable candidate,
-// that the superseded candidate keeps its bytes and _rev, that identical
-// retries converge, and that a pre-widening stored id transitions at most once.
-
 const rpcDatabasePrefix = "loom_verify_rpc_"
 
-// rpcHistoricalReleaseID replays the pre-widening digest exactly as shipped
-// (project and generation joined by a bare NUL, then one NUL-joined
-// (Selector.Key(), ExecutionID) group per publication). It is the fault
-// premise: the required and optional snapshots collapse HERE and must not
-// collapse in production releaseID.
 func rpcHistoricalReleaseID(release dataset.ProjectRelease) string {
 	var b strings.Builder
 	b.WriteString(release.Project)
@@ -133,9 +117,6 @@ func rpcStageGeneration(t *testing.T, ctx context.Context, lifecycle *Store, pro
 	}
 }
 
-// rpcRawRelease reads the persisted project_release document by release id
-// through raw AQL, so the assertions observe stored bytes and _rev rather than
-// the decoded view.
 func rpcRawRelease(t *testing.T, ctx context.Context, client *arangostore.Client, id string) map[string]any {
 	t.Helper()
 	var doc map[string]any
@@ -185,8 +166,6 @@ func rpcPointer(t *testing.T, ctx context.Context, client *arangostore.Client, p
 	return releaseID, revision, rev
 }
 
-// rpcCanonicalContent renders the persisted immutable content, excluding the
-// document metadata, the derived id and the first-creation timestamp.
 func rpcCanonicalContent(t *testing.T, doc map[string]any) string {
 	t.Helper()
 	content := map[string]any{}
@@ -228,7 +207,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		return &dataset.ReleaseService{Manifests: lifecycle, Releases: lifecycle, Verifier: verifier, Required: required, Now: func() time.Time { return verifiedAt }}
 	}
 
-	// Phase 1: the publication is required.
 	requiredActive, err := newService(selector).Activate(ctx, dataset.ActivationRequest{Project: project, Generation: generation, ExpectedRevision: 0})
 	if err != nil || requiredActive.Revision != 1 {
 		t.Fatalf("required activation = %#v, %v (want revision 1)", requiredActive, err)
@@ -240,7 +218,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		t.Fatalf("phase 1 persisted required = %#v, want true", got)
 	}
 
-	// Fault premise: the pre-widening digest cannot tell the two snapshots apart.
 	if rpcHistoricalReleaseID(requiredActive.Release) != rpcHistoricalReleaseID(dataset.ProjectRelease{
 		Project: project, Generation: generation,
 		Publications: []dataset.ReleasePublication{{Selector: selector, ExecutionID: "execution-r2", Generation: generation}},
@@ -248,8 +225,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		t.Fatalf("fault premise broken: the historical framing must fold the required/optional pair")
 	}
 
-	// Phase 2: the same selector and execution, now optional. This must save a
-	// distinct immutable candidate and activate it.
 	optionalActive, err := newService().Activate(ctx, dataset.ActivationRequest{Project: project, Generation: generation, ExpectedRevision: 1, OptionalSelectors: []dataset.DataframeSelector{selector}})
 	if err != nil {
 		t.Fatalf("optional reclassification did not save and activate: %v", err)
@@ -271,7 +246,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		t.Fatalf("REGRESSION: the two candidates stored identical content: %s", requiredContent)
 	}
 
-	// The superseded candidate is untouched: same bytes, same _rev.
 	reReadRequired := rpcRawRelease(t, ctx, client, requiredActive.Release.ID)
 	if got := rpcCanonicalContent(t, reReadRequired); got != requiredContent {
 		t.Fatalf("REGRESSION: the required candidate content mutated: got %s want %s", got, requiredContent)
@@ -283,8 +257,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		t.Fatalf("REGRESSION: the superseded candidate lost required=true: %#v", got)
 	}
 
-	// Immutable-content comparison is NOT weakened: mutating the persisted
-	// snapshot under its own id must still be refused.
 	tampered := requiredActive.Release
 	tampered.Publications = append([]dataset.ReleasePublication(nil), tampered.Publications...)
 	tampered.Publications[0].Required = false
@@ -292,8 +264,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 	if _, err := lifecycle.SaveRelease(ctx, tampered); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("tampered re-save of the required candidate = %v, want the different-content refusal", err)
 	}
-	// Re-saving byte-identical content (drifted createdAt only) is a no-op that
-	// keeps the original document bytes.
 	drifted := requiredActive.Release
 	drifted.CreatedAt = verifiedAt.Add(42 * time.Minute)
 	saved, err := lifecycle.SaveRelease(ctx, drifted)
@@ -307,8 +277,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		t.Fatalf("REGRESSION: identical re-save churned the immutable candidate")
 	}
 
-	// Identical retries of the optional snapshot: no revision bump, no repeated
-	// identities, no new documents, no pointer churn.
 	optionalRequest := dataset.ActivationRequest{Project: project, Generation: generation, ExpectedRevision: 2, OptionalSelectors: []dataset.DataframeSelector{selector}}
 	pointerID, pointerRevision, pointerRev := rpcPointer(t, ctx, client, project)
 	if pointerID != optionalActive.Release.ID {
@@ -338,9 +306,6 @@ func TestReleaseRequiredPolicyChangeArango(t *testing.T) {
 		t.Fatalf("REGRESSION: identical retries churned the active pointer: %s/%v/%s -> %s/%v/%s", pointerID, pointerRevision, pointerRev, id, revision, rev)
 	}
 
-	// Upgrade boundary: a candidate saved AND activated by the pre-widening
-	// binary keeps its old id; the widened framing transitions it exactly once
-	// and every later retry converges.
 	legacyProbe := dataset.ProjectRelease{Project: project, Generation: generation, GitCommit: generation,
 		Publications: []dataset.ReleasePublication{{Selector: selector, ExecutionID: "execution-r2", Generation: generation, VerifiedAt: verifiedAt}}}
 	legacyID := rpcHistoricalReleaseID(legacyProbe)

@@ -22,36 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ---------------------------------------------------------------------------
-// pg-sql-03: typed selector extraction, asserted twice over.
-//
-// Offline: golden statement and argument literals for the registered
-// forms (in null_semantics_test.go) and typed, exact-named fail-closed
-// refusals for every shape outside the closed slice here.
-//
-// Live (LOOM_TEST_POSTGRES_URL, real PostgreSQL 18 — control.Open
-// Ping-verifies the major and every fixture acquires its pool through
-// it): each test owns one pgsq03_it_* database and one owned schema,
-// migrates through the real pg-store-02 runner, stores literal documents
-// through the real pg-store-04 repository, executes the rendered
-// statement with its ordered driver arguments, and compares literal
-// rows against the behavior contract. The matrix independently checks
-// absent, JSON null, empty array, [null], empty string, false, and
-// numeric zero for preserve/omit/empty-on-null, with presence metadata
-// agreeing with each projection result. Guard-drop probes prove every
-// emitted guard is load-bearing; deny-path probes read zero rows against
-// decoys proven stored; two real connections prove connection
-// independence. TestZZNoLeftoverPgSQ03Resources audits that nothing
-// under the pgsq03_it_* prefix survives, scoped to this ticket's own
-// prefix so sibling slices may run their fixtures concurrently.
-// ---------------------------------------------------------------------------
-
 var pgsq03ResourceNamePattern = regexp.MustCompile(`^pgsq03_it_[0-9]+_[0-9a-f]+$`)
-
-// ---------------------------------------------------------------------------
-// Offline: every shape outside the closed slice fails with a typed,
-// exact-named refusal and no SQL.
-// ---------------------------------------------------------------------------
 
 func pgsq03RawProjection(name string, expression *ir.PhysicalExpression) ir.PhysicalProjection {
 	return ir.PhysicalProjection{Name: name, Expression: expression}
@@ -89,7 +60,6 @@ func TestSelectorExtractionRejectsEveryShapeOutsideTheClosedSlice(t *testing.T) 
 		plan   ir.PhysicalPlan
 		wantIn string
 	}{
-		// Plan shape.
 		{"no operations", func() ir.PhysicalPlan {
 			plan := pgsq03SelectorPlan("Patient", pgsq03RawProjection("g", pgsq03ExtractExpression(nil)))
 			plan.Operations = nil
@@ -146,7 +116,6 @@ func TestSelectorExtractionRejectsEveryShapeOutsideTheClosedSlice(t *testing.T) 
 			return plan
 		}(), "root collection bind"},
 		{"empty return", pgsq03SelectorPlan("Patient"), "at least one selector extraction"},
-		// Projection forms outside the slice.
 		{"blank projection name", pgsq03SelectorPlan("Patient",
 			pgsq03RawProjection(" ", pgsq03ExtractExpression(nil))), "projection names are required"},
 		{"hidden projection", func() ir.PhysicalPlan {
@@ -174,7 +143,6 @@ func TestSelectorExtractionRejectsEveryShapeOutsideTheClosedSlice(t *testing.T) 
 			Name: "logical_id", Value: ir.PhysicalValue{Variable: "root", Path: []string{"logical_id"}},
 			Presence: &ir.PhysicalProjectionPresence{Source: pgsq03DocumentSource(), Paths: [][]string{{"gender"}}}}),
 			"presence proofs pair with selector extractions only"},
-		// EXTRACT payload outside the registered selector form.
 		{"extract without payload", pgsq03SelectorPlan("Patient",
 			pgsq03RawProjection("g", &ir.PhysicalExpression{Kind: ir.PhysicalExtractExpression,
 				Cardinality: ir.PhysicalScalarCardinality, NullBehavior: ir.PhysicalPreserveNull})),
@@ -274,7 +242,6 @@ func TestSelectorExtractionRejectsEveryShapeOutsideTheClosedSlice(t *testing.T) 
 				Source: ir.PhysicalValue{Variable: "other", Path: []string{"payload"}}, Paths: [][]string{{"gender"}}}
 			return pgsq03SelectorPlan("Patient", projection)
 		}(), "selector's own document source"},
-		// Presence sidecar forms.
 		{"sidecar without proof", pgsq03SelectorPlan("Patient", ir.PhysicalProjection{
 			Name: "p", PresenceOutput: true}), "no presence proof"},
 		{"sidecar with value", pgsq03SelectorPlan("Patient", ir.PhysicalProjection{
@@ -312,12 +279,9 @@ func TestSelectorExtractionRejectsEveryShapeOutsideTheClosedSlice(t *testing.T) 
 			if rendered.SQL != "" || rendered.Args != nil || rendered.OutputColumns != nil {
 				t.Fatalf("rejected plan produced output: %#v", rendered)
 			}
-			// Exact-named refusals: the message must name the boundary it
-			// enforces, never be a generic capability gap.
 			if !strings.Contains(err.Error(), testCase.wantIn) {
 				t.Fatalf("error %q must contain %q", err.Error(), testCase.wantIn)
 			}
-			// No fallback: the refusal never offers AQL as an exit.
 			if strings.Contains(strings.ToUpper(err.Error()), "AQL") {
 				t.Fatalf("refusal mentions AQL: %v", err)
 			}
@@ -349,10 +313,6 @@ func TestSelectorExtractionGoldenUnrestrictedMode(t *testing.T) {
 		t.Fatalf("explicit unrestricted mode must add no auth predicate: %s", rendered.SQL)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Real PostgreSQL 18 fixtures.
-// ---------------------------------------------------------------------------
 
 type pgsq03Service struct {
 	ctx    context.Context
@@ -414,8 +374,6 @@ func newPGSQ03Service(t *testing.T) *pgsq03Service {
 		}
 	})
 
-	// pgconn lets a dbname query parameter outrank the URL path; drop any
-	// dbname the service URL carries so isolation is provable.
 	if q := u.Query(); q.Get("dbname") != "" {
 		q.Del("dbname")
 		u.RawQuery = q.Encode()
@@ -444,13 +402,6 @@ func newPGSQ03Service(t *testing.T) *pgsq03Service {
 		}
 	})
 
-	// control.Open Ping-verifies PostgreSQL 18: every live assertion below
-	// is real-PG18 evidence by construction. The agreed resource relation
-	// arrives through the real pg-store-02 runner over its own embedded
-	// sources — migrate.go NewMigrationRunner merges the registered sources
-	// and composes them in sorted version order
-	// (internal/backends/postgres/internal/store/migrate.go:385), so this fixture needs no new
-	// migration files.
 	client, err := control.OpenPool(ctx, control.ClientConfig{
 		DSN:            dsn,
 		MaxConns:       4,
@@ -467,9 +418,6 @@ func newPGSQ03Service(t *testing.T) *pgsq03Service {
 	return &pgsq03Service{ctx: ctx, admin: admin, iso: iso, client: client, schema: schema, scrub: scrub, fail: fail}
 }
 
-// insertResource stores one literal document. A nil payload stores SQL
-// NULL (the migration-000002 absent-document state); a json.RawMessage
-// payload stores the JSON bytes verbatim.
 func (s *pgsq03Service) insertResource(t *testing.T, resourceType, logicalID string, payload any) int64 {
 	t.Helper()
 	var raw json.RawMessage
@@ -561,8 +509,6 @@ func (s *pgsq03Service) expectStored(t *testing.T, logicalID, payloadText string
 	}
 }
 
-// pgsq03LivePlan builds the closed extraction plan for the live fixtures
-// with an explicit authorization scope.
 func pgsq03LivePlan(paths []string, unrestricted, scopeAllowed bool, projections ...ir.PhysicalProjection) ir.PhysicalPlan {
 	return ir.PhysicalPlan{
 		Version: 1,
@@ -589,15 +535,6 @@ func pgsq03GenderPlan(t *testing.T, behavior ir.PhysicalNullBehavior, paths []st
 		pgsq03PresenceSidecar("gender_present", "gender"))
 }
 
-// TestPGSQ03ScalarNullBehaviorMatrixLive independently checks every cell of
-// the behavior contract against real PostgreSQL 18: seven stored states —
-// missing, JSON null, empty array, [null], empty string, false, numeric
-// zero — plus the SQL-NULL payload state, rendered under preserve, omit,
-// and empty-on-null, comparing literal rows and proving the presence
-// metadata agrees with each projection result. Under EMPTY_ON_NULL the
-// JSON-null and empty-string rows share one observable value-and-presence
-// pair — the collapse that behavior declares — so the matrix pins that
-// identity rather than claiming to distinguish the two.
 func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	states := []struct {
@@ -618,8 +555,6 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 	for _, state := range states {
 		svc.insertResource(t, "Patient", state.logicalID, state.payload)
 	}
-	// Non-vacuity: every stored state is really stored, byte-exact — the
-	// matrix below distinguishes documents, not an empty table.
 	for _, state := range states {
 		svc.expectStored(t, state.logicalID, state.payloadText)
 	}
@@ -633,13 +568,6 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 		value   string
 		present string
 	}{
-		// Cells are the driver's decoded rendering through stringifyCell:
-		// JSON null and SQL NULL both read as <null> — the presence bit
-		// is what distinguishes them — and string scalars arrive unquoted.
-		// Under EMPTY_ON_NULL the m-null and m-emptystring cells are
-		// deliberately the same observable pair (the empty value with
-		// presence true), the collapse null_semantics.go declares; the
-		// presence bit still separates them from the absent states.
 		ir.PhysicalPreserveNull: {
 			"m-absent":      {"<null>", "false"},
 			"m-null":        {"<null>", "true"},
@@ -683,8 +611,6 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s render: %v", behavior, err)
 		}
-		// Exact ordered arguments before execution: scope, type, then the
-		// whole-path text[] parameter and the presence key parameter.
 		wantArgs := []command.PostgreSQLParameter{
 			{Type: command.PostgreSQLParameterText, Value: pgsq03Project},
 			{Type: command.PostgreSQLParameterText, Value: pgsq03Gen},
@@ -707,10 +633,6 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 			}
 		}
 
-		// Agreement probe: the presence metadata must agree with the
-		// projection result in exactly the way the behavior's contract
-		// states, checked by the database itself, not by the comparison
-		// above alone.
 		var probe string
 		switch behavior {
 		case ir.PhysicalPreserveNull:
@@ -734,12 +656,6 @@ func TestPGSQ03ScalarNullBehaviorMatrixLive(t *testing.T) {
 	}
 }
 
-// TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing runs
-// the nested-path presence chain over parent states (present, terminal
-// JSON null, null parent, scalar parent, array-parent-containing-the-key
-// decoy, absent) and drops each emitted guard one at a time to prove it
-// changes the answer — a guard whose removal changed nothing would be
-// decoration.
 func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	states := []struct {
@@ -753,9 +669,6 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 		{"n-nullterminal", json.RawMessage(`{"meta": {"source": null}}`), `{"meta": {"source": null}}`, "<null>", "true"},
 		{"n-parentnull", json.RawMessage(`{"meta": null}`), `{"meta": null}`, "<null>", "false"},
 		{"n-parentscalar", json.RawMessage(`{"meta": 5}`), `{"meta": 5}`, "<null>", "false"},
-		// The array-contains decoy: jsonb_exists over an array reports a
-		// matching scalar element, so only the jsonb_typeof object gate
-		// keeps this from falsely proving meta.source present.
 		{"n-parentarray", json.RawMessage(`{"meta": ["source"]}`), `{"meta": ["source"]}`, "<null>", "false"},
 		{"n-absent", map[string]any{"active": true}, `{"active": true}`, "<null>", "false"},
 	}
@@ -796,8 +709,6 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 		}
 	}
 
-	// Guard-drop probe 1: removing the jsonb_typeof object gate turns the
-	// array-contains decoy into a false presence.
 	gated := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`".fhir_resource
 		WHERE project=$1 AND dataset_generation=$2 AND logical_id='n-parentarray'
 		AND COALESCE(jsonb_typeof(payload #> '{meta}'::text[]) = 'object' AND jsonb_exists(payload #> '{meta}'::text[], 'source'), false)`,
@@ -813,8 +724,6 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 		t.Fatalf("the typeof gate is not load-bearing: without it the decoy still reads false (%v)", ungated)
 	}
 
-	// Guard-drop probe 2: removing COALESCE(..., false) makes the presence
-	// bit NULL (three-valued collapse) for the absent-document row.
 	svc.insertResource(t, "Patient", "g-nodoc", nil)
 	totally := svc.witness(t, `SELECT count(*) FROM "`+svc.schema+`".fhir_resource
 		WHERE project=$1 AND dataset_generation=$2 AND logical_id='g-nodoc'
@@ -831,16 +740,11 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 		t.Fatalf("with COALESCE the presence bit must never be NULL, got %v", withCOALESCE)
 	}
 
-	// Guard-drop probe 3: text extraction (#>>) would collapse the stored
-	// JSON null to SQL NULL — the value column must stay jsonb (#>).
 	collapsed := svc.witness(t, `SELECT payload #>> '{meta,source}'::text[] FROM "`+svc.schema+`".fhir_resource
 		WHERE project=$1 AND dataset_generation=$2 AND logical_id='n-nullterminal'`, pgsq03Project, pgsq03Gen)
 	if len(collapsed) != 1 || collapsed[0][0] != "<null>" {
 		t.Fatalf("baseline: #>> is expected to collapse the JSON null (proving the choice of #> is load-bearing), got %v", collapsed)
 	}
-	// The same path read as raw jsonb text keeps the stored JSON null
-	// distinct from SQL NULL — ::text here, not in the rendered
-	// statement, to show what the driver would have collapsed.
 	kept := svc.witness(t, `SELECT (payload #> '{meta,source}'::text[])::text FROM "`+svc.schema+`".fhir_resource
 		WHERE project=$1 AND dataset_generation=$2 AND logical_id='n-nullterminal'`, pgsq03Project, pgsq03Gen)
 	if len(kept) != 1 || kept[0][0] != "null" {
@@ -848,15 +752,6 @@ func TestPGSQ03NestedPresenceDistinguishesParentsAndGuardsAreLoadBearing(t *test
 	}
 }
 
-// TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive proves the
-// array-literal null-keyword guard at its real server-side point of risk.
-// ir schema-gates selector steps today, so the shared encoding is exercised
-// through its ungated consumer — filter payload paths via resolveValue —
-// and the presence expression is executed verbatim on this server through
-// the same emitter the selector renderers call. For every case the naive
-// unquoted {null} binding (which PostgreSQL parses as a SQL NULL path
-// element) reads nothing while the rendered quoted binding reads the stored
-// value, so the quoting is proven load-bearing, not decorative.
 func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	for _, state := range []struct{ logicalID, payload string }{
@@ -895,8 +790,6 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 
 	binding := bindingFor(t, svc.schema)
 
-	// Single segment: only k-value stores the string under a key named
-	// null; a stored JSON null under that key never equals the string.
 	rendered, err := RenderPhysicalPlan(filterPlan([]string{"null"}, "null_value", "stored-value"), binding)
 	if err != nil {
 		t.Fatalf("null-key filter render: %v", err)
@@ -911,8 +804,6 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 		t.Fatalf("the same statement with the naive unquoted {null} element must read nothing, got %v", got)
 	}
 
-	// Nested: k-nested stores 7 under null.x; the array-contains decoy
-	// under the same null-named parent must not match.
 	nested, err := RenderPhysicalPlan(filterPlan([]string{"null", "x"}, "seven_value", float64(7)), binding)
 	if err != nil {
 		t.Fatalf("nested null-key filter render: %v", err)
@@ -927,10 +818,6 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 		t.Fatalf("the same nested statement with a naive unquoted prefix must read nothing, got %v", got)
 	}
 
-	// Case: the array parser matches the null keyword case-insensitively,
-	// so an upper-case NULL-named key is just as ambiguous — it must
-	// extract correctly, and the naive encoding must redden the same probe
-	// (unquoted NULL is the same SQL NULL path element).
 	upper, err := RenderPhysicalPlan(filterPlan([]string{"NULL"}, "upper_value", "upper-value"), binding)
 	if err != nil {
 		t.Fatalf("upper null-key filter render: %v", err)
@@ -950,11 +837,6 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 		t.Fatalf("the stored upper-case null-named key must read its value, got %v", storedUpper)
 	}
 
-	// The presence expression, rendered by the exact emitter the selector
-	// renderers call and executed verbatim on this server: presence through
-	// the null-named parent is true only for k-nested — and with the naive
-	// unquoted prefix every row, including k-nested, proves absent, so the
-	// quote is what carries the answer.
 	r := &planRenderer{storage: binding, parameters: map[string]int{}, rows: map[string]rowScope{}}
 	presence, err := r.propertyPresenceExpression("r0", []string{"null", "x"})
 	if err != nil {
@@ -987,11 +869,6 @@ func TestPGSQ03NullKeywordPayloadPathsReadStoredValuesLive(t *testing.T) {
 	}
 }
 
-// TestPGSQ03DenyPathsReadZeroRowsWithStoredDecoys proves the deny paths are
-// real zero-row witnesses, not empty stores: rows exist for the exact
-// scope tuple, and the two legitimate deny states (canonical
-// scope_allowed=false deny and restricted-with-no-authorized-paths) read
-// nothing while an explicit unrestricted control reads them back.
 func TestPGSQ03DenyPathsReadZeroRowsWithStoredDecoys(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	svc.insertResource(t, "Patient", "d-visible", json.RawMessage(`{"gender": "female"}`))
@@ -1020,8 +897,6 @@ func TestPGSQ03DenyPathsReadZeroRowsWithStoredDecoys(t *testing.T) {
 	if got := svc.runRendered(t, empty); len(got) != 0 {
 		t.Fatalf("restricted empty auth read %v, want zero rows", got)
 	}
-	// Positive control: the zero rows above were authorization, not an
-	// empty store — explicit unrestricted mode reads both decoys.
 	visible := extractor(nil, true, true)
 	want := [][]string{{"d-visible", "female", "true"}, {"d-null", "<null>", "true"}}
 	if got := svc.runRendered(t, visible); !reflect.DeepEqual(got, want) {
@@ -1029,11 +904,6 @@ func TestPGSQ03DenyPathsReadZeroRowsWithStoredDecoys(t *testing.T) {
 	}
 }
 
-// TestPGSQ03ExtractionIsConnectionIndependent runs the identical rendered
-// statement on two real, simultaneously open connections: distinct
-// pg_backend_pid values prove the connections are genuinely separate, and
-// byte-identical rows prove extraction does not depend on connection
-// state or session.
 func TestPGSQ03ExtractionIsConnectionIndependent(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	svc.insertResource(t, "Patient", "c-female", json.RawMessage(`{"gender": "female"}`))
@@ -1101,16 +971,6 @@ func TestPGSQ03ExtractionIsConnectionIndependent(t *testing.T) {
 	}
 }
 
-// TestPGSQ03LoweredShapeEndToEnd is the lower-produced-plan witness: the
-// plan below mirrors exactly what lowering emits for a root selector
-// projection — the EXTRACT expression form of
-// internal/dataframe/compiler/lower/root_projection.go
-// (lowerSemanticFieldProjection: scalar PRESERVE_NULL extract over
-// Path ["payload"] with schema resource type and presence metadata,
-// lines 62-78; physicalProjectionPresence, lines 81-103) over the root
-// shape of internal/dataframe/compiler/lower/plan_orchestration.go
-// (root_collection bind plus ROOT_SCAN, lines 38-49) — and end-to-end
-// renders, executes on real PG18, and returns literal rows.
 func TestPGSQ03LoweredShapeEndToEnd(t *testing.T) {
 	svc := newPGSQ03Service(t)
 	svc.insertResource(t, "Patient", "l-full", json.RawMessage(`{"gender": "female", "meta": {"source": "urn:x"}}`))
@@ -1139,8 +999,6 @@ func TestPGSQ03LoweredShapeEndToEnd(t *testing.T) {
 					ExecutionMode: ir.PhysicalSelectorDirectScalar,
 				},
 			},
-			// The lowered shape attaches presence metadata proving the
-			// selector's own path (physicalProjectionPresence).
 			Presence: &ir.PhysicalProjectionPresence{Source: documentSource, Paths: [][]string{{"gender"}}},
 		},
 		ir.PhysicalProjection{Name: "gender_present", Presence: &ir.PhysicalProjectionPresence{Source: documentSource, Paths: [][]string{{"gender"}}}, PresenceOutput: true},
@@ -1168,10 +1026,6 @@ func TestPGSQ03LoweredShapeEndToEnd(t *testing.T) {
 	if !reflect.DeepEqual(rendered.OutputColumns, []string{"gender", "gender_present", "meta_source", "meta_source_present"}) {
 		t.Fatalf("output columns = %v", rendered.OutputColumns)
 	}
-	// Everything between SELECT and FROM must be structural: selectors,
-	// resource type, and scope values live only in parameters. (The token
-	// list avoids "source", which occurs innocently inside the agreed
-	// fhir_resource relation name.)
 	selectPrefix := rendered.SQL[:strings.Index(rendered.SQL, " FROM ")]
 	for _, forbidden := range []string{"@", "gender", "meta", "urn", "Patient", pgsq03Project, pgsq03Gen, pgsq03Path} {
 		if strings.Contains(selectPrefix, forbidden) {
@@ -1191,8 +1045,6 @@ func TestPGSQ03LoweredShapeEndToEnd(t *testing.T) {
 			t.Fatalf("lowered-shape row %d = %v, want %v", index, got[index], row)
 		}
 	}
-	// The direct-SQL witness agrees with the rendered statement
-	// independently of the renderer.
 	witness := svc.witness(t, `SELECT payload #> '{gender}'::text[],
 			COALESCE(jsonb_typeof(payload) = 'object' AND jsonb_exists(payload, 'gender'), false),
 			payload #> '{meta,source}'::text[],
@@ -1209,14 +1061,9 @@ func TestPGSQ03LoweredShapeEndToEnd(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Zero-leftover audit, scoped to this ticket's own pgsq03_it_* prefix.
-// ---------------------------------------------------------------------------
-
 func TestZZNoLeftoverPgSQ03Resources(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {
-		// No service was used; nothing can have been created.
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

@@ -69,13 +69,6 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 					return TableShapeExclusionResult{Status: TableShapeExclusionNoExclusionPolicy, Exclusions: []TableShapeExclusion{}}, nil
 				}
 			}
-			// pg-exec-12: the selected PostgreSQL target honors its surface to
-			// the refusal. A shape outside the registered evidence slice fails
-			// closed with the renderer's typed ErrUnsupportedPostgresPlan; the
-			// honest execution-layer report is UNSUPPORTED with zero statements
-			// executed, so the lifecycle keeps its distinct-status contract (the
-			// no-policy refusal above stays separate). The AQL path can never
-			// produce this sentinel, so the Arango voice is untouched.
 			if errors.Is(err, postgresrender.ErrUnsupportedPostgresPlan) {
 				return TableShapeExclusionResult{Status: TableShapeExclusionUnsupported, Exclusions: []TableShapeExclusion{}}, nil
 			}
@@ -86,21 +79,6 @@ func (e *Engine) TableShapeExclusions(ctx context.Context, resolved Resolved, re
 	return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion output %q was not found", request.Output)
 }
 
-// TableShapeExclusionsCompiled is the narrow execution seam for callers and
-// tests holding the compiler-produced canonical diagnostic query.
-//
-// pg-exec-12 gives the seam an exhaustive backend switch over the tagged
-// command. The AQL arm is byte-own to Arango and unchanged. The PostgreSQL
-// arm consumes the pg-sql-26 evidence terminal: the nine frozen evidence
-// fields become the declared result column contract (in the renderer's
-// c0..c8 output order) that the backend-tagged row adapter requires, and
-// rows are parsed with the PostgreSQL dialect parser, which keeps the AQL
-// parser's violation set and preserves the missing / JSON-null / SQL-NULL
-// three-state the adapter decodes. Honest results: a missing PostgreSQL row
-// port or a port reporting its backend unregistered is the capability gap
-// UNSUPPORTED; a backend-mismatch routing error or any other port failure is
-// a hard error, never a complete or complete-empty report; cancellation
-// stays INCOMPLETE at the requested offset.
 func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled compiler.CompiledTableShapeExclusionQuery) (TableShapeExclusionResult, error) {
 	isPostgreSQL := false
 	switch compiled.Command.Backend() {
@@ -110,8 +88,6 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 	}
 	if e == nil || e.sourceRows == nil {
 		if isPostgreSQL {
-			// Capability gap, not a routing defect: no port serves the
-			// selected PostgreSQL command and there is no AQL fallback.
 			return TableShapeExclusionResult{Status: TableShapeExclusionUnsupported, Exclusions: []TableShapeExclusion{}}, nil
 		}
 		return TableShapeExclusionResult{}, fmt.Errorf("table-shape exclusion query executor is required")
@@ -124,9 +100,6 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 	request := RowsRequest{Command: compiled.Command, BatchSize: e.batchSize}
 	if isPostgreSQL {
 		parse = parsePostgreSQLTableShapeExclusion
-		// The contract is the nine frozen evidence fields in the renderer's
-		// output order; the adapter refuses any server column drift before
-		// the first row is visited.
 		request.DeclaredColumns = []string{
 			compiled.ResourceTypeField,
 			compiled.ResourceIDField,
@@ -164,9 +137,6 @@ func (e *Engine) TableShapeExclusionsCompiled(ctx context.Context, compiled comp
 			return TableShapeExclusionResult{Status: TableShapeExclusionIncomplete, Exclusions: []TableShapeExclusion{}, Complete: false, NextOffset: compiled.Offset}, nil
 		}
 		if isPostgreSQL && errors.Is(err, command.ErrCompiledCommandBackendNotRegistered) {
-			// The composition registered no adapter for the command's tag: a
-			// capability gap the command package explicitly reports for
-			// unsupported backends, never a complete-empty evidence report.
 			return TableShapeExclusionResult{Status: TableShapeExclusionUnsupported, Exclusions: []TableShapeExclusion{}}, nil
 		}
 		return TableShapeExclusionResult{}, fmt.Errorf("execute table-shape exclusions: %w", err)
@@ -248,15 +218,6 @@ func parseTableShapeExclusion(compiled compiler.CompiledTableShapeExclusionQuery
 	return result, nil
 }
 
-// parsePostgreSQLTableShapeExclusion is the PostgreSQL dialect arm of the
-// evidence parser. It keeps the AQL parser's violation set exactly — the
-// same messages, the same no-partial-success law — and differs only where
-// the backend's result decoding differs: the jsonb-extracted presence and
-// identity members arrive as json.RawMessage (decoded by the helpers below),
-// the text-typed members arrive as driver-decoded Go strings, and the
-// category value is passed through untouched so the missing (SQL NULL),
-// explicit JSON null, and value-carrying three-state stays distinguishable
-// to the lifecycle.
 func parsePostgreSQLTableShapeExclusion(compiled compiler.CompiledTableShapeExclusionQuery, row map[string]any) (TableShapeExclusion, error) {
 	present, ok := decodePostgreSQLPresence(row[compiled.CategoryPresentField])
 	if !ok {
@@ -306,13 +267,6 @@ func parsePostgreSQLTableShapeExclusion(compiled compiler.CompiledTableShapeExcl
 	return result, nil
 }
 
-// decodePostgreSQLPresence decodes the jsonb presence companion into its
-// boolean. Only the exact jsonb booleans survive: json.Unmarshal accepts a
-// JSON null into a bool target as a silent no-op, so the acceptance is by
-// exact bytes ("true"/"false", the compact jsonb rendering the terminal
-// emits). SQL NULL, a JSON null, a quoted string, a number, and any
-// driver-native Go value are all evidence violations, so a malformed
-// companion can never silently mark rows present or missing.
 func decodePostgreSQLPresence(value any) (bool, bool) {
 	raw, ok := value.(json.RawMessage)
 	if !ok {
@@ -328,10 +282,6 @@ func decodePostgreSQLPresence(value any) (bool, bool) {
 	}
 }
 
-// decodePostgreSQLEvidenceText decodes one jsonb-extracted identity member
-// into a non-empty JSON string. A missing key, SQL NULL, a JSON null, a
-// non-string JSON value, and an empty string all fail: the EXACT branch may
-// only carry a complete identity.
 func decodePostgreSQLEvidenceText(value any) (string, bool) {
 	raw, ok := value.(json.RawMessage)
 	if !ok || len(raw) == 0 {

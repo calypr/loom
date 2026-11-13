@@ -18,23 +18,14 @@ type RenderedCombine struct {
 	Columns []string
 }
 
-// RenderCombine turns a typed compiler plan and its exact, authorized table
-// resolutions into one ClickHouse SELECT. It never accepts SQL fragments from
-// recipe input and never consults a moving publication pointer.
 func RenderCombine(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string) (RenderedCombine, error) {
 	return RenderCombineWithLimit(plan, inputs, project, 0)
 }
 
-// RenderCombineWithLimit applies a bounded preview limit to the typed
-// ClickHouse plan. A zero limit streams the complete result.
 func RenderCombineWithLimit(plan ir.PhysicalClickHouseCombine, inputs []ir.ResolvedClickHouseTable, project string, limit int) (RenderedCombine, error) {
 	return renderCombineWithResolvedInputs(plan, inputs, project, limit, nil, false)
 }
 
-// RenderCompositeClickHouseCombine renders a validated terminal Combine that
-// consumes one exact private AQL-stage artifact plus exact published inputs.
-// expected must come from the compiled AQL stream identity used to create the
-// artifact; the complete manifest identity is checked before SQL is emitted.
 func RenderCompositeClickHouseCombine(plan ir.PhysicalClickHouseCombine, prefix ir.PhysicalClickHousePrefix, published []ir.ResolvedClickHouseTable, artifact ir.ResolvedClickHousePrivateArtifact, expected ir.ClickHouseArtifactIdentity, project string, limit int) (RenderedCombine, error) {
 	if limit < 0 {
 		return RenderedCombine{}, fmt.Errorf("ClickHouse combine limit cannot be negative")

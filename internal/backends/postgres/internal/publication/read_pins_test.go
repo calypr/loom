@@ -1,52 +1,5 @@
 package postgres
 
-// Real-PostgreSQL 18 acceptance tests for the read retention pin / cleanup
-// claim arbiter (pg-publication-read-pins-reconcile-v1; check-3:
-// go test -count=1 ./internal/backends/postgres/internal/publication/).
-//
-// The promise under test is the read_pins.go decision table and its
-// serialization guarantee:
-//
-//	A. Golden literal rows: every transition's durable rows (anchor, pins,
-//	   claim) match literal expected values written with fixed caller-supplied
-//	   expiries; missing state is expressed only by row absence (a refusal
-//	   leaves ZERO durable trace, including the anchor).
-//	B. Golden literal statements: each transition's executed SQL is exactly
-//	   the pinned statement list, witnessed inside the open transaction.
-//	C. Exact-named refusals: every guard refusal is claimed=false with the
-//	   state byte-identical to before, and every caller-bug identity is
-//	   refused with its named error before any statement reaches the server.
-//	D. Cleanup claim and pin acquire serialize: two real connections with
-//	   distinct pg_backend_pid race, >=10 rounds per surface, and no round
-//	   may observe an unexpired pin and an unexpired claim at once; the
-//	   winner's rows are literal and the post-round sequential replay
-//	   converges byte-identically (post-abort convergence).
-//	E. Crash injection at each durability seam: the gate witness fires inside
-//	   the open transition (a second real connection sees the PRE-transition
-//	   state while the writer sits idle-in-transaction on the anchor lock),
-//	   and an injected failure rolls the ENTIRE transition back -- including
-//	   anchor minting and pin GC -- with a clean retry converging to the
-//	   same literal rows.
-//	F. Baseline GC-parity pins: acquire/renew-pin/claim collect expired pins
-//	   exactly where the Arango baseline rewrites the pins array, and
-//	   release-pin/renew-cleanup never touch other owners' rows.
-//
-// Every fixture database and schema is uniquely owned as verify_rpr_it_* and
-// dropped by the test that created it. Per the coordinator audit-scoping
-// ruling, TestZZ asserts only OWNERSHIP-SCOPED guarantees: every exact name
-// on this suite's creation-tracked registry is gone, and pg_database holds
-// zero rows under this suite's registered prefix verify_rpr_* -- a foreign
-// database under the registered prefix is a real leak and fails here. There
-// is deliberately no global pg_database==baseline equality: sibling batch
-// sessions (registered prefixes verify_cat05b_*, verify_ing02_*,
-// verify_exec01_*, verify_v93_*, verify_v94_*, CI-internal *_it_*, and the
-// in-package pgpubcat01_it_*, pgleases01_it_*, verify_pubvis_it_* suites)
-// legitimately create and drop databases concurrently; foreign churn is
-// neither this suite's leak nor its failure. A skipped required case is a
-// failure for this ticket's acceptance, so the check is run with
-// LOOM_TEST_POSTGRES_URL configured; the gate exists only to keep unrelated
-// CI lanes green.
-
 import (
 	"context"
 	"errors"
@@ -69,11 +22,9 @@ import (
 
 var rprResourceNamePattern = regexp.MustCompile(`^verify_rpr_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every database this suite verified into existence is
-// recorded here and the TestZZ audit asserts each exact name is gone.
 var (
 	rprOwnedMu sync.Mutex
-	rprOwned   = map[string]bool{} // owned database names
+	rprOwned   = map[string]bool{}
 )
 
 func rprRegisterOwned(db string) {
@@ -82,14 +33,6 @@ func rprRegisterOwned(db string) {
 	rprOwned[db] = true
 }
 
-// auditReadPinsLeftovers is the ownership-scoped zero-leftover audit (the
-// coordinator ruling's shape): (a) every exact database on the creation-
-// tracked registry is gone, and (b) pg_database holds zero rows under this
-// suite's registered prefix verify_rpr_*. No global pg_database==baseline
-// equality: sibling batch sessions create and drop their registered-prefix
-// databases concurrently, and foreign churn is neither this suite's leak nor
-// its failure. Anything that DOES appear under verify_rpr_* at audit time
-// is a leak by ruling -- registered or not.
 func auditReadPinsLeftovers() error {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		return nil
@@ -143,19 +86,12 @@ func auditReadPinsLeftovers() error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Fixture service: one owned database, one owned schema migrated with the
-// ledger bootstrap + the sibling 000004 catalog + this ticket's 000009
-// retention history, and three pools pinned to one physical connection each
-// so every racing surface provably runs on distinct real PG backends.
-// ---------------------------------------------------------------------------
-
 type rprService struct {
 	ctx    context.Context
 	admin  *pgxpool.Pool
-	a      *pgxpool.Pool // worker A (one backend)
-	b      *pgxpool.Pool // worker B (one backend)
-	w      *pgxpool.Pool // witness / seeding (one backend)
+	a      *pgxpool.Pool
+	b      *pgxpool.Pool
+	w      *pgxpool.Pool
 	schema string
 
 	pinsA, pinsB, pinsW *ReadPins
@@ -283,11 +219,6 @@ func (s *rprService) registry(t *testing.T, pool *pgxpool.Pool) *Registry {
 	return registry
 }
 
-// migrate applies exactly the ledger bootstrap, the 000004 publication
-// bundle catalog (whose lease/pointer/execution tables the reconciler
-// sweeps), and 000009_publication_read_pins.sql -- all from this package's
-// authoritative owner embed (migrate.go) -- and asserts the ledger literally
-// records all three rows.
 func (s *rprService) migrate(t *testing.T) {
 	t.Helper()
 	history := mustOwnerHistorySubset(t, 1, 4, 9)
@@ -316,32 +247,6 @@ func (s *rprService) migrate(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Witnesses.
-// TestMigrationsCoexistStoreDir000009AndReadPins000009 is the coexistence
-// witness the coordinator ruling requires: with catalog-05's store
-// migration 000009_semantic_inventory_contribution.sql (internal/store/
-// postgres/migrations) AND this ticket's 000009_publication_read_pins.sql
-// (internal/backends/postgres/internal/publication/migrations) both present in the
-// tree, composition is deterministic and BOTH apply. Following the 000006
-// dual-existence precedent (store 000006_semantic_inventory_build beside
-// publication_lease_checkpoints at 000006 in this owner's migrations dir),
-// version spaces are per composed history: the ledger primary key is
-// (version) and NewMigrationRunner refuses a duplicate version inside one
-// history. The ruling says witness it, do not assume, so this test proves
-// all four facts: (1) the publication history -- owner-embedded ledger
-// bootstrap 1, the 000004 catalog, and read-pins 9 -- applies in its own
-// schema and records {1,4,9} with the exact load checksums; (2) the full
-// embedded store history, including 000009 semantic_inventory_contribution,
-// applies in a second schema of the SAME database, recording version 9 under
-// its own name; the two ledger rows publication_read_pins and
-// semantic_inventory_contribution then coexist at the same version in one
-// database -- witnessed dual existence, per-schema version spaces; (3)
-// re-running each runner returns the identical applied history
-// (deterministic no-op replay) and each owner history re-loads with
-// identical versions/names/checksums; and (4) forcing both 000009 files
-// into ONE history fails loudly with ErrInvalidMigration "duplicate version
-// 9" -- the per-history version space is a guard, not an accident.
 func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	raw := testPostgresURL(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 480*time.Second)
@@ -453,12 +358,6 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store-space migrate: %v", err)
 	}
-	// The store set belongs to internal/backends/postgres/internal/store and grows whenever
-	// a ticket adds a migration there; the expectation is DERIVED from the
-	// loaded slice (as the migrate helper derives the ledger bootstrap),
-	// never pinned to the current ceiling, so a future 000010 cannot fail
-	// this pins test. The version 9 membership below is the coexistence
-	// witness proper; the ceiling assertions follow maxEntry.
 	maxVersion, maxEntry := embedded[0].Version, embedded[0]
 	for _, m := range embedded {
 		if m.Version > maxVersion {
@@ -474,8 +373,6 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 			last.Version, last.Name, last.Checksum, maxEntry.Version, maxEntry.Name, maxEntry.Checksum)
 	}
 
-	// Dual existence in one database: both ledgers hold a version 9 row,
-	// under different names, in the same database.
 	ledgerRows := func(schema string) []string {
 		rows, err := pool.Query(ctx, "SELECT version, name, checksum FROM "+
 			pgx.Identifier{schema, storepostgres.LedgerTable}.Sanitize()+" ORDER BY version")
@@ -533,9 +430,6 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 		}
 	}
 
-	// Determinism: re-running each runner is a no-op returning the
-	// identical applied history, the ledgers hold the same rows, and each
-	// directory re-loads with identical version/name/checksum tuples.
 	pubAgain, err := pubRunner.Migrate(ctx)
 	if err != nil {
 		t.Fatalf("publication-space replay: %v", err)
@@ -566,9 +460,6 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 		t.Fatalf("embedded history reloaded differently: %v", err)
 	}
 
-	// The per-history version space is a loud guard: forcing both 000009
-	// files into ONE history is refused, not silently reordered or
-	// overwritten.
 	if _, err := storepostgres.NewMigrationRunner(pool, pubSchema,
 		[]storepostgres.Migration{store9, retention[0]}); !errors.Is(err, storepostgres.ErrInvalidMigration) ||
 		err == nil || !strings.Contains(err.Error(), "duplicate version 9") {
@@ -576,9 +467,6 @@ func TestMigrationsCoexistStoreDir000009AndReadPins000009(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-
-// tsText renders a timestamptz column to UTC microsecond text.
 const tsText = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`
 
 func (s *rprService) queryRows(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) []string {
@@ -607,7 +495,6 @@ func (s *rprService) queryRows(t *testing.T, pool *pgxpool.Pool, sql string, arg
 	return out
 }
 
-// pinsRows is the literal pin-row witness for one execution.
 func (s *rprService) pinsRows(t *testing.T, pool *pgxpool.Pool, executionID string) []string {
 	t.Helper()
 	return s.queryRows(t, pool,
@@ -616,7 +503,6 @@ func (s *rprService) pinsRows(t *testing.T, pool *pgxpool.Pool, executionID stri
 			" WHERE execution_id = $1 ORDER BY owner_id", executionID)
 }
 
-// claimRow is the literal cleanup-claim row witness (empty when absent).
 func (s *rprService) claimRow(t *testing.T, pool *pgxpool.Pool, executionID string) string {
 	t.Helper()
 	rows := s.queryRows(t, pool,
@@ -632,7 +518,6 @@ func (s *rprService) claimRow(t *testing.T, pool *pgxpool.Pool, executionID stri
 	return rows[0]
 }
 
-// anchorRow is the literal anchor-row witness (empty when absent).
 func (s *rprService) anchorRow(t *testing.T, pool *pgxpool.Pool, executionID string) string {
 	t.Helper()
 	rows := s.queryRows(t, pool,
@@ -647,10 +532,6 @@ func (s *rprService) anchorRow(t *testing.T, pool *pgxpool.Pool, executionID str
 	return rows[0]
 }
 
-// stateDigest is the byte-identical witness: an md5 over the fully rendered
-// ordered content of all three retention tables (all rows, all columns), so
-// "unchanged by a refused transition" and "retry converged" are exact facts
-// about every durable byte of retention state, not a sample.
 func (s *rprService) stateDigest(t *testing.T, pool *pgxpool.Pool) string {
 	t.Helper()
 	retention := pgx.Identifier{s.schema, ExecutionRetentionTable}.Sanitize()
@@ -676,10 +557,6 @@ func (s *rprService) backendPID(t *testing.T, pool *pgxpool.Pool) uint32 {
 	return pid
 }
 
-// seedPinDirect writes a pin row through the witness connection, the
-// documented harness method for creating out-of-band straggler state (the
-// same technique the Arango crash-window suite uses with direct AQL), e.g.
-// pins that must exist while a claim is live to exercise the renewal guard.
 func (s *rprService) seedPinDirect(t *testing.T, executionID, owner string, expires time.Time) {
 	t.Helper()
 	pins := pgx.Identifier{s.schema, ExecutionReadPinsTable}.Sanitize()
@@ -738,16 +615,11 @@ func setReadPinGate(fn func(readPinAttempt) error) {
 	readPinGate.Store(&fn)
 }
 
-// Fixed caller-supplied expiries keep the literal-row witnesses deterministic.
 var (
 	rprFarFuture  = time.Date(2126, 11, 9, 1, 2, 3, 400000, time.UTC)
 	rprPast       = time.Date(2020, 1, 2, 3, 4, 5, 600000, time.UTC)
 	rprRenewedExp = time.Date(2127, 5, 6, 7, 8, 9, 100000, time.UTC)
 )
-
-// ---------------------------------------------------------------------------
-// A. Golden literal rows + F. baseline GC parity + repeated-owner identity.
-// ---------------------------------------------------------------------------
 
 func TestReadPinsGoldenRows(t *testing.T) {
 	s := newRPRService(t)
@@ -760,7 +632,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatal("state digest witness is broken")
 	}
 
-	// Fresh execution: missing state is row absence (and nothing else).
 	if got := s.pinsRows(t, s.w, exec); len(got) != 0 {
 		t.Fatalf("fresh pins = %v, want none", got)
 	}
@@ -787,7 +658,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 	}
 	anchorFirst := s.anchorRow(t, s.w, exec)
 
-	// Second owner adds a second literal row.
 	if claimed, err := s.pinsB.AcquireExecutionReadPin(ctx, exec, "reader-b", rprRenewedExp); err != nil || !claimed {
 		t.Fatalf("acquire reader-b = %v, %v", claimed, err)
 	}
@@ -798,8 +668,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("pins = %v, want both literal rows", got)
 	}
 
-	// Repeated-owner correlation: a same-owner re-acquire refreshes the ONE
-	// row, it never duplicates a reader.
 	if claimed, err := s.pinsA.AcquireExecutionReadPin(ctx, exec, "reader-a", rprRenewedExp); err != nil || !claimed {
 		t.Fatalf("re-acquire reader-a = %v, %v", claimed, err)
 	}
@@ -813,7 +681,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("anchor updated_at did not move on a successful transition: %q", anchorFirst)
 	}
 
-	// Trim identity: " padded " is the same owner as "padded".
 	if _, err := s.w.Exec(ctx,
 		"DELETE FROM "+pgx.Identifier{s.schema, ExecutionReadPinsTable}.Sanitize()+" WHERE execution_id = $1", exec); err != nil {
 		s.fail("clear pins for trim check", err)
@@ -825,9 +692,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("trimmed acquire stored %v, want one owner 'reader-a' row", got)
 	}
 
-	// Baseline GC parity for acquire: an expired OTHER-owner pin is
-	// collected by a successful acquire (the Arango APPEND(retained,...)
-	// rewrite drops expired entries).
 	s.seedPinDirect(t, exec, "expired-owner", rprPast)
 	if got := s.pinsRows(t, s.w, exec); len(got) != 2 {
 		t.Fatalf("seeded pins = %v, want reader-a + expired-owner", got)
@@ -840,9 +704,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("pins after acquire GC = %v, want reader-a and reader-c (expired-owner collected)", got)
 	}
 
-	// release-pin is the documented non-GC path: an expired OTHER-owner pin
-	// SURVIVES someone else's release, and release bumps the anchor even
-	// when the releaser held no pin row (Arango rewrites the state doc).
 	s.seedPinDirect(t, exec, "expired-owner", rprPast)
 	before := s.anchorRow(t, s.w, exec)
 	time.Sleep(2 * time.Millisecond)
@@ -857,8 +718,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatal("anchor updated_at must move on every release while state exists (Arango doc-rewrite parity)")
 	}
 
-	// renew-pin GCs expired OTHER-owner pins (baseline rewrite) but never
-	// touches live ones.
 	if claimed, err := s.pinsA.RenewExecutionReadPin(ctx, exec, "reader-a", rprRenewedExp); err != nil || !claimed {
 		t.Fatalf("renew reader-a = %v, %v", claimed, err)
 	}
@@ -867,10 +726,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("pins after renew = %v, want reader-a refreshed and expired-owner collected", got)
 	}
 
-	// Claim while only expired pins remain: granted, and the pins table is
-	// emptied for the execution (Arango pins: [] rewrite), with the claim
-	// row stored literally (owner + now+TTL expiry, TTL pinned low for a
-	// deterministic shape check).
 	if _, err := s.w.Exec(ctx, "DELETE FROM "+pgx.Identifier{s.schema, ExecutionReadPinsTable}.Sanitize()+" WHERE execution_id = $1", exec); err != nil {
 		s.fail("clear live pins before expired-claim", err)
 	}
@@ -899,8 +754,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("claim expiry in %v, want ~90s (pinned claimTTL)", d)
 	}
 
-	// renew-cleanup does NOT touch pin rows (baseline parity): a straggler
-	// expired pin seeded directly survives a successful renewal.
 	s.seedPinDirect(t, exec, "straggler", rprPast)
 	if claimed, err := s.pinsA.RenewExecutionCleanup(ctx, exec, "sweeper-1", rprFarFuture); err != nil || !claimed {
 		t.Fatalf("renew claim = %v, %v", claimed, err)
@@ -912,9 +765,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("claim after renew = %q, want owner sweeper-1 with literal renewed expiry", claim)
 	}
 
-	// release-cleanup is owner-conditional and only moves the anchor on a
-	// hit: a foreign release leaves the claim row byte-identical and the
-	// anchor untouched.
 	claimBefore := s.claimRow(t, s.w, exec)
 	anchorBefore := s.anchorRow(t, s.w, exec)
 	if err := s.pinsB.ReleaseExecutionCleanup(ctx, exec, "not-the-owner"); err != nil {
@@ -933,8 +783,6 @@ func TestReadPinsGoldenRows(t *testing.T) {
 		t.Fatalf("claim after owner release = %q, want absent", got)
 	}
 
-	// Releases against an execution with NO state mint nothing: absent
-	// anchor stays absent after both releases.
 	if err := s.pinsA.ReleaseExecutionReadPin(ctx, "exec-never-seen", "reader-x"); err != nil {
 		t.Fatalf("release-pin with no state: %v", err)
 	}
@@ -949,18 +797,12 @@ func TestReadPinsGoldenRows(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// C. Exact-named refusals and guard non-vacuity.
-// ---------------------------------------------------------------------------
-
 func TestReadPinsExactNamedRefusals(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
 	setReadPinGate(nil)
 	defer setReadPinGate(nil)
 
-	// Caller-bug identities are refused with their named errors before any
-	// statement reaches the server (a witness digest proves zero contact).
 	const exec = "exec-refusals"
 	baseDigest := s.stateDigest(t, s.w)
 	pinCases := []struct {
@@ -985,7 +827,6 @@ func TestReadPinsExactNamedRefusals(t *testing.T) {
 		t.Fatalf("identity refusals left durable state: digest %q != baseline %q", got, baseDigest)
 	}
 
-	// Guard refusals: claimed=false with zero durable change.
 	const pinned = "exec-pinned"
 	s.seedPinDirect(t, pinned, "reader-a", rprFarFuture)
 	before := s.stateDigest(t, s.w)
@@ -995,9 +836,6 @@ func TestReadPinsExactNamedRefusals(t *testing.T) {
 	if got := s.stateDigest(t, s.w); got != before {
 		t.Fatalf("refused claim changed state: %q != %q", got, before)
 	}
-	// The refused claim minted no anchor either? The anchor already existed
-	// here because the seed created it; the zero-anchor case is the acquire
-	// below on a fresh execution.
 	const fresh = "exec-fresh-refuse"
 	s.seedClaimDirect(t, fresh, "sweeper-1", rprFarFuture)
 	seedDigest := s.stateDigest(t, s.w)
@@ -1008,8 +846,6 @@ func TestReadPinsExactNamedRefusals(t *testing.T) {
 		t.Fatalf("refused acquire changed state: %q != %q", got, seedDigest)
 	}
 
-	// Foreign live claim refuses a different sweeper; the same owner may
-	// refresh its own claim.
 	const claimedExec = "exec-claimed"
 	s.seedClaimDirect(t, claimedExec, "sweeper-1", rprFarFuture)
 	if claimed, err := s.pinsB.ClaimExecutionCleanup(ctx, claimedExec, "sweeper-2"); err != nil || claimed {
@@ -1019,7 +855,6 @@ func TestReadPinsExactNamedRefusals(t *testing.T) {
 		t.Fatalf("same-owner re-claim = %v, %v, want (true, nil)", claimed, err)
 	}
 
-	// renew-pin guard table.
 	const renewExec = "exec-renew"
 	if claimed, err := s.pinsA.RenewExecutionReadPin(ctx, renewExec, "reader-a", rprFarFuture); err != nil || claimed {
 		t.Fatalf("renew with no state = %v, %v, want (false, nil)", claimed, err)
@@ -1039,8 +874,6 @@ func TestReadPinsExactNamedRefusals(t *testing.T) {
 		t.Fatalf("renew pin under a live claim = %v, %v, want (false, nil)", claimed, err)
 	}
 
-	// renew-cleanup guard table: no claim, foreign owner, expired claim, and
-	// an active pin seeded out-of-band (the straggler-pin crash shape).
 	if claimed, err := s.pinsA.RenewExecutionCleanup(ctx, "exec-no-claim", "sweeper-1", rprFarFuture); err != nil || claimed {
 		t.Fatalf("renew-cleanup with no claim = %v, %v", claimed, err)
 	}
@@ -1057,10 +890,6 @@ func TestReadPinsExactNamedRefusals(t *testing.T) {
 		t.Fatalf("renew-cleanup over an active straggler pin = %v, %v", claimed, err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// B. Golden literal statements per transition.
-// ---------------------------------------------------------------------------
 
 func TestReadPinsGoldenStatements(t *testing.T) {
 	s := newRPRService(t)
@@ -1124,8 +953,6 @@ func TestReadPinsGoldenStatements(t *testing.T) {
 		{"acquire-pin", func() { must(s.pinsA.AcquireExecutionReadPin(ctx, exec, "reader-a", rprFarFuture))(t) }},
 		{"renew-pin", func() { must(s.pinsA.RenewExecutionReadPin(ctx, exec, "reader-a", rprFarFuture))(t) }},
 		{"claim-cleanup", func() {
-			// Needs no active pins: release first from a live claimed state is
-			// not needed -- drop pins then claim.
 			if _, err := s.w.Exec(ctx, "DELETE FROM "+q(ExecutionReadPinsTable)+" WHERE execution_id = $1", exec); err != nil {
 				s.fail("clear pins", err)
 			}
@@ -1184,10 +1011,6 @@ func must(claimed bool, err error) func(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// D. Two-real-connection races: cleanup claim vs pin acquire serialize.
-// ---------------------------------------------------------------------------
-
 func TestReadPinsClaimAcquireSerializeRace(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -1232,8 +1055,6 @@ func TestReadPinsClaimAcquireSerializeRace(t *testing.T) {
 		if !pinOK && !claimOK {
 			t.Fatalf("round %d: neither side won %s (digest %s)", round, exec, s.stateDigest(t, s.w))
 		}
-		// The loser's refusal left zero trace and the winner's state is
-		// literal.
 		if pinOK {
 			rows := s.pinsRows(t, s.w, exec)
 			if len(rows) != 1 || !strings.HasPrefix(rows[0], "reader-a|"+rprFarFuture.Format("2006-01-02T15:04:05.000000Z")+"|") ||
@@ -1246,16 +1067,11 @@ func TestReadPinsClaimAcquireSerializeRace(t *testing.T) {
 				t.Fatalf("round %d: claim-winner state = pins %v claim %q", round, s.pinsRows(t, s.w, exec), claim)
 			}
 		}
-		// Post-abort convergence: a sequential replay from a clean slate on
-		// the same id converges to the pin-winner literal shape byte for
-		// byte regardless of which side won the race.
 		s.clearStateDirect(t, exec)
 		must(s.pinsA.AcquireExecutionReadPin(ctx, exec, "reader-a", rprFarFuture))(t)
 		pinDigest := s.stateDigest(t, s.w)
 		must(s.pinsA.AcquireExecutionReadPin(ctx, exec, "reader-a", rprFarFuture))(t)
 		if got := s.stateDigest(t, s.w); got != pinDigest {
-			// updated_at of the refreshed row legitimately moves; compare the
-			// identity columns only.
 			rows1 := s.pinsRows(t, s.w, exec)
 			if len(rows1) != 1 || !strings.HasPrefix(rows1[0], "reader-a|"+rprFarFuture.Format("2006-01-02T15:04:05.000000Z")+"|") {
 				t.Fatalf("round %d: convergence replay state = %v", round, rows1)
@@ -1348,10 +1164,6 @@ func TestReadPinsAcquireVsAcquireRace(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// E. Crash injection at each durability seam + pre-commit invisibility.
-// ---------------------------------------------------------------------------
-
 func TestReadPinsCrashWindows(t *testing.T) {
 	s := newRPRService(t)
 	ctx := s.ctx
@@ -1361,7 +1173,6 @@ func TestReadPinsCrashWindows(t *testing.T) {
 		name string
 		seed func(t *testing.T, exec string)
 		call func(t *testing.T, exec string)
-		// postChecks runs after a clean retry following the injected crash.
 		post func(t *testing.T, exec string)
 	}{
 		{
@@ -1448,9 +1259,6 @@ func TestReadPinsCrashWindows(t *testing.T) {
 	}
 
 	for _, o := range ops {
-		// Seam crash: an injected failure after every statement applied
-		// rolls the ENTIRE transition back -- including anchor minting and
-		// pin GC -- and a clean retry converges.
 		exec := "crash-" + o.name
 		s.clearStateDirect(t, exec)
 		o.seed(t, exec)
@@ -1465,16 +1273,11 @@ func TestReadPinsCrashWindows(t *testing.T) {
 		if got := s.stateDigest(t, s.w); got != before {
 			t.Fatalf("%s: injected crash left durable state: digest %q != %q", o.name, got, before)
 		}
-		// Clean retry converges.
 		o.call(t, exec)
 		o.post(t, exec)
 		s.clearStateDirect(t, exec)
 	}
 
-	// Pre-commit invisibility: while the writer sits inside the open
-	// transition holding the anchor lock, a second real connection reads the
-	// PRE-transition state, sees the writer idle-in-transaction, and the
-	// writer's post-commit state matches the in-gate witness.
 	for _, o := range ops[:4] {
 		exec := "precommit-" + o.name
 		s.clearStateDirect(t, exec)
@@ -1490,8 +1293,6 @@ func TestReadPinsCrashWindows(t *testing.T) {
 		gate := make(chan gateState, 1)
 		setReadPinGate(func(a readPinAttempt) error {
 			g := gateState{attempt: a}
-			// Every in-gate observation comes from the witness connection
-			// while the writer sits inside its open transition.
 			g.visible = s.pinsRows(t, s.w, exec)
 			g.claim = s.claimRow(t, s.w, exec)
 			rows := s.queryRows(t, s.w,
@@ -1527,8 +1328,6 @@ func TestReadPinsCrashWindows(t *testing.T) {
 			if g.state != "idle in transaction" {
 				t.Fatalf("%s: %s", o.name, g.state)
 			}
-			// Inside the transaction the second connection still sees the
-			// pre-transition pins (empty for a fresh acquire).
 			if o.name == "acquire-pin" && len(g.visible) != 0 {
 				t.Fatalf("%s: pre-transition pins visible inside the transaction window: %v", o.name, g.visible)
 			}
@@ -1544,7 +1343,6 @@ func TestReadPinsCrashWindows(t *testing.T) {
 				t.Fatalf("%s: pin vanished before commit: %v", o.name, g.visible)
 			}
 		}
-		// Post-commit the durable state reflects the committed decision.
 		switch o.name {
 		case "acquire-pin":
 			if rows := s.pinsRows(t, s.w, exec); len(rows) != 1 || !strings.HasPrefix(rows[0], "reader-a|") {

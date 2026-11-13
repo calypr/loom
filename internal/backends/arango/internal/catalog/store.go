@@ -1,4 +1,3 @@
-// Package arango contains the Arango persistence adapter for catalog facts.
 package arango
 
 import (

@@ -1,7 +1,3 @@
-// Package execution is Loom's production recipe execution seam. It owns
-// recipe resolution, scoped discovery, canonical compiler orchestration, and
-// streaming row execution; transport adapters do not interpret recipes or
-// construct AQL.
 package execution
 
 import (
@@ -32,40 +28,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// RowVisitor consumes one decoded result row streamed through any source
-// row-stream boundary (AQL or PostgreSQL). One visitor contract serves both
-// backends; the visitor, not the adapter, owns limit, cancellation, and
-// materialization policy.
 type RowVisitor func(map[string]any) error
 
-// RowsRequest is the one source-agnostic row-execution request: the
-// parent-tagged compiler command, the exact ordered result column contract
-// its statement declares (empty when the source derives its own columns),
-// and the batch-size hint. BatchSize tunes AQL fetch batching and is
-// advisory for other sources; it never alters which rows are produced.
-// Execution extracts nothing from the command: the adapter dispatches on the
-// tag and rejects a command whose tag names a backend it does not serve,
-// before any driver call. Loose query text, bind maps, SQL text, and ordered
-// arguments are not part of this contract.
 type RowsRequest struct {
 	Command         command.CompiledCommand
 	DeclaredColumns []string
 	BatchSize       int
 }
 
-// SourceRows is the single required row-execution port. The selected
-// compiler target produces the tagged command carried by the request, and
-// the composition that selected that target installs the adapter that serves
-// it (internal/backends/postgres/internal/rows.(*Executor).SourceRows satisfies the
-// contract for PostgreSQL; the Arango adapter satisfies it for AQL).
-// Execution owns no backend switch: a request tagged for a backend the port
-// does not serve fails in the adapter with a typed error before any driver
-// call, and there is no fallback between backends.
 type SourceRows func(context.Context, RowsRequest, RowVisitor) error
 
-// ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
-// result column contract and positional values. SQL fragments never come from
-// recipe or request data.
 type ClickHouseQueryRows func(context.Context, string, []string, func(map[string]any) error, ...any) error
 
 type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine, recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error)
@@ -73,75 +45,44 @@ type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine,
 type WithExecutionReadPins func(context.Context, []string, func(context.Context) error) error
 
 const (
-	// DefaultPreviewLimit is used when a preview request omits its limit.
 	DefaultPreviewLimit = 25
-	// MaxPreviewLimit bounds rows accumulated by one output preview.
-	MaxPreviewLimit    = 1000
-	previewPlanMode    = "physical"
-	previewPlanProfile = "generic_fhir_graph_recipe"
+	MaxPreviewLimit     = 1000
+	previewPlanMode     = "physical"
+	previewPlanProfile  = "generic_fhir_graph_recipe"
 )
 
-// PreviewRequest selects one compiled output and bounds its preview rows.
 type PreviewRequest struct {
 	Output             string
 	Limit              int
 	IncludeRowIdentity bool
 }
 
-// PreviewSummary is safe execution metadata for one preview output. It does
-// not contain AQL, bind variables, or physical plan contents.
 type PreviewSummary struct {
-	Output           string
-	Columns          []string
-	RowCount         int
-	PlanMode         string
-	PlanProfile      string
-	PlanFingerprint  string
-	TraversalCount   int
-	LoweringDuration time.Duration
-	// SourceQueryDuration is the cursor interval for the source query with
-	// Loom's per-row materialization excluded, the same meaning
-	// QueryDiagnostics.SourceQuery carries on the stream path for either
-	// backend. It is never a wall-clock promise on live runs.
-	SourceQueryDuration time.Duration
-	// Complete is true only when the execution naturally exhausted before
-	// reaching its configured row limit. Truncated is explicit when the
-	// bounded preview stopped at errPreviewLimit; callers must not infer full
-	// population facts from a bounded result.
-	Complete  bool
-	Truncated bool
-	// PartialValidation marks compiler-bounded construction previews that
-	// validate only the displayed deterministic sample of complete groups.
+	Output               string
+	Columns              []string
+	RowCount             int
+	PlanMode             string
+	PlanProfile          string
+	PlanFingerprint      string
+	TraversalCount       int
+	LoweringDuration     time.Duration
+	SourceQueryDuration  time.Duration
+	Complete             bool
+	Truncated            bool
 	PartialValidation    bool
 	RowLineageCapability compiler.RowLineageCapability
 }
 
 type Config struct {
-	Registry      exec.Reader
-	Revisions     recipe.RevisionStore
-	ResolveBundle func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	// CompileTarget is the closed compile target selected once by
-	// composition and used by every authoritative compile in this engine.
-	// It is required: the zero target (never selected) fails construction;
-	// there is no per-request dialect default.
-	CompileTarget compiler.Target
-	// SourceRows is the single required row-execution port for the selected
-	// compile target. The composition that selected the target installs the
-	// adapter that serves its command tag; construction fails without it.
-	SourceRows SourceRows
-	// PreviewSourceRows is the optional bounded-preview capability for
-	// source plans. When unset, previews use SourceRows.
-	PreviewSourceRows   SourceRows
-	PreparePreviewIndex func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	// PreviewCoveringIndexes lists the compiler-owned persistent indexes the
-	// owning backend adapter observes on a collection. The adapter enumerates
-	// and filters its own vendor index metadata; execution sees only the
-	// neutral PreviewCollectionIndex definition.
-	PreviewCoveringIndexes    func(context.Context, string) ([]PreviewCollectionIndex, error)
-	PreviewCollectionRevision func(context.Context, string) (string, error)
-	// PreviewCollectionScans is the optional plan-inspection capability
-	// described in preview_capabilities.go. It is advisory: unset, erroring,
-	// or empty evidence leaves execution on the canonical bounded fallback.
+	Registry                   exec.Reader
+	Revisions                  recipe.RevisionStore
+	ResolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
+	CompileTarget              compiler.Target
+	SourceRows                 SourceRows
+	PreviewSourceRows          SourceRows
+	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
+	PreviewCoveringIndexes     func(context.Context, string) ([]PreviewCollectionIndex, error)
+	PreviewCollectionRevision  func(context.Context, string) (string, error)
 	PreviewCollectionScans     PreviewCollectionScans
 	PreviewCollectionCount     func(context.Context, string) (int64, error)
 	ClickHouseQueryRows        ClickHouseQueryRows
@@ -150,9 +91,7 @@ type Config struct {
 	PrivateClickHouseArtifacts *chartifact.Manager
 	ScopeDigest                func(recipe.RuntimeBindings) string
 	BatchSize                  int
-	// RootPageRows bounds the number of root documents evaluated by one wide
-	// output query. Zero keeps the legacy single-query execution path.
-	RootPageRows int
+	RootPageRows               int
 }
 
 type Engine struct {
@@ -177,11 +116,6 @@ type Engine struct {
 	rootPageRows               int
 }
 
-// Resolved contains the immutable recipe after schema discovery, semantic
-// discovery provenance, and canonical physical plans per output. Bundle is the
-// fully resolved recipe that may be passed back through CompileResolvedBundle
-// after a receipt or other durable boundary. Compiled remains request-scoped
-// runtime state; callers must not persist it.
 type Resolved struct {
 	Bundle               recipe.Bundle
 	Semantic             semantic.ResolvedRecipePlan
@@ -190,9 +124,6 @@ type Resolved struct {
 	ResolvedSchemaDigest string
 }
 
-// ResolutionError marks failures while compiling a recipe before publication
-// starts. Transport adapters can expose these as actionable recipe errors;
-// publication and backend failures remain opaque internal errors.
 type ResolutionError struct{ Err error }
 
 func (e *ResolutionError) Error() string {
@@ -209,114 +140,50 @@ func (e *ResolutionError) Unwrap() error {
 	return e.Err
 }
 
-// ErrPostgreSQLRootPageSteps reports a composition defect in parent-supplied
-// PostgreSQL root-page steps: a page parameter outside the rendered argument
-// list, a declared parameter type the engine would have to reinterpret,
-// colliding parameter positions, a non-positive page size, an unnamed root
-// identity column, or a row root key column missing from the declared output
-// contract. A step command carrying the wrong backend tag is refused by the
-// compiler's routing sentinels (ErrCompiledCommandBackendMismatch /
-// ErrCompiledCommandBackendNotRegistered) instead, before any page is
-// derived. Steps are consumed from the parent compiler only: no execution-side
-// producer exists until a parent-compiler ticket supplies one, and until then
-// no production path can attach them.
 var ErrPostgreSQLRootPageSteps = errors.New("postgresql root page steps are invalid")
 
-// ErrPostgreSQLResultContract reports that a root-page result violates the
-// execution result contract: a key page that is not strictly increasing
-// (duplicates included), a key page that does not advance past the previous
-// page tail (a parent key statement with a non-strict cursor filter, or one
-// that ignores the cursor argument, would otherwise re-emit overlapping
-// pages forever), a key page larger than requested, or a result row whose
-// root continuation identity is missing, malformed, or outside the requested
-// key page. The PostgreSQL row adapter's own ErrColumnContractMismatch
-// guards statement/contract column shape; this sentinel covers the root-page
-// invariants that are only judgeable from the decoded rows. Both are
-// errors.Is-classified typed result contracts.
 var ErrPostgreSQLResultContract = errors.New("postgresql root page result contract violation")
 
-// PostgreSQLRootPageSteps is the parent-supplied execution contract for one
-// bounded PostgreSQL root-page command sequence: the key step discovers the
-// next page of root continuation identities even when those roots emit no
-// output rows, and the row step executes the complete output for exactly that
-// page. Both commands are parent-tagged PostgreSQL statements built by the
-// canonical compiler path through command.NewPostgreSQLCommand; execution
-// renders no SQL. It is the PostgreSQL counterpart of the compiler-owned
-// compiler.CompiledOutputPage page templates, with the positional binding of
-// pg-ir-02 commands in place of AQL named binds: the key-step cursor binds
-// CursorArgIndex as text, the page size binds PageSizeArgIndex as bigint, and
-// the discovered key page binds PageKeysArgIndex on the row step as a jsonb
-// array of strings (the registered parameter types carry no array type).
-// Page parameters are rebound per page through the closed derivation helper,
-// which never mutates a template and never reinterprets a declared type.
-// Row order is owned by the compiled ORDER BY of the parent row statement (the
-// pg-sql-12 final-row window); execution visits rows in stream order and never
-// sorts.
 type PostgreSQLRootPageSteps struct {
-	// RootKeys discovers the next page of root continuation identities.
-	RootKeys command.CompiledCommand
-	// Rows executes the complete output for exactly one discovered key page.
-	Rows command.CompiledCommand
-	// RootKeyColumn is the sole declared result column of RootKeys.
-	RootKeyColumn string
-	// RowRootKeyColumn is the declared output column carrying each result
-	// row's root continuation identity. It must be part of the stream's
-	// declared output column contract.
+	RootKeys         command.CompiledCommand
+	Rows             command.CompiledCommand
+	RootKeyColumn    string
 	RowRootKeyColumn string
-	// CursorArgIndex is the 0-based index into RootKeys' ordered arguments
-	// of the keyset cursor, declared as a text parameter.
-	CursorArgIndex int
-	// PageSizeArgIndex is the 0-based index into RootKeys' ordered arguments
-	// of the page size, declared as a bigint parameter.
+	CursorArgIndex   int
 	PageSizeArgIndex int
-	// PageKeysArgIndex is the 0-based index into Rows' ordered arguments of
-	// the discovered key page, declared as a jsonb parameter.
 	PageKeysArgIndex int
-	// PageSize is the fixed positive number of roots requested per key page,
-	// sanity-bounded below maxPostgreSQLRootPageSize. The AQL-only adaptive
-	// first-page sizing does not extend to this route.
-	PageSize int
+	PageSize         int
 }
 
-// maxPostgreSQLRootPageSize sanity-bounds the parent-supplied page size
-// before the engine allocates per-page capacity from it or encodes a key
-// page into the row step's jsonb argument. Legitimate keyset pages are
-// orders of magnitude smaller; a larger value is a composition defect, not
-// a tuning choice.
 const maxPostgreSQLRootPageSize = 1 << 20
 
 type OutputStream struct {
-	Name                    string
-	Columns                 []string
-	sourceIdentityMode      string
-	RowIdentity             *spec.RowIdentity
-	DynamicChecks           map[string]map[string]DynamicColumnCheck
-	command                 command.CompiledCommand
-	expectedBackend         command.CompiledBackend
-	commandColumns          []string
-	sourceRows              SourceRows
-	batchSize               int
-	rootPageRows            int
-	initialRootPageRows     int
-	page                    *compiler.CompiledOutputPage
-	pgRootPage              *PostgreSQLRootPageSteps
-	physicalEngine          ir.PhysicalEngine
-	clickHouseCombine       *ir.PhysicalClickHouseCombine
-	project                 string
-	bindings                recipe.RuntimeBindings
-	clickHouseQueryRows     ClickHouseQueryRows
-	resolveClickHouseInputs ResolveClickHouseInputs
-	withExecutionReadPins   WithExecutionReadPins
-	queryLimit              int
-	queryMemoryLimit        int64
-	projectionDecisionKey   *groupPreviewRowsKey
-	projectionDecision      *groupPreviewProjectionDecision
-	recipeDigest            string
-	// planFingerprint is the stream's value-BOUND artifact identity: it is
-	// copied verbatim into chartifact.Identity.PlanDigest and is the only
-	// fingerprint authorized for artifact fencing. It is never a public
-	// diagnostic field: public Explain/preview planFingerprint is computed
-	// at projection by SourcePlanFingerprint and must never read this field.
+	Name                     string
+	Columns                  []string
+	sourceIdentityMode       string
+	RowIdentity              *spec.RowIdentity
+	DynamicChecks            map[string]map[string]DynamicColumnCheck
+	command                  command.CompiledCommand
+	expectedBackend          command.CompiledBackend
+	commandColumns           []string
+	sourceRows               SourceRows
+	batchSize                int
+	rootPageRows             int
+	initialRootPageRows      int
+	page                     *compiler.CompiledOutputPage
+	pgRootPage               *PostgreSQLRootPageSteps
+	physicalEngine           ir.PhysicalEngine
+	clickHouseCombine        *ir.PhysicalClickHouseCombine
+	project                  string
+	bindings                 recipe.RuntimeBindings
+	clickHouseQueryRows      ClickHouseQueryRows
+	resolveClickHouseInputs  ResolveClickHouseInputs
+	withExecutionReadPins    WithExecutionReadPins
+	queryLimit               int
+	queryMemoryLimit         int64
+	projectionDecisionKey    *groupPreviewRowsKey
+	projectionDecision       *groupPreviewProjectionDecision
+	recipeDigest             string
 	planFingerprint          string
 	stageID                  string
 	outputSchema             []lower.CompiledOutputColumn
@@ -331,10 +198,6 @@ type OutputStream struct {
 	physicalPlan             ir.PhysicalPlan
 }
 
-// preparedClickHouseQuery is the immutable result of resolving every exact
-// published input and capturing every same-workspace dependency. Its identity
-// and opaque scope evidence are complete before a private artifact writer is
-// opened.
 type preparedClickHouseQuery struct {
 	Query         string
 	Columns       []string
@@ -345,9 +208,6 @@ type preparedClickHouseQuery struct {
 	ScopeEvidence ir.WholeRelationScopeEvidence
 }
 
-// materializedClickHouseCapture carries the source proof beside the live
-// artifact lease. The proof remains in memory for recursive workspace-output
-// composition; only its digest is persisted for whole-scope artifacts.
 type materializedClickHouseCapture struct {
 	Artifact      *chartifact.Artifact
 	Identity      ir.ClickHouseArtifactIdentity
@@ -376,11 +236,6 @@ func New(cfg Config) (*Engine, error) {
 	if !cfg.CompileTarget.Valid() {
 		return nil, fmt.Errorf("compile target is required: %w", compiler.ErrTargetNotSelected)
 	}
-	// One selected target compiles; one required port streams. A composition
-	// that selected a compile target without the row port that serves it is
-	// a capability misconfiguration, not a fallback: fail at construction
-	// rather than at first stream. PreviewSourceRows is an optional preview
-	// override; unset previews reuse SourceRows.
 	if cfg.SourceRows == nil {
 		return nil, fmt.Errorf("source row port is required: composition must install the row adapter for the selected compile target")
 	}
@@ -409,10 +264,6 @@ func New(cfg Config) (*Engine, error) {
 	}, nil
 }
 
-// entry loads the addressed recipe revision when the bindings carry a
-// recipeDigest, otherwise the named default entry. Every control and run
-// surface must address recipes through this seam so a digest-addressed
-// request behaves identically across preview, run, explain, and validate.
 func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -435,8 +286,6 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-// ResolveVersion loads an exact immutable recipe version. New publication
-// workflows must use this method; Resolve is the deprecated default alias.
 func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
 	entry, err := e.registry.LoadRecipeVersion(ctx, name, translationVersion)
 	if err != nil {
@@ -445,10 +294,6 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-// ResolveBundle runs an unregistered immutable bundle through the identical
-// schema, semantic, optimization, and lowering pipeline as a registry entry.
-// Explorer uses this to avoid creating recipe drafts/revisions for authored UI
-// intent.
 func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -460,22 +305,11 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
-// CombinePortsConfigured reports whether every port the private workspace
-// artifact Combine path requires is wired: the ClickHouse result executor,
-// the published-input resolver, the execution read-pin runner, and the
-// private artifact manager. A composition that enables ClickHouse and then
-// silently drops one of these ports must fail at boot, not at the first
-// Combine.
 func (e *Engine) CombinePortsConfigured() bool {
 	return e.clickHouseQueryRows != nil && e.resolveClickHouseInputs != nil &&
 		e.withExecutionReadPins != nil && e.privateClickHouseArtifacts != nil
 }
 
-// CompileResolvedBundle validates and compiles a bundle that has already been
-// resolved by schema discovery. It never invokes Config.ResolveBundle and
-// therefore performs no catalog or schema discovery. Dynamic declarations
-// with nil Columns are rejected by the semantic boundary; a non-nil empty
-// Columns slice is an explicitly resolved, zero-column family and is valid.
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -495,8 +329,6 @@ func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.Preview(ctx, resolved, bindings.PreviewLimit)
 }
 
-// PreviewResolvedBundle compiles an already schema-resolved bundle without
-// catalog discovery, then executes its request-scoped preview.
 func (e *Engine) PreviewResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
 	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
 	if err != nil {
@@ -518,9 +350,6 @@ func (e *Engine) MaterializeBundle(ctx context.Context, bundle recipe.Bundle, bi
 	return resolved, nil
 }
 
-// MaterializeResolvedBundle compiles an already schema-resolved bundle
-// without catalog discovery and hands the resulting request-scoped plan to
-// the publisher.
 func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
 	if err != nil {
@@ -552,9 +381,6 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 	return e.compileResolvedBundle(ctx, bundle, bindings, storedRecipeDigest)
 }
 
-// compileResolvedBundle is the shared post-discovery compiler. Keeping this
-// helper separate from resolveEntry makes it impossible for receipt-backed
-// callers to accidentally rediscover catalog fields during compilation.
 func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -570,9 +396,6 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, err
 	}
-	// The public recipe identity is the registered document digest. The
-	// resolved schema digest below captures catalog-derived fields and scope so
-	// materializations cannot collide when one recipe resolves differently.
 	semanticPlan.RecipeDigest = storedRecipeDigest
 	scope := ""
 	if e.scopeDigest != nil {
@@ -586,9 +409,6 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, err
 	}
-	// Lowering and AQL optimization are request-scoped work. ClickHouse plans
-	// have no AQL traversal rewrites; validate and cache their exact typed plan.
-	// Preview/materialization streams then only clone, window, and render it.
 	policy := ir.DefaultPhysicalOptimizationPolicy()
 	for index := range compiled.Outputs {
 		plan := compiled.Outputs[index].Plan
@@ -644,8 +464,6 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// Materialize resolves a recipe once and hands the complete resolved plan to
-// the publisher. Resolve and compile therefore share one discovery snapshot.
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
 	if err != nil {
@@ -676,9 +494,6 @@ func (e *Engine) Streams(ctx context.Context, resolved Resolved) ([]OutputStream
 	return e.streamsWithLimit(ctx, resolved, 0)
 }
 
-// Run consumes every row from every selected output. Unlike Preview, this
-// deliberately compiles without an execution LIMIT and is intended for
-// callers that explicitly requested the complete dataframe in memory.
 func (e *Engine) Run(ctx context.Context, resolved Resolved) (map[string][]map[string]any, error) {
 	streams, err := e.Streams(ctx, resolved)
 	if err != nil {
@@ -742,9 +557,6 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 	defer delete(building, output.Name)
 	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 	if privateArtifactCapture && requiresRestrictedRowAuthPathCapture(output, bindings) {
-		// Private row-scoped artifacts need the source path on each row so the
-		// downstream Combine can reapply the exact authorization scope. Keep this
-		// projection request-local; it does not change preview bindings/schema.
 		bindings.IncludeAuthResourcePath = true
 	}
 	switch output.Plan.Engine {
@@ -752,30 +564,13 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 		return e.clickHouseStreamForOutput(ctx, resolved, output, limit, building, bindings)
 	case "", ir.PhysicalEngineAQL:
 	default:
-		// Unsupported physical engines fail before any adapter callback:
-		// neither the AQL QueryRows adapter, the PostgreSQL command
-		// executor, nor a ClickHouse callback is invoked for this output.
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
 	}
-	// PostgreSQL selection refusals run before compilation so a refused
-	// selection never renders (and never reaches) a command. These are
-	// selection-level guarantees, not renderer accidents: the checked
-	// messages are the same the PostgreSQL route asserts post-compile.
-	// A PostgreSQL-served output is a legitimate private-artifact capture
-	// source (pg-exec-11): its rows stream through the source row port into
-	// the writer, and the capture contract (scope evidence, digests, row
-	// identity, authorization path) is enforced in materializeClickHouseArtifact.
-	// A PostgreSQL-served output may still never itself carry a ClickHouse
-	// combine payload: that is a plan-shape contradiction, not a source choice.
 	if e.compileTarget.Backend() == command.CompiledBackendPostgreSQL {
 		if output.Plan.ClickHouseCombine != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
 		}
 	}
-	// One selected target compiles every authoritative output. When the
-	// selected target is PostgreSQL the compiler itself produces the
-	// parent-tagged PostgreSQL command; execution never consults the AQL
-	// renderer for it and never converts AQL to SQL.
 	query, err := compiler.CompileRecipeOutput(e.compileTarget, output, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
@@ -804,7 +599,6 @@ func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolve
 	if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
 		stream.artifactScopeEvidence = scopeEvidence.Digest()
 	}
-	// Aggregation must see the full input before the output row limit applies.
 	wholeInput := len(output.Plan.Operations) == 1 &&
 		output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
 	for _, operation := range output.Plan.Operations {
@@ -942,25 +736,6 @@ func (e *Engine) clickHouseStreamForOutput(ctx context.Context, resolved Resolve
 	return stream, query, nil
 }
 
-// postgreSQLStreamForOutput attaches the row stream for one
-// compiler-produced PostgreSQL command from the selected PostgreSQL target.
-// The AQL compiler is never consulted for this output: no AQL text or named
-// bind map is produced, the Arango query memory-limit context never applies,
-// and the AQL root-key page loop is never attached. The command already
-// carries its exhaustive PostgreSQL tag from the compiler; the row port
-// repeats the fail-closed tag check before any driver call, and there is no
-// PostgreSQL-to-AQL fallback and no AQL-to-SQL conversion. The bounded
-// root-page form of this route exists only as the parent-supplied
-// PostgreSQLRootPageSteps contract: this function never attaches steps, and
-// until a parent-compiler ticket supplies a PostgreSQL page producer (the
-// compiler still refuses root-key output paging for PostgreSQL), no
-// production path can attach them.
-//
-// A capture build (privateArtifactCapture) is a legitimate PostgreSQL
-// request (pg-exec-11): the same compiler-attested artifact scope the AQL
-// builder attaches is computed here, and the capture contract itself is
-// enforced in materializeClickHouseArtifact. Non-capture PostgreSQL streams
-// keep the exact fields they carried before capture was offered.
 func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, query compiler.CompiledQuery, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
 	if output.Plan.ClickHouseCombine != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
@@ -991,9 +766,6 @@ func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.Compi
 		commandColumns:  append([]string(nil), query.Columns...),
 	}
 	if privateArtifactCapture {
-		// The same compiler-attested artifact scope the AQL builder attaches
-		// (engine artifact-scope block): rows later captured into a private
-		// ClickHouse artifact are only accepted with this exact evidence.
 		scopeMode, scopeEvidence, scopeIdentity, err := compiledArtifactScope(output, bindings, query.PhysicalPlan)
 		if err != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q artifact scope: %w", output.Name, err)
@@ -1041,9 +813,6 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 		if outputUsesWholeRelationScope(output.Plan) {
 			mode = chartifact.ScopeModeWhole
 		}
-		// A preview query is intentionally bounded and therefore cannot carry
-		// whole-relation capture evidence. The complete lowered plan remains
-		// compiler-attested; private capture recompiles it without this window.
 		return mode, nil, nil, nil
 	}
 	optimizedEvidence, err := ir.NewWholeRelationScopeEvidence(actualPlan, identity)
@@ -1107,9 +876,6 @@ func sameExecutionStrings(left, right []string) bool {
 	return true
 }
 
-// streamExecutionAuthScopeMode uses compiler-issued evidence or an exact typed
-// plan bind as the authority. An empty runtime mode by itself never grants
-// unrestricted access; when paths are present it remains restricted.
 func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode, error) {
 	if identity := stream.scopeEvidenceIdentity; identity != nil {
 		if identity.Project != stream.bindings.Project || identity.DatasetGeneration != stream.bindings.DatasetGeneration ||
@@ -1129,8 +895,6 @@ func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode,
 		return stream.bindings.AuthScopeMode, nil
 	}
 	if len(stream.bindings.AuthResourcePaths) != 0 {
-		// Legacy callers that supply paths without a mode are restricted; the
-		// empty path-list case still requires a typed bind or opaque evidence.
 		return authscope.ReadScopeRestricted, nil
 	}
 	if unrestricted, ok := stream.physicalPlan.BindVars["auth_resource_paths_unrestricted"].(bool); ok {
@@ -1265,9 +1029,6 @@ func hasCompiledOutput(resolved Resolved, name string) bool {
 	return false
 }
 
-// PreviewOutput executes exactly one selected output and exposes only the
-// public output schema. Physical query text, bind variables, and internal
-// projections never cross this boundary.
 func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request PreviewRequest, visit func(map[string]any) error) (PreviewSummary, error) {
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
@@ -1296,9 +1057,6 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
 	}
-	// A PostgreSQL-served preview keeps every Arango control dark: index
-	// preparation, index listing, EXPLAIN, collection counts and revisions,
-	// and the Group preview optimizer all run only on AQL streams.
 	postgreSQLPreview := stream.command.Backend() == command.CompiledBackendPostgreSQL
 	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
 		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
@@ -1309,9 +1067,6 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		}
 	}
 	if stream.physicalEngine != ir.PhysicalEngineClickHouse {
-		// Previews take the one optional preview port; it already falls back
-		// to the full source port at construction. The port performs the
-		// exhaustive tag check, so no per-backend substitution happens here.
 		stream.sourceRows = e.previewSourceRows
 	}
 	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
@@ -1354,9 +1109,6 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			break
 		}
 	}
-	// The stable-identity bind fallback reads named binds only from the
-	// AQL-tagged preview command through closed dispatch; a PostgreSQL
-	// preview carries no named binds, exactly as before this typed boundary.
 	var previewIdentityBinds map[string]any
 	if query.Command.Backend() == command.CompiledBackendAQL {
 		_, binds, dispatchErr := query.Command.AQLParameters()
@@ -1428,19 +1180,12 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		})
 	}
 	summary.RowCount = count
-	// Same cursor-interval meaning as QueryDiagnostics.SourceQuery on the
-	// stream path, for either source: wall time around cursor consumption
-	// minus the per-row materialization the visitor performed, so
-	// materialization is never double-counted into the source time.
 	summary.SourceQueryDuration = now().Sub(queryStarted) - rowMaterialization
 	if summary.SourceQueryDuration < 0 {
 		summary.SourceQueryDuration = 0
 	}
 	if visitorErr != nil {
 		if postgreSQLPreview {
-			// An interrupted PostgreSQL stream never carries a completed
-			// marker: the cancellation/visitor failure returns with the
-			// error and the summary is not marked complete.
 			summary.Complete = false
 			summary.Truncated = false
 		}
@@ -1478,21 +1223,12 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			e.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
 		}
 	}
-	// The post-preview index prewarm creates Arango covering indexes; like
-	// every other Arango control surface in PreviewOutput it is gated away
-	// from PostgreSQL-served previews even if a spec were attached.
 	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
 		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
 	}
 	return summary, nil
 }
 
-// isQueryResourceLimitError recognizes a query stopped at a configured
-// database resource limit through its Loom code alone. The adapter owns
-// vendor interpretation; execution consumes the classified error. The
-// recognized set mirrors the pre-move vendor predicate, which accepted every
-// configured-limit rejection (ErrResourceLimit), including the configured
-// memory-limit special case, but not a database out-of-memory abort.
 func isQueryResourceLimitError(err error) bool {
 	userErr, ok := dataframeerrors.AsUserError(err)
 	if !ok {
@@ -1656,22 +1392,6 @@ func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResul
 	if visit == nil {
 		return StreamResult{}, fmt.Errorf("row visitor is required")
 	}
-	// The stable-identity bind fallback reads named binds only from an
-	// AQL-tagged command through closed dispatch; a ClickHouse stream carries
-	// no compiled command at all and keeps a nil fallback. PostgreSQL
-	// statements bind positionally and expose no named binds, so a
-	// PostgreSQL-tagged stream instead supplies the finalized plan's own
-	// scope bind values: the renderer's loadScope binds
-	// plan.BindVars["project"] and plan.BindVars["dataset_generation"]
-	// verbatim as the statement's first positional arguments, so reading
-	// them from the compiled plan is the only way the fallback can
-	// contribute exactly what the query filtered by -- never the raw
-	// runtime bindings, which may carry untrimmed text the statement never
-	// bound. A missing or non-string scope bind stays absent, so
-	// ensureStableRowIdentity fails closed with the typed missing-field
-	// error, matching the AQL arm's nil-dataset_generation bind posture.
-	// Row-supplied columns are still read from the row first; only a scope
-	// field the row cannot carry falls back.
 	var identityBinds map[string]any
 	switch s.command.Backend() {
 	case command.CompiledBackendAQL:
@@ -1704,18 +1424,11 @@ func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResul
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
 }
 
-// streamPreparedClickHouse consumes an already resolved query while its input
-// pins and private artifact leases remain owned by the preparation callback.
-// It applies the same row identity and post-query projection contract as
-// OutputStream.Stream without resolving or acquiring inputs a second time.
 func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit RowVisitor) (StreamResult, error) {
 	if ctx == nil || visit == nil || s.clickHouseQueryRows == nil || strings.TrimSpace(prepared.Query) == "" {
 		return StreamResult{}, fmt.Errorf("prepared ClickHouse stream requires context, query executor, query, and visitor")
 	}
 	count := 0
-	// The ClickHouse contract is deliberately loose and positional: it has
-	// no compiled command and no named binds, so the identity fallback gets
-	// nil rather than a reinterpreted positional argument.
 	err := s.clickHouseQueryRows(ctx, prepared.Query, prepared.Columns, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -1740,11 +1453,6 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 			return s.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)
 		})
 	}
-	// One port, one request: execution forwards the parent-tagged command,
-	// the declared column contract, and the batch hint without extracting
-	// loose query text, bind maps, SQL, or arguments. The adapter performs
-	// exhaustive tag dispatch and fails a zero, unknown, or unserved tag
-	// with a typed error before any driver call.
 	if s.sourceRows == nil {
 		return fmt.Errorf("%w: stream %q has no source row port",
 			command.ErrCompiledCommandBackendNotRegistered, s.Name)
@@ -1752,12 +1460,6 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	streamRequest := func(cmd command.CompiledCommand) RowsRequest {
 		return RowsRequest{Command: cmd, DeclaredColumns: append([]string(nil), s.commandColumns...), BatchSize: s.batchSize}
 	}
-	// Envelope guard: the command must still carry the selected target's
-	// tag. This is identity verification of the composition invariant, not
-	// a dialect switch: a zero tag names no adapter at all, and a tag that
-	// differs from the selected target could only come from a broken
-	// selection, so it is refused before the port is consulted. The port
-	// adapter still performs its own exhaustive tag dispatch first.
 	if s.command.Backend() == "" {
 		return fmt.Errorf("%w: stream %q carries an unregistered backend tag",
 			command.ErrCompiledCommandBackendNotRegistered, s.Name)
@@ -1769,20 +1471,9 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	if s.command.Backend() == command.CompiledBackendPostgreSQL && len(s.commandColumns) == 0 {
 		return fmt.Errorf("stream %q: PostgreSQL command requires a non-empty declared result column contract", s.Name)
 	}
-	// Backend-tagged root paging: the Arango key/row loop below attaches only
-	// to AQL-tagged streams carrying the compiler's CompiledOutputPage, and
-	// this branch attaches parent-supplied PostgreSQLRootPageSteps only to
-	// PostgreSQL-tagged streams. Neither route ever consults the other
-	// backend's page shape, and no fallback connects them.
 	if s.command.Backend() == command.CompiledBackendPostgreSQL && s.pgRootPage != nil {
 		return s.streamPostgreSQLRootPages(ctx, visit)
 	}
-	// The neutral query-memory budget and the root-key page loop are
-	// Arango-honored policies: they attach only to AQL-tagged commands.
-	// The PostgreSQL route streams its single parent-tagged statement with
-	// neither, even if a construction leak set the AQL page fields; the only
-	// bounded root-page execution the PostgreSQL route can honor is the
-	// parent-supplied PostgreSQLRootPageSteps branch above.
 	if s.command.Backend() != command.CompiledBackendAQL || s.page == nil || s.rootPageRows == 0 {
 		if s.command.Backend() == command.CompiledBackendAQL && s.queryMemoryLimit > 0 {
 			ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
@@ -1849,29 +1540,6 @@ func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	}
 }
 
-// streamPostgreSQLRootPages executes one parent-supplied bounded root-page
-// sequence through the single source row port, mirroring the Arango key/row
-// loop with PostgreSQL's positional binding. Each page runs the key step,
-// validates the discovered continuation identities (strictly increasing,
-// non-blank, strictly past the previous page tail — the cursor advance is
-// re-verified from the decoded rows because this route's key statement is
-// parent-supplied rather than compiler-owned, and a non-strict cursor filter
-// or an ignored cursor argument would otherwise re-emit overlapping pages
-// without ever reaching a loop exit — and no more than the requested page
-// size), and then runs the row
-// step for exactly that key page, validating every result row's root
-// continuation identity against the requested page before visiting it. An
-// empty key page ends the stream without any row call, and a short key page
-// ends it after its row step with no further key query. Rows are visited in
-// stream order: the compiled ORDER BY of the parent row statement (the
-// pg-sql-12 final-row window over the complete row identity) is the only
-// row-order owner and execution never sorts, so repeated children of one
-// page repeat exactly as the parent statement produced them. Cancellation is
-// observed before each key step and again between the key step and the row
-// step: once the request context has ended, the later statement is never
-// derived or dispatched and the stream never reports completion. The AQL-only
-// query-memory budget and adaptive first-page sizing are named exclusions
-// and do not apply to this route.
 func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVisitor) error {
 	steps := s.pgRootPage
 	if err := s.validatePostgreSQLRootPageSteps(); err != nil {
@@ -1895,11 +1563,6 @@ func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVi
 			if !ok || key == "" {
 				return fmt.Errorf("%w: root-key page returned an invalid continuation identity in column %q", ErrPostgreSQLResultContract, steps.RootKeyColumn)
 			}
-			// Cursor advance is re-verified from the decoded rows: the key
-			// statement is parent-supplied, so a non-strict cursor filter
-			// (>= where > was intended) or an ignored cursor argument must
-			// not be able to keep serving overlapping full pages that
-			// re-emit already-delivered rows without ending the loop.
 			if after != "" && key <= after {
 				return fmt.Errorf("%w: root-key page does not advance past the previous page tail %q", ErrPostgreSQLResultContract, after)
 			}
@@ -1917,8 +1580,6 @@ func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVi
 		if len(keys) > steps.PageSize {
 			return fmt.Errorf("%w: root-key page returned %d keys for a requested page of %d", ErrPostgreSQLResultContract, len(keys), steps.PageSize)
 		}
-		// Cancellation between the key step and the row step prevents the
-		// later call and never reports completion.
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -1955,14 +1616,6 @@ func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVi
 	}
 }
 
-// validatePostgreSQLRootPageSteps proves once, before the first adapter
-// call, that the parent-supplied steps are executable: both step commands
-// dispatch through the exhaustive PostgreSQL tag accessor (a cross-tag or
-// zero-tag command fails with the compiler's routing sentinels), every page
-// parameter index is inside its statement's rendered argument list with
-// exactly the declared parameter type the engine will rebind, the key-step
-// positions are distinct, the page size is positive, and both root identity
-// columns are named — the row one present in the declared output contract.
 func (s OutputStream) validatePostgreSQLRootPageSteps() error {
 	steps := s.pgRootPage
 	if steps == nil {
@@ -2005,8 +1658,6 @@ func (s OutputStream) validatePostgreSQLRootPageSteps() error {
 	return nil
 }
 
-// postgreSQLPageParameter names one positional argument position to rebind
-// while deriving a page's command from the parent template.
 type postgreSQLPageParameter struct {
 	index     int
 	parameter command.PostgreSQLParameter
@@ -2026,15 +1677,6 @@ func checkPostgreSQLPageParameter(base command.CompiledCommand, index int, want 
 	return nil
 }
 
-// withPostgreSQLPageParameters derives one page's command from a
-// parent-tagged template: the statement SQL is carried unchanged, every
-// non-page argument keeps its exact declared type and value, and only the
-// named positions are rebound — each with a value of the declared type, so a
-// page value can never reinterpret the statement's parameter shape. The
-// result is re-frozen through the canonical command constructor, the
-// positional counterpart of the closed WithAQLBinds derivation on the AQL
-// side: the template is never mutated, and no unrendered parameter can enter
-// an executed statement.
 func withPostgreSQLPageParameters(base command.CompiledCommand, replacements []postgreSQLPageParameter) (command.CompiledCommand, error) {
 	sqlText, args, err := base.PostgreSQLParameters()
 	if err != nil {
@@ -2338,11 +1980,6 @@ func compiledOutputSchemaDigest(schema []lower.CompiledOutputColumn) (string, er
 	return hex.EncodeToString(digest[:]), nil
 }
 
-// publicStreamRow removes compiler-only projections after they have served
-// post-query validation and row-identity derivation. auth_resource_path is the
-// one hidden projection retained for publication because it preserves the
-// source row's authorization scope when a materialization spans multiple
-// authorized paths.
 func publicStreamRow(row map[string]any, columns []string) map[string]any {
 	public := make(map[string]any, len(columns)+2)
 	for _, column := range columns {

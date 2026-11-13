@@ -1,9 +1,5 @@
 package semantic
 
-// This file owns the recipe rich-shaping boundary. Pivots, aggregates, and
-// representative slices are converted into canonical semantic operations. Nothing here chooses a traversal strategy or emits
-// a backend expression; those decisions remain in the common compiler.
-
 import (
 	"fmt"
 	"regexp"
@@ -18,10 +14,6 @@ import (
 
 var recipeRichNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// lowerRecipePivots converts bounded recipe pivots into canonical semantic
-// pivots.  Both expressions must be selectors owned by the containing node;
-// schema metadata, rather than a client-supplied family, proves that the
-// selector pair is supported.
 func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []recipe.Pivot) ([]SemanticPivot, error) {
 	if !fhirschema.HasResource(resourceType) {
 		return nil, structuralUserRejection(fmt.Sprintf("pivot resource type %q is not represented by the active generated FHIR schema", resourceType))
@@ -144,9 +136,6 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 		}
 		itemResourceType := pivotSpec.ItemResourceType
 		if pivotSpec.ItemSourcePath == "" {
-			// A resource-level pivot has no nested item scope; leave the item
-			// type empty so the physical renderer uses its singleton-document
-			// lowering rather than requiring an item-source selector.
 			itemResourceType = ""
 		} else if itemResourceType == "" {
 			itemResourceType = resourceType
@@ -162,10 +151,6 @@ func lowerRecipePivots(resourceType, alias string, scope scopeFrame, pivots []re
 			}
 		}
 		if pivotSpec.ItemSourcePath != "" {
-			// The schema owns the relative selector conversion. Reparse the
-			// normalized selectors so component pivots are evaluated against one
-			// generated backbone item rather than independently against the
-			// containing Observation.
 			column, err = spec.ParseSelector(fhirschema.SelectorExpression(pivotSpec.ColumnSelector))
 			if err != nil {
 				return nil, fmt.Errorf("%s column selector: %w", path, err)
@@ -296,11 +281,6 @@ func correlatedValueKind(logicalType string) expression.ValueKind {
 	}
 }
 
-// pivotValueKind derives the flat output type from the value selectors rather
-// than from the pivot map that temporarily carries them. FHIR choice values
-// can mix primitive kinds (for example Observation.valueQuantity.value and
-// Observation.valueString); those values share one discovered column family,
-// so normalize that heterogeneous family to strings at the physical boundary.
 func pivotValueKind(resourceType string, primary spec.Selector, fallbacks []spec.Selector) (expression.ValueKind, bool, error) {
 	selectors := append([]spec.Selector{primary}, fallbacks...)
 	kinds := make([]expression.ValueKind, 0, len(selectors))
@@ -369,10 +349,6 @@ func selectorPath(input string) string {
 	return selectorPathFromExpression(input)
 }
 
-// lowerRecipeAggregates converts recipe aggregate declarations into the
-// canonical aggregate representation.  Version-one aggregate expressions are
-// selector-only because SemanticAggregate intentionally stores selector
-// metadata and the existing physical aggregate lowerer consumes that shape.
 func lowerRecipeAggregates(resourceType, alias string, scope scopeFrame, aggregates []recipe.Aggregate) ([]SemanticAggregate, error) {
 	if !fhirschema.HasResource(resourceType) {
 		return nil, structuralUserRejection(fmt.Sprintf("aggregate resource type %q is not represented by the active generated FHIR schema", resourceType))
@@ -578,11 +554,6 @@ func selectorIterates(selector spec.Selector) bool {
 	return false
 }
 
-// lowerRecipeSlices converts representative slices into canonical bounded
-// slices.  Slice fields use the ordinary recipe projection checker, but the
-// canonical SemanticSlice representation intentionally remains selector-based
-// so the existing physical slice lowerer can retain typed extraction,
-// fallback, and value-mode behavior.
 func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []recipe.RepresentativeSlice) ([]SemanticSlice, error) {
 	if !fhirschema.HasResource(resourceType) {
 		return nil, structuralUserRejection(fmt.Sprintf("slice resource type %q is not represented by the active generated FHIR schema", resourceType))
@@ -643,10 +614,6 @@ func lowerRecipeSlices(resourceType, alias string, scope scopeFrame, slices []re
 	return out, nil
 }
 
-// lowerRecipeRichShaping is the coordinated entrypoint used by the recipe
-// node builder. Keeping the three conversions together makes it easy for the
-// caller to attach them to exactly one semantic node while preserving the
-// independent validation and tests for each operation family.
 func lowerRecipeRichShaping(resourceType, alias string, scope scopeFrame, pivots []recipe.Pivot, aggregates []recipe.Aggregate, slices []recipe.RepresentativeSlice) ([]SemanticPivot, []SemanticAggregate, []SemanticSlice, error) {
 	pivotPlan, err := lowerRecipePivots(resourceType, alias, scope, pivots)
 	if err != nil {
@@ -684,10 +651,6 @@ func recipeNodeSelector(resourceType, alias string, scope scopeFrame, input reci
 	return selector, nil
 }
 
-// lowerRecipePredicate maps the only predicate shape currently representable
-// by SemanticAggregate and SemanticSlice: selector existence or string/code
-// equality. Richer boolean predicates remain ordinary node filters until the
-// canonical physical predicate IR grows an equivalent typed representation.
 func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.Selector, string, spec.FilterValueKind, error) {
 	if input == nil {
 		return nil, "", "", nil
@@ -733,9 +696,6 @@ func lowerRecipePredicate(resourceType, alias string, scope scopeFrame, input *r
 	}
 }
 
-// lowerRecipeTypedPredicate is the lossless semantic boundary for a rich
-// shaping predicate. Keeping the complete TypedFilter here avoids silently
-// dropping a quantifier or value kind when later compiler stages consume it.
 func lowerRecipeTypedPredicate(resourceType, alias string, scope scopeFrame, input *recipe.Filter, path string) (*spec.TypedFilter, error) {
 	if input == nil {
 		return nil, nil

@@ -7,11 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// renderConstructionCountRowsGroupPivotRowLineage reverses a constrained
-// Group(COUNT_ROWS) -> Pivot sequence. Validation streams grouped tuples into
-// the existing full-scope Pivot policy checker; the requested row's source
-// documents are then streamed directly from the original scoped source.
-// Neither pass collects source records into arrays.
 func (r *physicalPlanRenderer) renderConstructionCountRowsGroupPivotRowLineage(
 	sourceQuery string,
 	groupStage ir.PhysicalConstructionStage,
@@ -102,9 +97,6 @@ func (r *physicalPlanRenderer) renderConstructionCountRowsGroupPivotRowLineage(
 	return RenderedPhysicalPlan{Query: query, BindVars: pruneUnusedRuntimeBindVars(r.bindVars, query)}, nil
 }
 
-// renderConstructionCountRowsGroupedSource reproduces the authored Group's
-// scalar-key and missing-key semantics while returning only its key tuple and
-// COUNT_ROWS value. WITH COUNT INTO is a scalar count, not a retained row set.
 func (r *physicalPlanRenderer) renderConstructionCountRowsGroupedSource(
 	sourceQuery string,
 	stage ir.PhysicalConstructionStage,

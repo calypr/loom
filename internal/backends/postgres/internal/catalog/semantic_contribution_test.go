@@ -1,35 +1,5 @@
 package postgres_test
 
-// Real-PostgreSQL acceptance tests for the pg-catalog-05 semantic-inventory
-// contribution persistence and retained-resource keyset pages (check-2:
-// go test ./internal/backends/postgres/internal/catalog -run SemanticContribution -count=1).
-//
-// Every test drives the real SemanticContributionRepository (and the
-// SemanticInventoryBackfillStore composite) against the PostgreSQL 18
-// service named by LOOM_TEST_POSTGRES_URL. Fixtures are literal rows
-// inserted by direct SQL; witnesses are literal rows read back by direct
-// SQL. Nothing is mocked: the only wrappers around the real repositories
-// inject failures and count calls, never fake results. Keys, payload
-// digests, and observation JSONB are pinned golden literals produced once
-// from the real catalog emitter (TestSemanticContributionEmitterGoldenAnchor
-// re-derives them every run, so a drift in emitter, digest framing, or
-// stored rows fails loudly rather than passing vacuously).
-//
-// Fixture databases and schemas are uniquely owned as verify_pgcat05_it_*
-// and dropped by the test that created them; the final TestZZ audit is
-// ownership-scoped — it checks each name this file created by exact match
-// and by this file's own unique prefix, never a global foreign scan, so
-// sibling workers sweeping their own prefixes run concurrently without
-// interference.
-//
-// Per the coordinator's migration conditions, this file proves the 000009
-// live contract on real PG18: a double-apply idempotency probe with the
-// ledger row pinned to its own sha256sum golden, per-constraint negative
-// tests naming the exact constraint that REJECTS each violating literal row
-// (with a valid control row succeeding in the same run, so a missing
-// constraint cannot let a test pass vacuously), and digest-replay/conflict
-// proofs on two real connections with distinct pg_backend_pid witnesses.
-
 import (
 	"context"
 	"crypto/rand"
@@ -61,12 +31,9 @@ import (
 
 var pgcat05NamePattern = regexp.MustCompile(`^verify_pgcat05_it_[0-9]+_[0-9a-f]+$`)
 
-// Ownership registry: every resource whose creation this file verified is
-// recorded here, and the TestZZ audit asserts each exact name is gone and
-// no name matching this file's private prefix survives.
 var (
 	pgcat05OwnedMu     sync.Mutex
-	pgcat05OwnedByName = map[string]string{} // database -> owned schema
+	pgcat05OwnedByName = map[string]string{}
 )
 
 func pgcat05Register(db, schema string) {
@@ -151,7 +118,6 @@ func newPgcat05Service(t *testing.T) *pgcat05Service {
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+dbName+`"`); err != nil {
 		fail("create isolated database", err)
 	}
-	// Ownership begins here: this exact database is this test's to drop.
 	pgcat05Register(dbName, "")
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(ctx),
@@ -211,9 +177,6 @@ func (s *pgcat05Service) openClient(t *testing.T) *storepostgres.Client {
 	return client
 }
 
-// openDedicatedClient returns a single-connection pool whose backend pid is
-// witnessed live. Racing surfaces use two of these and re-witness that the
-// pids differ in every round.
 func (s *pgcat05Service) openDedicatedClient(t *testing.T, label string) (*storepostgres.Client, int32) {
 	t.Helper()
 	client, err := storepostgres.Open(s.ctx, storepostgres.Config{
@@ -299,10 +262,6 @@ func (s *pgcat05Service) ledgerFQN() string {
 	return pgx.Identifier{s.schema, storepostgres.LedgerTable}.Sanitize()
 }
 
-// contributionLiteral is the full literal contribution row: every persisted
-// column except the server-assigned recorded_at, which tests witness
-// separately. Seeding and witnessing by direct SQL keeps the database, not
-// the repository, as the source of truth for these tests.
 type contributionLiteral struct {
 	Key               string
 	Project           string
@@ -317,7 +276,7 @@ type contributionLiteral struct {
 	BindingID         string
 	Example           string
 	PayloadDigest     string
-	Observation       string // JSON object text, cast to jsonb on insert
+	Observation       string
 }
 
 type contributionWitness struct {
@@ -325,12 +284,6 @@ type contributionWitness struct {
 	RecordedAt time.Time
 }
 
-// pgcat05CanonicalJSON re-encodes JSON text in Go canonical form (sorted
-// keys, compact). PostgreSQL jsonb::text reorders object keys and inserts
-// spaces, so stored observations compare equal to expected literals only
-// after both sides are canonicalized. Exact-byte fidelity is asserted
-// separately: payload_digest pins the Go encoding, and the round-trip test
-// also checks SQL-side jsonb equality.
 func pgcat05CanonicalJSON(s string) string {
 	var v any
 	if err := json.Unmarshal([]byte(s), &v); err != nil {
@@ -425,9 +378,6 @@ func (l contributionLiteral) toWitness(recordedAt time.Time) contributionWitness
 	return contributionWitness{contributionLiteral: l, RecordedAt: recordedAt}
 }
 
-// seedRetainedResource inserts one fhir_resource row by direct SQL. A nil
-// payload stores SQL NULL; the bytes "null" store an explicit JSON null
-// document.
 func (s *pgcat05Service) seedRetainedResource(t *testing.T, project, generation, resourceType, logicalID, authPath string, payload []byte) {
 	t.Helper()
 	var payloadValue any
@@ -440,9 +390,6 @@ func (s *pgcat05Service) seedRetainedResource(t *testing.T, project, generation,
 		project, generation, resourceType, logicalID, authPath, payloadValue)
 }
 
-// seedFieldProfileDoc inserts one field-profile record (the shape the
-// profiler writes for a retained field) with the given doc_count. Its
-// presence with doc_count > 0 is document evidence for source availability.
 func (s *pgcat05Service) seedFieldProfileDoc(t *testing.T, project, generation, authPath, resourceType, path string, docCount int64) {
 	t.Helper()
 	s.exec(t, "INSERT INTO "+s.fieldProfileFQN()+
@@ -454,9 +401,6 @@ func (s *pgcat05Service) seedFieldProfileDoc(t *testing.T, project, generation, 
 		project, generation, authPath, resourceType, path, "fpk_"+resourceType+"_"+path, "string", docCount)
 }
 
-// seedCoverageMarker inserts one scope-level coverage marker: the
-// known-empty evidence that distinguishes "profiled, zero documents" from
-// "never profiled".
 func (s *pgcat05Service) seedCoverageMarker(t *testing.T, project, generation, authPath, resourceType string) {
 	t.Helper()
 	s.exec(t, "INSERT INTO "+s.coverageFQN()+
@@ -475,12 +419,6 @@ func (s *pgcat05Service) witnessBuildRow(t *testing.T, project, generation, buil
 	return build, found
 }
 
-// ---------------------------------------------------------------------------
-// Golden fixtures: emitter-derived contribution identities pinned as
-// literals. TestSemanticContributionEmitterGoldenAnchor re-derives every
-// value from the real emitter each run.
-// ---------------------------------------------------------------------------
-
 const (
 	pgcat05GoldenProject    = "pgcat05-golden"
 	pgcat05GoldenGeneration = "gen-a"
@@ -495,8 +433,8 @@ type goldenContribution struct {
 	sourceID     string
 	authPath     string
 	resourceType string
-	observation  string // canonical Go encoding, also the jsonb golden
-	payload      string // retained source payload JSON literal
+	observation  string
+	payload      string
 }
 
 var pgcat05ObservationCodeObs = `{"schema_version":4,"source":{"canonical":"Observation.code.coding[]","type":"Observation","path":"code.coding[]"},"key":{"selector":"code.coding[]","system":"urn:obs-05","version":"v1","code":"loinc-42"},"value":{"selector":"code.coding[].display","type":"string","fallback_selectors":["code.coding[].code"],"fallback_on_blank_string":true},"logical_type":"string","completeness":"complete","status":"SUPPORTED","population":1,"examples":["loinc-42"],"examples_truncated":false,"rule_hint":"CODED_CONCEPT_V1","rule_version":"5"}`
@@ -585,8 +523,6 @@ func pgcat05GoldenIDs() []string {
 	return ids
 }
 
-// pgcat05EmitContribution runs the real semantic emitter over one retained
-// source payload and returns the contributions it produced.
 func pgcat05EmitContribution(t *testing.T, project, generation, authPath, resourceType, sourceID, payload string) []catalog.SemanticInventoryContribution {
 	t.Helper()
 	var decoded map[string]any
@@ -603,9 +539,6 @@ func pgcat05EmitContribution(t *testing.T, project, generation, authPath, resour
 	return out
 }
 
-// pgcat05GoldensBatch rebuilds the golden contribution batch through the
-// real emitter, so test writes always carry genuine emitter output while
-// every expected stored value is compared against the pinned literals.
 func pgcat05GoldensBatch(t *testing.T, ids []string) []catalog.SemanticInventoryContribution {
 	t.Helper()
 	var batch []catalog.SemanticInventoryContribution
@@ -632,11 +565,6 @@ func pgcat05ExpectedLiteral(g goldenContribution) contributionLiteral {
 	}
 }
 
-// TestSemanticContributionEmitterGoldenAnchor re-derives every golden
-// literal — contribution key, concept, binding, example, payload digest, and
-// observation JSON — from the real emitter and the Go digest function. Every
-// later golden-literal comparison in this file is non-vacuous only because
-// this anchor test pins emitter and digest to the literals below.
 func TestSemanticContributionEmitterGoldenAnchor(t *testing.T) {
 	for _, id := range pgcat05GoldenIDs() {
 		g := pgcat05Goldens[id]
@@ -670,10 +598,6 @@ func TestSemanticContributionEmitterGoldenAnchor(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionWriteRoundTripsEveryColumn writes the full golden
-// batch and witnesses every persisted column by direct SQL, including the
-// exact payload JSONB compared as jsonb equality against the golden
-// literal, and the recorded storage moment.
 func TestSemanticContributionWriteRoundTripsEveryColumn(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -695,9 +619,6 @@ func TestSemanticContributionWriteRoundTripsEveryColumn(t *testing.T) {
 		if !sameContributionLiteral(w.contributionLiteral, want) {
 			t.Fatalf("%s: stored row = %+v, want %+v", id, w.contributionLiteral, want)
 		}
-		// Exact payload JSONB: jsonb equality against the golden literal
-		// (PostgreSQL canonicalizes both sides identically; identity of
-		// "same payload" additionally lives in the pinned Go digest).
 		var equal bool
 		if err := s.iso.QueryRow(s.ctx, "SELECT observation = $1::jsonb FROM "+s.contributionFQN()+
 			" WHERE contribution_key = $2", g.observation, g.key).Scan(&equal); err != nil {
@@ -712,10 +633,6 @@ func TestSemanticContributionWriteRoundTripsEveryColumn(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionReplayIsIdempotentByteIdentical proves the first
-// acceptance clause: writing and replaying the same contribution identity
-// is idempotent. The replay is a no-op — every stored column, including
-// payload_digest and the original recorded_at, stays byte-identical.
 func TestSemanticContributionReplayIsIdempotentByteIdentical(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -734,7 +651,6 @@ func TestSemanticContributionReplayIsIdempotentByteIdentical(t *testing.T) {
 		before[id] = w
 	}
 
-	// Replay: same identities, same payloads. Must be a clean no-op.
 	if err := repo.WriteSemanticInventoryContributions(s.ctx, pgcat05GoldensBatch(t, ids), 0); err != nil {
 		s.fail("replay write", err)
 	}
@@ -752,11 +668,6 @@ func TestSemanticContributionReplayIsIdempotentByteIdentical(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionConflictFailsWithoutOverwrite proves the second
-// half of the first acceptance clause: a conflicting payload at one
-// contribution identity fails rather than overwriting silently. The
-// offered contribution carries the golden key with a tampered example, so
-// the payload digest differs while the identity does not.
 func TestSemanticContributionConflictFailsWithoutOverwrite(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -787,8 +698,6 @@ func TestSemanticContributionConflictFailsWithoutOverwrite(t *testing.T) {
 	if conflict.ProvidedDigest == conflict.StoredDigest || !isLowerHex64(conflict.ProvidedDigest) {
 		t.Fatalf("conflict provided digest = %q, want a differing 64-hex digest", conflict.ProvidedDigest)
 	}
-	// Wrong-sentinel probe: this error must not masquerade as any other
-	// named refusal in this slice.
 	for _, other := range []error{catalogstore.ErrInvalidSemanticInventoryContribution, catalogstore.ErrSemanticInventoryEntriesUnsupported, catalogstore.ErrRetainedSemanticSourceMissing} {
 		if errors.Is(err, other) {
 			t.Fatalf("conflict error misclassifies as %v", other)
@@ -807,11 +716,6 @@ func TestSemanticContributionConflictFailsWithoutOverwrite(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionSlotConflictRefusedWithoutOverwrite seeds a valid
-// row directly and offers a legitimately keyed contribution claiming the
-// same (build, source, ordinal) slot with a different auth path. The
-// primary key — not the caller — refuses the second identity at the slot,
-// typed as a slot conflict, and the stored row is untouched.
 func TestSemanticContributionSlotConflictRefusedWithoutOverwrite(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -821,7 +725,7 @@ func TestSemanticContributionSlotConflictRefusedWithoutOverwrite(t *testing.T) {
 
 	claimed := pgcat05GoldensBatch(t, []string{"obs-a"})[0]
 	claimed.AuthResourcePath = "fhir/Observation?code=urn:other"
-	claimed.Key = strings.Repeat("7", 64) // a second identity claiming the same slot
+	claimed.Key = strings.Repeat("7", 64)
 	claimed.Example = golden.example
 
 	err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{claimed}, 0)
@@ -842,18 +746,13 @@ func TestSemanticContributionSlotConflictRefusedWithoutOverwrite(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionConstraintNegatives drives each database
-// invariant directly: for every CHECK, the unique key, the primary key, and
-// NOT NULL, a violating literal row is refused with the exact named
-// constraint while an identical control row (minus the violation) inserts
-// in the same run. A missing or renamed constraint cannot pass this vacuously.
 func TestSemanticContributionConstraintNegatives(t *testing.T) {
 	s := newPgcat05Service(t)
 
 	base := func(suffix string) contributionLiteral {
 		g := pgcat05Goldens["obs-b"]
 		l := pgcat05ExpectedLiteral(g)
-		l.Key = fmt.Sprintf("%x", sha256.Sum256([]byte("pgcat05-base/"+suffix))) // distinct valid hex key
+		l.Key = fmt.Sprintf("%x", sha256.Sum256([]byte("pgcat05-base/"+suffix)))
 		l.SourceID = "retained:Observation/neg-" + suffix
 		l.PayloadDigest = fmt.Sprintf("%064x", len(suffix)+0xbeef0000)
 		return l
@@ -907,7 +806,6 @@ func TestSemanticContributionConstraintNegatives(t *testing.T) {
 		s.requireNoContribution(t, bad.Key, tc.name)
 	}
 
-	// NOT NULL: observation must be present (SQL NULL refused with 23502).
 	notNull := base("null-obs")
 	_, err := s.iso.Exec(s.ctx, "INSERT INTO "+s.contributionFQN()+
 		" (contribution_key, project, dataset_generation, build_id, source_kind,"+
@@ -924,8 +822,6 @@ func TestSemanticContributionConstraintNegatives(t *testing.T) {
 	}
 	s.requireNoContribution(t, notNull.Key, "NULL observation")
 
-	// Identity arbitration lives in the database: UNIQUE contribution_key
-	// refuses the same content key at a second slot...
 	dupKey := base("dup-key")
 	s.seedContributionLiteral(t, dupKey)
 	stolen := dupKey
@@ -940,7 +836,6 @@ func TestSemanticContributionConstraintNegatives(t *testing.T) {
 		t.Fatalf("reused key disturbed the stored row: %+v found=%t", row, found)
 	}
 
-	// ...and the primary key refuses a different key at one slot.
 	dupSlot := base("dup-slot")
 	s.seedContributionLiteral(t, dupSlot)
 	rewritten := dupSlot
@@ -956,16 +851,9 @@ func TestSemanticContributionConstraintNegatives(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionMigrationContract pins the 000009 live contract
-// on real PG18: the ledger row for the contribution migration is recorded
-// exactly once, its checksum equals the golden sha256 of the exact DDL
-// bytes, and re-applying the full history converges without duplicating or
-// rewriting any ledger row.
 func TestSemanticContributionMigrationContract(t *testing.T) {
 	s := newPgcat05Service(t)
 
-	// Golden sha256 of the exact bytes of
-	// internal/backends/postgres/internal/store/migrations/000009_semantic_inventory_contribution.sql.
 	const goldenChecksum = "41579b3c86d17c5912195ccaa6ff8655e6a864c01a01f2a23fa1cb4aa6883b02"
 
 	var version int64
@@ -990,8 +878,6 @@ func TestSemanticContributionMigrationContract(t *testing.T) {
 		t.Fatalf("000009 checksum = %s, golden %s", checksum, goldenChecksum)
 	}
 
-	// Double apply: re-running the full migration history over the same
-	// schema converges with no new or rewritten ledger rows.
 	before := s.witnessLedger(t)
 	if _, err := storepostgres.MigrateSchema(s.ctx, s.openClient(t), s.schema); err != nil {
 		s.fail("second MigrateSchema", err)
@@ -1023,10 +909,6 @@ func (s *pgcat05Service) witnessLedger(t *testing.T) []storepostgres.LedgerRecor
 	return out
 }
 
-// TestSemanticContributionWriteValidationRefusals proves guard non-vacuity
-// at the repository boundary: every malformed shape is refused by its exact
-// named sentinel BEFORE any statement runs (zero rows land), and each
-// refusal matches only its own sentinel — never a neighbouring one.
 func TestSemanticContributionWriteValidationRefusals(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1058,8 +940,6 @@ func TestSemanticContributionWriteValidationRefusals(t *testing.T) {
 	for _, tc := range cases {
 		err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{tc.bad}, 0)
 		tc.match(t, err)
-		// Wrong-name refusal probe: the refusal names its own sentinel and
-		// never a neighbouring one.
 		if errors.Is(err, catalogstore.ErrSemanticInventoryContributionConflict) ||
 			errors.Is(err, catalogstore.ErrSemanticInventoryEntriesUnsupported) ||
 			errors.Is(err, catalogstore.ErrRetainedSemanticSourceMissing) {
@@ -1070,11 +950,9 @@ func TestSemanticContributionWriteValidationRefusals(t *testing.T) {
 		t.Fatalf("validation refusals wrote %d rows, want 0 (refusal must precede any statement)", got)
 	}
 
-	// In-batch duplicate slot: refused as a slot conflict without any
-	// partial write.
 	dup := pgcat05GoldensBatch(t, []string{"obs-a"})
 	second := dup[0]
-	second.Key = strings.Repeat("e", 64) // same slot, different content identity
+	second.Key = strings.Repeat("e", 64)
 	err := repo.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{dup[0], second}, 0)
 	var conflict *catalogstore.SemanticInventoryContributionConflictError
 	if !errors.As(err, &conflict) || !conflict.Slot {
@@ -1084,8 +962,6 @@ func TestSemanticContributionWriteValidationRefusals(t *testing.T) {
 		t.Fatalf("in-batch duplicate wrote %d rows, want 0", got)
 	}
 
-	// Control: the identical well-formed batch writes every row; batchSize
-	// <= 0 falls back to the default chunking.
 	if err := repo.WriteSemanticInventoryContributions(s.ctx, pgcat05GoldensBatch(t, pgcat05GoldenIDs()), 0); err != nil {
 		s.fail("control write", err)
 	}
@@ -1101,26 +977,12 @@ func wantInvalidContribution(t *testing.T, err error) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Retained-resource keyset page adapter.
-// ---------------------------------------------------------------------------
-
-// pgcat05AdversarialIDs order differently under Go byte order, PostgreSQL
-// default (en_US.utf8) collation, and nothing else: mixed case, digits,
-// punctuation across the '-' '.' '_' '~' boundaries, and non-ASCII. The
-// page adapter must agree with Go byte order on every one of them.
 var pgcat05AdversarialIDs = []string{
 	"Zebra", "apple", "Apple", "10", "2", "-x", "é",
 	"obs-1", "obs-10", "obs-2", "obs.a", "obs~t", "obscure", "obs_c",
 	"z-null", "z-jsonnull",
 }
 
-// TestSemanticContributionRetainedPageStableByteOrderKeyset walks one scope
-// in small pages and demands the full walk equal Go byte order — while
-// directly witnessing that the server's default collation disagrees with
-// that order on this id set (non-vacuity: the adapter cannot pass by
-// coincidentally matching ICU order, and a COLLATE "C" removal would flip
-// this test). Auth path and payload fidelity ride along.
 func TestSemanticContributionRetainedPageStableByteOrderKeyset(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1131,26 +993,20 @@ func TestSemanticContributionRetainedPageStableByteOrderKeyset(t *testing.T) {
 		var rowPayload []byte
 		switch id {
 		case "z-null":
-			rowPayload = nil // SQL NULL payload
+			rowPayload = nil
 		case "z-jsonnull":
-			rowPayload = []byte("null") // explicit JSON null document
+			rowPayload = []byte("null")
 		default:
 			rowPayload = payload
 		}
 		s.seedRetainedResource(t, project, generation, resourceType, id, "path/"+id, rowPayload)
 	}
-	// Decoys that must never leak: other project, other generation, other
-	// resource type — same logical ids.
 	for _, id := range pgcat05AdversarialIDs {
 		s.seedRetainedResource(t, project+"-other", generation, resourceType, id, "decoy", payload)
 		s.seedRetainedResource(t, project, generation+"-other", resourceType, id, "decoy", payload)
 		s.seedRetainedResource(t, project, generation, "Patient", id, "decoy", payload)
 	}
 
-	// Non-vacuity probes on the server's default collation: the default
-	// sort order differs from Go byte order on this set, and so does the
-	// default keyset predicate's row set. The adapter matches neither — it
-	// matches Go byte order exactly.
 	var defaultOrder []string
 	{
 		rows, err := s.iso.Query(s.ctx, "SELECT logical_id FROM "+s.resourceFQN()+
@@ -1170,12 +1026,10 @@ func TestSemanticContributionRetainedPageStableByteOrderKeyset(t *testing.T) {
 		rows.Close()
 	}
 	want := append([]string(nil), pgcat05AdversarialIDs...)
-	sort.Strings(want) // Go byte order
+	sort.Strings(want)
 	if reflect.DeepEqual(defaultOrder, want) {
 		t.Fatalf("server default collation order matches Go byte order on the adversarial set — the probe is vacuous on this service; expand the id set")
 	}
-	// The keyset predicate itself must agree with Go bytes, not ICU:
-	// count rows above a mid-set boundary under both semantics.
 	boundary := want[len(want)/2]
 	var icuCount, byteCount int64
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.resourceFQN()+
@@ -1201,8 +1055,6 @@ func TestSemanticContributionRetainedPageStableByteOrderKeyset(t *testing.T) {
 		t.Fatalf("default-collation predicate agrees with byte order on this set — predicate probe is vacuous; expand the id set")
 	}
 
-	// The adapter's walk: byte-exact full order, bounded pages, exact auth
-	// path and payload fidelity, no decoy leakage.
 	var walked []string
 	afterKey := ""
 	pages := 0
@@ -1268,17 +1120,11 @@ func TestSemanticContributionRetainedPageStableByteOrderKeyset(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionRetainedPageEmptySourceDistinctions keeps the
-// three first-page readings distinct: never-profiled is unproven, a
-// coverage marker is a verified known-empty population, and document
-// evidence with no rows is a named contradiction. Each distinction is
-// mutation-probed by removing or zeroing the very marker that drives it.
 func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
 	const generation = "gen-e"
 
-	// (a) Nothing at all: unproven.
 	page, err := repo.ReadRetainedSemanticInventoryPage(s.ctx, "pgcat05-empty-none", generation, "Observation", "", 10)
 	if err != nil {
 		s.fail("read unproven scope", err)
@@ -1287,7 +1133,6 @@ func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 		t.Fatalf("never-profiled scope page = %+v, want SourceExists=false with no rows", page)
 	}
 
-	// (b) Coverage marker only: verified known-empty.
 	page, err = repo.ReadRetainedSemanticInventoryPage(s.ctx, "pgcat05-empty-coverage", generation, "Observation", "", 10)
 	if err != nil {
 		s.fail("read coverage scope", err)
@@ -1303,8 +1148,6 @@ func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 	if !page.SourceExists || len(page.Rows) != 0 || page.HasMore {
 		t.Fatalf("known-empty scope page = %+v, want SourceExists=true, no rows, no more", page)
 	}
-	// Mutation probe: drop the marker and the same read degrades to
-	// unproven — the marker, not a fallback, is what claims verification.
 	s.exec(t, "DELETE FROM "+s.coverageFQN()+" WHERE project = $1 AND dataset_generation = $2 AND resource_type = $3",
 		"pgcat05-empty-coverage", generation, "Observation")
 	page, err = repo.ReadRetainedSemanticInventoryPage(s.ctx, "pgcat05-empty-coverage", generation, "Observation", "", 10)
@@ -1315,7 +1158,6 @@ func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 		t.Fatal("known-empty claim survived dropping the coverage marker — the distinction is not marker-driven")
 	}
 
-	// (c) Document evidence with no rows: named contradiction.
 	s.seedFieldProfileDoc(t, "pgcat05-empty-docs", generation, "", "Observation", "code.coding", 3)
 	_, err = repo.ReadRetainedSemanticInventoryPage(s.ctx, "pgcat05-empty-docs", generation, "Observation", "", 10)
 	var missing *catalogstore.RetainedSemanticSourceMissingError
@@ -1330,8 +1172,6 @@ func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 			t.Fatalf("missing-source error misclassifies as %v", other)
 		}
 	}
-	// Mutation probe: doc_count 0 is not document evidence — the same
-	// scope shape must read unproven instead of raising.
 	s.exec(t, "UPDATE "+s.fieldProfileFQN()+" SET doc_count = 0 WHERE project = $1 AND dataset_generation = $2 AND resource_type = $3",
 		"pgcat05-empty-docs", generation, "Observation")
 	page, err = repo.ReadRetainedSemanticInventoryPage(s.ctx, "pgcat05-empty-docs", generation, "Observation", "", 10)
@@ -1341,7 +1181,6 @@ func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 	if page.SourceExists {
 		t.Fatal("doc_count = 0 was treated as document/coverage evidence")
 	}
-	// And profile_status-shaped rows (record_type set) are not field rows.
 	s.exec(t, "INSERT INTO "+s.fieldProfileFQN()+
 		" (project, dataset_generation, auth_resource_path, resource_type, path, profile_key,"+
 		" record_type, kind, doc_count, max_items, sample_count, distinct_truncated,"+
@@ -1358,10 +1197,6 @@ func TestSemanticContributionRetainedPageEmptySourceDistinctions(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionRetainedPageMidWalkEndsCollection proves that an
-// empty page resumed mid-walk is simply the end of the collection: no
-// evidence check runs, no contradiction is raised, and HasMore is false —
-// even when the scope carries document evidence.
 func TestSemanticContributionRetainedPageMidWalkEndsCollection(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1370,8 +1205,6 @@ func TestSemanticContributionRetainedPageMidWalkEndsCollection(t *testing.T) {
 	s.seedRetainedResource(t, project, generation, "Observation", "m-b", "", []byte(pgcat05Goldens["obs-b"].payload))
 	s.seedFieldProfileDoc(t, project, generation, "", "Observation", "code.coding", 2)
 
-	// Control: the same scope's first page yields the rows (so the scope
-	// is genuinely populated and the evidence guard would otherwise fire).
 	first, err := repo.ReadRetainedSemanticInventoryPage(s.ctx, project, generation, "Observation", "", 10)
 	if err != nil {
 		s.fail("read first page", err)
@@ -1379,7 +1212,6 @@ func TestSemanticContributionRetainedPageMidWalkEndsCollection(t *testing.T) {
 	if !first.SourceExists || len(first.Rows) != 2 {
 		t.Fatalf("first page = %+v, want two rows", first)
 	}
-	// Resume past the end: plain end-of-collection, never a contradiction.
 	end, err := repo.ReadRetainedSemanticInventoryPage(s.ctx, project, generation, "Observation", "m-z", 10)
 	if err != nil {
 		t.Fatalf("mid-walk empty read error = %v, want plain end of collection", err)
@@ -1389,9 +1221,6 @@ func TestSemanticContributionRetainedPageMidWalkEndsCollection(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionRetainedPageRequestValidation refuses every
-// unhonorable request shape with its exact named sentinel and zero
-// statement side effects.
 func TestSemanticContributionRetainedPageRequestValidation(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1420,17 +1249,11 @@ func TestSemanticContributionRetainedPageRequestValidation(t *testing.T) {
 			t.Fatalf("%s: validation refusal misclassifies: %v", tc.name, err)
 		}
 	}
-	// Control: the identical call with a canonical shape succeeds.
 	if _, err := repo.ReadRetainedSemanticInventoryPage(s.ctx, "pgcat05-validate", "g", "Observation", "", 1000); err != nil {
 		s.fail("control page read", err)
 	}
 }
 
-// TestSemanticContributionRetainedPageGenerationNormalization pins the
-// single-source-of-truth canonicalization rule: the adapter normalizes the
-// dataset generation in Go before binding, so padded requests hit exactly
-// the normalized spelling's rows and never the raw padded spelling stored
-// by a direct SQL writer. No SQL-side trim is involved anywhere.
 func TestSemanticContributionRetainedPageGenerationNormalization(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1438,8 +1261,6 @@ func TestSemanticContributionRetainedPageGenerationNormalization(t *testing.T) {
 	payload := []byte(pgcat05Goldens["obs-b"].payload)
 	s.seedRetainedResource(t, project, "gen-n", "Observation", "clean-1", "", payload)
 	s.seedRetainedResource(t, project, "gen-n", "Observation", "clean-2", "", payload)
-	// Raw padded spelling stored directly by SQL: unreachable through any
-	// normalized read; the repository never trims on the SQL side.
 	s.seedRetainedResource(t, project, "  gen-n  ", "Observation", "padded-only", "", payload)
 
 	for _, request := range []string{"gen-n", "  gen-n  ", "\tgen-n\n"} {
@@ -1455,9 +1276,6 @@ func TestSemanticContributionRetainedPageGenerationNormalization(t *testing.T) {
 			t.Fatalf("request %q returned %v, want only the normalized spelling's rows", request, keys)
 		}
 	}
-	// The padded spelling is genuinely present in the table (direct SQL
-	// sees it), so the exclusion above is the normalization working, not
-	// the row being absent.
 	var padded string
 	if err := s.iso.QueryRow(s.ctx, "SELECT logical_id FROM "+s.resourceFQN()+
 		" WHERE project = $1 AND dataset_generation = $2", project, "  gen-n  ").Scan(&padded); err != nil {
@@ -1468,13 +1286,6 @@ func TestSemanticContributionRetainedPageGenerationNormalization(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Prepare and entry-materialization slice boundary.
-// ---------------------------------------------------------------------------
-
-// TestSemanticContributionPrepareRefusesMissingTables drops each required
-// table and demands the named storage-missing refusal that identifies it,
-// then converges once the table is restored by re-running its migration.
 func TestSemanticContributionPrepareRefusesMissingTables(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1486,9 +1297,6 @@ func TestSemanticContributionPrepareRefusesMissingTables(t *testing.T) {
 		}
 		for _, m := range migrations {
 			if m.Name == name {
-				// Migration DDL uses unqualified names, like the real
-				// runner: replay them on a connection whose search_path
-				// is the owned schema, exactly as MigrateSchema does.
 				conn, err := s.iso.Acquire(s.ctx)
 				if err != nil {
 					s.fail("acquire rerun connection", err)
@@ -1538,10 +1346,6 @@ func TestSemanticContributionPrepareRefusesMissingTables(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionEntriesRefusalIsNamedNoOp proves the slice
-// boundary: entry materialization is refused by name (never a silent
-// version bump), touches no rows, and a corrupted build identity is
-// classified as invalid before the unsupported refusal.
 func TestSemanticContributionEntriesRefusalIsNamedNoOp(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -1577,17 +1381,8 @@ func TestSemanticContributionEntriesRefusalIsNamedNoOp(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Two-real-connection races. Each round re-witnesses the two
-// pg_backend_pid values as distinct so no outcome is a session-local
-// illusion.
-// ---------------------------------------------------------------------------
-
 const pgcat05RaceRounds = 10
 
-// pgcat05RaceContribution emits one contribution for one source id in one
-// scope through the real emitter and returns both the domain value and the
-// expected stored literal (key + Go digest).
 func pgcat05RaceContribution(t *testing.T, project, generation, sourceID, example string) (catalog.SemanticInventoryContribution, contributionLiteral) {
 	t.Helper()
 	g := pgcat05Goldens["obs-b"]
@@ -1620,11 +1415,6 @@ func pgcat05RequireDistinctBackends(t *testing.T, pidA, pidB int32) {
 	}
 }
 
-// TestSemanticContributionIdenticalWriteRaceTwoConnections races two
-// dedicated single-connection pools (pg_backend_pid re-witnessed every
-// round) writing one identical batch. Both must succeed: exactly one row
-// per identity lands, byte-identical to the expected literal, whichever
-// backend won the insert.
 func TestSemanticContributionIdenticalWriteRaceTwoConnections(t *testing.T) {
 	s := newPgcat05Service(t)
 	clientA, pidA := s.openDedicatedClient(t, "identical-race A")
@@ -1679,14 +1469,6 @@ func TestSemanticContributionIdenticalWriteRaceTwoConnections(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionUncommittedWinnerRaceTwoConnections proves the
-// conflict classification is genuinely cross-connection: connection A holds
-// an uncommitted insert of one contribution key (witnessed in-flight via
-// pg_stat_activity on B's pid waiting for the lock/transaction), and
-// connection B writes the same key with a different payload. On A COMMIT,
-// B must return the typed conflict and the stored row is byte-identical to
-// A's literal; on A ABORT, B must converge to its own byte-identical
-// literal. Both post-outcome witnesses are exact literals, >=10 rounds.
 func TestSemanticContributionUncommittedWinnerRaceTwoConnections(t *testing.T) {
 	s := newPgcat05Service(t)
 	clientA, pidA := s.openDedicatedClient(t, "uncommitted A")
@@ -1730,8 +1512,6 @@ func TestSemanticContributionUncommittedWinnerRaceTwoConnections(t *testing.T) {
 			bDone <- repoB.WriteSemanticInventoryContributions(s.ctx, []catalog.SemanticInventoryContribution{contributionB}, 0)
 		}()
 
-		// Witness B genuinely blocked on A's uncommitted insert — the
-		// wait is server-side, not a test-side illusion.
 		if !s.waitForBackendLockWait(t, pidB, 15*time.Second) {
 			_ = tx.Rollback(s.ctx)
 			connA.Release()
@@ -1778,9 +1558,6 @@ func TestSemanticContributionUncommittedWinnerRaceTwoConnections(t *testing.T) {
 	}
 }
 
-// waitForBackendLockWait polls pg_stat_activity until the named backend is
-// actively waiting on a lock (the speculative-insert wait on the
-// uncommitted conflicting row).
 func (s *pgcat05Service) waitForBackendLockWait(t *testing.T, pid int32, budget time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(budget)
@@ -1799,15 +1576,6 @@ func (s *pgcat05Service) waitForBackendLockWait(t *testing.T, pid int32, budget 
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// End-to-end BackfillSemanticInventory on PostgreSQL via the composite.
-// The ingest backend contract is satisfied structurally at these call
-// sites: a signature drift stops compilation here.
-// ---------------------------------------------------------------------------
-
-// pgcat05BackfillProbe wraps the real composite to inject one write failure
-// and count calls. It never fakes results: every non-injected call delegates
-// to the real repositories.
 type pgcat05BackfillProbe struct {
 	*catalogstore.SemanticInventoryBackfillStore
 	mu                       sync.Mutex
@@ -1871,8 +1639,6 @@ func pgcat05BackfillOptions() ingest.SemanticInventoryBackfillOptions {
 	}
 }
 
-// seedPgcat05GoldenSources stores the six golden Observation rows plus one
-// Patient row by direct SQL, matching the golden payloads and auth paths.
 func seedPgcat05GoldenSources(t *testing.T, s *pgcat05Service) {
 	t.Helper()
 	for _, id := range pgcat05GoldenIDs() {
@@ -1881,8 +1647,6 @@ func seedPgcat05GoldenSources(t *testing.T, s *pgcat05Service) {
 	}
 	s.seedRetainedResource(t, pgcat05GoldenProject, pgcat05GoldenGeneration, "Patient", "pat-a", "",
 		[]byte(`{"resourceType":"Patient","gender":"female"}`))
-	// Field-profile document evidence for both types so availability is
-	// verified, matching the profiler's guarantee for a staged generation.
 	s.seedFieldProfileDoc(t, pgcat05GoldenProject, pgcat05GoldenGeneration, "", "Observation", "code.coding", 6)
 	s.seedFieldProfileDoc(t, pgcat05GoldenProject, pgcat05GoldenGeneration, "", "Patient", "gender", 1)
 }
@@ -1910,12 +1674,6 @@ func pgcat05FullTableWitness(t *testing.T, s *pgcat05Service) []contributionWitn
 	return out
 }
 
-// TestSemanticContributionBackfillRoundTripEndToEnd drives
-// ingest.BackfillSemanticInventory through the composite on two real
-// backends: every contribution persists byte-identically to the golden
-// literals, the typed checkpoint and build row land exactly, a completed
-// version-0 build replays with the named entries refusal and zero change,
-// and a version-2 completed build replays as a clean no-op.
 func TestSemanticContributionBackfillRoundTripEndToEnd(t *testing.T) {
 	s := newPgcat05Service(t)
 	seedPgcat05GoldenSources(t, s)
@@ -1961,8 +1719,6 @@ func TestSemanticContributionBackfillRoundTripEndToEnd(t *testing.T) {
 		t.Fatalf("build row = %+v, want complete/7/Patient-pat-a/released/no-diagnostics/verified", build)
 	}
 
-	// Replay of a completed version-0 build: the entries boundary refuses
-	// by name and changes nothing anywhere.
 	before := pgcat05FullTableWitness(t, s)
 	_, err = ingest.BackfillSemanticInventory(s.ctx, probe, manifest, pgcat05BackfillOptions())
 	if !errors.Is(err, catalogstore.ErrSemanticInventoryEntriesUnsupported) {
@@ -1973,9 +1729,6 @@ func TestSemanticContributionBackfillRoundTripEndToEnd(t *testing.T) {
 		t.Fatalf("entries refusal mutated contribution rows:\n before %v\n after  %v", before, after)
 	}
 
-	// A completed build whose entries were materialized (version 2,
-	// seeded directly — materialization itself is another slice) replays
-	// as a clean no-op with zero source or write work.
 	s.exec(t, "UPDATE "+s.buildFQN()+" SET entry_index_version = $1 WHERE project = $2 AND dataset_generation = $3 AND build_id = $4",
 		catalog.SemanticInventoryEntryIndexVersion, pgcat05GoldenProject, pgcat05GoldenGeneration, catalog.SemanticInventoryBuildID(pgcat05GoldenProject, pgcat05GoldenGeneration))
 	probe.reset()
@@ -2007,14 +1760,6 @@ func sameContributionWitnesses(a, b []contributionWitness) bool {
 	return true
 }
 
-// TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempotently
-// injects the crash window where durability is claimed: after the first
-// chunk of a page is committed and before the page's checkpoint CAS, the
-// write fails. The failed run must leave the checkpoint exactly where the
-// last successful advance put it, record the failure, and keep the
-// half-written page's committed chunk. The resumed run rewrites that chunk
-// under the identical key and digest — witnessed byte-identically, recorded_at
-// and all — and advances every page checkpoint exactly once.
 func TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempotently(t *testing.T) {
 	s := newPgcat05Service(t)
 	seedPgcat05GoldenSources(t, s)
@@ -2022,8 +1767,6 @@ func TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempot
 	manifest := pgcat05Manifest(t, pgcat05GoldenProject, pgcat05GoldenGeneration, []string{"Observation", "Patient"})
 	options := pgcat05BackfillOptions()
 
-	// Page chunks in order: [obs-a], [obs-b] (page 1 CAS), [obs-c] (3),
-	// [obs-d] (4: injected failure before page 2's CAS).
 	probe.failWriteAt = 4
 	_, err := ingest.BackfillSemanticInventory(s.ctx, probe, manifest, options)
 	if err == nil || !strings.Contains(err.Error(), "injected contribution write failure") {
@@ -2045,9 +1788,6 @@ func TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempot
 	if writes, advances := probe.counts(); writes != 4 || advances != 1 {
 		t.Fatalf("failed-run probe writes=%d advances=%d, want 4 attempts with 1 checkpoint advance", writes, advances)
 	}
-	// The committed half-page: obs-a, obs-b (CAS-advanced) and obs-c
-	// (committed before the crash, checkpoint unmoved). obs-d never
-	// landed.
 	for _, id := range []string{"obs-a", "obs-b", "obs-c"} {
 		if _, found := s.witnessContribution(t, pgcat05Goldens[id].key); !found {
 			t.Fatalf("%s: committed chunk missing after the failed run", id)
@@ -2055,7 +1795,6 @@ func TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempot
 	}
 	s.requireNoContribution(t, pgcat05Goldens["obs-d"].key, "failed chunk obs-d")
 
-	// obs-c is the crash-window witness: committed, checkpoint unmoved.
 	crashed, found := s.witnessContribution(t, pgcat05Goldens["obs-c"].key)
 	if !found {
 		t.Fatal("crash-window row obs-c missing")
@@ -2065,9 +1804,6 @@ func TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempot
 		t.Fatalf("crash-window row = %+v, want %+v", crashed.contributionLiteral, crashedWant)
 	}
 
-	// Resume with no injection: the page containing obs-c is re-read and
-	// its already-committed chunk rewritten through the idempotent replay
-	// path — the row must stay byte-identical, recorded_at included.
 	probe.failWriteAt = 0
 	probe.reset()
 	report, err := ingest.BackfillSemanticInventory(s.ctx, probe, manifest, options)
@@ -2099,12 +1835,6 @@ func TestSemanticContributionBackfillFailedBatchKeepsCheckpointAndReplaysIdempot
 	}
 }
 
-// TestSemanticContributionBackfillSourceAvailability preserves the
-// source-availability distinctions end to end: an absent unprofiled
-// resource table population completes the build as explicitly unproven and
-// names the collection; a coverage marker verifies it; and document
-// evidence over a missing population fails the build with the named
-// contradiction instead of reporting completeness.
 func TestSemanticContributionBackfillSourceAvailability(t *testing.T) {
 	s := newPgcat05Service(t)
 	const generation = "gen-av"
@@ -2119,7 +1849,6 @@ func TestSemanticContributionBackfillSourceAvailability(t *testing.T) {
 		s.seedFieldProfileDoc(t, project, generation, "", "Observation", "code.coding", 1)
 	}
 
-	// (a) Patient absent, never profiled: complete with explicit unproven.
 	project := "pgcat05-av-unproven"
 	seedObservation(project)
 	probe := &pgcat05BackfillProbe{SemanticInventoryBackfillStore: s.backfillStore(t)}
@@ -2137,8 +1866,6 @@ func TestSemanticContributionBackfillSourceAvailability(t *testing.T) {
 		t.Fatalf("unproven build availability = %q", build.SourceAvailability)
 	}
 
-	// (b) Patient absent but profiled known-empty via coverage marker:
-	// verified, no missing collections.
 	project = "pgcat05-av-knownempty"
 	seedObservation(project)
 	s.seedCoverageMarker(t, project, generation, "", "Patient")
@@ -2153,8 +1880,6 @@ func TestSemanticContributionBackfillSourceAvailability(t *testing.T) {
 		t.Fatalf("known-empty report = %+v, want complete/verified/no-missing", report)
 	}
 
-	// (c) Patient absent although field-profile documents claim it:
-	// named contradiction, build failed, never a silent completeness.
 	project = "pgcat05-av-contradict"
 	seedObservation(project)
 	s.seedFieldProfileDoc(t, project, generation, "", "Patient", "gender", 4)
@@ -2172,11 +1897,6 @@ func TestSemanticContributionBackfillSourceAvailability(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionBackfillClaimRaceTwoConnections races two
-// dedicated backends through the full backfill loop on one build identity,
-// >=10 rounds: exactly one claimant completes, the other is refused by
-// name, and the durable contribution set converges to the same golden
-// literals regardless of which backend won.
 func TestSemanticContributionBackfillClaimRaceTwoConnections(t *testing.T) {
 	s := newPgcat05Service(t)
 	clientA, pidA := s.openDedicatedClient(t, "claim-race A")
@@ -2190,8 +1910,6 @@ func TestSemanticContributionBackfillClaimRaceTwoConnections(t *testing.T) {
 			g := pgcat05Goldens[id]
 			s.seedRetainedResource(t, project, generation, g.resourceType, id, g.authPath, []byte(g.payload))
 		}
-		// No field-profile evidence for the row-bearing type is needed:
-		// rows present prove presence.
 		manifest := pgcat05Manifest(t, project, generation, []string{"Observation"})
 		options := ingest.SemanticInventoryBackfillOptions{Project: project, DatasetGeneration: generation, PageSize: 1, BatchSize: 1}
 
@@ -2247,8 +1965,6 @@ func TestSemanticContributionBackfillClaimRaceTwoConnections(t *testing.T) {
 			want.Project = project
 			want.DatasetGeneration = catalog.NormalizeDatasetGeneration(generation)
 			want.BuildID = catalog.SemanticInventoryBuildID(project, generation)
-			// Keys are scope-addressed: recompute via the emitter for this
-			// project instead of reusing the golden project's key.
 			emitted := pgcat05EmitContribution(t, project, generation, g.authPath, g.resourceType, g.sourceID, g.payload)
 			if len(emitted) != 1 {
 				t.Fatalf("round %d: emitter drift for %s", round, id)
@@ -2274,16 +1990,6 @@ func pgcat05Must[T any](v T, err error) T {
 	return v
 }
 
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-leftover audit (runs last by name).
-// ---------------------------------------------------------------------------
-
-// TestZZZeroLeftoverSemanticContributionFixtures is the ownership-scoped
-// zero-leftover audit. It checks, by exact name only, every database (and
-// the schema that lived inside it) this file verified into existence, plus
-// that no database matching this file's private verify_pgcat05_it_ prefix
-// survives. It never scans foreign namespaces, so concurrent sibling
-// workers sweeping their own prefixes neither race this audit nor trip it.
 func TestZZZeroLeftoverSemanticContributionFixtures(t *testing.T) {
 	raw := pgcat05TestPostgresURL(t)
 	pgcat05OwnedMu.Lock()
@@ -2337,9 +2043,6 @@ func TestZZZeroLeftoverSemanticContributionFixtures(t *testing.T) {
 		}
 	}
 
-	// Prefix sweep: every fixture this file could own (even one created
-	// outside the registry path) carries the private prefix and must be
-	// gone. Foreign prefixes are not touched.
 	var prefixLeftovers int
 	if err := admin.QueryRow(ctx,
 		"SELECT COUNT(*) FROM pg_database WHERE datname LIKE 'verify_pgcat05_it_%'").Scan(&prefixLeftovers); err != nil {
@@ -2350,21 +2053,11 @@ func TestZZZeroLeftoverSemanticContributionFixtures(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionLargeBatchClampsChunkCeiling drives the exact
-// contract-legal worst case: ingest.BackfillSemanticInventory accepts
-// BatchSize up to 5000 and passes it verbatim, so a 5000-row flush must
-// not build one 70000-parameter INSERT (PostgreSQL's Parse message carries
-// the parameter count in a 16-bit integer; the ceiling is 65535). The
-// repository clamps one chunk to maxSemanticContributionChunkSize rows
-// (14 bind parameters per row). Without the clamp this test fails at the
-// first statement with a protocol-level parameter error; with it the write
-// lands in chunks, the identical replay across chunk boundaries
-// byte-identically succeeds, and no row is written twice.
 func TestSemanticContributionLargeBatchClampsChunkCeiling(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
 
-	const rows = 5000 // the contract maximum from internal/ingest validation
+	const rows = 5000
 	var goldenObs catalog.SemanticObservation
 	if err := json.Unmarshal([]byte(pgcat05ObservationCodeObs), &goldenObs); err != nil {
 		t.Fatalf("decode shared observation template: %v", err)
@@ -2394,8 +2087,6 @@ func TestSemanticContributionLargeBatchClampsChunkCeiling(t *testing.T) {
 		})
 	}
 
-	// 5000 rows x 14 bind parameters = 70000 > the 65535 ceiling. A single
-	// oversized statement cannot execute; the clamp must split the flush.
 	if err := repo.WriteSemanticInventoryContributions(s.ctx, batch, 5000); err != nil {
 		t.Fatalf("contract-maximum batch of %d rows: %v", rows, err)
 	}
@@ -2407,8 +2098,6 @@ func TestSemanticContributionLargeBatchClampsChunkCeiling(t *testing.T) {
 		t.Fatalf("large-batch rows = %d, want %d", count, rows)
 	}
 
-	// Replay across chunk boundaries: the identical batch succeeds without
-	// duplicating or touching any row.
 	if err := repo.WriteSemanticInventoryContributions(s.ctx, batch, 5000); err != nil {
 		t.Fatalf("large-batch replay: %v", err)
 	}
@@ -2426,24 +2115,6 @@ func TestSemanticContributionLargeBatchClampsChunkCeiling(t *testing.T) {
 	}
 }
 
-// TestSemanticContributionForgedKeyCrossSlotSkipIsClassified mirrors the
-// independent verifier's deterministic repro
-// (TestV93S1ReplayConflict/forged-key-cross-slot-skip-classification):
-// two contributions sharing one forged (well-formed hex) contribution_key
-// in DIFFERENT slots within one batch. The insert statement skips the
-// second row on the global contribution-key unique index, so the chunk's
-// RowsAffected is short — and every short row must be classified in Go.
-// A typed conflict is required; a nil return with only the first row
-// stored is a silent drop and fails the module contract.
-//
-// The cross-batch positive control pins that the classification path was
-// never the broken part: the same forged key in two separate batches with
-// differing payloads already refused with the typed conflict. Only the
-// in-batch insert-count gate conflated the in-statement skip with a full
-// insert. The honest-replay subtest pins the non-regression the fix must
-// preserve: byte-identical replays (including an offered slot whose row is
-// held by exactly its own key) must keep returning nil, never a false
-// conflict, and must never move the stored row.
 func TestSemanticContributionForgedKeyCrossSlotSkipIsClassified(t *testing.T) {
 	s := newPgcat05Service(t)
 	repo := s.contributionRepository(t)
@@ -2451,8 +2122,6 @@ func TestSemanticContributionForgedKeyCrossSlotSkipIsClassified(t *testing.T) {
 	forgedKey := fmt.Sprintf("%x", sha256.Sum256([]byte("pgcat05-forged-key")))
 	g := pgcat05Goldens["obs-a"]
 
-	// emitInProject runs the real emitter for the golden payload under a
-	// fresh project scope, then forges the caller-supplied key.
 	emitInProject := func(project, sourceID string) catalog.SemanticInventoryContribution {
 		emitted := pgcat05EmitContribution(t, project, "g1", g.authPath, g.resourceType, sourceID, g.payload)
 		if len(emitted) != 1 {
@@ -2484,9 +2153,6 @@ func TestSemanticContributionForgedKeyCrossSlotSkipIsClassified(t *testing.T) {
 		if !errors.As(err, &conflict) && !errors.Is(err, catalogstore.ErrSemanticInventoryContributionConflict) {
 			t.Fatalf("forged-key in-batch write returned unclassified error: %v", err)
 		}
-		// The winning row keeps its stored content; the refused slot stored
-		// nothing. (The first VALUES row inserts, the second is skipped by
-		// the global key index, and classification names the refusal.)
 		if n := countIn("pgcat05-fk-inbatch-b"); n != 0 {
 			t.Fatalf("forged-key batch wrote into the refused slot: %d rows", n)
 		}
@@ -2496,7 +2162,7 @@ func TestSemanticContributionForgedKeyCrossSlotSkipIsClassified(t *testing.T) {
 		}
 		first := a
 		if w.Project != first.Project {
-			first = b // the statement's row ordering is not part of the contract; either may win
+			first = b
 		}
 		firstObs, err := json.Marshal(first.Observation)
 		if err != nil {
@@ -2552,12 +2218,6 @@ func TestSemanticContributionForgedKeyCrossSlotSkipIsClassified(t *testing.T) {
 	})
 }
 
-// prepareContributionTest mirrors the implementation's unexported
-// preparation pass for the external test package (this file moved out of
-// the internal package so the ingest-driven backfill witness compiles
-// without an import cycle through the factory). It recomputes exactly the
-// fields the witnesses compare, using the same domain normalizations; the
-// stored-row goldens pin the contract against drift.
 func prepareContributionTest(contribution catalog.SemanticInventoryContribution) (digest string, observation []byte, err error) {
 	contribution.DatasetGeneration = catalog.NormalizeDatasetGeneration(contribution.DatasetGeneration)
 	if !isLowerHex64(contribution.Key) {

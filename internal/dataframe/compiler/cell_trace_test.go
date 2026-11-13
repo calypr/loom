@@ -699,13 +699,6 @@ func TestCompileCellTraceRejectsUnknownOrHiddenColumn(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// PostgreSQL compile target (pg-sql-24): the same CompileCellTraceOutput
-// entry compiles the registered arms for the PostgreSQL target through the
-// render/postgres terminal slice, refuses unregistered shapes by name, and
-// leaves the Arango voice byte-identical (the AQL control cells below).
-// ---------------------------------------------------------------------------
-
 func mustPostgresCellTraceTarget(t *testing.T) Target {
 	t.Helper()
 	binding, err := ir.NewPostgresStorageBinding("pgir02_it_unit")
@@ -812,15 +805,6 @@ func TestCompileCellTracePostgreSQLRootExtract(t *testing.T) {
 	}
 }
 
-// The real-mint both spelling, produced end to end rather than hand-
-// attached: an inline output that authors an Identity projects
-// __loom_row_id into the final RETURN (lower/recipe_expression_lowering.go
-// appendRecipeIdentity), so the real mint finalPopulationMappingIdentity
-// (compiler/population_mapping.go) attaches it beside the ordered parts,
-// and cellTraceQuery names the explicit contract column. This pins the
-// whole mint-to-contract chain on the PostgreSQL target: the renderer must
-// publish the explicit spelling, and the identity-parts name must not
-// appear in the statement.
 func TestCompileCellTracePostgreSQLAuthoredIdentityMintsExplicitColumn(t *testing.T) {
 	output := sql24PostgreSQLOutput()
 	output.Identity = &recipe.Identity{Name: "row", Expr: recipe.Expression{Select: "root.id"}}
@@ -840,8 +824,6 @@ func TestCompileCellTracePostgreSQLAuthoredIdentityMintsExplicitColumn(t *testin
 	if strings.Contains(sqlText, ir.PhysicalCellTraceIdentityPartsField) {
 		t.Fatalf("the identity-parts spelling must stay unpublished under the mint's pick law:\n%s", sqlText)
 	}
-	// The real mint kept the ordered parts beside the explicit identity:
-	// the terminal is the both state, not an explicit-only forgery.
 	terminalSeen := false
 	for _, operation := range root.Plan.Operations {
 		if operation.Kind == ir.PhysicalCellTraceReturnOp {
@@ -865,10 +847,6 @@ func terminalIndexOf(t *testing.T, plan ir.PhysicalPlan) int {
 }
 
 func TestCompileCellTracePostgreSQLReducedSetContributors(t *testing.T) {
-	// The registered-surface lowering: the endpoint-lookup planner label
-	// has no PostgreSQL storage counterpart, so the registered shape is
-	// the native typed-identity join (the spine refuses the other spelling
-	// fail-closed — see the endpoint control cell below).
 	output := compilePopulationMappingOutputWithPolicy(t, sql24TraversalOutput(),
 		ir.DefaultPhysicalOptimizationPolicy().WithRule(ir.PhysicalOptimizationRuleEndpointTraversal, false))
 	compiled, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
@@ -894,10 +872,6 @@ func TestCompileCellTracePostgreSQLReducedSetContributors(t *testing.T) {
 	_ = parameters
 }
 
-// Fail-closed control: the default-policy lowering carries the
-// endpoint-lookup planner label; the PostgreSQL target refuses it typed,
-// exactly where the spine refuses it for the preview — no AQL fallback, no
-// silent translation.
 func TestCompileCellTracePostgreSQLRefusesEndpointLookupTyped(t *testing.T) {
 	output := compilePopulationMappingOutput(t, sql24TraversalOutput())
 	_, err := CompileCellTraceOutput(mustPostgresCellTraceTarget(t), output, "condition_id", 5, 10, ir.DefaultPhysicalOptimizationPolicy())
@@ -971,8 +945,6 @@ func TestCompileCellTracePostgreSQLNamedRefusals(t *testing.T) {
 	}
 }
 
-// AQL control cells: the shared preparation refactor left the Arango voice
-// untouched for exactly the fixtures the PostgreSQL arm compiles.
 func TestCompileCellTraceArangoVoiceUnchangedForPostgresArms(t *testing.T) {
 	root := compilePopulationMappingOutput(t, sql24PostgreSQLOutput())
 	compiled, err := CompileCellTraceOutput(ArangoTarget(), root, "gender", 2, 5, ir.DefaultPhysicalOptimizationPolicy())

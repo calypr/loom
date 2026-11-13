@@ -22,8 +22,6 @@ func TestSemanticCoverageResourceArangoPartialScopeEmptyAndReplay(t *testing.T) 
 		t.Fatalf("begin resource coverage build failed (%v)", err)
 	}
 
-	// These physical source locators represent retained records with the same
-	// logical FHIR id. The source envelope key must keep both physical records.
 	specimenA := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-a", "retained:Specimen/physical-a/logical-shared", "type", "type.coding[].code", true)
 	specimenB := semanticCoverageResourceContribution(identity, "Specimen", "Patient/scope-b", "retained:Specimen/physical-b/logical-shared", "type", "type.coding[].code", false)
 	specimenContributions := []catalog.SemanticCoverageSourceContribution{specimenA, specimenB}

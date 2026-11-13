@@ -1,31 +1,5 @@
 package postgres
 
-// Real-PostgreSQL acceptance tests for the pg-catalog-03 relationship
-// evidence (check-2: go test ./internal/backends/postgres/internal/catalog -run Relationship
-// -count=1).
-//
-// Every live claim here drives the real store-05 fhir_edge_occurrence table
-// on the PostgreSQL 18 service named by LOOM_TEST_POSTGRES_URL: duplicate
-// occurrences and cross-scope controls are seeded as literal rows,
-// witnesses are literal rows read back by direct SQL, and the aggregation
-// runs through the real RelationshipEvidenceRepository SQL and the real
-// store-05 EdgeRepository write path. Nothing is mocked for a live claim.
-//
-// Concurrency surfaces (>= 10 rounds each, two real connections with
-// distinct pg_backend_pid values): concurrent identical-occurrence inserts
-// (exactly one winner, exact-count convergence) and an in-flight writer
-// whose rows must stay invisible to the aggregation until commit, with
-// byte-identical row witnesses before, during, and after abort.
-//
-// Guard non-vacuity: the claimed database guard is the named constraint
-// fhir_edge_occurrence_identity_ux. It is live-DROPped: without it the
-// duplicate insert is accepted and the aggregate provably double-counts;
-// with it restored, the refusal names the exact constraint again.
-//
-// Fixture databases and schemas are uniquely owned as verify_pgcat03_* and
-// dropped by the test that created them; TestZZ audits the owned namespace
-// by exact name and against the process-start pg_database baseline.
-
 import (
 	"bytes"
 	"context"
@@ -54,15 +28,12 @@ var relationshipFixtureNamePattern = regexp.MustCompile(`^verify_pgcat03_[0-9]+_
 
 var (
 	relationshipOwnedMu       sync.Mutex
-	relationshipOwnedByName   = map[string]string{} // live owned database -> owned schema (cleanups delete)
-	relationshipCreatedTotal  int                   // databases verified into existence by this process (never decremented)
-	relationshipBaselineDBs   = -1                  // pg_database matches at process start; -1 = baseline unavailable
+	relationshipOwnedByName   = map[string]string{}
+	relationshipCreatedTotal  int
+	relationshipBaselineDBs   = -1
 	relationshipBaselineError string
 )
 
-// TestMain records the pg_database baseline of the verify_pgcat03_*
-// namespace before any test in this process creates one, so TestZZ can
-// compare the live count against the baseline it witnessed itself.
 func TestMain(m *testing.M) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw != "" {
@@ -112,10 +83,6 @@ type relationshipEvidenceService struct {
 	fail   func(step string, err error)
 }
 
-// newRelationshipEvidenceService owns one isolated database, one schema
-// inside it, and the eight merged store migrations applied to that schema.
-// Ownership begins at verified create and is recorded in the process
-// registry that TestZZ audits.
 func newRelationshipEvidenceService(t *testing.T) *relationshipEvidenceService {
 	t.Helper()
 	raw := relationshipTestPostgresURL(t)
@@ -157,9 +124,6 @@ func newRelationshipEvidenceService(t *testing.T) *relationshipEvidenceService {
 
 	var dbName, schema string
 
-	// Registered while the admin pool is open, so (LIFO) it runs after every
-	// drop: an ownership-scoped zero-leftover audit for exactly the
-	// resources this test created.
 	t.Cleanup(func() {
 		var dbCount int
 		if err := admin.QueryRow(context.WithoutCancel(ctx),
@@ -168,12 +132,6 @@ func newRelationshipEvidenceService(t *testing.T) *relationshipEvidenceService {
 		} else if dbCount != 0 {
 			t.Errorf("leftover isolated database %s after cleanup", dbName)
 		}
-		// The owned schema lived only inside the isolated database (the
-		// service-database pg_namespace check copied from the catalog-02
-		// service passed trivially and is dropped as false assurance). A
-		// database drop removes its schemas with it; TestZZ probes the
-		// owned schema inside any database that failed to drop, which is
-		// the only state where a schema leftover is observable.
 	})
 
 	dbName = fmt.Sprintf("verify_pgcat03_%d_%s", time.Now().UnixNano(), relationshipRandomHex(t))
@@ -250,9 +208,6 @@ func (s *relationshipEvidenceService) openClient(t *testing.T) *storepostgres.Cl
 	return client
 }
 
-// openSingleConnPool opens a pool that can hold exactly one backend, so a
-// race test can prove the two writers (or writer and reader) are distinct
-// real PostgreSQL connections.
 func (s *relationshipEvidenceService) openSingleConnPool(t *testing.T, name string) *pgxpool.Pool {
 	t.Helper()
 	pool, err := pgxpool.New(s.ctx, s.dsn)
@@ -312,10 +267,6 @@ func (s *relationshipEvidenceService) seedResource(t *testing.T, project, genera
 		project, generation, resourceType, logicalID, authPath)
 }
 
-// seedOccurrence writes one literal occurrence row directly — the fixture
-// channel that can store endpoints the generated registry cannot classify,
-// which the repository-insert path must still be able to surface as
-// diagnosable raw evidence.
 func (s *relationshipEvidenceService) seedOccurrence(t *testing.T, project, generation, authPath, sourceType, sourceID, label, targetType, targetID, sourcePath string, ordinal int64) {
 	t.Helper()
 	s.exec(t, "INSERT INTO "+s.edgeTable()+
@@ -326,8 +277,6 @@ func (s *relationshipEvidenceService) seedOccurrence(t *testing.T, project, gene
 		project, generation, authPath, label, sourceType, sourceID, targetType, targetID, sourcePath, ordinal)
 }
 
-// witnessRowCount counts stored occurrences for one exact scoped key — the
-// direct-SQL truth the adapter's aggregate must agree with.
 func (s *relationshipEvidenceService) witnessRowCount(t *testing.T, project, generation, authPath, sourceType, label, targetType string) int64 {
 	t.Helper()
 	var count int64
@@ -353,9 +302,6 @@ func (s *relationshipEvidenceService) newStore(t *testing.T) *Store {
 	return store
 }
 
-// requireValuesByteIdentical pins the adapter output against the literal
-// expected rows: byte-identical JSON over RelationshipObservation, then the
-// typed comparison for a readable failure message.
 func requireValuesByteIdentical(t *testing.T, got []catalog.RelationshipObservation, want []catalog.RelationshipObservation) {
 	t.Helper()
 	gotJSON, err := json.Marshal(got)
@@ -389,13 +335,6 @@ func relationshipOpts(project, generation string, unrestricted *bool, paths []st
 	}
 }
 
-// TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL is the
-// aggregation acceptance: exact COUNT(*) per
-// project/generation/auth-path/storage-endpoint/label with duplicate
-// occurrences preserved and cross-scope controls that must never join the
-// sum. The naive controls (endpoint dedup, auth flattening) are computed
-// against the same live rows and must disagree — the test fails if the
-// adapter ever collapses like they do.
 func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -406,24 +345,15 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 	s.seedResource(t, project, "g2", "Condition", "cond-src1", "clinic/a")
 	s.seedResource(t, "pgcat03-p2", generation, "Condition", "cond-src1", "clinic/a")
 
-	// In-scope aggregate: three repeated occurrences of one reference from
-	// cond-src1 (identical endpoints, label, path, only the ordinal
-	// differs — the multiplicity an endpoint-keyed store collapses) plus a
-	// second source document at path "entry".
 	for ordinal := int64(0); ordinal < 3; ordinal++ {
 		s.seedOccurrence(t, project, generation, "clinic/a", "Condition", "cond-src1", "subject_Patient", "Patient", "pat-t1", "", ordinal)
 	}
 	s.seedOccurrence(t, project, generation, "clinic/a", "Condition", "cond-src2", "subject_Patient", "Patient", "pat-t1", "entry", 0)
-	// Cross-scope controls with the identical scoped relationship triple.
 	s.seedOccurrence(t, "pgcat03-p2", generation, "clinic/a", "Condition", "cond-src1", "subject_Patient", "Patient", "pat-t1", "", 0)
 	s.seedOccurrence(t, "pgcat03-p2", generation, "clinic/a", "Condition", "cond-src1", "subject_Patient", "Patient", "pat-t1", "", 1)
 	s.seedOccurrence(t, project, "g2", "clinic/a", "Condition", "cond-src1", "subject_Patient", "Patient", "pat-t1", "", 0)
 	s.seedOccurrence(t, project, "g2", "clinic/a", "Condition", "cond-src1", "subject_Patient", "Patient", "pat-t1", "", 1)
 	s.seedOccurrence(t, project, "g2", "clinic/a", "Condition", "cond-src1", "subject_Patient", "Patient", "pat-t1", "", 2)
-	// Same project/generation, different auth path: never summed in. The
-	// store-05 occurrence identity is auth-path-free, so this control uses
-	// its own source document — a second path cannot hold the fully
-	// identical occurrence of the first.
 	s.seedResource(t, project, generation, "Condition", "cond-src3", "other")
 	for ordinal := int64(0); ordinal < 5; ordinal++ {
 		s.seedOccurrence(t, project, generation, "other", "Condition", "cond-src3", "subject_Patient", "Patient", "pat-t1", "", ordinal)
@@ -433,9 +363,6 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 		t.Fatalf("fixture witness drifted: clinic/a rows = %d, want 4", got)
 	}
 
-	// (1) Unrestricted read: one exact aggregate per auth path — the
-	// duplicate occurrences count (4), the other-path rows stay their own
-	// aggregate (5), and no other project/generation row joins either sum.
 	result, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil))
 	if err != nil {
@@ -452,15 +379,10 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 	if result.Status != catalog.EvidenceAvailable || !result.Available || !result.Complete || len(result.Diagnostics) != 0 {
 		t.Fatalf("unrestricted result = %+v, want available complete with no diagnostics", result)
 	}
-	// Golden digest for these two literal observations (pinned from the
-	// live run).
 	if result.Digest != relationshipExactCountsDigest {
 		t.Fatalf("exact-counts digest = %q, want golden %q", result.Digest, relationshipExactCountsDigest)
 	}
 
-	// (2) Naive endpoint-dedup control on the same rows: it collapses the
-	// scope to one row per endpoint triple — proof the exact-count claim is
-	// non-vacuous (the adapter would match this if it deduplicated).
 	var dedupGroups int
 	var dedupTotal int64
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*), COALESCE(SUM(1),0) FROM (SELECT DISTINCT source_resource_type, label, target_resource_type FROM "+s.edgeTable()+
@@ -471,8 +393,6 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 		t.Fatalf("dedup control unexpectedly not collapsed: groups=%d total=%d", dedupGroups, dedupTotal)
 	}
 
-	// (3) Naive auth-flattening control: grouping without auth_resource_path
-	// sums clinic/a with other — the adapter must never produce 9.
 	var flattened int64
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.edgeTable()+
 		" WHERE project = $1 AND dataset_generation = $2", project, generation).Scan(&flattened); err != nil {
@@ -482,7 +402,6 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 		t.Fatalf("flatten control = %d, want 9 (4 in-scope + 5 in other)", flattened)
 	}
 
-	// (4) Restricted one-path read sees only clinic/a's 4, never other's 5.
 	restricted, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(false), []string{"clinic/a"}))
 	if err != nil {
@@ -490,7 +409,6 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 	}
 	requireValuesByteIdentical(t, restricted.Values, wantInScope)
 
-	// Repeated reads are deterministic: identical digest.
 	for round := 0; round < 3; round++ {
 		again, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 			catalog.ExplicitAuthResourcePathsUnrestricted(true), nil))
@@ -503,10 +421,6 @@ func TestRelationshipObservationsExactOccurrenceCountsOnRealPostgreSQL(t *testin
 	}
 }
 
-// TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL
-// pins the four authorization modes against live rows that exist in every
-// path: unrestricted, one-path, multiple-path, and restricted-empty all
-// return the correct complete/empty status without cross-scope sums.
 func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -528,7 +442,6 @@ func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *te
 		s.seedOccurrence(t, project, generation, "clinic/c", "Condition", "cond-c", "subject_Patient", "Patient", "pat-1", "", ordinal)
 	}
 
-	// Unrestricted: four separate auth-scoped aggregates.
 	all, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil))
 	if err != nil {
@@ -548,8 +461,6 @@ func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *te
 		t.Fatalf("auth-modes digest = %q, want golden %q", all.Digest, relationshipAuthModesDigest)
 	}
 
-	// One path: exactly its rows; the other paths hold live rows it must
-	// not see.
 	one, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(false), []string{"clinic/a"}))
 	if err != nil {
@@ -557,7 +468,6 @@ func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *te
 	}
 	requireValuesByteIdentical(t, one.Values, wantAll[1:2])
 
-	// Multiple paths: exactly their rows summed per key, never clinic/c.
 	multi, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(false), []string{"clinic/a", "clinic/b"}))
 	if err != nil {
@@ -565,8 +475,6 @@ func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *te
 	}
 	requireValuesByteIdentical(t, multi.Values, []catalog.RelationshipObservation{wantAll[1], wantAll[2]})
 
-	// Restricted with zero authorized paths: a legitimate authorization
-	// state — complete, empty, and the adapter never queries.
 	empty, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(false), nil))
 	if err != nil {
@@ -579,9 +487,6 @@ func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *te
 		t.Fatalf("fixture witness drifted: clinic/c rows = %d, want 4", total)
 	}
 
-	// Repository-level posture: a restricted scan with no paths binds the
-	// empty array (reads nothing) and never falls back to an unfiltered
-	// scan of the ten live rows.
 	repo, err := NewRelationshipEvidenceRepository(s.openClient(t), s.schema)
 	if err != nil {
 		s.fail("new repository", err)
@@ -598,11 +503,6 @@ func TestRelationshipObservationsAuthModesCompleteAndEmptyOnRealPostgreSQL(t *te
 	}
 }
 
-// TestRelationshipObservationsInvalidEndpointsDiagnosedRawRowsRemain is
-// acceptance item four: invalid generated FHIR endpoint types are diagnosed
-// and excluded from Builder capability evidence while the raw stored
-// occurrences remain inspectable — nothing this read does rewrites or
-// deletes them.
 func TestRelationshipObservationsInvalidEndpointsDiagnosedRawRowsRemain(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -669,7 +569,6 @@ func TestRelationshipObservationsInvalidEndpointsDiagnosedRawRowsRemain(t *testi
 		t.Fatalf("diagnostic split endpoints=%d traversals=%d, want 2/1", endpointCodes, traversalCodes)
 	}
 
-	// Raw occurrences remain inspectable, unmodified, in full count.
 	var rawRows int
 	var invalidRows int
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.edgeTable()+
@@ -685,10 +584,6 @@ func TestRelationshipObservationsInvalidEndpointsDiagnosedRawRowsRemain(t *testi
 		t.Fatalf("raw rows after diagnosed read: total=%d invalid=%d, want 5/3", rawRows, invalidRows)
 	}
 
-	// Requested-subset posture: with concrete types bound, non-canonical
-	// rows are filtered inside SQL exactly as the Arango adapter's IN list
-	// behaves — no endpoint diagnostics are produced for rows the caller
-	// never asked to see.
 	subset, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, "condition", "Patient"))
 	if err != nil {
@@ -702,12 +597,6 @@ func TestRelationshipObservationsInvalidEndpointsDiagnosedRawRowsRemain(t *testi
 	}
 }
 
-// TestRelationshipObservationsFilteredReadKeepsCaseVariantRows pins the
-// filtered/unfiltered reconciliation: store-05 stores writer-supplied
-// endpoint strings, and classification canonicalizes them, so a
-// requested-type read must return exactly the rows the unfiltered read
-// returns — a row stored as "condition" or "PatIent" may be silently
-// dropped by a raw string pushdown and must not be.
 func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -730,7 +619,6 @@ func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) 
 	}
 	requireValuesByteIdentical(t, unfiltered.Values, want)
 
-	// Canonical and caller-casing requests both keep the case-variant rows.
 	for _, requested := range [][]string{{"Condition", "Patient"}, {"condition", "patient"}} {
 		filtered, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 			catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, requested...))
@@ -745,8 +633,6 @@ func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) 
 		}
 	}
 
-	// The filter is still a filter: a request that cannot match returns
-	// nothing even though every row canonicalizes to Condition->Patient.
 	missed, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, "BodyStructure", "Patient"))
 	if err != nil {
@@ -756,7 +642,6 @@ func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) 
 		t.Fatalf("non-matching filter returned %+v status %s, want empty", missed.Values, missed.Status)
 	}
 
-	// The raw stored spellings are untouched by the read.
 	var lowerSources, mixedTargets int
 	if err := s.iso.QueryRow(s.ctx, "SELECT COUNT(*) FROM "+s.edgeTable()+
 		" WHERE project = $1 AND dataset_generation = $2 AND source_resource_type = 'condition'", project, generation).Scan(&lowerSources); err != nil {
@@ -771,17 +656,6 @@ func TestRelationshipObservationsFilteredReadKeepsCaseVariantRows(t *testing.T) 
 	}
 }
 
-// TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespaceVariants
-// is the round-2 (verifier 75) mandate: store-05's write validation
-// rejects only blank endpoint strings, so rows padded with tab, CR, LF,
-// or NBSP are legitimate stored states. The Go canonicalizer
-// (strings.TrimSpace + Unicode case-fold) classifies them into evidence,
-// while any SQL-side approximation trims a different character set
-// (btrim trims ASCII space only). The requested-type filter therefore
-// runs in Go after canonicalization, and this test pins, against real
-// PostgreSQL 18, that filtered and unfiltered reads are byte-identical —
-// values JSON, digest, and status — for tab-, CR-, NBSP-, and
-// mixed-padded rows, plus a Unicode fold variant ('Bodyſtructure').
 func TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespaceVariants(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -823,8 +697,6 @@ func TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespa
 	}
 	requireValuesByteIdentical(t, unfiltered.Values, want)
 
-	// Byte-identical filtered==unfiltered: canonical spellings and
-	// padded/cased caller spellings of the same requested set.
 	for _, requested := range [][]string{
 		{"Condition", "Patient", "BodyStructure"},
 		{" condition ", "patient", "\tbodyStructure\u00a0"},
@@ -850,9 +722,6 @@ func TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespa
 		}
 	}
 
-	// The filter stays exact: a canonical request that matches no stored
-	// type returns nothing, and an all-invalid request still diagnoses the
-	// request while returning nothing.
 	missed, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil, "Observation", "Patient"))
 	if err != nil {
@@ -871,10 +740,6 @@ func TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespa
 		t.Fatalf("all-invalid filter result = %+v", allInvalid)
 	}
 
-	// Raw stored spellings are untouched: the padded bytes come back
-	// exactly as stored, proving the reads classify without rewriting.
-	// Order-independent multiset witness: the padded spellings sort by
-	// collation, not byte order, so the set is compared, not the sequence.
 	rows, err := s.iso.Query(s.ctx, "SELECT source_resource_type, target_resource_type, COUNT(*) FROM "+s.edgeTable()+
 		" WHERE project = $1 AND dataset_generation = $2 GROUP BY 1,2", project, generation)
 	if err != nil {
@@ -911,11 +776,6 @@ func TestRelationshipObservationsFilteredReadByteIdenticalToUnfilteredOnWhitespa
 	}
 }
 
-// TestRelationshipObservationsBuilderDirectionDerivedFromRegistryOnRealPostgreSQL
-// drives the full path: occurrences written by the real store-05
-// EdgeRepository are read back as observations whose physical storage
-// direction and registry-derived Builder direction are separately pinned
-// (literal structs plus the golden digest).
 func TestRelationshipObservationsBuilderDirectionDerivedFromRegistryOnRealPostgreSQL(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -928,9 +788,6 @@ func TestRelationshipObservationsBuilderDirectionDerivedFromRegistryOnRealPostgr
 	if err != nil {
 		s.fail("new edge repository", err)
 	}
-	// Repeated-owner correlation through the real write path: identical
-	// endpoints and path, only the ordinal differs — two stored rows, one
-	// aggregate of 2.
 	for ordinal := int64(0); ordinal < 2; ordinal++ {
 		if _, err := edgeRepo.InsertEdge(s.ctx, storepostgres.EdgeOccurrenceRow{
 			Project: project, DatasetGeneration: generation, AuthResourcePath: "clinic/a",
@@ -974,8 +831,6 @@ func TestRelationshipObservationsBuilderDirectionDerivedFromRegistryOnRealPostgr
 		t.Fatalf("direction digest = %q, want golden %q", result.Digest, relationshipDirectionDigest)
 	}
 
-	// The witness side: physical storage direction stays exactly as the
-	// store-05 rows recorded it, independent of the Builder projection.
 	rows, err := s.iso.Query(s.ctx, "SELECT source_resource_type, label, target_resource_type, COUNT(*) FROM "+s.edgeTable()+
 		" WHERE project = $1 AND dataset_generation = $2 GROUP BY 1,2,3 ORDER BY 1,2,3", project, generation)
 	if err != nil {
@@ -1011,12 +866,6 @@ func TestRelationshipObservationsBuilderDirectionDerivedFromRegistryOnRealPostgr
 	}
 }
 
-// TestRelationshipObservationsConcurrentIdenticalOccurrenceRace pins the
-// concurrency surface between the store-05 write identity and the
-// aggregation: two real connections (distinct pg_backend_pid) race the
-// fully identical occurrence each round; exactly one insert wins, the
-// loser gets the typed conflict, and the aggregate — witnessed by direct
-// SQL every round — gains exactly one row, never two.
 func TestRelationshipObservationsConcurrentIdenticalOccurrenceRace(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	const project, generation = "pgcat03-conflict", "g1"
@@ -1094,11 +943,6 @@ func TestRelationshipObservationsConcurrentIdenticalOccurrenceRace(t *testing.T)
 	}
 }
 
-// TestRelationshipObservationsConcurrentAbortConvergenceRace pins the
-// read path against an in-flight writer on two distinct backends: the
-// aggregation never observes a row mid-flight, converges to the exact same
-// byte-identical witness after every abort, and includes it exactly once
-// after commit.
 func TestRelationshipObservationsConcurrentAbortConvergenceRace(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	const project, generation = "pgcat03-abort", "g1"
@@ -1157,9 +1001,6 @@ func TestRelationshipObservationsConcurrentAbortConvergenceRace(t *testing.T) {
 			wconn.Release()
 			t.Fatalf("round %d staged insert: %v", round, err)
 		}
-		// Mid-flight: the row exists on the writer backend (same pid the
-		// probe saw, read through the open transaction) but must be
-		// invisible to the reader's aggregate.
 		var inflightPID int32
 		if err := tx.QueryRow(s.ctx, "SELECT pg_backend_pid()").Scan(&inflightPID); err != nil {
 			_ = tx.Rollback(s.ctx)
@@ -1188,7 +1029,6 @@ func TestRelationshipObservationsConcurrentAbortConvergenceRace(t *testing.T) {
 			wconn.Release()
 			t.Fatalf("round %d rollback: %v", round, err)
 		}
-		// Post-abort convergence: byte-identical to the pre-round witness.
 		requireValuesByteIdentical(t, readValues("post-abort"), witness(int64(round-1)))
 
 		tx2, err := wconn.BeginTx(s.ctx, pgx.TxOptions{})
@@ -1208,12 +1048,9 @@ func TestRelationshipObservationsConcurrentAbortConvergenceRace(t *testing.T) {
 		}
 		wconn.Release()
 
-		// After commit the row participates exactly once.
 		requireValuesByteIdentical(t, readValues("post-commit"), witness(int64(round)))
 	}
 
-	// Final convergence witnesses: adapter agrees with direct SQL and the
-	// golden digest of the 12-row fixture.
 	if got := s.witnessRowCount(t, project, generation, "clinic/a", "Condition", "subject_Patient", "Patient"); got != rounds {
 		t.Fatalf("direct SQL row count = %d, want %d", got, rounds)
 	}
@@ -1227,14 +1064,6 @@ func TestRelationshipObservationsConcurrentAbortConvergenceRace(t *testing.T) {
 	}
 }
 
-// TestRelationshipEvidenceIdentityGuardDropNonVacuity proves the claimed
-// database guard is real: with fhir_edge_occurrence_identity_ux in place a
-// fully identical occurrence is refused by that exact named constraint;
-// after a live DROP CONSTRAINT the identical insert is accepted and the
-// aggregate provably double-counts; restoring the constraint returns the
-// exact refusal. If the aggregation ever counted DISTINCT endpoints, the
-// guard-drop leg would go unnoticed — this test is what keeps the exact
-// COUNT(*) claim honest at the database level.
 func TestRelationshipEvidenceIdentityGuardDropNonVacuity(t *testing.T) {
 	s := newRelationshipEvidenceService(t)
 	store := s.newStore(t)
@@ -1249,15 +1078,12 @@ func TestRelationshipEvidenceIdentityGuardDropNonVacuity(t *testing.T) {
 		" source_path, source_ordinal) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)"
 	duplicateArgs := []any{project, generation, "clinic/a", "subject_Patient", "Condition", "cond-g", "Patient", "pat-g", "", int64(0)}
 
-	// Positive control: the guard refuses the identical occurrence, naming
-	// the exact constraint.
 	_, err := s.iso.Exec(s.ctx, duplicateSQL, duplicateArgs...)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23505" || pgErr.ConstraintName != "fhir_edge_occurrence_identity_ux" {
 		t.Fatalf("duplicate insert with guard active: %v, want 23505 from fhir_edge_occurrence_identity_ux", err)
 	}
 
-	// Live guard drop: the constraint must really be there to drop.
 	if _, err := s.iso.Exec(s.ctx, "ALTER TABLE "+s.edgeTable()+
 		" DROP CONSTRAINT fhir_edge_occurrence_identity_ux"); err != nil {
 		s.fail("drop identity guard", err)
@@ -1266,8 +1092,6 @@ func TestRelationshipEvidenceIdentityGuardDropNonVacuity(t *testing.T) {
 		t.Fatalf("duplicate insert after guard drop was refused (%v); the guard was not what prevented it", err)
 	}
 
-	// Without the guard the duplicate participates: the aggregate doubles,
-	// proving the exact-count guarantee depends on the live constraint.
 	result, err := store.DiscoverRelationshipObservations(s.ctx, relationshipOpts(project, generation,
 		catalog.ExplicitAuthResourcePathsUnrestricted(true), nil))
 	if err != nil {
@@ -1277,11 +1101,6 @@ func TestRelationshipEvidenceIdentityGuardDropNonVacuity(t *testing.T) {
 		observation(project, generation, "clinic/a", "Condition", "subject_Patient", "Patient", 2, "Patient", "Condition", "INBOUND"),
 	})
 
-	// Restore the named guard. The guard-free duplicate must be removed
-	// first (ctid-addressed single row: the two rows are fully identical,
-	// a predicate delete would take both), then the identical insert is
-	// refused again by the same name and the catalog confirms the
-	// constraint is live.
 	if _, err := s.iso.Exec(s.ctx, "DELETE FROM "+s.edgeTable()+
 		" WHERE ctid = (SELECT ctid FROM "+s.edgeTable()+
 		" WHERE project = $1 AND dataset_generation = $2 AND auth_resource_path = $3 AND label = $4"+
@@ -1318,13 +1137,6 @@ func TestRelationshipEvidenceIdentityGuardDropNonVacuity(t *testing.T) {
 	})
 }
 
-// TestZZZeroLeftoverRelationshipEvidenceFixtures is the ownership-scoped
-// zero-leftover audit. It checks, by exact name only, every database (and
-// the schema that lived inside it) this file verified into existence, and
-// that the verify_pgcat03_* pg_database count equals the baseline captured
-// at process start. It performs no global scan of foreign namespaces, so
-// concurrent sibling workers sweeping their own prefixes neither race this
-// audit nor trip it.
 func TestZZZeroLeftoverRelationshipEvidenceFixtures(t *testing.T) {
 	raw := relationshipTestPostgresURL(t)
 	relationshipOwnedMu.Lock()
@@ -1394,8 +1206,6 @@ func TestZZZeroLeftoverRelationshipEvidenceFixtures(t *testing.T) {
 	}
 }
 
-// Golden digests, each pinned from a live PostgreSQL 18 run of this file
-// and cross-checked against the byte-identical literal rows above.
 const (
 	relationshipExactCountsDigest = "sha256:762e10da27eea1702d9951611c95c4d772e9a1ed999d5b0b2db5c8b360749815"
 	relationshipAuthModesDigest   = "sha256:74b528be7584396bba3341b76b4dd13cb63dc374b36916a6e8b68e8a9258f2e1"
