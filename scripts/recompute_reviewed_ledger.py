@@ -18,11 +18,18 @@ row-by-row match table. Classes:
   PIN-*            per-row pin commit attribution cross-check (informational)
   NON-FILE-PIN     digest-shaped value with no resolvable file target
   INFO-HEX         prose text containing hex digests (never gated)
+  SUPERSEDED-PROSE SELF-RUN quote in a files row whose cited commit blob no
+                   longer hashes to the row's pinned digest (report-only;
+                   --apply stamps pubbundleRepin.rederivedSuperseded)
 
 Exit 1 when any gated row (files-map claims, canonicalProbe, model sections,
-target-mapped status pins, confirmed/prevented artifact claims) is MISMATCH,
-SHAPE-ANOMALY, PROSE-VALUE or UNRESOLVABLE. Receipt subtrees (*Repin blocks,
-repair_units/confirmed narrative records) are reported but never gated.
+target-mapped status pins, and artifact digests with no supporting evidence)
+is MISMATCH, SHAPE-ANOMALY, PROSE-VALUE, PATH-UNRESOLVED, BLOB-MISSING or
+UNRESOLVABLE. An artifact digest gates against its HEAD blob unless the claim
+verifies against its sourceSnapshot blob or a recorded sha256Verification
+blob (those rows stay SNAPSHOT-*, report-only). Receipt subtrees (*Repin
+blocks, repair_units/confirmed narrative records) are reported but never
+gated.
 
 --apply re-pins every gated mismatch to the true computed value, repoints
 A-class keys to their relocated tracked paths (RELOCATIONS table), retires
@@ -51,6 +58,7 @@ HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX_ANY = re.compile(r"\b[0-9a-f]{32}\b|\b[0-9a-f]{64}\b")
 LEADING_HEX = re.compile(r"^([0-9a-f]{32}|[0-9a-f]{64})(\b|$)")
 SHAPE_IN_TEXT = re.compile(r"\bsha256=([0-9a-f]{64})\b")
+QUOTE = re.compile(r"git show ([0-9a-f]{7,40}):(\S+)")
 PATHY = re.compile(r"^[\w./\[\] -]+$")
 
 CLAIM_ALGO = {"md5": "md5", "sha256": "sha256", "contentMD5": "md5",
@@ -354,6 +362,47 @@ class Checker:
                 if field in row:
                     self.check_claim("files", key, field, field, row[field], path)
             self.pin_check(key, row)
+            stamped = {}
+            repin = row.get("pubbundleRepin")
+            if isinstance(repin, dict) and isinstance(repin.get("rederivedSuperseded"),
+                                                      dict):
+                stamped = repin["rederivedSuperseded"]
+            for q in self.stale_quotes(row):
+                if q["field"] in stamped:
+                    continue
+                self.emit("files", key, q["field"], None, q["quote"][:64], None,
+                          "SUPERSEDED-PROSE", {"path": path, "quotes": q["quotes"],
+                                               "pinnedClaims": q["pinned"]})
+
+    def stale_quotes(self, row):
+        claims = {}
+        for field in ("md5", "sha256"):
+            v = row.get(field)
+            if isinstance(v, str):
+                m = LEADING_HEX.match(v.strip())
+                if m:
+                    claims[field] = m.group(1)
+        if not claims:
+            return []
+        out = []
+        for field, v in row.items():
+            if field in claims or not isinstance(v, str) or "git show" not in v:
+                continue
+            quotes = []
+            matched = False
+            for commit, qpath in QUOTE.findall(v):
+                cited = {}
+                for cfield, hexval in claims.items():
+                    raw = self.git.blob(commit, qpath)
+                    d = None if raw is None else digest(raw, cfield)
+                    cited[cfield] = d
+                    if d == hexval:
+                        matched = True
+                quotes.append({"commit": commit, "path": qpath, "citedDigests": cited})
+            if quotes and not matched:
+                out.append({"field": field, "quote": v, "quotes": quotes,
+                            "pinned": claims})
+        return out
 
     def scan_canonical_probe(self, doc):
         probe = doc.get("canonicalProbe")
@@ -424,6 +473,23 @@ class Checker:
             if isinstance(art, dict):
                 self._artifact_claim("preventedArtifacts", art.get("path", "?"), art, snap)
 
+    def _artifact_backed(self, art, hexval):
+        ver = art.get("sha256Verification")
+        if not isinstance(ver, dict):
+            return False
+        method = ver.get("method")
+        if method in ("sourceSnapshot-blob", "file-history-blob"):
+            commit, queried = ver.get("commit"), ver.get("queriedPath")
+            if isinstance(commit, str) and isinstance(queried, str):
+                raw = self.git.blob(commit, queried)
+                if raw is not None:
+                    algo = "md5" if len(hexval) == 32 else "sha256"
+                    return digest(raw, algo) == hexval
+            return False
+        if method == "object-db-scan":
+            return hexval in self.git.object_db_sha256s()
+        return False
+
     def _artifact_claim(self, section, ident, art, snap):
         path = art.get("path")
         head_path = self.resolve(path) if isinstance(path, str) else None
@@ -446,8 +512,12 @@ class Checker:
                 ok_snap = self.check_claim(section, f"{ident}:{snap_path}", field,
                                            algo, art[field], snap_path, gated=False,
                                            ref=snap)
+            m = LEADING_HEX.match(str(art[field]).strip())
+            backed = ok_snap is True or (
+                field == "sha256" and m is not None
+                and self._artifact_backed(art, m.group(1)))
             self.check_claim(section, f"{ident}:{path}", f"{field}@head", algo,
-                             art[field], head_path, gated=False)
+                             art[field], head_path, gated=not backed)
             if ok_snap is True:
                 self.rows[-1]["note"] = "verified-against-sourceSnapshot-blob"
             elif ok_snap is False:
@@ -560,6 +630,7 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
                           "stale-path entry '" + old + "' into this row"
             prior = newrow.get("role", "")
             newrow["role"] = (prior + " || " if prior else "") + merged_note
+            notes.append(f"merged repointed {old} into {new}")
             continue
         row = files.pop(old)
         if isinstance(row, str):
@@ -667,6 +738,25 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
                     row["pin"] = moved
                 attach_receipt(row, blk)
                 notes.append(f"corrected pin {key}: {pin} -> {moved}")
+
+        for q in checker.stale_quotes(row):
+            rp = row.get("pubbundleRepin")
+            if not isinstance(rp, dict):
+                rp = {}
+                row["pubbundleRepin"] = rp
+            existing = rp.get("rederivedSuperseded")
+            if not isinstance(existing, dict):
+                existing = {}
+                rp["rederivedSuperseded"] = existing
+            if q["field"] in existing:
+                continue
+            existing[q["field"]] = {
+                "quotes": q["quotes"], "pinnedClaims": q["pinned"],
+                "note": "the SELF-RUN quote in this row predates the final "
+                        "re-pin: no blob at a cited commit hashes to the "
+                        "pinned value; read the quote as historical "
+                        "evidence only"}
+            notes.append(f"stamped superseded quote {key}: {q['field']}")
 
     probe = doc.get("canonicalProbe")
     if isinstance(probe, dict):
@@ -880,14 +970,10 @@ def apply_fixes(doc, ledger_rel, ref, ticket):
     return notes
 
 
-_TRACK_CACHE = {}
-
-
 def resolved_tracked(git):
-    key = id(git)
-    if key not in _TRACK_CACHE:
-        _TRACK_CACHE[key] = set(k for k in git.tracked())
-    return _TRACK_CACHE[key]
+    if getattr(git, "_resolved_set", None) is None:
+        git._resolved_set = set(git.tracked())
+    return git._resolved_set
 
 
 def main():

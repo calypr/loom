@@ -63,9 +63,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go"
+            "method": "file-history-blob",
+            "commit": "80bca9a5",
+            "matchingCommits": [
+              "80bca9a5"
+            ],
+            "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/clickhouse/reconcile_toctou_test.go differs"
           }
         },
         {
@@ -85,9 +89,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "80bca9a5",
+            "matchingCommits": [
+              "80bca9a5"
+            ],
+            "queriedPath": "internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/clickhouse/reconcile_toctou_e2e_test.go differs"
           }
         }
       ],
@@ -197,9 +205,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "8f65f3c5",
+            "matchingCommits": [
+              "8f65f3c5"
+            ],
+            "queriedPath": "internal/backends/arango/internal/publication/dangling_binding_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/arango/dangling_binding_e2e_test.go differs"
           }
         }
       ],
@@ -246,9 +258,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "8f65f3c5",
+            "matchingCommits": [
+              "8f65f3c5"
+            ],
+            "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go differs"
           }
         }
       ],
@@ -295,9 +311,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "8f65f3c5",
+            "matchingCommits": [
+              "8f65f3c5"
+            ],
+            "queriedPath": "internal/backends/arango/internal/publication/release_dangle_reconcile_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/arango/release_dangle_reconcile_e2e_test.go differs"
           }
         }
       ],
@@ -372,9 +392,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/dataset/release_requirements_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "48783199",
+            "matchingCommits": [
+              "48783199"
+            ],
+            "queriedPath": "internal/dataset/release_requirements_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataset/release_requirements_e2e_test.go differs"
           }
         }
       ],
@@ -448,9 +472,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "80bca9a5",
+            "matchingCommits": [
+              "80bca9a5"
+            ],
+            "queriedPath": "internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/clickhouse/publish_partial_pointer_e2e_test.go differs"
           }
         }
       ],
@@ -498,9 +526,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "48783199",
+            "matchingCommits": [
+              "48783199"
+            ],
+            "queriedPath": "internal/backends/arango/internal/dataset/generation_activation_cas_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataset/arango/generation_activation_cas_e2e_test.go differs"
           }
         }
       ],
@@ -544,9 +576,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "80bca9a5",
+            "matchingCommits": [
+              "80bca9a5"
+            ],
+            "queriedPath": "internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/publication/clickhouse/orphaned_published_growth_e2e_test.go differs"
           }
         }
       ],
@@ -676,9 +712,13 @@
             "class": "artifact-untraceable-repinned-to-head-blob"
           },
           "sha256Verification": {
-            "method": "head-blob",
-            "commit": "a2e87763",
-            "queriedPath": "internal/dataframe/published/nullsort_page_cursor_e2e_test.go"
+            "method": "file-history-blob",
+            "commit": "80bca9a5",
+            "matchingCommits": [
+              "80bca9a5"
+            ],
+            "queriedPath": "internal/dataframe/published/nullsort_page_cursor_e2e_test.go",
+            "note": "claim verified at a real blob but not at the recorded sourceSnapshot path: git show dc9016bc:internal/dataframe/published/nullsort_page_cursor_e2e_test.go differs"
           }
         }
       ],
@@ -817,6 +857,23 @@
           "pre": "87ee09c7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "87ee09c7",
+                "path": "internal/api/graphql/graph/resolver/recipe_execution_reader.go",
+                "citedDigests": {
+                  "sha256": "c5c43c474eb7c1a42d1d130445d6c3c0a11f5f7c6f09b8d5f246debde56d7f41"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "b00d64740dce31e5806e159891b79338f67e9879d48797f09e87e48f30f34238"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1094,6 +1151,23 @@
           "pre": "87ee09c7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "87ee09c7",
+                "path": "internal/server/openapi_recipe_execution.go",
+                "citedDigests": {
+                  "sha256": "2fb6066b04417483cdf0d90a8c7d6cd8cf4a9adcc215875942b060574f118874"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "05d8c4686c9b5c4b65c752a166fb116b33a2d4fb4073a4d4dfe69a85a2d4da74"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1190,6 +1264,23 @@
           "pre": "4e15704f",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "4e15704f",
+                "path": "verification/publication-bundle/FINDINGS.md",
+                "citedDigests": {
+                  "sha256": "e10ca876747f8167b9c3f34a9a7a130580d3409108bc0a2af0eb3b06643bf0bd"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "d22a4774e180207edc5cc5a952c3d588780b9c475668b69fe6d25073b37d59d1"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1291,6 +1382,23 @@
           "pre": "4e15704f",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "4e15704f",
+                "path": "internal/authscope/covers_execution_paths_control_test.go",
+                "citedDigests": {
+                  "sha256": "9bf8b1662ec590e1c19e692959d3774b5a0128f74b19b9d318849370c91769a1"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "31ddf950cdb1067b02b7f2470d3f1db057296dd6bd98b048445e1c977afd3117"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1363,6 +1471,23 @@
           "pre": "8459f080",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "8459f080",
+                "path": "internal/explorer/lifecycle/unpivot_source.go",
+                "citedDigests": {
+                  "sha256": "08f5792747655bedca3a7ac3ea2264589a767a0db299b25633378ba8cac53b63"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "74b0ac608d5a4edcb5e76596ac8d79c98d97b16640139ad35fae07d1dfe002b2"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1386,6 +1511,23 @@
           "pre": "d3a1d12a",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d3a1d12a",
+                "path": "internal/explorer/lifecycle/unpivot_source_test.go",
+                "citedDigests": {
+                  "sha256": "faa60db2113652116fe2a9606c6a88abd2e0b17be89bd06b4f1736e6954b1175"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "147de264f89ab43b755b4fc68a4c13d1c4d94ceae7dcb9d9108feffd345748ef"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1441,6 +1583,23 @@
           "pre": "f177a9ed",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "f177a9ed",
+                "path": "internal/acceptance/runner.go",
+                "citedDigests": {
+                  "sha256": "b0c7aa89a3f030a877c704f957def0ae22426005f68488387af7825e23ac8666"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "9a8ce5413cfab035c5a0c2e253b749b8dd53d4a74ddaea65c15d900fd303e517"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1507,6 +1666,23 @@
           "pre": "49d6999e",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "49d6999e",
+                "path": "verification/publication-bundle/ConstructionPrepareLanes.tla",
+                "citedDigests": {
+                  "sha256": "6ae0790a60e9a963a02216d4947dd45ad1a62596ef131bac7fa42fc5b1e72f4c"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "cd16422a9a07aeafa5cef9f939d9f3c16f2894a66e33147c66d4c5147dc1aefe"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1530,6 +1706,23 @@
           "pre": "34e4741d",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "34e4741d",
+                "path": "internal/explorer/lifecycle/fs1_reverse_order_collision_test.go",
+                "citedDigests": {
+                  "sha256": "f901042baf0903365e13831c7cfaa875ccf72f6f1f29bc7e56c1f9bac16074d7"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "e867768b5c3a397dd61349d1741c37d9c0ee1d2c280f7ef1a02a7bfd138f28a3"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1553,6 +1746,23 @@
           "pre": "29d2c5b0",
           "post": "2fbb0992",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "29d2c5b0",
+                "path": "scripts/verify-ui/workflows/verify-explorer-unpivot-row-source.mjs",
+                "citedDigests": {
+                  "sha256": "0110894b5ffe291295b01ae7cc5eb03425aff44eb2370cbfd3c1e50c9f62c371"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "71e2422e444c328d4c31302096e47d6bc40f4dbd910c3dd6629617b3b46b4c86"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1576,6 +1786,23 @@
           "pre": "9d092c5b",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "9d092c5b",
+                "path": "internal/api/graphql/graph/dataframe/aggregates_test.go",
+                "citedDigests": {
+                  "sha256": "a923f2afdf216535a38bf65b33c175c562b7ef56a928fd38a5211698e9c5e9cc"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "919ebfe6cae8f14d099bfba32e65cd17ef44eb94b30c72223824362da9f0865f"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1607,6 +1834,23 @@
           "pre": "cf0ca558",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "cf0ca558",
+                "path": "verification/publication-bundle/ConstructionProjectionOwnership.tla",
+                "citedDigests": {
+                  "sha256": "1dbd72f6e8f3b549068095f9301ab656cc795f818019fc64d7b3e989101176b6"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "8116350dc9e7a64cc6d18a2da491ac108457921675f6bff33a0d4bbf5fbc0239"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1648,6 +1892,23 @@
           "pre": "d3a1d12a",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d3a1d12a",
+                "path": "internal/explorer/lifecycle/construction_pivot_source.go",
+                "citedDigests": {
+                  "sha256": "e3539cf3947733176665833b8dc5b8513305e919d98fbdb2fb9715590b3e78fa"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "e131b755c1638fafc75d75780d8a1c2ad22c64aa40ac97add1c692d7be5e27b9"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1671,6 +1932,23 @@
           "pre": "d3a1d12a",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d3a1d12a",
+                "path": "internal/explorer/lifecycle/construction_pivot_source_test.go",
+                "citedDigests": {
+                  "sha256": "3565e4a4a5ec11062625f077143d8be844720799df84ed907d1bdd516cd6eeab"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "94d3c015caaa6aa3aed48d0b9f4010dfa7092e3cc1b4f70c245a1f0499dddecc"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1694,6 +1972,23 @@
           "pre": "8459f080",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "8459f080",
+                "path": "internal/explorer/lifecycle/derive_source.go",
+                "citedDigests": {
+                  "sha256": "32da4974802e30a97984b24c63bfef2bd7ec7260b7c441c5e23be9df98fc0fc1"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "ba8bca5ef2527e109bf7228500efc23de06c8ac8a17df6850345b23bcd02fcce"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1717,6 +2012,23 @@
           "pre": "d3a1d12a",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d3a1d12a",
+                "path": "internal/explorer/lifecycle/derive_source_test.go",
+                "citedDigests": {
+                  "sha256": "9bd5cff74ce8cbc9db9c25fdfedbe4325a87606f400e3ce2d6438c0531c3b86b"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "61caceb1bf0bd5572a16c993b9dd355214ec4439670df479b522737e06d220dd"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1740,6 +2052,23 @@
           "pre": "d3a1d12a",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d3a1d12a",
+                "path": "internal/explorer/lifecycle/filter_source.go",
+                "citedDigests": {
+                  "sha256": "6e82dbdf593316753687e88266787bab88217f6ea9e88211fdf93b1f64c21051"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "90e916b590486cb75a12895c042b0c17fbe1c1bcb18d3854079f377f4208b839"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1763,6 +2092,23 @@
           "pre": "d3a1d12a",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d3a1d12a",
+                "path": "internal/explorer/lifecycle/filter_source_test.go",
+                "citedDigests": {
+                  "sha256": "b5dd9ad1ccae857f47f6cca7d5a17ec266acc9950479de1609890258845bf9ad"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "fba9bc4953fd31c94f78d924cfd12b1239c140b2cf70c27014e42d07ddd6147a"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1792,6 +2138,23 @@
           "pre": "29d63f6f",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "29d63f6f",
+                "path": "internal/server/openapi_explorer_construction_filter_source_test.go",
+                "citedDigests": {
+                  "sha256": "511f411c7ebec9873b3ee680be740d9a9eec116a54b7e0a84032c96649c94219"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "4b9a1228360f45bde6eeaa06c5334baa99df0c57e1ddeb4a77a9de3476b0852c"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1815,6 +2178,23 @@
           "pre": "49d6999e",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "49d6999e",
+                "path": "verification/publication-bundle/SKILL.md",
+                "citedDigests": {
+                  "sha256": "2ee4c56c2b7701acf1431f855fc943620bd88f8916c0360d417a5a56ee134264"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "19f87af41e93217628c0ced2608ac1623bce19a8b044878681c78067720d4710"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1846,6 +2226,23 @@
           "pre": "7fcb640f",
           "post": "2fbb0992",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "7fcb640f",
+                "path": "scripts/verify-ui/workflows/verify-explorer-row-source-four-state.mjs",
+                "citedDigests": {
+                  "sha256": "04219d511d4b44d7644560c0ff8ff8d871364d67af98543953c1fe07809a1573"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "7bbcddd13458dd66e522088de47d8e8f2f7beafb714a4c84767d1f8383ba038b"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1877,6 +2274,23 @@
           "pre": "7fcb640f",
           "post": "2fbb0992",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "7fcb640f",
+                "path": "scripts/verify-ui/helpers/tests/row96-row-source-four-state.test.mjs",
+                "citedDigests": {
+                  "sha256": "2285aa23e030e16bae105ceeca0a17cc79251e4c06fe3e7b3f96127b76b7ff60"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "2cdc879c1ef6a3f2911fdf3a49848f7d2567e6d2c0ba816f7188fec58d7f4e58"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1900,6 +2314,23 @@
           "pre": "7fcb640f",
           "post": "e5b5c27e",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "7fcb640f",
+                "path": "scripts/verify-ui/registry.mjs",
+                "citedDigests": {
+                  "sha256": "bd8053144d127fd4b125a0993e50bc93c82862e861c94ffa17f96922505b4fe4"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "4808335e52065baa64cd548f5bb295f19daa63027721852b6b3652c6cc06d0ad"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1923,6 +2354,23 @@
           "pre": "7fcb640f",
           "post": "e5b5c27e",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "7fcb640f",
+                "path": "docs/BUILDER_VERIFICATION.tsv",
+                "citedDigests": {
+                  "sha256": "761d3d6e95afe14bf919ad8c1dea678ae60c46f5f01697eed1b8dcd3a943d8f7"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "7b99c073e805a9b25a9416359928ce75492b91854ebc90ef2120ed47ae085557"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1946,6 +2394,23 @@
           "pre": "3cfec1b7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "3cfec1b7",
+                "path": "internal/server/openapi_explorer_authoring_write_fault_test.go",
+                "citedDigests": {
+                  "sha256": "e14f4f5db04f61665c7921af09641a2b858aff260ee0d20763b60fb881c6bf79"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "1719fb158062ab2ce6ebb508ed1d706dc29968b36c83c3d3bad62a8f863c0492"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1969,6 +2434,23 @@
           "pre": "3cfec1b7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "3cfec1b7",
+                "path": "internal/server/openapi_explorer_authoring_direct.go",
+                "citedDigests": {
+                  "sha256": "9aaecd4e8835c04f16f542abc57e4d429946b6217622277a44368ddeaa433f85"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "478fc4434d8974aa0102f295d9b44ede66d9d24cb70c69bfd9ee44e5f8d9f677"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -1992,6 +2474,23 @@
           "pre": "3cfec1b7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "3cfec1b7",
+                "path": "internal/server/openapi_explorer_direct.go",
+                "citedDigests": {
+                  "sha256": "b57e753f8205cd0f394ecdea562f128b2a92a4c98bb429129f9b93e47e8b22d9"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "8076b17b8f7a513840b214d99d3315c63bb70245296623bdfe006a4bfc0b4942"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2015,6 +2514,23 @@
           "pre": "8459f080",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "8459f080",
+                "path": "internal/explorer/lifecycle/filter_source_pivot_clear_test.go",
+                "citedDigests": {
+                  "sha256": "9b0c5ff56a881c5dd06a39971f4c1d1907bd6b2276525f2ea6ff2e8e0cd4e20a"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "ad1d5d58eadc641f4c486de64dee966f6a79fb7d5cbe5326637bd794ad740048"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2038,6 +2554,23 @@
           "pre": "87ee09c7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "87ee09c7",
+                "path": "internal/api/graphql/graph/resolver/recipe_execution_twin_wire_parity_test.go",
+                "citedDigests": {
+                  "sha256": "3505112d27b1a2be9c6571a088a48f10d5716b5d5d64fa03ad00f34c89b34cfb"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "3e2d9bc6f29eb1d80c7556b21b7bdf3182b6ec1c470fbd0fc904c4f10cf955ec"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2073,6 +2606,23 @@
           "pre": "87ee09c7",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "87ee09c7",
+                "path": "internal/server/recipe_execution_etl_failure_fields_e2e_test.go",
+                "citedDigests": {
+                  "sha256": "244fdce8b045ca9ec929fa150099c33408c234f977ada6430a4bcc993808eca2"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "4e667613bb7b4763c9f23979a7aedfca28dc8e753055338bbd15468b3fe37488"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2096,6 +2646,23 @@
           "pre": "2f6e64ea",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "2f6e64ea",
+                "path": "internal/explorer/authoringv2/construction_projection_replay_test.go",
+                "citedDigests": {
+                  "sha256": "c09486b4442c6479be8e092b0402f92d23e38a0f1b80149ae6fab68632f13fc9"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "ba945182535fb7af254857c4f0241d952194873850455976bb5f060c3ebe6c15"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2127,6 +2694,23 @@
           "pre": "2f6e64ea",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "2f6e64ea",
+                "path": "scripts/lib/formal-projection-replay.mjs",
+                "citedDigests": {
+                  "sha256": "5422aece9e47903b3241f87e527024c6acd772c94eed4de8bb3dbf3ee179a590"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "80ac3e9f4c6583450807eaa0b304d779f5b91caf78ecbabf85860b20a87a67da"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2158,6 +2742,23 @@
           "pre": "2f6e64ea",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "2f6e64ea",
+                "path": "scripts/verify-ui/contracts/source-projection-contracts.mjs",
+                "citedDigests": {
+                  "sha256": "77d5484c50db8af8192b43cc945bb91f1ba50fd2b0508cdfce17f0e25ed13fac"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "97aa78503f6726d5476eccba5d7ca2d4ed3c3c91953a1f48d1486996df2c7082"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2195,6 +2796,23 @@
           "pre": "661de7b3",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "661de7b3",
+                "path": "scripts/ci/vet.mjs",
+                "citedDigests": {
+                  "sha256": "67440ca7581aa59a73b897dcc757141347f8d3326fb878e579bda41bdc22995d"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "07ab138831ef403d100b78a1d8a0cc636b457ed4c5a9a9d2096b9f1e2faab80e"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2218,6 +2836,23 @@
           "pre": "661de7b3",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "661de7b3",
+                "path": "internal/ci/vet_gate_test.go",
+                "citedDigests": {
+                  "sha256": "44b47d61f217ad2d82fe24a828e10becdb871da08a2ee0804527ca30afa33c08"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "67ae106037360c268d323aa376d79f12aca34f931b08a69c40550bfc7610c956"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2241,6 +2876,23 @@
           "pre": "d2ff3d03",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d2ff3d03",
+                "path": "internal/api/bulk/load/operations.go",
+                "citedDigests": {
+                  "sha256": "50a0768a55938e823bbdf23f408554c1401854aa54c71845b89efa3869d68607"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "dbf0581d9cfb2ae13eebca403ef488dda4d740b9ce8d361bf8b88b45ccc2ac33"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2264,6 +2916,23 @@
           "pre": "d2ff3d03",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d2ff3d03",
+                "path": "internal/api/bulk/load/form_spillover_test.go",
+                "citedDigests": {
+                  "sha256": "b66be235d05bdb31a430fad2a36ff4829c0e71901668023049ebc8a352f10ddf"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "12e0c661f6fdda91c8b2a363053f20703ba6b350ad55d918fd5f47c089472ae2"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2287,6 +2956,23 @@
           "pre": "adfff030",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "adfff030",
+                "path": "internal/api/recipe/discovery.go",
+                "citedDigests": {
+                  "sha256": "03e1528ed6aa2d42b6e88eb11e6a9bfc17a3c4cff9ba4cb7efb32625dac52fc1"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "3f4ee1dac6ae3fc63e962ca7ca3f4b2e439b39727a42e6aeb2028863f09190b7"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2310,6 +2996,23 @@
           "pre": "adfff030",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "adfff030",
+                "path": "internal/api/recipe/discovery_auth_mode_test.go",
+                "citedDigests": {
+                  "sha256": "966446cd7ec55de1c8c6005cda498b9561cf3d0c434a1e4165380131a6b05e9d"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "c66d29762272dbdd912e427d8c0ec213f7706297c345d67f50f1837f0e344e1f"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2333,6 +3036,23 @@
           "pre": "4e15704f",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "4e15704f",
+                "path": "internal/ci/gofmt_gate_test.go",
+                "citedDigests": {
+                  "sha256": "cf758c1f75568939e315c6f88af41f62dc5462299d6c49d628e599d449ac9733"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "bf14ea793ed1270b9cc2711bc2a1b7ab4e0f6aa5725a19e11031ecf922f35095"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2364,6 +3084,23 @@
           "pre": "4e15704f",
           "post": "8f65f3c5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "4e15704f",
+                "path": "conformance/compiler/benchmark_test.go",
+                "citedDigests": {
+                  "sha256": "774308e9a2baac5238efe74326d0d15b788f55bcd0422305c779886a051c7727"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "c792757bb99c7fbfad03910693c8bce35a90f04733c92efaa4a1358f190fd512"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2387,6 +3124,23 @@
           "pre": "4e15704f",
           "post": "2fbb0992",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "4e15704f",
+                "path": "conformance/compiler/generated_semantics_coverage_test.go",
+                "citedDigests": {
+                  "sha256": "6d37b4dfe7d255a8c3b6c10aa08d22a01301fde9b9555615b6ec790ad737a94d"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "e98efa2c1cc8d46c17e83383d39206fc1d4c1195edf0c9fdf8671d60d7118ef0"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2410,6 +3164,23 @@
           "pre": "4e15704f",
           "post": "faffab39",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "4e15704f",
+                "path": "generated/graphql/graph/executor/schema.generated.go",
+                "citedDigests": {
+                  "sha256": "7bb95f32c94f384c18027ad2f35c9c4b19a2fed2813cc181dacb3a7d34b3149c"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "d266e30ed509231ec33188eb7c00d1e286c6063c1bbe38274030df1feeb9cd53"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2433,6 +3204,23 @@
           "pre": "d5b5491b",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d5b5491b",
+                "path": "internal/projectid/projectid.go",
+                "citedDigests": {
+                  "sha256": "107ca45ca51ee50b6c04ae3cc2602eb213ecebb4338230de5a69c79323059b33"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "ade73438be11cf3e31fc4baca5d35b2b41a946c91f8f045c24c6c362a27aa9f6"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2456,6 +3244,23 @@
           "pre": "d5b5491b",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d5b5491b",
+                "path": "internal/catalog/semantic_inventory.go",
+                "citedDigests": {
+                  "sha256": "3cd3f6a3e00141c2768427d6379cf91ceece32d40783765888f736a1ed1762d9"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "e40ea07e8757c682223b195d81e960afeb94898aa01d2fb07348880d7a154cc6"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2479,6 +3284,23 @@
           "pre": "d5b5491b",
           "post": "48783199",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "d5b5491b",
+                "path": "internal/store/clickhouse/client.go",
+                "citedDigests": {
+                  "sha256": "327b4d9f154e320108a9ed14517cb3cdce95119ca369fe037cbb41f525bc39cc"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "aa6e13e1e4f07a4d9fe02ce83a526dce3c13917fd37b95ecfe0eac9e46f0b370"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     },
@@ -2598,7 +3420,24 @@
             "post": "06d0597caee86541aea636d78d73d0c9357ffd7608a0ae0d290fdd30895e520d"
           }
         },
-        "movedAt": "7e081f49"
+        "movedAt": "7e081f49",
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "e68c7d6b",
+                "path": "internal/backends/postgres/control/vocabulary_control.go",
+                "citedDigests": {
+                  "sha256": "5d41b67074dbaaabe741a46b1ba370eec581b236ee2be80e5275047e2d8957c1"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "06d0597caee86541aea636d78d73d0c9357ffd7608a0ae0d290fdd30895e520d"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
+        }
       }
     },
     "internal/backends/arango/internal/chartifact/catalog.go": {
@@ -2823,6 +3662,23 @@
           "pre": "dc52ed0a",
           "post": "80bca9a5",
           "preVerification": "claimed digests matched no blob at the recorded pin commit"
+        },
+        "rederivedSuperseded": {
+          "rederived": {
+            "quotes": [
+              {
+                "commit": "dc52ed0a",
+                "path": "internal/catalog/arango/all_generations_project_binding_integration_test.go",
+                "citedDigests": {
+                  "sha256": "17f2414092154737db70f2b366e5dcc6e7f672a8e512bc431ae8a30d6dc5e97f"
+                }
+              }
+            ],
+            "pinnedClaims": {
+              "sha256": "9f14c21b34eec6435586b217c094518dddc8e6d7b7b475a1c386b05115263fd1"
+            },
+            "note": "the SELF-RUN quote in this row predates the final re-pin: no blob at a cited commit hashes to the pinned value; read the quote as historical evidence only"
+          }
         }
       }
     }
