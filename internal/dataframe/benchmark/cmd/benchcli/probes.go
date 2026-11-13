@@ -8,23 +8,46 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	backendspostgres "github.com/calypr/loom/internal/backends/postgres/control"
 )
 
 // Live probes: the report's backend versions must be observed from the
-// services themselves, never written by hand.
+// services themselves, never written by hand. The PostgreSQL driver stays
+// confined to internal/backends (ownership contract): every probe here
+// reaches the database through the backend's own public factory surface,
+// never through a driver import.
+
+// openProbeRuntime opens the backend factory's single readiness-gated pool
+// with no schema assignment (the empty placement is the valid probe shape)
+// and SetupNone, then hands back the runtime whose ConnSource is the
+// factory's public single-connection port.
+func openProbeRuntime(ctx context.Context, dsn string) (*backendspostgres.Runtime, error) {
+	return backendspostgres.Open(ctx, backendspostgres.Config{
+		DSN:            dsn,
+		MaxConns:       2,
+		MinConns:       1,
+		AcquireTimeout: 15 * time.Second,
+		Setup:          backendspostgres.SetupNone,
+	})
+}
 
 func probePostgresVersion(ctx context.Context, dsn string) (string, error) {
-	connCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	connCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	conn, err := pgx.Connect(connCtx, dsn)
+	runtime, err := openProbeRuntime(connCtx, dsn)
 	if err != nil {
-		return "", fmt.Errorf("postgres probe connect: %w", scrub(err, dsn))
+		return "", fmt.Errorf("postgres probe open: %w", scrub(err, dsn))
 	}
-	defer conn.Close(context.Background())
+	defer func() { _ = runtime.Close() }()
+	conn, err := runtime.ConnSource().Acquire(connCtx)
+	if err != nil {
+		return "", fmt.Errorf("postgres probe acquire: %w", scrub(err, dsn))
+	}
+	defer conn.Release()
 	var version string
 	if err := conn.QueryRow(connCtx, "SELECT version()").Scan(&version); err != nil {
 		return "", fmt.Errorf("postgres probe query: %w", scrub(err, dsn))
@@ -93,14 +116,29 @@ func redact(text, secret string) (string, bool) {
 // a benchmark run outside its namespace.
 const benchmarkNamespacePrefix = "loom_bench_"
 
-func guardPostgresNamespace(dsn string) error {
-	config, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		return fmt.Errorf("postgres dsn unparsable: %s", redactSecretText(err.Error(), dsn))
+// parsePostgresURL enforces the URL-form law this lane accepts everywhere
+// (the same shape provision, arms.json evidence, and the admin DSN use) and
+// returns the parsed URL with a non-empty database named.
+func parsePostgresURL(dsn string) (*url.URL, string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(dsn))
+	if err != nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") {
+		return nil, "", fmt.Errorf("postgres dsn unparsable: URL form postgres://… is required (credentials redacted)")
 	}
-	if !strings.HasPrefix(config.Database, benchmarkNamespacePrefix) {
+	database := strings.TrimPrefix(parsed.Path, "/")
+	if database == "" {
+		return nil, "", fmt.Errorf("postgres dsn unparsable: no database named (credentials redacted)")
+	}
+	return parsed, database, nil
+}
+
+func guardPostgresNamespace(dsn string) error {
+	_, database, err := parsePostgresURL(dsn)
+	if err != nil {
+		return err
+	}
+	if !strings.HasPrefix(database, benchmarkNamespacePrefix) {
 		return fmt.Errorf("postgres database %q is outside the benchmark namespace %s*; refusing to run against it",
-			redactSecretText(config.Database, dsn), benchmarkNamespacePrefix)
+			redactSecretText(database, dsn), benchmarkNamespacePrefix)
 	}
 	return nil
 }
@@ -119,22 +157,34 @@ func randomRunIDSuffix() string {
 }
 
 func parsePostgresDSN(dsn string) (host string, port int, database, user, password, sslmode string, err error) {
-	config, err := pgx.ParseConfig(dsn)
+	parsed, database, err := parsePostgresURL(dsn)
 	if err != nil {
 		return "", 0, "", "", "", "", fmt.Errorf("unparsable postgres dsn")
 	}
-	host = config.Host
-	port = int(config.Port)
-	if port == 0 {
-		port = 5432
+	host = parsed.Hostname()
+	if host == "" {
+		return "", 0, "", "", "", "", fmt.Errorf("unparsable postgres dsn")
 	}
-	database, user, password = config.Database, config.User, string(config.Password)
-	sslmode = "disable"
-	if config.TLSConfig != nil {
-		sslmode = config.TLSConfig.ServerName
-		if sslmode == "" {
-			sslmode = "require"
+	port = 5432
+	if rawPort := parsed.Port(); rawPort != "" {
+		p, perr := strconv.Atoi(rawPort)
+		if perr != nil || p <= 0 || p > 65535 {
+			return "", 0, "", "", "", "", fmt.Errorf("unparsable postgres dsn")
 		}
+		port = p
+	}
+	if parsed.User != nil {
+		user = parsed.User.Username()
+		password, _ = parsed.User.Password()
+	}
+	if user == "" {
+		return "", 0, "", "", "", "", fmt.Errorf("unparsable postgres dsn")
+	}
+	// sslmode rides the query parameter; the lane's DSNs state it
+	// explicitly, and disable is the honest local default.
+	sslmode = parsed.Query().Get("sslmode")
+	if sslmode == "" {
+		sslmode = "disable"
 	}
 	return host, port, database, user, password, sslmode, nil
 }

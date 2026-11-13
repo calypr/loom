@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	backendspostgres "github.com/calypr/loom/internal/backends/postgres/control"
 )
 
@@ -23,8 +21,25 @@ import (
 // requires: the caller CREATES the six assigned schemas, then the public
 // factory bootstraps them with SetupMigrate; the server later opens the
 // same placement with SetupNone (the factory's arrangement law).
+//
+// DDL runs on the factory's public ConnSource port: the PostgreSQL driver
+// stays confined to internal/backends (ownership contract), and every
+// identifier interpolated into DDL first passes a closed regex gate, then
+// carries SQL-standard double-quote escaping.
 
 var benchDatabaseRe = regexp.MustCompile(`^` + benchmarkNamespacePrefix + `[a-z0-9_]{4,48}$`)
+
+var benchSchemaIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// quoteBenchIdent renders name as a quoted SQL identifier. It refuses any
+// name outside the closed benchmark shapes: no unvalidated text ever
+// reaches DDL.
+func quoteBenchIdent(name string) (string, error) {
+	if !benchSchemaIdentRe.MatchString(name) {
+		return "", fmt.Errorf("identifier %q is outside the benchmark shape", name)
+	}
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`, nil
+}
 
 func adminDSNFromEnv() (string, error) {
 	dsn := strings.TrimSpace(os.Getenv("LOOM_BENCH_ADMIN_DSN"))
@@ -84,45 +99,64 @@ func setupPG(ctx context.Context, adminDSN, database, schemaPrefix string) error
 		!strings.HasPrefix(schemaPrefix, benchmarkNamespacePrefix) {
 		return fmt.Errorf("schema prefix %q produces schemas outside the benchmark namespace", schemaPrefix)
 	}
-	admin, err := pgx.Connect(ctx, adminDSN)
+	quotedDatabase, err := quoteBenchIdent(database)
 	if err != nil {
-		return fmt.Errorf("admin connect (credentials redacted)")
+		return err
 	}
-	defer admin.Close(ctx)
+	admin, err := openProbeRuntime(ctx, adminDSN)
+	if err != nil {
+		return fmt.Errorf("admin connect (credentials redacted): %w", err)
+	}
+	defer func() { _ = admin.Close() }()
+	adminConn, err := admin.ConnSource().Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("admin acquire (credentials redacted): %w", err)
+	}
+	releaseAdmin := true
+	defer func() {
+		if releaseAdmin {
+			adminConn.Release()
+		}
+	}()
 	var exists bool
-	if err := admin.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", database).Scan(&exists); err != nil {
+	if err := adminConn.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)", database).Scan(&exists); err != nil {
 		return err
 	}
 	if exists {
 		// Fresh database per run keeps digests and timings attributable.
 		return fmt.Errorf("database %s already exists; drop-pg first (fresh per run keeps evidence attributable)", database)
 	}
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{database}.Sanitize()); err != nil {
+	if _, err := adminConn.Exec(ctx, "CREATE DATABASE "+quotedDatabase); err != nil {
 		return fmt.Errorf("create database: %w", err)
 	}
-	if err := admin.Close(ctx); err != nil {
-		return err
-	}
+	adminConn.Release()
+	releaseAdmin = false // explicit release; the guard defers the rest
 
 	targetDSN, err := withDatabase(adminDSN, database)
 	if err != nil {
 		return err
 	}
-	target, err := pgx.Connect(ctx, targetDSN)
+	target, err := openProbeRuntime(ctx, targetDSN)
 	if err != nil {
-		return fmt.Errorf("target connect (credentials redacted)")
+		return fmt.Errorf("target connect (credentials redacted): %w", err)
 	}
+	defer func() { _ = target.Close() }()
+	targetConn, err := target.ConnSource().Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("target acquire (credentials redacted): %w", err)
+	}
+	defer targetConn.Release()
 	schemas := map[backendspostgres.Series]string{}
 	for _, series := range backendspostgres.AllSeries() {
 		schema := schemaPrefix + "_" + string(series)
-		if _, err := target.Exec(ctx, "CREATE SCHEMA "+pgx.Identifier{schema}.Sanitize()); err != nil {
-			target.Close(ctx)
+		quotedSchema, err := quoteBenchIdent(schema)
+		if err != nil {
+			return err
+		}
+		if _, err := targetConn.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
 			return fmt.Errorf("create schema %s: %w", schema, err)
 		}
 		schemas[series] = schema
-	}
-	if err := target.Close(ctx); err != nil {
-		return err
 	}
 
 	// Canonical bootstrap: the public factory with SetupMigrate, exactly as
@@ -142,12 +176,21 @@ func setupPG(ctx context.Context, adminDSN, database, schemaPrefix string) error
 }
 
 func dropPG(ctx context.Context, adminDSN, database string) error {
-	admin, err := pgx.Connect(ctx, adminDSN)
+	quotedDatabase, err := quoteBenchIdent(database)
 	if err != nil {
-		return fmt.Errorf("admin connect (credentials redacted)")
+		return err
 	}
-	defer admin.Close(ctx)
-	_, err = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{database}.Sanitize()+" WITH (FORCE)")
+	admin, err := openProbeRuntime(ctx, adminDSN)
+	if err != nil {
+		return fmt.Errorf("admin connect (credentials redacted): %w", err)
+	}
+	defer func() { _ = admin.Close() }()
+	adminConn, err := admin.ConnSource().Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("admin acquire (credentials redacted): %w", err)
+	}
+	defer adminConn.Release()
+	_, err = adminConn.Exec(ctx, "DROP DATABASE IF EXISTS "+quotedDatabase+" WITH (FORCE)")
 	return err
 }
 
