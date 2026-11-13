@@ -51,6 +51,7 @@ type Runtime struct {
 
 	Explorer            *explorerstore.Store
 	Publish             *explorerstore.PublishStore
+	Activate            *explorerstore.ActivationStore
 	Interpretations     *explorerstore.InterpretationStore
 	ExplicitGroups      *explorerstore.ExplicitGroupStore
 	CapabilitySnapshots *explorerstore.CapabilitySnapshotStore
@@ -75,7 +76,11 @@ var (
 	_ catalog.FieldProfileWriter            = (*catalogstore.Store)(nil)
 	_ catalog.InventoryRebuilder            = (*catalogstore.Store)(nil)
 	_ catalog.RelationshipDiscoverer        = (*catalogstore.Store)(nil)
+	_ catalog.CapabilityEvidenceReader      = (*catalogstore.Store)(nil)
 	_ catalog.SemanticContributor           = (*catalogstore.SemanticContributionRepository)(nil)
+	_ catalog.InventoryRebuilder            = (*catalogstore.InventoryAdapter)(nil)
+	_ catalog.FieldProfileWriter            = (*catalogstore.FieldProfileAdapter)(nil)
+	_ catalog.RelationshipDiscoverer        = (*catalogstore.RelationshipAdapter)(nil)
 )
 
 func Open(ctx context.Context, cfg Config) (*Runtime, error) {
@@ -302,6 +307,13 @@ func (r *Runtime) assembleDataPlanePorts(cfg Config) error {
 				return redactWrap(ErrBootstrap, fmt.Sprintf("assemble Explorer publish store across %q and %q", schema, datasetSchema), err, password)
 			}
 			r.Publish = publish
+			if publicationSchema, publicationAssigned := cfg.Schemas[SeriesPublicationControl]; publicationAssigned {
+				activate, err := explorerstore.NewActivationStore(r.client, schema, datasetSchema, publicationSchema)
+				if err != nil {
+					return redactWrap(ErrBootstrap, fmt.Sprintf("assemble Explorer activation store across %q, %q, and %q", schema, datasetSchema, publicationSchema), err, password)
+				}
+				r.Activate = activate
+			}
 		}
 	}
 	if schema, assigned := cfg.Schemas[SeriesPublicationControl]; assigned {

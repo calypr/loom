@@ -188,7 +188,7 @@ func TestDiscoverFieldsPostgreSQLExactSetOrderAndMapping(t *testing.T) {
 func TestDiscoverFieldsRestrictedEmptyMakesZeroRoundTrips(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -210,7 +210,7 @@ func TestDiscoverFieldsRestrictedEmptyMakesZeroRoundTrips(t *testing.T) {
 func TestDiscoverFieldsUnrestrictedIgnoresStrayPaths(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -288,7 +288,7 @@ func TestDiscoverFieldsStoreFailureIsWrappedNotEmpty(t *testing.T) {
 	s := newFieldProfileService(t)
 	boom := errors.New("injected filtered read failure")
 	wrapper := &fdRecordingStore{real: s.realRepository(t), injectReadError: boom}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -341,7 +341,7 @@ func TestDiscoverExistingAuthResourcePathsSortedDistinctIncludingMarker(t *testi
 func TestDiscoverExistingAuthResourcePathsAllGenerationsConflictRefusedNoRoundTrips(t *testing.T) {
 	s := newFieldProfileService(t)
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -381,7 +381,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsIsCrossGenerationUnion(t
 	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
 
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -432,7 +432,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsAdapterOwnsByteOrder(t *
 		fdWrite(t, s, fdScope(fdProject, fdGenA, path, "Patient"), fdDoc(fdProject, fdGenA, path, "Patient", "gender", 1))
 	}
 	wrapper := &fdRecordingStore{real: s.realRepository(t), reverseDistinctOrder: true}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -455,7 +455,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsUnrecordedProjectIsHones
 	fdWrite(t, s, fdScope("fd-other", fdGenA, "/fhir/foreign", "Patient"), fdDoc("fd-other", fdGenA, "/fhir/foreign", "Patient", "gender", 1))
 
 	wrapper := &fdRecordingStore{real: s.realRepository(t)}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}
@@ -479,7 +479,7 @@ func TestDiscoverExistingAuthResourcePathsAllGenerationsStoreFailureIsWrappedNot
 	s := newFieldProfileService(t)
 	boom := errors.New("injected distinct listing failure")
 	wrapper := &fdRecordingStore{real: s.realRepository(t), injectDistinctErr: boom}
-	store, err := NewFieldProfileStore(wrapper)
+	store, err := NewFieldProfileAdapter(wrapper)
 	if err != nil {
 		s.fail("new field profile store", err)
 	}

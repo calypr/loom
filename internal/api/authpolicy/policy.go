@@ -1,5 +1,3 @@
-// Package authpolicy centralizes authorization-sentinel classification while
-// retaining operation-specific concealment and project-level policy.
 package authpolicy
 
 import (
@@ -20,9 +18,6 @@ const (
 	OperationConcealedLookup     Operation = "concealed_lookup"
 )
 
-// Classify maps shared authorization and dependency sentinels according to
-// operation context. Unknown errors are returned unchanged for the caller's
-// broader dependency policy.
 func Classify(err error, operation Operation) error {
 	if err == nil {
 		return nil

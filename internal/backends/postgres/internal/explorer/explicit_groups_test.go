@@ -414,7 +414,7 @@ func (f *pgState06Fixture) rerunMigration(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.schema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.schema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}
@@ -2381,7 +2381,7 @@ func (f *grpmFixture) rerunMigrationGRPM(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.schema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.schema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}
@@ -3272,7 +3272,7 @@ func TestPostgresExplicitGroupMembershipsDatabaseGuards(t *testing.T) {
 		` (revision_id, group_id, project, generation, resource_type, resource_id)`+
 		` VALUES ($1, $2, $3, $4, $5, $6)`,
 		string(revision.ID), "verify-grpm-group-ghost", grpmProject, grpmGeneration, grpmResourceType, "r-b")
-	requirePgErrConstraintGRPM(t, err, explicitGroupMembershipForeignKeyState,
+	requirePgErrConstraintGRPM(t, err, "23503",
 		explicitGroupMembershipGroupFK, "undeclared-group membership insert")
 
 	_, err = f.witness.Exec(f.ctx, `INSERT INTO `+f.membershipsTable()+
@@ -4157,7 +4157,7 @@ func TestPostgresExplicitGroupMembershipsMigrationLedgerConvergence(t *testing.T
 	for _, rec := range result.Applied {
 		versions = append(versions, rec.Version)
 	}
-	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
+	wantVersions := []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 	if len(versions) != len(wantVersions) {
 		t.Fatalf("ledger versions = %v, want %v", versions, wantVersions)
 	}

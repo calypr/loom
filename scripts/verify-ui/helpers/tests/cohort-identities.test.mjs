@@ -136,9 +136,6 @@ test('rejects a missing member binding after the UI operation', () => {
 const cohortRevisionId = 'grouprev_cf467f0bfc6f7dda2f5568fd963333f9a495101424b660b19e817d02b2027c3b';
 const selectionRevisionId = 'selection_30228fde63d4b7c29ae74361a9ab502366e02a62aba50c7ffee8c0f09e2fc706';
 const resourceTypeColumnId = 'source_d44aab344dd675e370dd19b7';
-// Observed fields copied from domain.savedFieldDocument in the retained
-// standalone-cohort-fields-domain-json-f9677b4ebb0c60e8277a6a2a7ad4d5a3a41abbe4.json attachment.
-// This excerpt intentionally omits saved-document fields not needed by this helper contract.
 const capturedSavedFieldDocumentExcerpt = () => ({
   rows: {
     kind: 'GROUPS',

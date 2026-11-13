@@ -18,19 +18,6 @@ services:
     volumes:
       - ./clickhouse-data:/var/lib/clickhouse
 
-  # Opt-in PostgreSQL 18 test fixture for Loom integration checks. The
-  # default developer stack above stays Arango + ClickHouse only; this
-  # service starts only with an explicit profile, e.g.
-  #   docker compose -f experimental/docker-compose.yml --profile postgres-test up -d postgres18-test
-  # then:
-  #   export LOOM_TEST_POSTGRES_URL='postgresql://loom_test:loom-test-only@127.0.0.1:55432/loom_test?sslmode=disable'
-  #   node scripts/run-postgres-integration.mjs --out "$(mktemp -d)"
-  # The credentials below are throwaway test-only values for this disposable
-  # container, not production secrets. Data lives in the isolated named
-  # volume loom-pg18-test-data (removed by `down -v`), never a bind mount.
-  # Tests own their namespace: node scripts/run-postgres-integration.mjs
-  # creates and drops only its uniquely-named pgfixture_* database, so
-  # repeated setups are deterministic and never touch shared user data.
   postgres18-test:
     profiles: ["postgres-test"]
     image: postgres:18

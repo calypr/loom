@@ -7,10 +7,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// traversalStub answers the generated-traversal registry with fixed
-// found/error results so a single branch of the shared projection can be
-// exercised with literals. Production always binds
-// fhirschema.ResolveCompilerTraversal; this stub is test-only.
 func traversalStub(found map[string]bool, errs map[string]error) func(fromType, edgeLabel, toType string) (fhirschema.CompilerTraversal, bool, error) {
 	return func(fromType, edgeLabel, toType string) (fhirschema.CompilerTraversal, bool, error) {
 		key := fromType + "|" + edgeLabel + "|" + toType
@@ -21,14 +17,6 @@ func traversalStub(found map[string]bool, errs map[string]error) func(fromType, 
 	}
 }
 
-// TestRelationshipEvidenceProjection pins the shared storage-to-Builder
-// relationship policy with literal expectations on every branch: the
-// inverse-first projection, the direct-only fallback, inverse-over-direct
-// precedence, the unsupported-traversal diagnostic, the non-positive count
-// diagnostic, and the merge-key/ordering/digest bytes both adapters depend
-// on. The digest and ordering fixtures were captured from the pre-
-// consolidation adapters (b604a307), so passing here means the shared
-// implementation serves both backends byte-for-byte.
 func TestRelationshipEvidenceProjection(t *testing.T) {
 	t.Run("inverse projection is the preferred Builder view", func(t *testing.T) {
 		observation, ok, diagnostic := ProjectRelationshipObservation("proj", "g1", "clinic/a", "Condition", "subject_Patient", "Patient", 3)
@@ -51,9 +39,6 @@ func TestRelationshipEvidenceProjection(t *testing.T) {
 	})
 
 	t.Run("direct-only traversal is a valid fallback projection", func(t *testing.T) {
-		// No generated registry entry is direct-only today (verified by
-		// census at b604a307), so this branch is exercised with a stub that
-		// resolves only the direct orientation.
 		found := map[string]bool{"Condition|subject_Patient|Patient": true}
 		observation, ok, diagnostic := projectRelationshipObservation(traversalStub(found, nil), "proj", "g1", "clinic/a", "Condition", "subject_Patient", "Patient", 2)
 		if !ok {
@@ -97,8 +82,6 @@ func TestRelationshipEvidenceProjection(t *testing.T) {
 		if diagnostic != want {
 			t.Fatalf("diagnostic = %+v, want %+v", diagnostic, want)
 		}
-		// A resolved-but-erroring direct traversal falls through to the
-		// same diagnostic (the original guards are `found && err == nil`).
 		found := map[string]bool{"Condition|subject_Patient|Patient": true}
 		errs := map[string]error{"Condition|subject_Patient|Patient": errStub}
 		_, ok, diagnostic = projectRelationshipObservation(traversalStub(found, errs), "proj", "g1", "clinic/a", "Condition", "subject_Patient", "Patient", 4)
@@ -128,9 +111,6 @@ func TestRelationshipEvidenceProjection(t *testing.T) {
 	})
 
 	t.Run("merge ordering and digest bytes match the pre-consolidation adapters", func(t *testing.T) {
-		// Inputs captured from the b604a307 probes that drove both adapters'
-		// merge loops. The repeated Condition/subject_Patient/Patient pair
-		// (5 + 2) must merge to one INBOUND row of 7.
 		type aggregate struct {
 			project, generation, auth, storageFrom, label, storageTo string
 			count                                                    int64
@@ -157,8 +137,6 @@ func TestRelationshipEvidenceProjection(t *testing.T) {
 		if len(values) != 4 {
 			t.Fatalf("merged %d groups, want 4: %+v", len(values), values)
 		}
-		// Ordering is total over this fixture: sort.Slice's order must equal
-		// the hand-sorted golden, verified via the strict comparator.
 		sort.Slice(values, func(i, j int) bool { return RelationshipEvidenceLess(values[i], values[j]) })
 		for i := 1; i < len(values); i++ {
 			if !RelationshipEvidenceLess(values[i-1], values[i]) {
@@ -180,16 +158,12 @@ func TestRelationshipEvidenceProjection(t *testing.T) {
 		if err != nil {
 			t.Fatalf("digest: %v", err)
 		}
-		// Golden captured from the b604a307 adapters over this exact fixture.
 		if want := "sha256:f2391bc882ce18f46fc6877d8eeb40ffd84773597a9a3308ce2a10872783982e"; digest != want {
 			t.Fatalf("digest = %q, want %q", digest, want)
 		}
 	})
 
 	t.Run("comparator tie-breaks only on the count", func(t *testing.T) {
-		// After a merge no two rows share all eight identity fields, so the
-		// count tie-break is defensive parity with the pre-consolidation
-		// comparators; pin it directly.
 		base := RelationshipObservation{Project: "p", DatasetGeneration: "g", AuthResourcePath: "a", FromType: "Patient", Label: "subject_Patient", ToType: "Condition", StorageFromType: "Condition", StorageToType: "Patient", StorageDirection: "OUTBOUND", BuilderFromType: "Patient", BuilderToType: "Condition", BuilderDirection: "INBOUND"}
 		low, high := base, base
 		low.EdgeCount, high.EdgeCount = 5, 9
@@ -199,7 +173,6 @@ func TestRelationshipEvidenceProjection(t *testing.T) {
 		if RelationshipEvidenceLess(low, low) {
 			t.Fatal("comparator is not strict on equal rows")
 		}
-		// First differing identity field decides, not the count.
 		other := base
 		other.Project = "o"
 		other.EdgeCount = 1

@@ -1,49 +1,5 @@
 package ingest
 
-// Real-PostgreSQL acceptance tests for the pg-ingest-03 generation-load
-// orchestrator (check-2: go test ./internal/ingest -run PostgresGenerationLoad
-// -count=1).
-//
-// These tests drive LoadPostgresGeneration and ActivatePostgresGeneration
-// against the PostgreSQL 18 service named by LOOM_TEST_POSTGRES_URL. Every
-// row is built by the real production row builders (generated and generic,
-// generation-qualified exactly as loadFile builds them), committed through
-// the real merged writers, repositories, and adapters, and witnessed by
-// direct SQL against literals. Nothing is mocked for a live claim: the only
-// doubles are failure injectors wrapping the real repositories (the merged
-// contract's explicit allowance) — they never stand in for a commit.
-//
-// Lifecycle durability (generation_load_postgres_durability_test.go):
-// pg_terminate_backend is injected across every durability seam (manifest
-// create, resource batch, edge batch, field profile, inventory, semantic
-// contributions, staged transition), proving no partially written generation
-// ever becomes visible (the manifest never reaches STAGED with missing data
-// and the active-generation pointer never moves), and replaying from a
-// separate OS process converges with byte-stable fingerprints and ledger
-// digests.
-//
-// Concurrency: same-generation races run at least ten rounds each on two
-// real pools whose distinct pg_backend_pid rows are witnessed live in
-// pg_stat_activity, with positive overlap witnesses and sequential controls
-// that fail when the witness logic itself is broken.
-//
-// Non-vacuity: every refusal has a paired control passing the same gate;
-// guard drops refuse with the exact named sentinel and write nothing
-// (witnessed by zero ledger/row counts on the live stack).
-//
-// SQL discipline: the orchestrator file must contain no SQL at all (pinned
-// by TestPostgresGenerationLoadOwnSourceHasNoSQL); every test-side dynamic
-// identifier passes through pgx.Identifier.Sanitize via ing03QIdent, every
-// value stays a bound parameter (hostile literals stay data), and every
-// generated placeholder/ordinal string is pattern-validated.
-//
-// Fixture databases and schemas are uniquely owned as verify_ing03_load_*
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped: it counts only this process's own verify_ing03_load_*
-// prefix against the baseline captured before this process created
-// anything, so concurrent sibling workers neither race nor trip it. Foreign
-// registered churn is life, not failure.
-
 import (
 	"context"
 	"crypto/rand"
@@ -72,13 +28,10 @@ import (
 )
 
 const (
-	ing03LoadPrefix = "verify_ing03_load_"
-	ing03LoadDBFmt  = ing03LoadPrefix + "%d_%s"
-	ing03SchemaPfx  = ing03LoadPrefix + "s_"
-	ing03SchemaFmt  = ing03SchemaPfx + "%d_%s"
-	// The manifest lane (dataset_release series) lives in its own
-	// caller-owned schema inside the same isolated database: one schema,
-	// one history owner.
+	ing03LoadPrefix        = "verify_ing03_load_"
+	ing03LoadDBFmt         = ing03LoadPrefix + "%d_%s"
+	ing03SchemaPfx         = ing03LoadPrefix + "s_"
+	ing03SchemaFmt         = ing03SchemaPfx + "%d_%s"
 	ing03ManifestSchemaPfx = ing03LoadPrefix + "sm_"
 	ing03ManifestSchemaFmt = ing03ManifestSchemaPfx + "%d_%s"
 	ing03Project           = "prj-ing03-load"
@@ -89,8 +42,6 @@ const (
 	ing03LoincSystem       = "http://loinc.org"
 )
 
-// ing03HostileID is SQL/quote-hostile but plain JSON-string data: it must
-// survive as a stored value, never reach the parser as syntax.
 const ing03HostileID = `O'Brien"; DROP TABLE "fhir_resource"; --$1\%2`
 
 var (
@@ -120,10 +71,6 @@ func ing03RandomHex(t *testing.T) string {
 }
 
 var ing03ControlSeq atomic.Int64
-
-// ---------------------------------------------------------------------------
-// Ownership registry + baseline (ownership-scoped hygiene).
-// ---------------------------------------------------------------------------
 
 var (
 	ing03OwnedMu      sync.Mutex
@@ -164,7 +111,6 @@ func ing03CaptureBaseline(raw string) {
 		}
 		defer admin.Close()
 		var count int64
-		// Static literal; the LIKE pattern is a constant, not built input.
 		if err := admin.QueryRow(ctx,
 			"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_ing03\\_load\\_%' ESCAPE '\\'").
 			Scan(&count); err != nil {
@@ -175,14 +121,6 @@ func ing03CaptureBaseline(raw string) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// SQL helpers: dynamic identifiers are sanitized, values stay bound.
-// ---------------------------------------------------------------------------
-
-// ing03ManifestSeriesTables are the tables the dataset_release runner owns;
-// everything else in ing03KnownTables belongs to the source runner. The
-// production composition assigns each series its own schema, and this
-// fixture mirrors it: two schemas, two history ledgers.
 var ing03ManifestSeriesTables = map[string]bool{
 	"schema_migrations":           true,
 	"dataset_generation_manifest": true,
@@ -206,9 +144,6 @@ var ing03KnownTables = map[string]bool{
 	"fhir_semantic_inventory_contribution": true,
 }
 
-// ing03QIdent sanitizes <schema>.<table>; the schema must be one this
-// process owns (verify_ing03_load_s_*) and the table must be a known
-// migration table. No caller may concatenate identifiers into SQL.
 func ing03QIdent(t *testing.T, schema, table string) string {
 	t.Helper()
 	if !ing03SchemaNamePattern.MatchString(schema) && !ing03ManifestSchemaPattern.MatchString(schema) {
@@ -220,8 +155,6 @@ func ing03QIdent(t *testing.T, schema, table string) string {
 	return pgx.Identifier{schema, table}.Sanitize()
 }
 
-// ing03OrderBy builds " ORDER BY 1,2,…" with each ordinal literal
-// pattern-validated before joining.
 func ing03OrderBy(columnCount int) string {
 	if columnCount < 1 {
 		return ""
@@ -237,8 +170,6 @@ func ing03OrderBy(columnCount int) string {
 	return " ORDER BY " + strings.Join(ords, ",")
 }
 
-// ing03Placeholder asserts a generated bind placeholder like "$4" matches
-// the pattern-validated placeholder-number form.
 func ing03Placeholder(t *testing.T, n int) string {
 	t.Helper()
 	placeholder := fmt.Sprintf("$%d", n)
@@ -264,10 +195,6 @@ func ing03Count(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) int64
 	return count
 }
 
-// ---------------------------------------------------------------------------
-// Service fixture.
-// ---------------------------------------------------------------------------
-
 type ing03Service struct {
 	t              *testing.T
 	ctx            context.Context
@@ -277,18 +204,9 @@ type ing03Service struct {
 	schema         string
 	manifestSchema string
 	scrub          func(any) string
-	// faults injects catalog-evidence failures into the writers wired for
-	// the next load: a test-only seam following the merged precedent
-	// (dataset/postgres Store.commitFault). Wrappers decorate the real
-	// repository and inject failures, never fake results.
-	faults *ing03CatalogFaults
+	faults         *ing03CatalogFaults
 }
 
-// ing03CatalogFaults carries the optional fault wrappers applied around
-// the raw catalog repositories before the store-layer constructors wrap
-// them, matching the production wiring recipe in GenerationCatalogWriters
-// exactly (internal/ingest deliberately does not import catalog/postgres,
-// so the fault seam lives here with the wiring).
 type ing03CatalogFaults struct {
 	wrapFieldProfile  func(control.FieldProfileStore) control.FieldProfileStore
 	wrapInventory     func(control.InventoryStore) control.InventoryStore
@@ -296,12 +214,6 @@ type ing03CatalogFaults struct {
 	wrapContributions func(inner GenerationSemanticContributor) GenerationSemanticContributor
 }
 
-// ing03WireCatalogWriters builds the four production catalog evidence
-// writers over src following the GenerationCatalogWriters wiring recipe
-// verbatim, so loads exercise the real store-layer guards and commit
-// checks, not fakes. Optional fault wrappers decorate the raw repositories
-// before the store-layer constructors wrap them. fail receives any
-// constructor error.
 func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing03CatalogFaults, fail func(error)) GenerationCatalogWriters {
 	profileRepo, err := control.NewFieldProfileRepository(src, schema)
 	if err != nil {
@@ -311,7 +223,7 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	if faults != nil && faults.wrapFieldProfile != nil {
 		profileStore = faults.wrapFieldProfile(profileRepo)
 	}
-	profiles, err := control.NewCatalogFieldProfileStore(profileStore)
+	profiles, err := control.NewCatalogFieldProfileAdapter(profileStore)
 	if err != nil {
 		fail(fmt.Errorf("field profile store: %w", err))
 	}
@@ -323,7 +235,7 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	if faults != nil && faults.wrapInventory != nil {
 		inventoryStore = faults.wrapInventory(inventoryRepo)
 	}
-	inventory, err := control.NewCatalogStore(inventoryStore)
+	inventory, err := control.NewCatalogInventoryAdapter(inventoryStore)
 	if err != nil {
 		fail(fmt.Errorf("inventory store: %w", err))
 	}
@@ -335,7 +247,7 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	if faults != nil && faults.wrapRelationship != nil {
 		relationshipStore = faults.wrapRelationship(relationshipRepo)
 	}
-	relations, err := control.NewCatalogRelationshipEvidenceStore(relationshipStore)
+	relations, err := control.NewCatalogRelationshipAdapter(relationshipStore)
 	if err != nil {
 		fail(fmt.Errorf("relationship evidence store: %w", err))
 	}
@@ -355,8 +267,6 @@ func ing03WireCatalogWriters(src control.ConnSource, schema string, faults *ing0
 	}
 }
 
-// catalogWriters builds the four production catalog evidence writers over
-// the service pool, applying any armed fault wrappers.
 func (s *ing03Service) catalogWriters() GenerationCatalogWriters {
 	s.t.Helper()
 	return ing03WireCatalogWriters(s.iso, s.schema, s.faults, func(err error) {
@@ -416,8 +326,6 @@ func newIngest03Service(t *testing.T) *ing03Service {
 	}
 	ing03RegisterFixture(dbName, schema)
 	t.Cleanup(func() {
-		// Foreign churn is life: cleanup drops only this process's own
-		// registered fixture, witnessed against the ownership-scoped audit.
 		if _, err := admin.Exec(context.WithoutCancel(context.Background()),
 			`DROP DATABASE IF EXISTS "`+dbName+`" WITH (FORCE)`); err != nil {
 			t.Errorf("drop isolated database: %s", scrub(err))
@@ -453,9 +361,6 @@ func newIngest03Service(t *testing.T) *ing03Service {
 	return &ing03Service{t: t, ctx: ctx, admin: admin, iso: iso, dsn: dsn, schema: schema, manifestSchema: manifestSchema, scrub: scrub}
 }
 
-// migrate pre-applies migrations so tests can LOCK tables and seed rows
-// before a load; the load's own MigrateSchema call then converges as the
-// idempotent no-op it is.
 func (s *ing03Service) migrate() {
 	s.t.Helper()
 	client := s.openClient(2)
@@ -482,10 +387,6 @@ func (s *ing03Service) openClient(maxConns int32) *control.Client {
 	return client
 }
 
-// namedPool opens a pool whose backends carry the given application_name,
-// mirroring how the load stamps its own connections. Catalog writers are
-// wired over such a pool so pg_stat_activity witnesses attribute catalog
-// backends to the load that owns them.
 func (s *ing03Service) namedPool(application string) *pgxpool.Pool {
 	s.t.Helper()
 	cfg, err := pgxpool.ParseConfig(s.dsn)
@@ -554,8 +455,6 @@ func (s *ing03Service) activePointerGeneration(project string) (string, bool) {
 	return generation, true
 }
 
-// tableSchema routes a known table to the schema whose runner owns it,
-// mirroring the production two-schema composition.
 func (s *ing03Service) tableSchema(table string) string {
 	if ing03ManifestSeriesTables[table] && table != "schema_migrations" {
 		return s.manifestSchema
@@ -572,12 +471,6 @@ func (s *ing03Service) countTable(table, where string, args ...any) int64 {
 	}
 	return ing03Count(s.t, s.iso, sql, args...)
 }
-
-// ---------------------------------------------------------------------------
-// Byte-stable fingerprints over business columns (server-assigned storage
-// identities and timestamps are excluded: they are server facts, not load
-// content, and independent loads must not be required to reproduce them).
-// ---------------------------------------------------------------------------
 
 var ing03FingerprintColumns = []struct {
 	table  string
@@ -596,9 +489,6 @@ var ing03FingerprintColumns = []struct {
 	{"fhir_semantic_inventory_contribution", "contribution_key, project, dataset_generation, build_id, source_kind, auth_resource_path, resource_type, source_id, ordinal, concept_id, binding_id, example, payload_digest, observation::text"},
 }
 
-// fingerprint hashes the full business content of one schema in a
-// collation-stable ordered way. Two loads that committed identical content
-// produce identical digests regardless of timing or process.
 func (s *ing03Service) fingerprint() string {
 	s.t.Helper()
 	digest := sha256.New()
@@ -632,16 +522,9 @@ func (s *ing03Service) fingerprint() string {
 	return hex.EncodeToString(digest.Sum(nil))
 }
 
-// ---------------------------------------------------------------------------
-// pg_stat_activity witnesses + kill/block injection.
-// ---------------------------------------------------------------------------
-
 type ing03BackendWitness struct {
-	Pid         int32
-	Application string
-	// State is nullable: pg_stat_activity.state is NULL for a backend
-	// that has not yet entered a client state; the witness must scan it
-	// without failing.
+	Pid           int32
+	Application   string
 	State         *string
 	WaitEventType *string
 }
@@ -668,12 +551,6 @@ func (s *ing03Service) backendsByApplication(appNames ...string) []ing03BackendW
 	return out
 }
 
-// maxConcurrentDistinctApps samples pg_stat_activity until done closes and
-// reports the maximum number of distinct application names (each with at
-// least one actively executing backend) observed in a single sample. Only
-// state='active' backends count: idle pooled connections (for example a
-// finished load's still-open catalog pool) must not fake an overlap, and
-// lock-parked backends are active with wait_event_type='Lock'.
 func (s *ing03Service) maxConcurrentDistinctApps(done <-chan struct{}, appNames ...string) int {
 	best := 0
 	for {
@@ -708,8 +585,6 @@ func (s *ing03Service) waitForBackend(appName string, timeout time.Duration) (in
 	return ing03BackendWitness{}, false
 }
 
-// waitForBackendWaiting parks until a backend for appName is visible and
-// waiting on a lock (wait_event_type = 'Lock').
 func (s *ing03Service) waitForBackendWaiting(appName string, timeout time.Duration) (ing03BackendWitness, bool) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -723,8 +598,6 @@ func (s *ing03Service) waitForBackendWaiting(appName string, timeout time.Durati
 	return ing03BackendWitness{}, false
 }
 
-// terminateAppBackends kills every live backend tagged with appName and
-// returns how many were terminated.
 func (s *ing03Service) terminateAppBackends(appName string) int {
 	rows, err := s.iso.Query(context.Background(),
 		`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1 AND backend_type = 'client backend' AND pid <> pg_backend_pid()`,
@@ -751,8 +624,6 @@ func (s *ing03Service) terminateAppBackends(appName string) int {
 	return killed
 }
 
-// blockTable holds ACCESS EXCLUSIVE on one owned table until release, so a
-// load touching it parks in the lock wait and can be terminated there.
 func (s *ing03Service) blockTable(table string) (release func()) {
 	s.t.Helper()
 	fqn := ing03QIdent(s.t, s.tableSchema(table), table)
@@ -793,7 +664,6 @@ func (s *ing03Service) blockTable(table string) (release func()) {
 	return release
 }
 
-// blockManifestRow parks the transition-to-STAGED UPDATE behind a row lock.
 func (s *ing03Service) blockManifestRow(project, generation string) (release func()) {
 	s.t.Helper()
 	fqn := ing03QIdent(s.t, s.manifestSchema, "dataset_generation_manifest")
@@ -835,11 +705,6 @@ func (s *ing03Service) blockManifestRow(project, generation string) (release fun
 	return release
 }
 
-// ---------------------------------------------------------------------------
-// NDJSON fixtures (test-owned literals; hostile values stay pure data via
-// encoding/json marshaling — never hand-escaped).
-// ---------------------------------------------------------------------------
-
 func ing03JSONLine(t *testing.T, document map[string]any) string {
 	t.Helper()
 	encoded, err := json.Marshal(document)
@@ -849,10 +714,6 @@ func ing03JSONLine(t *testing.T, document map[string]any) string {
 	return string(encoded)
 }
 
-// ing03ObservationLine builds one Observation row. FHIR id validation
-// legitimately requires ^[A-Za-z0-9\-.]+$ for ids, and every emitted edge
-// direction must resolve to a stored source, so hostile strings ride in
-// free-text code.text — pure bound JSONB data, never SQL syntax.
 func ing03ObservationLine(t *testing.T, id, subject string, focusRefs []string, coded bool) string {
 	t.Helper()
 	document := map[string]any{
@@ -882,10 +743,6 @@ func ing03PatientLine(t *testing.T, id string) string {
 	return ing03JSONLine(t, map[string]any{"resourceType": "Patient", "id": id, "gender": "female"})
 }
 
-// ing03HostilePatientLine keeps the SQL/quote-hostile string in a free-text
-// name element: FHIR id validation legitimately requires the pattern
-// ^[A-Za-z0-9\-.]+$ for ids, so the injection payload rides as unvalidated
-// JSON string data, which is exactly the binding-integrity claim.
 func ing03HostilePatientLine(t *testing.T) string {
 	t.Helper()
 	return ing03JSONLine(t, map[string]any{
@@ -896,9 +753,6 @@ func ing03HostilePatientLine(t *testing.T) string {
 	})
 }
 
-// ing03WriteFixtures writes the canonical two-resource staging directory.
-// rowsPerFile scales the Patient file; a malformed tail row beyond the
-// preflight sample window is added when lateBadRow is set.
 func ing03WriteFixtures(t *testing.T, dir string, rowsPerFile int, lateBadRow bool) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -919,8 +773,6 @@ func ing03WriteFixtures(t *testing.T, dir string, rowsPerFile int, lateBadRow bo
 	}
 	patientRows = append(patientRows, ing03HostilePatientLine(t))
 	if lateBadRow {
-		// Malformed line beyond the 10-row preflight sample window so the
-		// claim and the write passes start before the failure lands.
 		patientRows = append(patientRows[:11], append([]string{`{oops`}, patientRows[11:]...)...)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "Patient.ndjson"),
@@ -937,10 +789,6 @@ func ing03Ref(t *testing.T, project, generation string) publication.Ref {
 	}
 	return ref
 }
-
-// ---------------------------------------------------------------------------
-// Core lifecycle + guard acceptance.
-// ---------------------------------------------------------------------------
 
 func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) {
 	service := newIngest03Service(t)
@@ -983,7 +831,6 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 					t.Fatalf("guard %s opened the PG backend: %v", test.name, events)
 				}
 			}
-			// Control: the same call minus the guard defect reaches PG.
 			controlEvents := ing03RunLoadCapturingEvents(t, service, goodDir, app+"-control")
 			if !containsPrefix(controlEvents, "go_pg_") {
 				t.Fatalf("control load never contacted PG; ordering witness is vacuous: %v", controlEvents)
@@ -992,9 +839,6 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 	}
 
 	t.Run("preflight failure precedes backend", func(t *testing.T) {
-		// Its own service: the guard controls above already ran loads on
-		// service.schema, so only a virgin schema can witness "never
-		// migrated".
 		clean := newIngest03Service(t)
 		var events []string
 		opts := clean.loadOptions(badUnknown, ing03Project, &ref)
@@ -1009,8 +853,6 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 				t.Fatalf("preflight failure still reached PG: %v", events)
 			}
 		}
-		// No PG state was created: this virgin schema was never migrated,
-		// and the load must not have migrated it either.
 		var missing bool
 		if err := clean.iso.QueryRow(context.Background(),
 			`SELECT to_regclass($1) IS NULL`, clean.manifestSchema+".dataset_generation_manifest").Scan(&missing); err != nil {
@@ -1019,8 +861,6 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 		if !missing {
 			t.Fatal("preflight failure still created the manifest table: MigrateSchema ran")
 		}
-		// Non-vacuity: the same virgin schema does gain the table once a
-		// clean load runs, so the check above could have failed.
 		cleanDir := t.TempDir()
 		ing03WriteFixtures(t, cleanDir, 2, false)
 		if _, cleanErr := LoadPostgresGeneration(context.Background(),
@@ -1065,8 +905,6 @@ func TestPostgresGenerationLoadPreflightRunsBeforePostgresContact(t *testing.T) 
 	})
 }
 
-// ing03RunLoadCapturingEvents runs a control load under a fresh generation
-// and returns its emitted events.
 func ing03RunLoadCapturingEvents(t *testing.T, service *ing03Service, metaDir, app string) []string {
 	t.Helper()
 	ref := ing03Ref(t, ing03Project, fmt.Sprintf("gen-ctl-%d", ing03ControlSeq.Add(1)))
@@ -1125,9 +963,6 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 			if _, active := service.activePointerGeneration(ing03Project); active {
 				t.Fatal("active pointer moved: the load must never activate")
 			}
-			// The hostile string round-trips as pure stored data in every
-			// position it rides in (unvalidated payload text and a dangling
-			// reference target) and the embedded injection did nothing.
 			if count := service.countTable("fhir_resource", "logical_id = $1", "pat-hostile"); count != 1 {
 				t.Fatalf("hostile-name rows = %d, want exactly 1", count)
 			}
@@ -1147,12 +982,6 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 				schema string
 				want   int
 			}{
-				// The source series owns every table in the union
-				// (its 000003 creates the manifest pair too); the
-				// manifest runner owns its ledger, manifest, and
-				// active-pointer trio. Witnesses read business rows
-				// from the schema whose port the load writes (the
-				// manifest lane), never from the source duplicate.
 				{service.schema, len(ing03KnownTables)},
 				{service.manifestSchema, len(ing03ManifestSeriesTables)},
 			} {
@@ -1165,7 +994,6 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 					t.Fatalf("relations in %s = %d, want exactly the %d migrated tables for that runner", lane.schema, relations, lane.want)
 				}
 			}
-			// The second injection carrier (obs-b code.text) round-trips too.
 			var obsPayloadText string
 			if err := service.iso.QueryRow(context.Background(),
 				"SELECT payload::text FROM "+ing03QIdent(t, service.schema, "fhir_resource")+" WHERE logical_id = $1",
@@ -1175,10 +1003,6 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 			if !strings.Contains(obsPayloadText, "DROP TABLE") {
 				t.Fatalf("obs-b hostile payload did not round-trip as data: %s", obsPayloadText)
 			}
-			// Edges: every subject reference is a committed occurrence
-			// through the bound-parameter path. Builders emit
-			// type-qualified labels (subject_Patient forward,
-			// subject_observation back-ref).
 			if count := service.countTable("fhir_edge_occurrence",
 				"label = $1 AND target_logical_id = $2", "subject_Patient", "pat-hostile"); count != 1 {
 				t.Fatalf("pat-hostile forward subject edges = %d, want 1", count)
@@ -1186,12 +1010,6 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 			if edgeCount := service.countTable("fhir_edge_occurrence", ""); edgeCount != int64(summary.EdgesInserted) {
 				t.Fatalf("edge rows = %d, summary says %d", edgeCount, summary.EdgesInserted)
 			}
-			// Repeated-owner correlation per the merged ing-02 contract:
-			// the generated builder collapses identical duplicates; the
-			// generic builder keeps them as distinct path/ordinal rows.
-			// One duplicate focus reference yields one forward/back pair in
-			// the generated builder; the generic builder keeps both array
-			// positions, each as a forward/back pair.
 			focus := service.countTable("fhir_edge_occurrence",
 				"label IN ('focus_observation', 'focus_Observation')")
 			if generic && focus != 4 {
@@ -1200,14 +1018,12 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 			if !generic && focus != 2 {
 				t.Fatalf("generated focus occurrences = %d, want 2 (collapsed duplicate, forward+back)", focus)
 			}
-			// Field profiles: coverage marker exists for every loaded scope.
 			for _, resourceType := range []string{"Patient", "Observation"} {
 				if count := service.countTable("fhir_field_profile_coverage",
 					"resource_type = $1", resourceType); count != 1 {
 					t.Fatalf("coverage markers for %s = %d, want 1", resourceType, count)
 				}
 			}
-			// Resource inventory published with exact document counts.
 			var documentCount int64
 			if err := service.iso.QueryRow(context.Background(),
 				"SELECT document_count FROM "+ing03QIdent(t, service.schema, "fhir_resource_inventory_count")+
@@ -1217,11 +1033,9 @@ func TestPostgresGenerationLoadStagesMultiResourceAndNeverActivates(t *testing.T
 			if documentCount != 3 {
 				t.Fatalf("inventory Patient count = %d, want 3", documentCount)
 			}
-			// Relationship evidence derives from the committed edges.
 			if summary.BatchCounts["relationship_observations"] == 0 {
 				t.Fatal("relationship evidence empty although edges were committed")
 			}
-			// Semantic evidence persisted and matches the reported count.
 			if summary.BatchCounts["semantic_contributions"] == 0 {
 				t.Fatal("no semantic contributions although a loinc coding was staged")
 			}
@@ -1288,10 +1102,6 @@ func ing03AssertEvidenceOrder(t *testing.T, events []string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Failure-state acceptance.
-// ---------------------------------------------------------------------------
-
 func TestPostgresGenerationLoadMalformedLateRowMarksFailedAndBlocksActivation(t *testing.T) {
 	service := newIngest03Service(t)
 	metaDir := t.TempDir()
@@ -1316,13 +1126,10 @@ func TestPostgresGenerationLoadMalformedLateRowMarksFailedAndBlocksActivation(t 
 	if activateErr := ActivatePostgresGeneration(context.Background(), ref, service.pgOptions(ing03AppBase+"-late-act")); !errors.Is(activateErr, publication.ErrGenerationNotReady) {
 		t.Fatalf("activate = %v, want ErrGenerationNotReady", activateErr)
 	}
-	// The row-error summary keeps the exact bad line.
 	if len(opts.MetaDir) == 0 {
 		t.Fatal("fixture dir vanished")
 	}
 
-	// Non-vacuity control: the identical load without the late bad row
-	// passes the very same gates and stages.
 	cleanDir := t.TempDir()
 	ing03WriteFixtures(t, cleanDir, 25, false)
 	cleanService := newIngest03Service(t)
@@ -1336,9 +1143,6 @@ func TestPostgresGenerationLoadMalformedLateRowMarksFailedAndBlocksActivation(t 
 		t.Fatalf("clean control manifest = %q found=%v, want STAGED", state, found)
 	}
 
-	// FAILED is terminal: a retry refuses with the named error and writes
-	// nothing. The witness is the retry delta — the failed load's own
-	// committed windows are legitimate durable partials, not retry output.
 	ledgerBeforeRetry := service.countTable("batch_write_ledger", "")
 	retryEvents := []string{}
 	retryOpts := service.loadOptions(metaDir, ing03Project, &ref)
@@ -1395,9 +1199,6 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 	})
 
 	t.Run("edge writer failure fails the load", func(t *testing.T) {
-		// Reference load learns the exact edges the builders produce; the
-		// victim schema pre-seeds a colliding occurrence with different
-		// content, so the store must refuse the edge batch by name.
 		reference := newIngest03Service(t)
 		metaDir := t.TempDir()
 		ing03WriteFixtures(t, metaDir, 2, false)
@@ -1466,15 +1267,11 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 				if _, active := service.activePointerGeneration(ing03Project); active {
 					t.Fatal("catalog failure moved the active pointer")
 				}
-				// Source data of the failed load is committed, scoped, and
-				// invisible: never STAGED, replay-safe by identity.
 				if count := service.countTable("fhir_resource", ""); count != 5 {
 					t.Fatalf("pre-catalog rows = %d, want the committed 5", count)
 				}
 				switch seam {
 				case "field-profile":
-					// First scope's evidence survived atomically; the
-					// second's wrote neither rows nor coverage marker.
 					if first := service.countTable("fhir_field_profile_coverage", "resource_type = $1", "Observation"); first != 1 {
 						t.Fatalf("Observation coverage after injected fault = %d, want the committed 1", first)
 					}
@@ -1486,14 +1283,10 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 						t.Fatalf("inventory marker published despite failed scan: %d", markers)
 					}
 				case "relationship":
-					// Inventory completed before the relationship refusal.
 					if markers := service.countTable("fhir_resource_inventory_build", ""); markers != 1 {
 						t.Fatalf("inventory marker = %d, want the published 1", markers)
 					}
 				case "semantic-contributions":
-					// Contributions run last: every earlier evidence store
-					// completed, and the failed contribution batch wrote
-					// nothing at all.
 					if markers := service.countTable("fhir_resource_inventory_build", ""); markers != 1 {
 						t.Fatalf("inventory marker = %d, want the published 1", markers)
 					}
@@ -1509,18 +1302,6 @@ func TestPostgresGenerationLoadWriterFailuresLeaveManifestFailedAndPreserveRows(
 	})
 }
 
-// TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBoundary
-// pins what a successful load guarantees about semantic evidence today:
-// contributions are durable and deterministic, while the PostgreSQL page
-// read still reports Unknown/empty because no production path creates the
-// fhir_semantic_inventory_build row a served page requires. catalog/postgres
-// deliberately refuses file-sourced build claims (semantic_build.go: the
-// retained-backfill entry point is the only production INSERT into that
-// table); the file-sourced build lifecycle (begin/advance/complete plus the
-// fail pairing the Arango route drives around the same writes) is owned by
-// a follow-up catalog slice, not this load. When that slice lands, this
-// test must flip to asserting served entries - it is the tripwire, not an
-// endorsement of the gap.
 func TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBoundary(t *testing.T) {
 	service := newIngest03Service(t)
 	metaDir := t.TempDir()
@@ -1554,10 +1335,6 @@ func TestPostgresGenerationLoadSemanticContributionsPersistWithServedStateBounda
 	}
 }
 
-// TestPostgresGenerationLoadApplicationNameTagging covers the witness
-// dependency offline: URL-form DSNs are tagged (or keep their explicit
-// tag), and a keyword/value DSN that cannot be tagged surfaces the skip
-// through the event sink instead of silently untagging the backend.
 func TestPostgresGenerationLoadApplicationNameTagging(t *testing.T) {
 	tagged, applied := joinApplicationName("postgres://u:p@h:5432/db", "app-x")
 	if !applied || !strings.Contains(tagged, "application_name=app-x") {
@@ -1572,8 +1349,6 @@ func TestPostgresGenerationLoadApplicationNameTagging(t *testing.T) {
 		t.Fatalf("keyword/value dsn = %q applied=%v, want unchanged and reported untagged", untagged, applied)
 	}
 
-	// The skip is announced, not silent: opening with a keyword/value DSN
-	// emits the event even though the pool open itself is a named refusal.
 	var events []string
 	_, err := openPGGenerationClient(PGSourceOptions{
 		DSN:             "host=h dbname=d user=u",
@@ -1594,19 +1369,12 @@ func TestPostgresGenerationLoadApplicationNameTagging(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Activation acceptance (explicit CAS via the generation repository).
-// ---------------------------------------------------------------------------
-
 func TestPostgresGenerationLoadActivationIsExplicitCASPinned(t *testing.T) {
 	service := newIngest03Service(t)
 	metaDir := t.TempDir()
 	ing03WriteFixtures(t, metaDir, 2, false)
 	ref := ing03Ref(t, ing03Project, ing03Generation)
 
-	// The schema is migrated up front so "manifest missing" is the named
-	// store verdict (no row), not the ambient 42P01 of an unmigrated
-	// schema — the load itself still runs its own idempotent migrate.
 	service.migrate()
 	if activateErr := ActivatePostgresGeneration(context.Background(), ref, service.pgOptions(ing03AppBase+"-act-missing")); !errors.Is(activateErr, control.ErrManifestNotFound) {
 		t.Fatalf("activate missing = %v, want ErrManifestNotFound", activateErr)
@@ -1643,18 +1411,12 @@ func TestPostgresGenerationLoadActivationIsExplicitCASPinned(t *testing.T) {
 		t.Fatalf("pointer = %q, want gen-build-b", generation)
 	}
 
-	// Same-generation re-load after explicit success: committed success is
-	// read back, never re-run, and nothing is overwritten.
 	_, reloadErr := LoadPostgresGeneration(context.Background(),
 		service.loadOptions(metaDir, ing03Project, &ref), service.pgOptions(ing03AppBase+"-act-reload"))
 	if !errors.Is(reloadErr, ErrGenerationAlreadyStaged) {
 		t.Fatalf("reload = %v, want %v", reloadErr, ErrGenerationAlreadyStaged)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// SQL hygiene audit over the orchestrator's own source.
-// ---------------------------------------------------------------------------
 
 var (
 	ing03SQLVerbRegexp     = regexp.MustCompile(`(?i)\b(select|insert into|update\s+\w+\s+set|delete from|create table|drop table|truncate table|grant|revoke)\b`)
@@ -1675,7 +1437,6 @@ func TestPostgresGenerationLoadOwnSourceHasNoSQL(t *testing.T) {
 	if strings.Contains(code, "pgx.Identifier") {
 		t.Fatal("orchestrator must not build identifiers at all — no SQL belongs here")
 	}
-	// Test-side discipline is exercised (and enforced) by the helpers:
 	_, _ = ing03Placeholder(t, 3), ing03OrderBy(2)
 }
 
@@ -1693,11 +1454,6 @@ func min(a, b int) int {
 	return b
 }
 
-// ---------------------------------------------------------------------------
-// Ownership-scoped zero-survivor audit (defined last; runs after this
-// file's tests).
-// ---------------------------------------------------------------------------
-
 func TestPostgresGenerationLoadZZZeroSurvivorAudit(t *testing.T) {
 	raw := ing03TestPostgresURL(t)
 	ing03CaptureBaseline(raw)
@@ -1711,10 +1467,6 @@ func TestPostgresGenerationLoadZZZeroSurvivorAudit(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 	defer admin.Close()
-	// Ownership-scoped: only this process's own prefix is counted against
-	// its own baseline. Foreign registered churn (sibling workers) is life
-	// and never trips this audit. There is no global pg_database==baseline
-	// check anywhere in this suite.
 	var visible int64
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_database WHERE datname LIKE 'verify\\_ing03\\_load\\_%' ESCAPE '\\'").
@@ -1733,10 +1485,6 @@ func TestPostgresGenerationLoadZZZeroSurvivorAudit(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Shared failure injectors and small store-side readers.
-// ---------------------------------------------------------------------------
 
 var errInjectedCatalogFault = errors.New("ing03 test: injected catalog fault")
 
@@ -1896,10 +1644,6 @@ func (e ing03EdgeSeed) row() control.EdgeOccurrenceRow {
 	}
 }
 
-// sourceSeed copies the reference schema's real stored row so the victim
-// schema holds byte-identical content: an identical replay is tolerated by
-// the batch contract, so the resource pass proceeds and the conflict lands
-// where it is meant to — the edge batch.
 func (s *ing03Service) sourceSeed(e ing03EdgeSeed) source.Resource {
 	return source.Resource{
 		Project: ing03Project, DatasetGeneration: ing03Generation,
@@ -1908,26 +1652,15 @@ func (s *ing03Service) sourceSeed(e ing03EdgeSeed) source.Resource {
 	}
 }
 
-// TestPostgresShippedLoadConfigsValidateOffline is the dial-free composition
-// gate the arch-backend-06 review demanded: every shipped PostgreSQL caller
-// configuration is assembled by PGLoadConfig (load, activation, and the
-// cmd/loom-data catalog-wiring and staging-verification routes) and must
-// pass Config.Validate with no network contact, so a series assignment that
-// the migration-ownership law refuses can never hide behind unrun live
-// lanes. Alive controls keep each refusal honest: fix only the defect and
-// the same shape validates.
 func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 	shipped := PGSourceOptions{
 		DSN:            "postgresql://loom_test@127.0.0.1:1/loom_test?sslmode=disable",
 		Schema:         "verify_ab06_offline_src",
 		ManifestSchema: "verify_ab06_offline_manifests",
 	}
-	// The exact configuration every shipped lane opens with (SetupNone).
 	if err := PGLoadConfig(shipped, shipped.DSN, control.SetupNone).Validate(); err != nil {
 		t.Fatalf("shipped composition must validate dial-free, got: %v", err)
 	}
-	// SetupMigrate also validates (it is a legal policy; no shipped lane
-	// uses it today, and the witness suite exercises it against the server).
 	if err := PGLoadConfig(shipped, shipped.DSN, control.SetupMigrate).Validate(); err != nil {
 		t.Fatalf("migrate-policy composition must validate: %v", err)
 	}
@@ -1939,9 +1672,6 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 		wantErr error
 	}{
 		{
-			// One schema, one history owner: source and dataset_release
-			// pinned ledgers disagree at version 8, so sharing a schema
-			// is a named pre-dial refusal.
 			name:    "manifest schema may not equal the source schema",
 			mutate:  func(o *PGSourceOptions) { o.ManifestSchema = o.Schema },
 			policy:  control.SetupNone,
@@ -1960,9 +1690,6 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 			wantErr: control.ErrSeriesAssignment,
 		},
 		{
-			// SetupVerify was removed in the arch-backend-06 fold: it was
-			// indistinguishable from SetupMigrate. Re-adding the policy
-			// name without a real no-DDL implementation must fail here.
 			name:    "the removed verify policy stays refused",
 			mutate:  func(*PGSourceOptions) {},
 			policy:  control.SetupPolicy("verify"),
@@ -1977,21 +1704,17 @@ func TestPostgresShippedLoadConfigsValidateOffline(t *testing.T) {
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
 			}
-			// Alive control: repairing only this defect validates — the
-			// unmutated shipped shape passes the same validator.
 			if err := PGLoadConfig(shipped, shipped.DSN, control.SetupNone).Validate(); err != nil {
 				t.Fatalf("alive control (unmutated shipped config) must validate: %v", err)
 			}
 		})
 	}
 
-	// Production callers may not hand-assemble control.Config around the
-	// shared builder: one drift could reintroduce a refused composition.
 	for _, file := range []struct {
 		path    string
-		allowed int // occurrences of the control.Config{ literal allowed
+		allowed int
 	}{
-		{path: "generation_load.go", allowed: 1}, // only inside PGLoadConfig
+		{path: "generation_load.go", allowed: 1},
 		{path: "postgres_writer.go", allowed: 0},
 	} {
 		raw, err := os.ReadFile(filepath.Join(".", file.path))

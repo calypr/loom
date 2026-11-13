@@ -156,7 +156,7 @@ func NewExplicitGroupStore(client *pgstore.Client, schema string) (*ExplicitGrou
 	if client == nil {
 		return nil, errors.New("postgres explorer store: explicit-group client is required")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
 	return &ExplicitGroupStore{
@@ -432,10 +432,7 @@ func (s *ExplicitGroupStore) PutExplicitGroupDefinitions(ctx context.Context, re
 			args = append(args, string(revisionID), string(group.ID), group.Label, group.Ordinal)
 		}
 		if _, err := tx.Exec(ctx, s.stmts.defInsertStatement(len(canonical)), args...); err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == duplicateKeySQLState &&
-				(pgErr.ConstraintName == explicitGroupDefinitionPKConstraint ||
-					pgErr.ConstraintName == explicitGroupDefinitionOrdinalCK) {
+			if pgstore.IsUniqueConstraintViolation(err, explicitGroupDefinitionPKConstraint, explicitGroupDefinitionOrdinalCK) {
 				return errors.Join(explorer.ErrExplicitGroupRevisionConflict, err)
 			}
 			return fmt.Errorf("postgres explorer store: insert explicit-group definitions for %q: %w", revisionID, err)

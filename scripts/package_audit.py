@@ -28,8 +28,6 @@ EXCLUDED_PARTS = {
     "data.broken.20260706-full-load",
 }
 
-# These sentences are deliberately curated. The generator refuses to emit a row
-# without one so a directory listing cannot masquerade as a semantic inventory.
 RESPONSIBILITIES = {
     ".": "Start the default Loom server process through the internal server composition root.",
     "cmd/arango-fhir-proto": "Provide operator commands for FHIR loading, catalog diagnostics, generation repair, and activation.",
@@ -129,10 +127,6 @@ RESPONSIBILITIES = {
     "scripts/packagepolicy": "Hold the single authoritative parsed-import ownership policy table, scanner, identifier-absence and no-re-export checks shared by the check-boundaries CLI, the shell entrypoint, and the compiler guard tests, separating import findings from verification failures and refusing vacuous scans.",
 }
 
-# Completed decisions are deliberately curated rather than inferred from the
-# current source tree. Removed-package records preserve the evidence needed to
-# understand why a source disappeared; keep records pin the reviewed boundary
-# to a live package.
 COMPLETED_DECISIONS = (
     {
         "source": "internal/api/graphql",

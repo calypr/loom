@@ -12,10 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// FHIRComments handles comments that can be a single JSON string or a JSON array of strings.
 type FHIRComments []string
 
-// UnmarshalJSON unmarshals FHIR comments from a string or array of strings.
 func (c *FHIRComments) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 {
 		return nil
@@ -36,7 +34,6 @@ func (c *FHIRComments) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON marshals FHIR comments to a single string (if length is 1) or an array of strings.
 func (c FHIRComments) MarshalJSON() ([]byte, error) {
 	if len(c) == 1 {
 		return json.Marshal(c[0])
@@ -44,7 +41,6 @@ func (c FHIRComments) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]string(c))
 }
 
-// ValidateFhirDateTime checks a string against FHIR date-time rules (YYYY-MM-DDThh:mm:ss[Z|(+|-)hh:mm] or partial date).
 func ValidateFhirDateTime(s string) error {
 	if !strings.Contains(s, "T") {
 		return validatePartialFhirDate(s, "FHIR date-time")
@@ -57,15 +53,15 @@ func ValidateFhirDateTime(s string) error {
 
 func validatePartialFhirDate(s, typeName string) error {
 	switch len(s) {
-	case 4: // YYYY
+	case 4:
 		if _, err := time.Parse("2006", s); err != nil {
 			return fmt.Errorf("value '%s' is not a valid partial %s (YYYY): %w", s, typeName, err)
 		}
-	case 7: // YYYY-MM
+	case 7:
 		if _, err := time.Parse("2006-01", s); err != nil {
 			return fmt.Errorf("value '%s' is not a valid partial %s (YYYY-MM): %w", s, typeName, err)
 		}
-	case 10: // YYYY-MM-DD
+	case 10:
 		if _, err := time.Parse("2006-01-02", s); err != nil {
 			return fmt.Errorf("value '%s' is not a valid partial %s (YYYY-MM-DD): %w", s, typeName, err)
 		}
@@ -75,12 +71,10 @@ func validatePartialFhirDate(s, typeName string) error {
 	return nil
 }
 
-// ValidateFhirDate checks a string against FHIR date rules (YYYY[-MM[-DD]]).
 func ValidateFhirDate(s string) error {
 	return validatePartialFhirDate(s, "FHIR date")
 }
 
-// ValidateFhirTime checks a string against FHIR time rules (HH:MM:SS[.SSSS]).
 func ValidateFhirTime(s string) error {
 	if len(s) < 8 {
 		return fmt.Errorf("value '%s' is too short for a FHIR time (minimum 8 characters)", s)
@@ -112,7 +106,6 @@ func ValidateFhirTime(s string) error {
 	return nil
 }
 
-// ValidateFhirURI checks a string against FHIR URI rules (must be an absolute URI).
 func ValidateFhirURI(s string) error {
 	u, err := url.ParseRequestURI(s)
 	if err != nil {
@@ -124,7 +117,6 @@ func ValidateFhirURI(s string) error {
 	return nil
 }
 
-// ValidateFhirUUID checks a string against FHIR UUID rules (RFC 4122).
 func ValidateFhirUUID(s string) error {
 	if _, err := uuid.Parse(s); err != nil {
 		return fmt.Errorf("value '%s' is not a valid UUID (RFC 4122): %w", s, err)
@@ -132,7 +124,6 @@ func ValidateFhirUUID(s string) error {
 	return nil
 }
 
-// ValidateFhirBinary checks that a string is a valid base64-encoded value.
 func ValidateFhirBinary(s string) error {
 	if _, err := base64.StdEncoding.DecodeString(s); err != nil {
 		return fmt.Errorf("value is not a valid Base64 encoded string: %w", err)

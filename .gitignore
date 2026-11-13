@@ -29,10 +29,8 @@ META/
 /ui/apps/*/dist/
 /ui/packages/*/dist/
 
-# Explicit machine-local native CDA target configuration.
 /.codex/owned-cda-target.json
 
-# Legacy locations of generated verification reports. Current outputs use .cache/.
 /verification/builder-interactions/test-obligations.json
 /verification/builder-interactions/test-obligations.md
 /verification/builder-interactions/route-action-proposals.json
@@ -52,6 +50,4 @@ META/
 /verification/builder-interactions/http-500-audit.json
 /docs/verification/playwright/source-conversion-manifest.md
 
-# Root-level compiled CLI output: go build ./cmd/... drops binaries in the
-# repository root; disposable build output never enters Git.
 /loom-data

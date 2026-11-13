@@ -182,8 +182,6 @@ type relatedFieldChoiceCursor struct {
 	Offset       int    `json:"offset"`
 }
 
-// SearchRelatedFieldChoices returns compiler-proved scalar fields on the
-// active exact terminal resource at one current output stage.
 func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request RelatedFieldChoiceSearchRequest) (RelatedFieldChoiceSearchResponse, error) {
 	result := RelatedFieldChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
@@ -302,9 +300,6 @@ func (s *Service) SearchRelatedFieldChoices(ctx context.Context, request Related
 	return result, nil
 }
 
-// SearchRelatedExpandContributorChoices lists compiler-proved scalar leaves,
-// including explicitly bounded repeated leaves, on the route's terminal resource.
-// The route token and catalog suggestions are bound to the current draft, snapshot, and stage.
 func (s *Service) SearchRelatedExpandContributorChoices(ctx context.Context, request RelatedExpandContributorChoiceSearchRequest) (RelatedExpandContributorChoiceSearchResponse, error) {
 	result := RelatedExpandContributorChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
@@ -595,8 +590,6 @@ type ResolvedPopulationRouteChoice struct {
 	SelectionID string
 }
 
-// SearchRelatedExpandChoices returns server-issued exact routes from the
-// selected compiler stage's retained root resource anchor.
 func (s *Service) SearchRelatedExpandChoices(ctx context.Context, request RelatedExpandChoiceSearchRequest) (RelatedExpandChoiceSearchResponse, error) {
 	result := RelatedExpandChoiceSearchResponse{
 		SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, StageID: request.StageID,
@@ -1015,9 +1008,6 @@ func routePathToOccurrence(root authoringv2.RouteNode, occurrenceID string) ([]a
 	return nil, false
 }
 
-// SearchConstructionChoices resolves one exact field or semantic identity for
-// the current table output, enumerates its distinct directed routes, and only
-// returns choices that compile with that full route.
 func (s *Service) SearchConstructionChoices(ctx context.Context, request ConstructionChoiceSearchRequest) (ConstructionChoiceSearchResponse, error) {
 	result := ConstructionChoiceSearchResponse{SnapshotToken: request.SnapshotToken, OutputID: request.OutputID, Choices: []capability.ConstructionChoice{}}
 	if strings.TrimSpace(request.Project) == "" || strings.TrimSpace(request.ExplorerID) == "" || strings.TrimSpace(request.SnapshotToken) == "" || strings.TrimSpace(request.OutputID) == "" || len(request.Cursor) > 4096 {

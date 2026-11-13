@@ -265,8 +265,6 @@ try {
     report.coverage.push({ state: variant.name, explorer: variant.explorer, authoredSteps: hasSteps, expandedPaths: discovery.choices.filter(c => c.kind === 'EXPANDED').map(c => c.fieldPath), explicitGroups: discovery.explicitGroups.length });
     if (hasSteps) assert.equal(discovery.explicitGroups.length, 0, 'Discovery advertised a saved cohort that cannot compose with authored steps');
     else assert(discovery.explicitGroups.some(g => g.revisionId === variant.group.revisionId), 'Source-only cohorts must remain usable');
-    // The reported multi-resource chain is a discovery regression. Data oracles
-    // below use a single selected Observation, so never guess its chain counts.
     if (variant === related) continue;
     for (const item of selections(discovery, hasSteps ? undefined : variant.group).filter(item => variant !== partial || item.selection.kind === 'EXPLICIT_GROUP')) {
       const record = { id: `${variant.name}-${report.cases.length}`, name: item.name, selection: item.selection, status: 'running' };

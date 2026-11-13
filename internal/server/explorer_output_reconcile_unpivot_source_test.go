@@ -138,10 +138,6 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		}
 	})
 
-	// Fact-branch exclusivity (finding F-2): the compiled-slot arm mirrors the
-	// claim's Label, so keeping the compiled column in sync leaves ONLY the
-	// durable-claim versus re-derived-facts comparison to catch a drifted
-	// Label. Mutation-proven: removing the facts DeepEquals must kill this.
 	t.Run("claim label drifted while the compiled slot mirrors it", func(t *testing.T) {
 		document, compiled, snapshot, _ := unpivotSourceReconcileFixture(t)
 		document.Construction.SourceProjections[0].Label = "TAMPERED-LABEL"
@@ -152,8 +148,6 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		}
 	})
 
-	// The compiled-slot arm checks neither FHIRType nor OccurrenceID, so this
-	// kind of drift is reachable only through the facts comparison.
 	t.Run("claim fhir type drifted from the rederived schema facts", func(t *testing.T) {
 		document, compiled, snapshot, _ := unpivotSourceReconcileFixture(t)
 		document.Construction.SourceProjections[0].FHIRType = "TAMPERED-TYPE"
@@ -192,14 +186,6 @@ func TestUnpivotSourceProjectionReconcileRefusesDriftedClaims(t *testing.T) {
 		}
 	})
 }
-
-// --- F-A durables: melt-first signed reconcile keeps its audits loaded ---
-// (Authority /tmp/opencode/fa-report.md §3-§4. With the melt as FIRST step the
-// compiler legitimately seeds the melt-owned projection into the
-// SOURCE_PROJECTION stage; no authored step can declare a column the melt
-// consumes. Reconcile must accept the compiler-materialized slot while every
-// downstream audit — slot equality, stable identity, authorized snapshot,
-// facts equality — stays loaded and keeps refusing genuine drift.)
 
 func unpivotMeltFirstReconcileFixture(t *testing.T) (authoringv2.Document, lower.CompiledRecipeOutput, capability.Snapshot) {
 	t.Helper()
@@ -257,8 +243,6 @@ func TestUnpivotSourceProjectionReconcileMeltFirst(t *testing.T) {
 		}
 	})
 
-	// Audit-loading mutations: each mutation of one seed path must still be
-	// caught by its named audit, proving the guard only guards the legit state.
 	t.Run("compiled slot identity drift still falls to the declaration refusal", func(t *testing.T) {
 		document, compiled, snapshot := unpivotMeltFirstReconcileFixture(t)
 		compiled.Stages[0].Columns[2].Label = "DRIFTED-COMPILED-LABEL"

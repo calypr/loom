@@ -99,13 +99,10 @@ export interface ConstructionOperationEditorProps {
   readonly family: 'KEEP_ROWS' | 'CALCULATE';
   readonly construction: Construction;
   readonly capabilities: ConstructionCapabilitiesResponse;
-  /** The step being changed. When absent, the editor appends one step. */
   readonly editingStep?: ConstructionStep;
   readonly selectedColumns?: ReadonlyArray<string>;
   readonly disabled: boolean;
-  /** Undefined clears any prior preview while the visible form is incomplete. */
   readonly onCandidateChange: (candidate: CandidateIntent | undefined) => void;
-  /** The host loads the predecessor-stage capabilities and reopens this step. */
   readonly onEditStep: (stepId: string) => void;
 }
 
@@ -202,8 +199,6 @@ const liveFilterSources = (form: FilterForm): ReadonlyArray<FilterSourceSelectio
     ? []
     : form.filterSources.filter((binding) => binding.columnId === form.columnId);
 
-// A DERIVE step consumes its two operands as a list, so a live binding is one
-// whose column is actually referenced by either arithmetic operand.
 const liveDeriveSources = (form: CalculationForm): ReadonlyArray<DeriveSourceSelection> => {
   if (!form.deriveSources?.length) return [];
   const draft = expressionDraftFor(form.expression);
@@ -238,8 +233,6 @@ const deriveSourceChoiceForColumn = (
   return choices.find((choice) => materializedChoiceColumnId(choice) === columnId);
 };
 
-// A signed dataset-field source is not a stage column, so the same derived column
-// Loom will materialize for it has to be visible in step outputs and lookups.
 const filterInputStage = (
   stage: ConstructionStageDescriptor,
   sourceInput: FilterSourceInput,
@@ -943,13 +936,6 @@ const FilterValueInput = (props: {
   }
 };
 
-// An ordinary PUBLIC column carries its field as authored authoringv2
-// Column.Source.Field identity, compiled separately from construction.sourceProjections,
-// so the projection list alone cannot see it. Capabilities sign that same
-// identity into the scalar field choices: canonicalPath plus inputColumnId is
-// the server's own "this live stage column already carries this root field"
-// proof. Root-role scalar entries only, so a nested occurrence can never
-// impersonate a root dataset field.
 const publicFieldCarriersForStage = (
   capabilities: ConstructionCapabilitiesResponse,
 ): PublicFieldCarrier[] => {
@@ -1431,10 +1417,6 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
   const expressionDraft = expressionDraftFor(form.expression);
   const inputStage = deriveSourceStage(stage, deriveSourceInput, liveDeriveSources(form));
 
-  // One explanation per operand pair: the first operand that renders a
-  // column-kind source picker and classifies as empty hosts it. A literal
-  // operand has no source section, so a zero-field bound operand still gets
-  // its explanation instead of silently rendering an empty picker.
   const pickerEmptinessHost = (() => {
     if (!deriveSourceInput?.supported) return undefined;
     const choices = deriveSourceInput.choices ?? [];
@@ -1458,9 +1440,6 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
         bindings: list,
         isOwn: (binding) => choices.some((choice) => choice.choiceId === binding.choiceId && choice.columnId === ownColumnId),
         ownVisible: ownBinding !== undefined
-          // Provenance: only deriveSourceStage's virtual materialization (never
-          // present on the raw stage) is own's own column; a foreign server
-          // column reusing the id must not silence the explanation.
           && !stage.columns.some((column) => column.id === ownColumnId)
           && inputStage.columns.some((column) => column.id === ownColumnId && isNumericColumn(column)),
       }));
@@ -1485,9 +1464,6 @@ const CalculationEditor = (props: ConstructionOperationEditorProps) => {
     const previousId = expressionDraft[slot].kind === 'column' ? expressionDraft[slot].columnId : undefined;
     const otherSlot = slot === 'left' ? 'right' : 'left';
     const otherColumnId = expressionDraft[otherSlot].kind === 'column' ? expressionDraft[otherSlot].columnId : undefined;
-    // The kind shortcut can make both operands share one materialized column;
-    // prune only bindings this operand actually releases, never the other
-    // operand's live binding (liveDeriveSources prunes what truly goes unused).
     const kept = (form.deriveSources ?? []).filter((binding) =>
       ((binding.columnId !== previousId && binding.columnId !== columnId) || binding.columnId === otherColumnId) || binding.columnId === otherColumnId);
     updateForm({

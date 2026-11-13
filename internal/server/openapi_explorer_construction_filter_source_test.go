@@ -328,13 +328,6 @@ func rawFilterSourceChoices(t *testing.T, body string) []json.RawMessage {
 
 func filterSourceHTTPBool(value bool) *bool { return &value }
 
-// --- Reviewer F-1: durable filter-owned projections against reconcile ---
-//
-// The applied-draft threat model: a projection persisted with honest owner
-// and column identity (the checks that existed) but tampered field facts.
-// These probes pair the durable claims with the compiled artifact of the
-// honest accepted plan -- the state reconcile must refuse.
-
 const filterSourceF1Column = "col_reconcile_integer"
 const filterSourceF1HonestField = "multipleBirthInteger"
 const filterSourceF1OwnerStep = "only_step"
@@ -412,9 +405,6 @@ func filterSourceF1Workspace(t *testing.T, snapshot capability.Snapshot, project
 	return workspace
 }
 
-// filterSourceF1Compile compiles the honest accepted plan; its compiled
-// source column identity is the artifact a tampered durable projection is
-// measured against, mirroring the production compileExplorerReceipt pairing.
 func filterSourceF1Compile(t *testing.T, snapshot capability.Snapshot) (authoringv2.Workspace, dataframeexecution.Resolved) {
 	t.Helper()
 	workspace := filterSourceF1Workspace(t, snapshot, filterSourceF1HonestProjection())
@@ -478,8 +468,6 @@ func TestConstructionFilterSourceReconcileRefusesLogicalTypeFlip(t *testing.T) {
 	filterSourceF1Refuse(t, tampered, "compiled source column identity")
 }
 
-// The honest durable projection must keep passing the branch with the
-// authorized snapshot threaded through.
 func TestConstructionFilterSourceReconcileClaimsHonestProjection(t *testing.T) {
 	snapshot := filterSourceF1Snapshot()
 	workspace, resolved := filterSourceF1Compile(t, snapshot)
@@ -492,11 +480,6 @@ func TestConstructionFilterSourceReconcileClaimsHonestProjection(t *testing.T) {
 	}
 }
 
-// Reviewer R1/P5: reconcile runs only from compileExplorerReceipt, which
-// always threads Authorized.Snapshot, so an unarmed call is test-only today
-// -- but the armed facts gate must never SKIP silently. An honest durable
-// filter-owned claim whose field stopped qualifying (unpopulated here) must
-// be refused, not published, when the caller brings a blank snapshot token.
 func TestConstructionFilterSourceReconcileClaimsOnlyWithAuthorizedSnapshot(t *testing.T) {
 	armedSnapshot := filterSourceF1Snapshot()
 	workspace, resolved := filterSourceF1Compile(t, armedSnapshot)

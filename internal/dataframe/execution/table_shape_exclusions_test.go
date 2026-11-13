@@ -131,6 +131,88 @@ func TestTableShapeExclusionsCompiledRejectsMalformedRowsWithoutPartialSuccess(t
 	}
 }
 
+func TestTableShapeExclusionsCompiledParserViolationsFailLoud(t *testing.T) {
+	base := func() map[string]any {
+		return tableShapeExclusionRow("Observation", "good", true, "a", "STRING", "row-a")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(row map[string]any)
+	}{
+		{"presence as string", func(row map[string]any) {
+			row["categoryPresent"] = "true"
+		}},
+		{"presence as SQL NULL", func(row map[string]any) {
+			row["categoryPresent"] = nil
+		}},
+		{"presence absent", func(row map[string]any) {
+			delete(row, "categoryPresent")
+		}},
+		{"category value absent", func(row map[string]any) {
+			delete(row, "categoryValue")
+		}},
+		{"category type as raw JSON", func(row map[string]any) {
+			row["categoryType"] = exec12JSON(`"STRING"`)
+		}},
+		{"category type empty", func(row map[string]any) {
+			row["categoryType"] = ""
+		}},
+		{"row identity as number", func(row map[string]any) {
+			row["outputRowId"] = 7
+		}},
+		{"row identity empty", func(row map[string]any) {
+			row["outputRowId"] = ""
+		}},
+		{"reason drifted", func(row map[string]any) {
+			row["reason"] = "SOMETHING_ELSE"
+		}},
+		{"identity status as raw JSON", func(row map[string]any) {
+			row["identityStatus"] = exec12JSON(`"EXACT"`)
+		}},
+		{"identity status unknown", func(row map[string]any) {
+			row["identityStatus"] = "SOMETHING"
+		}},
+		{"exact identity type not a string", func(row map[string]any) {
+			row["resourceType"] = 5
+		}},
+		{"exact identity type empty string", func(row map[string]any) {
+			row["resourceType"] = ""
+		}},
+		{"exact identity type SQL NULL", func(row map[string]any) {
+			row["resourceType"] = nil
+		}},
+		{"exact identity id empty string", func(row map[string]any) {
+			row["resourceId"] = ""
+		}},
+		{"exact identity id absent", func(row map[string]any) {
+			delete(row, "resourceId")
+		}},
+		{"unavailable omission missing", func(row map[string]any) {
+			row["identityStatus"] = ir.PhysicalTableShapeExclusionIdentityUnavailable
+			row["omission"] = nil
+		}},
+		{"unavailable omission drifted", func(row map[string]any) {
+			row["identityStatus"] = ir.PhysicalTableShapeExclusionIdentityUnavailable
+			row["omission"] = "WRONG"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			row := base()
+			test.mutate(row)
+			engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, _ RowsRequest, visit RowVisitor) error {
+				return visit(row)
+			}}
+			result, err := engine.TableShapeExclusionsCompiled(context.Background(), compiledTableShapeExclusionPage(0, 10))
+			if err == nil {
+				t.Fatalf("violating row must fail loud, got %#v", result)
+			}
+			if result.Exclusions != nil || result.Complete || result.Status == TableShapeExclusionComplete || result.Status == TableShapeExclusionIncomplete {
+				t.Fatalf("no partial success on parse violation: %#v", result)
+			}
+		})
+	}
+}
+
 func TestTableShapeExclusionsReportsUnsupportedAndNoPolicy(t *testing.T) {
 	engine := testEngine(func(_ context.Context, request RowsRequest, _ RowVisitor) error {
 		command := request.Command

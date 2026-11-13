@@ -108,8 +108,6 @@ const editSavedGroupAggregate = async (input: AdapterInput): Promise<void> => {
     await selectValue(`Summary field ${aggregateIndex + 1}`, inputColumnId);
   }
 
-  // The mounted Builder proposes a changed construction as the user edits it.
-  // Wait for its visible ready state without applying or inspecting the proposal.
   await screen.findByTestId('construction-proposal-ready', {}, { timeout: 30_000 });
 };
 

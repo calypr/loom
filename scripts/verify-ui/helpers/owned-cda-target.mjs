@@ -30,7 +30,6 @@ function inspectVolumes(names, docker) {
   return names.length ? JSON.parse(docker(['volume', 'inspect', ...names])) : [];
 }
 
-/** Validate that browser/API calls and raw source oracles resolve to one isolated Compose project. */
 export async function assertOwnedCdaTarget({
   project,
   apiOrigin,

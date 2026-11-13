@@ -353,12 +353,21 @@ func canonicalCellTraceIdentityJSON(raw string) (string, error) {
 	return string(canonical), nil
 }
 
-func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
+type cellTraceDecodedRow struct {
+	value         any
+	contributions []CellTraceContribution
+}
+
+func cellTraceRowStatus(query compiler.CompiledCellTraceQuery, row map[string]any) (CellTraceStatus, error) {
 	status, ok := row[query.StatusColumn].(string)
 	if !ok || !validCellTraceStatus(CellTraceStatus(status)) {
-		return CellTraceResult{}, fmt.Errorf("cell trace row has an invalid status")
+		return "", fmt.Errorf("cell trace row has an invalid status")
 	}
-	contributions, err := parseCellTraceContributions(row[query.ContributionsColumn])
+	return CellTraceStatus(status), nil
+}
+
+func assembleCellTraceResult(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any, decoded cellTraceDecodedRow) (CellTraceResult, error) {
+	status, err := cellTraceRowStatus(query, row)
 	if err != nil {
 		return CellTraceResult{}, err
 	}
@@ -366,19 +375,29 @@ func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceR
 	omission, _ := row[query.OmissionColumn].(string)
 	nextOffset := 0
 	if hasMore {
-		nextOffset = request.Offset + len(contributions)
+		nextOffset = request.Offset + len(decoded.contributions)
 	}
 	return CellTraceResult{
-		RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column), Value: row[query.ValueColumn],
-		Status: CellTraceStatus(status), Contributions: contributions, HasMore: hasMore, NextOffset: nextOffset,
+		RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column), Value: decoded.value,
+		Status: status, Contributions: decoded.contributions, HasMore: hasMore, NextOffset: nextOffset,
 		OmissionCode: omission, Complete: true,
 	}, nil
 }
 
+func parseCellTraceRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
+	if _, err := cellTraceRowStatus(query, row); err != nil {
+		return CellTraceResult{}, err
+	}
+	contributions, err := parseCellTraceContributions(row[query.ContributionsColumn])
+	if err != nil {
+		return CellTraceResult{}, err
+	}
+	return assembleCellTraceResult(query, request, row, cellTraceDecodedRow{value: row[query.ValueColumn], contributions: contributions})
+}
+
 func parseCellTracePostgreSQLRow(query compiler.CompiledCellTraceQuery, request CellTraceRequest, row map[string]any) (CellTraceResult, error) {
-	status, ok := row[query.StatusColumn].(string)
-	if !ok || !validCellTraceStatus(CellTraceStatus(status)) {
-		return CellTraceResult{}, fmt.Errorf("cell trace row has an invalid status")
+	if _, err := cellTraceRowStatus(query, row); err != nil {
+		return CellTraceResult{}, err
 	}
 	items, err := cellTracePostgreSQLJSONParts(row[query.ContributionsColumn])
 	if err != nil {
@@ -396,17 +415,7 @@ func parseCellTracePostgreSQLRow(query compiler.CompiledCellTraceQuery, request 
 		}
 		value = decoded
 	}
-	hasMore, _ := row[query.HasMoreColumn].(bool)
-	omission, _ := row[query.OmissionColumn].(string)
-	nextOffset := 0
-	if hasMore {
-		nextOffset = request.Offset + len(contributions)
-	}
-	return CellTraceResult{
-		RowID: strings.TrimSpace(request.RowID), Column: strings.TrimSpace(request.Column), Value: value,
-		Status: CellTraceStatus(status), Contributions: contributions, HasMore: hasMore, NextOffset: nextOffset,
-		OmissionCode: omission, Complete: true,
-	}, nil
+	return assembleCellTraceResult(query, request, row, cellTraceDecodedRow{value: value, contributions: contributions})
 }
 
 func parseCellTraceContributions(value any) ([]CellTraceContribution, error) {

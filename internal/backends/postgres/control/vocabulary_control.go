@@ -87,22 +87,26 @@ func NewInventoryRepository(src ConnSource, schema string) (*InventoryRepository
 	return pgstore.NewInventoryRepository(src, schema)
 }
 
-type CatalogStore = catalogstore.Store
+type (
+	CatalogInventoryAdapter    = catalogstore.InventoryAdapter
+	CatalogFieldProfileAdapter = catalogstore.FieldProfileAdapter
+	CatalogRelationshipAdapter = catalogstore.RelationshipAdapter
+)
 
-func NewCatalogStore(inventory InventoryStore) (*CatalogStore, error) {
-	return catalogstore.New(inventory)
+func NewCatalogInventoryAdapter(inventory InventoryStore) (*CatalogInventoryAdapter, error) {
+	return catalogstore.NewInventoryAdapter(inventory)
 }
 
-func NewCatalogFieldProfileStore(profiles FieldProfileStore) (*CatalogStore, error) {
-	return catalogstore.NewFieldProfileStore(profiles)
+func NewCatalogFieldProfileAdapter(profiles FieldProfileStore) (*CatalogFieldProfileAdapter, error) {
+	return catalogstore.NewFieldProfileAdapter(profiles)
 }
 
 func NewCatalogRelationshipEvidenceRepository(src ConnSource, schema string) (*catalogstore.RelationshipEvidenceRepository, error) {
 	return catalogstore.NewRelationshipEvidenceRepository(src, schema)
 }
 
-func NewCatalogRelationshipEvidenceStore(relationships RelationshipStore) (*CatalogStore, error) {
-	return catalogstore.NewRelationshipEvidenceStore(relationships)
+func NewCatalogRelationshipAdapter(relationships RelationshipStore) (*CatalogRelationshipAdapter, error) {
+	return catalogstore.NewRelationshipAdapter(relationships)
 }
 
 type SemanticContributionRepository = catalogstore.SemanticContributionRepository
@@ -126,6 +130,7 @@ func NewExplicitGroupStore(client *Client, schema string) (*ExplicitGroupStore, 
 
 type (
 	PublishStore              = explorerstore.PublishStore
+	ActivationStore           = explorerstore.ActivationStore
 	InterpretationStore       = explorerstore.InterpretationStore
 	CapabilitySnapshotStore   = explorerstore.CapabilitySnapshotStore
 	TableShapeCapabilityStore = explorerstore.TableShapeCapabilityStore
@@ -142,6 +147,10 @@ type (
 
 func NewPublishStore(client *Client, explorerSchema, datasetSchema string) (*PublishStore, error) {
 	return explorerstore.NewPublishStore(client, explorerSchema, datasetSchema)
+}
+
+func NewActivationStore(client *Client, explorerSchema, datasetSchema, publicationSchema string) (*ActivationStore, error) {
+	return explorerstore.NewActivationStore(client, explorerSchema, datasetSchema, publicationSchema)
 }
 
 func NewInterpretationStore(client *Client, schema string) (*InterpretationStore, error) {

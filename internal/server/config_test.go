@@ -265,8 +265,6 @@ func TestRequiredDataframeSelectorsFromEnvironment(t *testing.T) {
 		t.Fatalf("environment config = %#v", cfg.Server)
 	}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "dataframer.recipe") {
-		// Environment parsing succeeded; the unrelated default ClickHouse recipe
-		// requirement remains enforced by Validate.
 		t.Fatalf("validation error = %v", err)
 	}
 }
@@ -357,8 +355,6 @@ func TestCalyprAuthNoAuthBypassDoesNotRequireTrustedIssuer(t *testing.T) {
 	}
 }
 
-// postgresReadyConfig is a valid postgres-backend configuration for use in
-// failure-path tests: only the field under test is mutated afterwards.
 func postgresReadyConfig() Config {
 	cfg := DefaultConfig()
 	cfg.Server.Backend = sourceBackendPostgres
@@ -454,7 +450,6 @@ func TestLoadConfigPostgresBackendParsesConnectionSettings(t *testing.T) {
 	if cfg.Server.Backend != sourceBackendPostgres {
 		t.Fatalf("backend = %q", cfg.Server.Backend)
 	}
-	// Legacy Arango fields remain at their Arango defaults and are preserved.
 	if cfg.Server.URL != defaultServerURL || cfg.Server.Database != defaultServerDatabase {
 		t.Fatalf("postgres selection changed legacy Arango fields: url=%q database=%q", cfg.Server.URL, cfg.Server.Database)
 	}
@@ -687,8 +682,6 @@ func TestPostgresCredentialsNeverAppearInConfigRenderingOrErrors(t *testing.T) {
 		}
 	}
 
-	// Every postgres validation failure path must reject without echoing
-	// the password, including DSN-shaped values.
 	for _, mutate := range []func(*Config){
 		func(c *Config) { c.Server.PostgreSQL.Host = "" },
 		func(c *Config) { c.Server.PostgreSQL.Database = "" },
@@ -713,15 +706,12 @@ func TestPostgresCredentialsNeverAppearInConfigRenderingOrErrors(t *testing.T) {
 		}
 	}
 
-	// CLI failure path: incomplete postgres settings with a password set.
 	if _, err := parseServerOptions([]string{"--no-auth", "--dataframer-recipe", "recipe.json", "--backend", "postgres", "--pg-host", "db.internal", "--pg-database", "loom_pg", "--pg-password", pgPassword}, flag.ContinueOnError); err == nil || !strings.Contains(err.Error(), "server.postgresql.user") {
 		t.Fatalf("incomplete postgres CLI error = %v", err)
 	} else if strings.Contains(err.Error(), credentialCanary) || strings.Contains(err.Error(), "postgres://") {
 		t.Fatalf("CLI validation error leaked credential: %v", err)
 	}
 
-	// YAML failure path: an unknown field next to a DSN-shaped password must
-	// reject without echoing the file contents.
 	path := writeServerConfigFile(t, "server:\n  backend: postgres\n  postgresql:\n    host: db.internal\n    database: loom_pg\n    user: loom\n    password: "+pgPassword+"\n    typo_field: true\n")
 	if _, err := LoadConfig(path); err == nil {
 		t.Fatal("unknown postgres field with password unexpectedly accepted")

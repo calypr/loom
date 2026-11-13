@@ -14,20 +14,6 @@ import (
 	materialization "github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// REPAIR-20b (adversarial review ses_e65cad76effe): absorbed twin-side half
-// of the reviewer's parity harness (/tmp/r20-out/harness/
-// r20_parity_twin_wire_test.go). This is the twin-side pin for the shared
-// failure-field oracle: for each reviewed durable shape, the REAL reader +
-// executionModel wire (the GraphQL twin consumers get exactly this) must
-// equal the reviewer-committed golden. The REST-side matrix
-// (internal/server/recipe_execution_etl_failure_fields_e2e_test.go) compares
-// the generated strict-stack body against the same oracle, so any drift in
-// executionModel / dataframeapi.PersistedFailure /
-// errors.SanitizePersistedFailure breaks this file, and any REST divergence
-// breaks that one. Shapes and golden live in testdata/r20_failure_parity/
-// (canonical copy of the reviewer's /tmp/r20-out artifacts; the server test
-// carries the identical fixture pair).
-
 type r20TwinStore struct {
 	byID map[string]materialization.BundleExecution
 }
@@ -99,9 +85,6 @@ func r20JSONEqual(path string, left, right any) string {
 	}
 }
 
-// TestR20TwinWireMatchesReviewedGolden drives every reviewed shape through
-// the production reader + executionModel — the genuine twin pipeline — and
-// requires the marshaled GraphQL wire to equal the reviewer golden verbatim.
 func TestR20TwinWireMatchesReviewedGolden(t *testing.T) {
 	var shapes []json.RawMessage
 	if err := json.Unmarshal(r20ReadTestdata(t, "shapes.json"), &shapes); err != nil {
@@ -161,21 +144,6 @@ func TestR20TwinWireMatchesReviewedGolden(t *testing.T) {
 	}
 }
 
-// r20AssertHealthyOutputsPublishNoFailureTrio pins the promise authority
-// (openapi_recipe_execution.go:95-97, twin side = the all-nil
-// PersistedFailure arm at recipe_control_graphql.go:319 feeding
-// model.go:73-75): a durable output in a successful state (READY/PUBLISHED)
-// that persisted no own failure code publishes NO error/errorCode/
-// errorRetryable keys, even when the EXECUTION page is FAILED. The shape-5
-// lease-lost reconciliation (bundle_store.go:1207-1214) sets only
-// execution-level fields and leaves outputs untouched, so the reader's
-// execution.Error mirror (recipe_execution_reader.go:72) must not become a
-// healthy output's own trio: a fully-published page would assert its own
-// failure with a sanitizer-inferred errorRetryable that contradicts the
-// execution truth (PUBLICATION_LEASE_LOST, retryable=true). Genuine
-// per-output failures always persist a own FailureCode (failPhase
-// bundle_store.go:989-995 is the sole per-output failure writer) or carry an
-// unhealthy state, and both keep projecting.
 func r20AssertHealthyOutputsPublishNoFailureTrio(t *testing.T, shapeName string, durable materialization.BundleExecution, liveWire map[string]any) {
 	t.Helper()
 	outputs, ok := liveWire["outputs"].([]any)
@@ -200,12 +168,6 @@ func r20AssertHealthyOutputsPublishNoFailureTrio(t *testing.T, shapeName string,
 	}
 }
 
-// r20GenuineOutputFailureRecord is a healthy execution page carrying a
-// genuine per-output failure stamped exactly the way the sole production
-// per-output failure writer persists it (failPhase bundle_store.go:989-995):
-// the output's OWN FailureCode/FailureRetryable/FailurePhase are persisted.
-// Execution-level error fields stay empty so the only possible trio source
-// at the output is the output's own persisted failure state.
 func r20GenuineOutputFailureRecord(outputState materialization.BundleState) materialization.BundleExecution {
 	return materialization.BundleExecution{
 		ID: "shape-genuine-" + string(outputState),
@@ -225,15 +187,6 @@ func r20GenuineOutputFailureRecord(outputState materialization.BundleState) mate
 	}
 }
 
-// TestR20GenuineOutputFailureProjectsDespiteHealthyExecution is the
-// suppression-mutant guard for REPAIR-20c. A "suppress all output errors"
-// repair (keyed on the execution page being healthy, or on the output state
-// alone even when a own failure code was persisted) must NOT pass: the
-// genuine per-output failure — (a) output FAILED while the execution is
-// PUBLISHED with no execution-level error, and (b) a READY output that
-// persisted its own failure code (shape-6 direction, pinned independently of
-// the golden anchor) — must still project the full trio plus phase through
-// the real reader + executionModel.
 func TestR20GenuineOutputFailureProjectsDespiteHealthyExecution(t *testing.T) {
 	principal := &authscope.Principal{Subject: "operator-P", Projects: []string{"P"}}
 	ctx := authscope.ContextWithPrincipal(context.Background(), principal)

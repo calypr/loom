@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -18,8 +17,6 @@ const (
 	edgeOccurrenceTableName         = "fhir_edge_occurrence"
 	relationshipEvidenceCountColumn = "occurrence_count"
 )
-
-var relationshipEvidenceSchemaPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 var ErrInvalidRelationshipScope = errors.New("postgres catalog: invalid relationship scope")
 
@@ -53,7 +50,7 @@ func NewRelationshipEvidenceRepository(src storepostgres.ConnSource, schema stri
 	if src == nil {
 		return nil, errors.New("postgres: nil relationship evidence connection source")
 	}
-	if !relationshipEvidenceSchemaPattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", storepostgres.ErrInvalidSchemaName, schema)
 	}
 	return &RelationshipEvidenceRepository{
@@ -135,7 +132,7 @@ func (r *RelationshipEvidenceRepository) ScanRelationshipOccurrences(
 	return out, nil
 }
 
-func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
+func (s *RelationshipAdapter) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Diagnostics: diagnostics}
 	if err := requireLeg("relationship-evidence", s.relationships != nil, "DiscoverRelationshipObservations"); err != nil {
@@ -216,7 +213,7 @@ func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catal
 	return result, nil
 }
 
-func (s *Store) ReadRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
+func (s *RelationshipAdapter) ReadRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	return s.DiscoverRelationshipObservations(ctx, opts)
 }
 

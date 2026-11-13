@@ -32,9 +32,6 @@ const crc32 = bytes => {
   return (crc ^ 0xffffffff) >>> 0;
 };
 
-// Read the stored members from the actual archive bytes. The layout follows
-// the central directory, so entries written with ZIP data descriptors remain
-// readable even when their local size fields are zero.
 const readStoredZip = archivePath => {
   const archive = readFileSync(archivePath);
   let endOffset = -1;

@@ -29,51 +29,70 @@ type FieldProfileStore interface {
 
 var _ FieldProfileStore = (*storepostgres.FieldProfileRepository)(nil)
 
-type Store struct {
-	inventory     InventoryStore
-	profiles      FieldProfileStore
+type InventoryAdapter struct {
+	inventory InventoryStore
+}
+
+func NewInventoryAdapter(inventory InventoryStore) (*InventoryAdapter, error) {
+	if inventory == nil {
+		return nil, errors.New("catalog PostgreSQL inventory store is required")
+	}
+	return &InventoryAdapter{inventory: inventory}, nil
+}
+
+type FieldProfileAdapter struct {
+	profiles FieldProfileStore
+}
+
+func NewFieldProfileAdapter(profiles FieldProfileStore) (*FieldProfileAdapter, error) {
+	if profiles == nil {
+		return nil, errors.New("catalog PostgreSQL field profile store is required")
+	}
+	return &FieldProfileAdapter{profiles: profiles}, nil
+}
+
+type RelationshipAdapter struct {
 	relationships RelationshipStore
+}
+
+func NewRelationshipAdapter(relationships RelationshipStore) (*RelationshipAdapter, error) {
+	if relationships == nil {
+		return nil, errors.New("catalog PostgreSQL relationship evidence store is required")
+	}
+	return &RelationshipAdapter{relationships: relationships}, nil
+}
+
+type Store struct {
+	InventoryAdapter
+	FieldProfileAdapter
+	RelationshipAdapter
 }
 
 var ErrStoreLegNotAssembled = errors.New("postgres catalog: store leg is not assembled")
 
 func requireLeg(leg string, present bool, method string) error {
 	if !present {
-		return fmt.Errorf("%w: %s was called on a Store without the %s repository", ErrStoreLegNotAssembled, method, leg)
+		return fmt.Errorf("%w: %s was called without the %s repository", ErrStoreLegNotAssembled, method, leg)
 	}
 	return nil
 }
 
-func New(inventory InventoryStore) (*Store, error) {
-	if inventory == nil {
-		return nil, errors.New("catalog PostgreSQL inventory store is required")
-	}
-	return &Store{inventory: inventory}, nil
-}
-
-func NewFieldProfileStore(profiles FieldProfileStore) (*Store, error) {
-	if profiles == nil {
-		return nil, errors.New("catalog PostgreSQL field profile store is required")
-	}
-	return &Store{profiles: profiles}, nil
-}
-
-func NewRelationshipEvidenceStore(relationships RelationshipStore) (*Store, error) {
-	if relationships == nil {
-		return nil, errors.New("catalog PostgreSQL relationship evidence store is required")
-	}
-	return &Store{relationships: relationships}, nil
-}
-
 func NewFullStore(inventory InventoryStore, profiles FieldProfileStore, relationships RelationshipStore) (*Store, error) {
-	if inventory == nil {
-		return nil, errors.New("catalog PostgreSQL inventory store is required")
+	inventoryAdapter, err := NewInventoryAdapter(inventory)
+	if err != nil {
+		return nil, err
 	}
-	if profiles == nil {
-		return nil, errors.New("catalog PostgreSQL field profile store is required")
+	profileAdapter, err := NewFieldProfileAdapter(profiles)
+	if err != nil {
+		return nil, err
 	}
-	if relationships == nil {
-		return nil, errors.New("catalog PostgreSQL relationship evidence store is required")
+	relationshipAdapter, err := NewRelationshipAdapter(relationships)
+	if err != nil {
+		return nil, err
 	}
-	return &Store{inventory: inventory, profiles: profiles, relationships: relationships}, nil
+	return &Store{
+		InventoryAdapter:    *inventoryAdapter,
+		FieldProfileAdapter: *profileAdapter,
+		RelationshipAdapter: *relationshipAdapter,
+	}, nil
 }

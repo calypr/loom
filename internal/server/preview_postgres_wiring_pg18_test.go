@@ -1,26 +1,5 @@
 package server
 
-// pg-exec-04 D3 cell: today's server composition pins that the preview
-// route's AQL source-row wiring fail-closes a PostgreSQL-tagged preview at
-// the boundary — through the production configuredAQLSourceRows function
-// that wires both row ports in server.go — instead of silently rendering
-// or executing AQL for it. The PostgreSQL preview composition itself
-// belongs to pg-runtime-server-composition; this cell pins that
-// "belongs to another ticket" is an observed refusal, not an assertion.
-//
-// Live PostgreSQL 18 (check-1/2 under LOOM_TEST_POSTGRES_URL): the plan is
-// production-compiled (Engine.CompileResolvedBundle + the selected
-// PostgreSQL target) against a schema installed by the production
-// migration runner, fixtures stored through the production repository.
-// The refusal is non-vacuous through two paired alive controls on the
-// same plan and fixture: the same compiled preview streams exact rows
-// through the real PostgreSQL adapter, and the same server wiring
-// function proceeds for an AQL-tagged preview.
-//
-// Fixture databases and schemas are uniquely owned as verify_exec04_srv_*
-// and dropped by the test that created them; the TestZZ audit is
-// ownership-scoped to this file's own prefix.
-
 import (
 	"context"
 	"crypto/rand"
@@ -121,12 +100,6 @@ type exec04srvService struct {
 	executor dataframeexecution.SourceRows
 }
 
-// exec04srvScrubberFor returns an error formatter that replaces every
-// credential-bearing form of the raw test service URL with <redacted>, so no
-// fatal path echoes credentials into the test log: connection failures from
-// pgxpool.New / pgx.ParseConfig on the raw URL can quote the full URL.
-// addSecret registers further forms (the derived isolated-database DSN) for
-// scrubbing.
 func exec04srvScrubberFor(raw string) (func(any) string, func(string)) {
 	secrets := []string{raw}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
@@ -147,11 +120,6 @@ func exec04srvScrubberFor(raw string) (func(any) string, func(string)) {
 	return scrub, func(s string) { secrets = append(secrets, s) }
 }
 
-// TestExec04srvScrubberHidesCredentialForms pins the scrubber contract for
-// the credential-bearing URL forms: every verbatim occurrence of the raw
-// URL, the userinfo, the bare password, and registered derived DSNs must be
-// replaced, so no error path that echoes a pool or config failure can print
-// a credential. Offline string check: never contacts a service.
 func TestExec04srvScrubberHidesCredentialForms(t *testing.T) {
 	raw := "postgres://verify_user:S3cr3t-Pw@db.internal:5432/loomsvc?sslmode=require"
 	scrub, addSecret := exec04srvScrubberFor(raw)
@@ -346,11 +314,6 @@ func (s *exec04srvService) compile(t *testing.T, target compiler.Target) datafra
 	return resolved
 }
 
-// TestPostgresPreviewServerWiringFailClosesPGPlan is the ratified D3 cell:
-// a production-compiled PostgreSQL preview handed to the server's preview
-// wiring (the production configuredAQLSourceRows adapter used by server.go
-// for both row ports) returns the compiler's typed mismatch before the
-// Arango callback or driver is reached — never a silent AQL render.
 func TestPostgresPreviewServerWiringFailClosesPGPlan(t *testing.T) {
 	s := newExec04srvService(t)
 	s.migrateSeed(t)
@@ -408,8 +371,6 @@ func TestPostgresPreviewServerWiringFailClosesPGPlan(t *testing.T) {
 		if adapterErr != nil {
 			t.Fatalf("alive control through the real adapter: %s", s.scrub(adapterErr))
 		}
-		// Limit exceeds the two-row scope so the bounded stop (count==limit)
-		// cannot fire: this leg witnesses natural exhaustion.
 		if len(rows) != 2 || !adapterSummary.Complete || adapterSummary.Truncated {
 			t.Fatalf("alive control rows=%d summary Complete=%v Truncated=%v, want 2 rows naturally exhausted", len(rows), adapterSummary.Complete, adapterSummary.Truncated)
 		}
@@ -446,8 +407,6 @@ func TestPostgresPreviewServerWiringFailClosesPGPlan(t *testing.T) {
 	})
 }
 
-// TestZZPostgresPreviewServerZeroLeftoverFixtures is the ownership-scoped
-// audit for this file's own prefix.
 func TestZZPostgresPreviewServerZeroLeftoverFixtures(t *testing.T) {
 	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
 	if raw == "" {

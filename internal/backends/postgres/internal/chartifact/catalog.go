@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"strings"
 	"time"
 
@@ -21,8 +21,6 @@ const (
 	cleanupPendingState = string(chartifact.StateCleanupPending)
 	maxExpiredPageSize  = 1000
 )
-
-var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 var ErrInvalidSchema = errors.New("chartifact postgres: invalid schema name")
 
@@ -45,7 +43,7 @@ func NewCatalog(pool DB, schema string) (*Catalog, error) {
 	if pool == nil {
 		return nil, errors.New("chartifact postgres: nil pool")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchema, schema)
 	}
 	return &Catalog{

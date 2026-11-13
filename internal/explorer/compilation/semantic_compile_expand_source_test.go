@@ -1,32 +1,5 @@
 package compilation
 
-// ROW-SOURCE-08 EXPAND compile-side contract tests for
-// internal/explorer/compilation/semantic_compile.go:506-549: a signed
-// EXPAND-owned SourceProjection must compile as a direct-root many-cardinality
-// non-reference array, and every stale/forged variant must be refused by name.
-//
-// BUG-002 — expected failures below. The authoring validator
-// (authoringv2/construction_validation.go validatePivotSourceProjection,
-// default arm ~L376) has no ConstructionOperationExpand owner case, so an
-// EXPAND-owned source projection — the exact state expand_source.go signs
-// (L403-415, 468-471) and this file's verifier consumes — is rejected by
-// Compile's document validation as
-//
-//	INVALID_DOCUMENT at $: construction: source projection must be consumed by
-//	its owner PIVOT step
-//
-// before any compile verdict is reached. The tests therefore state the
-// contract each input must produce once the owner arm exists, and currently
-// fail with the INVALID_DOCUMENT wall. Do not "fix" them by deleting the
-// EXPAND ownership: the lane and the verifier are the shipped contract
-// (semantic_compile.go:521-536 is parent-owned code reached only through this
-// path). See also the lane's own comment (lifecycle/expand_source.go:472-478)
-// acknowledging the compiled Many-cardinality mapping of the root array column
-// as an unfinished parent follow-up (BUG-004): Test...CompilesWithManyCardinality
-// pins that the finished pipeline must surface the root array column as
-// compiled Cardinality "many", which is what the physical EXPAND gate
-// (lower/recipe_construction_reshape.go:469-478) consumes.
-
 import (
 	"context"
 	"errors"
@@ -41,10 +14,6 @@ import (
 	"github.com/calypr/loom/internal/explorer/capability"
 )
 
-// expandCompileSnapshot is a Procedure snapshot whose root carries the real
-// generated primitive root array instantiatesUri[] (canonical, ARRAY/MANY,
-// FHIRType string, non-reference) plus the scalar identifier.use used by the
-// payload-forgery case.
 func expandCompileSnapshot(uriLogicalType string) capability.Snapshot {
 	base := fixtureSnapshot()
 	return capability.NewSnapshot(base.Identity, base.Policy, capability.StatusReady, true, false,
@@ -57,11 +26,6 @@ func expandCompileSnapshot(uriLogicalType string) capability.Snapshot {
 		}, nil)
 }
 
-// expandCompileDocument assembles a document already carrying the durable
-// server-signed state: the EXPAND step with its server-derived payload and the
-// expand-owned SourceProjection. A legal client candidate normally never
-// authors this state; it is what the lane persists — which makes the
-// BUG-002 rejection decisive.
 func expandCompileDocument(projection authoringv2.ConstructionSourceProjection, payload *authoringv2.ConstructionExpandedFieldSource, steps []authoringv2.ConstructionStep) authoringv2.Document {
 	return authoringv2.Document{
 		Rows: authoringv2.RecordsRowDefinition(), Kind: authoringv2.Kind,
@@ -100,10 +64,6 @@ func expandCompileStep(payload *authoringv2.ConstructionExpandedFieldSource) aut
 			EmptyPolicy:   authoringv2.ConstructionExpandEmptyExclude,
 			ExpandedField: payload,
 		}},
-		// The authoring contract requires the full step schema: every input
-		// column except the expanded array (here the root identifier) plus the
-		// item column. A one-output fixture would die at document validation
-		// before reaching the semantic verifier under test.
 		Outputs: []authoringv2.StageColumn{
 			{ID: "procedure-id", Name: "procedure_id", Label: "Procedure ID", Type: "string"},
 			{ID: "uri_item", Name: "uri_item", Label: "Uri item", Type: "string"},
@@ -140,10 +100,6 @@ func expandCompileError(err error) string {
 	return ""
 }
 
-// BUG-002 — expected failure: the durable signed expand state must compile and
-// lower, the root stage must present the array column, the compiled field must
-// read the array path, and the root column the physical EXPAND gate consumes
-// must carry compiled Cardinality "many" (BUG-004's pinned guarantee).
 func TestCompileConstructionExpandSignedArrayProjectionCompilesWithManyCardinality(t *testing.T) {
 	lowered := expandCompileLower(t,
 		expandCompileDocument(expandCompileSignedProjection(), expandCompileSignedPayload(),
@@ -178,12 +134,6 @@ func TestCompileConstructionExpandSignedArrayProjectionCompilesWithManyCardinali
 	}
 }
 
-// A source projection naming no owning step is refused fail-closed at the
-// earliest boundary: validateLegacyGroupSourceProjection only legalizes
-// unowned projections behind the exact direct-source GROUP shape, so the
-// expand-styled unowned state never reaches the semantic verifier. The
-// owner-specific semantic refusal (a projection owned by another legal step)
-// stays covered at its own layer by TestCompileConstructionExpandWrongOwner....
 func TestCompileConstructionExpandProjectionWithoutOwnerIsRefused(t *testing.T) {
 	projection := expandCompileSignedProjection()
 	projection.OwnerStepID = ""
@@ -198,12 +148,6 @@ func TestCompileConstructionExpandProjectionWithoutOwnerIsRefused(t *testing.T) 
 	}
 }
 
-// Two forged claims on an EXPAND-owned projection must be refused at the
-// layer that first proves the lie. (1) A real scalar root field
-// (Procedure.status) claimed as the signed many array: its snapshot backing
-// is an honest scalar VALUE candidate, so the signed-array candidate gate —
-// which requires the repeated array backing the EXPAND step claims — refuses
-// it by name before generated-schema lookup.
 func TestCompileConstructionExpandPayloadClaimingScalarAsManyIsRefused(t *testing.T) {
 	projection := expandCompileSignedProjection()
 	projection.FieldPath = "status"
@@ -224,10 +168,6 @@ func TestCompileConstructionExpandPayloadClaimingScalarAsManyIsRefused(t *testin
 	}
 }
 
-// (2) The same claim backed by a forged SNAPSHOT (status declared many with
-// the ARRAY projection): the candidate gate is satisfied, and the generated
-// schema — the authoritative fact source — proves status is not an ARRAY of
-// MANY, which is the expanded-field verifier's named refusal.
 func TestCompileConstructionExpandSnapshotForgedArrayBackingIsRefused(t *testing.T) {
 	projection := expandCompileSignedProjection()
 	projection.FieldPath = "status"
@@ -262,8 +202,6 @@ func expandCompileSnapshotWithStatus(uriLogicalType string) capability.Snapshot 
 	return base
 }
 
-// BUG-002 — expected failure: array items the compiler cannot treat as scalar
-// (object kind) must be refused by name (semantic_compile.go:532-535).
 func TestCompileConstructionExpandObjectKindItemsAreRefused(t *testing.T) {
 	projection := expandCompileSignedProjection()
 	projection.LogicalType = "object"
@@ -277,15 +215,6 @@ func TestCompileConstructionExpandObjectKindItemsAreRefused(t *testing.T) {
 	}
 }
 
-// Control proving the refusals above are EXPAND-owner-specific and not a
-// broken harness: a wrong-owner claim — an array projection "owned" by the
-// DERIVE step that consumes it as a COLUMN operand, with a separate expand
-// step in the construction — must be handled by the SCALAR branch, because
-// constructionExpandedFieldOwner refuses to credit a payload whose step is
-// not the projection's owner. The scalar lane's VALUE-backing candidate gate
-// is therefore the first honest defense (an array candidate is not a scalar
-// VALUE field); reaching it at all proves the payload was NOT credited, since
-// a credited owner would take the signed-array branch instead.
 func TestCompileConstructionExpandStyledWrongOwnerProjectionRefused(t *testing.T) {
 	projection := authoringv2.ConstructionSourceProjection{
 		ColumnID: "uri_column", OwnerStepID: "derive_uri_copy", OccurrenceID: authoringv2.RootOccurrenceID,
@@ -294,7 +223,6 @@ func TestCompileConstructionExpandStyledWrongOwnerProjectionRefused(t *testing.T
 	derive := authoringv2.ConstructionStep{
 		ID:     "derive_uri_copy",
 		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
-		// (the derive carries the projection column through its stage outputs)
 		Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationDerive, Derive: &authoringv2.ConstructionDerive{
 			ConstructionID: "derive_uri_copy", OutputColumnID: "uri_copy", Operation: authoringv2.ConstructionDerivedAdd,
 			MissingInputPolicy: authoringv2.ConstructionMissingInputPropagateNull,

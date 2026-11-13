@@ -10,9 +10,6 @@ type ExplicitGroupMembershipCursor struct {
 	ResourceID string
 }
 
-// ExplicitGroupRepository keeps explicit group revisions separate from the
-// general Explorer lifecycle store. Definition rows preserve empty groups;
-// membership rows preserve overlaps between groups.
 type ExplicitGroupRepository interface {
 	BeginExplicitGroupRevision(context.Context, ExplicitGroupRevision, SelectionRevision, string) (*ExplicitGroupRevision, error)
 	PutExplicitGroupDefinitions(context.Context, ExplicitGroupRevisionID, string, []ExplicitGroupDefinition) error

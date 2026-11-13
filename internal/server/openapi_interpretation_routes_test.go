@@ -27,8 +27,6 @@ func generatedInterpretationReadTestApp(readErr error) *fiber.App {
 }
 
 func registerGeneratedInterpretationRoutes(app *fiber.App, routes *HTTPRoutes) {
-	// RegisterHandlers uses the same generated strict adapter as production. A
-	// small helper keeps this test focused on auth/status behavior.
 	loomapi.RegisterHandlersWithOptions(app, loomapi.NewStrictHandler(routes, nil), loomapi.FiberServerOptions{})
 }
 

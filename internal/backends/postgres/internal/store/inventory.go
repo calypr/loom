@@ -10,7 +10,6 @@ import (
 
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -19,7 +18,6 @@ const (
 	inventoryBuildTableName    = "fhir_resource_inventory_build"
 	MaxInventoryWriteBatch     = 1000
 	defaultInventoryWriteBatch = 1000
-	uniqueViolationSQLState    = "23505"
 )
 
 var (
@@ -93,7 +91,7 @@ func NewInventoryRepository(src ConnSource, schema string) (*InventoryRepository
 	if src == nil {
 		return nil, errors.New("postgres: nil inventory connection source")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	return &InventoryRepository{
@@ -361,9 +359,7 @@ func (r *InventoryRepository) PublishBuild(ctx context.Context, build catalog.Re
 		build.Key, build.Project, build.DatasetGeneration, build.BuildID, build.CoverageDigest,
 		declared, build.ResourceTypeCount, build.CountRowCount, build.Complete)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState &&
-			pgErr.ConstraintName == inventoryBuildTableName+"_key_ux" {
+		if IsUniqueConstraintViolation(err, inventoryBuildTableName+"_key_ux") {
 			return fmt.Errorf("postgres: inventory marker key %s collides across scopes (corrupted derivation): %w",
 				build.Key, err)
 		}
@@ -493,8 +489,7 @@ func selectInventoryCountRow(ctx context.Context, tx pgx.Tx, countFQN string, ro
 }
 
 func inventoryWriteError(op string, chunk []catalog.ResourceInventoryCount, err error) error {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState {
+	if pgErr, ok := pgErrorFrom(err); ok && pgErr.Code == sqlStateUniqueViolation {
 		sample := chunk[0]
 		if pgErr.ConstraintName == inventoryCountTableName+"_key_ux" {
 			return &InventoryCountConflictError{

@@ -69,9 +69,6 @@ describe('existingColumnForFieldPath', () => {
   });
 });
 
-// External audit 2026-11-03 (row-source-07): an ordinary PUBLIC column is authored
-// from authoringv2 Column.Source.Field and never appears in sourceProjections, so
-// reuse is blind to it unless the caller carries the signed public identity in.
 describe('existingColumnForFieldPath public-field identity', () => {
   it('reuses the live public column whose signed identity carries the field path', () => {
     expect(existingColumnForFieldPath({

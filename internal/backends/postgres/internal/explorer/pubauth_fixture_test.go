@@ -274,10 +274,10 @@ func (f *pubAuthFixture) migrate(t *testing.T) {
 	}
 	defer client.Close()
 
-	ctl := f.migrateHistory(t, client, f.ctlSchema, ctlHistory, 11, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11})
+	ctl := f.migrateHistory(t, client, f.ctlSchema, ctlHistory, 12, []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
 	lanes := f.migrateHistory(t, client, f.lanesSchema, lanesHistory, 8, []int64{1, 3, 8})
-	if ctl.LatestVersion != 11 || lanes.LatestVersion != 8 {
-		t.Fatalf("ledger tops = %d/%d, want 11/8", ctl.LatestVersion, lanes.LatestVersion)
+	if ctl.LatestVersion != 12 || lanes.LatestVersion != 8 {
+		t.Fatalf("ledger tops = %d/%d, want 12/8", ctl.LatestVersion, lanes.LatestVersion)
 	}
 }
 
@@ -330,7 +330,7 @@ func (f *pubAuthFixture) rerunMigration(t *testing.T, version int64) {
 				f.fail("begin migration rerun transaction", err)
 			}
 			if _, err := tx.Exec(f.ctx,
-				"SET LOCAL search_path TO "+sanitizeSchema(f.ctlSchema)); err != nil {
+				"SET LOCAL search_path TO "+pgx.Identifier{f.ctlSchema}.Sanitize()); err != nil {
 				tx.Rollback(f.ctx)
 				f.fail("set search_path for migration rerun", err)
 			}

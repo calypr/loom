@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -58,8 +57,6 @@ func VerifySchema(ctx context.Context, client *pgstore.Client, schema string) er
 	return runner.Verify(ctx)
 }
 
-var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
-
 var ownerColumns = []string{
 	"project",
 	"explorer_id",
@@ -101,7 +98,7 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 	if client == nil {
 		return nil, errors.New("postgres explorer store: client is required")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !pgstore.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("postgres explorer store: invalid schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 	}
 	table := sanitizeTableRef(schema, OwnerTable)
@@ -122,10 +119,6 @@ func New(client *pgstore.Client, schema string) (*Store, error) {
 
 func sanitizeTableRef(schema, table string) string {
 	return pgx.Identifier{schema, table}.Sanitize()
-}
-
-func sanitizeSchema(schema string) string {
-	return pgx.Identifier{schema}.Sanitize()
 }
 
 func orderedPlaceholders(n int) string {

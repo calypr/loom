@@ -27,16 +27,6 @@ const (
 	c1011OutputID     = "patients"
 )
 
-// coreProtocolReceiptsFixture is the fixture for the C10 receipt-binding matrix and
-// the C11 historical/revoked witness (docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:379-380).
-// It mirrors newCoreProtocolFixture's production wiring (generated strict adapter,
-// real authoring handlers, lifecycle service, compile chain and persisted receipt
-// store) with one deliberate difference: CapabilityResolver.ForExecution consults the
-// repository-backed capability store through capability.Repository.GetByToken — the
-// production execution-admission check — so revocation is caused by removing the
-// retained snapshot from that store, not by a stubbed authorization result. Every
-// request goes through the same public routes; the only test-side action besides
-// those requests is persisted-state seeding through the exposed store handle.
 type coreProtocolReceiptsFixture struct {
 	t             *testing.T
 	app           *fiber.App
@@ -140,9 +130,6 @@ func newCoreProtocolReceiptsFixture(t *testing.T) *coreProtocolReceiptsFixture {
 	return fixture
 }
 
-// saveLabel posts one public command through the production route at the fixture's
-// tracked head and advances that head from the acknowledgement, exactly as the
-// authoring protocol requires.
 func (f *coreProtocolReceiptsFixture) saveLabel(commandID, label string) (testHTTPResponse, loomapi.ApplyCommandsResponse) {
 	f.t.Helper()
 	edited := f.workspace
@@ -165,9 +152,6 @@ func (f *coreProtocolReceiptsFixture) saveLabel(commandID, label string) (testHT
 	return response, ack
 }
 
-// compileAtHead reconciles the tracked head through the public route and returns the
-// accepted compile payload plus the persisted receipt. Call it after saveLabel or,
-// for idempotence checks, repeatedly at one unchanged head.
 func (f *coreProtocolReceiptsFixture) compileAtHead(requestID string) (loomapi.CompileResponse, explorer.CompilationReceipt) {
 	f.t.Helper()
 	body := fmt.Sprintf(`{"snapshotToken":%q,"draftVersion":%d,"draftDigest":%q}`, f.snapshot.Token, f.headVersion, f.headDigest)
@@ -189,8 +173,6 @@ func (f *coreProtocolReceiptsFixture) compileAtHead(requestID string) (loomapi.C
 	return compiled, receipt
 }
 
-// compileFresh advances the head one revision with a distinct column label, then
-// compiles and persists a receipt so each boundary case starts from a genuine receipt.
 func (f *coreProtocolReceiptsFixture) compileFresh(commandID, label string) (loomapi.CompileResponse, explorer.CompilationReceipt) {
 	f.t.Helper()
 	saved, ack := f.saveLabel(commandID, label)
@@ -214,8 +196,6 @@ func (f *coreProtocolReceiptsFixture) previewOutput(receiptID, outputID string) 
 	return coreProtocolRequest(f.t, f.app, http.MethodPost, f.basePath+"/preview", body, "")
 }
 
-// receiptEmittedLabel reads the persisted frozen contract, not the decoded response,
-// so label assertions are independent of the public serializer.
 func (f *coreProtocolReceiptsFixture) receiptEmittedLabel(t *testing.T, receiptID, publicColumn string) string {
 	t.Helper()
 	receipt, ok := f.store.receipts[receiptID]
@@ -231,8 +211,6 @@ func (f *coreProtocolReceiptsFixture) receiptEmittedLabel(t *testing.T, receiptI
 	return ""
 }
 
-// insertReceipt persists one receipt through the same store seam the compile chain
-// uses and returns the stored value so later assertions read what the boundary reads.
 func (f *coreProtocolReceiptsFixture) insertReceipt(receipt explorer.CompilationReceipt) explorer.CompilationReceipt {
 	f.t.Helper()
 	stored, err := f.store.InsertCompilationReceipt(context.Background(), receipt)
@@ -242,10 +220,6 @@ func (f *coreProtocolReceiptsFixture) insertReceipt(receipt explorer.Compilation
 	return *stored
 }
 
-// deleteAll unretains every snapshot through the same capability store fields the
-// repository uses, so the retained-capability lookup that ForExecution consults stops
-// resolving. This is the store mutation that stands in for losing a snapshot's
-// authorization/retention, not a mocked authorization decision.
 func (s *testCapabilityStore) deleteAll() {
 	s.byToken = make(map[string]capability.Snapshot)
 	s.byIdentity = make(map[capability.SnapshotIdentity]string)
@@ -285,15 +259,6 @@ func previewResponseColumns(t *testing.T, response testHTTPResponse) []string {
 	return labels
 }
 
-// TestCoreAuthoringProtocolReceiptBindingBoundaries implements plan row C10
-// (docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:379) for the server side.
-// Each subtest returns a receipt whose response identity is correct except for ONE
-// binding and asserts that the boundary the server actually runs rejects it as a
-// typed failure: the scoped store lookup, the receipt route identity/integrity check,
-// the execution-admission boundary or the output-contract check, as appropriate. The
-// baseline and idempotence positives prove the same request succeeds when every
-// binding matches and that equivalent identities stay accepted, so each rejection is
-// attributable to the deliberately mismatched binding alone.
 func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 	baseline := newCoreProtocolReceiptsFixture(t)
 	_, receipt := baseline.compileFresh("c10-baseline-save", "Baseline Patient")
@@ -327,10 +292,6 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 		}
 	})
 
-	// Foreign project and foreign explorer are seeded as fully self-consistent
-	// receipts (compilation key and content id recomputed from the foreign scope), so
-	// the record is valid on its own terms and the only reason the boundary refuses it
-	// is the binding that was changed. GetCompilationReceipt proves presence.
 	t.Run("foreign-project", func(t *testing.T) {
 		fixture := newCoreProtocolReceiptsFixture(t)
 		_, genuine := fixture.compileFresh("c10-project-save", "Project Binding")
@@ -395,11 +356,6 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 			_, genuine := fixture.compileFresh("c10-"+binding.name+"-save", "Authorized Binding")
 			receipt := genuine
 			binding.tamper(&receipt, fixture.snapshot)
-			// Recompute key and id so the receipt stays internally consistent: the
-			// compile-integrity gate must pass and only the retained-capability
-			// comparison can reject it, otherwise the case would prove the wrong
-			// boundary. The genuine companion still previews while the same record
-			// with one changed capability binding does not.
 			recomputeReceiptIdentity(t, &receipt, true)
 			if err := receipt.Validate(); err != nil {
 				t.Fatalf("forged %s receipt must remain internally valid so the capability binding is the only difference: %v", binding.name, err)
@@ -442,19 +398,9 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 			_, genuine := fixture.compileFresh("c10-"+binding.name+"-save", "Integrity Binding")
 			receipt := genuine
 			binding.tamper(&receipt)
-			// Prove the specific integrity check inside Validate rejects this single
-			// binding change. The HTTP route deliberately withholds the reason and
-			// publishes one uniform recompile message (lifecycle/errors.go:33 never
-			// serialises the cause), so the specific cause can only be asserted against
-			// the domain error, never against the response envelope.
 			if err := receipt.Validate(); err == nil || !strings.Contains(err.Error(), binding.cause) {
 				t.Fatalf("tampered %s must fail Validate with a cause containing %q: err=%v", binding.name, binding.cause, err)
 			}
-			// keepKey false leaves the compilation key stale against the tampered
-			// source so the key mismatch is the first failing check; keepKey true
-			// leaves the key honest and exercises the resolved-digest/contract gate
-			// inside Validate. Each tampered copy carries a fresh id so it lands in
-			// its own row instead of colliding with the genuine receipt.
 			recomputeReceiptIdentity(t, &receipt, binding.keepKey)
 			if _, err := fixture.store.GetCompilationReceipt(context.Background(), genuine.ID); err != nil {
 				t.Fatalf("genuine companion missing: %v", err)
@@ -471,11 +417,6 @@ func TestCoreAuthoringProtocolReceiptBindingBoundaries(t *testing.T) {
 	}
 }
 
-// recomputeReceiptIdentity refreshes the two content-addressed fields after a
-// deliberate field change. The compilation key is recomputed when keepKey is true;
-// the id is always recomputed from the mutated value so the tampered record occupies
-// its own row while the intended integrity or capability check remains the one that
-// rejects it.
 func recomputeReceiptIdentity(t *testing.T, receipt *explorer.CompilationReceipt, keepKey bool) {
 	t.Helper()
 	key, err := explorer.CompilationKey(*receipt)
@@ -492,15 +433,6 @@ func recomputeReceiptIdentity(t *testing.T, receipt *explorer.CompilationReceipt
 	receipt.ID = id
 }
 
-// TestCoreAuthoringProtocolHistoricalAndRevokedReceipts implements plan row C11
-// (docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:380) for the server side.
-// A validated frozen receipt keeps executing under its captured contract after the
-// head advances, and both receipts fail as stale once their snapshot is removed from
-// the capability store that the execution boundary consulted through
-// capability.Repository.GetByToken. The restore step proves that retention, and not
-// receipt age or label text, is what changed: it is the causal control for the
-// revocation assertion. Whether an older receipt may be shown as current UI work is
-// mounted-driver ownership and is reported as a gap rather than asserted here.
 func TestCoreAuthoringProtocolHistoricalAndRevokedReceipts(t *testing.T) {
 	fixture := newCoreProtocolReceiptsFixture(t)
 	_, historical := fixture.compileFresh("c11-historical-save", "Historical Patient")
@@ -512,8 +444,6 @@ func TestCoreAuthoringProtocolHistoricalAndRevokedReceipts(t *testing.T) {
 		t.Fatalf("persisted head disagrees with compiled head: %+v", head)
 	}
 
-	// Historical execution succeeds while its own snapshot stays authorized and
-	// retained, and it still reports its frozen contract rather than the current draft.
 	if labels := previewResponseColumns(t, fixture.preview(historical.ID)); len(labels) != 1 || labels[0] != "Historical Patient" {
 		t.Fatalf("historical preview labels=%v want [Historical Patient]", labels)
 	}

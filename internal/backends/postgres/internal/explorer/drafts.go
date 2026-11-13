@@ -11,14 +11,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
+	pgstore "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	"github.com/calypr/loom/internal/explorer"
 )
 
 const DraftRevisionsTable = "explorers_draft_revisions"
-
-const duplicateKeySQLState = "23505"
 
 const historyIdentityConstraint = "explorers_draft_revisions_identity_pk"
 
@@ -101,8 +99,7 @@ func (s *Store) SaveDraft(ctx context.Context, e explorer.Explorer, expected int
 		previous.DraftSnapshotToken, previous.DraftSourceGeneration,
 		previous.DraftAuthorizationScopeDigest, previous.UpdatedBy, previous.UpdatedAt)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == duplicateKeySQLState && pgErr.ConstraintName == historyIdentityConstraint {
+		if pgstore.IsUniqueConstraintViolation(err, historyIdentityConstraint) {
 			return nil, errors.Join(explorer.ErrDraftConflict, err)
 		}
 		return nil, fmt.Errorf("postgres explorer store: persist draft preimage %q/%q version %d: %w",

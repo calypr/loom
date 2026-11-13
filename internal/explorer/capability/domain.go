@@ -1,7 +1,3 @@
-// Package capability contains the immutable, compiler-backed contract exposed
-// by Explorer's traversal Builder.  It deliberately has no dependency on the
-// database, generated schema, or HTTP layers: adapters provide observations and
-// compiler proofs through the small interfaces in builder.go.
 package capability
 
 import (
@@ -60,39 +56,29 @@ const (
 	ChartAvg   ChartAggregation = "AVG"
 )
 
-// SnapshotIdentity contains every external identity that can change the
-// meaning of a capability document.  Versions are intentionally independent:
-// changing a renderer/compiler artifact must invalidate old Builder state even
-// when the observed graph is unchanged.
 type SnapshotIdentity struct {
 	Project                  string `json:"project"`
 	Generation               string `json:"generation"`
 	AuthorizationScopeDigest string `json:"authorizationScopeDigest"`
-	// CacheVersion invalidates current-identity lookups when the retained
-	// snapshot payload gains additive metadata. Exact retained tokens remain
-	// resolvable under their original identity.
-	CacheVersion            string `json:"cacheVersion,omitempty"`
-	SchemaDigest            string `json:"schemaDigest"`
-	ResourceInventoryDigest string `json:"resourceInventoryDigest"`
-	RelationshipDigest      string `json:"relationshipDigest"`
-	FieldDigest             string `json:"fieldDigest"`
-	ShapeDigest             string `json:"shapeDigest,omitempty"`
-	ProtocolVersion         string `json:"protocolVersion"`
-	CompilerVersion         string `json:"compilerVersion"`
-	TraversalPolicyVersion  string `json:"traversalPolicyVersion"`
-	ProjectionPolicyVersion string `json:"projectionPolicyVersion"`
+	CacheVersion             string `json:"cacheVersion,omitempty"`
+	SchemaDigest             string `json:"schemaDigest"`
+	ResourceInventoryDigest  string `json:"resourceInventoryDigest"`
+	RelationshipDigest       string `json:"relationshipDigest"`
+	FieldDigest              string `json:"fieldDigest"`
+	ShapeDigest              string `json:"shapeDigest,omitempty"`
+	ProtocolVersion          string `json:"protocolVersion"`
+	CompilerVersion          string `json:"compilerVersion"`
+	TraversalPolicyVersion   string `json:"traversalPolicyVersion"`
+	ProjectionPolicyVersion  string `json:"projectionPolicyVersion"`
 }
 
 type RoutePolicy struct {
 	Version             string `json:"version"`
-	MaxHops             int    `json:"maxHops"` // zero means unlimited
+	MaxHops             int    `json:"maxHops"`
 	AllowsRepeatedEdges bool   `json:"allowsRepeatedEdges"`
 	AllowsSelfLoops     bool   `json:"allowsSelfLoops"`
 }
 
-// Allows accepts every finite route (including zero-hop routes, repeated
-// edges, and self-loops) unless the caller explicitly configured MaxHops.
-// There is deliberately no implicit four-hop limit.
 func (p RoutePolicy) Allows(route []string) bool {
 	if p.MaxHops > 0 && len(route) > p.MaxHops {
 		return false
@@ -210,9 +196,6 @@ type Candidate struct {
 	BlockedReason         string                         `json:"blockedReason,omitempty"`
 }
 
-// IsRepeatedCardinality is the single wire-cardinality interpretation used by
-// Builder catalog adapters. Capability snapshots use dataframe cardinalities,
-// while older persisted snapshots may contain upper-case values.
 func IsRepeatedCardinality(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "many", "unknown_observed_many":
@@ -222,9 +205,6 @@ func IsRepeatedCardinality(value string) bool {
 	}
 }
 
-// ConceptCandidate carries observed FHIR identity into Builder without
-// claiming terminology equivalence. It intentionally retains unresolved and
-// mixed-choice statuses so the authoring layer can present them explicitly.
 type ConceptCandidate struct {
 	SourceResourceType     string   `json:"sourceResourceType"`
 	SourcePath             string   `json:"sourcePath,omitempty"`
@@ -270,10 +250,6 @@ type Diagnostic struct {
 	Retryable bool           `json:"retryable,omitempty"`
 }
 
-// Snapshot is immutable by convention: constructors and accessors copy all
-// maps/slices, while Token is derived from a private canonical payload.  The
-// exported fields keep the package ergonomic for JSON adapters; use Clone (or
-// the accessors) when handing a snapshot to code that may mutate values.
 type Snapshot struct {
 	Identity        SnapshotIdentity `json:"identity"`
 	Policy          Policy           `json:"policy"`
@@ -336,7 +312,6 @@ func (s Snapshot) Candidate(id string) (Candidate, bool) {
 	return Candidate{}, false
 }
 
-// CanonicalPayload returns a fresh copy of the exact payload hashed into Token.
 func (s Snapshot) CanonicalPayload() []byte {
 	c := cloneSnapshot(s)
 	c.Token = ""

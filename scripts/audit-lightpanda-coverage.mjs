@@ -10,7 +10,6 @@ const recovery = '5646633e0e5c7ff8de568a4f111478d121e7f75f';
 const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 const paths = git('ls-tree', '-r', '--name-only', recovery, 'scripts').trim().split('\n').filter(path => path.endsWith('.spec.mjs'));
 
-// These are coverage dispositions, not claims of equivalent replacement tests.
 const families = [
   { id: 'small-preview', names: ['builder-preview-read-only', 'load-preview', 'builder-load'],
     decision: 'Consolidate into one exact-row load/reload candidate; Lightpanda timing pilot only.',

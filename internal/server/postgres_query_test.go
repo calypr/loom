@@ -1,18 +1,5 @@
 package server
 
-// pg-runtime-first-query-route: offline witnesses for the PostgreSQL first
-// query route composition. The live scalar-read tests ride the backend
-// catalog read lane (the DiscoverFields/DiscoverReferences ports); until
-// that lane lands, this file pins what the composition owes on its own:
-// (1) every configuration the route cannot consume keeps the byte-stable
-// ErrPostgreSQLRuntimeNotWired refusal, dial-free, credential-free;
-// (2) the route's own error scrubber removes every credential-bearing form
-// of the connection configuration from any error it returns;
-// (3) every deliberately-unsupported route posture is a named, typed,
-// retryable-false, backend-tagged BACKEND_UNAVAILABLE refusal -- the
-// explicit-unavailable law, never a silent zero value and never an
-// ArangoDB fall-through.
-
 import (
 	"bytes"
 	"context"
@@ -48,10 +35,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// qRoutePostgreSQLConfig is a fully valid PostgreSQL connection shape on the
-// non-routable TEST-NET-1 address: any composition leg that regressed into
-// dialing before refusing would hang until the deadline instead of returning
-// the named refusal, so the elapsed-time bound is a real dial-free witness.
 func qRoutePostgreSQLConfig() PostgreSQLConfig {
 	pg := validPostgreSQLConfig()
 	pg.Host = "192.0.2.1"
@@ -62,11 +45,6 @@ func qRoutePostgreSQLConfig() PostgreSQLConfig {
 	return pg
 }
 
-// TestPostgreSQLFirstRoutePreDialRefusals mirrors the pinned startup-refusal
-// invariant (postgres_refusal_contract_test.go) across the NEW gate region:
-// the shapes the consumability gate cannot consume. The sentinel must arrive
-// byte-stably (the pinned contract text, unchanged), before any credential
-// validation and before any dial, and must echo no connection material.
 func TestPostgreSQLFirstRoutePreDialRefusals(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -140,12 +118,6 @@ func TestPostgreSQLFirstRoutePreDialRefusals(t *testing.T) {
 	}
 }
 
-// TestPostgreSQLFirstQueryRouteScrubberPinsCredentials is the route file's
-// own Exec-04-style scrubber pin: every credential-bearing form the
-// composition can put into an error -- the full DSN, the bare password, and
-// the user:password pair -- must be replaced, the cause must stay reachable
-// through Unwrap, and a secret-free error must pass through untouched
-// (identity, so wrapping is never fabricated).
 func TestPostgreSQLFirstQueryRouteScrubberPinsCredentials(t *testing.T) {
 	pg := qRoutePostgreSQLConfig()
 	dsn := postgresFirstQueryRouteDSN(pg)
@@ -182,11 +154,6 @@ func TestPostgreSQLFirstQueryRouteScrubberPinsCredentials(t *testing.T) {
 		}
 	}
 
-	// Percent-encoded echo legs (review e22c4825 optional 2): a driver
-	// echoing the credential parsed from the connection URL renders the
-	// ESCAPED form, which raw-string scrubbing alone misses. The fixture
-	// password is escape-invariant and cannot exercise this, so pin a
-	// variant whose password requires escaping in both encodings.
 	esc := qRoutePostgreSQLConfig()
 	esc.Password = "qroute p@ss:w0rd/s?x=&%"
 	escDSN := postgresFirstQueryRouteDSN(esc)
@@ -194,10 +161,6 @@ func TestPostgreSQLFirstQueryRouteScrubberPinsCredentials(t *testing.T) {
 	if queryEscaped == esc.Password || pathEscaped == esc.Password {
 		t.Fatalf("variant password must require escaping in both encodings: query=%q path=%q", queryEscaped, pathEscaped)
 	}
-	// The DSN's own userinfo follows the URL package's user-password
-	// encoding (a third shape); the scrubber must not depend on which
-	// encoding an echo used, so the legs below drive the escaped forms
-	// directly alongside the full DSN.
 	if !strings.Contains(escDSN, esc.User) {
 		t.Fatalf("variant DSN lost the user: %q", escDSN)
 	}
@@ -223,7 +186,6 @@ func TestPostgreSQLFirstQueryRouteScrubberPinsCredentials(t *testing.T) {
 		}
 	}
 
-	// Secret-free errors pass through by identity: no fabricated wrapper.
 	plain := errors.New("schema loom_source does not exist")
 	if got := postgresFirstQueryRouteError(plain, pg, dsn); got != plain {
 		t.Fatalf("secret-free error was rewritten: %v", got)
@@ -233,11 +195,6 @@ func TestPostgreSQLFirstQueryRouteScrubberPinsCredentials(t *testing.T) {
 	}
 }
 
-// TestPostgreSQLFirstQueryRouteWiringErrorShape pins the explicit-unavailable
-// law for the route's deliberate refusals: named typed BACKEND_UNAVAILABLE,
-// retryable false, backend-tagged, naming the operation and the enabling
-// ticket -- never a nil/zero value and never an ArangoDB fall-through
-// message.
 func TestPostgreSQLFirstQueryRouteWiringErrorShape(t *testing.T) {
 	err := postgreSQLFirstQueryRouteWiringError("Server-side generation activation", "pg-runtime-server-composition")
 	var typed *dataframeerrors.Error
@@ -263,11 +220,6 @@ func TestPostgreSQLFirstQueryRouteWiringErrorShape(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Live leg: fixture harness (own verify_qroute_* prefix, N-5 enumerated
-// cleanup) + the route census through the PRODUCTION handler stack.
-// ---------------------------------------------------------------------------
-
 const (
 	qRouteDBFmt   = "verify_qroute_%d_%s"
 	qRouteSrcFmt  = "verify_qroute_%d_%s_src"
@@ -279,29 +231,14 @@ const (
 	qRouteAppTag  = "verify-qroute-server"
 )
 
-// Shape-scoping of the census is the registered adjudication of an
-// OBSERVED parallel-package race: `go test ./internal/api/graphql/graph/
-// query ./internal/server` runs the two packages concurrently, and the
-// query package's six live legs hold `verify_qroute_q<unixnano>_<hex>`
-// databases in flight while this file's census counted `datname LIKE
-// 'verify\_qroute\_%'`. Those in-flight sub-namespace mints matched the
-// prefix and pushed this census above baseline -- a foreign-straggler false
-// positive this package must never delete or attribute (N-5). Each package
-// now counts only its own mint shape, and
-// TestQRouteCensusVocabularyCorrespondence below pins the separation and
-// the mint/regex correspondence with assertions, not log claims.
 var (
-	qRouteDBPattern  = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+$`)
-	qRouteSrcPattern = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_src$`)
-	qRouteRelPattern = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_rel$`)
-	// qRouteCensusSibling mirrors internal/api/graphql/graph/query/
-	// postgres_query_test.go's qrDBPattern literal; both files keep the
-	// literals byte-identical and assert neither vocabulary matches the
-	// other's census.
+	qRouteDBPattern     = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+$`)
+	qRouteSrcPattern    = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_src$`)
+	qRouteRelPattern    = regexp.MustCompile(`^verify_qroute_[0-9]+_[0-9a-f]+_rel$`)
 	qRouteCensusSibling = regexp.MustCompile(`^verify_qroute_q[0-9]+_[0-9a-f]+$`)
 	qRouteOwnedMu       sync.Mutex
-	qRouteOwned         = map[string]qRouteMint{} // database -> minting leg + dropped
-	qRouteStrayMarks    = []string{}              // drop marks for unregistered names
+	qRouteOwned         = map[string]qRouteMint{}
+	qRouteStrayMarks    = []string{}
 	qRouteBaselineMu    sync.Mutex
 	qRouteBaseline      int64
 	qRouteBaselineSet   bool
@@ -313,18 +250,11 @@ type qRouteMint struct {
 	dropped bool
 }
 
-// qRouteMintInventory is the checked-in enumeration of the minting legs
-// that share this harness: exactly these tests mint, each exactly this many
-// databases. The TestZZ audit asserts the runtime registry matches it
-// leg-for-leg.
 var qRouteMintInventory = map[string]int{
 	"TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable":     1,
 	"TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler": 1,
-	// pg-runtime-health-readiness leg (mints one database).
-	"TestPostgreSQLFirstQueryRouteLivenessAndReadiness": 1,
-	// arch-backend-12 backend-neutral diagnostics leg (mints one database;
-	// implementation lives in backend_neutral_diagnostics_live_test.go).
-	"TestBackendNeutralDiagnosticsLivePostgreSQL": 1,
+	"TestPostgreSQLFirstQueryRouteLivenessAndReadiness":                  1,
+	"TestBackendNeutralDiagnosticsLivePostgreSQL":                        1,
 }
 
 func qRouteTestPostgresURL(t *testing.T) string {
@@ -356,8 +286,6 @@ func qRouteMarkDropped(db string) {
 	defer qRouteOwnedMu.Unlock()
 	rec, ok := qRouteOwned[db]
 	if !ok {
-		// A drop witnessed for a name this process never minted: recorded,
-		// never folded into the registry, and the audit fails on it.
 		qRouteStrayMarks = append(qRouteStrayMarks, db)
 		return
 	}
@@ -365,9 +293,6 @@ func qRouteMarkDropped(db string) {
 	qRouteOwned[db] = rec
 }
 
-// qRouteCaptureBaseline counts own-prefix databases once per process. The
-// zero-leftover audit compares against this baseline and audits ONLY the
-// verify_qroute_ prefix (N-5: foreign churn is never deleted or attributed).
 func qRouteCaptureBaseline(t *testing.T, raw string) {
 	t.Helper()
 	qRouteBaselineMu.Lock()
@@ -384,13 +309,6 @@ func qRouteCaptureBaseline(t *testing.T, raw string) {
 	}
 	defer admin.Close()
 	var count int64
-	// Static literal; the regex is a constant, not built input. The count
-	// covers THIS file's mint shape only: internal/api/graphql/graph/query
-	// lives in the verify_qroute_q sub-namespace with its own registry and
-	// audit. That separation is the adjudication of the observed
-	// parallel-run race named on the pattern block above, and the
-	// correspondence test pins it with assertions. Foreign names are still
-	// enumerated and classified on mismatch (N-5).
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_[0-9]+_[0-9a-f]+$'").
 		Scan(&count); err != nil {
@@ -401,9 +319,6 @@ func qRouteCaptureBaseline(t *testing.T, raw string) {
 	qRouteBaselineSet = true
 }
 
-// qRouteFixture owns one isolated database with one schema per consumed
-// series. Everything destructive names an enumerated mint from this
-// process's registry; no pattern-wide drop exists.
 type qRouteFixture struct {
 	dsn       string
 	srcSchema string
@@ -494,9 +409,6 @@ func newQRouteFixture(t *testing.T) *qRouteFixture {
 	return &qRouteFixture{dsn: dsn, srcSchema: srcSchema, relSchema: relSchema, scrub: scrub, secrets: secrets, admin: admin, database: database}
 }
 
-// migrate bootstraps both consumed series through the public factory, then
-// hands back the runtime the catalog evidence writers ride (the exact
-// cmd/loom-data openCatalogWriters shape: one factory Open, four ports).
 func (f *qRouteFixture) migrate(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
 	runtime, err := backendspostgres.Open(context.Background(), control.Config{
@@ -529,10 +441,6 @@ func (f *qRouteFixture) pgOptions(application string) ingest.PGSourceOptions {
 	}
 }
 
-// load stages one generation through the production ingest entry
-// (ingest.LoadPostgresGeneration) with the four catalog writers wired,
-// exactly as the loom-data CLI composes it. The catalog runtime is closed
-// after the load completes.
 func (f *qRouteFixture) load(t *testing.T, project, generation string, files map[string][]string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -578,8 +486,6 @@ func (f *qRouteFixture) activate(t *testing.T, project, generation string) {
 	}
 }
 
-// qRouteRepoPath resolves a repository-relative path (mirrors the ingest
-// lane's repoPath convention for the graph schema).
 func qRouteRepoPath(t *testing.T, elems ...string) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)
@@ -599,9 +505,6 @@ func qRouteRepoPath(t *testing.T, elems ...string) string {
 	}
 }
 
-// qRouteBootConfig turns a live URL into the consumable first-query-route
-// configuration; the pair assignment is what unlocks composition past the
-// sentinel. Unauthenticated mode keeps the census focused on route posture.
 func qRouteBootConfig(t *testing.T, f *qRouteFixture, listen string) Config {
 	t.Helper()
 	u, err := url.Parse(f.dsn)
@@ -658,12 +561,6 @@ func qRoutePatientLines(t *testing.T, ids ...string) []string {
 	return lines
 }
 
-// TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable boots the
-// production composition against a live fixture (gen-A loaded+active, gen-B
-// staged) and walks the deliberately-unsupported inventory through the
-// production handler stack: every leg must answer with its named typed
-// refusal -- no 2xx data, no 5xx panic, and no Arango/AQL surface anywhere
-// in any response body.
 func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T) {
 	fixture := newQRouteFixture(t)
 	fixture.load(t, qRouteProject, qRouteGenA, map[string][]string{
@@ -699,9 +596,6 @@ func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T
 	})
 
 	t.Run("load_route_refuses_with_the_cli_deferral", func(t *testing.T) {
-		// A generation the manifest store has never seen: a known-STAGED
-		// generation short-circuits to the service's replay answer before
-		// the loader is consulted, and that answer would hide the refusal.
 		body, boundary := qRouteMultipart(t, map[string]string{"Patient.ndjson": "{\"resourceType\":\"Patient\",\"id\":\"route-should-never-load\"}\n"})
 		request := httptest.NewRequest(http.MethodPost, base+"/datasets/"+qRouteProject+"/generations/generation-route-attempt", bytes.NewReader(body))
 		request.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
@@ -750,9 +644,6 @@ func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T
 			if response.StatusCode >= 200 && response.StatusCode < 300 {
 				t.Fatalf("%s unexpectedly served data: %d %s", leg.name, response.StatusCode, fixture.scrub(response.Body))
 			}
-			// 503 is a legitimate transport for a named typed refusal; any
-			// other 5xx (or a 500 that lost the code) is a fault, not a
-			// posture.
 			if response.StatusCode >= 500 && response.StatusCode != http.StatusServiceUnavailable {
 				t.Fatalf("%s returned server fault %d: %s", leg.name, response.StatusCode, fixture.scrub(response.Body))
 			}
@@ -768,19 +659,6 @@ func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T
 		})
 	}
 
-	// wantRetryable is load-bearing, not decoration: the nil-discovery
-	// refusals are the service's retryable catalogUnavailable, while the
-	// recipe refusals are this composition's wiring errors, which must
-	// never advertise retry (retrying cannot make an unwired route serve).
-	// wantCode is the named typed refusal each leg must carry.
-	// fhirGraph_traversal's code is the Ask-C supersession of the
-	// registered QR-D5 row: with field discovery wired, traversal now
-	// reaches compilation and the PostgreSQL renderer refuses the graph
-	// physical plan; the shared graph path flattens that refusal to
-	// INVALID_REQUEST (retryable=false). Honest, typed, Arango-free --
-	// the flattening classification itself is banked as a cross-lane
-	// finding for the compiler/renderer lane, not silently re-pinned to
-	// a stale expectation.
 	graphqlLegs := []struct {
 		name          string
 		query         string
@@ -814,10 +692,6 @@ func TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable(t *testing.T
 		})
 	}
 
-	// The census inventory is complete only when it also records what the
-	// route DOES serve: fhirDataframe answers from the read lane. (The
-	// dedicated exact-literals witness is
-	// TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler.)
 	t.Run("fhirDataframe_serves_via_read_lane", func(t *testing.T) {
 		response := qRouteGraphQL(t, app, `{"query":"mutation { runFhirDataframe(input: {project: \"`+qRouteProject+`\", rootResourceType: \"Patient\", rootFields: [{name: \"gender\", selector: {valuePath: \"gender\"}}]}) { rows rowCount } }"}`)
 		t.Logf("fhirDataframe serving witness: status=%d body=%s", response.StatusCode, fixture.scrub(response.Body))
@@ -850,14 +724,6 @@ func qRouteMultipart(t *testing.T, files map[string]string) ([]byte, string) {
 	return buffer.Bytes(), writer.Boundary()
 }
 
-// TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler is
-// the ticket's headline witness: the first scoped PostgreSQL scalar read
-// through the public GraphQL route. It boots the production composition
-// (composePostgreSQLFirstQueryRoute -- the same function the server
-// serves), drives /graphql/graph's runFhirDataframe through the
-// production handler stack against a live PostgreSQL generation, and
-// requires literal rows. No Arango surface exists on this branch (the
-// composition never constructs one), so any answer here is PostgreSQL's.
 func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testing.T) {
 	fixture := newQRouteFixture(t)
 	fixture.load(t, qRouteProject, qRouteGenA, map[string][]string{
@@ -928,9 +794,6 @@ func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testi
 			}
 		}
 	}
-	// No Arango dialect may leak into the response: this branch
-	// constructs no Arango surface at all, and the answer must not read
-	// like an AQL echo either.
 	for _, aqlTell := range []string{"FOR d IN ", "@auth_resource_paths", "fhir_field_catalog"} {
 		if strings.Contains(response.Body, aqlTell) {
 			t.Fatalf("response body carries AQL tell %q: %s", aqlTell, fixture.scrub(response.Body))
@@ -938,13 +801,6 @@ func TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler(t *testi
 	}
 }
 
-// TestPostgreSQLFirstQueryRouteLivenessAndReadiness is the
-// pg-runtime-health-readiness leg for the first-query route: on a migrated
-// placement /livez answers the published DB-free body and /readyz reports
-// ready with dataframe=disabled (the route refuses ClickHouse by contract);
-// after the closer tears the pool down, /livez STILL answers 200 through the
-// production handler stack while /readyz refuses with core=not_ready and
-// the safe core_state=runtime_closed token.
 func TestPostgreSQLFirstQueryRouteLivenessAndReadiness(t *testing.T) {
 	markReadinessLeg(t, "TestPostgreSQLFirstQueryRouteLivenessAndReadiness")
 	fixture := newQRouteFixture(t)
@@ -999,22 +855,6 @@ func TestPostgreSQLFirstQueryRouteLivenessAndReadiness(t *testing.T) {
 	}
 }
 
-// TestQRouteCensusVocabularyCorrespondence pins, offline and with no
-// database contact, the two vocabularies this batch minted: this file's
-// bare verify_qroute_<unixnano>_<hex> census shape and the
-// verify_qroute_q<unixnano>_<hex> sub-namespace owned by
-// internal/api/graphql/graph/query/postgres_query_test.go. Conditions it
-// makes test-enforced (coordinator ruling on the census narrowing):
-//
-//   - every name shape this process mints matches its own census regex, so
-//     a leak can never go uncensused;
-//   - near-miss shapes never minted -- including the fuzz names the
-//     verifier was told to try (verify_qroute_q_zz, verify_qroute_1_x) --
-//     do NOT match, so the census cannot silently claim foreign churn;
-//   - neither vocabulary matches the other package's census, which is the
-//     exact separation that makes the parallel `go test` of this package
-//     and internal/api/graphql/graph/query race-free (see the registry
-//     comment above the pattern block).
 func TestQRouteCensusVocabularyCorrespondence(t *testing.T) {
 	qrHex := func() string {
 		var b [6]byte
@@ -1023,7 +863,6 @@ func TestQRouteCensusVocabularyCorrespondence(t *testing.T) {
 		}
 		return fmt.Sprintf("%x", b[:])
 	}
-	// Positive: 200 samples through the exact mint format.
 	for i := 0; i < 200; i++ {
 		name := fmt.Sprintf(qRouteDBFmt, time.Now().UnixNano(), qrHex())
 		if !qRouteDBPattern.MatchString(name) {
@@ -1034,18 +873,14 @@ func TestQRouteCensusVocabularyCorrespondence(t *testing.T) {
 		}
 	}
 	ownPositives := []string{"verify_qroute_1731234567890_0123456789ab"}
-	// Negative: shapes this file never mints. The first two are the
-	// verifier's named fuzz examples; the sub-namespace shape is the query
-	// package's whole vocabulary, and _src/_rel suffixes are this file's
-	// own schema shapes, which must never double-count as databases.
 	ownNegatives := []string{
 		"verify_qroute_q_zz",
 		"verify_qroute_1_x",
-		"verify_qroute_q1731234567890_0123456789ab", // the query package's mint shape
+		"verify_qroute_q1731234567890_0123456789ab",
 		"verify_qroute_",
 		"verify_qroute_1731234567890_",
 		"verify_qroute__0123456789ab",
-		"verify_qroute_1731234567890_0123456789AB", // uppercase hex is never minted
+		"verify_qroute_1731234567890_0123456789AB",
 		"verify_qroute_1731234567890_0123456789ab_src",
 		"verify_qroute_1731234567890_0123456789ab_rel",
 		"verify_qroute_0x1f_0123456789ab",
@@ -1065,8 +900,6 @@ func TestQRouteCensusVocabularyCorrespondence(t *testing.T) {
 			t.Errorf("never-minted shape %q matched the own census regex: the census can now hide foreign churn under this file's name", name)
 		}
 	}
-	// Sibling direction: the query package's sub-namespace shape is
-	// census-invisible here (mirror assertions live in that file).
 	for i := 0; i < 200; i++ {
 		sibling := fmt.Sprintf("verify_qroute_q%d_%s", time.Now().UnixNano(), qrHex())
 		if qRouteDBPattern.MatchString(sibling) {
@@ -1075,13 +908,6 @@ func TestQRouteCensusVocabularyCorrespondence(t *testing.T) {
 	}
 }
 
-// TestZZQRouteZeroLeftoverFixtures is the N-5 audit: it compares the
-// pg_database count for THIS process's own mint shape against the baseline
-// captured at first use and requires every registered mint to be witnessed
-// dropped. Foreign prefixes are printed and classified only -- never
-// deleted, never attributed to this pull request. The audit additionally
-// asserts (not logs) drop-list == minted-list, mint-name/regex
-// correspondence, and per-leg equality against qRouteMintInventory.
 func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 	raw := qRouteTestPostgresURL(t)
 	if !qRouteBaselineSet {
@@ -1098,8 +924,6 @@ func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 	}
 	defer admin.Close()
 	var count int64
-	// Same shape-scoped count as the baseline: this file's mints only; the
-	// query package's verify_qroute_q mints are audited by its own N-5 leg.
 	if err := admin.QueryRow(ctx,
 		"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_qroute_[0-9]+_[0-9a-f]+$'").
 		Scan(&count); err != nil {
@@ -1123,22 +947,12 @@ func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 	if len(outstanding) > 0 {
 		t.Fatalf("owned fixtures still live at audit: %v", outstanding)
 	}
-	// Drop-list == minted-list, asserted (not logged): every registered
-	// mint was witnessed dropped above, and a drop mark can only land on a
-	// registered name -- anything else went to qRouteStrayMarks:
 	if len(strays) > 0 {
 		t.Fatalf("drop marks for names this process never minted: %v", strays)
 	}
-	// Every minted name matches the census regex, so no leak of this
-	// process can hide outside the census that watches for leaks.
 	if len(unmatched) > 0 {
 		t.Fatalf("registered mints outside the census regex: %v", unmatched)
 	}
-	// Checked-in per-leg enumeration == runtime registry, both directions:
-	// every inventoried leg minted its declared count, and no leg outside
-	// the inventory minted anything. (This is the full-package census run;
-	// a -run subset that skips inventoried legs fails here on purpose so
-	// the subset is never mistaken for the census.)
 	for leg, want := range qRouteMintInventory {
 		if got := perLeg[leg]; got != want {
 			t.Errorf("mint inventory: leg %q minted %d databases, inventoried %d", leg, got, want)
@@ -1165,18 +979,8 @@ func TestZZQRouteZeroLeftoverFixtures(t *testing.T) {
 	}
 }
 
-// TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded pins today's truth
-// for the registered factory-layer risk (plan 5c): with the consumable pair
-// against a dead endpoint, the startup path eventually surfaces a typed,
-// credential-free failure -- no hang-forever, no panic. This is a BOUND
-// assertion, not a speed assertion: the measured behavior (run receipt in
-// the plan) is ~60s to first failure regardless of the caller ctx -- the
-// factory's eager MinConns dial plus its AcquireTimeout policy own that
-// latency, not the server ctx -- so the generous bound below must never be
-// tightened into a performance promise. It is live-gated on purpose: the
-// route battery itself stays on reachable mints.
 func TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded(t *testing.T) {
-	qRouteTestPostgresURL(t) // live-gate; the witness dials no reachable host
+	qRouteTestPostgresURL(t)
 	cfg := Config{}
 	cfg.Server.Backend = sourceBackendPostgres
 	cfg.Server.PostgreSQL = qRoutePostgreSQLConfig()
@@ -1206,7 +1010,6 @@ func TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded(t *testing.T) {
 			t.Fatalf("dead-endpoint failure leaked credential material %q: %v", secret, err)
 		}
 	}
-	// Cause chain stays intact through the scrubber (no half-typed error).
 	var wrapped *redactedRouteError
 	if errors.As(err, &wrapped) && wrapped.Unwrap() == nil {
 		t.Fatalf("scrubbed failure lost its cause: %v", err)

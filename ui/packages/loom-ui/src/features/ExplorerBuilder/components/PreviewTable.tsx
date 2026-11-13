@@ -281,9 +281,6 @@ export const PreviewTable = ({
       : explicitGroups.afterStepId === authoredConstructionStep.id
   ));
   const constructionStep = cohortTerminal ? undefined : authoredConstructionStep;
-  // A row-value output represents the grouped value even when it reuses the
-  // authored source's physical name. Keep its stable output ID as the owner
-  // of presentation changes while leaving ordinary source passthroughs alone.
   const rowValueOutputIds = new Set(
     (constructionStep?.rowValues ?? []).map((value) => value.outputColumnId),
   );

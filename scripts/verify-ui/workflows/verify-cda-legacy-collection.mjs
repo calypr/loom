@@ -3,7 +3,6 @@ import { readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 
 export async function legacyCollectionWorkflow({ page, cda }) {
-  // Replay an owned, pre-direction-field QA Explorer without changing its saved draft.
   const seedPath = cda.env.LOOM_LEGACY_COLLECTION_SEED_REPORT ?? process.env.LOOM_LEGACY_COLLECTION_SEED_REPORT;
   assert(seedPath, 'Set LOOM_LEGACY_COLLECTION_SEED_REPORT to a retained owned legacy fixture report');
   const seed = JSON.parse(await readFile(seedPath, 'utf8'));

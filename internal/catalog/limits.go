@@ -1,9 +1,5 @@
 package catalog
 
-// ProfileLimits bounds the write-side memory retained while profiling one
-// resource file. Catalog discovery is useful only while it remains a bounded
-// summary; retaining every value from a high-cardinality field turns an ingest
-// into an in-memory copy of the source dataset.
 type ProfileLimits struct {
 	MaxFields                  int
 	MaxDistinctValuesPerField  int
@@ -11,10 +7,7 @@ type ProfileLimits struct {
 	MaxPivotColumnsPerField    int
 	MaxExtensionValuesPerField int
 	MaxShapePlans              int
-	// MaxRetainedBytes is an aggregate budget shared by shape plans and all
-	// profilers using one cache. It bounds the in-memory catalog summary for a
-	// load even when many workers observe distinct values concurrently.
-	MaxRetainedBytes int
+	MaxRetainedBytes           int
 }
 
 const (
@@ -27,8 +20,6 @@ const (
 	DefaultMaxRetainedBytes           = 64 << 20
 )
 
-// DefaultProfileLimits are deliberately finite. Callers that need a
-// different operational envelope must make that choice explicitly.
 func DefaultProfileLimits() ProfileLimits {
 	return ProfileLimits{
 		MaxFields:                  DefaultMaxProfileFields,
@@ -67,8 +58,6 @@ func (l ProfileLimits) normalized() ProfileLimits {
 	return l
 }
 
-// NormalizeProfileLimits applies the finite defaults to an operational load
-// configuration.
 func NormalizeProfileLimits(l ProfileLimits) ProfileLimits {
 	return l.normalized()
 }

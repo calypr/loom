@@ -102,15 +102,10 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 	if compiled.PreviewCoveringIndex != nil {
 		schedulePreviewIndexPrewarm(ctx, e, *compiled.PreviewCoveringIndex)
 	}
-	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
-	overflow := false
-	queryRows := func(ctx context.Context, cmd command.CompiledCommand, _ int, visit RowVisitor) error {
-		return e.previewRowsPort()(ctx, RowsRequest{Command: cmd, BatchSize: e.batchSize}, visit)
-	}
 	if compiled.OverflowWitness != nil {
 		witnessCount := 0
 		missing := false
-		err := queryRows(ctx, compiled.OverflowWitness.Command, 0, func(row map[string]any) error {
+		err := e.previewRowsPort()(ctx, RowsRequest{Command: compiled.OverflowWitness.Command, BatchSize: e.batchSize}, func(row map[string]any) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -138,43 +133,20 @@ func (e *Engine) ScanCategoriesCompiled(ctx context.Context, compiled compiler.C
 			return CategoryScanResult{ConclusiveMissing: true, Proof: compiled.Proof}, nil
 		}
 	}
-	err := queryRows(ctx, compiled.Command, 0, func(row map[string]any) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		present, ok := row[compiled.PresentColumn].(bool)
-		if !ok {
-			return fmt.Errorf("category scan row has invalid presence marker")
-		}
-		value, exists := row[compiled.ValueColumn]
-		if !exists {
-			return fmt.Errorf("category scan row is missing value")
-		}
-		if len(values) == compiled.Proof.MaxValues {
-			overflow = true
-			return nil
-		}
-		values = append(values, CategoryValue{Present: present, Value: value})
-		return nil
-	})
-	if err != nil {
-		return CategoryScanResult{}, fmt.Errorf("execute category scan: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return CategoryScanResult{}, err
-	}
-	return CategoryScanResult{Values: values, Complete: !overflow, Overflow: overflow, Proof: compiled.Proof}, nil
+	return e.collectCategoryResultPage(ctx, compiled, nil, identityCategoryValue)
 }
 
-func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
-	if compiled.OverflowWitness != nil {
-		return CategoryScanResult{}, fmt.Errorf("category scan: a PostgreSQL command must not carry an overflow witness; the bounded maxValues+1 page owns truncation detection")
-	}
+func (e *Engine) collectCategoryResultPage(
+	ctx context.Context,
+	compiled compiler.CompiledCategoryScanQuery,
+	declaredColumns []string,
+	decodeValue func(any) (any, error),
+) (CategoryScanResult, error) {
 	values := make([]CategoryValue, 0, compiled.Proof.MaxValues)
 	overflow := false
 	err := e.previewRowsPort()(ctx, RowsRequest{
 		Command:         compiled.Command,
-		DeclaredColumns: []string{compiled.PresentColumn, compiled.ValueColumn},
+		DeclaredColumns: declaredColumns,
 		BatchSize:       e.batchSize,
 	}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
@@ -188,7 +160,7 @@ func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler
 		if !exists {
 			return fmt.Errorf("category scan row is missing value")
 		}
-		value, err := decodePostgreSQLCategoryValue(raw)
+		value, err := decodeValue(raw)
 		if err != nil {
 			return err
 		}
@@ -206,6 +178,17 @@ func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler
 		return CategoryScanResult{}, err
 	}
 	return CategoryScanResult{Values: values, Complete: !overflow, Overflow: overflow, Proof: compiled.Proof}, nil
+}
+
+func identityCategoryValue(raw any) (any, error) {
+	return raw, nil
+}
+
+func (e *Engine) scanCategoriesPostgreSQL(ctx context.Context, compiled compiler.CompiledCategoryScanQuery) (CategoryScanResult, error) {
+	if compiled.OverflowWitness != nil {
+		return CategoryScanResult{}, fmt.Errorf("category scan: a PostgreSQL command must not carry an overflow witness; the bounded maxValues+1 page owns truncation detection")
+	}
+	return e.collectCategoryResultPage(ctx, compiled, []string{compiled.PresentColumn, compiled.ValueColumn}, decodePostgreSQLCategoryValue)
 }
 
 func decodePostgreSQLCategoryValue(raw any) (any, error) {

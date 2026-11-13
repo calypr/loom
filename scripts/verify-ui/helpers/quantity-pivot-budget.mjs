@@ -45,7 +45,6 @@ export async function waitForPivotObservable({ page, fallbackWait, predicate, ar
   if (budgetMs > DEFAULT_ACTION_TO_RENDER_BUDGET_MS) {
     if (typeof predicate !== 'function') throw new TypeError('Browser waits require an inspection function.');
     if (typeof argument === 'string') throw new TypeError('Browser wait arguments must be structured data, not source code.');
-    // The scoped exception uses the same Playwright wait primitive without the shared helper's five-second cap.
     await page.waitForFunction(predicate, argument ?? {}, { timeout: boundedTimeoutMs });
     return;
   }

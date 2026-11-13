@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 
 	storepostgres "github.com/calypr/loom/internal/backends/postgres/internal/store"
 	publication "github.com/calypr/loom/internal/dataset"
@@ -22,10 +21,6 @@ var (
 	ErrActivationConflict         = errors.New("generation activation conflict")
 	ErrUnexpectedStoreResult      = errors.New("unexpected generation store result")
 )
-
-const uniqueViolationSQLState = "23505"
-
-var schemaNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 type ConnSource interface {
 	Acquire(ctx context.Context) (*pgxpool.Conn, error)
@@ -47,7 +42,7 @@ func New(src ConnSource, schema string) (*Store, error) {
 	if src == nil {
 		return nil, ErrNilConnSource
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	return &Store{
@@ -91,11 +86,6 @@ func queryRowConn(ctx context.Context, conn *pgxpool.Conn, c Command) pgx.Row {
 type errRow struct{ err error }
 
 func (r errRow) Scan(dest ...any) error { return r.err }
-
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == uniqueViolationSQLState
-}
 
 func validateProject(project string) error {
 	_, err := publication.NewRef(project, "generation-project-validation")

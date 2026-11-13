@@ -1,5 +1,3 @@
-// Command gqlgenfix corrects two invalid pointer returns emitted by the pinned
-// gqlgen version for Loom's generated GraphQL types.
 package main
 
 import (

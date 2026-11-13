@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/calypr/loom/internal/explorer"
 
@@ -22,7 +21,6 @@ import (
 const (
 	publishTxMaxAttempts  = 4
 	publishDeadlockRetry  = 5 * time.Millisecond
-	publishDeadlockState  = "40P01"
 	publishDiagnosticsSet = "[]"
 )
 
@@ -43,7 +41,7 @@ func NewPublishStore(client *pgstore.Client, explorerSchema, datasetSchema strin
 		return nil, errors.New("postgres explorer store: publish client is required")
 	}
 	for _, schema := range []string{explorerSchema, datasetSchema} {
-		if !schemaNamePattern.MatchString(schema) {
+		if !pgstore.ValidSchemaName(schema) {
 			return nil, fmt.Errorf("postgres explorer store: invalid publish schema %q: must match [a-z_][a-z0-9_]{0,62}", schema)
 		}
 	}
@@ -71,6 +69,7 @@ type publishStatements struct {
 	priorLock            string
 	priorSupersede       string
 	candidateActive      string
+	candidateRevive      string
 	ownerActivate        string
 }
 
@@ -102,6 +101,9 @@ func newPublishStatements(explorerSchema, datasetSchema string) publishStatement
 		candidateActive: "UPDATE " + sanitizeTableRef(explorerSchema, RevisionsTable) +
 			" SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = $3, publication = $4" +
 			" WHERE id = $1 AND status = 'READY' RETURNING " + strings.Join(revisionColumns, ", "),
+		candidateRevive: "UPDATE " + sanitizeTableRef(explorerSchema, RevisionsTable) +
+			" SET status = 'ACTIVE', activated_at = $2, failed_at = NULL, diagnostics = $3, publication = $4" +
+			" WHERE id = $1 AND status = 'FAILED' RETURNING " + strings.Join(revisionColumns, ", "),
 		ownerActivate: "UPDATE " + ownerTable + " SET active_revision_id = $3, updated_at = $4" +
 			" WHERE project = $1 AND explorer_id = $2 RETURNING " + ownerCols,
 	}
@@ -657,6 +659,5 @@ func isTypedPublicationRefusal(err error) bool {
 }
 
 func isDeadlockError(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == publishDeadlockState
+	return pgstore.IsDeadlockDetected(err)
 }
