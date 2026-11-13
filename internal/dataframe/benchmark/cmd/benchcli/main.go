@@ -28,6 +28,10 @@ func main() {
 		runVerify()
 	case "run":
 		runLive()
+	case "setup-pg":
+		runSetupPG()
+	case "drop-pg":
+		runDropPG()
 	default:
 		usage()
 		os.Exit(2)
@@ -264,5 +268,5 @@ func planNotRunMatchesBattery(plan benchmark.RunPlan) bool {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchcli verify --report <report.json> | benchcli run [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchcli verify --report <report.json> | benchcli run [flags] | benchcli setup-pg --database <name> | benchcli drop-pg --database <name>")
 }
