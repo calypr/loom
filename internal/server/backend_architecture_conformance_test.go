@@ -285,7 +285,7 @@ var (
 )
 
 type ab10Mint struct {
-	backend string // "postgres" or "arangodb"
+	backend string // arm identity: "postgresql" or "arangodb"
 	leg     string
 	dropped bool
 }
@@ -321,7 +321,22 @@ func ab10MarkDropped(name string) {
 // stray marks may exist, and every foreign-prefixed resource the service
 // still holds must be zero (owned prefixes) — foreign names are recorded
 // for audit but never deleted (N-5).
+// ab10AuditArm runs from the first-registered t.Cleanup of each arm: the
+// registry comparison covers this arm's legs only while the arm otherwise
+// passed (on a red arm the leg inventory is not meaningful), and the live
+// zero-survivor census always runs — leaks matter most after failures.
+// First registration matters: cleanups run LIFO, so every drop cleanup
+// registered later (fixture mints, cell resources) has already marked the
+// registry dropped=true by the time the registry section reads it.
 func ab10AuditArm(t *testing.T, arm string) {
+	t.Helper()
+	if !t.Failed() {
+		ab10AuditRegistry(t, arm)
+	}
+	ab10AuditSurvivors(t, arm)
+}
+
+func ab10AuditRegistry(t *testing.T, arm string) {
 	t.Helper()
 	ab10OwnedMu.Lock()
 	defer ab10OwnedMu.Unlock()
@@ -362,6 +377,73 @@ func ab10AuditArm(t *testing.T, arm string) {
 	}
 	if len(ab10StrayMarks) != 0 {
 		t.Errorf("%s arm census: stray drop marks %v", arm, ab10StrayMarks)
+	}
+}
+
+// ab10AuditSurvivors live-verifies the owned prefix is empty on the
+// service itself, through a fresh connection: by cleanup time the
+// fixture's own pools are closed, and the service outlives the test
+// process. A surviving owned resource is a leak regardless of how the
+// arm ended.
+func ab10AuditSurvivors(t *testing.T, arm string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if arm == "postgresql" {
+		raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+		if raw == "" {
+			t.Errorf("postgresql arm census: LOOM_TEST_POSTGRES_URL unset at arm end")
+			return
+		}
+		pool, err := pgxpool.New(ctx, raw)
+		if err != nil {
+			t.Errorf("postgresql arm census: connect for survivor count: %v", err)
+			return
+		}
+		defer pool.Close()
+		var count int64
+		if err := pool.QueryRow(ctx,
+			"SELECT count(*) FROM pg_database WHERE datname ~ '^verify_ab10pg_[0-9]+_[0-9a-f]{12}$'").Scan(&count); err != nil {
+			t.Errorf("postgresql arm census: live survivor count: %v", err)
+			return
+		}
+		if count != 0 {
+			t.Errorf("postgresql arm census: %d verify_ab10pg_* databases survived the arm", count)
+		}
+		return
+	}
+	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	if endpoint == "" {
+		t.Errorf("arangodb arm census: LOOM_TEST_ARANGO_URL unset at arm end")
+		return
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		strings.TrimRight(endpoint, "/")+"/_api/database", nil)
+	if err != nil {
+		t.Errorf("arangodb arm census: build database list request: %v", err)
+		return
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Errorf("arangodb arm census: list databases: %v", err)
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Errorf("arangodb arm census: list databases HTTP %d", response.StatusCode)
+		return
+	}
+	var listing struct {
+		Result []string `json:"result"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&listing); err != nil {
+		t.Errorf("arangodb arm census: decode database list: %v", err)
+		return
+	}
+	for _, name := range listing.Result {
+		if strings.HasPrefix(name, "loom_test_ab10_arango_") {
+			t.Errorf("arangodb arm census: database %q survived the arm", name)
+		}
 	}
 }
 
@@ -491,7 +573,7 @@ func newAB10PGFixture(t *testing.T) *ab10PGFixture {
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+database+`"`); err != nil {
 		t.Fatalf("create isolated database: %s", scrub(err))
 	}
-	ab10Register(database, "postgres", t.Name())
+	ab10Register(database, "postgresql", t.Name())
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.WithoutCancel(context.Background()),
 			`DROP DATABASE IF EXISTS "`+database+`" WITH (FORCE)`); err != nil {
@@ -749,6 +831,11 @@ func (f *ab10PGFixture) probeCount(t *testing.T, query string, args ...any) int6
 }
 
 func testBackendArchitectureConformancePostgres(t *testing.T) {
+	ab10PGURL(t) // skip first: a registered cleanup would run under Skip too
+	// Registered first (after the skip decision) so LIFO cleanup ordering
+	// runs the audit last: by then the fixture's drop cleanup has marked
+	// the registry dropped=true.
+	t.Cleanup(func() { ab10AuditArm(t, "postgresql") })
 	fixture := newAB10PGFixture(t)
 	fixture.migrate(t)
 	fixture.load(t, ab10Project1, ab10GenA, ab10PathMain, ab10GenFiles(t))
@@ -798,7 +885,6 @@ func testBackendArchitectureConformancePostgres(t *testing.T) {
 	ab10CellUpgradeReopen(t, arm)
 
 	ab10AuditPG(t, fixture)
-	ab10AuditArm(t, "postgresql")
 }
 
 func ab10AuditPG(t *testing.T, fixture *ab10PGFixture) {
@@ -899,6 +985,9 @@ func ab10ArangoOwnDatabase(t *testing.T, endpoint, leg string) string {
 
 func testBackendArchitectureConformanceArango(t *testing.T) {
 	endpoint := ab10ArangoEndpoint(t)
+	// Registered before the mint so LIFO cleanup ordering runs the audit
+	// last: by then the database drop cleanup has marked the registry.
+	t.Cleanup(func() { ab10AuditArm(t, "arangodb") })
 	database := ab10ArangoOwnDatabase(t, endpoint, t.Name())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
@@ -965,8 +1054,6 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 	ab10CellBackendUnavailableNoFallback(t, arm)
 	ab10CellGenerationIsolation(t, arm)
 	ab10CellUpgradeReopen(t, arm)
-
-	ab10AuditArm(t, "arangodb")
 }
 
 func ab10WriteMetaDir(t *testing.T, files map[string][]string) string {
@@ -1596,9 +1683,13 @@ func ab10CellDraftCASOneWinner(t *testing.T, arm *ab10Arm) {
 		}
 
 		// Two concurrent saves at the same version: one winner, one loser.
+		// The writers must not touch the tester: testing requires FailNow
+		// on the test goroutine, so transport failures travel back in the
+		// outcome and fail after done.Wait().
 		type outcome struct {
 			status int
 			body   string
+			err    string
 		}
 		results := make([]outcome, 2)
 		labels := []string{"ab10-winner-label", "ab10-loser-label"}
@@ -1611,13 +1702,22 @@ func ab10CellDraftCASOneWinner(t *testing.T, arm *ab10Arm) {
 				defer done.Done()
 				start.Wait()
 				body := ab10UpdateColumnBody(token, fmt.Sprintf("ab10-cmd-%d", i), 1, digest, labels[i])
-				response := requestJSON(t, arm.app, http.MethodPost,
+				response, err := ab10AttemptJSON(arm.app, http.MethodPost,
 					"/api/v1/projects/"+ab10Project1+"/explorers/"+ab10ExplorerID+"/authoring/v2/commands", body)
+				if err != nil {
+					results[i] = outcome{err: err.Error()}
+					return
+				}
 				results[i] = outcome{status: response.StatusCode, body: response.Body}
 			}(i)
 		}
 		start.Done()
 		done.Wait()
+		for i, result := range results {
+			if result.err != "" {
+				t.Fatalf("%s arm: CAS writer %d transport failure: %s", arm.name, i, result.err)
+			}
+		}
 
 		var winners, losers []outcome
 		for _, result := range results {
@@ -2036,16 +2136,21 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 			if _, _, err := aqlCommand.PostgreSQLParameters(); !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
 				t.Fatalf("%s arm: PostgreSQL accessor on an AQL-tagged command: %v, want ErrCompiledCommandBackendMismatch", arm.name, err)
 			}
-			// Cross-tag dispatch into the arm's own row adapter is refused with
-			// zero statements reaching the server (census-class witness below).
-			before := ab10ServerStatementWitness(t, arm)
+			// Cross-tag dispatch into the arm's own row adapter is refused
+			// before any dial. The PostgreSQL arm pairs the typed error with
+			// a durable committed-transaction census below; the Arango arm
+			// asserts the typed refusal alone. The runtime is opened before
+			// sampling so pool assembly never lands inside the window.
 			var err error
+			var before int64
 			if arm.backend != nil {
+				before = ab10ServerStatementWitness(t, arm)
 				err = selectedAQLAdapter{exec: arm.backend.Client}.serviceRows(ctx,
 					dataframeexecution.RowsRequest{Command: ab10MustPG(t, "SELECT 1")}, func(map[string]any) error { return nil })
 			} else {
 				runtime := arm.fixture.catalogRuntime(t)
 				defer func() { _ = runtime.Close() }()
+				before = ab10ServerStatementWitness(t, arm)
 				err = runtime.SourceRows(ctx, dataframeexecution.RowsRequest{Command: ab10MustAQL(t, "FOR d IN Patient RETURN d")}, func(map[string]any) error { return nil })
 			}
 			if err == nil || !errors.Is(err, command.ErrCompiledCommandBackendMismatch) {
@@ -2060,30 +2165,50 @@ func ab10CellBackendUnavailableNoFallback(t *testing.T, arm *ab10Arm) {
 // Wrong-tag zero-statement witnesses (census class).
 // ---------------------------------------------------------------------------
 
-func ab10ServerStatementWitness(t *testing.T, arm *ab10Arm) string {
+// ab10ServerStatementWitness samples a durable per-database counter: the
+// PostgreSQL arm's committed-transaction total. Each witness read commits
+// exactly one transaction itself, so the paired assertion tolerates +1 and
+// anything beyond that is an executed statement. The Arango arm has no
+// free server-side statement census; its cross-tag refusal is asserted
+// through the typed error alone.
+func ab10ServerStatementWitness(t *testing.T, arm *ab10Arm) int64 {
 	t.Helper()
 	if arm.name == "postgresql" {
-		// Count the arm-owned backend's active statements tagged for this
-		// database: any executed statement would land in pg_stat_activity.
-		return fmt.Sprintf("%d", arm.fixture.probeCount(t,
-			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()`))
+		return arm.fixture.probeCount(t,
+			`SELECT n_xact_commit FROM pg_stat_database WHERE datname = current_database()`)
 	}
-	return ""
+	return 0
 }
 
-func ab10AssertNoServerStatements(t *testing.T, arm *ab10Arm, before string) {
+func ab10AssertNoServerStatements(t *testing.T, arm *ab10Arm, before int64) {
 	t.Helper()
-	if arm.name == "postgresql" {
-		if after := ab10ServerStatementWitness(t, arm); after != before && after != "0" {
-			// Active statements fluctuate legitimately; the executed
-			// statement counter is the durable witness.
-			executed := arm.fixture.probeCount(t,
-				`SELECT COALESCE(sum(n_tup_ret+0),0) FROM pg_stat_database WHERE datname = current_database()`)
-			_ = executed
-			_ = after
-			_ = before
-		}
+	if arm.name != "postgresql" {
+		return
 	}
+	after := ab10ServerStatementWitness(t, arm)
+	// +1 accounts for the before-witness read's own commit; a refusal that
+	// never dialed the server must add nothing of its own.
+	if after-before > 1 {
+		t.Fatalf("%s arm: cross-tag dispatch reached the server: n_xact_commit grew by %d, want 1 (the before-witness read alone)", arm.name, after-before)
+	}
+}
+
+// ab10AttemptJSON is requestJSON for worker goroutines: identical wire
+// shape, but failures return an error instead of calling t.Fatal, so
+// FailNow never leaves the test goroutine.
+func ab10AttemptJSON(app *fiber.App, method, path, body string) (testHTTPResponse, error) {
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := app.Test(request)
+	if err != nil {
+		return testHTTPResponse{}, err
+	}
+	defer response.Body.Close()
+	raw, err := io.ReadAll(response.Body)
+	if err != nil {
+		return testHTTPResponse{}, err
+	}
+	return testHTTPResponse{StatusCode: response.StatusCode, Body: string(raw)}, nil
 }
 
 // ---------------------------------------------------------------------------

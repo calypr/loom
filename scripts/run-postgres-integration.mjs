@@ -940,14 +940,19 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...GENERATION_LOAD_INTEGRATION_TESTS],
       passes: generationLoadPasses,
     };
+    // Honest reserve, placed before the lane starts like every sibling:
+    // the PostgreSQL conformance arm measures well under the shared Go
+    // timeout and owns its database cleanup in-suite, so it reserves the
+    // timeout plus kill margin against the still-running deadline, never
+    // a retroactive claim after the work has already executed.
+    budget(goTestBudgetMs + 30_000 + 60_000);
     evidence.phases.push('backend-conformance-integration');
     // arch-backend-10: the conformance arm owns its verify_ab10pg_*
     // database and six owned schemas in-suite (zero-survivor audit runs at
     // arm end), so this phase administers nothing. The filter selects the
     // PostgreSQL arm only, so no ArangoDB skip event can appear; the
     // anchor list is the frozen thirteen-cell CI gate identity.
-    const conformanceGoTestMs = Math.min(goTestBudgetMs + 120_000, 300_000);
-    const conformanceArgs = ['test', '-json', '-count=1', `-timeout=${conformanceGoTestMs / 1000}s`, '-run', BACKEND_CONFORMANCE_FILTER, BACKEND_CONFORMANCE_PACKAGE];
+    const conformanceArgs = ['test', '-json', '-count=1', `-timeout=${goTestBudgetMs / 1000}s`, '-run', BACKEND_CONFORMANCE_FILTER, BACKEND_CONFORMANCE_PACKAGE];
     const conformance = await Promise.resolve(goTest(conformanceArgs, childEnv));
     writeFileSync(join(directory, 'backend-conformance-integration.jsonl'), scrubSecrets(conformance.stdout || '', secrets));
     writeFileSync(join(directory, 'backend-conformance-integration.stderr'), scrubSecrets(conformance.stderr || '', secrets));
@@ -961,7 +966,6 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...BACKEND_CONFORMANCE_TESTS],
       passes: conformancePasses,
     };
-    budget(conformanceGoTestMs + 30_000 + 60_000);
     evidence.status = 'passed';
   } catch (error) {
     evidence.status = 'failed';
