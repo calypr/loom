@@ -1056,3 +1056,41 @@ describe('ConstructionWorkspace', () => {
     }, identity)).toBe(false);
   });
 });
+
+it('switches presentations without remounting an edit or changing the shared receipt', () => {
+  render(<ConstructionWorkspace tables={[{ outputId: 'subjects', title: 'Subjects' }]} selectedOutputId="subjects"
+    onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()} onDeleteTable={vi.fn()} onRenameTable={vi.fn()}
+    onSelectFamily={vi.fn()} draftVersion={3} draftDigest="draft3" previewStatus="ready" previewReceiptId="candidate-receipt"
+    previewOutputId="subjects" proposalId="candidate-receipt" network={<div>Authored subject path</div>}
+    rowExpression={<input aria-label="Editable row term" defaultValue="original" />} preview={<div>Literal candidate rows</div>} />);
+  const term = screen.getByRole('textbox', { name: 'Editable row term' });
+  fireEvent.change(term, { target: { value: 'pending value' } });
+  const presentation = screen.getByRole('navigation', { name: 'Recipe presentation' });
+  fireEvent.click(within(presentation).getByRole('button', { name: 'Record network' }));
+  fireEvent.click(within(presentation).getByRole('button', { name: 'Define a row' }));
+  expect(screen.getByRole('textbox', { name: 'Editable row term' })).toBe(term);
+  expect((term as HTMLInputElement).value).toBe('pending value');
+  fireEvent.click(within(presentation).getByRole('button', { name: 'Both editors' }));
+  expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'candidate-receipt');
+  expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
+});
+
+it('keeps table switching available while a proposed change inspector is open', () => {
+ const select=vi.fn();
+ render(<ConstructionWorkspace tables={[{outputId:'subjects',title:'Subjects'},{outputId:'visits',title:'Visits'}]} selectedOutputId="subjects"
+ onSelectTable={select} onNewTable={vi.fn()} onDuplicateTable={vi.fn()} onDeleteTable={vi.fn()} onRenameTable={vi.fn()}
+ onSelectFamily={vi.fn()} editor={<p>Proposed change</p>} preview={<p>Proposed result</p>} previewStatus="ready" proposalId="candidate" draftVersion={1} draftDigest="draft"/>);
+ const tabs=screen.getByRole('navigation',{name:'Tables'});
+ fireEvent.click(within(tabs).getByRole('button',{name:'Visits'}));
+ expect(select).toHaveBeenCalledWith('visits');
+});
+
+it('uses one bounded shared fact slot and gives mutation editors precedence', () => {
+ const props={preview:<p>Rows</p>,previewStatus:'ready' as const,draftVersion:1,draftDigest:'draft',tables:[{outputId:'subjects',title:'Subjects'}],selectedOutputId:'subjects',onSelectTable:vi.fn(),onNewTable:vi.fn(),onDuplicateTable:vi.fn(),onDeleteTable:vi.fn(),onRenameTable:vi.fn(),onSelectFamily:vi.fn()};
+ const view=render(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>}/>);
+ expect(screen.getByLabelText('Recipe fact inspector')).toHaveClass('construction-active-editor','min-h-0');
+ expect(screen.queryByLabelText('Change editor')).toBeNull();
+ view.rerender(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>} editor={<p>Pending mutation</p>}/>);
+ expect(screen.queryByLabelText('Recipe fact inspector')).toBeNull();
+ expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
+});

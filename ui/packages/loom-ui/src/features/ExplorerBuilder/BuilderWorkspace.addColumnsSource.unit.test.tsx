@@ -34,8 +34,10 @@ import type {
   ExplorerRowDefinition,
 } from '../../types';
 import BuilderWorkspace from './BuilderWorkspace';
+import { ordinaryNetworkFixture } from '../../../testSupport/ordinaryNetworkFixture';
 
 const mockLoomClient = vi.hoisted(() => ({
+  describeAuthoringNetwork: vi.fn(),
   browseFrameSourceOptions: vi.fn(),
   browseSemanticInventory: vi.fn(),
   getConstructionCapabilities: vi.fn(),
@@ -639,6 +641,14 @@ describe('BuilderWorkspace Add columns source selection', () => {
   let applyExplorerCommands: Mock;
 
   beforeEach(() => {
+    mockLoomClient.describeAuthoringNetwork.mockReset().mockImplementation(async (args: Parameters<LoomClient['describeAuthoringNetwork']>[0]) => {
+      const current = (useGetExplorerBuilderStateV2Query as Mock).mock.results.at(-1)?.value?.data;
+      const document = current?.workspace?.documents.find((candidate: { output: { id: string } }) => candidate.output.id === args.outputId);
+      if (!document || current.draftVersion !== args.expectedDraftVersion || current.draftDigest !== args.expectedDraftDigest || current.catalog.snapshotToken !== args.snapshotToken) {
+        throw new Error('The fixture has no saved document for this requested draft identity.');
+      }
+      return ordinaryNetworkFixture(document, args);
+    });
     mockLoomClient.browseFrameSourceOptions.mockReset().mockImplementation(async (args: { outputId: string; snapshotToken: string }) => ({
       outputId: args.outputId,
       snapshotToken: args.snapshotToken,
@@ -1480,7 +1490,7 @@ describe('BuilderWorkspace Add columns source selection', () => {
     );
 
     fireEvent.click(screen.getByText('Advanced source setup'));
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced graph' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Explore available connections' }));
     fireEvent.click(screen.getByRole('button', { name: 'Select saved DiagnosticReport occurrence' }));
     fireEvent.click(screen.getByText('Advanced source setup'));
     fireEvent.click(await screen.findByTestId('construction-action-add-columns'));
@@ -2986,4 +2996,30 @@ describe('BuilderWorkspace Add columns source selection', () => {
     expect(previewPanel).toHaveAttribute('data-preview-receipt-id', 'specimen-receipt');
     expect(previewPanel).toHaveAttribute('data-preview-output-id', 'specimens');
   });
+  it('owns Advanced catalog reads only while its source setup is open', async () => {
+    const signals: AbortSignal[] = [];
+    mockLoomClient.browseSemanticInventory.mockImplementation((_args, signal: AbortSignal) => {
+      signals.push(signal); return new Promise(() => {});
+    });
+    const current = {...builderState, catalog: {...catalog, candidates: [fieldCandidate('patient-birthdate', 'patient-node', 'Patient', 'birthDate')]}};
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({data:current,isLoading:false,isFetching:false,refetch:vi.fn()});
+    const view = render(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    await screen.findByTestId('construction-workspace');
+    await act(async () => { await Promise.resolve(); });
+    expect(mockLoomClient.browseSemanticInventory).not.toHaveBeenCalled();
+    const setup = screen.getByTestId('construction-source-setup');
+    fireEvent.click(within(setup).getByText('Advanced source setup'));
+    await waitFor(() => expect(signals.length).toBeGreaterThan(0));
+    expect(signals.at(-1)?.aborted).toBe(false);
+    fireEvent.click(within(setup).getByText('Advanced source setup'));
+    await waitFor(() => expect(signals.every(signal => signal.aborted)).toBe(true));
+    const previous = signals.length;
+    (useGetExplorerBuilderStateV2Query as Mock).mockReturnValue({data:{...current,draftVersion:2,draftDigest:'sha256:draft-2'},isLoading:false,isFetching:false,refetch:vi.fn()});
+    view.rerender(<BuilderWorkspace organization="HTAN_INT" project="BForePC" explorerId="test" />);
+    fireEvent.click(within(setup).getByText('Advanced source setup'));
+    await waitFor(() => expect(signals.length).toBeGreaterThan(previous));
+    expect(signals.at(-1)?.aborted).toBe(false);
+    await waitFor(() => expect(mockLoomClient.browseSemanticInventory.mock.calls.at(-1)?.[0].fieldPresentation).toMatchObject({expectedDraftVersion:2,expectedDraftDigest:'sha256:draft-2'}));
+  });
+
 });

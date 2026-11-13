@@ -361,7 +361,7 @@
   }
   .loom-ui-root .construction-query-toolbar {
     flex: 0 1 auto;
-    max-height: 60%;
+    max-height: 6rem;
     overflow: auto;
   }
   .loom-ui-root .construction-result-region {
@@ -399,19 +399,39 @@
   .loom-ui-root .construction-result-region[data-has-network="true"] {
     display: grid;
     grid-template-columns: minmax(21rem, 0.8fr) minmax(0, 1.5fr);
+    grid-template-rows: minmax(220px, 1fr) minmax(150px, 1fr);
     align-items: stretch;
     overflow: hidden;
   }
-  .loom-ui-root .construction-result-region[data-has-network="true"] > [aria-label="Record network"] {
+  .loom-ui-root .construction-result-region[data-has-network="true"] > [aria-label="Recipe editors"] {
+    grid-column: 1 / span 2;
+    display: flex;
+    flex-direction: column;
     min-height: 0;
-    overflow: auto;
+    overflow: hidden;
   }
+  .loom-ui-root .construction-recipe-editor-views {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+  }
+  .loom-ui-root .construction-recipe-editor-views[data-recipe-view="both"] {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: .5rem;
+  }
+  .loom-ui-root .construction-recipe-editor-views > div { min-height: 0; overflow: hidden; }
+  .loom-ui-root .construction-recipe-editor-views > div > div,
+  .loom-ui-root .construction-recipe-editor-views > div > section { height: 100%; min-height: 0; overflow: auto; }
+  .loom-ui-root .construction-recipe-editor-views > div > div > section { height: 100%; min-height: 0; overflow: auto; }
   .loom-ui-root .construction-result-region[data-has-network="true"] > .construction-active-editor {
     grid-column: 1;
+    grid-row: 2;
+    min-height: 0;
     max-height: none;
   }
   .loom-ui-root .construction-result-region[data-has-network="true"] > [aria-label="Table result"] {
     grid-column: 2;
-    grid-row: 1 / span 2;
+    grid-row: 2;
   }
+  .loom-ui-root .construction-result-region[data-has-network="true"]:not([data-has-editor="true"]) > [aria-label="Table result"] { grid-column: 1 / span 2; }
 }

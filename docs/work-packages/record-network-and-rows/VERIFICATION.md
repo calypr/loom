@@ -56,6 +56,23 @@ and ordinary passes do not prove the complementary-editor follow-up.
 | Fresh compiler-21 scalar native proof | no-Apply native proof passes (20.079s); parent fresh public request replay 200/READY, exact six pair/list/scalar literals, all prior public values preserved, no private leak. Cancel preserves full workspace/version/digest | `/tmp/loom-scalar-api21-proof/fresh-worker/result.json`; `/tmp/loom-scalar-api21-proof/parent-green.json` |
 | Previous proposal refusal | old compiler-20 proposal returns 503 RECEIPT_STORE_UNAVAILABLE from current-contract guard. Initial private expected-409 assumption was wrong and stopped before fresh browser proof; not a clean 409 migration or universal old-proposal readability claim | `/tmp/loom-scalar-api21-proof/worker/old-v20-receipt.json` |
 | Group missing-policy extension | five reviewed harness/fixture paths add explicit EXCLUDE Preview/Cancel/Apply/reload then restore GROUP, preserving all prior assertions and deadlines; parent 22 registered checks pass (actual exit 0, 0.993s). Full 23-action carry-in rerun pending | `/workspace/loom-followup-root-review/work/review-group-missing-policy/receipt.md`; `/tmp/loom-group-missing-policy-parent-checks.log` |
+| Empty-construction producer normalization | reviewed three-path fix clones Steps from explicit empty slice; nil/[] were the only actual mismatch with identical canonical JSON/digest. Strict reflect equality/CAS/auth guards unchanged; no compiler 22. Full authoring 0.796s/lifecycle 22.252s pass; exact native control green 0.10s | `/workspace/loom-followup-candidate-review/work/review-candidate/empty-construction/receipt.md` |
+| Same persisted source receipt Apply | parent applies original receipt_9eb4… successfully (200, revision 7→8), exact candidate digest 58926066… and four FIRST values. Initial private post-save wrapper KeyError corrected through read-only verification; no repeated Apply | `/tmp/loom-source-first-apply/{parent-green.json,parent-green-api.log}` |
+| Mixed attempt 4 | WHOLE PASS, 110.432s/12 actions at c339f7e2c1b0384bd0ce5c9f2eda64256ca7e5757dd8216a8923c5cf9a3408b8; earlier mixed-3 false-guard failure (128.241s) retained | `/tmp/loom-followup-mixed-4/` |
+| Earlier-term attempt 1 | WHOLE PASS, 107.858s/eight actions at c339f7e2…; ALL→DISTINCT→ALL preserves exact downstream IDs/order/inputs/anchors/pin | `/tmp/loom-followup-earlier-term-1/` |
+| Ordinary policy selector repair | attempt 1 fails obsolete raw DIV/button selectors before actions (47.864s); reviewed one-file control fix plus native preparation creates exact two identifier[].value FIELD ALL columns with command acknowledgements 200, no policy Apply in preparation | `/tmp/loom-followup-ordinary-policy-1/`; native preparation worker/parent diagnostics |
+| Ordinary policy attempt 2 | WHOLE PASS, 36.609s/three actions at 7535bdaf3b384ae881fa49b8bead7bd8ee954c8be81d5da0f5a55f9776b63e10 | `/tmp/loom-followup-ordinary-policy-2/` |
+| Root proposal attempt 1 | WHOLE PASS, 35.280s/five actions at 7535bdaf…; imported PRESERVE blocked, explicit REPLACE disclosure/Cancel/detached Apply/reload exact four Patient IDs, other output pins unchanged | `/tmp/loom-followup-root-proposal-1/` |
+| Final carry-in attempt 5 | WHOLE PASS, 100.547s/23 actions, including full source-step restore, Group tuple/contributors/edit/removal/reload, EXCLUDE Preview/Cancel/Apply/reload and GROUP restoration | `/tmp/loom-followup-carry-in-5/` |
+| Final related rows attempt 2 | WHOLE PASS, 80.414s/seven actions, exact pair/list/value lifecycle | `/tmp/loom-followup-related-rows-2/` |
+| Final upstream dependency attempt 2 | WHOLE PASS, 40.467s/four actions; expected 422 INVALID_IMPORTED_RELATIONSHIP retained, no unexpected errors | `/tmp/loom-followup-upstream-dependency-2/` |
+| Final ordinary attempt 4 | WHOLE PASS, 31.103s/six actions; route lifecycle and reload intact | `/tmp/loom-followup-ordinary-4/` |
+| Late-commit focus repair | exact Builder afaf5b9a…/helper regression d7dde6a7… reviewed at manifest cfb5e9650c6709b623773e671dd6a353f07248f3c09b23305735e85dbb33966f. 53 focused tests pass (18.33s), full test TypeScript exit 0. Deterministic red is the actual production-helper late-DOM ordering; natural native prefixes were green and are not claimed deterministic red. Final graph11/row4 provide whole native focus proof. Earlier 210-test result retains its unchanged relevant source scope rather than being called a full current rerun | `/workspace/loom-followup-root-review/work/review-focus-late-commit/receipt.md`; `/tmp/loom-focus-late-commit-parent-{red,green}.log` |
+| Final focus root UI build | actual exit 0 including TypeScript; package Vite 36.58s/demo 33.59s. Reviewed Builder/helper hashes unchanged; no later product UI change recorded | `/tmp/loom-followup-final-focus-build.log` |
+| Graph-first attempt 11 | WHOLE PASS, 77.863s/seven actions plus 17 layouts; strict exact initiating graph-control focus, ownership/table stale/Cancel/Apply/reload and exact ALL lists pass; no errors. Parent validated raw report | `/tmp/loom-followup-graph-first-11/{command.json,native-evidence.json}` |
+| Row-first attempt 4 | WHOLE PASS, 56.940s/five actions; exact row-control focus and complete lifecycle, no errors, same source/API identity as graph-first 11 | `/tmp/loom-followup-row-first-4/{command.json,native-evidence.json}` |
+| Final graph/row canonical comparison | strict same-snapshot graph 11 ↔ row 4 PASS, independently repeated by parent with actual helper exit 0: canonical three rows/values, policies, operation order and actual catalog mapping match | `/tmp/loom-followup-row-first-4/canonical-equivalence.json`; `/tmp/loom-followup-canonical-parent-final.{log,json}` |
+| Fresh history attempt 1 | FAIL, actual exit 1/713.969s, setup only; native phase never admitted. 98 steps saved through stress_calc_097. Next stress_calc_098 candidate request times out at 30.076s; same server request later returns 200 at 34.462s, without Apply of step 99. Setup 900s deadline was not exceeded; native 180s was not started | `/tmp/loom-followup-history-stress-1/{command.json,history-preparation.json,api.log,saved-after-failure.json,request-provenance.json}` |
 | Refreshed authenticated doctor | actual exit 2 (0.309s): `usage: set LOOM_E2E_TOKEN or pass --token-file PATH`; no token available and no authenticated remote check performed. This credential blocker is separate from owned native coverage | `/tmp/loom-followup-authenticated-doctor-final.log`; earlier readiness `/tmp/loom-followup-readiness-1794553181550017402/` |
 
 The successful draft source fingerprint is
@@ -195,6 +212,68 @@ extension review manifest is
 its whole 23-action carry-in run and other final cases remain pending. Native
 no-Apply scalar proof is scoped repair evidence, not a substitute for mixed Apply,
 edit/removal/reload or authenticated Calypr acceptance.
+
+Backend commits `60af4516` and `d2d5eab5` are preserved; the empty-construction
+producer repair and UI/harness remain uncommitted at this checkpoint. Producer
+manifest `39471bc21411a84f3441f3fe7063d3dc77959d8fa9a96a9e7600d976cdcd6802`
+closes that source normalization unit without weakening equality or changing wire
+semantics. Reviewed mixed row-term and undefined-only harness guards preserve
+null/extra-field/wrong-version rejection; no oracle or policy boundary is waived.
+
+Current normalization API readiness passes doctor (2.651s), with 2,069-file equality:
+source `f6f50dbc13a71a8e91499295936597784da25388f915ce8e82c3f3b80a899bb2`,
+binary `23848a6e415271eace1744c7055e94ecf3151d431ff61a7010912a0bcc24d6a9`
+(`/tmp/loom-followup-normalization-readiness-1/`). Mixed/earlier-term passes retain
+their c339f7e2 source scopes. The later 7535bdaf fingerprint changes only the ordinary
+helper body outside those paths; unchanged relevant evidence is reused without
+claiming all twelve cases share one fingerprint. Product UI build 34.02s/24.95s
+remains valid because product UI source is unchanged.
+
+Nine of twelve whole native cases now pass. Final carry-in 5, related 2,
+upstream 2 and ordinary 4 share source
+`7535bdaf3b384ae881fa49b8bead7bd8ee954c8be81d5da0f5a55f9776b63e10`
+and unchanged API f6f50dbc…/binary 23848a6e…, with no browser/write/unexpected errors.
+The upstream expected 422 is preserved. Mixed 4 and earlier-term 1 retain c339f7e2
+fingerprints and are reused only because the later ordinary-helper delta is outside
+their relevant source. Parent final-batch validation remains in progress.
+Imported 3 passes (90.519s/17 actions): all five default outputs, overlay lifecycle
+and immutable pins, real two-browser expected 409 and stale-winner Cancel recovery.
+The expected 409 is negative acceptance evidence, not an unexpected-error waiver.
+Raw evidence: `/tmp/loom-followup-imported-3/native-evidence.json`. Graph 10 is starting; row 4 with strict canonical comparison and fresh
+100-operation history remain pending. Authenticated Calypr is separately blocked
+by missing credentials. This is not package completion.
+
+Eleven of twelve whole native cases now pass. Current graph-first source is
+`4da639e4b7ce477adaa8414825d367d669d435ebb6fc442bfe01f0c0ba29a70b`,
+with fresh 2,069-file equality and unchanged API f6f50dbc…/binary 23848a6e….
+Previous nine cases retain their exact earlier fingerprints; only the two-path
+focus-helper delta changed, so their unchanged value/plan/owner/persistence proof
+is reused without asserting fresh focus success for those older runs. Graph-10
+failure, deterministic helper red and natural native-prefix greens remain retained.
+Row-first 4 and strict same-snapshot canonical comparison now pass. Fresh
+100-operation history is starting without fixture reuse or retries: separate 900s
+preparation plus 180s native deadline within 1140s outer deadline. The first setup now failed before native admission, as recorded below; no history
+acceptance pass is claimed. Authenticated token and actual 267-column
+Calypr layout remain unavailable; all affected acceptance criteria stay incomplete.
+
+The failed 99-step request was reconstructed from the unchanged saved 98-step
+draft and exact nextStressStep generator: 543,146 bytes, matching original recorded
+Content-Length. The original HTTP body was NOT captured; reconstruction is explicitly
+provenance-qualified (`reconstructed-request-99.json`, `request-provenance.json`).
+Server request 82269150… later completes, but it does not pass the required 30s
+request bound and did not authorize or Apply a 99th step. Base compile 3.511s,
+candidate compile 3.688s and AQL 0.336s leave approximately 19.17s pre-candidate
+work and 7.24s postcompile under profiling; those intervals are diagnosis, not a
+completed performance fix.
+
+An isolated one-CPU actual candidate/receipt CPU/allocation profile and one 60s
+no-Apply diagnostic HTTP request are planned for attribution/cgroup evidence only.
+They do not replace acceptance: 30s API, 900s preparation and 180s native bounds,
+zero retries and fresh 100-step requirement remain unchanged. Current source/API
+identities are unchanged; all eleven other whole cases, strict canonical comparison,
+build and scoped reviews remain valid. Owned 100-operation acceptance is incomplete,
+performance implementation/verification remains pending, and authenticated Calypr
+is a separate missing-token blocker. No package completion or push is claimed.
 
 The current 12-case matrix and pending criteria are in
 [fixtures/ACCEPTANCE.md](fixtures/ACCEPTANCE.md). The remaining current-source native

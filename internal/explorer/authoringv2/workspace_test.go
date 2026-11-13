@@ -3,6 +3,7 @@ package authoringv2
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -328,5 +329,49 @@ func TestAggregateColumnSourceAcceptsClosedAggregateShape(t *testing.T) {
 	document.Columns[1].Source.Aggregate.Operation = "NOT_AN_AGGREGATE"
 	if err := document.Validate(); err == nil {
 		t.Fatal("unsupported aggregate operation was accepted")
+	}
+}
+
+func TestEmptyConstructionPreparationMatchesCanonicalReceiptWithoutChangingAuthoringJSON(t *testing.T) {
+	for _, steps := range [][]ConstructionStep{nil, {}} {
+		workspace := fiveTableWorkspace()
+		workspace.SemanticsVersion = CurrentSemanticsVersion
+		workspace.Documents[0].Columns[0].ColumnID = "patient-id"
+		workspace.Documents[0].Construction = &Construction{Version: ConstructionVersion, Steps: steps}
+		raw, err := workspace.CanonicalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		receipt, err := DecodeWorkspace(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := PrepareWorkspaceForCompilation(receipt, testCatalog())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(prepared, receipt) {
+			t.Fatal("prepared authoring state differs from its exact canonical receipt")
+		}
+		again, err := prepared.CanonicalJSON()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(raw) != string(again) {
+			t.Fatal("empty construction normalization changed authoritative JSON")
+		}
+		before, _ := receipt.Digest()
+		after, _ := prepared.Digest()
+		if before != after {
+			t.Fatal("empty construction normalization changed authoritative digest")
+		}
+		if prepared.Documents[0].Construction.Steps == nil {
+			t.Fatal("explicit empty operation sequence became nil")
+		}
+		for _, document := range prepared.Documents[1:] {
+			if document.Construction != nil {
+				t.Fatal("normalization invented an unrelated construction")
+			}
+		}
 	}
 }

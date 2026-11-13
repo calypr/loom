@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { LoomClient } from '../../../api';
 import { SourceRelationshipReview } from './SourceRelationshipReview';
 vi.mock('../constructionWorkspace/ConstructionProposalPreview', () => ({ ConstructionProposalPreview: () => <p>Candidate values</p> }));
@@ -25,6 +25,26 @@ function setup(overrides: Partial<LoomClient> = {}) {
   return { proposeSourceRelationship, preview, onApply, onCancel };
 }
 describe('native source proposal ownership', () => {
+  it('shows authoritative field labels and keeps opaque identities in collapsed details', async () => {
+    const reviewed = { ...proposal, affectedColumns: ['opaque-status', 'opaque-removed', 'opaque-unavailable'],
+      candidateDocument: { columns: [{ columnId: 'opaque-status', column: 'status', label: 'Subject status' }] } };
+    render(<SourceRelationshipReview client={{ proposeSourceRelationship: vi.fn().mockResolvedValue(reviewed), preview: vi.fn().mockResolvedValue(rows) } as unknown as LoomClient}
+      project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
+      change={{ action: 'REMOVE', occurrenceId: 'observation' }} columnLabels={new Map([['opaque-status', 'Previous status label'], ['opaque-removed', 'Observation value']])}
+      onApply={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Preview relationship' }));
+    const fields = (await screen.findByText('Affected fields (3)')).closest('details')!;
+    expect(within(fields).getByText('Subject status')).toBeInTheDocument();
+    expect(within(fields).getByText('Observation value')).toBeInTheDocument();
+    expect(within(fields).getByText('Field label unavailable')).toBeInTheDocument();
+    expect(within(fields).queryByText('Previous status label')).not.toBeInTheDocument();
+    const identities = screen.getByText('Technical column identities').closest('details')!;
+    expect(identities).not.toHaveAttribute('open');
+    for (const id of reviewed.affectedColumns) {
+      expect(within(fields).queryByText(id)).not.toBeInTheDocument();
+      expect(within(identities).getByText(id)).toBeInTheDocument();
+    }
+  });
   it('requires successful exact-receipt Preview before Apply and applies only the proposal', async () => {
     const calls = setup();
     const apply = screen.getByRole('button', { name: 'Apply relationship' }) as HTMLButtonElement;
@@ -77,4 +97,22 @@ describe('native source proposal ownership', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith([{ type: 'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL', outputId: 'subjects', proposalId: 'p1' }]));
   });
 
+});
+
+it('refuses an unavailable receipt preview before enabling source Apply', async () => {
+ setup({preview:vi.fn().mockResolvedValue({...rows,rows:null})});
+ fireEvent.click(screen.getByRole('button',{name:'Preview relationship'}));
+ await screen.findByRole('alert');
+ expect(screen.getByRole('button',{name:'Apply relationship'})).toBeDisabled();
+});
+
+it('reports unavailable source rows to the shared owner without accepting its candidate', async()=>{
+ const ready=vi.fn(()=>true), failed=vi.fn();
+ render(<SourceRelationshipReview client={{proposeSourceRelationship:vi.fn().mockResolvedValue(proposal),preview:vi.fn().mockResolvedValue({...rows,rows:null})} as unknown as LoomClient}
+ project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
+ change={{action:'MATCH',occurrenceId:'base',matchMode:'OPTIONAL'}} onApply={vi.fn()} onCancel={vi.fn()} onPreviewStart={()=>({ready,failed})}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Preview relationship'}));
+ await screen.findByRole('alert');
+ expect(failed).toHaveBeenCalledOnce(); expect(ready).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:'Apply relationship'})).toBeDisabled();
 });

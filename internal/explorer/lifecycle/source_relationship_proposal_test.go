@@ -16,8 +16,19 @@ import (
 )
 
 func TestSourceRelationshipProposalCancelApplyReloadAndStaleDraft(t *testing.T) {
+	for _, afterRemoval := range []bool{false, true} {
+		name := "without-construction"
+		if afterRemoval {
+			name = "after-last-step-removal"
+		}
+		t.Run(name, func(t *testing.T) { runSourceRelationshipProposalLifecycle(t, afterRemoval) })
+	}
+}
+
+func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	ctx := context.Background()
 	snapshot := readySnapshot("project-a", "generation-a", "token-a", authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted})
+	snapshot.Nodes = []capability.Node{{ID: "node", ResourceType: "Patient", RowRootEligible: true}}
 	config := testConfig(snapshot)
 	config.Capability.Current = func(context.Context, string, string, string) (capability.Snapshot, error) { return snapshot, nil }
 	output := recipe.Output{Name: "patients", RootResourceType: "Patient", RowGrain: "resource", Fields: []recipe.Field{{Name: "id", Expr: recipe.Expression{Select: "root.id"}}}}
@@ -26,6 +37,21 @@ func TestSourceRelationshipProposalCancelApplyReloadAndStaleDraft(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if afterRemoval {
+		document := workspace.Documents[0]
+		column := document.Columns[0]
+		document.Construction = &authoringv2.Construction{Version: 1, Steps: []authoringv2.ConstructionStep{{ID: "last-filter", Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}}, Operation: authoringv2.ConstructionOperation{Kind: authoringv2.ConstructionOperationFilter, Filter: &authoringv2.ConstructionFilter{ColumnID: column.ColumnID, Operator: authoringv2.ConstructionFilterExists}}, Outputs: []authoringv2.StageColumn{{ID: column.ColumnID, Name: column.Column, Label: column.Label, Type: "string"}}}}}
+		removed, impact, err := document.ProposeStepRemoval("last-filter", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if removed.Construction == nil || len(removed.Construction.Steps) != 0 || len(impact.RemovedStepIDs) != 1 {
+			t.Fatal("last operation removal did not retain an explicit empty construction")
+		}
+		workspace.Documents[0] = removed
+	}
+	workspace.Documents = append(workspace.Documents, authoringv2.Document{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "other", Title: "Unrelated"}, RootResourceType: "Patient", Route: authoringv2.RouteNode{OccurrenceID: authoringv2.RootOccurrenceID, ResourceType: "Patient"}, Rows: authoringv2.RecordsRowDefinition(), Columns: []authoringv2.Column{{ColumnID: "other-project", Column: "project", Label: "Project", OccurrenceID: authoringv2.RootOccurrenceID, Source: authoringv2.ColumnSource{Kind: authoringv2.SourceProjectID}}}})
+	workspace.Tabs = append(workspace.Tabs, authoringv2.Tab{ID: "other-tab", OutputID: "other", Title: "Unrelated", Order: 1, Visible: true})
 	raw, _ := workspace.CanonicalJSON()
 	digest, _ := workspace.Digest()
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
@@ -107,6 +133,34 @@ func TestSourceRelationshipProposalCancelApplyReloadAndStaleDraft(t *testing.T) 
 	compileFailure = false
 	store.receipt = candidateReceipt
 	apply := authoringv2.ApplyCommandsRequest{CommandID: "relationship-apply", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: 1, ExpectedDraftDigest: digest, Commands: []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: proposal.ProposalID}}}
+	// A legitimately rehashed receipt cannot change another output while
+	// applying the requested source edit. Keep the whole-workspace guard exact.
+	forgedWorkspace, err := authoringv2.DecodeWorkspace(candidateReceipt.NormalizedBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgedWorkspace.Documents[1].Output.Title = "Forged unrelated title"
+	forgedBinding := *candidateReceipt.SourceRelationshipProposal
+	forgedBinding.CandidateWorkspaceDigest, err = forgedWorkspace.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgedReceipt, err := config.CompileReceipt(ctx, CompileReceiptRequest{Project: request.Project, ExplorerID: request.ExplorerID, Workspace: forgedWorkspace, SnapshotToken: snapshot.Token, SourceRelationshipProposal: &forgedBinding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forgedApply := apply
+	forgedApply.CommandID = "forged-other-output"
+	forgedApply.Commands = []authoringv2.Command{{Type: authoringv2.CommandApplyImportedRelationshipProposal, OutputID: "patients", ProposalID: forgedReceipt.ID}}
+	_, err = service.ApplyCommands(ctx, "project-a", "patients", forgedApply, "tester")
+	var rejected *Error
+	if !errors.As(err, &rejected) || rejected.Code != "INVALID_SOURCE_RELATIONSHIP_PROPOSAL" {
+		t.Fatalf("unrelated output forgery was not rejected by whole-workspace validation: %v", err)
+	}
+	if store.saveDraftCalls != 0 || !bytes.Equal(raw, store.created.DraftConfig) {
+		t.Fatal("forged receipt changed saved authoring work")
+	}
+	store.receipt = candidateReceipt
 	previewFailure = true
 	if _, err := service.ApplyCommands(ctx, "project-a", "patients", apply, "tester"); err == nil {
 		t.Fatal("runtime preview failure saved a source edit")
@@ -118,6 +172,9 @@ func TestSourceRelationshipProposalCancelApplyReloadAndStaleDraft(t *testing.T) 
 	applied, err := service.ApplyCommands(ctx, "project-a", "patients", apply, "tester")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if applied.Workspace.Documents[1].Output.Title != "Unrelated" {
+		t.Fatal("source Apply changed unrelated output")
 	}
 	if applied.DraftVersion != 2 || store.saveDraftCalls != 1 || *applied.Workspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
 		t.Fatal("Apply lost immutable source pin or draft revision")

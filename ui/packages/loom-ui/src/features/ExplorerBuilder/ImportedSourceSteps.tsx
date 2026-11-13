@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { ExplorerBuilderCommand, ExplorerBuilderDocument } from '../../types';
 
 type ImportedSourceStep = NonNullable<ExplorerBuilderDocument['importedSource']>['steps'][number];
@@ -69,6 +70,11 @@ interface ImportedSourceStepsProps {
   readonly outputId: string;
   readonly importedSource: ExplorerBuilderDocument['importedSource'];
   readonly disabled?: boolean;
+  readonly editActionRef?: { current: ((stepId: string) => void) | undefined };
+  readonly onBeginEdit?: (stepId: string) => boolean;
+  readonly onCancelEdit?: () => void;
+  readonly onDraftChange?: () => void;
+  readonly editorHost?: HTMLElement | null;
   readonly renderReview?: (sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']>, onCancel: () => void) => ReactNode;
   readonly onRefresh: () => Promise<boolean>;
   readonly onApply: (command: ExplorerBuilderCommand) => Promise<boolean>;
@@ -88,12 +94,21 @@ export const ImportedSourceSteps = ({
   onRefresh,
   onApply,
   renderReview,
+  editActionRef, onBeginEdit, onCancelEdit, onDraftChange, editorHost,
 }: ImportedSourceStepsProps) => {
+  const presentEditor = (node: ReactNode) => editorHost ? createPortal(node, editorHost) : node;
   const [editor, setEditor] = useState<ImportedSourceStepEditorState>();
   const [refreshing, setRefreshing] = useState(false);
   const [applying, setApplying] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const steps = importedSource?.steps;
+  const closeEditor = () => { setEditor(undefined); onCancelEdit?.(); };
+  const openEditor = (stepId: string) => {
+    const step = steps?.find((candidate) => candidate.id === stepId);
+    if (!step || disabled || onBeginEdit?.(stepId) === false) return;
+    setEditor(editorStateFor(step));
+  };
+  if (editActionRef) editActionRef.current = openEditor;
   const relationships = importedSource?.relationships;
   const removedOccurrences = new Set(relationships?.removals ?? []);
   const effectiveEnabled = (step: ImportedSourceStep) => step.enabled && !(step.occurrenceId && removedOccurrences.has(step.occurrenceId));
@@ -241,7 +256,7 @@ export const ImportedSourceSteps = ({
                   disabled={isDisabled}
                   onClick={() => {
                     setActionError(undefined);
-                    setEditor(editor?.stepId === step.id ? undefined : editorStateFor(step));
+                    if (editor?.stepId === step.id) closeEditor(); else openEditor(step.id);
                   }}
                   title={[step.title, parent ? `Under ${parent.title}` : undefined, statusLabel].filter(Boolean).join(' · ')}
                   className={`inline-flex max-w-full items-baseline gap-1.5 rounded px-2 py-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -289,7 +304,7 @@ export const ImportedSourceSteps = ({
           })}
         </ol>
       )}
-      {selectedStep && editor ? (
+      {selectedStep && editor ? presentEditor(
         <form
           aria-label={`Source step ${sourceStepLabel(selectedStep)} editor`}
           data-testid="imported-source-step-editor"
@@ -319,7 +334,7 @@ export const ImportedSourceSteps = ({
                   type="checkbox"
                   checked={editor.enabled}
                   disabled={isDisabled}
-                  onChange={(event) => setEditor({ ...editor, enabled: event.currentTarget.checked })}
+                  onChange={(event) => { onDraftChange?.(); setEditor({ ...editor, enabled: event.currentTarget.checked }); }}
                 />
                 Enable this source step
               </label>
@@ -334,7 +349,7 @@ export const ImportedSourceSteps = ({
                     disabled={isDisabled}
                     aria-invalid={!validMaxColumns}
                     data-testid="imported-source-max-columns"
-                    onChange={(event) => setEditor({ ...editor, maxColumns: event.currentTarget.value })}
+                    onChange={(event) => { onDraftChange?.(); setEditor({ ...editor, maxColumns: event.currentTarget.value }); }}
                     className="rounded border border-slate-300 px-2 py-1.5"
                   />
                 </label>
@@ -346,7 +361,7 @@ export const ImportedSourceSteps = ({
                     value={editor.valueMode}
                     disabled={isDisabled}
                     data-testid="imported-source-value-mode"
-                    onChange={(event) => setEditor({ ...editor, valueMode: event.currentTarget.value })}
+                    onChange={(event) => { onDraftChange?.(); setEditor({ ...editor, valueMode: event.currentTarget.value }); }}
                     className="rounded border border-slate-300 bg-white px-2 py-1.5"
                   >
                     {valueModes.map((mode) => <option key={mode} value={mode}>{valueModeLabels[mode]}</option>)}
@@ -357,13 +372,16 @@ export const ImportedSourceSteps = ({
           ) : (
             <p className="mt-2 text-sm text-slate-600">This source step is read-only.</p>
           )}
+          {selectedStep.kind === 'CATALOG_PROJECTION' && selectedParent?.kind === 'TRAVERSAL' && (editor.valueMode === 'FIRST' || editor.valueMode === 'ALL') ? (
+            <p className="mt-1 text-xs text-slate-600">Related records are ordered by their original record key. Items inside each record keep their array order.</p>
+          ) : null}
           {selectedStep.editable && renderReview && currentSourceStepChange && validMaxColumns && !(selectedStep.occurrenceId && removedOccurrences.has(selectedStep.occurrenceId))
-            ? renderReview(currentSourceStepChange, () => setEditor(undefined)) : null}
+            ? renderReview(currentSourceStepChange, closeEditor) : null}
           <div className="mt-2 flex justify-end gap-2">
             <button
               type="button"
               disabled={isDisabled}
-              onClick={() => setEditor(undefined)}
+              onClick={closeEditor}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Close

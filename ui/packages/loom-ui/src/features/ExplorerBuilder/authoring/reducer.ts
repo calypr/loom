@@ -210,6 +210,7 @@ export const builderAuthoringReducer = (
             ...state,
             selectedOutputId: action.outputId,
             selectedOccurrenceId: 'base',
+            previewRequestVersion: state.previewRequestVersion + 1,
             preview: undefined,
           }
         : state;

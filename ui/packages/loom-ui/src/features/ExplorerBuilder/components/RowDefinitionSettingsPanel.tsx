@@ -375,6 +375,9 @@ export const RowDefinitionSettingsPanel = ({
   presentation = 'fullscreen',
   triggerPresentation,
   triggerLabel,
+  openActionRef,
+  onBeginProposal, onCancelProposal, onBeginRootProposal, onCancelRootProposal,
+  replacementPresentation = 'dialog', replacementInspectorHost, operationInspectorPresentation = 'dialog',
   client,
   project,
   explorerId,
@@ -412,6 +415,14 @@ export const RowDefinitionSettingsPanel = ({
   readonly presentation?: 'fullscreen' | 'compact';
   readonly triggerPresentation?: 'source-chip';
   readonly triggerLabel?: string;
+  readonly operationInspectorPresentation?: 'dialog' | 'workspace';
+  readonly onBeginRootProposal?: (nodeId: string) => {ready: (assessment: ReadyReplacementAssessment, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string, stale?: boolean) => void} | undefined;
+  readonly onCancelRootProposal?: () => void;
+  readonly replacementPresentation?: 'dialog' | 'shared';
+  readonly replacementInspectorHost?: HTMLElement | null;
+  readonly onBeginProposal?: () => { ready: (proposal: RowDefinitionProposal, preview: import('../../../types').ExplorerBuilderPreviewResult) => boolean; failed: (message: string) => void } | undefined;
+  readonly onCancelProposal?: () => void;
+  readonly openActionRef?: { current: (() => void) | undefined };
   readonly client: Pick<LoomClient, 'listRowDefinitionChoices' | 'proposeRowDefinition' | 'getSelection' | 'createExplicitGroupRevision'> &
     Partial<Pick<LoomClient, 'assessRowChange' | 'preview'>>;
   readonly project: string;
@@ -592,6 +603,8 @@ export const RowDefinitionSettingsPanel = ({
   }, [rootChangePreviewOpen, settings.kind]);
 
   const propose = async (selected: RowDefinitionSelection) => {
+    const ownership = onBeginProposal?.();
+    if (onBeginProposal && !ownership) return;
     cancelPendingPreview();
     const requestEpoch = proposalRequestEpoch.current;
     const controller = new AbortController();
@@ -614,9 +627,16 @@ export const RowDefinitionSettingsPanel = ({
         setProposalState({ kind: 'failed', selection: selected, message: proposal.comparison.status === 'UNAVAILABLE' ? proposal.comparison.reason : 'Loom returned an incomplete row preview. The saved draft was not changed.' });
         return;
       }
+      if (ownership) {
+        if (!client.preview) throw new Error('The candidate preview is unavailable.');
+        const preview = await client.preview({ project, explorerId, authResourcePath, receiptId: proposal.proposalId, outputId: table.outputId }, controller.signal);
+        if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current ||
+          preview.receiptId !== proposal.proposalId || preview.outputId !== table.outputId || !ownership.ready(proposal, preview)) return;
+      }
       setProposalState({ kind: 'fresh', selection: selected, proposal });
     } catch (error) {
       if (controller.signal.aborted || requestEpoch !== proposalRequestEpoch.current) return;
+      ownership?.failed(requestFailureMessage(error, 'The row proposal failed.'));
       setProposalState({
         kind: 'failed', selection: selected,
         message: requestFailureMessage(error, 'Loom could not preview this row definition. The saved draft was not changed.'),
@@ -627,12 +647,19 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const assessReplacement = async (rootNodeId: string) => {
+    const ownership = onBeginRootProposal?.(rootNodeId);
+    if (onBeginRootProposal && !ownership) return;
+    if (replacementPresentation === 'shared') setSettings({kind:'closed'});
+    const fail = (message: string, stale = false) => {
+      ownership?.failed(message, stale);
+      setReplacementState(stale ? {kind:'stale', rootNodeId} : {kind:'failed', message});
+    };
     cancelPendingPreview();
     cancelReplacementRequest();
     const assessRowChange = client.assessRowChange;
     const loadPreview = client.preview;
     if (!assessRowChange || !loadPreview) {
-      setReplacementState({ kind: 'failed', message: 'Replacement review is unavailable in this Builder session. The saved draft was not changed.' });
+      fail('Replacement review is unavailable in this Builder session. The saved draft was not changed.');
       return;
     }
     const requestEpoch = replacementRequestEpoch.current;
@@ -647,21 +674,22 @@ export const RowDefinitionSettingsPanel = ({
       if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
       if (assessment.snapshotToken !== snapshotToken || assessment.draftVersion !== draftVersion ||
           assessment.draftDigest !== draftDigest) {
-        setReplacementState({ kind: 'stale', rootNodeId });
+        fail('The draft changed while checking this replacement. Cancel and review the current table.', true);
         return;
       }
       if (assessment.status === 'BLOCKED') {
+        ownership?.failed(assessment.diagnostics.map((item) => item.message).join(' ') || 'This starting-record replacement requires repair.');
         setReplacementState({ kind: 'blocked', assessment });
         return;
       }
       if (!isReadyReplacementAssessment(assessment, table, snapshotToken, draftVersion, draftDigest) ||
           assessment.proposal.rootNodeId !== rootNodeId) {
-        setReplacementState({ kind: 'failed', message: 'Loom returned an incomplete or mismatched replacement review. The saved draft was not changed.' });
+        fail('Loom returned an incomplete or mismatched replacement review. The saved draft was not changed.');
         return;
       }
       const candidateReceiptId = assessment.candidateReceiptId;
       if (!candidateReceiptId) {
-        setReplacementState({ kind: 'failed', message: 'Loom did not provide a replacement preview receipt. The saved draft was not changed.' });
+        fail('Loom did not provide a replacement preview receipt. The saved draft was not changed.');
         return;
       }
       setReplacementState({ kind: 'loading-preview', assessment });
@@ -670,33 +698,36 @@ export const RowDefinitionSettingsPanel = ({
         outputId: assessment.proposal.outputId,
       }, controller.signal);
       if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
-      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId) {
-        setReplacementState({ kind: 'failed', message: 'Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.' });
+      if (preview.receiptId !== candidateReceiptId || preview.outputId !== table.outputId || preview.rows === null) {
+        fail('Loom returned a preview for a different replacement receipt or table. The saved draft was not changed.');
         return;
       }
       const idColumns = preview.columns.filter((column) => column.column === 'id');
       if (idColumns.length !== 1) {
-        setReplacementState({ kind: 'failed', message: 'The replacement preview does not contain exactly one default id column. The saved draft was not changed.' });
+        fail('The replacement preview does not contain exactly one default id column. The saved draft was not changed.');
         return;
       }
       const idColumn = idColumns[0];
       if (idColumn.sourcePath !== 'id' || idColumn.sourceResourceType !== assessment.candidateRootResourceType) {
-        setReplacementState({ kind: 'failed', message: 'The replacement preview does not identify the base record id field. The saved draft was not changed.' });
+        fail('The replacement preview does not identify the base record id field. The saved draft was not changed.');
+        return;
+      }
+      if (ownership && !ownership.ready(assessment, preview)) {
+        setReplacementState({kind:'failed', message:'The replacement candidate could not be described for both editors. The saved table has not changed.'});
         return;
       }
       setReplacementState({ kind: 'ready', assessment, preview, idColumn });
     } catch (error) {
       if (controller.signal.aborted || requestEpoch !== replacementRequestEpoch.current) return;
-      setReplacementState({
-        kind: 'failed',
-        message: requestFailureMessage(error, 'Loom could not review this replacement. The saved draft was not changed.'),
-      });
+      fail(requestFailureMessage(error, 'Loom could not review this replacement. The saved draft was not changed.'));
     } finally {
       if (replacementController.current === controller) replacementController.current = undefined;
     }
   };
 
   const cancelReplacementReview = () => {
+    if (replacementState.kind === 'applying') return;
+    onCancelRootProposal?.();
     cancelReplacementRequest();
     setReplacementState({ kind: 'idle' });
   };
@@ -748,6 +779,8 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   const cancel = () => {
+    if (replacementState.kind !== 'idle') onCancelRootProposal?.();
+    onCancelProposal?.();
     cancelPendingPreview();
     cancelReplacementRequest();
     if (rootChangeState.kind !== 'idle' || rootChangePreviewOpen) onCancelRootChange();
@@ -788,11 +821,19 @@ export const RowDefinitionSettingsPanel = ({
   const chooseRelatedRows = () => {
     cancelLocalRowProposals();
     setRowChangeIntent('records');
+    if (operationInspectorPresentation === 'workspace') {
+      settingsRequestEpoch.current += 1;
+      setSettings({ kind: 'closed' });
+    }
     onChooseRelatedRows();
   };
   const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => {
     cancelLocalRowProposals();
     setRowChangeIntent(kind === 'group' || kind === 'source-group' || kind === 'coded-group' ? 'group' : 'reshape');
+    if (operationInspectorPresentation === 'workspace') {
+      settingsRequestEpoch.current += 1;
+      setSettings({ kind: 'closed' });
+    }
     onChooseReshape(kind);
   };
   const editConstructionStep = (stepId: string) => {
@@ -845,6 +886,8 @@ export const RowDefinitionSettingsPanel = ({
     schedulePreview((preferred ?? options[0]!).selection);
     setGroupAuthoringOpen(false);
   };
+
+  if (openActionRef) openActionRef.current = () => { void openSettings(); };
 
   return (
     <div className={compact ? 'relative inline-block min-w-0' : undefined} onKeyDown={(event) => {
@@ -1167,9 +1210,9 @@ export const RowDefinitionSettingsPanel = ({
             </div>
         </div>
       ) : null}
-      {replacementState.kind !== 'idle' ? (
-        <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/40 p-4 sm:p-8">
-          <section role="dialog" aria-modal="true" aria-labelledby="root-replacement-title" className="mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-xl sm:p-7">
+      {replacementState.kind !== 'idle' && (replacementPresentation !== 'shared' || replacementInspectorHost) ? createPortal(
+        <div className={replacementPresentation === 'shared' ? 'min-w-0' : 'fixed inset-0 z-[60] overflow-y-auto bg-slate-950/40 p-4 sm:p-8'}>
+          <section role={replacementPresentation === 'shared' ? 'region' : 'dialog'} aria-modal={replacementPresentation === 'shared' ? undefined : true} aria-labelledby="root-replacement-title" className={replacementPresentation === 'shared' ? 'min-w-0 rounded border bg-white p-2' : 'mx-auto max-w-3xl rounded-xl bg-white p-5 shadow-xl sm:p-7'}>
             <h2 id="root-replacement-title" className="text-xl font-semibold text-slate-900">Replace this table’s current setup?</h2>
             <p className="mt-2 text-sm text-slate-700">This replaces the current setup for {table.title}. The table, output, and tab keep their identity. Review the candidate and its effects before applying.</p>
             {table.document.importedRecipe ? <p role="note" className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm">
@@ -1236,7 +1279,7 @@ export const RowDefinitionSettingsPanel = ({
                 </div>
               </section>
             ) : null}
-            {replacementState.kind === 'ready' ? (
+            {replacementState.kind === 'ready' && replacementPresentation !== 'shared' ? (
               <section className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <h3 className="font-semibold text-slate-900">Candidate preview</h3>
                 <div className="mt-2 max-h-72 overflow-auto">
@@ -1255,7 +1298,7 @@ export const RowDefinitionSettingsPanel = ({
               </section>
             ) : null}
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancelReplacementReview}>Cancel</button>
+              <button type="button" disabled={replacementState.kind === 'applying'} className="rounded-md border border-slate-300 px-3 py-2" onClick={cancelReplacementReview}>Cancel</button>
               {replacementState.kind === 'ready' ? (
                 <button
                   type="button"
@@ -1269,7 +1312,7 @@ export const RowDefinitionSettingsPanel = ({
               {replacementState.kind === 'applying' ? <span role="status" className="self-center text-sm text-slate-700">Applying replacement…</span> : null}
             </div>
           </section>
-        </div>
+        </div>, replacementPresentation === 'shared' ? replacementInspectorHost! : document.body
       ) : null}
     </div>
   );

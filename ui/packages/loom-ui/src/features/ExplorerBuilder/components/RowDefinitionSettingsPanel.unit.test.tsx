@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import type { ReactNode } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExplorerBuilderPreviewResult, RowChangeAssessment, RowDefinitionChoicesResponse, RowDefinitionProposal } from '../../../types';
 import type { SelectionRevision } from '../../../selection';
@@ -34,6 +34,9 @@ const choices: RowDefinitionChoicesResponse = {
 };
 
 const proposal: RowDefinitionProposal = {
+  candidateDocument: { kind: 'ExplorerBuilderDocument', output: { id: 'patients', title: 'Patient' }, rootResourceType: 'Patient', route: { occurrenceId: 'base', resourceType: 'Patient' }, rows: { kind: 'RECORDS', records: {} }, columns: [] },
+  candidateNetwork: { owner: 'DOCUMENT', outputId: 'patients', sourceRows: { kind: 'RECORDS', records: {} }, occurrences: [], bindings: [], operations: [] },
+  candidateRowIdentity: { outputId: 'patients', sourceDefinition: { kind: 'RECORDS', records: {} }, stages: [], relationships: [] },
   proposalId: 'proposal-receipt-1',
   baseReceiptId: 'base-receipt-1',
   outputId: 'patients',
@@ -352,6 +355,7 @@ const renderSettings = (overrides: {
   selection?: SelectionRevision;
   constructionHistory?: ReadonlyArray<ConstructionHistoryStep>;
   rowOperationEditor?: ReactNode;
+  operationInspectorPresentation?: 'dialog' | 'workspace';
   onChooseRelatedRows?: () => void;
   onChooseReshape?: (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => void;
   onSwitchRowIntent?: (intent: 'records' | 'reshape') => void;
@@ -366,6 +370,8 @@ const renderSettings = (overrides: {
   replacementAssessment?: RowChangeAssessment;
   replacementPreview?: ExplorerBuilderPreviewResult;
   onApplyRootReplacement?: (assessment: ReadyReplacementAssessment) => Promise<boolean>;
+  onBeginRootProposal?: Parameters<typeof RowDefinitionSettingsPanel>[0]['onBeginRootProposal'];
+  onCancelRootProposal?: () => void;
 } = {}) => {
   const listRowDefinitionChoices = vi.fn().mockResolvedValue(overrides.choicesValue ?? choices);
   const proposeRowDefinition = vi.fn().mockResolvedValue(overrides.proposalValue ?? proposal);
@@ -384,6 +390,7 @@ const renderSettings = (overrides: {
   const onRemoveConstructionStep = overrides.onRemoveConstructionStep ?? vi.fn();
   const view = render(
     <RowDefinitionSettingsPanel
+      operationInspectorPresentation={overrides.operationInspectorPresentation}
       presentation={overrides.presentation}
       triggerPresentation={overrides.triggerPresentation}
       triggerLabel={overrides.triggerLabel}
@@ -422,6 +429,8 @@ const renderSettings = (overrides: {
       disabled={false}
       onApply={onApply}
       onApplyRootReplacement={onApplyRootReplacement}
+      onBeginRootProposal={overrides.onBeginRootProposal}
+      onCancelRootProposal={overrides.onCancelRootProposal}
       onSwitchRowIntent={onSwitchRowIntent}
       onCloseRowIntentSession={onCloseRowIntentSession}
       onEditConstructionStep={onEditConstructionStep}
@@ -434,6 +443,22 @@ const renderSettings = (overrides: {
 afterEach(cleanup);
 
 describe('RowDefinitionSettingsPanel', () => {
+  for (const intent of ['group', 'related'] as const) {
+    it(`keeps the workspace chooser closed after late row choices for ${intent}`, async () => {
+      const controls = renderSettings({operationInspectorPresentation:'workspace', relatedRowsSupported:true});
+      let resolve!: (value: typeof choices) => void;
+      controls.listRowDefinitionChoices.mockImplementationOnce(() => new Promise(done => {resolve=done;}));
+      fireEvent.click(screen.getByTestId('construction-rows-settings-trigger'));
+      await screen.findByRole('dialog',{name:'Row definition settings'});
+      fireEvent.click(screen.getByTestId(intent === 'group' ? 'construction-action-group-rows' : 'construction-action-related-rows'));
+      expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+      await act(async () => {resolve(choices);await Promise.resolve();});
+      expect(screen.queryByRole('dialog',{name:'Row definition settings'})).toBeNull();
+      expect(intent === 'group' ? controls.onChooseReshape : controls.onChooseRelatedRows).toHaveBeenCalledOnce();
+      expect(controls.onCloseRowIntentSession).not.toHaveBeenCalled();
+    });
+  }
+
   it('keeps compact row settings nonmodal and returns keyboard focus on Cancel', async () => {
     const { container } = renderSettings({ presentation: 'compact' });
     const trigger = screen.getByTestId('construction-rows-settings-trigger');
@@ -1504,4 +1529,23 @@ describe('RowDefinitionSettingsPanel', () => {
     await waitFor(() => expect(onApply).toHaveBeenCalledWith('proposal-receipt-1'));
     expect(proposeRowDefinition).toHaveBeenLastCalledWith(expect.objectContaining({ selection: { kind: 'EXPANDED', expanded: { rowChoiceId: 'expanded-choice', emptyCollectionPolicy: 'EXCLUDE' } } }), expect.any(AbortSignal));
   });
+});
+
+it('shared replacement ownership rejects unavailable rows rather than enabling Apply', async()=>{
+ const ready=vi.fn(()=>true), failed=vi.fn();
+ const {onApplyRootReplacement}=renderSettings({replacementPreview:{...replacementPreview,rows:null},onBeginRootProposal:()=>({ready,failed})});
+ fireEvent.click(screen.getByRole('button',{name:'Change current rows'}));
+ await screen.findByRole('combobox',{name:'Rows per starting record'});
+ fireEvent.click(screen.getByRole('button',{name:'Replace current setup'}));
+ await waitFor(()=>expect(failed).toHaveBeenCalledOnce());
+ expect(ready).not.toHaveBeenCalled();
+ expect(screen.queryByRole('button',{name:'Change starting record type'})).toBeNull();
+ expect(onApplyRootReplacement).not.toHaveBeenCalled();
+});
+it('a denied replacement owner does not begin a second assessment', async()=>{
+ const {assessRowChange}=renderSettings({onBeginRootProposal:()=>undefined});
+ fireEvent.click(screen.getByRole('button',{name:'Change current rows'}));
+ await screen.findByRole('combobox',{name:'Rows per starting record'});
+ fireEvent.click(screen.getByRole('button',{name:'Replace current setup'}));
+ expect(assessRowChange).not.toHaveBeenCalled();
 });
