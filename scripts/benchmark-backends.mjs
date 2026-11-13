@@ -15,7 +15,7 @@
 //       Node-only sanity pass over this script's own logic. Labelled
 //       selftest; it can never satisfy a live check.
 //   --paired --binary <server> --out <dir> [--profile tiny|small|representative]
-//       [--iterations N>=5 --warmup N>=1 --rounds N] [--source-commit SHA]
+//       [--iterations N>=2*rounds --warmup N>=1 --rounds N>=5] [--source-commit SHA]
 //       [--benchcli <path>] [--window-note <text>] --clickhouse-url <url>
 //       The operator-mandated comparison: the same matched battery runs
 //       against BOTH real drivers (LOOM_TEST_ARANGO_URL +
@@ -49,7 +49,7 @@ export const PAIRED_PROFILES = ['tiny', 'small', 'representative'];
 export function parseArgs(argv) {
   const flags = {
     mode: null, report: null, benchcli: null, out: null, runArgs: [], selftest: false,
-    paired: false, binary: null, profile: 'tiny', iterations: 5, warmup: 1, rounds: null,
+    paired: false, binary: null, profile: 'tiny', iterations: 10, warmup: 1, rounds: null,
     concurrency: 1, previewLimit: 1000, sourceCommit: null, seed: 7, windowNote: null,
     clickHouseUrl: null, clickHouseUser: null, clickHousePassword: null,
     clickHouseRecipe: fileURLToPath(new URL('../testdata/devloop-fixture/recipe.json', import.meta.url)),
@@ -93,18 +93,22 @@ export function parseArgs(argv) {
   if (flags.mode === 'verify' && !flags.report) throw new Error('--verify-only requires --report');
   if (flags.mode === 'run' && !flags.out) throw new Error('--run requires --out');
   if (flags.paired) {
-    // Default: fully alternating — one measured iteration per round, so
-    // every driver's sample sits at the same position in the schedule.
-    if (flags.rounds === null) flags.rounds = flags.iterations;
+    // Spawned arms restart before each round, so a round yields one
+    // post-restart process-cold sample plus its warm remainder; the claimed
+    // cell is the warm one (review r4561031154). Default: five interleaved
+    // rounds, two measured iterations each.
+    if (flags.rounds === null) flags.rounds = PAIRED_MIN_SAMPLES_PER_BACKEND;
     if (!flags.out) throw new Error('--paired requires --out');
     if (!flags.binary) throw new Error('--paired requires --binary (the server binary the arms are spawned from)');
     if (!PAIRED_PROFILES.includes(flags.profile)) throw new Error(`--profile must be one of ${PAIRED_PROFILES.join(', ')}, got ${flags.profile}`);
-    if (flags.iterations < PAIRED_MIN_SAMPLES_PER_BACKEND) {
-      throw new Error(`--paired requires --iterations >= ${PAIRED_MIN_SAMPLES_PER_BACKEND}: fewer alternating runs per driver is not a comparison`);
+    if (flags.rounds < PAIRED_MIN_SAMPLES_PER_BACKEND) {
+      throw new Error(`--paired requires --rounds >= ${PAIRED_MIN_SAMPLES_PER_BACKEND}: fewer interleaved rounds per driver is not an alternating comparison`);
     }
     if (flags.warmup < 1) throw new Error('--paired requires --warmup >= 1 so cached timings are meaningful');
-    if (flags.rounds < 1) throw new Error('--paired requires --rounds >= 1');
     if (flags.iterations % flags.rounds !== 0) throw new Error(`--iterations ${flags.iterations} must split evenly into --rounds ${flags.rounds}`);
+    if (flags.iterations < 2 * flags.rounds) {
+      throw new Error(`--paired requires --iterations >= 2*--rounds: a spawned arm restarts each round, so each round needs the post-restart cold sample plus at least one warm sample (got --iterations ${flags.iterations} --rounds ${flags.rounds})`);
+    }
     if (!/^[0-9a-f]{40}$/.test(flags.sourceCommit ?? '')) throw new Error('--paired requires --source-commit as the full 40-hex SHA the arms were built from');
     if (!(flags.clickHouseUrl ?? '').trim()) throw new Error('--paired requires --clickhouse-url: the publication chain is ClickHouse-backed end to end, and the battery cannot run without it');
     if (!(flags.clickHouseRecipe ?? '').trim()) throw new Error('--paired requires a dataframer recipe for the ClickHouse-enabled arms');

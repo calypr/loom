@@ -257,7 +257,7 @@ test('paired: arango dsn gets a benchmark-namespaced database', () => {
 });
 
 test('paired invocation: both arms, full chain, real iterations', () => {
-  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--profile', 'tiny', '--iterations', '5', '--warmup', '1', '--rounds', '5', '--source-commit', SHA40, ...CH_ARGS]);
+  const flags = parseArgs(['--paired', '--binary', '/bin/loom', '--out', 'out', '--profile', 'tiny', '--iterations', '10', '--warmup', '1', '--rounds', '5', '--source-commit', SHA40, ...CH_ARGS]);
   const inv = buildPairedInvocation(flags, { arangoUrl: 'http://127.0.0.1:8529/loom_bench_ci', postgresDsn: 'postgresql://u:p@h:5432/loom_bench_paired' });
   const joined = inv.args.join(' ');
   assert.match(joined, /--scope=both-arms/);
@@ -267,8 +267,9 @@ test('paired invocation: both arms, full chain, real iterations', () => {
   assert.match(joined, /--clickhouse-recipe=\S+recipe\.json/);
   assert.match(joined, /--clickhouse-user=default/);
   assert.doesNotMatch(joined, /--clickhouse-password/);
-  assert.match(joined, /--iterations=5/);
+  assert.match(joined, /--iterations=10/);
   assert.match(joined, /--warmup=1/);
+  assert.match(joined, /--rounds=5/);
   assert.match(joined, /--arango-dsn=http:\/\/127\.0\.0\.1:8529\/loom_bench_ci/);
 });
 
@@ -305,6 +306,12 @@ test('paired flags refuse a non-comparison', () => {
   assert.throws(() => parseArgs(without('--binary')), /requires --binary/);
   assert.throws(() => parseArgs(without('--source-commit')), /source-commit/);
   assert.throws(() => parseArgs([...base, '--iterations', '3']), /integer >= 5/);
+  assert.throws(() => parseArgs([...base, '--rounds', '2']), /--rounds >= 5/);
+  assert.throws(() => parseArgs([...base, '--iterations', '5', '--rounds', '5']), /iterations >= 2\*--rounds/);
+  assert.throws(() => parseArgs([...base, '--iterations', '9', '--rounds', '5']), /split evenly/);
+  const defaulted = parseArgs(base);
+  assert.equal(defaulted.iterations, 10);
+  assert.equal(defaulted.rounds, 5);
   assert.throws(() => parseArgs([...base, '--warmup', '0']), /warmup/);
   assert.throws(() => parseArgs([...base, '--profile', 'smoke']), /--profile must be one of/);
   assert.throws(() => parseArgs(without('--clickhouse-url')), /requires --clickhouse-url/);

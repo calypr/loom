@@ -271,6 +271,20 @@ func MeasureArms(ctx context.Context, clock Clock, workloadID string, arango, po
 	var samples []Sample
 	finals := map[string]PreviewResult{}
 	itersPerRound := opts.Config.Iterations / opts.Config.Rounds
+	// A spawned arm restarts before every round, so with one measured
+	// iteration per round the only measured sample is the post-restart
+	// process-cold one and the arm has no warm cell to claim (review
+	// r4561031154: such a run passes gates yet verifies as "passed run
+	// with no claims"). Fail before measuring rather than emit a report
+	// the verifier must reject.
+	if coldRestart != nil && itersPerRound < 2 {
+		for _, backend := range []string{BackendArango, BackendPostgres} {
+			if arm := arms[backend]; arm != nil && arm.Proc != nil {
+				return nil, nil, fmt.Errorf("benchmark: spawned arm %s restarts each round; one measured iteration per round yields only process-cold samples, so no warm cell can ever carry a claim: require Iterations >= 2*Rounds (got Iterations=%d, Rounds=%d)",
+					backend, opts.Config.Iterations, opts.Config.Rounds)
+			}
+		}
+	}
 	runPhase := func(warmup bool, rounds, iters int) {
 		iteration := 0
 		for round := 1; round <= rounds; round++ {

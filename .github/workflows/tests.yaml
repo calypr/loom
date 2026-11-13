@@ -503,9 +503,11 @@ jobs:
           go build -o "$RUNNER_TEMP/paired-bin/loom-server" ./cmd/arango-fhir-server
           go build -o "$RUNNER_TEMP/paired-bin/benchcli" ./internal/dataframe/benchmark/cmd/benchcli
       - name: Run the paired benchmark against both services
-        # Five alternating measured samples per driver, one warmup, tiny
-        # matched fixture, full publication chain through the ClickHouse
-        # service (each arm materializes into its own loom_bench_*
+        # Five interleaved rounds x two measured iterations per driver: the
+        # post-restart process-cold sample plus one warm sample per round
+        # (claims cite the warm cell), one warmup, tiny matched fixture,
+        # full publication chain through the ClickHouse service (each arm
+        # materializes into its own loom_bench_*
         # database). The script verifies the artifact through the Go
         # verifier, classifies realness (both arms ran, the chain ran,
         # both timed), and writes comparison.md; it exits nonzero on any
@@ -516,7 +518,7 @@ jobs:
           --binary "$RUNNER_TEMP/paired-bin/loom-server"
           --benchcli "$RUNNER_TEMP/paired-bin/benchcli"
           --profile tiny
-          --iterations 5
+          --iterations 10
           --warmup 1
           --rounds 5
           --source-commit "$GITHUB_SHA"

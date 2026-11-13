@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,6 +34,8 @@ type fakeArm struct {
 	scopedToken string // when the bearer equals this, deny like production: zero rows
 	explorerID  string
 	authoring   []string // ordered create/builder/reconcile calls
+	handler     http.Handler
+	extra       []*http.Server // serveOn listeners, closed with the fake
 }
 
 func (f *fakeArm) publishedBodies() [][]byte {
@@ -140,8 +143,26 @@ func newFakeArm(backend string) *fakeArm {
 		f.mu.Unlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{"summary": map[string]any{"resources": map[string]any{"Patient": 12}}})
 	})
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	f.server = httptest.NewServer(mux)
+	f.handler = mux
 	return f
+}
+
+// serveOn binds the fake's handler on an extra address, so a spawned arm's
+// BaseURL (chosen by the driver from a free port) reaches the same routes
+// the attached fake serves.
+func (f *fakeArm) serveOn(listenAddr string) error {
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return err
+	}
+	srv := &http.Server{Handler: f.handler}
+	f.mu.Lock()
+	f.extra = append(f.extra, srv)
+	f.mu.Unlock()
+	go func() { _ = srv.Serve(ln) }()
+	return nil
 }
 
 func (f *fakeArm) arm(backend string) *Arm {
@@ -173,7 +194,14 @@ func contributorCatalogFixture() map[string]any {
 	}
 }
 
-func (f *fakeArm) close() { f.server.Close() }
+func (f *fakeArm) close() {
+	f.server.Close()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, srv := range f.extra {
+		_ = srv.Close()
+	}
+}
 
 func TestUploadAndPublishUsePublicRoutes(t *testing.T) {
 	f := newFakeArm(BackendArango)
@@ -646,5 +674,44 @@ func TestMeasureArmsFailedColdRestartIsLabeled(t *testing.T) {
 	}
 	if failures != 2 {
 		t.Fatalf("cold-restart failures=%d want 2 (one per round)", failures)
+	}
+}
+
+func TestMeasureArmsRefusesSpawnedArmWithoutWarmIterationPerRound(t *testing.T) {
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ready.Close()
+	cold := func(ctx context.Context, arm *Arm) error {
+		if arm == nil || arm.Proc == nil {
+			return nil
+		}
+		return arm.Proc.Restart(ctx)
+	}
+	clock := &scriptedClock{base: time.Unix(1700000000, 0)}
+	opts := RunOptions{Project: "p", Generation: "g", Explorer: "w", UnrestrictedToken: "Bearer x", PreviewLimit: 100,
+		Config: RunConfig{Warmup: 1, Iterations: 2, Concurrency: 1, Rounds: 2}} // itersPerRound == 1
+	rcpt := map[string]string{BackendArango: "r-a", BackendPostgres: "r-p"}
+	outs := map[string]string{BackendArango: "w", BackendPostgres: "w"}
+
+	// A spawned arm with one measured iteration per round yields only the
+	// post-restart process-cold sample: no warm cell can ever back a claim
+	// (review r4561031154). Refuse before measuring.
+	fa, fp := newFakeArm(BackendArango), newFakeArm(BackendPostgres)
+	defer fa.close()
+	defer fp.close()
+	fa.rows["w"] = []map[string]any{{"patient_id": "p"}}
+	fp.rows["w"] = []map[string]any{{"patient_id": "p"}}
+	arango := fa.arm(BackendArango)
+	arango.Proc = spawnSleeperProcess(t, ready.URL, BackendArango)
+	if _, _, err := MeasureArms(context.Background(), clock, "w", arango, fp.arm(BackendPostgres), opts, rcpt, outs, cold); err == nil ||
+		!strings.Contains(err.Error(), "Iterations >= 2*Rounds") {
+		t.Fatalf("spawned arm with one measured iteration per round must be refused, got %v", err)
+	}
+
+	// The same schedule is legal for attached arms: they never restart, so
+	// every measured sample is service-warm and claimable.
+	if _, _, err := MeasureArms(context.Background(), clock, "w", fa.arm(BackendArango), fp.arm(BackendPostgres), opts, rcpt, outs, cold); err != nil {
+		t.Fatalf("attached arms keep the one-iteration-per-round schedule legal: %v", err)
 	}
 }

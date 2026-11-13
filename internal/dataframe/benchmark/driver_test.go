@@ -3,6 +3,9 @@ package benchmark
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -242,5 +245,60 @@ func TestDriverRequiresRealSourceCommit(t *testing.T) {
 	opts.SourceCommit = "abc"
 	if _, _, err := RunBenchmark(context.Background(), opts); err == nil {
 		t.Fatal("short source commit must be refused")
+	}
+}
+
+// TestDriverSpawnedArmsProduceClaims pins the operator lane end to end
+// (review r4561031154): spawned arms restart every round, so the schedule
+// must yield a warm cell per workload per arm and the report must carry
+// claims. The dummy binary sleeps; the fake serves the arm routes and
+// /readyz on the address the driver chose.
+func TestDriverSpawnedArmsProduceClaims(t *testing.T) {
+	fa, fp := newFakeArm(BackendArango), newFakeArm(BackendPostgres)
+	defer fa.close()
+	defer fp.close()
+	dir := t.TempDir()
+	script := filepath.Join(dir, "dummy-arm.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	opts := driverOptions(fa, fp, RunScopeBothArms)
+	opts.Config = RunConfig{Warmup: 1, Iterations: 10, Concurrency: 1, Rounds: 5}
+	opts.StderrDir = dir
+	opts.Arango = ArmConfig{BinaryPath: script, ConfigYAML: "listen: unused"}
+	opts.Postgres = ArmConfig{BinaryPath: script, ConfigYAML: "listen: unused"}
+	fakes := map[string]*fakeArm{BackendArango: fa, BackendPostgres: fp}
+	opts.Spawn = func(ctx context.Context, spec ServerSpec, secrets []string, listenAddr string) (*ServerProcess, error) {
+		f, ok := fakes[spec.Backend]
+		if !ok {
+			return nil, fmt.Errorf("no fake arm for backend %q", spec.Backend)
+		}
+		if err := f.serveOn(listenAddr); err != nil {
+			return nil, err
+		}
+		return SpawnServer(ctx, spec, secrets, listenAddr)
+	}
+	report, evidence, err := RunBenchmark(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Status != "passed" {
+		t.Fatalf("spawned run must pass: %s %v", report.Status, report.StatusReasons)
+	}
+	if len(report.Claims) == 0 {
+		t.Fatal("spawned lane must produce claims from warm cells")
+	}
+	for _, claim := range report.Claims {
+		if claim.Arango.Count < 1 || claim.Postgres.Count < 1 {
+			t.Fatalf("claim cites empty cells: %+v", claim)
+		}
+	}
+	if len(evidence) != 2 {
+		t.Fatalf("evidence: %+v", evidence)
+	}
+	for _, e := range evidence {
+		if !e.Spawned || e.LogPath == "" {
+			t.Fatalf("both arms must be spawned with logs: %+v", e)
+		}
 	}
 }

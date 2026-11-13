@@ -1,109 +1,56 @@
 package benchmark
 
-import (
-	"context"
-	"strings"
-	"testing"
-	"time"
-)
+import "testing"
 
-func timedSamples(backend, workload string, base float64, n int) []Sample {
-	var out []Sample
-	for i := 0; i < n; i++ {
-		s := sample(backend, workload, OutcomePassed, base+float64(i%2)*0.2, false)
-		s.Round = i / 2
-		s.Iteration = i % 2
-		out = append(out, s)
-	}
-	return out
-}
+// Measurement-integrity controls (review r4561031154): claims cite only a
+// claimable regime (warm, or service-warm for attached arms) and only from
+// cells the stability control accepted.
 
-func TestControlUnstableCells(t *testing.T) {
-	stable := timedSamples(BackendPostgres, WorkloadFilterActiveGender, 10, 8)
-	if got := ControlUnstableCells(stable, StabilityCVLimit); len(got) != 0 {
-		t.Fatalf("tight samples must be stable, got %v", got)
-	}
-	// high-variance cell
-	var wild []Sample
-	for i := 0; i < 8; i++ {
-		ms := 5.0
-		if i%2 == 0 {
-			ms = 500.0
-		}
-		s := sample(BackendArango, WorkloadGroupCountByPatient, OutcomePassed, ms, false)
-		s.Round, s.Iteration = i/2, i%2
-		wild = append(wild, s)
-	}
-	got := ControlUnstableCells(append(append([]Sample{}, stable...), wild...), StabilityCVLimit)
-	if len(got) != 1 || got[0] != WorkloadGroupCountByPatient+"/"+BackendArango {
-		t.Fatalf("expected only the wild cell unstable, got %v", got)
-	}
-	// too few samples: unstable, never silently trusted
-	thin := timedSamples(BackendArango, WorkloadDistinctFamily, 10, 2)
-	got = ControlUnstableCells(thin, StabilityCVLimit)
-	if len(got) != 1 {
-		t.Fatalf("2-sample cell must be reported unstable, got %v", got)
-	}
-	// warmup and failures are excluded from the timing set
-	filtered := append(timedSamples(BackendPostgres, WorkloadDistinctFamily, 10, 8),
-		sample(BackendPostgres, WorkloadDistinctFamily, OutcomePassed, 9000, true),
-		sample(BackendPostgres, WorkloadDistinctFamily, OutcomeTimeout, 9000, false))
-	if got := ControlUnstableCells(filtered, StabilityCVLimit); len(got) != 0 {
-		t.Fatalf("warmup/failed samples must not poison stability, got %v", got)
+func warmRows(arangoMedian, postgresMedian float64) []SummaryRow {
+	return []SummaryRow{
+		{WorkloadID: "w", Backend: BackendArango, Cache: CacheWarm, Summary: Summary{Count: 5, MedianMillis: arangoMedian}},
+		{WorkloadID: "w", Backend: BackendPostgres, Cache: CacheWarm, Summary: Summary{Count: 5, MedianMillis: postgresMedian}},
 	}
 }
 
-func TestControlSelfRatio(t *testing.T) {
-	samples := append(
-		timedSamples(BackendPostgres, WorkloadFilterActiveGender, 10, 8),
-		timedSamples(BackendPostgres, WorkloadGroupCountByPatient, 20, 8)...,
-	)
-	value, ok := ControlSelfRatio(samples, BackendPostgres)
-	if !ok || value < 1 || value > 1.05 {
-		t.Fatalf("self-ratio on stable halves must sit at 1±0.05, got %v ok=%v", value, ok)
+func TestClaimsRequireClaimableRegime(t *testing.T) {
+	gates := []WorkloadGateReport{{WorkloadID: "w", Claimable: true}}
+	coldOnly := []SummaryRow{
+		{WorkloadID: "w", Backend: BackendArango, Cache: CacheProcessCold, Summary: Summary{Count: 5, MedianMillis: 20}},
+		{WorkloadID: "w", Backend: BackendPostgres, Cache: CacheProcessCold, Summary: Summary{Count: 5, MedianMillis: 10}},
 	}
-	// first half fast, second half slow: worst deviation must show up
-	var skewed []Sample
-	for i := 0; i < 8; i++ {
-		ms := 10.0
-		if i >= 4 {
-			ms = 30.0
-		}
-		s := sample(BackendArango, WorkloadFilterActiveGender, OutcomePassed, ms, false)
-		s.Round, s.Iteration = i/2, i%2
-		skewed = append(skewed, s)
+	controls := ControlRuns{StabilityCVLimit: StabilityCVLimit}
+	if claims := buildClaims(gates, coldOnly, controls); len(claims) != 0 {
+		t.Fatalf("process-cold-only cells must never back claims, got %v", claims)
 	}
-	value, ok = ControlSelfRatio(skewed, BackendArango)
-	if !ok || value < 2.5 {
-		t.Fatalf("skewed halves must yield a large self-ratio, got %v ok=%v", value, ok)
+	// One arm warm, the peer only process-cold: no pair, no claim.
+	split := []SummaryRow{warmRows(20, 10)[0], coldOnly[1]}
+	if claims := buildClaims(gates, split, controls); len(claims) != 0 {
+		t.Fatalf("a claim needs the claimable regime on both arms, got %v", claims)
 	}
-	if _, ok := ControlSelfRatio(timedSamples(BackendArango, WorkloadFilterActiveGender, 10, 2), BackendArango); ok {
-		t.Fatal("2-sample cell cannot establish a self-ratio")
+	claims := buildClaims(gates, warmRows(20, 10), controls)
+	if len(claims) != 1 {
+		t.Fatalf("warm pair with passing gates must claim, got %v", claims)
 	}
-	if _, ok := ControlSelfRatio(nil, BackendArango); ok {
-		t.Fatal("no cells must not report a self-ratio")
+	if claims[0].Ratio.ArangoOverPostgres != 2 || claims[0].Arango.MedianMillis != 20 || claims[0].Postgres.MedianMillis != 10 {
+		t.Fatalf("claim cites the wrong cells: %+v", claims[0])
 	}
 }
 
-func TestControlEmptyFloor(t *testing.T) {
-	f := newFakeArm(BackendPostgres)
-	defer f.close()
-	arm := f.arm(BackendPostgres)
-	f.rows["empty-out"] = []map[string]any{} // a real server returns [], not null
-	median, err := arm.MeasureEmptyFloor(context.Background(), NewMonotonicClock(), "Bearer t", "proj", "bench", "receipt", "empty-out", 5)
-	if err != nil {
-		t.Fatal(err)
+func TestStabilityControlExcludesUnstableCellClaims(t *testing.T) {
+	gates := []WorkloadGateReport{{WorkloadID: "w", Claimable: true}}
+	rows := warmRows(20, 10)
+	claims := buildClaims(gates, rows, ControlRuns{StabilityCVLimit: StabilityCVLimit, UnstableCells: []string{"w/" + BackendPostgres}})
+	if len(claims) != 0 {
+		t.Fatalf("an unstable cell excludes its workload's claims, got %v", claims)
 	}
-	if median <= 0 {
-		t.Fatalf("floor median must be positive, got %v", median)
+	// An unstable cell elsewhere does not touch this workload.
+	claims = buildClaims(gates, rows, ControlRuns{StabilityCVLimit: StabilityCVLimit, UnstableCells: []string{"other/" + BackendPostgres}})
+	if len(claims) != 1 {
+		t.Fatalf("unrelated unstable cells must not suppress this claim, got %v", claims)
 	}
-	if _, err := arm.MeasureEmptyFloor(context.Background(), NewMonotonicClock(), "Bearer t", "proj", "bench", "receipt", "empty-out", 2); err == nil {
-		t.Fatal("fewer than 3 floor iterations must be refused")
+	// Non-claimable gates never claim even with perfect cells.
+	if claims := buildClaims([]WorkloadGateReport{{WorkloadID: "w", Claimable: false}}, rows, ControlRuns{StabilityCVLimit: StabilityCVLimit}); len(claims) != 0 {
+		t.Fatalf("ratio-only-both-passed policy must hold, got %v", claims)
 	}
-	// a floor request that returns rows is a protocol error
-	f.rows["empty-out"] = []map[string]any{{"patient_id": "P1"}}
-	if _, err := arm.MeasureEmptyFloor(context.Background(), NewMonotonicClock(), "Bearer t", "proj", "bench", "receipt", "empty-out", 5); err == nil || !strings.Contains(err.Error(), "not empty") {
-		t.Fatalf("non-empty floor request must fail closed, got %v", err)
-	}
-	_ = time.Now
 }

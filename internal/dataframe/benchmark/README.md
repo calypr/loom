@@ -62,17 +62,18 @@ planned capabilities).
    default `--publication=excluded` path, where every gate arm is
    blocked). A run that timed nothing must not look like a success.
 
-## Publication chain (ClickHouse-backed) and the timed lane
+## Publication chain (ClickHouse-backed) and the two modes
 
 The publication *chain* — dataset → bundle →
 `publication.Target`/`ClickHouseBundleStore`, the chain's only production
-implementation — is ClickHouse-backed. The timing battery is not: the
-authoring battery (explorer publish, builder, reconcile, preview,
-receipts, workload gates, timing, controls) runs for real against both
-drivers with `server.clickhouse.enabled=false`, the same posture the
-`backend-conformance` CI lane adjudicates on the actual services. The
-PostgreSQL backend forbids `clickhouse.enabled` in this slice outright,
-so the chain and the battery must be disclosed separately.
+implementation — is ClickHouse-backed, and the battery rides it: every
+workload begins with the explorer-config publish, which materializes
+through the chain. The first publish against a fresh generation answers
+422 `MATERIALIZATION_FAILED` when no materialization target is configured
+(2026-11-13 rehearsal), so there is no chain-less battery and the authoring
+battery requires a reachable ClickHouse. `--publication` accepts exactly
+two modes; anything else is refused at preflight
+(`unknown --publication ... want excluded | run`).
 
 - `--publication=excluded` (default): spawn, upload, and version probes run
   for real on every ran leg; the whole publication chain ships as
@@ -83,27 +84,31 @@ so the chain and the battery must be disclosed separately.
   refuses any samples, summaries, claims, or control values, requires every
   gate arm blocked, and one disclosure row per battery workload per ran leg.
   This mode measures nothing and can never satisfy a benchmark check.
-- `--publication=timed`: the paired timing lane. The battery executes for
-  real on every ran leg with `clickhouse.enabled=false`; only the chain
-  ships disclosed not_run under `PublicationCapabilityTimed`
-  (`CH-not-deployed-for-timed-dataframe-legs`). Reports from this lane
-  carry real samples, summaries, controls, and claims; `VerifyReport`
-  still refuses them if the battery flag is flipped off while evidence
-  is present.
-- `--publication=run`: requires `--clickhouse-enabled`, i.e. the CI lane
-  with the pinned service. A report whose identity says ClickHouse is
-  disabled while claiming the chain ran fails verification.
+- `--publication=run`: the paired timing lane. The battery executes for
+  real on every ran leg — publish, materialization, preview, timing,
+  controls — with `server.clickhouse.enabled=true` and
+  `--clickhouse-enabled` on the harness identity. Each arm materializes
+  into its own `loom_bench_*` database. Credentials resolve flags
+  (`--clickhouse-user`/`--clickhouse-password`) over
+  `LOOM_BENCH_CH_USER`/`LOOM_BENCH_CH_PASSWORD` over the server default.
+  Reports from this lane carry real samples, summaries, controls, and
+  claims. A report whose identity says ClickHouse is disabled while
+  claiming the chain ran fails verification, and a run-mode report must
+  not name a publication capability.
 
 ## Paired speed comparison (operator acceptance, 2026-11-13)
 
 `node scripts/benchmark-backends.mjs --paired --binary <server> --benchcli
 <benchcli> --out <dir> [--profile tiny|small|representative]
-[--iterations N>=5 --warmup N>=1 --rounds N] [--source-commit <40-hex>]`
+[--iterations N>=2*rounds --warmup N>=1 --rounds N>=5] [--source-commit <40-hex>]
+--clickhouse-url <url>`
 runs the same matched battery against BOTH real drivers discovered from
 `LOOM_TEST_ARANGO_URL` + `LOOM_TEST_POSTGRES_URL` (the same variables the
 `backend-conformance` job exports; the CI job
 `factory/paired-driver-benchmark` in `.github/workflows/tests.yaml` runs
-this exact command with services `arangodb:3.12` + `postgres:18`). With
+this exact command with services `arangodb:3.12` + `postgres:18` +
+`clickhouse/clickhouse-server:25.3`, invoking benchcli with
+`--publication=run --clickhouse-enabled`). With
 `LOOM_BENCH_ADMIN_DSN` set it first provisions its own fresh
 `loom_bench_*` database (name must match `loom_bench_[a-z0-9_]{4,48}`,
 the rule benchcli enforces) via `benchcli drop-pg`/`setup-pg` (database,
@@ -111,10 +116,15 @@ six-series schema ladder, migrated tables) — the PostgreSQL backend
 readiness answers `schema_missing ... the caller owns schema lifecycle`,
 so the lane, not the server, bootstraps. A failed `setup-pg` fails the
 check before any timing attempt.
-Correctness gates decide first; then >= 5 alternating measured timings per
-driver are required. The check FAILS — never skips, never passes — when a
-service is missing, an arm is planned/not_run/excluded (beyond the two
-reviewer-accepted live-battery exclusions), a driver produced no usable
+Correctness gates decide first; then >= 5 interleaved measured rounds per
+driver are required, each round contributing the post-restart
+process-cold sample plus at least one warm sample (`--iterations >=
+2*--rounds`; spawned arms restart per round, and claims cite the warm
+cell, so a one-iteration round could never produce a claimable regime).
+The check FAILS — never skips, never passes — when a
+service is missing, an arm is planned/not_run/excluded (the exclusions
+`LiveBatteryExclusions()` names — currently six workloads — are tolerated
+through the exclusion marker), a driver produced no usable
 timing samples, or the Go verifier rejects the artifact. On success it
 writes `comparison.md` (median/min/max/range in milliseconds per workload
 per driver, plus versions, source SHA, fixture digest, warmup/cache/
@@ -132,10 +142,11 @@ from the MockFence.
 
 ## Current blockers (cited in planned artifacts)
 
-- ClickHouse service: needed only by the publication *chain*
-  (`--publication=run`), which requires `clickhouse/clickhouse-server:25.3`
-  as provisioned by the CI lane. Paired timing uses
-  `--publication=timed` and does not wait on it. Owner: CI lane.
+- ClickHouse service: needed by the publication chain, which the battery
+  itself requires (`--publication=run`), on
+  `clickhouse/clickhouse-server:25.3` as provisioned by the CI lane. The
+  paired lane depends on that service; there is no chain-less fallback.
+  Owner: CI lane.
 - `PG-PG-AUTH-PATH-DISCOVERY-ALLGENS` — FIXED in PR #156 (verified live:
   upload accepted, fence hit once, no 403); the branch base predates the
   library-side fix, so live legs go green when it merges. Evidence:
