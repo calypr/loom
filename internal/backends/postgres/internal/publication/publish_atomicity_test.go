@@ -35,56 +35,9 @@ func pubvisRegisterOwned(db, schema string) {
 	pubvisOwned[db] = schema
 }
 
-var (
-	pubvisBaselineOnce sync.Once
-	pubvisBaseline     map[string]bool
-	pubvisBaselineErr  error
-)
-
-func capturePubvisBaseline() {
-	pubvisBaselineOnce.Do(func() {
-		raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
-		if raw == "" {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		admin, err := pgxpool.New(ctx, raw)
-		if err != nil {
-			pubvisBaselineErr = fmt.Errorf("baseline connect: %w", err)
-			return
-		}
-		defer admin.Close()
-		rows, err := admin.Query(ctx, "SELECT datname FROM pg_database")
-		if err != nil {
-			pubvisBaselineErr = fmt.Errorf("baseline query: %w", err)
-			return
-		}
-		defer rows.Close()
-		pubvisBaseline = map[string]bool{}
-		for rows.Next() {
-			var name string
-			if err := rows.Scan(&name); err != nil {
-				pubvisBaselineErr = fmt.Errorf("baseline scan: %w", err)
-				return
-			}
-			pubvisBaseline[name] = true
-		}
-		if err := rows.Err(); err != nil {
-			pubvisBaselineErr = fmt.Errorf("baseline rows: %w", err)
-		}
-	})
-}
-
-func init() { capturePubvisBaseline() }
-
 func auditPublishVisibilityLeftovers() error {
 	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" {
 		return nil
-	}
-	capturePubvisBaseline()
-	if pubvisBaselineErr != nil {
-		return pubvisBaselineErr
 	}
 	pubvisOwnedMu.Lock()
 	owned := make(map[string]string, len(pubvisOwned))
@@ -114,35 +67,46 @@ func auditPublishVisibilityLeftovers() error {
 		}
 	}
 
-	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database")
+	var leftoverDatabases []string
+	rows, err := admin.Query(ctx, "SELECT datname FROM pg_database WHERE left(datname, $1) = $2", len("verify_pubvis_"), "verify_pubvis_")
 	if err != nil {
-		return fmt.Errorf("audit current databases: %w", err)
+		return fmt.Errorf("audit database namespace scan: %w", err)
 	}
 	defer rows.Close()
-	current := map[string]bool{}
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return fmt.Errorf("audit scan: %w", err)
+			return fmt.Errorf("audit database namespace scan: %w", err)
 		}
-		current[name] = true
+		leftoverDatabases = append(leftoverDatabases, name)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("audit rows: %w", err)
+		return fmt.Errorf("audit database namespace scan: %w", err)
 	}
-	for name := range current {
-		if pubvisBaseline[name] {
-			continue
-		}
-		if strings.HasPrefix(name, "pgpubcat01_it_") || strings.HasPrefix(name, "pgleases01_it_") {
-			continue
-		}
-		return fmt.Errorf("pg_database drifted from the baseline: unexpected database %q", name)
+	rows.Close()
+	if len(leftoverDatabases) != 0 {
+		return fmt.Errorf("leftover databases under this suite's fixture namespace verify_pubvis_* after all cleanups: %v", leftoverDatabases)
 	}
-	for name := range pubvisBaseline {
-		if !current[name] {
-			return fmt.Errorf("pg_database drifted from the baseline: baseline database %q vanished", name)
+
+	var leftoverSchemas []string
+	schemaRows, err := admin.Query(ctx, "SELECT nspname FROM pg_namespace WHERE left(nspname, $1) = $2", len("verify_pubvis_"), "verify_pubvis_")
+	if err != nil {
+		return fmt.Errorf("audit schema namespace scan: %w", err)
+	}
+	defer schemaRows.Close()
+	for schemaRows.Next() {
+		var name string
+		if err := schemaRows.Scan(&name); err != nil {
+			return fmt.Errorf("audit schema namespace scan: %w", err)
 		}
+		leftoverSchemas = append(leftoverSchemas, name)
+	}
+	if err := schemaRows.Err(); err != nil {
+		return fmt.Errorf("audit schema namespace scan: %w", err)
+	}
+	schemaRows.Close()
+	if len(leftoverSchemas) != 0 {
+		return fmt.Errorf("leftover schemas under this suite's fixture namespace verify_pubvis_* after all cleanups: %v", leftoverSchemas)
 	}
 	return nil
 }
@@ -187,11 +151,6 @@ func newPubvisService(t *testing.T) *pubvisService {
 		return s
 	}
 	fail := func(step string, err error) { t.Fatalf("%s: %s", step, scrub(err)) }
-
-	capturePubvisBaseline()
-	if pubvisBaselineErr != nil {
-		fail("capture pg_database baseline", pubvisBaselineErr)
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 240*time.Second)
 	t.Cleanup(cancel)
@@ -1218,6 +1177,125 @@ func firstDiff(a, b string) int {
 		}
 	}
 	return limit
+}
+
+func TestAuditPublishVisibilityForeignFixtureActivity(t *testing.T) {
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		t.Skip("no service configured; nothing could have been created")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect to test service: %v", err)
+	}
+	t.Cleanup(admin.Close)
+
+	foreign := fmt.Sprintf("verify_pubvisx_it_%d_%s", time.Now().UnixNano(), randomHex())
+	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+foreign+`"`); err != nil {
+		t.Fatalf("create foreign fixture database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+			`DROP DATABASE IF EXISTS "`+foreign+`" WITH (FORCE)`); err != nil {
+			t.Errorf("drop foreign fixture database: %v", err)
+		}
+	})
+
+	if err := auditPublishVisibilityLeftovers(); err != nil {
+		t.Errorf("audit with foreign fixture database alive = %v, want nil", err)
+	}
+
+	var survived int
+	if err := admin.QueryRow(ctx, "SELECT COUNT(*) FROM pg_database WHERE datname = $1", foreign).Scan(&survived); err != nil {
+		t.Fatalf("check foreign fixture database survived the audit: %v", err)
+	}
+	if survived != 1 {
+		t.Fatalf("audit removed foreign fixture database %q", foreign)
+	}
+
+	if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS "`+foreign+`" WITH (FORCE)`); err != nil {
+		t.Fatalf("remove foreign fixture database: %v", err)
+	}
+	if err := auditPublishVisibilityLeftovers(); err != nil {
+		t.Errorf("audit after foreign fixture database was removed = %v, want nil", err)
+	}
+}
+
+func TestAuditPublishVisibilityOwnedLeakControls(t *testing.T) {
+	raw := strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL"))
+	if raw == "" {
+		t.Skip("no service configured; nothing could have been created")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, raw)
+	if err != nil {
+		t.Fatalf("connect to test service: %v", err)
+	}
+	defer admin.Close()
+
+	t.Run("registered database leak", func(t *testing.T) {
+		db := fmt.Sprintf("verify_pubvis_it_%d_%s", time.Now().UnixNano(), randomHex())
+		if !pubvisResourceNamePattern.MatchString(db) {
+			t.Fatalf("leak database name %q does not match the required pattern", db)
+		}
+		if _, err := admin.Exec(ctx, `CREATE DATABASE "`+db+`"`); err != nil {
+			t.Fatalf("create leak database: %v", err)
+		}
+		pubvisRegisterOwned(db, "")
+		t.Cleanup(func() {
+			if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+				`DROP DATABASE IF EXISTS "`+db+`" WITH (FORCE)`); err != nil {
+				t.Errorf("drop leak database: %v", err)
+			}
+		})
+		err := auditPublishVisibilityLeftovers()
+		if err == nil || !strings.Contains(err.Error(), "leftover owned database") || !strings.Contains(err.Error(), db) {
+			t.Fatalf("audit with a registered owned database leak = %v, want a leftover owned database failure naming %q", err, db)
+		}
+	})
+
+	t.Run("unregistered namespace database leak", func(t *testing.T) {
+		db := fmt.Sprintf("verify_pubvis_it_%d_%s", time.Now().UnixNano(), randomHex())
+		if !pubvisResourceNamePattern.MatchString(db) {
+			t.Fatalf("leak database name %q does not match the required pattern", db)
+		}
+		if _, err := admin.Exec(ctx, `CREATE DATABASE "`+db+`"`); err != nil {
+			t.Fatalf("create leak database: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+				`DROP DATABASE IF EXISTS "`+db+`" WITH (FORCE)`); err != nil {
+				t.Errorf("drop leak database: %v", err)
+			}
+		})
+		err := auditPublishVisibilityLeftovers()
+		if err == nil || !strings.Contains(err.Error(), "leftover databases under this suite's fixture namespace") || !strings.Contains(err.Error(), db) {
+			t.Fatalf("audit with an unregistered namespace database leak = %v, want a fixture namespace failure naming %q", err, db)
+		}
+	})
+
+	t.Run("namespace schema leak", func(t *testing.T) {
+		schema := fmt.Sprintf("verify_pubvis_it_%d_%s", time.Now().UnixNano(), randomHex())
+		if !pubvisResourceNamePattern.MatchString(schema) {
+			t.Fatalf("leak schema name %q does not match the required pattern", schema)
+		}
+		if _, err := admin.Exec(ctx, `CREATE SCHEMA "`+schema+`"`); err != nil {
+			t.Fatalf("create leak schema: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := admin.Exec(context.WithoutCancel(context.Background()),
+				`DROP SCHEMA IF EXISTS "`+schema+`" CASCADE`); err != nil {
+				t.Errorf("drop leak schema: %v", err)
+			}
+		})
+		err := auditPublishVisibilityLeftovers()
+		if err == nil || !strings.Contains(err.Error(), "leftover schemas under this suite's fixture namespace") || !strings.Contains(err.Error(), schema) {
+			t.Fatalf("audit with a namespace schema leak = %v, want a fixture namespace failure naming %q", err, schema)
+		}
+	})
 }
 
 func TestZZZeroLeftoverPublishVisibilityFixtures(t *testing.T) {
