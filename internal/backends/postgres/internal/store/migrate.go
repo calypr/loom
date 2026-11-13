@@ -229,7 +229,7 @@ func NewMigrationRunner(src ConnSource, schema string, migrations []Migration) (
 	if src == nil {
 		return nil, errors.New("postgres: nil migration connection source")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	normalized := append([]Migration(nil), migrations...)
@@ -517,6 +517,10 @@ func MigrateSchema(ctx context.Context, client *Client, schema string) (MigrateR
 		return MigrateResult{}, err
 	}
 	return runner.Migrate(ctx)
+}
+
+func ValidSchemaName(schema string) bool {
+	return schemaNamePattern.MatchString(schema)
 }
 
 func VerifySchema(ctx context.Context, client *Client, schema string) error {

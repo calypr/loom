@@ -36,7 +36,7 @@ func NewSemanticReadRepository(src storepostgres.ConnSource, schema string) (*Se
 	if src == nil {
 		return nil, errors.New("postgres: nil semantic read connection source")
 	}
-	if !semanticBuildSchemaPattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", storepostgres.ErrInvalidSchemaName, schema)
 	}
 	return &SemanticReadRepository{

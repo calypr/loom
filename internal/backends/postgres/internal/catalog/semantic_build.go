@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,8 +19,6 @@ const (
 	maxSemanticInventoryDiagnosticBytes = 512
 	defaultSemanticInventoryDiagnostic  = "backfill failed"
 )
-
-var semanticBuildSchemaPattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
 var (
 	ErrSemanticInventoryClaimed          = errors.New("postgres: semantic inventory build is already claimed")
@@ -81,7 +78,7 @@ func NewSemanticBuildRepository(src storepostgres.ConnSource, schema string) (*S
 	if src == nil {
 		return nil, errors.New("postgres: nil semantic build connection source")
 	}
-	if !semanticBuildSchemaPattern.MatchString(schema) {
+	if !storepostgres.ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", storepostgres.ErrInvalidSchemaName, schema)
 	}
 	return &SemanticBuildRepository{

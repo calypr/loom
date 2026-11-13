@@ -152,7 +152,7 @@ func NewBatchWriter(src ConnSource, schema string) (*BatchWriter, error) {
 	if src == nil {
 		return nil, errors.New("postgres: nil batch connection source")
 	}
-	if !schemaNamePattern.MatchString(schema) {
+	if !ValidSchemaName(schema) {
 		return nil, fmt.Errorf("%w: %q must match [a-z_][a-z0-9_]{0,62}", ErrInvalidSchemaName, schema)
 	}
 	return &BatchWriter{
