@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -240,6 +241,7 @@ var ab10MintInventory = map[string]int{
 	"TestBackendArchitectureConformance/postgresql":                                           1,
 	"TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely": 1,
 	"TestBackendArchitectureConformance/arangodb":                                             1,
+	"TestBackendArchitectureConformance/crossBackendCandidateIdentityParity":                  2,
 }
 
 var ab10MintSeq int
@@ -304,7 +306,7 @@ func ab10AuditRegistry(t *testing.T, arm string) {
 	}
 	knownLegs := map[string]bool{}
 	for leg := range ab10MintInventory {
-		if strings.HasPrefix(leg, "TestBackendArchitectureConformance/"+arm) {
+		if strings.HasPrefix(leg, "TestBackendArchitectureConformance/"+arm) || strings.HasPrefix(leg, "TestBackendArchitectureConformance/crossBackend") {
 			knownLegs[leg] = true
 		}
 	}
@@ -398,6 +400,7 @@ func ab10AuditSurvivors(t *testing.T, arm string) {
 func TestBackendArchitectureConformance(t *testing.T) {
 	t.Run("postgresql", testBackendArchitectureConformancePostgres)
 	t.Run("arangodb", testBackendArchitectureConformanceArango)
+	t.Run("crossBackendCandidateIdentityParity", testBackendArchitectureConformanceCrossBackendParity)
 }
 
 func ab10Logger() *slog.Logger {
@@ -990,6 +993,172 @@ func testBackendArchitectureConformanceArango(t *testing.T) {
 	ab10CellBackendUnavailableNoFallback(t, arm)
 	ab10CellGenerationIsolation(t, arm)
 	ab10CellUpgradeReopen(t, arm)
+}
+
+const ab10ParityExplorer = "ab10-parity-probe"
+
+func ab10ParityPatientLines(t *testing.T) []string {
+	t.Helper()
+	return ab10JSONLines(t,
+		map[string]any{"resourceType": "Patient", "id": "ab10-patient-parity", "gender": "female", "birthDate": "1990-02-24"},
+	)
+}
+
+func ab10ParityObservationLines(t *testing.T) []string {
+	t.Helper()
+	subject := map[string]any{"reference": "Patient/ab10-patient-parity"}
+	code := func(codeValue, display string) map[string]any {
+		return map[string]any{"coding": []map[string]any{{"system": "https://bench.example/codes", "code": codeValue, "display": display}}}
+	}
+	return ab10JSONLines(t,
+		map[string]any{"resourceType": "Observation", "id": "ab10-parity-obs-string", "status": "final", "code": code("PARITY-STRING", "Parity String"), "subject": subject, "valueString": "self-reported:no"},
+		map[string]any{"resourceType": "Observation", "id": "ab10-parity-obs-concept", "status": "final", "code": code("PARITY-CONCEPT", "Parity Concept"), "subject": subject, "valueCodeableConcept": map[string]any{"coding": []map[string]any{{"system": "https://bench.example/codes", "code": "PARITY-STAGE-B", "display": "Stage B"}}}},
+		map[string]any{"resourceType": "Observation", "id": "ab10-parity-obs-concept-text", "status": "final", "code": code("PARITY-TEXT", "Parity Text"), "subject": subject, "valueCodeableConcept": map[string]any{"text": "STAGE-A"}},
+		map[string]any{"resourceType": "Observation", "id": "ab10-parity-obs-quantity", "status": "final", "code": code("PARITY-QUANTITY", "Parity Quantity"), "subject": subject, "valueQuantity": map[string]any{"value": 42, "unit": "a", "system": "http://unitsofmeasure.org", "code": "a"}},
+		map[string]any{"resourceType": "Observation", "id": "ab10-parity-obs-mixed", "status": "final", "code": map[string]any{"text": "Parity Mixed Text", "coding": []map[string]any{{"system": "https://bench.example/codes", "code": "PARITY-MIXED", "display": "Parity Mixed"}}}, "subject": subject, "valueQuantity": map[string]any{"value": 7}, "valueString": "mixed-arm"},
+		map[string]any{"resourceType": "Observation", "id": "ab10-parity-obs-bare", "status": "final", "code": code("PARITY-BARE", "Parity Bare"), "subject": subject},
+	)
+}
+
+func ab10ParityCatalogIdentity(t *testing.T, arm *ab10Arm, ctx context.Context) (loomapi.Catalog, string) {
+	t.Helper()
+	ab10SeedDraft(t, arm, ctx, ab10ParityExplorer, nil)
+	response, state := ab10Builder(t, arm, ab10ParityExplorer)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("%s arm: parity builder status %d body %s", arm.name, response.StatusCode, response.Body)
+	}
+	if state.Catalog.SnapshotToken == "" {
+		t.Fatalf("%s arm: parity builder catalog carries no snapshot identity: %s", arm.name, response.Body)
+	}
+	return state.Catalog, arm.scrub(response.Body)
+}
+
+func ab10ParitySortedIDs[T any](items []T, id func(T) string) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, id(item))
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func testBackendArchitectureConformanceCrossBackendParity(t *testing.T) {
+	endpoint := strings.TrimSpace(os.Getenv("LOOM_TEST_ARANGO_URL"))
+	if strings.TrimSpace(os.Getenv("LOOM_TEST_POSTGRES_URL")) == "" || endpoint == "" {
+		t.Skip("set LOOM_TEST_POSTGRES_URL and LOOM_TEST_ARANGO_URL to run the cross-backend candidate identity pin (blocked acceptance: adjudicated by the CI conformance lane)")
+	}
+	t.Cleanup(func() {
+		ab10AuditArm(t, "postgresql")
+		ab10AuditArm(t, "arangodb")
+	})
+	ab10AuditLegMints(t, "postgresql", 1)
+	ab10AuditLegMints(t, "arangodb", 1)
+
+	files := map[string][]string{
+		"Patient.ndjson":     ab10ParityPatientLines(t),
+		"Observation.ndjson": ab10ParityObservationLines(t),
+	}
+
+	fixture := newAB10PGFixture(t)
+	fixture.migrate(t)
+	fixture.load(t, ab10Project1, ab10GenA, ab10PathMain, files)
+	fixture.activate(t, ab10Project1, ab10GenA)
+
+	database := ab10ArangoOwnDatabase(t, endpoint, t.Name())
+	ctx, cancel := context.WithTimeout(context.Background(), 420*time.Second)
+	defer cancel()
+	backend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
+	if err != nil {
+		t.Fatalf("open owned arango database through the factory: %v", err)
+	}
+	defer func() { _ = backend.Close(context.Background()) }()
+	ref, err := publication.NewRef(ab10Project1, ab10GenA)
+	if err != nil {
+		t.Fatalf("build parity dataset ref: %v", err)
+	}
+	if _, err := ingest.Load(ctx, ingest.LoadOptions{
+		ConnectionOptions: ingest.ConnectionOptions{URL: endpoint, Database: database},
+		Schema:            ab10RepoPath(t, "schemas", "graph-fhir.json"),
+		MetaDir:           ab10WriteMetaDir(t, files),
+		Project:           ab10Project1,
+		Dataset:           &ref,
+		AuthResourcePath:  authscope.NormalizeAuthResourcePath(ab10PathMain),
+	}); err != nil {
+		t.Fatalf("arango parity ingest load+activate %s/%s: %v", ab10Project1, ab10GenA, err)
+	}
+
+	pgServer, closePG, err := composePostgreSQLFullRuntime(ctx, fixture.bootConfig(t, "127.0.0.1:0"), ab10Logger())
+	if err != nil {
+		t.Fatalf("production compose (parity postgresql arm): %s", fixture.scrub(err))
+	}
+	defer func() {
+		if err := closePG(); err != nil {
+			t.Errorf("close parity postgresql arm runtime: %s", fixture.scrub(err))
+		}
+	}()
+	pgArm := &ab10Arm{name: "parity-postgresql", app: pgServer.App(), fixture: fixture, scrub: fixture.scrub}
+
+	arangoArm := &ab10Arm{
+		name:     "parity-arangodb",
+		endpoint: endpoint,
+		database: database,
+		backend:  backend,
+		probe:    &ab10ArangoProbe{endpoint: endpoint, database: database},
+		scrub:    func(v any) string { return fmt.Sprint(v) },
+	}
+	arangoArm.app = ab10BootArangoApp(t, ctx, arangoArm, true)
+
+	pgCatalog, pgBody := ab10ParityCatalogIdentity(t, pgArm, ctx)
+	arangoCatalog, arangoBody := ab10ParityCatalogIdentity(t, arangoArm, ctx)
+
+	if len(pgCatalog.Candidates) == 0 || len(arangoCatalog.Candidates) == 0 {
+		t.Fatalf("parity pin is vacuous: postgresql carries %d candidates (%s), arangodb carries %d candidates (%s)", len(pgCatalog.Candidates), pgBody, len(arangoCatalog.Candidates), arangoBody)
+	}
+	if len(pgCatalog.Nodes) == 0 || len(arangoCatalog.Nodes) == 0 {
+		t.Fatalf("parity pin is vacuous: postgresql carries %d nodes, arangodb carries %d nodes", len(pgCatalog.Nodes), len(arangoCatalog.Nodes))
+	}
+	observationCandidates := func(catalog loomapi.Catalog) int {
+		observationNodeIDs := map[string]struct{}{}
+		for _, node := range catalog.Nodes {
+			if node.ResourceType == "Observation" {
+				observationNodeIDs[node.NodeId] = struct{}{}
+			}
+		}
+		count := 0
+		for _, candidate := range catalog.Candidates {
+			if _, ok := observationNodeIDs[candidate.NodeId]; ok {
+				count++
+			}
+		}
+		return count
+	}
+	if observationCandidates(pgCatalog) == 0 || observationCandidates(arangoCatalog) == 0 {
+		t.Fatalf("parity pin is vacuous: postgresql carries %d Observation candidates, arangodb carries %d Observation candidates", observationCandidates(pgCatalog), observationCandidates(arangoCatalog))
+	}
+	if pgCatalog.SnapshotToken != arangoCatalog.SnapshotToken {
+		t.Fatalf("cross-backend snapshot identity diverged for the identical authored dataset: postgresql token %q, arangodb token %q", pgCatalog.SnapshotToken, arangoCatalog.SnapshotToken)
+	}
+	candidates := func(catalog loomapi.Catalog) []string {
+		return ab10ParitySortedIDs(catalog.Candidates, func(candidate loomapi.CatalogCandidate) string { return candidate.CandidateId })
+	}
+	nodes := func(catalog loomapi.Catalog) []string {
+		return ab10ParitySortedIDs(catalog.Nodes, func(node loomapi.CatalogNode) string { return node.NodeId })
+	}
+	edges := func(catalog loomapi.Catalog) []string {
+		return ab10ParitySortedIDs(catalog.Edges, func(edge loomapi.CatalogEdge) string { return edge.EdgeId })
+	}
+	pgCandidates, arangoCandidates := candidates(pgCatalog), candidates(arangoCatalog)
+	if !slices.Equal(pgCandidates, arangoCandidates) {
+		t.Fatalf("cross-backend candidate-ID multiset diverged for the identical authored dataset: postgresql %d ids %v, arangodb %d ids %v", len(pgCandidates), pgCandidates, len(arangoCandidates), arangoCandidates)
+	}
+	pgNodes, arangoNodes := nodes(pgCatalog), nodes(arangoCatalog)
+	if !slices.Equal(pgNodes, arangoNodes) {
+		t.Fatalf("cross-backend node-ID multiset diverged for the identical authored dataset: postgresql %d ids %v, arangodb %d ids %v", len(pgNodes), pgNodes, len(arangoNodes), arangoNodes)
+	}
+	pgEdges, arangoEdges := edges(pgCatalog), edges(arangoCatalog)
+	if !slices.Equal(pgEdges, arangoEdges) {
+		t.Fatalf("cross-backend edge-ID multiset diverged for the identical authored dataset: postgresql %d ids %v, arangodb %d ids %v", len(pgEdges), pgEdges, len(arangoEdges), arangoEdges)
+	}
 }
 
 func ab10WriteMetaDir(t *testing.T, files map[string][]string) string {

@@ -370,6 +370,7 @@ export const archBackend12Diagnostics = new Set([
 export const backendArchitectureConformance = new Set([
     'TestBackendArchitectureConformance/postgresql',
     'TestBackendArchitectureConformance/arangodb',
+    'TestBackendArchitectureConformance/crossBackendCandidateIdentityParity',
 ]);
 const external = new Set([
     'TestPivotPresenceAudit',
