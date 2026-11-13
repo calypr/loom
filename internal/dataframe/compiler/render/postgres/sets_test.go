@@ -539,7 +539,9 @@ func TestSetSurfaceRefusals(t *testing.T) {
 			},
 		},
 		{
-			name:          "set after the execution window",
+			// A post-window set IS registered now when a reducer consumes it (post_window.go
+			// acceptPostWindowSet); the window guard must still refuse one with no consumer.
+			name:          "set after the execution window without a registered consumer",
 			want:          "sets must precede the execution window",
 			rendererLevel: true,
 			mutate: func(plan *ir.PhysicalPlan) {
@@ -547,6 +549,8 @@ func TestSetSurfaceRefusals(t *testing.T) {
 					Keys: []ir.PhysicalValue{{Variable: "root", Path: []string{"logical_id"}}},
 				}}
 				rootScan, setOp, ret := plan.Operations[0], plan.Operations[1], plan.Operations[2]
+				setOp.Set.Reduction = nil
+				ret.Return.Projections = ret.Return.Projections[:1] // drop the reduced-variable read
 				plan.Operations = []ir.PhysicalOperation{rootScan, sortOp, setOp, ret}
 			},
 		},

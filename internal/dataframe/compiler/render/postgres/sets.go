@@ -16,11 +16,17 @@ type correlatedSetBody struct {
 	targetVar   string
 }
 
+// renderCorrelatedChildSteps renders one hop per TRAVERSAL of a correlated subplan as the
+// registered typed-identity join. allowEndpointStrategy admits the planner's
+// ENDPOINT_LOOKUP access-path hint only for consumers whose registered surface was
+// adjudicated for both strategies (the aggregate reducers); every other consumer keeps the
+// fail-closed refusal inside validateTraversalContract.
 func (r *planRenderer) renderCorrelatedChildSteps(
 	plan ir.PhysicalPlan,
 	subplan ir.PhysicalSubplan,
 	allowOptionalCapture bool,
 	multipleTraversals bool,
+	allowEndpointStrategy bool,
 ) (correlatedSetBody, error) {
 	if len(subplan.Captures) != 1 {
 		return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan must capture exactly one correlation anchor, got %d captures",
@@ -56,6 +62,25 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 					ErrUnsupportedPostgresPlan, index)
 			}
 			traversal := *operation.Traversal
+			// The AQL arm renders child-route hops with either access-path strategy
+			// (render/aql/navigation_render.go:44-47); PostgreSQL has no graph, so
+			// edgeOccurrencePredicates renders the same typed-identity join for both. The
+			// registered related-route surface normalizes the same way after requiring the
+			// planner-named payload (stage_related_occurrence.go:373-379). Only the
+			// aggregate-consumed set registers this today: the reduction-consumed and
+			// related-existence surfaces keep the fail-closed refusal in
+			// validateTraversalContract until their owners adjudicate the shape.
+			if traversal.Strategy == ir.PhysicalTraversalEndpointLookup {
+				if !allowEndpointStrategy {
+					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup strategy has no proven PostgreSQL contract for this consumer; the registered child-set surface accepts it only for sets reduced by a registered SUM/COUNT/MIN/MAX aggregate expression",
+						ErrUnsupportedPostgresPlan, index)
+				}
+				if strings.TrimSpace(traversal.EndpointField) == "" || strings.TrimSpace(traversal.EndpointJoinField) == "" {
+					return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: endpoint-lookup traversal payload is incomplete (the planner always names EndpointField and EndpointJoinField, lower/traversal.go:143-147)",
+						ErrUnsupportedPostgresPlan, index)
+				}
+				traversal.Strategy = ir.PhysicalTraversalNative
+			}
 			if traversal.SourceVariable != nextSourceVariable {
 				return correlatedSetBody{}, fmt.Errorf("%w: correlated subplan operation %d: traversal must anchor on %q (the capture for the first hop, the previous hop's reached row thereafter), got source %q",
 					ErrUnsupportedPostgresPlan, index, nextSourceVariable, traversal.SourceVariable)
@@ -67,7 +92,7 @@ func (r *planRenderer) renderCorrelatedChildSteps(
 			seq := r.nextTraversalSequence()
 			edgeAlias := "e" + strconv.Itoa(seq)
 			targetAlias := "x" + strconv.Itoa(seq)
-			edgeWhere, targetOn := r.edgeOccurrencePredicates(verified, edgeAlias, targetAlias, nextSource.alias)
+			edgeWhere, targetOn := r.edgeOccurrencePredicates(&verified, edgeAlias, targetAlias, nextSource.alias)
 			if !sawTraversal {
 				fromParts = append(fromParts, "FROM "+r.storage.Edge.Identifier().SQLText()+" AS "+edgeAlias)
 				whereParts = append(whereParts, edgeWhere)
@@ -138,8 +163,8 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 	default:
 		return fmt.Errorf("%w: unknown set kind %q", ErrUnsupportedPostgresPlan, string(set.Kind))
 	}
-	if set.Reduction == nil && !sliceConsumesSetVariable(plan, set.Variable) {
-		return fmt.Errorf("%w: set %q has no reduction contract; the registered surface renders sets only through their FIRST/ALL/DISTINCT selector reductions, because no other consumer of the item array is registered",
+	if set.Reduction == nil && !sliceConsumesSetVariable(plan, set.Variable) && !aggregateConsumesSetVariable(plan, set.Variable) {
+		return fmt.Errorf("%w: set %q has no reduction contract; the registered surface renders sets only through their FIRST/ALL/DISTINCT selector reductions, SLICE consumers, and SUM/COUNT/MIN/MAX aggregate reducers over the registered projection slots, because no other consumer of the item array is registered",
 			ErrUnsupportedPostgresPlan, set.Variable)
 	}
 	if set.Reduction != nil && set.Projection == nil {
@@ -155,7 +180,7 @@ func (r *planRenderer) renderSet(plan ir.PhysicalPlan, set ir.PhysicalSet) error
 			ErrUnsupportedPostgresPlan, set.Variable)
 	}
 
-	corr, err := r.renderCorrelatedChildSteps(plan, set.Subplan, true, false)
+	corr, err := r.renderCorrelatedChildSteps(plan, set.Subplan, true, false, aggregateConsumesSetVariable(plan, set.Variable))
 	if err != nil {
 		return fmt.Errorf("set %q: %w", set.Variable, err)
 	}
@@ -309,7 +334,7 @@ func (r *planRenderer) renderRelatedExists(plan ir.PhysicalPlan, subplan ir.Phys
 		return "", fmt.Errorf("%w: related-existence subplan cannot carry projection-only sort or unique modifiers (render/aql/predicates.go:315-317 refuses them for bounded EXISTS too; count-style eligibility is a separate capability)",
 			ErrUnsupportedPostgresPlan)
 	}
-	corr, err := r.renderCorrelatedChildSteps(plan, subplan, false, true)
+	corr, err := r.renderCorrelatedChildSteps(plan, subplan, false, true, false)
 	if err != nil {
 		return "", fmt.Errorf("related-existence subplan: %w", err)
 	}

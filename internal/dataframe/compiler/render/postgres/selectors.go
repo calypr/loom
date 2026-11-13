@@ -27,6 +27,7 @@ const (
 	extractionObject
 	extractionSlice
 	extractionUnitNormalized
+	extractionAggregate
 )
 
 type classifiedExtractionProjection struct {
@@ -221,6 +222,18 @@ func classifyExtractionProjection(projection ir.PhysicalProjection) (classifiedE
 			}
 			return classifiedExtractionProjection{
 				kind:       extractionCallExpression,
+				projection: projection,
+				expression: expression,
+			}, nil
+		case ir.PhysicalAggregateExpression:
+			if projection.Presence != nil {
+				return classifiedExtractionProjection{}, fmt.Errorf("%w: projection %q carries presence metadata on an AGGREGATE expression; presence proofs pair with selector extractions only",
+					ErrUnsupportedPostgresPlan, projection.Name)
+			}
+			// Shape validation continues in renderSetAggregateExpression, which needs the
+			// registered set bodies and projections; the classifier is row-scoped.
+			return classifiedExtractionProjection{
+				kind:       extractionAggregate,
 				projection: projection,
 				expression: expression,
 			}, nil
@@ -422,6 +435,9 @@ func validateSelectorExtractionPlan(plan ir.PhysicalPlan) error {
 		case extractionObject, extractionSlice:
 			return fmt.Errorf("%w: projection %q uses a %s expression; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars — composites belong to the read spine registration (objects.go)",
 				ErrUnsupportedPostgresPlan, c.projection.Name, string(c.projection.Expression.Kind))
+		case extractionAggregate:
+			return fmt.Errorf("%w: projection %q uses an AGGREGATE expression; the selector-extraction slice emits typed scope columns, EXTRACT selector values, and presence sidecars — set reducers belong to the read spine registration (post_window.go)",
+				ErrUnsupportedPostgresPlan, c.projection.Name)
 		case extractionSelector, extractionPresenceSidecar:
 		}
 	}
