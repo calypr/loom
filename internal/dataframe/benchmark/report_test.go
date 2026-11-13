@@ -1,0 +1,427 @@
+package benchmark
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+)
+
+// Ruling (ii): the verifier must refuse a synthetic forgery. Every derived
+// number in the report is RECOMPUTED from raw evidence by VerifyReport, and
+// this suite proves each tamper path REDs.
+
+func validReport(t *testing.T) *Report {
+	t.Helper()
+	identity := RunIdentity{
+		RunID: "bench-2026-11-13-a", StartedAt: time.Unix(1700000, 0).UTC(),
+		Preset: PresetTiny, SourceCommit: strings.Repeat("a", 40),
+		DatasetDigest: strings.Repeat("b", 64),
+		ArangoVersion: "3.12.x", PostgresVersion: "PostgreSQL 18.x",
+		// A timing report describes the CI lane with ClickHouse
+		// deployed; the worker container can only build excluded-chain
+		// reports (see the publication-exclusion forgery cases).
+		ClickHouseDisabled: false,
+		Config:             RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
+	}
+	liveExcluded := LiveBatteryExclusions()
+	var gates []WorkloadGateReport
+	var samples []Sample
+	for _, spec := range Battery {
+		if _, excluded := liveExcluded[spec.ID]; excluded {
+			continue
+		}
+		gates = append(gates, WorkloadGateReport{
+			WorkloadID: spec.ID, Claimable: true,
+			Arango:   BackendResult{Backend: BackendArango, Outcome: OutcomeLabelPassed, RowCount: 5, BagDigest: strings.Repeat("c", 64)},
+			Postgres: BackendResult{Backend: BackendPostgres, Outcome: OutcomeLabelPassed, RowCount: 5, BagDigest: strings.Repeat("c", 64)},
+			Gates:    []GateResult{{Gate: GateBagEquality, Pass: true}},
+		})
+		for _, backend := range []string{BackendArango, BackendPostgres} {
+			samples = append(samples, sample(backend, spec.ID, OutcomePassed, 5, true)) // warmup
+			base := 20.0
+			if backend == BackendPostgres {
+				base = 10.0
+			}
+			// Halves [base, base, base+3%, base+3%]: the honest self-ratio
+			// (worst half-median deviation) is 1.03, inside the 5% band,
+			// and the stable-regime CV is well under the limit. VerifyRe-
+			// port recomputes both controls from these samples, so the
+			// fixture must state what the samples actually show.
+			for i := 0; i < 4; i++ {
+				offset := 0.0
+				if i >= 2 {
+					offset = base * 0.03
+				}
+				samples = append(samples, sample(backend, spec.ID, OutcomePassed, base+offset, false))
+			}
+		}
+	}
+	// The controls are exactly what the control functions derive from the
+	// samples: the verifier re-derives them (review r4561644049), so an
+	// honest fixture states honest values.
+	controls := ControlRuns{
+		StabilityCVLimit: StabilityCVLimit,
+		UnstableCells:    ControlUnstableCells(samples, StabilityCVLimit),
+		EmptyFloorMillis: 0.4, RatioPolicy: "ratio-only-both-passed",
+	}
+	for _, backend := range []string{BackendArango, BackendPostgres} {
+		value, ok := ControlSelfRatio(samples, backend)
+		if !ok {
+			t.Fatalf("%s self-ratio not computable from fixture samples", backend)
+		}
+		if backend == BackendArango {
+			controls.SelfRatioArango = value
+		} else {
+			controls.SelfRatioPostgres = value
+		}
+	}
+	timingPlan := BothArmsPlan()
+	timingPlan.Publication = &PublicationPlan{Run: true}
+	gates = append(gates, ExcludedWorkloadGateReports(timingPlan.Legs, liveExcluded)...)
+	AppendWorkloadDisclosures(&timingPlan, liveExcluded)
+	report, err := BuildReport(identity, timingPlan, controls, gates, samples)
+	if err != nil {
+		t.Fatalf("valid report build failed: %v", err)
+	}
+	return report
+}
+
+// primaryTiming returns the workload validReport puts first among the
+// proven (timed) workloads; forgery cases mutate GateReports[0].
+func primaryTiming() string {
+	for _, spec := range Battery {
+		if _, excluded := LiveBatteryExclusions()[spec.ID]; !excluded {
+			return spec.ID
+		}
+	}
+	panic("live battery has no proven workloads")
+}
+
+func gateForID(r *Report, workloadID string) *WorkloadGateReport {
+	for i := range r.GateReports {
+		if r.GateReports[i].WorkloadID == workloadID {
+			return &r.GateReports[i]
+		}
+	}
+	panic("no gate report for " + workloadID)
+}
+
+func roundTrip(t *testing.T, report *Report) *Report {
+	t.Helper()
+	data, err := MarshalReport(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadReport(data)
+	if err != nil {
+		t.Fatalf("round trip failed: %v", err)
+	}
+	return loaded
+}
+
+func TestReportRoundTrips(t *testing.T) {
+	report := validReport(t)
+	loaded := roundTrip(t, report)
+	if loaded.Status != "passed" || len(loaded.Claims) != len(Battery)-len(LiveBatteryExclusions()) {
+		t.Fatalf("expected one claim per proven workload on a passed run: %+v", loaded)
+	}
+	if loaded.Claims[0].Ratio.ArangoOverPostgres <= 0 {
+		t.Fatal("ratio missing")
+	}
+}
+
+func forge(t *testing.T, mutate func(*Report)) func(*testing.T) {
+	return forgeErr(t, mutate, "")
+}
+
+// forgeErr additionally pins WHICH rule rejected the artifact: a case
+// meant to exercise a specific guard must not survive by tripping some
+// earlier check (review r4562338071) — otherwise deleting the guard
+// would leave the case falsely green.
+func forgeErr(t *testing.T, mutate func(*Report), wantErrSubstr string) func(*testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+		report := validReport(t)
+		mutate(report)
+		data, err := json.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadReport(data); err == nil {
+			t.Fatal("forged report survived verification")
+		} else if wantErrSubstr != "" && !strings.Contains(err.Error(), wantErrSubstr) {
+			t.Fatalf("forged report rejected by the wrong rule (%v); want an error naming %q", err, wantErrSubstr)
+		}
+	}
+}
+
+func TestReportForgerySuite(t *testing.T) {
+	cases := map[string]func(*Report){
+		"summary-median-tampered": func(r *Report) {
+			r.Summaries[0].Summary.MedianMillis = 0.001
+		},
+		"failed-sample-deleted-from-raw": func(r *Report) {
+			// Append a timed-out sample so the summary legitimately has a
+			// failure, then delete it from raw: summary says FailedCount 1.
+			r.Samples = append(r.Samples, sample(BackendArango, primaryTiming(), OutcomeTimeout, 9000, false))
+			sums := r.Summaries
+			r.Summaries = nil
+			for _, row := range sums {
+				if row.Backend == BackendArango {
+					row.Summary = Summarize(r.Samples)
+				}
+				r.Summaries = append(r.Summaries, row)
+			}
+			var kept []Sample
+			for _, s := range r.Samples {
+				if s.Outcome != OutcomeTimeout {
+					kept = append(kept, s)
+				}
+			}
+			r.Samples = kept
+		},
+		"status-flipped-to-passed": func(r *Report) {
+			r.GateReports[0].Claimable = false
+			r.GateReports[0].ExclusionReason = "forged exclusion"
+			r.Status = "passed" // gates now imply failed
+		},
+		"gate-flipped-to-claimable-with-failed-arm": func(r *Report) {
+			r.GateReports[0].Postgres.Outcome = OutcomeLabelPassed
+			r.Status = "passed"
+			r.GateReports[0].Claimable = true
+			// Postgres summaries legitimately exist; but flip the gate's
+			// bag digest to garbage: shape check must reject it.
+			r.GateReports[0].Postgres.BagDigest = "not-hex"
+		},
+		"dataset-digest-zeroed": func(r *Report) { r.Identity.DatasetDigest = "0" },
+		"summary-row-deleted":   func(r *Report) { r.Summaries = r.Summaries[:1] },
+		"claim-ratio-fudged":    func(r *Report) { r.Claims[0].Ratio.ArangoOverPostgres *= 0.5 },
+		"claim-cites-nonclaimable": func(r *Report) {
+			r.GateReports[0].Claimable = false
+			r.GateReports[0].ExclusionReason = "forged exclusion"
+			r.Status = "failed"
+			r.StatusReasons = []string{primaryTiming() + ": forged exclusion"}
+			// Claims left in place: a claim on a non-claimable workload
+			// must not verify even when the status was honestly flipped.
+		},
+		"self-ratio-forged-high": func(r *Report) { r.Controls.SelfRatioArango = 3.0 },
+		// Review r4561644049: values inside the plausibility band are no
+		// longer accepted on faith; they must recompute from raw samples.
+		"self-ratio-borrowed-perfect": func(r *Report) {
+			// The fixture samples honestly show a 1.03 worst half-median
+			// deviation; the artifact claims the perfect 1.0 instead.
+			// The band check cannot see it (1.0 is in band) — only
+			// recomputation from samples can.
+			r.Controls.SelfRatioArango = 1.0
+		},
+		// Review r4562338071: each new verifier guard needs a case that
+		// fails ONLY on it. Both cases below keep every other derived
+		// value honest and pin the rejecting rule by message, so deleting
+		// the guard turns the case RED instead of silently re-routing it
+		// to an earlier check.
+		"unstable-cell-hidden-from-control": func(r *Report) {
+			// Rewrite the primary timing's arango warm samples as
+			// alternating 1,100,1,100: half medians stay equal, so the
+			// honest self-ratio (worst deviation across cells) still
+			// matches the reported 1.03. Summaries are recomputed from
+			// the samples and claims rebuilt from those summaries, so
+			// every other derived value stays in sync. The cell's warm
+			// CV (~0.98) is far over the ceiling: only the
+			// ControlUnstableCells recompute can catch this shape.
+			ms := []float64{1, 100, 1, 100}
+			i := 0
+			for j := range r.Samples {
+				s := &r.Samples[j]
+				if s.WorkloadID == primaryTiming() && s.Backend == BackendArango && !s.Warmup {
+					s.Millis = ms[i]
+					i++
+				}
+			}
+			for j := range r.Summaries {
+				row := &r.Summaries[j]
+				if row.WorkloadID == primaryTiming() && row.Backend == BackendArango {
+					row.Summary = Summarize(cellSamples(r.Samples, row.WorkloadID, row.Backend))
+				}
+			}
+			r.Claims = buildClaims(r.GateReports, r.Summaries, r.Controls)
+			r.Controls.UnstableCells = nil
+		},
+		"stability-limit-smuggled-ceiling": func(r *Report) {
+			// 0.9 passes every plausibility rule the old verifier had
+			// (it only rejected <= 0): a run may not smuggle its own
+			// ceiling. Only the equality with the exported constant
+			// catches this.
+			r.Controls.StabilityCVLimit = 0.9
+		},
+		"empty-floor-never-run":      func(r *Report) { r.Controls.EmptyFloorMillis = 0 },
+		"stability-limit-never-set":  func(r *Report) { r.Controls.StabilityCVLimit = 0 },
+		"unsupported-list-drifted":   func(r *Report) { r.Unsupported = []string{primaryTiming() + "/postgres"} },
+		"exclusion-note-drifted":     func(r *Report) { r.Exclusions = "no workloads excluded from performance claims (lies)" },
+		"unknown-backend-in-samples": func(r *Report) { r.Samples[0].Backend = "clickhouse" },
+		"duplicate-summary-cell":     func(r *Report) { r.Summaries = append(r.Summaries, r.Summaries[0]) },
+		"schema-renamed":             func(r *Report) { r.Schema = "loom.benchmark-report/v0" },
+		"runid-blank":                func(r *Report) { r.Identity.RunID = "" },
+		"config-zeroed":              func(r *Report) { r.Identity.Config.Iterations = 0 },
+		// Live battery law (review r4559430560): excluded workloads must
+		// stay blocked, disclosed, and sample-free; the marker may never
+		// move; the matrix may never shrink silently.
+		"excluded-arm-flipped-to-passed": func(r *Report) {
+			g := gateForID(r, WorkloadDeriveAgeBand)
+			g.Arango.Outcome = OutcomeLabelPassed
+		},
+		"excluded-gate-report-deleted": func(r *Report) {
+			var kept []WorkloadGateReport
+			for _, g := range r.GateReports {
+				if g.WorkloadID != WorkloadDeriveAgeBand {
+					kept = append(kept, g)
+				}
+			}
+			r.GateReports = kept
+		},
+		"proven-gate-report-deleted": func(r *Report) {
+			var kept []WorkloadGateReport
+			for _, g := range r.GateReports {
+				if g.WorkloadID != primaryTiming() {
+					kept = append(kept, g)
+				}
+			}
+			r.GateReports = kept
+		},
+		"excluded-workload-samples-injected": func(r *Report) {
+			r.Samples = append(r.Samples, sample(BackendPostgres, WorkloadDistinctFamily, OutcomePassed, 10, false))
+		},
+		"excluded-disclosure-row-deleted": func(r *Report) {
+			var kept []PlannedNotRun
+			dropped := false
+			for _, row := range r.Plan.PlannedNotRun {
+				if !dropped && row.WorkloadID == WorkloadDeriveAgeBand && row.Backend == BackendArango {
+					dropped = true
+					continue
+				}
+				kept = append(kept, row)
+			}
+			if !dropped {
+				panic("valid report lacks the exclusion disclosure row")
+			}
+			r.Plan.PlannedNotRun = kept
+		},
+		"excluded-disclosure-reason-forged": func(r *Report) {
+			for i := range r.Plan.PlannedNotRun {
+				if r.Plan.PlannedNotRun[i].WorkloadID == WorkloadDeriveAgeBand {
+					r.Plan.PlannedNotRun[i].Reason = WorkloadNotRunReason + "because I said so"
+					return
+				}
+			}
+			panic("valid report lacks the exclusion disclosure row")
+		},
+		"marker-forged-on-proven-workload": func(r *Report) {
+			gateForID(r, primaryTiming()).ExclusionReason = LiveBatteryExclusionMarker + "hiding a slow workload"
+		},
+		"excluded-row-forged-for-proven-workload": func(r *Report) {
+			reason := LiveBatteryExclusions()[WorkloadDeriveAgeBand]
+			r.Plan.PlannedNotRun = append(r.Plan.PlannedNotRun, PlannedNotRun{
+				WorkloadID: primaryTiming(), Backend: BackendArango,
+				Reason: WorkloadNotRunReason + reason,
+			})
+		},
+	}
+	// Cases exercising one specific guard name the rule that must reject
+	// them (review r4562338071); everything else just has to RED.
+	wantErr := map[string]string{
+		"self-ratio-borrowed-perfect":       "self-ratio 1 does not match",
+		"unstable-cell-hidden-from-control": "unstable cells",
+		"stability-limit-smuggled-ceiling":  "stability limit must equal",
+	}
+	for name, mutate := range cases {
+		t.Run(name, forgeErr(t, mutate, wantErr[name]))
+	}
+}
+
+func TestReportBlockedStatusRoundTrips(t *testing.T) {
+	report := validReport(t)
+	report.GateReports[0].Postgres.Outcome = OutcomeLabelBlocked
+	report.GateReports[0].Claimable = false
+	report.GateReports[0].ExclusionReason = "postgres: blocked"
+	report.Status = "failed"
+	report.StatusReasons = []string{primaryTiming() + ": blocked"}
+	report.Exclusions = FormatExclusionList(report.GateReports)
+	report.Claims = nil
+	if _, err := LoadReport(mustMarshal(t, report)); err != nil {
+		t.Fatalf("honest blocked report must verify: %v", err)
+	}
+}
+
+func mustMarshal(t *testing.T, r *Report) []byte {
+	t.Helper()
+	data, err := MarshalReport(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestBuildReportRefusesInconsistentConfig(t *testing.T) {
+	report := validReport(t)
+	_ = report
+	_, err := BuildReport(RunIdentity{Config: RunConfig{}}, BothArmsPlan(), ControlRuns{}, nil, nil)
+	if err == nil {
+		t.Fatal("zero config must be refused at build, not defaulted")
+	}
+}
+
+// --- timed publication lane (operator amendment 2026-11-13) --------------------
+
+// Run mode is the only mode that measures: the ClickHouse-backed chain
+// ran, so samples, summaries, controls, and claims are legitimate
+// evidence rather than forgery. validReport already describes that lane
+// (ClickHouse deployed, Publication.Run true); these cases pin the
+// classification and the disclosure rules around it.
+func TestRunPublicationCarriesTimingEvidence(t *testing.T) {
+	report := validReport(t)
+	if report.Status != "passed" {
+		t.Fatalf("run lane status: %s (%v)", report.Status, report.StatusReasons)
+	}
+	if len(report.Samples) == 0 || len(report.Summaries) == 0 {
+		t.Fatal("run lane must carry real timing evidence")
+	}
+	if len(report.Claims) != len(Battery)-len(LiveBatteryExclusions()) {
+		t.Fatalf("run lane claims: %d want %d", len(report.Claims), len(Battery)-len(LiveBatteryExclusions()))
+	}
+	if report.Plan.PublicationExcluded() {
+		t.Fatalf("run lane classification wrong: %+v", report.Plan.Publication)
+	}
+	if report.Plan.PublicationZeroEvidence() {
+		t.Fatal("a chain-run report must never classify as zero-evidence")
+	}
+	// The chain ran, so no leg may carry publication-chain disclosure
+	// rows: they name work that did not happen and would launder a
+	// not_run stage into a passing report.
+	for _, leg := range report.Plan.Legs {
+		disclosed := 0
+		for _, row := range report.Plan.PlannedNotRun {
+			if row.Backend == leg.Backend && strings.HasPrefix(row.Reason, PublicationChainReason) {
+				disclosed++
+			}
+		}
+		if disclosed != 0 {
+			t.Fatalf("%s: %d publication-chain disclosure rows want 0 (the chain ran)", leg.Backend, disclosed)
+		}
+	}
+}
+
+func TestRunPublicationMustNotNameCapability(t *testing.T) {
+	plan := BothArmsPlan()
+	plan.Publication = &PublicationPlan{Run: true, Capability: PublicationCapabilityCH}
+	if err := ValidatePublicationPlan(plan); err == nil {
+		t.Fatal("run=true naming a missing capability must be refused: the chain either ran or it did not")
+	}
+}
+
+func TestExcludedPublicationRequiresNamedCapability(t *testing.T) {
+	plan := BothArmsPlan()
+	plan.Publication = &PublicationPlan{Run: false}
+	if err := ValidatePublicationPlan(plan); err == nil {
+		t.Fatal("an excluded chain must name the capability it discloses")
+	}
+}
