@@ -157,11 +157,11 @@ func factoryOpenLiveAssembly(t *testing.T) {
 		})
 
 		appName := "loom-pg-ab06live" + nonce
-		runtime, err := postgres.Open(ctx, postgres.Config{
+		runtime, err := postgres.Open(ctx, control.Config{
 			DSN:             dsn,
 			ApplicationName: appName,
 			Schemas:         schemas,
-			Setup:           postgres.SetupMigrate,
+			Setup:           control.SetupMigrate,
 			MaxConns:        4,
 			MinConns:        1,
 			AcquireTimeout:  10 * time.Second,
@@ -249,13 +249,13 @@ func factoryOpenLiveAssembly(t *testing.T) {
 				ab06Exec(t, admin, "DROP SCHEMA IF EXISTS "+ab06SeriesSchema(streamNonce, series)+" CASCADE")
 			}
 		})
-		streamRuntime, err := postgres.Open(ctx, postgres.Config{
+		streamRuntime, err := postgres.Open(ctx, control.Config{
 			DSN:             dsn,
 			ApplicationName: "loom-pg-ab06stream" + streamNonce,
 			Schemas:         streamSchemas,
 			// SetupNone: these schemas host only session-level SELECTs, no
 			// series tables are touched, so no DDL is needed.
-			Setup:          postgres.SetupNone,
+			Setup:          control.SetupNone,
 			MaxConns:       2,
 			MinConns:       1,
 			AcquireTimeout: 250 * time.Millisecond,
@@ -379,16 +379,16 @@ func factoryOpenLiveAssembly(t *testing.T) {
 		absentNonce := ab06NewNonce(t) // schemas never created: the caller owns schema lifecycle
 		missingSchema := ab06SeriesSchema(absentNonce, control.AllSeries()[0])
 		failedTag := "loom-pg-ab06fail" + absentNonce
-		if _, err := postgres.Open(ctx, postgres.Config{
+		if _, err := postgres.Open(ctx, control.Config{
 			DSN:             dsn,
 			ApplicationName: failedTag,
 			Schemas:         ab06AllSeriesSchemas(absentNonce),
-			Setup:           postgres.SetupMigrate,
+			Setup:           control.SetupMigrate,
 			MaxConns:        2,
 			MinConns:        1,
 			AcquireTimeout:  10 * time.Second,
-		}); !errors.Is(err, postgres.ErrBootstrap) {
-			t.Fatalf("Open over an absent caller-owned schema: err = %v, want an %v-wrapped refusal", err, postgres.ErrBootstrap)
+		}); !errors.Is(err, control.ErrBootstrap) {
+			t.Fatalf("Open over an absent caller-owned schema: err = %v, want an %v-wrapped refusal", err, control.ErrBootstrap)
 		}
 		// The named non-creation guard is witnessed, not asserted by error
 		// identity: SetupMigrate over an absent assigned schema took the
@@ -411,11 +411,11 @@ func factoryOpenLiveAssembly(t *testing.T) {
 		if err := runtime.Close(); err != nil {
 			t.Fatalf("second Close must stay safe, got: %v", err)
 		}
-		if err := runtime.Health(ctx); !errors.Is(err, postgres.ErrRuntimeClosed) {
-			t.Fatalf("Health after Close: err = %v, want %v", err, postgres.ErrRuntimeClosed)
+		if err := runtime.Health(ctx); !errors.Is(err, control.ErrRuntimeClosed) {
+			t.Fatalf("Health after Close: err = %v, want %v", err, control.ErrRuntimeClosed)
 		}
-		if _, err := runtime.Query(ctx, "SELECT 1"); !errors.Is(err, postgres.ErrRuntimeClosed) {
-			t.Fatalf("Query after Close: err = %v, want %v", err, postgres.ErrRuntimeClosed)
+		if _, err := runtime.Query(ctx, "SELECT 1"); !errors.Is(err, control.ErrRuntimeClosed) {
+			t.Fatalf("Query after Close: err = %v, want %v", err, control.ErrRuntimeClosed)
 		}
 		// The rows adapter classifies the closed pool at its own execution
 		// seam (named ErrQuery) instead of leaking the runtime sentinel:

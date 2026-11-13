@@ -36,7 +36,7 @@
 //     auth_resource_path disagrees with the batch scope. The batch either
 //     offers what it claims or nothing happens.
 //   - Duplicate natural identity with different content returns the store's
-//     typed *postgres.BatchResourceConflictError and the whole batch rolls
+//     typed *control.BatchResourceConflictError and the whole batch rolls
 //     back; an identical batch replay under the same deterministic batch
 //     identity is a ledger no-op returning the original accounting.
 //   - Reported persisted counts change only after database commit: the
@@ -115,7 +115,7 @@ import (
 	"sort"
 	"strings"
 
-	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/source"
 )
@@ -194,12 +194,12 @@ type PGResourceWriteResult struct {
 }
 
 // resourceBatchCommitter is the store surface this writer commits through.
-// Production always uses *postgres.ResourceWriter; the indirection
+// Production always uses *control.ResourceWriter; the indirection
 // exists so tests can prove refusals never reach the store at all (the
 // "no round trip" half of the pre-write guarantee — live write claims still
 // run against real PostgreSQL only).
 type resourceBatchCommitter interface {
-	WriteResourceBatch(ctx context.Context, batch postgres.ResourceBatch) (postgres.ResourceBatchResult, error)
+	WriteResourceBatch(ctx context.Context, batch control.ResourceBatch) (control.ResourceBatchResult, error)
 }
 
 // PostgresResourceWriter converts built, validated row batches into FHIR
@@ -217,8 +217,8 @@ type PostgresResourceWriter struct {
 // and binds the writer to the resource batch surface of <schema>. The
 // connection source must be live only when WriteResourceBatch runs, not
 // here.
-func NewPostgresResourceWriter(src postgres.ConnSource, schema string) (*PostgresResourceWriter, error) {
-	writer, err := postgres.NewResourceWriter(src, schema)
+func NewPostgresResourceWriter(src control.ConnSource, schema string) (*PostgresResourceWriter, error) {
+	writer, err := control.NewResourceWriter(src, schema)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +243,10 @@ func (w *PostgresResourceWriter) WriteResourceBatch(
 			BatchID: scope.BatchID, Field: "batch id", Reason: "it is blank",
 		}
 	}
-	if len(scope.BatchID) > postgres.MaxBatchIDLength {
+	if len(scope.BatchID) > control.MaxBatchIDLength {
 		return PGResourceWriteResult{}, &PGResourceWriteScopeError{
 			BatchID: scope.BatchID, Field: "batch id",
-			Reason: fmt.Sprintf("it is %d bytes, want at most %d", len(scope.BatchID), postgres.MaxBatchIDLength),
+			Reason: fmt.Sprintf("it is %d bytes, want at most %d", len(scope.BatchID), control.MaxBatchIDLength),
 		}
 	}
 	if strings.TrimSpace(scope.Project) == "" {
@@ -259,11 +259,11 @@ func (w *PostgresResourceWriter) WriteResourceBatch(
 			BatchID: scope.BatchID, Field: "rows", Reason: "the batch carries no rows",
 		}
 	}
-	if len(rows) > postgres.MaxBatchResources {
+	if len(rows) > control.MaxBatchResources {
 		return PGResourceWriteResult{}, &PGResourceWriteScopeError{
 			BatchID: scope.BatchID, Field: "rows",
 			Reason: fmt.Sprintf("the batch offers %d rows, want at most %d",
-				len(rows), postgres.MaxBatchResources),
+				len(rows), control.MaxBatchResources),
 		}
 	}
 
@@ -276,7 +276,7 @@ func (w *PostgresResourceWriter) WriteResourceBatch(
 		decoded = append(decoded, record)
 	}
 
-	result, err := w.committer.WriteResourceBatch(ctx, postgres.ResourceBatch{
+	result, err := w.committer.WriteResourceBatch(ctx, control.ResourceBatch{
 		ID:                scope.BatchID,
 		Project:           scope.Project,
 		DatasetGeneration: scope.DatasetGeneration,
@@ -533,12 +533,12 @@ type PGEdgeWriteResult struct {
 }
 
 // edgeBatchCommitter is the store surface this writer commits through.
-// Production always uses *postgres.EdgeWriter; the indirection exists
+// Production always uses *control.EdgeWriter; the indirection exists
 // so tests can prove refusals never reach the store at all (the "no round
 // trip" half of the pre-write guarantee — live write claims still run
 // against real PostgreSQL only).
 type edgeBatchCommitter interface {
-	WriteEdgeBatch(ctx context.Context, batch postgres.EdgeBatch) (postgres.EdgeBatchResult, error)
+	WriteEdgeBatch(ctx context.Context, batch control.EdgeBatch) (control.EdgeBatchResult, error)
 }
 
 // PostgresEdgeWriter converts built, validated row batches into FHIR edge
@@ -555,8 +555,8 @@ type PostgresEdgeWriter struct {
 // NewPostgresEdgeWriter validates the connection source and schema name and
 // binds the writer to the edge batch surface of <schema>. The connection
 // source must be live only when WriteEdgeBatch runs, not here.
-func NewPostgresEdgeWriter(src postgres.ConnSource, schema string) (*PostgresEdgeWriter, error) {
-	writer, err := postgres.NewEdgeWriter(src, schema)
+func NewPostgresEdgeWriter(src control.ConnSource, schema string) (*PostgresEdgeWriter, error) {
+	writer, err := control.NewEdgeWriter(src, schema)
 	if err != nil {
 		return nil, err
 	}
@@ -584,10 +584,10 @@ func (w *PostgresEdgeWriter) WriteEdgeBatch(
 			BatchID: scope.BatchID, Field: "batch id", Reason: "it is blank",
 		}
 	}
-	if len(scope.BatchID) > postgres.MaxBatchIDLength {
+	if len(scope.BatchID) > control.MaxBatchIDLength {
 		return PGEdgeWriteResult{}, &PGEdgeWriteScopeError{
 			BatchID: scope.BatchID, Field: "batch id",
-			Reason: fmt.Sprintf("it is %d bytes, want at most %d", len(scope.BatchID), postgres.MaxBatchIDLength),
+			Reason: fmt.Sprintf("it is %d bytes, want at most %d", len(scope.BatchID), control.MaxBatchIDLength),
 		}
 	}
 	if strings.TrimSpace(scope.Project) == "" {
@@ -601,7 +601,7 @@ func (w *PostgresEdgeWriter) WriteEdgeBatch(
 		}
 	}
 
-	offered := make([]postgres.EdgeOccurrenceRow, 0, len(rows))
+	offered := make([]control.EdgeOccurrenceRow, 0, len(rows))
 	for index, built := range rows {
 		converted, err := convertBuiltEdgeOccurrences(built, scope, index)
 		if err != nil {
@@ -615,15 +615,15 @@ func (w *PostgresEdgeWriter) WriteEdgeBatch(
 			Reason: "the batch's rows carry no built edge occurrences",
 		}
 	}
-	if len(offered) > postgres.MaxBatchEdges {
+	if len(offered) > control.MaxBatchEdges {
 		return PGEdgeWriteResult{}, &PGEdgeWriteScopeError{
 			BatchID: scope.BatchID, Field: "rows",
 			Reason: fmt.Sprintf("the batch offers %d edge occurrences, want at most %d",
-				len(offered), postgres.MaxBatchEdges),
+				len(offered), control.MaxBatchEdges),
 		}
 	}
 
-	result, err := w.committer.WriteEdgeBatch(ctx, postgres.EdgeBatch{
+	result, err := w.committer.WriteEdgeBatch(ctx, control.EdgeBatch{
 		ID:                scope.BatchID,
 		Project:           scope.Project,
 		DatasetGeneration: scope.DatasetGeneration,
@@ -683,8 +683,8 @@ func convertBuiltEdgeOccurrences(
 	built rowBuildResult,
 	scope PGEdgeBatchScope,
 	index int,
-) ([]postgres.EdgeOccurrenceRow, error) {
-	refuse := func(category rowErrorType, column string, format string, args ...any) ([]postgres.EdgeOccurrenceRow, error) {
+) ([]control.EdgeOccurrenceRow, error) {
+	refuse := func(category rowErrorType, column string, format string, args ...any) ([]control.EdgeOccurrenceRow, error) {
 		return nil, &PGEdgeRowIdentityError{
 			BatchID: scope.BatchID, Row: index, Category: category, Column: column,
 			Reason: fmt.Sprintf(format, args...),
@@ -795,7 +795,7 @@ func convertBuiltEdgeOccurrences(
 	// physical document ids) is why the g_<hash> key a qualified document
 	// carries can only be understood through the raw reference the payload
 	// still holds.
-	out := make([]postgres.EdgeOccurrenceRow, 0, len(built.edges))
+	out := make([]control.EdgeOccurrenceRow, 0, len(built.edges))
 	for _, identity := range groupOrder {
 		members := groups[identity]
 		peerType, peerKey := identity.toType, identity.toID
@@ -898,7 +898,7 @@ func convertBuiltEdgeOccurrences(
 					}
 				}
 			}
-			out = append(out, postgres.EdgeOccurrenceRow{
+			out = append(out, control.EdgeOccurrenceRow{
 				Project:            scope.Project,
 				DatasetGeneration:  scope.DatasetGeneration,
 				AuthResourcePath:   scope.AuthResourcePath,

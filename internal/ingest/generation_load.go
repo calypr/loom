@@ -101,6 +101,7 @@ import (
 
 	"github.com/bmeg/jsonschemagraph/graph"
 	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	publication "github.com/calypr/loom/internal/dataset"
 )
@@ -136,7 +137,7 @@ type PGSourceOptions struct {
 	// ownership law gives every schema exactly one series' history, and
 	// source and dataset_release pinned ledgers disagree at version 8, so
 	// assigning both to one schema is a named pre-dial refusal
-	// (postgres.ErrSeriesAssignment), not a connect failure. The load's
+	// (control.ErrSeriesAssignment), not a connect failure. The load's
 	// bootstrap stage applies the dataset_release migrations here as well.
 	ManifestSchema string
 	// MaxConns bounds the load's connection pool. Zero selects 4.
@@ -208,7 +209,7 @@ var (
 // guards: the load performs no catalog computation of its own and keeps no
 // SQL here.
 type GenerationFieldProfileWriter interface {
-	WriteFieldProfile(ctx context.Context, scope postgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error
+	WriteFieldProfile(ctx context.Context, scope control.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error
 }
 
 type GenerationInventoryRebuilder interface {
@@ -486,7 +487,7 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 			return summary, fmt.Errorf("%w: stage dataset generation %s/%s: %w",
 				ErrGenerationManifestOutcomeUnknown, plan.Dataset.Project, plan.Dataset.Generation, transitionErr)
 		}
-		if errors.Is(transitionErr, postgres.ErrManifestTransitionConflict) {
+		if errors.Is(transitionErr, control.ErrManifestTransitionConflict) {
 			// A concurrent loader of the same immutable identity decided
 			// the outcome first: the stored terminal state is read back
 			// and named, never re-run and never overwritten.
@@ -525,7 +526,7 @@ func LoadPostgresGeneration(ctx context.Context, opts LoadOptions, pg PGSourceOp
 // is ever activated without this call. A generation that is not STAGED
 // (LOADING or FAILED) is refused with publication.ErrGenerationNotReady; a
 // concurrent pointer move yields the repository's typed
-// postgres.ErrActivationConflict and leaves the pointer untouched.
+// control.ErrActivationConflict and leaves the pointer untouched.
 // An unreachable repository is surfaced as ActivationOutcomeError, which —
 // like the Arango path — leaves STAGED for an operator to reconcile and
 // never downgrades it.
@@ -572,7 +573,7 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 		expected = nil
 	}
 	if activationErr := store.ActivateGeneration(ctx, manifest, expected); activationErr != nil {
-		if errors.Is(activationErr, postgres.ErrActivationConflict) ||
+		if errors.Is(activationErr, control.ErrActivationConflict) ||
 			errors.Is(activationErr, publication.ErrGenerationNotReady) ||
 			errors.Is(activationErr, publication.ErrInvalidActiveGeneration) {
 			return activationErr
@@ -586,7 +587,7 @@ func ActivatePostgresGeneration(ctx context.Context, ref publication.Ref, pg PGS
 }
 
 // openPGGenerationClient opens the load's PostgreSQL runtime through the
-// public backend factory: postgres.Config validates the pool bounds and the
+// public backend factory: control.Config validates the pool bounds and the
 // schema assignment through the store's own authoritative validators before
 // any network dial, so blank or malformed settings are named refusals rather
 // than connect failures. The runtime owns exactly one readiness-gated pool,
@@ -624,7 +625,7 @@ func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.
 	// assignment): a blank ManifestSchema surfaces as the named
 	// ErrSeriesAssignment blank-schema refusal rather than pre-empting
 	// more specific classifications of other malformed fields.
-	return postgres.Open(context.Background(), PGLoadConfig(pg, dsn, postgres.SetupNone))
+	return postgres.Open(context.Background(), PGLoadConfig(pg, dsn, control.SetupNone))
 }
 
 // PGLoadConfig assembles the exact factory configuration every PostgreSQL
@@ -642,7 +643,7 @@ func openPGGenerationClient(pg PGSourceOptions, eventSink EventSink) (*postgres.
 // only in the load's explicit bootstrap stage. The dial-free test in
 // generation_load_postgres_test.go runs each shipped configuration through
 // Config.Validate so composition regressions fail offline.
-func PGLoadConfig(pg PGSourceOptions, taggedDSN string, setup postgres.SetupPolicy) postgres.Config {
+func PGLoadConfig(pg PGSourceOptions, taggedDSN string, setup control.SetupPolicy) control.Config {
 	maxConns := pg.MaxConns
 	if maxConns == 0 {
 		maxConns = 4
@@ -651,10 +652,10 @@ func PGLoadConfig(pg PGSourceOptions, taggedDSN string, setup postgres.SetupPoli
 	if acquireTimeout <= 0 {
 		acquireTimeout = 30 * time.Second
 	}
-	schemas := make(postgres.SeriesSchemas, 2)
-	schemas[postgres.SeriesSource] = pg.Schema
-	schemas[postgres.SeriesDatasetRelease] = pg.ManifestSchema
-	return postgres.Config{
+	schemas := make(control.SeriesSchemas, 2)
+	schemas[control.SeriesSource] = pg.Schema
+	schemas[control.SeriesDatasetRelease] = pg.ManifestSchema
+	return control.Config{
 		DSN:            taggedDSN,
 		MaxConns:       maxConns,
 		MinConns:       0,
@@ -712,10 +713,10 @@ func (l *pgGenerationLoad) bind() error {
 			l.semanticFlush = pgSemanticFlushMinimum
 		}
 	}
-	l.resourceWindow = min(l.opts.BatchSize, postgres.MaxBatchResources)
-	l.edgeWindow = min(l.opts.BatchSize, postgres.MaxBatchEdges)
-	l.profileBatch = min(l.opts.BatchSize, postgres.MaxFieldProfileWriteBatch)
-	l.inventoryBatch = min(l.opts.BatchSize, postgres.MaxInventoryWriteBatch)
+	l.resourceWindow = min(l.opts.BatchSize, control.MaxBatchResources)
+	l.edgeWindow = min(l.opts.BatchSize, control.MaxBatchEdges)
+	l.profileBatch = min(l.opts.BatchSize, control.MaxFieldProfileWriteBatch)
+	l.inventoryBatch = min(l.opts.BatchSize, control.MaxInventoryWriteBatch)
 	return nil
 }
 
@@ -732,7 +733,7 @@ func (l *pgGenerationLoad) claimManifest(ctx context.Context) error {
 		})
 		return nil
 	}
-	if !errors.Is(err, postgres.ErrManifestAlreadyExists) {
+	if !errors.Is(err, control.ErrManifestAlreadyExists) {
 		if pgCommitOutcomeUnknown(err) {
 			return fmt.Errorf("%w: create dataset generation manifest %s/%s: %w",
 				ErrGenerationManifestOutcomeUnknown, l.ref.Project, l.ref.Generation, err)
@@ -1008,7 +1009,7 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 					return fmt.Errorf("%s %s row %d rebuilt with error: %w", filepath.Base(file), resourceType, lineNumber, buildErr)
 				}
 				// The store bounds a batch by OFFERED EDGES
-				// (postgres.MaxBatchEdges), not rows, while BatchSize
+				// (control.MaxBatchEdges), not rows, while BatchSize
 				// bounds rows per window: a reference-heavy row emits
 				// several edges, so a full row window can overflow the edge
 				// cap (this is exactly what a large reference-heavy fixture
@@ -1022,11 +1023,11 @@ func (l *pgGenerationLoad) writeEdgePass(ctx context.Context, schema *graph.Grap
 				// retry from any process reproduces identical window
 				// boundaries and the content-independent batch digest stays
 				// replay-stable.
-				if len(built.edges) > postgres.MaxBatchEdges {
+				if len(built.edges) > control.MaxBatchEdges {
 					return fmt.Errorf("%s %s row %d produces %d edges, exceeding the %d-per-batch edge bound; nothing was written",
-						filepath.Base(file), resourceType, lineNumber, len(built.edges), postgres.MaxBatchEdges)
+						filepath.Base(file), resourceType, lineNumber, len(built.edges), control.MaxBatchEdges)
 				}
-				if len(windowRows) > 0 && windowEdges+len(built.edges) > postgres.MaxBatchEdges {
+				if len(windowRows) > 0 && windowEdges+len(built.edges) > control.MaxBatchEdges {
 					if err := l.commitEdgeWindow(ctx, fileID, windowIndex, windowRows, summary); err != nil {
 						return err
 					}
@@ -1112,7 +1113,7 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 		if err := ctx.Err(); err != nil {
 			return safePointCancel(err)
 		}
-		scope := postgres.FieldProfileScope{
+		scope := control.FieldProfileScope{
 			Project:           key.project,
 			DatasetGeneration: key.datasetGeneration,
 			AuthResourcePath:  key.authResourcePath,
@@ -1136,8 +1137,8 @@ func (l *pgGenerationLoad) writeCatalogEvidence(ctx context.Context, schemaIdent
 	// scan of the committed rows; the lock orders persistence, never
 	// fabricates results.
 	var inventory catalog.ResourceInventoryRebuildSummary
-	inventoryErr := postgres.WithAdvisoryLock(ctx, l.runtime.ConnSource(),
-		postgres.GenerationAdvisoryLockKey(
+	inventoryErr := control.WithAdvisoryLock(ctx, l.runtime.ConnSource(),
+		control.GenerationAdvisoryLockKey(
 			l.plan.Dataset.Project, l.plan.Dataset.Generation),
 		func() error {
 			var rebuildErr error
@@ -1296,7 +1297,7 @@ func pgCommitOutcomeUnknown(err error) bool {
 	// net.Error — belongs to the backend, which owns the driver surface.
 	// Only the domain-specific case above (a safe-point cancellation is a
 	// known outcome) is decided here.
-	if postgres.CommitOutcomeUnknown(err) {
+	if control.CommitOutcomeUnknown(err) {
 		return true
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {

@@ -408,6 +408,79 @@ func (r *FieldProfileRepository) ReadProfileCoverage(ctx context.Context, filter
 	return out, nil
 }
 
+// ListDistinctAuthResourcePaths returns the distinct non-empty auth paths
+// recorded for one project across every dataset generation, ascending in
+// exact byte order -- both the dedup equality and the order are pinned by
+// an explicit COLLATE "C" in the select list (the column is plain text, so
+// the cluster default collation must decide neither) and re-sorted by the
+// adapter as the final normalizer.
+// It is the PostgreSQL shape of the Arango reference
+// existingAuthResourcePathsAllGenerationsAQL: a COLLECT over auth_resource_path
+// with the dataset_generation filter deliberately absent -- an empty
+// generation is the legacy unscoped namespace, never "any generation", so
+// the cross-generation union is a distinct predicate-free-by-generation read,
+// not a generation bind of "". Empty paths (the unscoped namespace's own
+// rows) are excluded by predicate, matching the reference's
+// `!= null AND != ""` filter. A project with no recorded paths returns an
+// honest empty: emptiness here is database evidence, never a refusal, and
+// project-level write authorization (F-B27) reads this empty as "no
+// recorded paths" for its bootstrap branch. A blank project is the same
+// typed configuration refusal as the filtered reads -- it never becomes an
+// all-projects scan.
+func (r *FieldProfileRepository) ListDistinctAuthResourcePaths(ctx context.Context, project string) ([]string, error) {
+	sql, args, err := distinctAuthResourcePathsSQL(r.profileFQN, project)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := r.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+
+	rows, err := conn.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list distinct auth resource paths %s: %w", project, err)
+	}
+	defer rows.Close()
+
+	out := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, fmt.Errorf("postgres: scan distinct auth resource path %s: %w", project, err)
+		}
+		out = append(out, path)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: list distinct auth resource paths %s: %w", project, err)
+	}
+	return out, nil
+}
+
+// distinctAuthResourcePathsSQL renders the cross-generation distinct-path
+// read as a pure function so the statement shape is golden-pinnable without
+// a database: one project bind, the empty-path door closed by predicate, and
+// no dataset_generation predicate at all. The select list pins the
+// comparison with an explicit COLLATE "C" because the column itself is
+// plain text: without it BOTH the DISTINCT equality and the ORDER BY would
+// follow the cluster's default collation, making the ascending-byte-order
+// contract (and even the dedup set) an accident of deployment locale rather
+// than a guarantee (interrogation finding, M4 gauntlet). COLLATE lives in
+// the select list, not the ORDER BY, because PostgreSQL requires ORDER BY
+// expressions of a SELECT DISTINCT to appear in the select list (SQLSTATE
+// 42P10); naming the bare output column in ORDER BY then sorts under that
+// same C collation.
+func distinctAuthResourcePathsSQL(profileFQN, project string) (string, []any, error) {
+	if strings.TrimSpace(project) == "" {
+		return "", nil, fmt.Errorf("%w: project is blank", ErrInvalidFieldProfileScope)
+	}
+	sql := `SELECT DISTINCT auth_resource_path COLLATE "C" FROM ` + profileFQN +
+		" WHERE project = $1 AND auth_resource_path <> ''" +
+		" ORDER BY auth_resource_path"
+	return sql, []any{project}, nil
+}
+
 // fieldProfileFilterSQL renders the shared WHERE clause for filtered reads.
 // Declared-list mode: $1 project, $2 generation, $3 resource types, and
 // $4 auth paths (restricted mode only). AllResourceTypes mode omits the

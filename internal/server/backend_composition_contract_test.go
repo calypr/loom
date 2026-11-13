@@ -28,6 +28,7 @@ import (
 	authscope "github.com/calypr/loom/internal/authscope"
 	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
@@ -37,7 +38,7 @@ var errCompositionSpyFault = errors.New("composition spy: open refused")
 
 type compositionLedger struct {
 	arango []arangofactory.Config
-	pg     []backendspostgres.Config
+	pg     []control.Config
 	ch     []clickhousestore.Options
 }
 
@@ -59,7 +60,7 @@ func installCompositionSpies(t *testing.T, passthrough bool) *compositionLedger 
 		}
 		return nil, errCompositionSpyFault
 	}
-	openPostgresBackend = func(ctx context.Context, cfg backendspostgres.Config) (*backendspostgres.Runtime, error) {
+	openPostgresBackend = func(ctx context.Context, cfg control.Config) (*backendspostgres.Runtime, error) {
 		ledger.pg = append(ledger.pg, cfg)
 		if passthrough {
 			return origPG(ctx, cfg)
@@ -154,16 +155,16 @@ func TestBackendCompositionContract(t *testing.T) {
 		if len(opened.Schemas) != 6 {
 			t.Fatalf("full runtime must open the complete six-series ladder, got %d series", len(opened.Schemas))
 		}
-		for _, series := range []backendspostgres.Series{
-			backendspostgres.SeriesSource, backendspostgres.SeriesExplorerControl,
-			backendspostgres.SeriesPublicationControl, backendspostgres.SeriesDatasetRelease,
-			backendspostgres.SeriesRecipeChains, backendspostgres.SeriesRecipeExecRegistries,
+		for _, series := range []control.Series{
+			control.SeriesSource, control.SeriesExplorerControl,
+			control.SeriesPublicationControl, control.SeriesDatasetRelease,
+			control.SeriesRecipeChains, control.SeriesRecipeExecRegistries,
 		} {
 			if opened.Schemas[series] == "" {
 				t.Fatalf("series %s unassigned in the ladder open", series)
 			}
 		}
-		if opened.Setup != backendspostgres.SetupNone {
+		if opened.Setup != control.SetupNone {
 			t.Fatalf("production compose must never ask the factory to mutate schema state, got Setup=%v", opened.Setup)
 		}
 		// Credential discipline on the refusal path (arch-backend-06 law).
@@ -183,11 +184,11 @@ func TestBackendCompositionContract(t *testing.T) {
 		if len(opened.Schemas) != 2 {
 			t.Fatalf("first-query route must open exactly two series, got %d: %v", len(opened.Schemas), opened.Schemas)
 		}
-		if opened.Schemas[backendspostgres.SeriesSource] != "spy_src" ||
-			opened.Schemas[backendspostgres.SeriesDatasetRelease] != "spy_rel" {
+		if opened.Schemas[control.SeriesSource] != "spy_src" ||
+			opened.Schemas[control.SeriesDatasetRelease] != "spy_rel" {
 			t.Fatalf("first-query route opened foreign placements: %v", opened.Schemas)
 		}
-		if opened.Setup != backendspostgres.SetupNone {
+		if opened.Setup != control.SetupNone {
 			t.Fatalf("first-query compose must use SetupNone, got %v", opened.Setup)
 		}
 	})
@@ -282,7 +283,7 @@ func TestBackendCompositionContract(t *testing.T) {
 			t.Fatalf("production compose: %s", fixture.scrub(err))
 		}
 		assertLedger(t, "live full compose", ledger, 0, 1, 0)
-		if ledger.pg[0].Setup != backendspostgres.SetupNone || len(ledger.pg[0].Schemas) != 6 {
+		if ledger.pg[0].Setup != control.SetupNone || len(ledger.pg[0].Schemas) != 6 {
 			t.Fatalf("live compose opened the wrong shape: Setup=%v series=%d", ledger.pg[0].Setup, len(ledger.pg[0].Schemas))
 		}
 		// Liveness on the served production app adds zero opens.

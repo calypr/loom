@@ -119,6 +119,9 @@ func (e *FieldProfileWriteError) Unwrap() []error {
 // "unavailable". Any document whose scope diverges from the batch scope is
 // a typed *ErrInvalidFieldProfile failure; the whole batch stays atomic.
 func (s *Store) WriteFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope, docs []catalog.FieldCatalogDocument, batchSize int) error {
+	if err := requireLeg("field-profile", s.profiles != nil, "WriteFieldProfile"); err != nil {
+		return err
+	}
 	scope.DatasetGeneration = catalog.NormalizeDatasetGeneration(scope.DatasetGeneration)
 	if err := validateFieldProfileBatchScope(scope, docs); err != nil {
 		return err
@@ -139,6 +142,9 @@ func (s *Store) WriteFieldProfile(ctx context.Context, scope storepostgres.Field
 // empty-versus-unavailable distinction is a discovery question answered by
 // the coverage marker.
 func (s *Store) ReadFieldProfile(ctx context.Context, scope storepostgres.FieldProfileScope) ([]catalog.FieldCatalogDocument, error) {
+	if err := requireLeg("field-profile", s.profiles != nil, "ReadFieldProfile"); err != nil {
+		return nil, err
+	}
 	scope.DatasetGeneration = catalog.NormalizeDatasetGeneration(scope.DatasetGeneration)
 	if strings.TrimSpace(scope.Project) == "" || strings.TrimSpace(scope.ResourceType) == "" {
 		return nil, fmt.Errorf("%w: project and resource type are required", ErrInvalidFieldProfile)
@@ -161,6 +167,9 @@ func (s *Store) ReadFieldProfile(ctx context.Context, scope storepostgres.FieldP
 func (s *Store) DiscoverFieldEnrichment(ctx context.Context, opts catalog.FieldEnrichmentOptions) (catalog.FieldEnrichmentResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.FieldEnrichmentResult{Values: []catalog.FieldEnrichmentObservation{}, Available: true, Complete: true, Diagnostics: diagnostics}
+	if err := requireLeg("field-profile", s.profiles != nil, "DiscoverFieldEnrichment"); err != nil {
+		return unavailableFieldEnrichment(result, err.Error()), err
+	}
 	sawExplicitCoverage, sawLegacyCoverage := false, false
 	recordCoverage := func(complete *bool) {
 		if complete != nil {

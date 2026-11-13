@@ -300,6 +300,9 @@ func (r *RelationshipEvidenceRepository) ScanRelationshipOccurrences(
 func (s *Store) DiscoverRelationshipObservations(ctx context.Context, opts catalog.RelationshipObservationOptions) (catalog.RelationshipObservationResult, error) {
 	resourceTypes, diagnostics := evidenceResourceTypes(opts.ResourceTypes)
 	result := catalog.RelationshipObservationResult{Values: []catalog.RelationshipObservation{}, Available: true, Complete: true, Diagnostics: diagnostics}
+	if err := requireLeg("relationship-evidence", s.relationships != nil, "DiscoverRelationshipObservations"); err != nil {
+		return unavailableRelationshipEvidence(result, err.Error()), err
+	}
 	datasetGeneration := catalog.NormalizeDatasetGeneration(opts.DatasetGeneration)
 
 	unrestricted := catalog.EffectiveAuthResourcePathsUnrestricted(opts.AuthResourcePaths, opts.AuthResourcePathsUnrestricted)

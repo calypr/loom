@@ -31,32 +31,37 @@ type Runtime struct {
 	PlanJSON dataframeexecution.PostgreSQLPlanJSONExecutor
 }
 
-// NewPlanJSONExecutor exposes the EXPLAIN runner builder over any value
-// satisfying the rows adapter's Querier contract (a pool, an acquired
-// connection, or a dedicated single connection — the shape is asserted
-// here and pinned at compile time by the var assertion below). The
+// Querier is the row-querier contract accepted by the data-plane builders:
+// one Query method returning pgx.Rows. It is the factory's public spelling
+// of the private rows adapter's interface (root re-export of its own
+// internal, the accepted adapter-ownership shape): callers hand over a
+// pool, an acquired connection, a dedicated single connection, or a test
+// fake — all satisfied structurally through pgx's public Rows surface —
+// and never name or import the private adapter package.
+type Querier = rows.Querier
+
+// NewPlanJSONExecutor exposes the EXPLAIN runner builder over a value
+// satisfying the Querier contract. The contract is enforced at compile
+// time by the parameter type; the only runtime rejection is absence. The
 // composition surface and live witnesses build executors over connections
 // they own without importing the private adapter.
-func NewPlanJSONExecutor(querier any) (dataframeexecution.PostgreSQLPlanJSONExecutor, error) {
-	q, ok := querier.(rows.Querier)
-	if !ok {
-		return nil, fmt.Errorf("%w: value does not satisfy the row-querier contract", ErrInvalidConfig)
+func NewPlanJSONExecutor(querier Querier) (dataframeexecution.PostgreSQLPlanJSONExecutor, error) {
+	if querier == nil {
+		return nil, fmt.Errorf("%w: nil row querier", control.ErrInvalidConfig)
 	}
-	return newPostgreSQLPlanJSONExecutor(q)
+	return newPostgreSQLPlanJSONExecutor(querier)
 }
 
-// NewSourceRows exposes the row-execution assembly over any value that
-// satisfies the structural row-querier contract, the same seam
-// NewPlanJSONExecutor uses. Witness binaries outside the backend (the
-// execution test harness's adapter factory) assemble a live
+// NewSourceRows exposes the row-execution assembly over a Querier, the
+// same seam NewPlanJSONExecutor uses. Witness binaries outside the backend
+// (the execution test harness's adapter factory) assemble a live
 // execution.SourceRows through here instead of importing the private rows
 // package directly, keeping the factory the single assembly point.
-func NewSourceRows(querier any) (dataframeexecution.SourceRows, error) {
-	q, ok := querier.(rows.Querier)
-	if !ok {
-		return nil, fmt.Errorf("%w: value does not satisfy the row-querier contract", ErrInvalidConfig)
+func NewSourceRows(querier Querier) (dataframeexecution.SourceRows, error) {
+	if querier == nil {
+		return nil, fmt.Errorf("%w: nil row querier", control.ErrInvalidConfig)
 	}
-	executor, err := rows.NewExecutor(q)
+	executor, err := rows.NewExecutor(querier)
 	if err != nil {
 		return nil, err
 	}
@@ -75,25 +80,25 @@ var _ rows.Querier = (*pgstore.Client)(nil)
 // created so far; no half-initialized runtime escapes. The error text never
 // carries connection credentials while the cause chain stays intact for
 // errors.Is/As classification.
-func Open(ctx context.Context, cfg Config) (*Runtime, error) {
+func Open(ctx context.Context, cfg control.Config) (*Runtime, error) {
 	inner, err := control.Open(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	querier, ok := inner.QuerierAsAny().(rows.Querier)
-	if !ok {
+	querier := inner.PoolClient()
+	if querier == nil {
 		_ = inner.Close()
-		return nil, fmt.Errorf("%w: control runtime did not expose its pool as the row querier", ErrBootstrap)
+		return nil, fmt.Errorf("%w: control runtime did not expose its pool as the row querier", control.ErrBootstrap)
 	}
 	executor, err := rows.NewExecutor(querier)
 	if err != nil {
 		_ = inner.Close()
-		return nil, fmt.Errorf("%w: assemble row executor: %w", ErrBootstrap, err)
+		return nil, fmt.Errorf("%w: assemble row executor: %w", control.ErrBootstrap, err)
 	}
 	planJSON, err := newPostgreSQLPlanJSONExecutor(querier)
 	if err != nil {
 		_ = inner.Close()
-		return nil, fmt.Errorf("%w: assemble plan executor: %w", ErrBootstrap, err)
+		return nil, fmt.Errorf("%w: assemble plan executor: %w", control.ErrBootstrap, err)
 	}
 	return &Runtime{Runtime: inner, SourceRows: executor.SourceRows, PlanJSON: planJSON}, nil
 }

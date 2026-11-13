@@ -30,6 +30,7 @@ import (
 	"time"
 
 	postgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
@@ -159,7 +160,7 @@ func exec10wRandomHex(t *testing.T) string {
 type exec10wService struct {
 	ctx      context.Context
 	iso      *pgxpool.Pool
-	client   *postgres.Client
+	client   *control.Client
 	database string
 	dsn      string
 	schema   string
@@ -247,7 +248,7 @@ func newExec10wService(t *testing.T) *exec10wService {
 
 	// Production pool path: the readiness-checked store pool refuses any
 	// server that is not PostgreSQL 18.
-	client, err := postgres.OpenPool(ctx, postgres.ClientConfig{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 10 * time.Second})
+	client, err := control.OpenPool(ctx, control.ClientConfig{DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 10 * time.Second})
 	if err != nil {
 		fail("open readiness-checked PostgreSQL 18 pool", err)
 	}
@@ -470,8 +471,8 @@ func TestPostgresExplainWiringLivePG18SanitizedPlan(t *testing.T) {
 	if !ok || userErr.Code() != string(dataframeerrors.CodeInternalError) {
 		t.Fatalf("permission-denied EXPLAIN must carry the boundary internal classification: %v", err)
 	}
-	var translated *postgres.TranslatedError
-	if !errors.As(err, &translated) || translated.Condition != postgres.ConditionServerRejected || translated.SQLState != "42501" {
+	var translated *control.TranslatedError
+	if !errors.As(err, &translated) || translated.Condition != control.ConditionServerRejected || translated.SQLState != "42501" {
 		t.Fatalf("permission-denied EXPLAIN boundary classification: %v", err)
 	}
 	s.assertSentinelFree(t, "permission error surface", err.Error())

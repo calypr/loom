@@ -34,6 +34,7 @@ import (
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	"github.com/calypr/loom/internal/authscope"
 	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -342,13 +343,13 @@ func newQRLiveFixture(t *testing.T) *qrLiveFixture {
 	}
 	iso.Close()
 
-	bootstrap, err := backendspostgres.Open(ctx, backendspostgres.Config{
+	bootstrap, err := backendspostgres.Open(ctx, control.Config{
 		DSN: dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second,
-		Schemas: backendspostgres.SeriesSchemas{
-			backendspostgres.SeriesSource:         f.srcSchema,
-			backendspostgres.SeriesDatasetRelease: f.relSchema,
+		Schemas: control.SeriesSchemas{
+			control.SeriesSource:         f.srcSchema,
+			control.SeriesDatasetRelease: f.relSchema,
 		},
-		Setup: backendspostgres.SetupMigrate,
+		Setup: control.SetupMigrate,
 	})
 	if err != nil {
 		t.Fatalf("bootstrap fixture series: %s", scrub(err))
@@ -417,13 +418,13 @@ func (f *qrLiveFixture) activate(t *testing.T, project, generation string) {
 // serviceRuntime opens the SetupNone runtime the service row port rides.
 func (f *qrLiveFixture) serviceRuntime(t *testing.T) *backendspostgres.Runtime {
 	t.Helper()
-	rt, err := backendspostgres.Open(context.Background(), backendspostgres.Config{
+	rt, err := backendspostgres.Open(context.Background(), control.Config{
 		DSN: f.dsn, MaxConns: 4, MinConns: 1, AcquireTimeout: 30 * time.Second,
-		Schemas: backendspostgres.SeriesSchemas{
-			backendspostgres.SeriesSource:         f.srcSchema,
-			backendspostgres.SeriesDatasetRelease: f.relSchema,
+		Schemas: control.SeriesSchemas{
+			control.SeriesSource:         f.srcSchema,
+			control.SeriesDatasetRelease: f.relSchema,
 		},
-		Setup: backendspostgres.SetupNone,
+		Setup: control.SetupNone,
 	})
 	if err != nil {
 		t.Fatalf("open service runtime: %s", f.scrub(err))

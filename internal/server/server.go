@@ -21,7 +21,7 @@ import (
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
 	arangofactory "github.com/calypr/loom/internal/backends/arango"
-	backendspostgres "github.com/calypr/loom/internal/backends/postgres"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
@@ -424,16 +424,16 @@ func postgreSQLFirstQueryRouteWiringError(operation, enablingTicket string) erro
 // route cannot honestly serve. Deep schema-identifier and cross-series
 // ledger validation stays with the factory's authoritative
 // control.Config.Validate, which also runs pre-dial.
-func postgresFirstQueryRouteAssignment(pg PostgreSQLConfig) (backendspostgres.SeriesSchemas, string, string, error) {
-	source, hasSource := pg.Schemas[string(backendspostgres.SeriesSource)]
-	manifest, hasManifest := pg.Schemas[string(backendspostgres.SeriesDatasetRelease)]
+func postgresFirstQueryRouteAssignment(pg PostgreSQLConfig) (control.SeriesSchemas, string, string, error) {
+	source, hasSource := pg.Schemas[string(control.SeriesSource)]
+	manifest, hasManifest := pg.Schemas[string(control.SeriesDatasetRelease)]
 	source, manifest = strings.TrimSpace(source), strings.TrimSpace(manifest)
 	if !hasSource || !hasManifest || source == "" || manifest == "" || source == manifest || len(pg.Schemas) != 2 {
 		return nil, "", "", ErrPostgreSQLRuntimeNotWired
 	}
-	return backendspostgres.SeriesSchemas{
-		backendspostgres.SeriesSource:         source,
-		backendspostgres.SeriesDatasetRelease: manifest,
+	return control.SeriesSchemas{
+		control.SeriesSource:         source,
+		control.SeriesDatasetRelease: manifest,
 	}, source, manifest, nil
 }
 
@@ -523,20 +523,20 @@ func postgreSQLCoreReadinessState(err error) string {
 	switch {
 	case err == nil:
 		return ""
-	case errors.Is(err, backendspostgres.ErrRuntimeClosed):
+	case errors.Is(err, control.ErrRuntimeClosed):
 		return pgReadinessStateClosed
-	case errors.Is(err, backendspostgres.ErrConnect):
+	case errors.Is(err, control.ErrConnect):
 		return pgReadinessStateConnectivityDown
-	case errors.Is(err, backendspostgres.ErrUnsupportedVersion):
+	case errors.Is(err, control.ErrUnsupportedVersion):
 		return pgReadinessStateUnsupportedVer
-	case errors.Is(err, backendspostgres.ErrInvalidSchemaName):
+	case errors.Is(err, control.ErrInvalidSchemaName):
 		return pgReadinessStateSchemaMissing
-	case errors.Is(err, backendspostgres.ErrMigrationPending):
+	case errors.Is(err, control.ErrMigrationPending):
 		return pgReadinessStateSchemaUnmigrated
-	case errors.Is(err, backendspostgres.ErrMigrationChecksumMismatch),
-		errors.Is(err, backendspostgres.ErrFutureSchemaVersion),
-		errors.Is(err, backendspostgres.ErrMigrationMissing),
-		errors.Is(err, backendspostgres.ErrMigrationOutOfOrder):
+	case errors.Is(err, control.ErrMigrationChecksumMismatch),
+		errors.Is(err, control.ErrFutureSchemaVersion),
+		errors.Is(err, control.ErrMigrationMissing),
+		errors.Is(err, control.ErrMigrationOutOfOrder):
 		return pgReadinessStateSchemaMismatch
 	default:
 		return pgReadinessStateUnknown
@@ -683,13 +683,13 @@ func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, 
 		_ = runRuntimeCloseSteps(cleanups)
 	}()
 	dsn := postgresFirstQueryRouteDSN(pg)
-	runtime, err := openPostgresBackend(ctx, backendspostgres.Config{
+	runtime, err := openPostgresBackend(ctx, control.Config{
 		DSN:            dsn,
 		MaxConns:       int32(pg.MaxOpenConns),
 		MinConns:       int32(pg.MaxIdleConns),
 		AcquireTimeout: postgreSQLFirstQueryRouteAcquireTimeout,
 		Schemas:        assignment,
-		Setup:          backendspostgres.SetupNone,
+		Setup:          control.SetupNone,
 	})
 	if err != nil {
 		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL source runtime: %w", err), pg, dsn)
