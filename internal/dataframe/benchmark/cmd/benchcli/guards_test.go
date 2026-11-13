@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/benchmark"
+	"github.com/calypr/loom/internal/projectid"
 )
 
 // The benchcli guards are fail-closed surfaces: they keep a benchmark run
@@ -370,5 +373,47 @@ func TestClassifyLiveExit(t *testing.T) {
 				t.Fatal("a disclosed not_run must never carry the success verdict")
 			}
 		})
+	}
+}
+
+// grantResourceAccess is a fence stub for the project-read contract.
+type grantResourceAccess struct{ resources []string }
+
+func (g grantResourceAccess) GetAllowedResources(context.Context, string, string, string) ([]string, error) {
+	return append([]string(nil), g.resources...), nil
+}
+
+// The paired CI lane faulted 403 FORBIDDEN (stage authorization) on the
+// first-ever scoped GET .../authoring/v2/builder: the harness project was
+// "loom-bench" while the fence grants lived under
+// /programs/loom/projects/loom-bench/..., whose calypr key is
+// "loom-loom-bench". AuthorizeReadProject (compose.go ->
+// getAuthoringBuilderDirect) admits a caller only when a grant normalizes
+// to projectid.Legacy(project) — the write gate hides this because it
+// compares grants against the dataset path itself. This pins the whole
+// harness default set against that gate so the shapes can never drift
+// apart again.
+func TestDefaultFenceGrantsSatisfyTheProjectReadGate(t *testing.T) {
+	key := projectid.Legacy(benchmarkDefaultProject)
+	for name, path := range map[string]string{
+		"dataset": benchmarkDefaultAuthResourcePath,
+		"decoy":   benchmarkDecoyPath,
+	} {
+		if got := authscope.NormalizeAuthResourcePath(path); got != key {
+			t.Fatalf("%s path %q normalizes to %q, want the legacy project key %q", name, path, got, key)
+		}
+	}
+	resolver := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ResourceAccess: grantResourceAccess{resources: []string{benchmarkDefaultAuthResourcePath, benchmarkDecoyPath}},
+	})
+	principal := &authscope.Principal{AuthorizationHeader: "Bearer bench-admin"}
+	if err := resolver.AuthorizeReadProject(context.Background(), principal, benchmarkDefaultProject); err != nil {
+		t.Fatalf("the default admin grants must satisfy the project read gate: %v", err)
+	}
+	foreign := authscope.NewScopeResolver(authscope.ScopeResolverConfig{
+		ResourceAccess: grantResourceAccess{resources: []string{"/programs/other/projects/unrelated/benchmark"}},
+	})
+	if err := foreign.AuthorizeReadProject(context.Background(), principal, benchmarkDefaultProject); !errors.Is(err, authscope.ErrForbidden) {
+		t.Fatalf("a subject without the project grant must stay forbidden, got %v", err)
 	}
 }

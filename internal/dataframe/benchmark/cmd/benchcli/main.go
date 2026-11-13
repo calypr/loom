@@ -99,15 +99,27 @@ const (
 	defaultPostgresCapability = "blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS: the scoped calypr lane cannot ingest datasets on postgres; the catalog read lane refuses the all-generations auth-path listing that AuthorizeWrite's project binding requires (see pg-pg-auth-path-discovery-allgens-evidence.md)"
 )
 
+// The benchmark project is addressed by its legacy key: program "loom",
+// project "bench" -> "loom-bench". This is not cosmetic — the scoped
+// authoring read gate (authscope.AuthorizeReadProject) admits a caller only
+// when a fence grant normalizes to projectid.Legacy(project), so a project
+// id that does not decompose to the fence's program/project yields a hard
+// 403 on GET .../authoring/v2/builder while writes still pass (the write
+// gate compares caller paths against the dataset path itself).
+const (
+	benchmarkDefaultProject          = "loom-bench"
+	benchmarkDefaultAuthResourcePath = "/programs/loom/projects/bench/benchmark"
+)
+
 func runLive() {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	var f runFlags
 	fs.StringVar(&f.scope, "scope", benchmark.RunScopePostgresOnly, "both-arms | postgres-only | planned")
 	fs.StringVar(&f.preset, "preset", benchmark.PresetTiny, "dataset preset: tiny | small | representative")
 	fs.Uint64Var(&f.seed, "seed", 7, "deterministic dataset seed")
-	fs.StringVar(&f.project, "project", "loom-bench", "benchmark project namespace")
+	fs.StringVar(&f.project, "project", benchmarkDefaultProject, "benchmark project namespace")
 	fs.StringVar(&f.generation, "generation", "", "generation name (default: run id)")
-	fs.StringVar(&f.authResourcePath, "auth-resource-path", "/programs/loom/projects/loom-bench/benchmark", "dataset auth scope stamped by the loader")
+	fs.StringVar(&f.authResourcePath, "auth-resource-path", benchmarkDefaultAuthResourcePath, "dataset auth scope stamped by the loader")
 	fs.IntVar(&f.warmup, "warmup", 1, "warmup iterations per workload x backend")
 	fs.IntVar(&f.iterations, "iterations", 8, "measured iterations per workload x backend")
 	fs.IntVar(&f.rounds, "rounds", 2, "interleaved rounds")

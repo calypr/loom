@@ -26,7 +26,11 @@ type deployer struct {
 const (
 	benchmarkAdminSubject  = "bench-admin"
 	benchmarkScopedSubject = "bench-scoped"
-	benchmarkDecoyPath     = "/programs/loom/projects/loom-bench/decoy"
+	// Same fence project as benchmarkDefaultAuthResourcePath: both admin
+	// grants normalize (authscope calypr-key rule) to the legacy key
+	// "loom-bench" that AuthorizeReadProject demands for the benchmark
+	// project id. See the comment on benchmarkDefaultAuthResourcePath.
+	benchmarkDecoyPath = "/programs/loom/projects/bench/decoy"
 )
 
 func (d *deployer) prepare(ctx context.Context) error {
