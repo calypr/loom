@@ -43,6 +43,7 @@ test('pivot keyword-names script keeps identity, 5xx-closed-set, anti-vacuity, a
     'the duplicate-ID class needs a second category',
     'construction-row-intent-records',
     'pivot editor closed',
+    "await realClick('[data-testid=\"construction-row-intent-records\"]');\n  await until(async () => !(await mounted('[data-testid=\"construction-reshape-pivot\"]')), 'pivot editor closed'",
     'Pivot output name',
     'construction-apply-proposal',
     'construction-row-remove-',
