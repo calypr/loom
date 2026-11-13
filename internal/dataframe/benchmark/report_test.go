@@ -43,7 +43,7 @@ func validReport(t *testing.T) *Report {
 			samples = append(samples, sample(backend, WorkloadFilterActiveGender, OutcomePassed, base+float64(i), false))
 		}
 	}
-	report, err := BuildReport(identity, controls, []WorkloadGateReport{gate}, samples)
+	report, err := BuildReport(identity, BothArmsPlan(), controls, []WorkloadGateReport{gate}, samples)
 	if err != nil {
 		t.Fatalf("valid report build failed: %v", err)
 	}
@@ -180,7 +180,7 @@ func mustMarshal(t *testing.T, r *Report) []byte {
 func TestBuildReportRefusesInconsistentConfig(t *testing.T) {
 	report := validReport(t)
 	_ = report
-	_, err := BuildReport(RunIdentity{Config: RunConfig{}}, ControlRuns{}, nil, nil)
+	_, err := BuildReport(RunIdentity{Config: RunConfig{}}, BothArmsPlan(), ControlRuns{}, nil, nil)
 	if err == nil {
 		t.Fatal("zero config must be refused at build, not defaulted")
 	}

@@ -6,6 +6,7 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -63,6 +64,7 @@ type Claim struct {
 // Report is the full artifact.
 type Report struct {
 	Schema        string               `json:"schema"`
+	Plan          RunPlan              `json:"plan"`
 	Identity      RunIdentity          `json:"identity"`
 	Status        string               `json:"status"` // passed | failed | blocked
 	StatusReasons []string             `json:"statusReasons,omitempty"`
@@ -88,13 +90,20 @@ type SummaryRow struct {
 // consistent by construction. claimableOf decides per-workload eligibility
 // (the harness passes the gate outcome); unstable cells are excluded from
 // claims per the stability control.
-func BuildReport(identity RunIdentity, controls ControlRuns, gateReports []WorkloadGateReport, samples []Sample) (*Report, error) {
+func BuildReport(identity RunIdentity, plan RunPlan, controls ControlRuns, gateReports []WorkloadGateReport, samples []Sample) (*Report, error) {
 	if err := identity.Config.Validate(); err != nil {
 		return nil, err
 	}
-	status, reasons := RunStatus(gateReports)
+	if err := ValidateLegPlan(plan.Scope, plan.Legs); err != nil {
+		return nil, err
+	}
+	if err := ValidatePlannedNotRun(plan.PlannedNotRun); err != nil {
+		return nil, err
+	}
+	status, reasons := RunStatusScoped(gateReports, plan.Scope)
 	report := &Report{
 		Schema:        ReportSchemaVersion,
+		Plan:          plan,
 		Identity:      identity,
 		Status:        status,
 		StatusReasons: reasons,
@@ -195,15 +204,99 @@ func VerifyReport(report *Report) error {
 	if report.Controls.EmptyFloorMillis <= 0 {
 		return fmt.Errorf("benchmark report: empty-result floor control was not run")
 	}
-	if report.Controls.SelfRatioArango <= 0 || report.Controls.SelfRatioPostgres <= 0 {
-		return fmt.Errorf("benchmark report: self-ratio controls were not run")
+	// The leg plan must be total, closed, and scope-consistent.
+	if err := ValidateLegPlan(report.Plan.Scope, report.Plan.Legs); err != nil {
+		return fmt.Errorf("benchmark report: %w", err)
 	}
-	if math.Abs(report.Controls.SelfRatioArango-1) > 0.05 || math.Abs(report.Controls.SelfRatioPostgres-1) > 0.05 {
-		return fmt.Errorf("benchmark report: self-ratio %v/%v off 1.0 beyond 5%% — environment unfit for ratios",
-			report.Controls.SelfRatioArango, report.Controls.SelfRatioPostgres)
+	if err := ValidatePlannedNotRun(report.Plan.PlannedNotRun); err != nil {
+		return fmt.Errorf("benchmark report: %w", err)
 	}
-	// Status must follow from the gate reports.
-	status, reasons := RunStatus(report.GateReports)
+	notRun := map[string]string{}
+	for _, leg := range report.Plan.Legs {
+		if leg.Mode == "not_run" {
+			notRun[leg.Backend] = leg.Capability
+		}
+	}
+	// Live versions: a run leg must carry one; a not-run leg may not claim
+	// one it could not have observed.
+	if _, absent := notRun[BackendArango]; !absent && strings.TrimSpace(report.Identity.ArangoVersion) == "" {
+		return fmt.Errorf("benchmark report: arango leg ran without a live arangoVersion")
+	}
+	if _, absent := notRun[BackendPostgres]; !absent && strings.TrimSpace(report.Identity.PostgresVersion) == "" {
+		return fmt.Errorf("benchmark report: postgres leg ran without a live postgresVersion")
+	}
+	if _, absent := notRun[BackendArango]; absent && report.Identity.ArangoVersion != "" {
+		return fmt.Errorf("benchmark report: arangoVersion claimed for a leg that did not run")
+	}
+	if _, absent := notRun[BackendPostgres]; absent && report.Identity.PostgresVersion != "" {
+		return fmt.Errorf("benchmark report: postgresVersion claimed for a leg that did not run")
+	}
+	// Self-ratio controls: run legs must have measured one near 1.0; a
+	// not-run leg's value must be exactly zero (absent), never a forged 1.
+	type selfRatio struct {
+		backend string
+		value   float64
+	}
+	for _, sr := range []selfRatio{{BackendArango, report.Controls.SelfRatioArango}, {BackendPostgres, report.Controls.SelfRatioPostgres}} {
+		if _, absent := notRun[sr.backend]; absent {
+			if sr.value != 0 {
+				return fmt.Errorf("benchmark report: self-ratio %v reported for %s although its leg did not run", sr.value, sr.backend)
+			}
+			continue
+		}
+		if sr.value <= 0 {
+			return fmt.Errorf("benchmark report: %s self-ratio control was not run", sr.backend)
+		}
+		if math.Abs(sr.value-1) > 0.05 {
+			return fmt.Errorf("benchmark report: %s self-ratio %v off 1.0 beyond 5%% — environment unfit for ratios", sr.backend, sr.value)
+		}
+	}
+	// A not-run leg must be disclosed per workload and honest in the gates:
+	// blocked arm, zero samples, zero claims. Anything else is a forgery
+	// path ("silently measured nothing and claimed it anyway").
+	disclosed := map[string]bool{}
+	for _, row := range report.Plan.PlannedNotRun {
+		if _, absent := notRun[row.Backend]; !absent {
+			return fmt.Errorf("benchmark report: planned/not_run row for %s/%s but its leg ran", row.WorkloadID, row.Backend)
+		}
+		disclosed[row.WorkloadID+"|"+row.Backend] = true
+	}
+	for _, gate := range report.GateReports {
+		for _, arm := range []BackendResult{gate.Arango, gate.Postgres} {
+			capability, absent := notRun[arm.Backend]
+			if !absent {
+				continue
+			}
+			if arm.Outcome != OutcomeLabelBlocked {
+				return fmt.Errorf("benchmark report: %s/%s arm shows %s but its leg was not_run (%s)",
+					gate.WorkloadID, arm.Backend, arm.Outcome, capability)
+			}
+			if !disclosed[gate.WorkloadID+"|"+arm.Backend] {
+				return fmt.Errorf("benchmark report: %s/%s leg not_run without a planned/not_run disclosure row",
+					gate.WorkloadID, arm.Backend)
+			}
+		}
+	}
+	for _, s := range report.Samples {
+		if _, absent := notRun[s.Backend]; absent {
+			return fmt.Errorf("benchmark report: samples exist for %s but its leg was not_run", s.Backend)
+		}
+	}
+	for _, row := range report.Summaries {
+		if _, absent := notRun[row.Backend]; absent {
+			return fmt.Errorf("benchmark report: summary rows exist for %s but its leg was not_run", row.Backend)
+		}
+	}
+	for _, claim := range report.Claims {
+		if _, absent := notRun[BackendArango]; absent {
+			return fmt.Errorf("benchmark report: speed claim for %s exists while the arango leg was not_run", claim.WorkloadID)
+		}
+		if _, absent := notRun[BackendPostgres]; absent {
+			return fmt.Errorf("benchmark report: speed claim for %s exists while the postgres leg was not_run", claim.WorkloadID)
+		}
+	}
+	// Status must follow from the gate reports under the declared scope.
+	status, reasons := RunStatusScoped(report.GateReports, report.Plan.Scope)
 	if report.Status != status {
 		return fmt.Errorf("benchmark report: status %q but gates imply %q", report.Status, status)
 	}
@@ -292,16 +385,35 @@ func VerifyReport(report *Report) error {
 			return fmt.Errorf("benchmark report: claim ratio for %s does not match medians", claim.WorkloadID)
 		}
 	}
-	// A passed run must contain at least one claim and both arms' evidence.
+	// A passed run must contain evidence for every leg that ran, and under
+	// both-arms scope at least one speed claim. A postgres-only pass has
+	// no claims by construction: it certifies correctness and timings, not
+	// a comparison.
 	if report.Status == "passed" {
-		if len(report.Claims) == 0 {
-			return fmt.Errorf("benchmark report: passed run with no claims")
-		}
-		if err := requireBothArms(report); err != nil {
-			return err
+		if report.Plan.Scope == RunScopePostgresOnly {
+			if err := requireRanArms(report); err != nil {
+				return err
+			}
+		} else {
+			if len(report.Claims) == 0 {
+				return fmt.Errorf("benchmark report: passed run with no claims")
+			}
+			if err := requireBothArms(report); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func requireRanArms(report *Report) error {
+	// postgres-only pass posture: the ran arm must actually have evidence.
+	for _, gate := range report.GateReports {
+		if gate.Postgres.Outcome == OutcomeLabelPassed {
+			return nil
+		}
+	}
+	return fmt.Errorf("benchmark report: postgres-only pass without any passed postgres arm evidence")
 }
 
 func requireBothArms(report *Report) error {
