@@ -814,7 +814,7 @@ func (t *clickHouseBundleTx) Commit(ctx context.Context) ([]publication.Publishe
 			return t.publishedOutputs(), t.stopLease()
 		}
 		if !conclusive {
-			t.closed = true
+			t.closed = true // Prevent the runner from deleting possibly published tables.
 			uncertain := dataframeerrors.Wrap(errors.Join(ErrBundleCommitUncertain, err, confirmErr), dataframeerrors.CodeBackendUnavailable, "", dataframeerrors.WithRetryable(true))
 			return nil, publication.WithPhase(errors.Join(uncertain, t.stopLease()), "COMMIT_POINTER", "")
 		}

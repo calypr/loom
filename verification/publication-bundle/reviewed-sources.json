@@ -517,11 +517,19 @@
         "fields": {
           "sha256": {
             "pre": "c5c43c474eb7c1a42d1d130445d6c3c0a11f5f7c6f09b8d5f246debde56d7f41",
-            "post": "c9cfd2c27c0325cab317501f670eec033ca37040e7abc953a561e2a2adaf8576"
+            "post": "b00d64740dce31e5806e159891b79338f67e9879d48797f09e87e48f30f34238",
+            "postStrip": "c9cfd2c27c0325cab317501f670eec033ca37040e7abc953a561e2a2adaf8576"
           }
         },
         "preExistingDrift": {
           "finding": "prior sha256 c5c43c474eb7c1a4 did NOT match the blob at 90267c06 (live pre-strip sha256 b00d64740dce31e5): the pin drifted before this ticket; lane05 re-pin restores a true value against post-strip bytes and also corrects the pre-existing drift (discovered by C3 recompute)."
+        },
+        "guardQuoteRestore": {
+          "discoveredBy": "CI Go unit tests on PR #189 head 1e52b4e5: TestFB20* in recipe_execution_reader_authz_e2e_test.go STEP 0 drift -- fb20QuotedFacts reader-promise-ids-are-not-credentials quotes the stripped doc-comment prose",
+          "precedent": "lane02 retained guard-quoted doc promises through its strip wave (retain commits recorded inside 48783199); systematic orphaned-quote sweep re-run at lane05 shows 0 remaining orphaned quotes",
+          "action": "restored byte-identical to base blob 11b3807fa79e2b5151755a1eb9e7007dbe642ee1 (git checkout 90267c06 -- path); sha256 field re-set to the true base-blob value, equal to the pre-existing-drift live value recorded in preExistingDrift",
+          "gateDisposition": "retained under the guard-quoted allowlist class: allowed iff a tracked test file quotes a >=25-char comment line verbatim; fail-closed (corpus failure allows nothing); fixtures GuardQuotedAnchors in scripts/tests/test_no_code_comments.py",
+          "recheck": "go test ./internal/api/graphql/graph/resolver/ -> ok (6 FB20 tests green)"
         }
       }
     },
@@ -571,11 +579,19 @@
         "fields": {
           "sha256": {
             "pre": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
-            "post": "b034db9a50f1ac221e04dbc5eb29632ac3af4301d0c884459b4435d2ec6bda5c"
+            "post": "1dce5b82c34c9d175bf4f2ae04e0652dcc71b8d25a0f0eec9137923a47f0cb42",
+            "postStrip": "b034db9a50f1ac221e04dbc5eb29632ac3af4301d0c884459b4435d2ec6bda5c"
           }
+        },
+        "guardQuoteRestore": {
+          "discoveredBy": "CI Go unit tests on PR #189 head 1e52b4e5: TestPublishPartialPointerNeverAdvertisedAgainstArango claim-source drift -- publish_partial_pointer_e2e_test.go quotes \"Prevent the runner from deleting possibly published tables.\"",
+          "precedent": "lane02 retained guard-quoted doc promises through its strip wave (retain commits recorded inside 48783199); systematic orphaned-quote sweep re-run at lane05 shows 0 remaining orphaned quotes",
+          "action": "restored byte-identical to base blob 36c04c412304104adf52a3737d4fb05af4db5630 (git checkout 90267c06 -- path); net lane05 wave effect on this file is nil -- sha256 returns to the pre-strip value",
+          "gateDisposition": "retained under the guard-quoted allowlist class: allowed iff a tracked test file quotes a >=25-char comment line verbatim; fail-closed (corpus failure allows nothing); fixtures GuardQuotedAnchors in scripts/tests/test_no_code_comments.py",
+          "recheck": "go test ./internal/dataframe/publication/clickhouse/ -> ok"
         }
       },
-      "rederivedAmendment": "lane05 2026-11-13: the sha256 quoted in 'rederived' is the pre-strip value; file was comment-stripped token-identically in the lane05 wave; current value in 'sha256', trail in 'lane05Repin'."
+      "rederivedAmendment": "lane05 2026-11-13: the sha256 quoted in 'rederived' is the pre-strip value; file was comment-stripped token-identically in the lane05 wave, then restored byte-identical to base after the CI guard-quote drift failure (see lane05Repin.guardQuoteRestore); final sha256 equals the pre-strip value, net wave effect nil"
     },
     "internal/dataframe/publication/clickhouse/bundle_store_test.go": {
       "md5": "22fd74544b8198d890f42bf5370ccb33",

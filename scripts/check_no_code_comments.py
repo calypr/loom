@@ -147,6 +147,65 @@ def read(rel):
     return raw.decode("utf-8", errors="replace")
 
 
+GUARD_QUOTE_MIN = 25
+GUARD_PREFIXES = ("<!--", "/*", "(*", "dnl", "//", "--", "#", "%", "*", "[[")
+GUARD_SUFFIXES = ("-->", "*/", "*)", "]]")
+
+
+def guard_strip(text):
+    t = text.strip()
+    for p in GUARD_PREFIXES:
+        if t.startswith(p):
+            t = t[len(p):]
+            break
+    for s in GUARD_SUFFIXES:
+        if t.endswith(s):
+            t = t[:-len(s)]
+    return t.strip()
+
+
+def is_test_like(rel):
+    base = os.path.basename(rel)
+    return (base.endswith("_test.go") or base.endswith(".test.mjs")
+            or base.endswith(".test.ts") or base.endswith(".test.tsx")
+            or base.endswith(".test.js") or base.endswith(".test.jsx")
+            or (base.startswith("test_") and base.endswith(".py")))
+
+
+def guard_quote_corpus(paths):
+    corpus = {}
+    for rel in paths:
+        if not is_test_like(rel):
+            continue
+        relkey = os.path.relpath(os.path.abspath(os.path.join(REPO, rel)), REPO)
+        src = read(relkey)
+        if src is not None:
+            corpus[rel] = src
+    return corpus
+
+
+def guard_quoted(comment, comments, rel, corpus):
+    line_at = {}
+    for cc in comments:
+        if cc.get("kind") != "block":
+            line_at.setdefault(cc["line"], cc)
+    lo = hi = comment["line"]
+    while lo - 1 in line_at:
+        lo -= 1
+    while hi + 1 in line_at:
+        hi += 1
+    members = [comment] + [line_at[ln] for ln in range(lo, hi + 1)]
+    for m in members:
+        for ln in (m["text"].splitlines() or [m["text"]]):
+            stripped = guard_strip(ln)
+            if len(stripped) < GUARD_QUOTE_MIN:
+                continue
+            for trel, tsrc in corpus.items():
+                if trel != rel and stripped in tsrc:
+                    return True
+    return False
+
+
 def scan(paths, json_out=None):
     inventory = {"asset": [], "unsupported": [], "binary": [],
                  "checksum-payload": [], "fixture-payload": [],
@@ -161,6 +220,7 @@ def scan(paths, json_out=None):
                 {"path": rel, "ledger": ledger_bound[key]})
     violations = []
     allowed = []
+    corpus = None
     ts_paths = [p for p in paths if b.classify(p) == "ts"]
     ts_results = {}
     ts_scanner_ok = True
@@ -234,6 +294,14 @@ def scan(paths, json_out=None):
             line_text = lines[c["line"] - 1] if 0 < c["line"] <= len(lines) else ""
             category = b.allowlist_category(backend, c, line_text, relabs,
                                             provenance, governance)
+            if category is None:
+                if corpus is None:
+                    try:
+                        corpus = guard_quote_corpus(paths)
+                    except OSError:
+                        corpus = {}
+                if corpus and guard_quoted(c, comments, rel, corpus):
+                    category = "guard-quoted"
             record = {"path": rel, "backend": backend, "line": c["line"],
                       "kind": c["kind"], "text": c["text"][:120]}
             if category:

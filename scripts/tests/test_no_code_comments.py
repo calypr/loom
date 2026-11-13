@@ -344,5 +344,57 @@ class InventoryAndCli(Harness):
         self.assertEqual([], [(v["path"], v["text"]) for v in s["violations"]])
 
 
+class GuardQuotedAnchors(Harness):
+    def test_block_with_live_test_quote_allowed(self):
+        src = self.write("svc.go", "package svc\n\n"
+                                   "// ComputeDigest hashes a length-prefixed sequence rather than a\n"
+                                   "// delimiter-joined string so the encoding stays injective.\n"
+                                   "func ComputeDigest() string { return \"\" }\n")
+        tst = self.write("svc_test.go", "package svc\n\n"
+                                        "const anchor = \"ComputeDigest hashes a length-prefixed sequence rather than a\"\n")
+        s = self.scan(src, tst)
+        self.assertEqual([], [(v["path"], v["text"]) for v in s["violations"]])
+        self.assertIn("guard-quoted", {r["category"] for r in s["allowed"]})
+
+    def test_unquoted_comment_still_violates(self):
+        src = self.write("a.go", "package a\n\n// nobody quotes this prose anywhere in the suite\nvar X = 1\n")
+        tst = self.write("a_test.go", "package a\n\nfunc TestY(t *testing.T) {}\n")
+        s = self.scan(src, tst)
+        self.assertEqual(1, len(s["violations"]))
+
+    def test_short_quote_below_threshold_not_honored(self):
+        src = self.write("b.go", "package b\n\n// short needle here\nvar X = 1\n")
+        tst = self.write("b_test.go", "package b\n\nconst q = \"short needle here\"\n")
+        s = self.scan(src, tst)
+        self.assertEqual(1, len(s["violations"]))
+
+    def test_quote_outside_test_files_not_honored(self):
+        src = self.write("c.go", "package c\n\n// this prose lives in a non test file copy\nvar X = 1\n")
+        other = self.write("d.go", "package d\n\nconst echo = \"this prose lives in a non test file copy\"\n")
+        s = self.scan(src, other)
+        self.assertEqual(1, len(s["violations"]))
+
+    def test_self_quoting_test_file_does_not_guard_itself(self):
+        tst = self.write("e_test.go", "package e\n\n"
+                                      "// a comment in the test file that must stay red\n"
+                                      "const q = \"a comment in the test file that must stay red\"\n")
+        s = self.scan(tst)
+        self.assertEqual(1, len(s["violations"]))
+
+    def test_inline_trailing_comment_with_live_quote_allowed(self):
+        src = self.write("f.go", "package f\n\nfunc g() bool {\n\tclosed := true // Prevent the runner from deleting possibly published tables.\n\treturn closed\n}\n")
+        tst = self.write("f_test.go", "package f\n\n"
+                                      "const anchor = \"Prevent the runner from deleting possibly published tables.\"\n")
+        s = self.scan(src, tst)
+        self.assertEqual([], [(v["path"], v["text"]) for v in s["violations"]])
+        self.assertIn("guard-quoted", {r["category"] for r in s["allowed"]})
+
+    def test_guard_drops_when_quote_removed_from_test(self):
+        src = self.write("h.go", "package h\n\n// ReconcileDangle trusts only ledger-issued witness tokens today\nvar Y = 2\n")
+        tst = self.write("h_test.go", "package h\n\nfunc TestW(t *testing.T) {}\n")
+        s = self.scan(src, tst)
+        self.assertEqual(1, len(s["violations"]))
+
+
 if __name__ == "__main__":
     unittest.main()
