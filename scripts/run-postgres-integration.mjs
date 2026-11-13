@@ -191,6 +191,34 @@ export const GENERATION_LOAD_INTEGRATION_TESTS = [
   'TestPostgresShippedLoadConfigsValidateOffline',
 ];
 
+// arch-backend-10: the dual-backend backend-architecture conformance suite
+// runs its PostgreSQL arm as a never-skipped lane over ./internal/server.
+// The explicit -run filter selects only the conformance parent, so the
+// ArangoDB arm never appears as a skip event in this lane; checkGoEvents'
+// zero-skip assertion then makes the parent, the arm, and all thirteen
+// frozen scenario cells mandatory on the real PostgreSQL 18 service.
+export const BACKEND_CONFORMANCE_PACKAGE = './internal/server';
+export const BACKEND_CONFORMANCE_FILTER = '^TestBackendArchitectureConformance$/^postgresql$';
+export const BACKEND_CONFORMANCE_TESTS = [
+  'TestBackendArchitectureConformance',
+  'TestBackendArchitectureConformance/postgresql',
+  ...[
+    'scalarQueryServesLiteralScalars',
+    'repeatedRelatedOccurrenceStaysDistinct',
+    'nullAndMissingSemanticsPreserved',
+    'explicitScopeServesAuthorizedAndExcludesUnauthorized',
+    'restrictedEmptyScopeServesNothing',
+    'unrestrictedSeesEverything',
+    'generationIsolationServesActiveOnly',
+    'stablePagingIsDeterministic',
+    'explorerDraftCASOneWinnerExactPreimage',
+    'publicationControlFenceRejectsStaleOwner',
+    'cancellationTypedFailureNoFallback',
+    'backendUnavailableAndWrongTagNoFallback',
+    'upgradeFromPinnedPreRefactorReopensSafely',
+  ].map(cell => 'TestBackendArchitectureConformance/postgresql/' + cell),
+];
+
 const DATABASE_NAME = /^pgfixture_[0-9]+_[0-9a-f]{12}$/;
 
 // Administered through the repository's own pgx dependency: the runner writes
@@ -912,6 +940,28 @@ export async function runPostgres(output, deps = {}) {
       anchors: [...GENERATION_LOAD_INTEGRATION_TESTS],
       passes: generationLoadPasses,
     };
+    evidence.phases.push('backend-conformance-integration');
+    // arch-backend-10: the conformance arm owns its verify_ab10pg_*
+    // database and six owned schemas in-suite (zero-survivor audit runs at
+    // arm end), so this phase administers nothing. The filter selects the
+    // PostgreSQL arm only, so no ArangoDB skip event can appear; the
+    // anchor list is the frozen thirteen-cell CI gate identity.
+    const conformanceGoTestMs = Math.min(goTestBudgetMs + 120_000, 300_000);
+    const conformanceArgs = ['test', '-json', '-count=1', `-timeout=${conformanceGoTestMs / 1000}s`, '-run', BACKEND_CONFORMANCE_FILTER, BACKEND_CONFORMANCE_PACKAGE];
+    const conformance = await Promise.resolve(goTest(conformanceArgs, childEnv));
+    writeFileSync(join(directory, 'backend-conformance-integration.jsonl'), scrubSecrets(conformance.stdout || '', secrets));
+    writeFileSync(join(directory, 'backend-conformance-integration.stderr'), scrubSecrets(conformance.stderr || '', secrets));
+    assert.equal(conformance.status, 0, `backend-architecture conformance real-PG arm failed: ${scrubSecrets(conformance.error?.message || conformance.stderr || '', secrets)}`);
+    const conformancePasses = checkGoEvents(conformance.stdout, BACKEND_CONFORMANCE_TESTS).passes;
+    evidence.backendConformanceIntegration = {
+      status: 'passed',
+      package: BACKEND_CONFORMANCE_PACKAGE,
+      command: ['go', 'test', '-count=1', '-run', BACKEND_CONFORMANCE_FILTER, BACKEND_CONFORMANCE_PACKAGE],
+      propagatedEnv: { LOOM_TEST_POSTGRES_URL: 'set by runner (credential material redacted)' },
+      anchors: [...BACKEND_CONFORMANCE_TESTS],
+      passes: conformancePasses,
+    };
+    budget(conformanceGoTestMs + 30_000 + 60_000);
     evidence.status = 'passed';
   } catch (error) {
     evidence.status = 'failed';

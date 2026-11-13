@@ -1,0 +1,8 @@
+{
+  "package": "./internal/server",
+  "goVersion": "go version go1.26.5 linux/amd64",
+  "skips": [
+    "TestBackendArchitectureConformance/arangodb",
+    "TestBackendArchitectureConformance/postgresql"
+  ]
+}

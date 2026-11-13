@@ -356,6 +356,19 @@ const pgExec11Capture = new Set([
 export const archBackend12Diagnostics = new Set([
     'TestBackendNeutralDiagnosticsLivePostgreSQL',
 ]);
+// arch-backend-10: the dual-backend backend-architecture conformance suite
+// (thirteen frozen scenario cells per arm, literal oracles, production
+// composition on both backends). In this Arango-only lane the PostgreSQL
+// arm's explicit skip stays visible in the proof summary, following the
+// pg-query-route registration precedent; the ArangoDB arm never skips here
+// — it is registered as a required server-profile witness with all
+// thirteen cell identities. Both arm identities are listed for the
+// absent-service case so a missing service is blocked acceptance, never an
+// unregistered skip.
+export const backendArchitectureConformance = new Set([
+    'TestBackendArchitectureConformance/postgresql',
+    'TestBackendArchitectureConformance/arangodb',
+]);
 const external = new Set([
     'TestPivotPresenceAudit',
     'TestSemanticGroupProjectionFactorizationSelectsExistingIndexOnFullCDAReadOnly',
@@ -380,6 +393,7 @@ const external = new Set([
     ...pgExec12Exclusions,
     ...pgExec11Capture,
     ...archBackend12Diagnostics,
+    ...backendArchitectureConformance,
 ]);
 export const profiles = [
     ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
@@ -396,7 +410,14 @@ export const profiles = [
 // The store package's retained cases require external seeded data. Its ordinary
 // unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
-profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango', 'TestBackendNeutralDiagnosticsAgainstArango'];
+profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango', 'TestBackendNeutralDiagnosticsAgainstArango',
+    'TestBackendArchitectureConformance', 'TestBackendArchitectureConformance/arangodb',
+    ...['scalarQueryServesLiteralScalars', 'repeatedRelatedOccurrenceStaysDistinct', 'nullAndMissingSemanticsPreserved',
+        'explicitScopeServesAuthorizedAndExcludesUnauthorized', 'restrictedEmptyScopeServesNothing', 'unrestrictedSeesEverything',
+        'generationIsolationServesActiveOnly', 'stablePagingIsDeterministic', 'explorerDraftCASOneWinnerExactPreimage',
+        'publicationControlFenceRejectsStaleOwner', 'cancellationTypedFailureNoFallback',
+        'backendUnavailableAndWrongTagNoFallback', 'upgradeFromPinnedPreRefactorReopensSafely']
+        .map(cell => 'TestBackendArchitectureConformance/arangodb/' + cell)];
 profiles.find(p => p.id === 'explorer').alsoRequired = ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'];
 // The assembled dual-store checkpoint has its own API/CI route with both services.
 profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';
