@@ -141,11 +141,11 @@ var gacCitations = []gacCitation{
 	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 334, `UPDATE active WITH { dataset: candidate.dataset, manifestKey: candidate._key } IN @@lifecycle_collection`},
 	{"internal/backends/arango/internal/dataset/manifest_lifecycle.go", 335, `OPTIONS { ignoreRevs: false, mergeObjects: false }`},
 	// the fix shape that exists elsewhere in the same package (contrast)
-	{"internal/backends/arango/internal/dataset/release_store.go", 167, `FILTER currentRevision == @expected_revision OR alreadyActive`},
+	{"internal/backends/arango/internal/dataset/release_store.go", 223, `FILTER currentRevision == @expected_revision OR alreadyActive`},
 	// bulk-load check-then-act: candidate resolved, only IsStaged rechecked, then Activate
 	{"internal/api/bulk/load/service.go", 206, `manifest, err := s.generationActivator.ReadManifest(ctx, ref)`},
 	{"internal/api/bulk/load/service.go", 210, `if !manifest.IsStaged() {`},
-	{"internal/api/bulk/load/service.go", 213, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
+	{"internal/api/bulk/load/service.go", 217, `if err := s.generationActivator.Activate(ctx, manifest); err != nil {`},
 	// third writer of the same pointer document (writer inventory)
 	{"internal/backends/arango/internal/explorer/activation.go", 98, `if err := updateActivationDocument(txCtx, tx, datasetarango.LifecycleCollection, activeKey, map[string]any{"dataset": dataset, "manifestKey": manifestKey}); err != nil {`},
 	{"internal/backends/arango/internal/explorer/activation.go", 38, `UPDATE d WITH @patch IN @@c`},
