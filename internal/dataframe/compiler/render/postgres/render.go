@@ -34,63 +34,166 @@ var resourceFilterColumns = map[string]bool{
 	"recorded_at":        true,
 }
 
+type postgresRenderKind uint8
+
+const (
+	postgresRenderKindGeneric postgresRenderKind = iota
+	postgresRenderKindCellTrace
+	postgresRenderKindGraph
+	postgresRenderKindRowLineage
+	postgresRenderKindStageSequenceComposition
+	postgresRenderKindCodedGroup
+	postgresRenderKindStageSequenceRelatedOccurrence
+	postgresRenderKindGroup
+	postgresRenderKindGroupedCodedPivot
+	postgresRenderKindGroupedPivot
+	postgresRenderKindTableShapeExclusion
+	postgresRenderKindStageSequencePayload
+)
+
+func (k postgresRenderKind) String() string {
+	switch k {
+	case postgresRenderKindGeneric:
+		return "generic"
+	case postgresRenderKindCellTrace:
+		return "cell-trace"
+	case postgresRenderKindGraph:
+		return "graph"
+	case postgresRenderKindRowLineage:
+		return "row-lineage"
+	case postgresRenderKindStageSequenceComposition:
+		return "stage-sequence-composition"
+	case postgresRenderKindCodedGroup:
+		return "coded-group"
+	case postgresRenderKindStageSequenceRelatedOccurrence:
+		return "stage-sequence-related-occurrence"
+	case postgresRenderKindGroup:
+		return "group"
+	case postgresRenderKindGroupedCodedPivot:
+		return "grouped-coded-pivot"
+	case postgresRenderKindGroupedPivot:
+		return "grouped-pivot"
+	case postgresRenderKindTableShapeExclusion:
+		return "table-shape-exclusion"
+	case postgresRenderKindStageSequencePayload:
+		return "stage-sequence-payload"
+	}
+	return "unknown"
+}
+
+type postgresRenderClassification struct {
+	kind                         postgresRenderKind
+	unnestRequested              bool
+	unpivotRequested             bool
+	groupedPivotRequested        bool
+	tableShapeExclusionRequested bool
+}
+
+func classifyPostgresRenderPlan(plan ir.PhysicalPlan) postgresRenderClassification {
+	switch {
+	case cellTraceTerminalMentions(plan):
+		return postgresRenderClassification{kind: postgresRenderKindCellTrace}
+	case graphPlanMentionsPathOperations(plan):
+		return postgresRenderClassification{kind: postgresRenderKindGraph}
+	case rowLineageTerminalMentions(plan):
+		return postgresRenderClassification{kind: postgresRenderKindRowLineage}
+	case stageSequenceCompositionMentions(plan):
+		return postgresRenderClassification{kind: postgresRenderKindStageSequenceComposition}
+	case codedGroupPlanMentionsStage(plan):
+		return postgresRenderClassification{kind: postgresRenderKindCodedGroup}
+	case stageSequenceRelatedOccurrenceMentions(plan):
+		return postgresRenderClassification{kind: postgresRenderKindStageSequenceRelatedOccurrence}
+	case groupPlanMentionsStage(plan):
+		return postgresRenderClassification{kind: postgresRenderKindGroup}
+	case groupedPivotStagePlanMentionsSurface(plan):
+		return postgresRenderClassification{kind: postgresRenderKindGroupedCodedPivot}
+	}
+	classification := postgresRenderClassification{kind: postgresRenderKindGeneric}
+	for _, operation := range plan.Operations {
+		switch operation.Kind {
+		case ir.PhysicalUnnestOp:
+			classification.unnestRequested = true
+		case ir.PhysicalUnpivotOp:
+			classification.unpivotRequested = true
+		case ir.PhysicalGroupedPivotOp:
+			classification.groupedPivotRequested = true
+		case ir.PhysicalTableShapeExclusionReturnOp:
+			classification.tableShapeExclusionRequested = true
+		}
+	}
+	switch {
+	case classification.groupedPivotRequested:
+		classification.kind = postgresRenderKindGroupedPivot
+	case classification.tableShapeExclusionRequested:
+		classification.kind = postgresRenderKindTableShapeExclusion
+	case plan.StageSequence != nil:
+		classification.kind = postgresRenderKindStageSequencePayload
+	}
+	return classification
+}
+
 func RenderPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := storage.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, err
 	}
-	if cellTraceTerminalMentions(plan) {
+	classification := classifyPostgresRenderPlan(plan)
+	switch classification.kind {
+	case postgresRenderKindCellTrace:
 		return renderCellTracePhysicalPlan(plan, storage)
-	}
-	if graphPlanMentionsPathOperations(plan) {
+	case postgresRenderKindGraph:
 		return renderGraphPhysicalPlan(plan, storage)
-	}
-	if rowLineageTerminalMentions(plan) {
+	case postgresRenderKindRowLineage:
 		return renderRowLineagePhysicalPlan(plan, storage)
-	}
-	if stageSequenceCompositionMentions(plan) {
+	case postgresRenderKindStageSequenceComposition:
 		return renderStageSequencePhysicalPlan(plan, storage)
-	}
-	if codedGroupPlanMentionsStage(plan) {
+	case postgresRenderKindCodedGroup:
 		return renderCodedGroupPhysicalPlan(plan, storage)
-	}
-	if stageSequenceRelatedOccurrenceMentions(plan) {
+	case postgresRenderKindStageSequenceRelatedOccurrence:
 		return renderStageSequencePhysicalPlan(plan, storage)
-	}
-	if groupPlanMentionsStage(plan) {
+	case postgresRenderKindGroup:
 		return renderGroupPhysicalPlan(plan, storage)
-	}
-	if groupedPivotStagePlanMentionsSurface(plan) {
+	case postgresRenderKindGroupedCodedPivot:
 		return renderGroupedCodedPivotPhysicalPlan(plan, storage)
-	}
-	for _, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalUnnestOp {
-			if err := validateUnnestPlanSurface(plan); err != nil {
-				return command.RenderedPostgresPhysicalPlan{}, err
-			}
-			break
+	case postgresRenderKindGroupedPivot:
+		if err := validateRequestedExpansionSurfaces(plan, classification); err != nil {
+			return command.RenderedPostgresPhysicalPlan{}, err
 		}
-	}
-	for _, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalUnpivotOp {
-			if err := validateUnpivotPlanSurface(plan); err != nil {
-				return command.RenderedPostgresPhysicalPlan{}, err
-			}
-			break
+		return renderGroupedPivotPhysicalPlan(plan, storage)
+	case postgresRenderKindTableShapeExclusion:
+		if err := validateRequestedExpansionSurfaces(plan, classification); err != nil {
+			return command.RenderedPostgresPhysicalPlan{}, err
 		}
-	}
-	for _, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalGroupedPivotOp {
-			return renderGroupedPivotPhysicalPlan(plan, storage)
+		return renderTableShapeExclusionPhysicalPlan(plan, storage)
+	case postgresRenderKindStageSequencePayload:
+		if err := validateRequestedExpansionSurfaces(plan, classification); err != nil {
+			return command.RenderedPostgresPhysicalPlan{}, err
 		}
-	}
-	for _, operation := range plan.Operations {
-		if operation.Kind == ir.PhysicalTableShapeExclusionReturnOp {
-			return renderTableShapeExclusionPhysicalPlan(plan, storage)
-		}
-	}
-	if plan.StageSequence != nil {
 		return renderStageSequencePhysicalPlan(plan, storage)
+	case postgresRenderKindGeneric:
+		if err := validateRequestedExpansionSurfaces(plan, classification); err != nil {
+			return command.RenderedPostgresPhysicalPlan{}, err
+		}
+		return renderGenericPhysicalPlan(plan, storage)
 	}
+	return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf(
+		"%w: render kind %d is outside the closed classifier", ErrUnsupportedPostgresPlan, uint8(classification.kind))
+}
+
+func validateRequestedExpansionSurfaces(plan ir.PhysicalPlan, classification postgresRenderClassification) error {
+	if classification.unnestRequested {
+		if err := validateUnnestPlanSurface(plan); err != nil {
+			return err
+		}
+	}
+	if classification.unpivotRequested {
+		if err := validateUnpivotPlanSurface(plan); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func renderGenericPhysicalPlan(plan ir.PhysicalPlan, storage ir.PostgresStorageBinding) (command.RenderedPostgresPhysicalPlan, error) {
 	if err := plan.Validate(); err != nil {
 		return command.RenderedPostgresPhysicalPlan{}, fmt.Errorf("validate physical plan: %w", err)
 	}
