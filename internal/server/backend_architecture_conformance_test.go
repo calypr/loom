@@ -1215,7 +1215,10 @@ func (p *ab10ArangoProbe) countDocuments(t *testing.T, collection, project, gene
 // PostgreSQL arm runs against its logical_id column.
 func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, project, generation, logicalKey, attribute string) bool {
 	t.Helper()
-	query := `LET d = FIRST(FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.logical_key == @logicalKey RETURN doc) RETURN d != null && d.payload != null && HAS(d.payload, @attribute)`
+	// Two verdicts, never one: the scan finding no document is a census
+	// failure, not an "attribute absent" answer, so the negative witness
+	// can only ever be decided against a row that is provably stored.
+	query := `LET d = FIRST(FOR doc IN @@collection FILTER doc.project == @project AND doc.dataset_generation == @generation AND doc.logical_key == @logicalKey RETURN doc) RETURN {found: d != null, hasAttribute: d != null && d.payload != null && HAS(d.payload, @attribute)}`
 	body := fmt.Sprintf(`{"query":%q,"bindVars":%s}`, query, mustAB10JSON(t, map[string]any{
 		"@collection": collection, "project": project, "generation": generation,
 		"logicalKey": logicalKey, "attribute": attribute,
@@ -1237,7 +1240,10 @@ func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, project,
 		t.Fatalf("payload attribute cursor HTTP %d: %s", response.StatusCode, payload)
 	}
 	var payload struct {
-		Result []bool `json:"result"`
+		Result []struct {
+			Found        bool `json:"found"`
+			HasAttribute bool `json:"hasAttribute"`
+		} `json:"result"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode payload attribute result: %v", err)
@@ -1245,7 +1251,12 @@ func (p *ab10ArangoProbe) payloadHasAttribute(t *testing.T, collection, project,
 	if len(payload.Result) != 1 {
 		t.Fatalf("payload attribute probe returned %d rows, want 1", len(payload.Result))
 	}
-	return payload.Result[0]
+	verdict := payload.Result[0]
+	if !verdict.Found {
+		t.Fatalf("payload attribute probe: no stored %s document for project %s generation %s logical key %s — refusing to read a missing row as an absent attribute",
+			collection, project, generation, logicalKey)
+	}
+	return verdict.HasAttribute
 }
 
 func mustAB10JSON(t *testing.T, value any) string {
@@ -1554,10 +1565,24 @@ func ab10ProbeStoredHasExplicitAttribute(t *testing.T, arm *ab10Arm, resourceTyp
 	if arm.probe != nil {
 		return arm.probe.payloadHasAttribute(t, resourceType, project, generation, logicalID, attribute)
 	}
+	// Two verdicts, like the Arango probe: a row that is not stored at all
+	// is a census failure, never an "attribute absent" answer, so the
+	// negative witness cannot be satisfied by an ingestion gap.
+	stored := arm.fixture.probeCount(t,
+		`SELECT count(*) FROM "`+arm.fixture.schemas[control.SeriesSource]+`".fhir_resource
+		  WHERE project=$1 AND dataset_generation=$2 AND resource_type=$3 AND logical_id=$4`,
+		project, generation, resourceType, logicalID)
+	if stored != 1 {
+		t.Fatalf("%s arm census probe: stored %s rows for project %s generation %s logical id %s, want exactly 1 — refusing to read a missing row as an absent attribute",
+			arm.name, resourceType, project, generation, logicalID)
+	}
 	count := arm.fixture.probeCount(t,
 		`SELECT count(*) FROM "`+arm.fixture.schemas[control.SeriesSource]+`".fhir_resource
 		  WHERE project=$1 AND dataset_generation=$2 AND resource_type=$3 AND logical_id=$4 AND payload ? $5`,
 		project, generation, resourceType, logicalID, attribute)
+	if count > 1 {
+		t.Fatalf("%s arm census probe: %d attribute-carrying rows for one logical id, want 0 or 1", arm.name, count)
+	}
 	return count == 1
 }
 
