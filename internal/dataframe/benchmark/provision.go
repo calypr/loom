@@ -341,3 +341,37 @@ func BuildServerConfigYAML(listen, backend, backendYAML, fenceURL string) string
 	b.WriteString("    request_timeout: 10s\n    cache_ttl: 1s\n")
 	return b.String()
 }
+
+// PostgresBackendYAML renders the server.postgresql block for a spawned
+// arm. The six-series schema ladder is mandatory: without it the server
+// takes the first-query route and refuses all authoring routes, which would
+// make the battery unrunnable — the ladder is spelled out here so a typo
+// cannot silently degrade the run. Schemas live under a benchmark-owned
+// prefix so arms can never touch production schemas.
+func PostgresBackendYAML(host string, port int, database, user, password, sslmode, schemaPrefix string) string {
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+	var b strings.Builder
+	b.WriteString("  postgresql:\n")
+	fmt.Fprintf(&b, "    host: %q\n", host)
+	fmt.Fprintf(&b, "    port: %d\n", port)
+	fmt.Fprintf(&b, "    database: %q\n", database)
+	fmt.Fprintf(&b, "    user: %q\n", user)
+	fmt.Fprintf(&b, "    password: %q\n", password)
+	fmt.Fprintf(&b, "    sslmode: %q\n", sslmode)
+	b.WriteString("    schemas:\n")
+	for _, series := range []string{"source", "explorer_control", "publication_control", "dataset_release", "recipe_chains", "recipe_exec_registries"} {
+		fmt.Fprintf(&b, "      %s: %q\n", series, schemaPrefix+"_"+series)
+	}
+	return b.String()
+}
+
+// ArangoBackendYAML renders the server-level url/database keys for a
+// spawned Arango arm.
+func ArangoBackendYAML(rawURL, database string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "  url: %q\n", rawURL)
+	fmt.Fprintf(&b, "  database: %q\n", database)
+	return b.String()
+}

@@ -405,7 +405,7 @@ func startArm(ctx context.Context, backend string, cfg ArmConfig, spawn SpawnFun
 	listen := fmt.Sprintf("127.0.0.1:%d", port)
 	ready := cfg.ReadyURL
 	if ready == "" {
-		ready = "http://" + listen + "/api/v1/system/ready"
+		ready = "http://" + listen + "/readyz"
 	}
 	timeout := 60 * time.Second
 	spec := ServerSpec{BinaryPath: cfg.BinaryPath, Backend: backend, ConfigYAML: cfg.ConfigYAML, Env: cfg.Env, ReadyURL: ready, Timeout: timeout, StderrDir: opts.StderrDir}
