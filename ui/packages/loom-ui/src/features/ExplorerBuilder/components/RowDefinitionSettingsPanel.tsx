@@ -374,6 +374,7 @@ const requestFailureMessage = (error: unknown, fallback: string): string => {
 export const RowDefinitionSettingsPanel = ({
   presentation = 'fullscreen',
   triggerPresentation,
+  inspectorHost, onOpenChange,
   triggerLabel,
   openActionRef,
   onBeginProposal, onCancelProposal, onBeginRootProposal, onCancelRootProposal,
@@ -413,7 +414,9 @@ export const RowDefinitionSettingsPanel = ({
   onRemoveConstructionStep,
 }: {
   readonly presentation?: 'fullscreen' | 'compact';
-  readonly triggerPresentation?: 'source-chip';
+  readonly triggerPresentation?: 'source-chip' | 'hidden';
+  readonly inspectorHost?: HTMLElement | null;
+  readonly onOpenChange?: (open: boolean) => void;
   readonly triggerLabel?: string;
   readonly operationInspectorPresentation?: 'dialog' | 'workspace';
   readonly onBeginRootProposal?: (nodeId: string) => {ready: (assessment: ReadyReplacementAssessment, preview: ExplorerBuilderPreviewResult) => boolean; failed: (message: string, stale?: boolean) => void} | undefined;
@@ -475,8 +478,13 @@ export const RowDefinitionSettingsPanel = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const compact = presentation === 'compact';
   const [panelPosition, setPanelPosition] = useState({ top: 80, left: 16 });
-  const presentPanel = (panel: ReactNode) => compact && typeof document !== 'undefined' ? createPortal(panel, document.body) : panel;
+  const inspectorMode = inspectorHost !== undefined;
+  const presentPanel = (panel: ReactNode) => inspectorMode ? (inspectorHost ? createPortal(panel, inspectorHost) : null) : compact && typeof document !== 'undefined' ? createPortal(panel, document.body) : panel;
   const [settings, setSettings] = useState<SettingsState>({ kind: 'closed' });
+  const controllerRef = useRef<HTMLDivElement | null>(null);
+  const controllerIdentity = JSON.stringify([project, explorerId, authResourcePath ?? '', snapshotToken, table.outputId, draftVersion, draftDigest]);
+  const latestControllerIdentity = useRef(controllerIdentity);
+  latestControllerIdentity.current = controllerIdentity;
   const [rowChangeIntent, setRowChangeIntent] = useState<RowChangeIntent>('records');
   const [proposalState, setProposalState] = useState<ProposalState>({ kind: 'none' });
   const [replacementState, setReplacementState] = useState<ReplacementState>({ kind: 'idle' });
@@ -537,6 +545,8 @@ export const RowDefinitionSettingsPanel = ({
   }, [table, snapshotToken, draftVersion, draftDigest]);
 
   const openSettings = async () => {
+    if (inspectorMode && settings.kind !== 'closed') { onOpenChange?.(true); return; }
+    onOpenChange?.(true);
     if (compact && triggerRef.current) {
       const bounds = triggerRef.current.getBoundingClientRect();
       setPanelPosition({ top: Math.max(8, Math.min(bounds.bottom + 8, window.innerHeight - 320)),
@@ -584,10 +594,10 @@ export const RowDefinitionSettingsPanel = ({
   };
 
   useEffect(() => {
-    if (rootChangeState.kind === 'idle') return;
+    if (inspectorMode || rootChangeState.kind === 'idle') return;
     if (settings.kind === 'closed') void openSettings();
   }, [rootChangeState.kind, rootChangeState.kind === 'idle' ? -1 : rootChangeState.identity.epoch,
-    settings.kind]);
+    settings.kind, inspectorMode]);
 
   useEffect(() => {
     if (rootChangePreviewOpen && settings.kind !== 'closed') {
@@ -649,7 +659,11 @@ export const RowDefinitionSettingsPanel = ({
   const assessReplacement = async (rootNodeId: string) => {
     const ownership = onBeginRootProposal?.(rootNodeId);
     if (onBeginRootProposal && !ownership) return;
-    if (replacementPresentation === 'shared') setSettings({kind:'closed'});
+    if (replacementPresentation === 'shared') {
+      settingsRequestEpoch.current += 1;
+      setSettings({kind:'closed'});
+      onOpenChange?.(false);
+    }
     const fail = (message: string, stale = false) => {
       ownership?.failed(message, stale);
       setReplacementState(stale ? {kind:'stale', rootNodeId} : {kind:'failed', message});
@@ -742,7 +756,9 @@ export const RowDefinitionSettingsPanel = ({
     setReplacementState({ kind: 'applying', assessment });
     if (await onApplyRootReplacement(assessment)) {
       setReplacementState({ kind: 'idle' });
+      settingsRequestEpoch.current += 1;
       setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
       setGroupAuthoringOpen(false);
       onCloseRowIntentSession?.();
     } else {
@@ -769,7 +785,9 @@ export const RowDefinitionSettingsPanel = ({
     if (!proposalId) return;
     setProposalState({ kind: 'applying', selection: proposalState.selection });
     if (await onApply(proposalId)) {
+      settingsRequestEpoch.current += 1;
       setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
       setProposalState({ kind: 'none' });
       setGroupAuthoringOpen(false);
       onCloseRowIntentSession?.();
@@ -787,6 +805,7 @@ export const RowDefinitionSettingsPanel = ({
     setReplacementState({ kind: 'idle' });
     settingsRequestEpoch.current += 1;
     setSettings({ kind: 'closed' });
+    onOpenChange?.(false);
     setProposalState({ kind: 'none' });
     setGroupAuthoringOpen(false);
     onCloseRowIntentSession?.();
@@ -821,18 +840,20 @@ export const RowDefinitionSettingsPanel = ({
   const chooseRelatedRows = () => {
     cancelLocalRowProposals();
     setRowChangeIntent('records');
-    if (operationInspectorPresentation === 'workspace') {
+    if (operationInspectorPresentation === 'workspace' || inspectorMode) {
       settingsRequestEpoch.current += 1;
       setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
     }
     onChooseRelatedRows();
   };
   const chooseReshape = (kind: 'group' | 'source-group' | 'coded-group' | 'pivot' | 'coded-pivot' | 'categories' | 'unpivot' | 'expand-signed') => {
     cancelLocalRowProposals();
     setRowChangeIntent(kind === 'group' || kind === 'source-group' || kind === 'coded-group' ? 'group' : 'reshape');
-    if (operationInspectorPresentation === 'workspace') {
+    if (operationInspectorPresentation === 'workspace' || inspectorMode) {
       settingsRequestEpoch.current += 1;
       setSettings({ kind: 'closed' });
+      onOpenChange?.(false);
     }
     onChooseReshape(kind);
   };
@@ -871,10 +892,21 @@ export const RowDefinitionSettingsPanel = ({
   const historyByStepId = new Map(constructionHistory.map((step) => [step.id, step] as const));
   const appliedRowSteps = (table.document.construction?.steps ?? [])
     .filter((step) => rowChangingOperationKinds.has(step.operation.kind));
+  const groupCreationEpoch = settingsRequestEpoch.current;
   const onExplicitGroupsCreated = async (revision: ExplicitGroupRevisionSummary) => {
-    const choices = await client.listRowDefinitionChoices({
-      project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
-    });
+    const isCurrent = () => Boolean(controllerRef.current?.isConnected) &&
+      groupCreationEpoch === settingsRequestEpoch.current && latestControllerIdentity.current === controllerIdentity;
+    if (!isCurrent()) return;
+    let choices: RowDefinitionChoicesResponse;
+    try {
+      choices = await client.listRowDefinitionChoices({
+        project, explorerId, authResourcePath, snapshotToken, outputId: table.outputId,
+      });
+    } catch (error) {
+      if (!isCurrent()) return;
+      throw error;
+    }
+    if (!isCurrent()) return;
     if (choices.outputId !== table.outputId || choices.snapshotToken !== snapshotToken ||
         !choices.explicitGroups.some((group) => group.revisionId === revision.revisionId)) {
       throw new Error('The new group revision is not available for this table. Check that its selected resource type matches the table row type.');
@@ -887,16 +919,25 @@ export const RowDefinitionSettingsPanel = ({
     setGroupAuthoringOpen(false);
   };
 
+  const rowDefinitionActions = proposalState.kind === 'fresh' && currentProposal?.proposalId && comparison?.status === 'AVAILABLE' ? (
+<div className="mt-4 flex justify-end gap-2">
+                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
+                <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || !isCurrentProposal(currentProposal, table, snapshotToken, draftVersion, draftDigest)} onClick={() => void apply()}>
+                  Apply row definition
+                </button>
+              </div>
+  ) : null;
+
   if (openActionRef) openActionRef.current = () => { void openSettings(); };
 
   return (
-    <div className={compact ? 'relative inline-block min-w-0' : undefined} onKeyDown={(event) => {
+    <div ref={controllerRef} className={compact ? 'relative inline-block min-w-0' : undefined} onKeyDown={(event) => {
       if (compact && event.key === 'Escape' && settingsOpen && replacementState.kind === 'idle') {
         event.stopPropagation();
         cancel();
       }
     }}>
-      <button
+      {triggerPresentation !== 'hidden' ? <button
         ref={triggerRef}
         type="button"
         data-testid="construction-rows-settings-trigger"
@@ -914,16 +955,17 @@ export const RowDefinitionSettingsPanel = ({
       >
         <span className="shrink-0">{triggerLabel ?? 'Change rows'}</span>
         {triggerPresentation === 'source-chip' ? null : <span className="shrink-0 font-medium text-blue-800" aria-hidden="true">→</span>}
-      </button>
+      </button> : null}
       {settings.kind !== 'closed' ? presentPanel(
-        <div style={compact ? { top: panelPosition.top, left: panelPosition.left, maxHeight: `calc(100dvh - ${panelPosition.top + 12}px)` } : undefined} className={compact ? 'fixed z-50 w-[min(30rem,90vw)] overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-xl' : 'fixed inset-0 z-50 overflow-y-auto bg-white'}>
-          <div role="dialog" aria-modal={compact ? undefined : true} aria-label="Row definition settings" className={compact ? 'w-full p-3' : 'mx-auto min-h-dvh w-full max-w-[1600px] px-4 py-3 sm:px-6'}>
+        <div style={!inspectorMode && compact ? { top: panelPosition.top, left: panelPosition.left, maxHeight: `calc(100dvh - ${panelPosition.top + 12}px)` } : undefined} className={inspectorMode ? 'h-full min-h-0' : compact ? 'fixed z-50 w-[min(30rem,90vw)] overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-xl' : 'fixed inset-0 z-50 overflow-y-auto bg-white'}>
+          <div role={inspectorMode ? 'region' : 'dialog'} aria-modal={inspectorMode || compact ? undefined : true} aria-label="Row definition settings" className={inspectorMode ? 'construction-inspector-frame' : compact ? 'w-full p-3' : 'mx-auto min-h-dvh w-full max-w-[1600px] px-4 py-3 sm:px-6'}>
+            <div className={inspectorMode ? 'construction-inspector-body p-3' : undefined}>
             <header className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h3 className="m-0 text-base font-semibold text-slate-900">Change current rows</h3>
-                <p className="m-0 mt-1 text-sm text-slate-700">{currentRowMeaning}</p>
+                {!inspectorMode ? <p className="m-0 mt-1 text-sm text-slate-700">{currentRowMeaning}</p> : null}
               </div>
-              <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" onClick={cancel}>Back to table</button>
+              {!inspectorMode ? <button type="button" className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50" onClick={cancel}>Back to table</button> : null}
             </header>
             <section aria-label="Choose a row intent" className="mt-2 flex flex-wrap items-start gap-1 border-b border-slate-200 pb-2">
               <button type="button" data-testid="construction-row-intent-records" aria-pressed={rowChangeIntent === 'records'}
@@ -1188,14 +1230,7 @@ export const RowDefinitionSettingsPanel = ({
                 {comparison.notices.map((notice) => <p key={notice} className="mt-2 text-xs text-slate-600">{notice}</p>)}
               </section>
                   ) : null}
-                  {proposalState.kind === 'fresh' && currentProposal?.proposalId && comparison?.status === 'AVAILABLE' ? (
-              <div className="mt-4 flex justify-end gap-2">
-                <button type="button" className="rounded-md border border-slate-300 px-3 py-2" onClick={cancel}>Cancel</button>
-                <button type="button" className="rounded-md bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={disabled || !isCurrentProposal(currentProposal, table, snapshotToken, draftVersion, draftDigest)} onClick={() => void apply()}>
-                  Apply row definition
-                </button>
-              </div>
-                  ) : null}
+                  {!inspectorMode ? rowDefinitionActions : null}
               </div>
               ) : null}
               {startingCollectionSettings ? (
@@ -1208,6 +1243,10 @@ export const RowDefinitionSettingsPanel = ({
                 </details>
               ) : null}
             </div>
+            {inspectorMode ? <footer className="construction-inspector-footer">
+              {rowDefinitionActions ?? <button type="button" className="rounded-md border border-slate-300 px-3 py-2 text-sm" disabled={disabled || proposalState.kind === 'applying' || replacementState.kind === 'applying'} onClick={cancel}>Close row settings</button>}
+            </footer> : null}
+          </div>
         </div>
       ) : null}
       {replacementState.kind !== 'idle' && (replacementPresentation !== 'shared' || replacementInspectorHost) ? createPortal(

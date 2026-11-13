@@ -155,10 +155,7 @@ func recipeOutputSchema(plan ir.PhysicalPlan, output semantic.OutputPlan, dynami
 				cardinality = expression.Many
 			}
 			for _, column := range pivot.Columns {
-				name := prefix + pivot.Name + "__" + sanitizeColumnName(column)
-				if alias, ok := pivot.ColumnAliases[column]; ok {
-					name = prefix + alias
-				}
+				name := NativePivotColumnName(prefix, pivot.Name, column, pivot.ColumnAliases)
 				origins[name] = &CompiledSourceOrigin{SourceKey: pivot.Name, SourceKind: "PIVOT", OccurrenceID: node.OccurrenceID, SourcePath: fmt.Sprintf("%spivots[%d]", sourcePath, pivotIndex), ValueMode: pivot.ProjectionMode}
 				addLogical(name, recipeSemanticPath(output.RootResourceType, node.ResourceType, pivot.FieldRef, expression.Expression{})+"["+column+"]", string(kind), string(cardinality), true, pivot.Discovered, nil)
 			}

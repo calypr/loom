@@ -12,6 +12,7 @@ import (
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/recipe/exec"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
@@ -63,6 +64,37 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 		return importedRecipeResolution{}, fmt.Errorf("the imported dataframe recipe changed; reload its exact source version")
 	}
 	bindings := recipe.RuntimeBindings{Project: projectid.Legacy(project), SelectionProject: projectid.Canonical(project), DatasetGeneration: authorized.Snapshot.Identity.Generation, AuthResourcePaths: append([]string(nil), authorized.Scope.AuthResourcePaths...), AuthScopeMode: authorized.Scope.Mode}
+	var pinnedSchemas map[string][]lower.CompiledOutputColumn
+	pinnedCompiled := map[string]lower.CompiledRecipeOutput{}
+	pinnedNative := map[string]semantic.OutputPlan{}
+	for _, document := range documents {
+		if document.ImportedRecipe == nil {
+			continue
+		}
+		needsProof := false
+		for _, original := range bundle.Outputs {
+			if original.Name == document.ImportedRecipe.Output {
+				needsProof = requiresPristineProjectionIdentity(original, document.ImportedSource)
+			}
+		}
+		if !needsProof {
+			continue
+		}
+		pristine, err := r.engine.ResolveBundle(ctx, bundle, bindings)
+		if err != nil {
+			return importedRecipeResolution{}, fmt.Errorf("verify pinned projection identity source: %w", err)
+		}
+		pinnedSchemas = map[string][]lower.CompiledOutputColumn{}
+		for _, output := range pristine.Compiled.Outputs {
+			output.OutputSchema = bindImportedSourceIDs(output.Name, output.OutputSchema)
+			pinnedSchemas[output.Name] = output.OutputSchema
+			pinnedCompiled[output.Name] = output
+		}
+		for _, output := range pristine.Semantic.SemanticPlan.Outputs {
+			pinnedNative[output.Name] = output
+		}
+		break
+	}
 	effective := bundle
 	if len(documents) > 0 {
 		effective.Outputs = append([]recipe.Output(nil), bundle.Outputs...)
@@ -79,6 +111,15 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 			for i := range effective.Outputs {
 				if effective.Outputs[i].Name != document.ImportedRecipe.Output {
 					continue
+				}
+				if document.ImportedSource != nil && len(document.ImportedSource.FieldBindings) > 0 {
+					expected, err := pinnedFieldBindingIDs(effective.Outputs[i], pinnedSchemas[effective.Outputs[i].Name])
+					if err != nil {
+						return importedRecipeResolution{}, err
+					}
+					if err := verifyPinnedFieldBindings(document.ImportedSource.FieldBindings, expected); err != nil {
+						return importedRecipeResolution{}, err
+					}
 				}
 				if err := recipeimport.ValidateRelationshipOverlay(effective.Outputs[i], document.ImportedSource, authoringV2Catalog(authorized.Snapshot, "")); err != nil {
 					return importedRecipeResolution{}, err
@@ -103,6 +144,33 @@ func (r importedRecipeSources) load(ctx context.Context, project, name, version,
 	for i := range resolved.Compiled.Outputs {
 		output := &resolved.Compiled.Outputs[i]
 		output.OutputSchema = bindImportedSourceIDs(output.Name, output.OutputSchema)
+		for _, document := range documents {
+			if document.ImportedRecipe == nil || document.ImportedRecipe.Output != output.Name {
+				continue
+			}
+			for _, original := range bundle.Outputs {
+				if original.Name != output.Name || !requiresPristineProjectionIdentity(original, document.ImportedSource) {
+					continue
+				}
+				plan, err := recipeimport.HydrateSourcePlan(original, document.ImportedSource)
+				if err != nil {
+					return importedRecipeResolution{}, err
+				}
+				var native *semantic.OutputPlan
+				for j := range resolved.Semantic.SemanticPlan.Outputs {
+					if resolved.Semantic.SemanticPlan.Outputs[j].Name == output.Name {
+						native = &resolved.Semantic.SemanticPlan.Outputs[j]
+					}
+				}
+				baseline, ok := pinnedCompiled[output.Name]
+				if !ok || native == nil {
+					return importedRecipeResolution{}, fmt.Errorf("source projection identity proof is unavailable")
+				}
+				if err := preserveImportedGeneratedIDs(document, original, &plan, baseline, pinnedNative[output.Name], output, *native, authoringV2Catalog(authorized.Snapshot, "")); err != nil {
+					return importedRecipeResolution{}, err
+				}
+			}
+		}
 	}
 	return importedRecipeResolution{bundle: bundle, resolved: resolved, digest: actual}, nil
 }

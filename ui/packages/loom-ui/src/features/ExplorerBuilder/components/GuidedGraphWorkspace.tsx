@@ -60,11 +60,14 @@ export const GuidedGraphWorkspace = ({
   onTruncate,
   onTableToolbarHostChange,
   presentation = 'catalog',
+  showSelectionDetails = true,
   rowControl,
   rowMeaning,
   importedRelationshipActions,
 }: {
   readonly presentation?: 'catalog' | 'compact';
+  /** The traversal-first owner supplies the single contextual inspector. */
+  readonly showSelectionDetails?: boolean;
   readonly rowControl?: React.ReactNode;
   readonly rowMeaning?: string;
   // Imported changes have a separate native proposal owner. Never reuse the
@@ -549,7 +552,7 @@ export const GuidedGraphWorkspace = ({
             )}
           </div>
         </div>
-        {rowControl || rowMeaning ? (
+        {showSelectionDetails && (rowControl || rowMeaning) ? (
           <div className="mt-2 flex shrink-0 flex-wrap items-center gap-2 rounded border border-violet-200 bg-violet-50 px-2 py-1.5" aria-label="Row definition">
             {rowControl}
             {rowMeaning ? <p className="min-w-0 text-xs text-violet-950">{rowMeaning}</p> : null}
@@ -765,7 +768,7 @@ export const GuidedGraphWorkspace = ({
             )}
           </nav>
         </div>
-        {compact && selectedOccurrence ? (
+        {showSelectionDetails && compact && selectedOccurrence ? (
           <div className="mt-2 shrink-0 rounded border border-slate-200 bg-white px-2 py-1.5 text-xs" aria-label="Selected relationship inspector">
             <p className="font-semibold text-slate-900">{selectedOccurrence.resourceType} · {selectedOccurrence.occurrenceId === 'base' ? 'Starting records' : selectedOccurrence.relationship || 'Relationship label unavailable'}</p>
             <p className="mt-0.5 text-slate-600">{selectedOccurrence.occurrenceId === 'base' ? 'Source row identity is shown above; later row operations can change the current grain.' : selectedOccurrence.matchMode === 'REQUIRED' ? selectedPathRequiresMatches ? 'Require a match: unmatched source rows are excluded. Matching records supply values without expanding rows.' : 'Require a match within this optional parent path. Related values can be excluded while source rows stay. This does not expand rows.' : 'Optional values: keep source rows without a match. Multiple matches do not request row expansion.'}</p>

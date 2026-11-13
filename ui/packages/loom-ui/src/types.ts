@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { importedSourceParametersSchema, validateEditableSourceParameters } from './sourceRecipeParameters';
+export { importedSourceParametersSchema, sourceRecipeExpressionSchema, sourceRecipeEditFunctions } from './sourceRecipeParameters';
+export type { ImportedSourceParameters, SourceRecipeExpression } from './sourceRecipeParameters';
 /** Selector identity for published dataframe reads. */
 export interface DataframeSelector {
   readonly recipe: string;
@@ -2288,6 +2291,7 @@ export const explorerBuilderDocumentSchema = z
       output: z.string().min(1),
     }).strict().optional(),
     importedSource: z.object({
+      fieldBindings: z.array(z.object({ fieldId: opaqueIdSchema, columnId: opaqueIdSchema }).strict()).optional(),
       relationships: importedRelationshipOverlaySchema.optional(),
       steps: z.array(z.object({
         id: opaqueIdSchema,
@@ -2302,6 +2306,7 @@ export const explorerBuilderDocumentSchema = z
         editable: z.boolean(),
         maxColumns: z.number().int().positive().optional(),
         valueMode: z.string().min(1).optional(),
+        parameters: importedSourceParametersSchema.optional(),
       }).strict()),
     }).strict().optional(),
     population: explorerPopulationSchema.optional(),
@@ -3208,7 +3213,10 @@ const importedSourceStepChangeSchema = z.object({
   enabled: z.boolean(),
   maxColumns: z.number().int().positive().optional(),
   valueMode: z.string().min(1).optional(),
-}).strict();
+  parameters: importedSourceParametersSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.parameters) validateEditableSourceParameters(value.parameters, context);
+});
 
 export const sourceRelationshipChangeSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('ADD'), parentOccurrenceId: opaqueIdSchema, edgeId: opaqueIdSchema, matchMode: z.enum(['OPTIONAL', 'REQUIRED']) }).strict(),
@@ -3223,9 +3231,11 @@ export const sourceRelationshipProposalRequestSchema = z.object({
   outputId: opaqueIdSchema,
   change: sourceRelationshipChangeSchema.optional(),
   sourceStep: importedSourceStepChangeSchema.optional(),
+  sourceSteps: z.array(importedSourceStepChangeSchema).min(1).max(128).optional(),
   limit: z.number().int().min(1).max(1000).optional(),
 }).strict().superRefine((request, context) => {
-  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose exactly one relationship change or bounded source-step change.' });
+  if (Number(request.change !== undefined) + Number(request.sourceStep !== undefined) + Number(request.sourceSteps !== undefined) !== 1) context.addIssue({ code: 'custom', message: 'Choose one relationship change, source-step change, or atomic source-step batch.' });
+  if (request.sourceSteps && new Set(request.sourceSteps.map((step) => step.stepId)).size !== request.sourceSteps.length) context.addIssue({ code: 'custom', path: ['sourceSteps'], message: 'Choose each source operation only once.' });
 });
 export type SourceRelationshipProposalRequest = z.infer<typeof sourceRelationshipProposalRequestSchema>;
 export const sourceRelationshipProposalSchema = z.object({

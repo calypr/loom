@@ -80,7 +80,10 @@ func TestImportedSourceRefreshSavesReloadsAndRejectsStaleOrInvalidEdit(t *testin
 	before := append([]byte(nil), store.created.DraftConfig...)
 	compileFailure = true
 	plan := response.Workspace.Documents[0].ImportedSource
-	change := authoringv2.Command{Type: authoringv2.CommandUpdateImportedSourceStep, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: plan.Steps[0].ID, Enabled: false}}
+	if !lifecycleSourceStepEnabled(t, plan, "fields") {
+		t.Fatal("fixture requires enabled source fields")
+	}
+	change := authoringv2.Command{Type: authoringv2.CommandUpdateImportedSourceStep, OutputID: "patients", SourceStep: &authoringv2.ImportedSourceStepChange{StepID: "fields", Enabled: false}}
 	_, err = service.ApplyCommands(ctx, "project-a", "patients", authoringv2.ApplyCommandsRequest{CommandID: "broken-source", SemanticsVersion: authoringv2.CurrentSemanticsVersion, SnapshotToken: snapshot.Token, ExpectedDraftVersion: response.DraftVersion, ExpectedDraftDigest: response.DraftDigest, Commands: []authoringv2.Command{change}}, "tester")
 	if err == nil || store.saveDraftCalls != 1 || !bytes.Equal(before, store.created.DraftConfig) {
 		t.Fatalf("invalid downstream edit changed saved draft: %v", err)

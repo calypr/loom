@@ -507,7 +507,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByText('Current rows')).toBeInTheDocument();
   });
 
-  it('places the full-width step tracker between the actions and table result', () => {
+  it('keeps secondary operation history within navigation before the result', () => {
     render(<ConstructionWorkspace
       tables={[{ outputId: 'patients', title: 'Patients' }]}
       selectedOutputId="patients"
@@ -536,7 +536,7 @@ describe('ConstructionWorkspace', () => {
     expect(screen.getByTestId('construction-history').compareDocumentPosition(screen.getByTestId('construction-preview')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('keeps the dataframe step tracker visible while an operation editor is open', () => {
+  it('keeps secondary operation history reachable while an operation editor is open', () => {
     render(<ConstructionWorkspace
       tables={[{ outputId: 'patients', title: 'Patients' }]}
       selectedOutputId="patients"
@@ -559,6 +559,7 @@ describe('ConstructionWorkspace', () => {
       draftDigest="digest-1"
     />);
 
+    fireEvent.click(screen.getByText('Ordered operation history (1)'));
     expect(screen.getByRole('heading', { name: 'Dataframe steps' })).toBeInTheDocument();
     expect(screen.getByTestId('construction-history-step-filter-current')).toHaveTextContent('Keep adults.');
     expect(screen.getByText('Filter editor')).toBeInTheDocument();
@@ -1057,22 +1058,54 @@ describe('ConstructionWorkspace', () => {
   });
 });
 
-it('switches presentations without remounting an edit or changing the shared receipt', () => {
-  render(<ConstructionWorkspace tables={[{ outputId: 'subjects', title: 'Subjects' }]} selectedOutputId="subjects"
-    onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()} onDeleteTable={vi.fn()} onRenameTable={vi.fn()}
-    onSelectFamily={vi.fn()} draftVersion={3} draftDigest="draft3" previewStatus="ready" previewReceiptId="candidate-receipt"
-    previewOutputId="subjects" proposalId="candidate-receipt" network={<div>Authored subject path</div>}
-    rowExpression={<input aria-label="Editable row term" defaultValue="original" />} preview={<div>Literal candidate rows</div>} />);
-  const term = screen.getByRole('textbox', { name: 'Editable row term' });
-  fireEvent.change(term, { target: { value: 'pending value' } });
-  const presentation = screen.getByRole('navigation', { name: 'Recipe presentation' });
-  fireEvent.click(within(presentation).getByRole('button', { name: 'Record network' }));
-  fireEvent.click(within(presentation).getByRole('button', { name: 'Define a row' }));
-  expect(screen.getByRole('textbox', { name: 'Editable row term' })).toBe(term);
-  expect((term as HTMLInputElement).value).toBe('pending value');
-  fireEvent.click(within(presentation).getByRole('button', { name: 'Both editors' }));
+it('compares the two compositions without remounting the actual editor, controllers or preview', () => {
+  const props = {
+    tables: [{ outputId: 'subjects', title: 'Subjects' }], selectedOutputId: 'subjects',
+    onSelectTable: vi.fn(), onNewTable: vi.fn(), onDuplicateTable: vi.fn(), onDeleteTable: vi.fn(), onRenameTable: vi.fn(),
+    onSelectFamily: vi.fn(), draftVersion: 3, draftDigest: 'draft3', previewStatus: 'ready' as const,
+    previewReceiptId: 'candidate-receipt', previewOutputId: 'subjects', proposalId: 'candidate-receipt',
+    network: <div>Authored subject path</div>, navigation: <button>Observation scope</button>,
+    controllers: <input aria-label="Mounted source controller" defaultValue="source" />,
+    rowSetup: <button>Source options</button>, rowExpression: <div>Deferred row expression</div>,
+    editor: <input aria-label="Existing operation parameter" defaultValue="original" />,
+    preview: <div>Literal candidate rows</div>,
+  };
+  const view = render(<ConstructionWorkspace {...props} composition="inspector-right" />);
+  const parameter = screen.getByRole('textbox', { name: 'Existing operation parameter' });
+  const controller = screen.getByRole('textbox', { name: 'Mounted source controller' });
+  fireEvent.change(parameter, { target: { value: 'pending parameter' } });
+  fireEvent.change(controller, { target: { value: 'pending source' } });
+  view.rerender(<ConstructionWorkspace {...props} composition="inspector-below" />);
+  expect(screen.getByRole('textbox', { name: 'Existing operation parameter' })).toBe(parameter);
+  expect((parameter as HTMLInputElement).value).toBe('pending parameter');
+  expect(screen.getByRole('textbox', { name: 'Mounted source controller' })).toBe(controller);
+  expect((controller as HTMLInputElement).value).toBe('pending source');
+  expect(controller.closest('details,[hidden]')).toBeNull();
+  expect(screen.getAllByRole('button', { name: 'Source options' })).toHaveLength(1);
+  expect(screen.queryByRole('navigation', { name: 'Recipe presentation' })).toBeNull();
+  expect(screen.queryByText('Deferred row expression')).toBeNull();
   expect(screen.getByTestId('construction-preview')).toHaveAttribute('data-preview-receipt-id', 'candidate-receipt');
   expect(screen.getByTestId('recipe-result-identity')).toHaveTextContent('Proposed recipe result');
+  expect(screen.getByLabelText('Authored traversal')).toHaveTextContent('Authored subject path');
+});
+
+it('keeps all 100 exact operations ordered behind one secondary history disclosure', () => {
+  const select = vi.fn();
+  const steps = Array.from({length:100},(_,index)=>({id:`operation-${index}`,title:`Calculate ${index}`,summary:`Value ${index}`}));
+  render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+    onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()}
+    history={{resourceType:'Observation',steps,selected:{kind:'source'},onSelect:select,sourceSteps:<input aria-label="Source-step controller"/>}}
+    preview={<div>Exact saved rows</div>}
+    previewStatus="ready" draftVersion={1} draftDigest="draft" />);
+  const disclosure=screen.getByText('Ordered operation history (100)').closest('details')!;
+  expect(disclosure).not.toHaveAttribute('open');
+  expect(screen.getByRole('textbox',{name:'Source-step controller'}).closest('details')).toBeNull();
+  fireEvent.click(screen.getByText('Ordered operation history (100)'));
+  const history=within(screen.getByTestId('construction-history'));
+  const buttons=history.getAllByRole('button').filter(button=>button.dataset.testid?.startsWith('construction-history-step-'));
+  expect(buttons.map(button=>button.dataset.testid)).toEqual(steps.map(step=>`construction-history-step-${step.id}`));
+  fireEvent.click(buttons[99]!);
+  expect(select).toHaveBeenCalledWith({kind:'step',stepId:'operation-99'});
 });
 
 it('keeps table switching available while a proposed change inspector is open', () => {
@@ -1093,4 +1126,18 @@ it('uses one bounded shared fact slot and gives mutation editors precedence', ()
  view.rerender(<ConstructionWorkspace {...props} inspection={<p>Selected fact</p>} editor={<p>Pending mutation</p>}/>);
  expect(screen.queryByLabelText('Recipe fact inspector')).toBeNull();
  expect(screen.getByLabelText('Change editor')).toHaveTextContent('Pending mutation');
+});
+
+
+it('uses supplied scoped navigation as the sole ordered-history owner while keeping source controllers mounted', () => {
+ render(<ConstructionWorkspace tables={[]} onSelectTable={vi.fn()} onNewTable={vi.fn()} onDuplicateTable={vi.fn()}
+ onDeleteTable={vi.fn()} onRenameTable={vi.fn()} onSelectFamily={vi.fn()} preview={<div>Rows</div>} previewStatus="ready" draftVersion={1} draftDigest="draft"
+ navigation={<nav aria-label="Actual scoped navigation">Scoped operations</nav>}
+ rowSetup={<input aria-label="Rows controller"/>}
+ history={{resourceType:'Patient',steps:[{id:'filter',title:'Filter',summary:'Keep active'}],selected:{kind:'source'},onSelect:vi.fn(),sourceSteps:<input aria-label="Imported controller"/>}}/>);
+ expect(screen.getByRole('navigation',{name:'Actual scoped navigation'})).toBeInTheDocument();
+ expect(screen.queryByTestId('construction-history')).toBeNull();
+ for(const label of ['Rows controller','Imported controller']){
+  const controller=screen.getByRole('textbox',{name:label});expect(controller.closest('details,[hidden]')).toBeNull();expect(screen.getAllByRole('textbox',{name:label})).toHaveLength(1);
+ }
 });

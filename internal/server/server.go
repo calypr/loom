@@ -867,6 +867,7 @@ func run(ctx context.Context, serverConfig Config) error {
 	lifecycleConfig := lifecycle.Config{
 		DefaultDataframeWorkspace:          importedSources.DefaultWorkspace,
 		EditImportedSource:                 importedSources.Edit,
+		EditImportedSources:                importedSources.EditBatch,
 		EditImportedRelationship:           importedSources.EditRelationship,
 		AuthoringNetwork:                   importedSources.Network,
 		SemanticInventory:                  catalogStore.PageSemanticInventory,

@@ -1,0 +1,2 @@
+{"resourceType":"Group","id":"group-one","type":"person","actual":true,"member":[{"entity":{"reference":"Patient/p-one"}},{"entity":{"reference":"Patient/p-many"}}],"identifier":[{"system":"https://example.invalid/id/group_id","value":"GROUP_ID_ONE"}],"extension":[{"url":"https://example.invalid/ext/group_note","valueString":"GROUP_EXT_ONE"}]}
+{"resourceType":"Group","id":"group-empty","type":"person","actual":true,"member":[]}

@@ -15,7 +15,7 @@ import (
 
 func TestImportedSourceCommandSurvivesPublicTransport(t *testing.T) {
 	var body loomapi.ApplyExplorerBuilderCommandsJSONRequestBody
-	err := json.Unmarshal([]byte(`{"commandId":"source-edit","semanticsVersion":11,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"dynamicColumns[0]","enabled":false,"maxColumns":32,"valueMode":"ALL"}}]}`), &body)
+	err := json.Unmarshal([]byte(fmt.Sprintf(`{"commandId":"source-edit","semanticsVersion":%d,"snapshotToken":"snapshot","expectedDraftVersion":1,"expectedDraftDigest":"digest","commands":[{"type":"UPDATE_IMPORTED_SOURCE_STEP","outputId":"patients","sourceStep":{"stepId":"dynamicColumns[0]","enabled":false,"maxColumns":32,"valueMode":"ALL"}}]}`, authoringv2.CurrentSemanticsVersion)), &body)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,3 +1,4 @@
+import {traversalFirstScenario} from './helpers/traversal-first-contract.mjs';
 const temporalFilterFormalProofAssertions = Object.freeze({
   date: 'Captured DATE native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing',
   'date-time': 'Captured DATE_TIME native filter journey replays through TemporalFilterJourney TLC with all registered mutation controls passing',
@@ -54,6 +55,7 @@ const temporalFilterJourneyTraceBinding = (caseName, { valueKind, resourceType, 
 });
 
 const registryRows = [
+  traversalFirstScenario,
   Object.freeze({
     id: 'graph-rows',
     workflow: 'native-imported-record-network-and-row-definition',

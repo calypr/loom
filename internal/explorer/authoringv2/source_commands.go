@@ -9,18 +9,20 @@ import (
 // ImportedSourceStepChange edits only the bounded settings of a registered
 // source operation. Its expressions and relationships remain server-owned.
 type ImportedSourceStepChange struct {
-	StepID     string `json:"stepId"`
-	Enabled    bool   `json:"enabled"`
-	MaxColumns *int   `json:"maxColumns,omitempty"`
-	ValueMode  string `json:"valueMode,omitempty"`
+	Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
+	StepID     string                    `json:"stepId"`
+	Enabled    bool                      `json:"enabled"`
+	MaxColumns *int                      `json:"maxColumns,omitempty"`
+	ValueMode  string                    `json:"valueMode,omitempty"`
 }
 
 func (c *ImportedSourceStepChange) UnmarshalJSON(raw []byte) error {
 	var wire struct {
-		StepID     string `json:"stepId"`
-		Enabled    *bool  `json:"enabled"`
-		MaxColumns *int   `json:"maxColumns,omitempty"`
-		ValueMode  string `json:"valueMode,omitempty"`
+		Parameters *ImportedSourceParameters `json:"parameters,omitempty"`
+		StepID     string                    `json:"stepId"`
+		Enabled    *bool                     `json:"enabled"`
+		MaxColumns *int                      `json:"maxColumns,omitempty"`
+		ValueMode  string                    `json:"valueMode,omitempty"`
 	}
 	if err := strictDecode(raw, &wire); err != nil {
 		return err
@@ -28,11 +30,14 @@ func (c *ImportedSourceStepChange) UnmarshalJSON(raw []byte) error {
 	if wire.Enabled == nil {
 		return fmt.Errorf("sourceStep.enabled is required")
 	}
-	*c = ImportedSourceStepChange{StepID: wire.StepID, Enabled: *wire.Enabled, MaxColumns: wire.MaxColumns, ValueMode: wire.ValueMode}
+	*c = ImportedSourceStepChange{Parameters: wire.Parameters, StepID: wire.StepID, Enabled: *wire.Enabled, MaxColumns: wire.MaxColumns, ValueMode: wire.ValueMode}
 	return c.Validate()
 }
 
 func (c ImportedSourceStepChange) Validate() error {
+	if err := c.Parameters.Validate(""); err != nil {
+		return err
+	}
 	if c.StepID == "" || c.StepID != strings.TrimSpace(c.StepID) {
 		return fmt.Errorf("sourceStep.stepId is required and must be trimmed")
 	}
@@ -118,4 +123,23 @@ func (c *ImportedRelationshipChange) UnmarshalJSON(raw []byte) error {
 	}
 	*c = ImportedRelationshipChange(decoded)
 	return c.Validate()
+}
+
+// ValidateImportedSourceStepBatch admits one bounded, atomic edit over existing
+// source operations in a single output. Stable step identities cannot repeat.
+func ValidateImportedSourceStepBatch(changes []ImportedSourceStepChange) error {
+	if len(changes) < 1 || len(changes) > 128 {
+		return fmt.Errorf("sourceSteps requires between 1 and 128 existing source steps")
+	}
+	seen := map[string]bool{}
+	for _, change := range changes {
+		if err := change.Validate(); err != nil {
+			return err
+		}
+		if seen[change.StepID] {
+			return fmt.Errorf("sourceSteps repeats stepId %q", change.StepID)
+		}
+		seen[change.StepID] = true
+	}
+	return nil
 }

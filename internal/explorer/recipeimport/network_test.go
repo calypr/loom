@@ -316,7 +316,7 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 		legacy.Steps[i].MatchMode = ""
 		legacy.Steps[i].SourceKey = ""
 	}
-	legacy.Steps[0].Enabled = false
+	setSourcePlanEnabled(t, &legacy, "fields", false)
 	legacy.Relationships = &authoringv2.ImportedRelationshipOverlay{}
 	for _, s := range pristine.Steps {
 		if s.Kind == SourcePlanTraversal {
@@ -328,7 +328,8 @@ func TestHydrateSourcePlanMigratesLegacyMetadataAndRejectsRetargeting(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hydrated.Steps[0].Enabled || len(hydrated.Relationships.MatchOverrides) != 1 {
+	fieldStep, _ := sourcePlanStep(hydrated, "fields")
+	if fieldStep.Enabled || len(hydrated.Relationships.MatchOverrides) != 1 {
 		t.Fatal("migration lost bounded overrides or authored match policy")
 	}
 	for i, s := range pristine.Steps {

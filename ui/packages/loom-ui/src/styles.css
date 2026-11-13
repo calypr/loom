@@ -352,92 +352,71 @@
   }
 }
 
-/* Fit the routine Builder workspace below its embedding application's navigation.
-   Long catalogs, editors and tables retain their own deliberate navigation. */
+/* Traversal-first compositions share the same mounted navigation, graph,
+   inspector and result. Only their grid placement changes for comparison. */
+.loom-ui-root .construction-result-region { display: grid; gap: .75rem; min-width: 0; }
+.loom-ui-root .construction-scope-navigation,
+.loom-ui-root .construction-authored-region,
+.loom-ui-root .construction-active-editor,
+.loom-ui-root .construction-result-preview { min-width: 0; min-height: 0; }
+.loom-ui-root .construction-scope-navigation { display: flex; flex-direction: column; gap: .75rem; background: #fff; padding: .75rem; }
+.loom-ui-root .construction-controller-host { display: contents; }
+.loom-ui-root .construction-source-controls:empty { display: none; }
+.loom-ui-root .construction-history-disclosure > summary { cursor: pointer; padding: .5rem 0; font-size: .875rem; font-weight: 600; }
+.loom-ui-root .construction-history-disclosure .construction-history { padding: 0; }
+.loom-ui-root .construction-history-disclosure ol { display: grid; gap: .375rem; }
+.loom-ui-root .construction-history-disclosure .construction-history > header { display: none; }
+.loom-ui-root .construction-authored-content { height: 100%; min-height: 0; }
+
 @media (min-width: 1024px) and (min-height: 700px) {
   .loom-ui-root .construction-workspace {
     height: calc(100dvh - var(--construction-top, 100px) - var(--construction-bottom, 12px));
     min-height: 20rem;
   }
-  .loom-ui-root .construction-query-toolbar {
-    flex: 0 1 auto;
-    max-height: 6rem;
-    overflow: auto;
-  }
   .loom-ui-root .construction-result-region {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .loom-ui-root .construction-active-editor {
-    flex-shrink: 0;
-    max-height: 50%;
-    overflow: auto;
-  }
-  .loom-ui-root [data-testid="construction-preview"] {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .loom-ui-root .construction-preview-surface {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .loom-ui-root [data-testid="preview-table-scroll"] {
     flex: 1;
     min-height: 0;
-    max-height: none;
-  }
-}
-
-/* Keep the authored network beside its receipt-bound result at desktop size. */
-@media (min-width: 1280px) and (min-height: 700px) {
-  .loom-ui-root .construction-result-region[data-has-network="true"] {
-    display: grid;
-    grid-template-columns: minmax(21rem, 0.8fr) minmax(0, 1.5fr);
-    grid-template-rows: minmax(220px, 1fr) minmax(150px, 1fr);
+    overflow: hidden;
     align-items: stretch;
-    overflow: hidden;
+    grid-template-columns: 16.25rem minmax(0, 1fr);
+    grid-template-rows: minmax(13.75rem, .9fr) minmax(12.5rem, 1fr);
+    grid-template-areas: "navigation graph" "navigation preview";
   }
-  .loom-ui-root .construction-result-region[data-has-network="true"] > [aria-label="Recipe editors"] {
-    grid-column: 1 / span 2;
+  .loom-ui-root .construction-result-region[data-has-editor="true"] {
+    grid-template-columns: 16.25rem minmax(0, 1fr) 21.875rem;
+    grid-template-areas: "navigation graph inspector" "navigation preview inspector";
+  }
+  .loom-ui-root .construction-result-region[data-composition="inspector-below"][data-has-editor="true"] {
+    grid-template-columns: 16.25rem minmax(20rem, .9fr) minmax(0, 1.3fr);
+    grid-template-areas: "navigation graph graph" "navigation inspector preview";
+  }
+  .loom-ui-root .construction-result-region:not([data-has-network="true"]) {
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "navigation preview";
+  }
+  .loom-ui-root .construction-result-region:not([data-has-network="true"])[data-has-editor="true"] {
+    grid-template-areas: "navigation preview inspector";
+  }
+  .loom-ui-root .construction-scope-navigation { grid-area: navigation; overflow: auto; overscroll-behavior: contain; }
+  .loom-ui-root .construction-authored-region { grid-area: graph; overflow: hidden; }
+  .loom-ui-root .construction-authored-content { overflow: auto; }
+  .loom-ui-root .construction-authored-content > div,
+  .loom-ui-root .construction-authored-content > section { height: 100%; min-height: 0; }
+  .loom-ui-root .construction-active-editor { grid-area: inspector; height: 100%; max-height: none; overflow: auto; background: #fff; }
+  .loom-ui-root [data-testid="construction-preview"] {
+    grid-area: preview;
     display: flex;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
   }
-  .loom-ui-root .construction-recipe-editor-views {
-    display: grid;
-    flex: 1;
-    min-height: 0;
-  }
-  .loom-ui-root .construction-recipe-editor-views[data-recipe-view="both"] {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: .5rem;
-  }
-  .loom-ui-root .construction-recipe-editor-views > div { min-height: 0; overflow: hidden; }
-  .loom-ui-root .construction-recipe-editor-views > div > div,
-  .loom-ui-root .construction-recipe-editor-views > div > section { height: 100%; min-height: 0; overflow: auto; }
-  .loom-ui-root .construction-recipe-editor-views > div > div > section { height: 100%; min-height: 0; overflow: auto; }
-  .loom-ui-root .construction-result-region[data-has-network="true"] > .construction-active-editor {
-    grid-column: 1;
-    grid-row: 2;
-    min-height: 0;
-    max-height: none;
-  }
-  .loom-ui-root .construction-result-region[data-has-network="true"] > [aria-label="Table result"] {
-    grid-column: 2;
-    grid-row: 2;
-  }
-  .loom-ui-root .construction-result-region[data-has-network="true"]:not([data-has-editor="true"]) > [aria-label="Table result"] { grid-column: 1 / span 2; }
-}
-
-@media (min-width: 1280px) and (min-height: 700px) {
-  .loom-ui-root .construction-active-editor:has(> .construction-mutation-inspector) { overflow: hidden; }
+  .loom-ui-root .construction-preview-surface { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+  .loom-ui-root [data-testid="preview-table-scroll"] { flex: 1; min-height: 0; max-height: none; }
+  .loom-ui-root .construction-active-editor:has(> .construction-mutation-inspector),
+  .loom-ui-root .construction-active-editor:has(> .construction-inspector-frame) { overflow: hidden; }
+  .loom-ui-root .construction-inspector-frame { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .loom-ui-root .construction-inspector-body { flex: 1; min-height: 0; overflow: auto; }
+  .loom-ui-root .construction-inspector-footer { flex-shrink: 0; padding: .75rem; border-top: 1px solid #e2e8f0; background: #fff; }
   .loom-ui-root .construction-mutation-inspector {
     display: flex;
     flex-direction: column;
@@ -455,9 +434,17 @@
     max-height: 65%;
     margin-top: 0;
   }
-  .loom-ui-root .construction-mutation-inspector > [data-testid="construction-proposal-panel"] > :not(:last-child) {
-    min-height: 0;
-    overflow: auto;
-  }
+  .loom-ui-root .construction-mutation-inspector > [data-testid="construction-proposal-panel"] > :not(:last-child) { min-height: 0; overflow: auto; }
   .loom-ui-root .construction-mutation-inspector > [data-testid="construction-proposal-panel"] > :last-child { flex-shrink: 0; }
+}
+
+@media (min-width: 1100px) {
+  .loom-ui-root .construction-inspector-review { flex-shrink: 0; min-height: 0; max-height: 45%; display: flex; }
+  .loom-ui-root .construction-source-review { display: flex; flex-direction: column; min-height: 0; max-height: 100%; width: 100%; }
+  .loom-ui-root .construction-active-editor > .construction-source-review { height: 100%; }
+}
+
+@media (min-width: 1100px) {
+  .loom-ui-root .construction-inspector-portal-host { height: 100%; min-height: 0; overflow: hidden; }
+  .loom-ui-root .construction-active-editor:has(> .construction-inspector-portal-host) { overflow: hidden; }
 }

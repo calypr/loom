@@ -6,12 +6,19 @@ import type { ExplorerBuilderCatalog } from '../../../types';
 import type { DraftTable } from '../authoring/model';
 import { AuthoredTraversalEditor } from './AuthoredTraversalEditor';
 import { authoredStages, authoredTraversal } from './authoredTraversal';
+import { TraversalScopeNavigator } from './TraversalScopeNavigator';
 
 vi.mock('@xyflow/react', () => ({
   MarkerType: { ArrowClosed: 'arrowclosed' }, Background: () => null, Controls: () => null,
-  ReactFlow: ({ nodes, edges, onNodeClick }: { nodes: Array<{ id: string; data: { label: React.ReactNode } }>; edges: Array<{ id: string; source: string; target: string }>; onNodeClick: (event: React.MouseEvent, node: { id: string }) => void }) => <div data-testid="flow">
-    {nodes.map((node) => <button key={node.id} data-testid={`node-${node.id}`} onClick={(event) => onNodeClick(event, node)}>{node.data.label}</button>)}
-    {edges.map((edge) => <span key={edge.id} data-testid={edge.id} data-source={edge.source} data-target={edge.target} />)}
+  ReactFlow: ({ nodes, edges, onNodeClick, onEdgeClick, onKeyDown }: {
+    nodes: Array<{ id: string; data: { label: React.ReactNode } }>;
+    edges: Array<{ id: string; source: string; target: string }>;
+    onNodeClick: (event: React.MouseEvent, node: { id: string }) => void;
+    onEdgeClick: (event: React.MouseEvent, edge: { id: string }) => void;
+    onKeyDown: (event: React.KeyboardEvent) => void;
+  }) => <div data-testid="flow" onKeyDown={onKeyDown}>
+    {nodes.map((node) => <button className="react-flow__node" data-id={node.id} key={node.id} data-testid={`node-${node.id}`} onClick={(event) => onNodeClick(event, node)}>{node.data.label}</button>)}
+    {edges.map((edge) => <span className="react-flow__edge" data-id={edge.id} tabIndex={0} key={edge.id} data-testid={edge.id} data-source={edge.source} data-target={edge.target} onClick={event=>onEdgeClick(event,edge)} />)}
   </div>,
 }));
 vi.mock('./GuidedGraphWorkspace', () => ({ GuidedGraphWorkspace: () => <div>Available catalog connections</div> }));
@@ -32,6 +39,13 @@ const table: DraftTable = { outputId: 'subjects', tabId: 'subjects', title: 'Sub
   ] }, rows: { kind: 'RECORDS', records: {} }, columns: [],
 } };
 const callbacks = () => ({ onSelectOccurrence: vi.fn(), onSetBase: vi.fn(), onChangeBase: vi.fn(), onAppendEdge: vi.fn(), onChangeEdge: vi.fn(), onChangeMatchMode: vi.fn(), onTruncate: vi.fn(), onInspectValues: vi.fn(), onInspectRelatedRows: vi.fn(), onInspectOperation: vi.fn(), onDefineRow: vi.fn() });
+
+const navigatorProps = (value: DraftTable, actions = callbacks()) => ({ table: value,
+  selectedOccurrenceId: 'root', projectionKind: 'saved' as const,
+  onSelectScope: actions.onSelectOccurrence, onEditSourceStep: vi.fn(), onEditConstructionStep: actions.onInspectOperation,
+  onEditColumn: vi.fn(), onEditSourceRows: actions.onDefineRow, onAddRelatedValues: actions.onInspectValues,
+  onExpandRelatedRows: actions.onInspectRelatedRows, onGroupRows: vi.fn(),
+});
 
 describe('authored traversal correspondence', () => {
   it('uses actual distinct occurrence identities rather than merging same resource catalog nodes', () => {
@@ -56,7 +70,8 @@ describe('authored traversal correspondence', () => {
     const actions = callbacks(); render(<AuthoredTraversalEditor {...actions} catalog={catalog} table={table} projectionKind="saved" selectedOccurrenceId="subjectPatient" disabled={false} />);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'REQUIRED' } });
     expect(actions.onChangeMatchMode).toHaveBeenCalledWith('subjectPatient', 'REQUIRED');
-    expect(screen.getByTestId('authored-occurrence-inspector')).toHaveTextContent('Source stage');
+    expect(screen.getByTestId('authored-occurrence-inspector')).toHaveTextContent('ResearchSubject → subject → Patient');
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('OPTIONAL');
   });
   it('uses imported proposal callbacks exclusively and blocks mutation during proposed inspection', () => {
     const actions = callbacks(); const imported = { ...table, document: { ...table.document, importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' } } };
@@ -75,12 +90,13 @@ describe('authored traversal correspondence', () => {
       { occurrenceId: 'subjectPatient', column: 'gender', label: 'Gender', logicalType: 'string', source: { kind: 'field', field: { path: 'gender' } } },
       { occurrenceId: 'root', column: 'status', label: 'Status', logicalType: 'string', source: { kind: 'field', field: { path: 'status' } } },
     ], construction: { version: 1, steps: [{ id: 'group1', inputs: [{ kind: 'SOURCE_PROJECTION' }], operation: { kind: 'GROUP', group: { constructionId: 'g', keys: [{ inputColumnId: 'gender', outputColumnId: 'g' }, { inputColumnId: 'status', outputColumnId: 's' }], missingKeyPolicy: 'GROUP' } }, rowValues: [{ inputColumnId: 'status', outputColumnId: 'values', policy: 'ALL' }], outputs: [{ id: 'g', name: 'g', label: 'Gender', type: 'string' }, { id: 's', name: 's', label: 'Status', type: 'string' }, { id: 'values', name: 'values', label: 'Statuses', type: 'list<string>' }] }] } } };
-    const actions = callbacks(); render(<AuthoredTraversalEditor {...actions} catalog={catalog} table={grouped} projectionKind="saved" selectedOccurrenceId="root" disabled={false} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Explore available connections' }));
-    const stage = within(screen.getByRole('list', { name: 'Traversal row stages' }));
+    const actions = callbacks(); render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={grouped} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(grouped, actions)} /></>);
+    fireEvent.click(screen.getByRole('button', { name: 'Add a connection' }));
+    fireEvent.click(screen.getByText('Resulting table · all 1 operations in execution order'));
+    const stage = within(screen.getByRole('list', { name: 'Ordered resulting-table operations' }));
     expect(stage.getByText(/Group rows by Gender, Status/)).toHaveTextContent('Statuses retains all contributor values');
-    expect(stage.getByText('Input: Source')).toBeTruthy();
-    fireEvent.click(stage.getByRole('button', { name: '1. Group by Gender, Status' }));
+    expect(stage.getByText('Input: Source projection.')).toBeTruthy();
+    fireEvent.click(stage.getByRole('button', { name: 'Edit table operation 1: Group by Gender, Status' }));
     expect(actions.onInspectOperation).toHaveBeenCalledWith('group1');
     expect(authoredStages(grouped).map((item) => item.id)).toEqual(['group1']);
   });
@@ -92,44 +108,75 @@ describe('authored traversal correspondence', () => {
         contributorRule: { policy: 'ALL_MATCHES' }, emptyPolicy: 'PRESERVE_PARENT', relatedRecordColumnId: 'observation-id',
       } }, outputs: [{ id: 'observation-id', name: 'observation_id', label: 'Observation ID', type: 'string' }],
     }] } } };
-    render(<AuthoredTraversalEditor {...callbacks()} catalog={catalog} table={expanded} projectionKind="saved" selectedOccurrenceId="root" disabled={false} />);
-    const stages = screen.getByRole('list', { name: 'Traversal row stages' });
-    expect(stages).toHaveTextContent('Authored stage traversal: Patient <-[subject]- Observation');
-    expect(stages).toHaveTextContent('Input: Source · anchor: subject-id');
-    expect(stages).toHaveTextContent('Existing list columns retain their identities and list policies');
-    expect(stages).toHaveTextContent('Missing or empty policy: PRESERVE_PARENT');
+    const actions = callbacks();
+    render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={expanded} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(expanded,actions)} /></>);
+    fireEvent.click(screen.getByText('Resulting table · all 1 operations in execution order'));
+    const stages = screen.getByRole('list', { name: 'Ordered resulting-table operations' });
+    expect(stages).toHaveTextContent('Input: Source projection.');
+    fireEvent.click(within(stages).getByRole('button'));
+    expect(actions.onInspectOperation).toHaveBeenCalledExactlyOnceWith('pairs');
     expect(authoredTraversal(expanded, catalog)).toHaveLength(3);
-    expect(authoredStages(expanded)[0]).toMatchObject({ id: 'pairs', edgeIds: ['patient-observation'], anchorColumnId: 'subject-id' });
+    expect(authoredStages(expanded)[0]).toMatchObject({ id: 'pairs', edgeIds: ['patient-observation'], anchorColumnId: 'subject-id',
+      traversal: 'Patient <-[subject]- Observation', input: 'Source', listPreservation: true, missingPolicy: 'PRESERVE_PARENT' });
+    expect(expanded.document.construction!.steps[0].operation).toEqual(expect.objectContaining({relatedExpand:expect.objectContaining({anchorColumnId:'subject-id',emptyPolicy:'PRESERVE_PARENT'})}));
+    expect(actions.onChangeMatchMode).not.toHaveBeenCalled();
+    expect(actions.onInspectValues).not.toHaveBeenCalled();
   });
   it('represents a 100-operation history in original order inside bounded navigation', () => {
     const history: DraftTable = { ...table, document: { ...table.document, construction: { version: 1, steps: Array.from({ length: 100 }, (_, index) => ({
       id: `filter-${index}`, inputs: index ? [{ kind: 'STEP_OUTPUT' as const, stepId: `filter-${index - 1}` }] : [{ kind: 'SOURCE_PROJECTION' as const }],
       operation: { kind: 'FILTER' as const, filter: { columnId: 'subject-id', operator: 'EXISTS' as const } }, outputs: [],
     })) } } };
-    render(<AuthoredTraversalEditor {...callbacks()} catalog={catalog} table={history} projectionKind="saved" selectedOccurrenceId="root" disabled={false} />);
-    const list = screen.getByRole('list', { name: 'Traversal row stages' });
-    expect(list.className).toContain('max-h-36');
+    const before=structuredClone(history.document);
+    const actions=callbacks();
+    render(<><AuthoredTraversalEditor {...actions} catalog={catalog} table={history} projectionKind="saved" selectedOccurrenceId="root" disabled={false} /><TraversalScopeNavigator {...navigatorProps(history,actions)} /></>);
+    fireEvent.click(screen.getByText('Resulting table · all 100 operations in execution order'));
+    const list = screen.getByRole('list', { name: 'Ordered resulting-table operations' });
+    expect(list.className).toContain('max-h-56');
     expect([...list.querySelectorAll('[data-operation-id]')].map((item) => item.getAttribute('data-operation-id'))).toEqual(Array.from({ length: 100 }, (_, index) => `filter-${index}`));
+    const final=within(list).getAllByRole('button')[99]!;
+    fireEvent.click(final);
+    expect(actions.onInspectOperation).toHaveBeenCalledExactlyOnceWith('filter-99');
+    expect(history.document).toEqual(before);
+    expect(authoredStages(history).map(step=>step.id)).toEqual(before.construction!.steps.map(step=>step.id));
   });
 
 });
 
-it('retains a stable focus identity for a source policy control across proposal remounts', () => {
-  const imported: DraftTable = { ...table, document: { ...table.document,
-    importedRecipe: { name: 'default', translationVersion: '1', digest: 'a'.repeat(64), output: 'subjects' },
-    columns: [{ columnId: 'patient_names', column: 'names', label: 'Patient names', occurrenceId: 'subjectPatient', source: { kind: 'imported', imported: { outputColumn: 'names' } } }],
-  } };
-  const network: import('../../../types').AuthoringNetworkResponse['network'] = { owner: 'IMPORTED_SOURCE', outputId: 'subjects', sourceRows: imported.document.rows,
-    occurrences: [], operations: [], bindings: [{ columnId: 'patient_names', occurrenceId: 'subjectPatient', sourceStepId: 'patient_fields', valueMode: 'ALL', status: 'EXACT' }] };
-  const onEditSourceStep = vi.fn();
-  const props = { ...callbacks(), table: imported, catalog, disabled: false, projectionKind: 'saved' as const, selectedOccurrenceId: 'subjectPatient', network, onEditSourceStep };
-  const { rerender } = render(<AuthoredTraversalEditor {...props} />);
-  const original = screen.getByTestId('shared-source-policy-patient_names');
-  fireEvent.click(original); expect(onEditSourceStep).toHaveBeenCalledWith('patient_fields');
-  rerender(<AuthoredTraversalEditor {...props} showInspector={false} />);
-  expect(original.isConnected).toBe(false);
-  rerender(<AuthoredTraversalEditor {...props} />);
-  expect(screen.getByTestId('shared-source-policy-patient_names')).not.toBe(original);
+it('keeps exact source policy editing in the traversal navigator across proposed state without duplicating graph actions', () => {
+  const imported: DraftTable = {...table,document:{...table.document,
+    importedRecipe:{name:'default',translationVersion:'1',digest:'a'.repeat(64),output:'subjects'},
+    importedSource:{steps:[
+      {id:'patient_traversal',kind:'TRAVERSAL',occurrenceId:'subjectPatient',title:'Related Patient',summary:'Subject Patient',enabled:true,editable:true},
+      {id:'patient_fields',parentId:'patient_traversal',kind:'CATALOG_PROJECTION',title:'Patient fields',summary:'Patient names',enabled:true,editable:true,valueMode:'ALL'},
+    ]},columns:[{columnId:'patient_names',column:'names',label:'Patient names',occurrenceId:'subjectPatient',source:{kind:'imported',imported:{outputColumn:'names'}}}],
+  }};
+  const network: import('../../../types').AuthoringNetworkResponse['network']={owner:'IMPORTED_SOURCE',outputId:'subjects',sourceRows:imported.document.rows,
+    occurrences:[],operations:[],bindings:[{columnId:'patient_names',occurrenceId:'subjectPatient',sourceStepId:'patient_fields',valueMode:'ALL',status:'EXACT'}]};
+  const values={...navigatorProps(imported),selectedOccurrenceId:'subjectPatient',network};
+  const graph={...callbacks(),table:imported,catalog,disabled:false,projectionKind:'saved' as const,selectedOccurrenceId:'subjectPatient',network};
+  const view=render(<><AuthoredTraversalEditor {...graph}/><TraversalScopeNavigator {...values}/></>);
+  const sourceList=screen.getByRole('list',{name:'Source operations in selected scope'});
+  const exact=within(sourceList).getByRole('button',{name:'Edit source operation 2: Patient fields'});
+  fireEvent.click(exact);expect(values.onEditSourceStep).toHaveBeenCalledExactlyOnceWith('patient_fields');
+  expect(exact.closest('[data-operation-id]')).toHaveAttribute('data-operation-id','patient_fields');
+  expect(exact.closest('li')).toHaveTextContent('all values as a list');
+  expect(within(screen.getByTestId('authored-traversal-editor')).queryByLabelText('Shared source policies')).toBeNull();
+  const before=structuredClone(imported.document);
+  view.rerender(<><AuthoredTraversalEditor {...graph} projectionKind="proposed"/><TraversalScopeNavigator {...values} projectionKind="proposed"/></>);
+  expect(within(screen.getByRole('list',{name:'Source operations in selected scope'})).getByRole('button',{name:'Edit source operation 2: Patient fields'})).toBe(exact);
+  expect(exact).toBeDisabled();expect(imported.document).toEqual(before);
+});
+
+it('selects the exact authored relationship with Enter and Space without mutating the recipe', () => {
+  const actions=callbacks();const before=structuredClone(table.document);
+  render(<AuthoredTraversalEditor {...actions} table={table} catalog={catalog} disabled={false} projectionKind="saved" selectedOccurrenceId="root"/>);
+  const edge=screen.getByTestId('authored:investigatorPatient');
+  fireEvent.keyDown(edge,{key:'Enter'});fireEvent.keyDown(edge,{key:' '});
+  expect(actions.onSelectOccurrence.mock.calls).toEqual([['investigatorPatient'],['investigatorPatient']]);
+  fireEvent.keyDown(edge,{key:'Escape'});expect(actions.onSelectOccurrence).toHaveBeenCalledTimes(2);
+  expect(actions.onChangeMatchMode).not.toHaveBeenCalled();expect(actions.onTruncate).not.toHaveBeenCalled();
+  expect(actions.onInspectValues).not.toHaveBeenCalled();expect(table.document).toEqual(before);
 });
 
 it('portals selected facts into the shared inspection host and preserves catalog exclusion', () => {

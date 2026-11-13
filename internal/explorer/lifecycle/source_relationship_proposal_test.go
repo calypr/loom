@@ -57,7 +57,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	store := &fakeStore{created: &explorer.Explorer{Project: "project-a", ExplorerID: "patients", DraftConfig: raw, DraftVersion: 1, DraftDigest: digest}, copyGet: true}
 	config.EditImportedRelationship = func(_ context.Context, _ string, _ AuthorizedCapability, d authoringv2.Document, _ authoringv2.ImportedRelationshipChange) (authoringv2.Document, error) {
 		plan := recipeimport.SourcePlan(output)
-		plan.Steps[0].Enabled = false
+		setLifecycleSourceStepEnabled(t, &plan, "fields", false)
 		d.ImportedSource = &plan
 		return d, nil
 	}
@@ -100,7 +100,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if proposal.ProposalID == "" || proposal.SampledRows != 3 || proposal.Sampled || previewCalls != 1 {
 		t.Fatalf("proposal did not execute its candidate preview: %#v", proposal)
 	}
-	if proposal.CandidateDocument.Output.ID != request.OutputID || proposal.CandidateDocument.ImportedSource == nil || proposal.CandidateDocument.ImportedSource.Steps[0].Enabled || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateRowIdentity.OutputID != request.OutputID {
+	if proposal.CandidateDocument.Output.ID != request.OutputID || proposal.CandidateDocument.ImportedSource == nil || lifecycleSourceStepEnabled(t, proposal.CandidateDocument.ImportedSource, "fields") || proposal.CandidateNetwork.OutputID != request.OutputID || proposal.CandidateRowIdentity.OutputID != request.OutputID {
 		t.Fatalf("candidate projection lost the proposed source edit: %#v", proposal)
 	}
 	if *proposal.CandidateDocument.ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
@@ -183,7 +183,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.Workspace == nil || reloaded.Workspace.Documents[0].ImportedSource.Steps[0].Enabled {
+	if reloaded.Workspace == nil || lifecycleSourceStepEnabled(t, reloaded.Workspace.Documents[0].ImportedSource, "fields") {
 		t.Fatal("fresh reload lost project-local source change")
 	}
 	store.receipt = candidateReceipt
@@ -201,7 +201,7 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 			t.Fatal("bounded source-step intent was lost")
 		}
 		plan := recipeimport.SourcePlan(output)
-		plan.Steps[0].Enabled = change.Enabled
+		setLifecycleSourceStepEnabled(t, &plan, "fields", change.Enabled)
 		document.ImportedSource = &plan
 		return document, nil
 	}
@@ -225,8 +225,31 @@ func runSourceRelationshipProposalLifecycle(t *testing.T, afterRemoval bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restored.DraftVersion != 3 || store.saveDraftCalls != 2 || !restored.Workspace.Documents[0].ImportedSource.Steps[0].Enabled || *restored.Workspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
+	if restored.DraftVersion != 3 || store.saveDraftCalls != 2 || !lifecycleSourceStepEnabled(t, restored.Workspace.Documents[0].ImportedSource, "fields") || *restored.Workspace.Documents[0].ImportedRecipe != *workspace.Documents[0].ImportedRecipe {
 		t.Fatal("bounded source-step restore lost pin, settings, or revision")
 	}
 
+}
+
+func setLifecycleSourceStepEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string, enabled bool) {
+	t.Helper()
+	for i := range plan.Steps {
+		if plan.Steps[i].ID == id {
+			plan.Steps[i].Enabled = enabled
+			return
+		}
+	}
+	t.Fatalf("missing source step %s", id)
+}
+func lifecycleSourceStepEnabled(t *testing.T, plan *authoringv2.ImportedSourcePlan, id string) bool {
+	t.Helper()
+	if plan != nil {
+		for _, step := range plan.Steps {
+			if step.ID == id {
+				return step.Enabled
+			}
+		}
+	}
+	t.Fatalf("missing source step %s", id)
+	return false
 }

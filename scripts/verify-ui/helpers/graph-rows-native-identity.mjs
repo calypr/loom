@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import {traversalVerificationFiles} from './traversal-first-contract.mjs';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { collectBuildIdentity, resolveOwnedApiContainer } from '../../loom-dev.mjs';
@@ -8,14 +9,20 @@ import { collectBuildIdentity, resolveOwnedApiContainer } from '../../loom-dev.m
 export function graphRowsNativeIdentity(target) {
   const files = {};
   const visit = relative => {
+    assert(!lstatSync(join(target.sourceRoot, relative)).isSymbolicLink(), `Source directory cannot be a symlink: ${relative}`);
     for (const entry of readdirSync(join(target.sourceRoot, relative), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const path = `${relative}/${entry.name}`;
+      assert(!entry.isSymbolicLink(), `Source entry cannot be a symlink: ${path}`);
       if (entry.isDirectory()) visit(path);
       else if (entry.isFile()) files[path] = createHash('sha256').update(readFileSync(join(target.sourceRoot, path))).digest('hex');
     }
   };
   for (const path of ['internal', 'generated', 'schemas', 'openapi', 'ui/packages/loom-ui/src', 'ui/apps/demo/src', 'testdata/graph-rows']) visit(path);
   for (const path of ['go.mod', 'go.sum', 'scripts/loom-dev.mjs', 'scripts/package.json', 'scripts/package-lock.json', 'scripts/run-graph-rows-native.mjs', 'scripts/prepare-graph-rows-history.mjs', 'scripts/revalidate-graph-rows-history.mjs', 'scripts/verify-ui/helpers/graph-rows-history-fixture.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-history-fixture.test.mjs', 'scripts/verify-ui/registry.mjs', 'scripts/graph-rows.playwright.config.mjs', 'scripts/verify-ui/specs/graph-rows.spec.mjs', 'scripts/verify-ui/helpers/graph-rows-fixture-oracle.mjs', 'scripts/verify-ui/helpers/graph-rows-complementary-oracle.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-complementary-oracle.test.mjs', 'scripts/verify-ui/helpers/graph-rows-native-identity.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-native-identity.test.mjs', 'scripts/verify-ui/workflows/graph-rows-related-rows.mjs', 'scripts/verify-ui/workflows/graph-rows-complementary.mjs', 'scripts/verify-ui/workflows/graph-rows-mixed.mjs', 'scripts/verify-ui/workflows/graph-rows-ordinary-policy.mjs', 'scripts/verify-ui/workflows/graph-rows-root-proposal.mjs', 'scripts/verify-ui/workflows/graph-rows-upstream-dependency.mjs', 'scripts/verify-ui/workflows/graph-rows-history-stress.mjs', 'scripts/verify-ui/helpers/tests/graph-rows-history-stress.test.mjs']) {
+    files[path] = createHash('sha256').update(readFileSync(join(target.sourceRoot, path))).digest('hex');
+  }
+  visit('testdata/traversal-first');
+  for (const path of ['scripts/run-traversal-first-native.mjs', 'scripts/prepare-traversal-first-targets.mjs', ...traversalVerificationFiles(target.sourceRoot)]) {
     files[path] = createHash('sha256').update(readFileSync(join(target.sourceRoot, path))).digest('hex');
   }
   const api = collectBuildIdentity(target, { repoRoot: target.sourceRoot });

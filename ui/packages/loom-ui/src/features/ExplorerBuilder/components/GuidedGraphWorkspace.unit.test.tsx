@@ -199,6 +199,14 @@ describe('GuidedGraphWorkspace', () => {
     expect(ordinary.onAppendEdge).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Selected relationship inspector')).toHaveTextContent('Multiplicity: unknown');
     expect(screen.getByText('One row per document.')).toBeInTheDocument();
+    view.rerender(<GuidedGraphWorkspace {...props} presentation="compact" showSelectionDetails={false} rowMeaning="One row per document." rowControl={<button>Duplicate row settings</button>} importedRelationshipActions={native} />);
+    expect(screen.queryByLabelText('Selected relationship inspector')).toBeNull();
+    expect(screen.queryByText('One row per document.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Duplicate row settings' })).toBeNull();
+    expect(screen.getByRole('navigation', { name: 'Current traversal' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Require File match' }));
+    expect(native.onChangeMatchMode).toHaveBeenLastCalledWith('file', 'REQUIRED');
+
   });
 
   it('summarizes multiple relationships between the same resource pair', () => {

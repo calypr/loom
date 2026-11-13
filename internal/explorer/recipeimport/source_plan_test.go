@@ -59,12 +59,12 @@ func TestSourcePlanDescribesNativeOutputStagesWithStableOwnerPaths(t *testing.T)
 	}
 	groupPlan := SourcePlan(groupMember)
 	expansion, ok := sourcePlanStep(groupPlan, "expand")
-	if !ok || expansion.Kind != SourcePlanExpansion || expansion.Editable || !expansion.Enabled {
-		t.Fatalf("expansion step must be enabled and read-only: %#v, found=%t", expansion, ok)
+	if !ok || expansion.Kind != SourcePlanExpansion || !expansion.Editable || !expansion.Enabled {
+		t.Fatalf("expansion step must expose editable source settings: %#v, found=%t", expansion, ok)
 	}
 	identity, ok := sourcePlanStep(groupPlan, "identity")
-	if !ok || identity.Kind != SourcePlanIdentity || identity.Editable || !identity.Enabled {
-		t.Fatalf("identity step must be enabled and read-only: %#v, found=%t", identity, ok)
+	if !ok || identity.Kind != SourcePlanIdentity || !identity.Editable || !identity.Enabled {
+		t.Fatalf("identity step must expose editable source settings: %#v, found=%t", identity, ok)
 	}
 }
 

@@ -3,6 +3,7 @@ package recipeimport
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -20,25 +21,29 @@ const (
 	SourcePlanIdentity          = "IDENTITY"
 )
 
-// SourcePlan describes the source operations in one recipe output without
-// sending executable expressions to the Builder client. IDs use original
+// SourcePlan exposes typed, bounded settings of the existing recipe operations
+// for structured editing, including their recipe expressions. IDs use original
 // recipe paths, so disabling a traversal does not renumber its saved children.
 func SourcePlan(output recipe.Output) authoringv2.ImportedSourcePlan {
-	plan := authoringv2.ImportedSourcePlan{Steps: make([]authoringv2.ImportedSourceStep, 0)}
+	plan := authoringv2.ImportedSourcePlan{Steps: []authoringv2.ImportedSourceStep{{ID: "output", Kind: "OUTPUT", Title: "Output settings", Summary: "Row grain and output column collision policy.", Enabled: true, Editable: true}}}
 	if output.Expand != nil {
 		plan.Steps = append(plan.Steps, authoringv2.ImportedSourceStep{
 			ID: "expand", Kind: SourcePlanExpansion, Title: "Expand source rows",
-			Summary: expansionSummary(*output.Expand), Enabled: true,
+			Summary: expansionSummary(*output.Expand), Enabled: true, Editable: true,
 		})
 	}
 	if output.Identity != nil {
 		plan.Steps = append(plan.Steps, authoringv2.ImportedSourceStep{
 			ID: "identity", Kind: SourcePlanIdentity, Title: "Source row identity",
-			Summary: "The pinned recipe defines how source rows receive stable identities.", Enabled: true,
+			Summary: "The pinned recipe defines how source rows receive stable identities.", Enabled: true, Editable: output.Identity.Expansion == nil,
 		})
 	}
 	appendSourceScope(&plan.Steps, "", output.RootResourceType, output.Fields, output.CatalogProjections,
 		output.DynamicColumns, output.ExtensionColumns, output.Pivots, output.Traversals)
+	parameters := sourceParameters(output)
+	for i := range plan.Steps {
+		plan.Steps[i].Parameters = parameters[plan.Steps[i].ID]
+	}
 	return plan
 }
 
@@ -209,6 +214,11 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 		return recipe.Output{}, fmt.Errorf("validate imported source plan: %w", err)
 	}
 	expected := SourcePlan(output)
+	if len(plan.Steps) == len(expected.Steps)-1 && (len(plan.Steps) == 0 || plan.Steps[0].ID != "output") {
+		copyPlan := *plan
+		copyPlan.Steps = append([]authoringv2.ImportedSourceStep{expected.Steps[0]}, plan.Steps...)
+		plan = &copyPlan
+	}
 	if len(plan.Steps) != len(expected.Steps) {
 		return recipe.Output{}, fmt.Errorf("imported source plan does not match the pinned source step set")
 	}
@@ -216,7 +226,7 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 	for index, step := range plan.Steps {
 		base := expected.Steps[index]
 		if step.ID != base.ID || step.ParentID != base.ParentID || step.Kind != base.Kind ||
-			step.Title != base.Title || step.Summary != base.Summary || step.Editable != base.Editable ||
+			step.Title != base.Title || step.Summary != base.Summary || (step.Editable != base.Editable && !(base.Editable && (step.Kind == SourcePlanExpansion || step.Kind == SourcePlanIdentity))) ||
 			(step.SourceKey != "" && step.SourceKey != base.SourceKey) || (step.OccurrenceID != "" && step.OccurrenceID != base.OccurrenceID) || (step.MatchMode != "" && step.MatchMode != base.MatchMode) {
 			return recipe.Output{}, fmt.Errorf("imported source plan step %d does not match the pinned source", index)
 		}
@@ -229,6 +239,14 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 		if err := validateValueModeOverride(step, base); err != nil {
 			return recipe.Output{}, err
 		}
+		if step.Parameters != nil && !reflect.DeepEqual(step.Parameters, base.Parameters) {
+			if err := step.Parameters.Validate(""); err != nil {
+				return recipe.Output{}, fmt.Errorf("source step %q: %w", step.ID, err)
+			}
+		}
+		if (step.Kind == "OUTPUT" || step.Kind == SourcePlanExpansion || step.Kind == SourcePlanIdentity) && !step.Enabled {
+			return recipe.Output{}, fmt.Errorf("source step %q cannot be disabled; edit its explicit row settings instead", step.ID)
+		}
 		steps[step.ID] = step
 	}
 
@@ -237,6 +255,12 @@ func ApplySourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePlan)
 		return recipe.Output{}, err
 	}
 	cloned = freezeOccurrences(cloned)
+	if err := applyFieldBindings(&cloned, plan.FieldBindings); err != nil {
+		return recipe.Output{}, err
+	}
+	if err := applyParameterOverrides(&cloned, steps); err != nil {
+		return recipe.Output{}, err
+	}
 	if len(output.Fields) > 0 && !steps["fields"].Enabled {
 		cloned.Fields = nil
 	}
@@ -409,11 +433,20 @@ func HydrateSourcePlan(output recipe.Output, plan *authoringv2.ImportedSourcePla
 	if err := json.Unmarshal(raw, &cloned); err != nil {
 		return authoringv2.ImportedSourcePlan{}, err
 	}
-	for i, step := range cloned.Steps {
-		pristine.Steps[i].Enabled = step.Enabled
-		pristine.Steps[i].MaxColumns = step.MaxColumns
-		pristine.Steps[i].ValueMode = step.ValueMode
+	for _, step := range cloned.Steps {
+		for i := range pristine.Steps {
+			if pristine.Steps[i].ID != step.ID {
+				continue
+			}
+			pristine.Steps[i].Enabled = step.Enabled
+			pristine.Steps[i].MaxColumns = step.MaxColumns
+			pristine.Steps[i].ValueMode = step.ValueMode
+			if step.Parameters != nil {
+				pristine.Steps[i].Parameters = step.Parameters
+			}
+		}
 	}
+	pristine.FieldBindings = cloned.FieldBindings
 	pristine.Relationships = cloned.Relationships
 	return pristine, nil
 }

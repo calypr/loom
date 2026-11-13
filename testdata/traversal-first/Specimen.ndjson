@@ -1,0 +1,1 @@
+{"resourceType":"Specimen","id":"specimen-one","status":"available","subject":{"reference":"Patient/p-one"},"identifier":[{"system":"https://example.invalid/id/specimen_id","value":"SPEC_ID_ONE"}],"extension":[{"url":"https://example.invalid/ext/specimen_note","valueString":"SPEC_EXT_ONE"}]}

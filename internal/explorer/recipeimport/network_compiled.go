@@ -95,7 +95,7 @@ func BindCompiledNetwork(network authoringv2.AuthoringNetwork, columns []lower.C
 			if origin.SourceKey != "" {
 				matching := eligible[:0]
 				for _, step := range eligible {
-					if step.SourceKey == origin.SourceKey {
+					if effectiveSourceKey(step) == origin.SourceKey {
 						matching = append(matching, step)
 					}
 				}
@@ -168,3 +168,23 @@ func authoringValueMode(mode string) string {
 		return strings.ToUpper(mode)
 	}
 }
+
+func effectiveSourceKey(step authoringv2.ImportedSourceStep) string {
+	if p := step.Parameters; p != nil {
+		switch {
+		case p.Catalog != nil:
+			return p.Catalog.Name
+		case p.Dynamic != nil:
+			return p.Dynamic.Name
+		case p.Extension != nil:
+			return p.Extension.Name
+		case p.Pivot != nil:
+			return p.Pivot.Name
+		}
+	}
+	return step.SourceKey
+}
+
+// SourceOriginScope exposes the existing structural compiler-path adapter to
+// imported-column identity verification; it never interprets display labels.
+func SourceOriginScope(path string) (string, string) { return sourceOriginScope(path) }

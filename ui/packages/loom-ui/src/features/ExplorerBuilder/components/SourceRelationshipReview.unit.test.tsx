@@ -116,3 +116,24 @@ it('reports unavailable source rows to the shared owner without accepting its ca
  expect(failed).toHaveBeenCalledOnce(); expect(ready).not.toHaveBeenCalled();
  expect(screen.getByRole('button',{name:'Apply relationship'})).toBeDisabled();
 });
+
+it('previews a coupled source edit as one atomic request and applies only its receipt', async () => {
+ const sourceSteps = [
+  {stepId:'members',enabled:true,parameters:{expansion:{from:{select:'root.member[]'},as:'member'}}},
+  {stepId:'identity',enabled:true,parameters:{identity:{name:'member_id',expr:{select:'member.reference'}}}},
+ ];
+ const proposeSourceRelationship=vi.fn().mockResolvedValue(proposal), onApply=vi.fn().mockResolvedValue(true);
+ render(<SourceRelationshipReview client={{proposeSourceRelationship,preview:vi.fn().mockResolvedValue(rows)} as unknown as LoomClient}
+  project="qa" explorerId="editor" snapshotToken="s1" draftVersion={2} draftDigest="d2" outputId="subjects" disabled={false}
+  sourceSteps={sourceSteps} onApply={onApply} onCancel={vi.fn()} />);
+ expect(screen.getByRole('button',{name:'Apply source step'})).toBeDisabled();
+ fireEvent.click(screen.getByRole('button',{name:'Preview source step'}));
+ await screen.findByText('Candidate values');
+ expect(proposeSourceRelationship).toHaveBeenCalledTimes(1);
+ const request=proposeSourceRelationship.mock.calls[0][0];
+ expect(request.sourceSteps).toEqual(sourceSteps);
+ expect(request).not.toHaveProperty('sourceStep');expect(request).not.toHaveProperty('change');
+ expect(onApply).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Apply source step'}));
+ await waitFor(()=>expect(onApply).toHaveBeenCalledWith([{type:'APPLY_IMPORTED_RELATIONSHIP_PROPOSAL',outputId:'subjects',proposalId:'p1'}]));
+});

@@ -2856,6 +2856,16 @@ components:
       additionalProperties: false
       required: [steps]
       properties:
+        fieldBindings:
+          type: array
+          readOnly: true
+          items:
+            type: object
+            additionalProperties: false
+            required: [fieldId, columnId]
+            properties:
+              fieldId: {type: string, minLength: 1}
+              columnId: {type: string, minLength: 1}
         relationships: {$ref: '#/components/schemas/ImportedRelationshipOverlay'}
         steps:
           type: array
@@ -3043,6 +3053,7 @@ components:
         editable: {type: boolean}
         maxColumns: {type: integer, minimum: 1}
         valueMode: {type: string, minLength: 1}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     ImportedSource:
       type: object
       additionalProperties: false
@@ -3502,6 +3513,7 @@ components:
       oneOf:
         - required: [change]
         - required: [sourceStep]
+        - required: [sourceSteps]
       properties:
         snapshotToken: {type: string, minLength: 1}
         expectedDraftVersion: {type: integer, format: int64, minimum: 1}
@@ -3509,6 +3521,11 @@ components:
         outputId: {type: string, minLength: 1}
         change: {$ref: '#/components/schemas/SourceRelationshipChange'}
         sourceStep: {$ref: '#/components/schemas/ImportedSourceStepChange'}
+        sourceSteps:
+          type: array
+          minItems: 1
+          maxItems: 128
+          items: {$ref: '#/components/schemas/ImportedSourceStepChange'}
         limit: {type: integer, minimum: 1, maximum: 1000}
     SourceRelationshipProposal:
       type: object
@@ -3549,6 +3566,360 @@ components:
         limit: {type: integer, minimum: 1, maximum: 1000}
     ColumnPolicyProposal:
       $ref: '#/components/schemas/SourceRelationshipProposal'
+    SourceRecipeExpression:
+      type: object
+      additionalProperties: false
+      properties:
+        select:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        literal: {}
+        call:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        args:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        document:
+          type: object
+          additionalProperties: false
+          properties:
+            context:
+              type: string
+              maxLength: 2048
+      oneOf:
+      - required:
+        - select
+      - required:
+        - literal
+      - required:
+        - call
+      - required:
+        - document
+      x-go-type: recipe.Expression
+      x-go-type-import:
+        name: recipe
+        path: github.com/calypr/loom/internal/dataframe/recipe
+      description: Existing recipe expression wire format. Read descriptors preserve pinned functions. Source edits admit
+        only select, primitive literal, and first/all/reference_id/last_segment/coalesce/coalesce_string/join/concat/uuid5;
+        document references are not editable.
+    ImportedSourceFieldParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - fieldId
+      - enabled
+      - name
+      - expr
+      properties:
+        fieldId:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        enabled:
+          type: boolean
+        name:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        label:
+          type: string
+          maxLength: 2048
+        expr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        fallbacks:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        valueMode:
+          type: string
+          enum:
+          - ''
+          - AUTO
+          - FIRST
+          - ALL
+          - DISTINCT
+      x-go-type: authoringv2.ImportedFieldParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedOutputParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - rowGrain
+      properties:
+        rowGrain:
+          type: string
+          maxLength: 2048
+          minLength: 1
+        collisionPolicy:
+          type: string
+          enum:
+          - ''
+          - error
+          - overwrite
+          - coalesce
+      x-go-type: authoringv2.ImportedOutputParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedFieldGroupParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - fields
+      properties:
+        fields:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/ImportedSourceFieldParameters'
+      x-go-type: authoringv2.ImportedFieldGroupParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedCatalogParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        includePaths:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        excludePaths:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        kinds:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        naming:
+          type: string
+          enum:
+          - ''
+          - PATH
+          - PATH_SUFFIX
+      x-go-type: authoringv2.ImportedCatalogParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedDynamicParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - source
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        columnPrefix:
+          type: string
+          maxLength: 2048
+        source:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        key:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        value:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedDynamicParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedExtensionParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - source
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        columnPrefix:
+          type: string
+          maxLength: 2048
+        source:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedExtensionParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedPivotParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        discovery:
+          type: object
+          additionalProperties: false
+          properties:
+            family:
+              type: string
+              maxLength: 2048
+            path:
+              type: string
+              maxLength: 2048
+        columnExpr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        valueExpr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        valueFallbacks:
+          type: array
+          maxItems: 4096
+          items:
+            $ref: '#/components/schemas/SourceRecipeExpression'
+        itemSource:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        itemResourceType:
+          type: string
+          maxLength: 2048
+        columns:
+          type: array
+          maxItems: 4096
+          items:
+            type: string
+            maxLength: 2048
+        columnAliases:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 2048
+      x-go-type: authoringv2.ImportedPivotParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedExpansionParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - as
+      properties:
+        from:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+        as:
+          type: string
+          maxLength: 2048
+        ordinality:
+          type: string
+          maxLength: 2048
+        emptyPolicy:
+          type: string
+          enum:
+          - ''
+          - ERROR
+          - EXCLUDE
+          - PRESERVE_PARENT
+      x-go-type: authoringv2.ImportedExpansionParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedIdentityParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - expr
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        expr:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedIdentityParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedTraversalParameters:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - toResourceType
+      properties:
+        name:
+          type: string
+          maxLength: 2048
+        toResourceType:
+          type: string
+          maxLength: 2048
+        alias:
+          type: string
+          maxLength: 2048
+        from:
+          $ref: '#/components/schemas/SourceRecipeExpression'
+      x-go-type: authoringv2.ImportedTraversalParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
+    ImportedSourceParameters:
+      type: object
+      additionalProperties: false
+      properties:
+        output:
+          $ref: '#/components/schemas/ImportedOutputParameters'
+        fieldGroup:
+          $ref: '#/components/schemas/ImportedFieldGroupParameters'
+        catalog:
+          $ref: '#/components/schemas/ImportedCatalogParameters'
+        dynamic:
+          $ref: '#/components/schemas/ImportedDynamicParameters'
+        extension:
+          $ref: '#/components/schemas/ImportedExtensionParameters'
+        pivot:
+          $ref: '#/components/schemas/ImportedPivotParameters'
+        expansion:
+          $ref: '#/components/schemas/ImportedExpansionParameters'
+        identity:
+          $ref: '#/components/schemas/ImportedIdentityParameters'
+        traversal:
+          $ref: '#/components/schemas/ImportedTraversalParameters'
+      oneOf:
+      - required:
+        - output
+      - required:
+        - fieldGroup
+      - required:
+        - catalog
+      - required:
+        - dynamic
+      - required:
+        - extension
+      - required:
+        - pivot
+      - required:
+        - expansion
+      - required:
+        - identity
+      - required:
+        - traversal
+      x-go-type: authoringv2.ImportedSourceParameters
+      x-go-type-import:
+        name: authoringv2
+        path: github.com/calypr/loom/internal/explorer/authoringv2
     ImportedSourceStepChange:
       type: object
       x-go-type: authoringv2.ImportedSourceStepChange
@@ -3562,6 +3933,7 @@ components:
         enabled: {type: boolean}
         maxColumns: {type: integer, minimum: 1}
         valueMode: {type: string, minLength: 1}
+        parameters: {$ref: '#/components/schemas/ImportedSourceParameters'}
     ConstructionChoiceSelection:
       type: object
       additionalProperties: false

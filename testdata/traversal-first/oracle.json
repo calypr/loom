@@ -1,0 +1,589 @@
+{
+  "schemaVersion": 1,
+  "provenance": "Hand-specified synthetic expected values from explicit fixture records and checked-in recipe semantics, never Loom compilation or preview output. Public column mappings are actual typed metadata; they cannot supply expected values.",
+  "recordCounts": {
+    "Observation": 3,
+    "ResearchStudy": 2,
+    "Condition": 3,
+    "Group": 2,
+    "DocumentReference": 2,
+    "Patient": 4,
+    "Specimen": 1,
+    "MedicationAdministration": 1,
+    "ResearchSubject": 4
+  },
+  "defaultOutputs": {
+    "DocumentReference": [
+      {
+        "id": "document-one",
+        "identifier": "DOC_ID_ONE",
+        "status": "current",
+        "subject": "specimen-one",
+        "based_on": null,
+        "contentType": "text/plain",
+        "url": "https://example.invalid/fixture/document-one.txt",
+        "size": null,
+        "hash": null,
+        "title": "Fixture document",
+        "specimen__patient__patient_id": "p-one",
+        "observation__observation_code": "Synthetic fixture score"
+      },
+      {
+        "id": "document-study",
+        "identifier": null,
+        "status": "current",
+        "subject": "study-one",
+        "based_on": null,
+        "contentType": "text/plain",
+        "url": "https://example.invalid/fixture/document-study.txt",
+        "size": null,
+        "hash": null,
+        "title": "Fixture study document",
+        "specimen__patient__patient_id": null,
+        "observation__observation_code": null
+      }
+    ],
+    "ResearchSubject": [
+      {
+        "id": "rs-zero",
+        "identifier": null,
+        "status": "active",
+        "patient__patient_id": "p-zero",
+        "patient__patient_identifier": null,
+        "patient__observation__observation_id": null,
+        "patient__condition__condition_id": null
+      },
+      {
+        "id": "rs-one",
+        "identifier": "one-A",
+        "status": "active",
+        "patient__patient_id": "p-one",
+        "patient__patient_identifier": "PAT_ID_ONE",
+        "patient__observation__observation_id": "obs-one",
+        "patient__condition__condition_id": null
+      },
+      {
+        "id": "rs-many",
+        "identifier": "many-A",
+        "status": "active",
+        "patient__patient_id": "p-many",
+        "patient__patient_identifier": null,
+        "patient__observation__observation_id": "obs-many-A",
+        "patient__condition__condition_id": "condition-A"
+      },
+      {
+        "id": "rs-shared",
+        "identifier": "shared-A",
+        "status": "completed",
+        "patient__patient_id": "p-many",
+        "patient__patient_identifier": null,
+        "patient__observation__observation_id": "obs-many-A",
+        "patient__condition__condition_id": "condition-A"
+      }
+    ],
+    "MedicationAdministration": [
+      {
+        "id": "medication-one",
+        "status": "completed",
+        "total_dosage": 5,
+        "patient__patient_id": "p-one",
+        "patient__patient_identifier": "PAT_ID_ONE"
+      }
+    ],
+    "Specimen": [
+      {
+        "id": "specimen-one",
+        "identifier": "SPEC_ID_ONE",
+        "parent": "",
+        "patient__patient_id": "p-one",
+        "patient__patient_identifier": "PAT_ID_ONE",
+        "observation__observation_code": "Synthetic fixture score"
+      }
+    ],
+    "GroupMember": [
+      {
+        "group_id": "group-one",
+        "member_id": "p-one"
+      },
+      {
+        "group_id": "group-one",
+        "member_id": "p-many"
+      }
+    ]
+  },
+  "sourceDefinitionFieldCount": 32,
+  "catalogObservationAll": [
+    {
+      "id": "rs-zero",
+      "values": []
+    },
+    {
+      "id": "rs-one",
+      "values": [
+        7
+      ]
+    },
+    {
+      "id": "rs-many",
+      "values": [
+        11,
+        13
+      ]
+    },
+    {
+      "id": "rs-shared",
+      "values": [
+        11,
+        13
+      ]
+    }
+  ],
+  "auditedPivotColumn": "patient__observation__observation_values__audited_score",
+  "auditedPivotValues": [
+    {
+      "id": "rs-zero",
+      "value": null
+    },
+    {
+      "id": "rs-one",
+      "value": 7
+    },
+    {
+      "id": "rs-many",
+      "value": 11
+    },
+    {
+      "id": "rs-shared",
+      "value": 11
+    }
+  ],
+  "groupPreserveEmpty": [
+    {
+      "group_id": "group-empty",
+      "member_id": null
+    },
+    {
+      "group_id": "group-one",
+      "member_id": "p-one"
+    },
+    {
+      "group_id": "group-one",
+      "member_id": "p-many"
+    }
+  ],
+  "explicitIdentityEdit": [
+    {
+      "group_id": "group-one",
+      "member_id": "p-one",
+      "identity": "group-one:p-one"
+    },
+    {
+      "group_id": "group-one",
+      "member_id": "p-many",
+      "identity": "group-one:p-many"
+    }
+  ],
+  "populatedScalarFamilies": {
+    "legacy_identifier": "DOC_ID_ONE",
+    "legacy_category": "DOC_CATEGORY_ONE",
+    "legacy_root": "DOC_EXT_ONE",
+    "attachment_flag": true,
+    "subject_note": "RS_EXT_ONE",
+    "patient_note": "PAT_EXT_ONE",
+    "specimen_note": "SPEC_EXT_ONE",
+    "medication_note": "MED_EXT_ONE",
+    "study_note": "STUDY_EXT_ONE",
+    "group_note": "GROUP_EXT_ONE",
+    "component": "COMPONENT_ONE"
+  },
+  "sourcePlanByOutput": {
+    "DocumentReference": [
+      {
+        "stepId": "output",
+        "kind": "OUTPUT"
+      },
+      {
+        "stepId": "fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "id",
+          "identifier",
+          "status",
+          "subject",
+          "based_on",
+          "contentType",
+          "url",
+          "size",
+          "hash",
+          "title"
+        ]
+      },
+      {
+        "stepId": "dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "extensionColumns[0]",
+        "kind": "EXTENSION_COLUMN"
+      },
+      {
+        "stepId": "extensionColumns[1]",
+        "kind": "EXTENSION_COLUMN"
+      },
+      {
+        "stepId": "traversals[0]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].traversals[0]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].traversals[0].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "patient_id"
+        ]
+      },
+      {
+        "stepId": "traversals[0].traversals[0].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].traversals[0].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].traversals[0].dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[1]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[1].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[1].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[1].dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[2]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[2].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "observation_code"
+        ]
+      },
+      {
+        "stepId": "traversals[2].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[2].pivots[0]",
+        "kind": "PIVOT"
+      },
+      {
+        "stepId": "traversals[2].pivots[1]",
+        "kind": "PIVOT"
+      }
+    ],
+    "ResearchSubject": [
+      {
+        "stepId": "output",
+        "kind": "OUTPUT"
+      },
+      {
+        "stepId": "fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "id",
+          "identifier",
+          "status"
+        ]
+      },
+      {
+        "stepId": "catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "patient_id",
+          "patient_identifier"
+        ]
+      },
+      {
+        "stepId": "traversals[0].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].traversals[0]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].traversals[0].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "observation_id"
+        ]
+      },
+      {
+        "stepId": "traversals[0].traversals[0].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].traversals[0].pivots[0]",
+        "kind": "PIVOT"
+      },
+      {
+        "stepId": "traversals[0].traversals[0].pivots[1]",
+        "kind": "PIVOT"
+      },
+      {
+        "stepId": "traversals[0].traversals[1]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].traversals[1].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "condition_id"
+        ]
+      },
+      {
+        "stepId": "traversals[0].traversals[1].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].traversals[1].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      }
+    ],
+    "MedicationAdministration": [
+      {
+        "stepId": "output",
+        "kind": "OUTPUT"
+      },
+      {
+        "stepId": "fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "id",
+          "status",
+          "total_dosage"
+        ]
+      },
+      {
+        "stepId": "catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "patient_id",
+          "patient_identifier"
+        ]
+      },
+      {
+        "stepId": "traversals[0].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      }
+    ],
+    "Specimen": [
+      {
+        "stepId": "output",
+        "kind": "OUTPUT"
+      },
+      {
+        "stepId": "fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "id",
+          "identifier",
+          "parent"
+        ]
+      },
+      {
+        "stepId": "catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[0].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "patient_id",
+          "patient_identifier"
+        ]
+      },
+      {
+        "stepId": "traversals[0].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[0].dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "traversals[1]",
+        "kind": "TRAVERSAL"
+      },
+      {
+        "stepId": "traversals[1].fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "observation_code"
+        ]
+      },
+      {
+        "stepId": "traversals[1].catalogProjections[0]",
+        "kind": "CATALOG_PROJECTION"
+      },
+      {
+        "stepId": "traversals[1].pivots[0]",
+        "kind": "PIVOT"
+      },
+      {
+        "stepId": "traversals[1].pivots[1]",
+        "kind": "PIVOT"
+      }
+    ],
+    "GroupMember": [
+      {
+        "stepId": "output",
+        "kind": "OUTPUT"
+      },
+      {
+        "stepId": "expand",
+        "kind": "EXPANSION"
+      },
+      {
+        "stepId": "identity",
+        "kind": "IDENTITY"
+      },
+      {
+        "stepId": "fields",
+        "kind": "FIELD_GROUP",
+        "fieldNames": [
+          "group_id",
+          "member_id"
+        ]
+      },
+      {
+        "stepId": "dynamicColumns[0]",
+        "kind": "DYNAMIC_COLUMN"
+      },
+      {
+        "stepId": "dynamicColumns[1]",
+        "kind": "DYNAMIC_COLUMN"
+      }
+    ]
+  },
+  "defaultGroupMemberIdentity": {
+    "contract": "Text namespaces use RFC4122 UUIDv3(DNS,text); uuid5 hashes the UTF-8 concatenation of remaining arguments. These vectors use Python standard-library uuid, never Loom output.",
+    "namespaceInput": "aced-idp.org",
+    "namespaceUUID": "3dbb886f-620b-3c52-bcb1-1992e7c6ccd5",
+    "recipeIdentityName": "id",
+    "previewIdentityKey": "__loom_row_id",
+    "vectors": [
+      {
+        "group_id": "group-one",
+        "member_id": "p-one",
+        "concatenatedName": "group-one,p-one",
+        "rowIdentity": "aa5112d6-e05f-5afd-ac7a-3ea24d5326d0"
+      },
+      {
+        "group_id": "group-one",
+        "member_id": "p-many",
+        "concatenatedName": "group-one,p-many",
+        "rowIdentity": "f618be31-ccd0-5f5a-b863-015739e85b87"
+      }
+    ],
+    "defaultAbsentGroupIds": [
+      "group-empty"
+    ]
+  }
+}

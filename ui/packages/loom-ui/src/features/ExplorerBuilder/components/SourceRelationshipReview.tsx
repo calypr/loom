@@ -23,8 +23,9 @@ interface BaseProps {
 }
 
 type Props = BaseProps & (
-  { readonly change: SourceRelationshipChange; readonly sourceStep?: never } |
-  { readonly change?: never; readonly sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']> }
+  { readonly change: SourceRelationshipChange; readonly sourceStep?: never; readonly sourceSteps?: never } |
+  { readonly change?: never; readonly sourceStep: NonNullable<ExplorerBuilderCommand['sourceStep']>; readonly sourceSteps?: never } |
+  { readonly change?: never; readonly sourceStep?: never; readonly sourceSteps: ReadonlyArray<NonNullable<ExplorerBuilderCommand['sourceStep']>> }
 );
 
 // The owner mounts this inspector with the full draft/snapshot/output identity
@@ -53,7 +54,7 @@ export function SourceRelationshipReview(props: Props) {
       const proposal = await props.client.proposeSourceRelationship({
         project: props.project, explorerId: props.explorerId, authResourcePath: props.authResourcePath,
         snapshotToken: props.snapshotToken, expectedDraftVersion: props.draftVersion,
-        expectedDraftDigest: props.draftDigest, outputId: props.outputId, ...(props.change ? { change: props.change } : { sourceStep: props.sourceStep }),
+        expectedDraftDigest: props.draftDigest, outputId: props.outputId, ...(props.change ? { change: props.change } : props.sourceSteps ? { sourceSteps: [...props.sourceSteps] } : { sourceStep: props.sourceStep }),
       }, controller.signal);
       if (token !== sequence.current || controller.signal.aborted) return;
       if (proposal.outputId !== props.outputId || proposal.snapshotToken !== props.snapshotToken ||
@@ -92,14 +93,15 @@ export function SourceRelationshipReview(props: Props) {
   const affectedFields = result?.proposal.affectedColumns.map((id) => ({
     id, label: candidateLabels.get(id) || props.columnLabels?.get(id) || 'Field label unavailable',
   })) ?? [];
-  return <section aria-label={props.sourceStep ? 'Proposed source step' : 'Proposed related records'} className="rounded border border-blue-300 bg-blue-50 p-3">
-    <h3 className="text-sm font-semibold">{props.sourceStep ? 'Proposed source step' : `Proposed relationship · ${props.change?.action.toLowerCase()}`}</h3>
-    <p className="text-sm">{props.sourceStep ? 'Review proposed rows, available columns, and source values before saving this step.' : props.change?.action === 'REMOVE'
-      ? 'Review removed values and downstream dependencies. Saved steps remain unchanged until Apply.'
+  const sourceEdit = Boolean(props.sourceStep || props.sourceSteps);
+  return <section aria-label={sourceEdit ? 'Proposed source step' : 'Proposed related records'} className="construction-source-review rounded border border-blue-300 bg-blue-50 p-3">
+    <div className="construction-inspector-body">
+    <h3 className="text-sm font-semibold">{props.sourceSteps ? `Review ${props.sourceSteps.length} source changes` : sourceEdit ? 'Review source change' : 'Review relationship'}</h3>
+    {!sourceEdit ? <p className="text-sm">{props.change?.action === 'REMOVE'
+      ? 'Remove this connection. Review affected operations before Apply.'
       : props.change?.matchMode === 'REQUIRED'
-        ? 'Keep the row identity. Require a match within this source path; parent match policies determine source-row exclusions. Several matches stay related values.'
-        : 'Keep the row identity and records without a match. Several matches stay related values.'}</p>
-    <p className="text-xs text-slate-600">Expanding rows is a separate row operation. Preview observations do not prove one-to-one cardinality.</p>
+        ? 'Require a matching record on this path. This does not expand rows.'
+        : 'Keep input rows when this path has no match. Connecting records does not expand rows.'}</p> : null}
     {error ? <p role="alert" className="text-sm text-red-800">{error}</p> : null}
     {result ? <>
       <ul className="text-sm">{result.proposal.notices.map((notice, i) => <li key={i}>{notice}</li>)}</ul>
@@ -115,9 +117,10 @@ export function SourceRelationshipReview(props: Props) {
       </> : <p className="text-xs">No existing output fields are affected.</p>}
       {!props.sharedPreview ? <div className="max-h-64 overflow-auto"><ConstructionProposalPreview preview={result.preview} partialValidationMessage="Only displayed rows were checked in this preview." /></div> : null}
     </> : null}
-    <div className="mt-2 flex gap-2">
-      <button type="button" disabled={busy || props.disabled} onClick={() => void preview()} className="rounded border bg-white px-3 py-1 text-sm">{busy ? 'Working…' : props.sourceStep ? 'Preview source step' : 'Preview relationship'}</button>
-      <button type="button" data-testid={props.sourceStep ? "imported-source-step-apply" : undefined} disabled={!result || busy || props.disabled} onClick={() => void apply()} className="rounded bg-blue-700 px-3 py-1 text-sm text-white disabled:opacity-50">{props.sourceStep ? 'Apply source step' : 'Apply relationship'}</button>
+    </div>
+    <div className="construction-inspector-footer mt-2 flex flex-wrap gap-2">
+      <button type="button" disabled={busy || props.disabled} onClick={() => void preview()} className="rounded border bg-white px-3 py-1 text-sm">{busy ? 'Working…' : sourceEdit ? 'Preview source step' : 'Preview relationship'}</button>
+      <button type="button" data-testid={sourceEdit ? "imported-source-step-apply" : undefined} disabled={!result || busy || props.disabled} onClick={() => void apply()} className="rounded bg-blue-700 px-3 py-1 text-sm text-white disabled:opacity-50">{sourceEdit ? 'Apply source step' : 'Apply relationship'}</button>
       <button type="button" disabled={busy && !!result} onClick={cancel} className="rounded border bg-white px-3 py-1 text-sm">Cancel</button>
     </div>
   </section>;

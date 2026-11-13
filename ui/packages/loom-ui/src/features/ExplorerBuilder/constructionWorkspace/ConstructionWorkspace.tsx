@@ -544,8 +544,10 @@ export const ConstructionWorkspace = ({
   onSelectFamily,
   history,
   rowSetup,
+  navigation,
+  controllers,
+  composition = 'inspector-right',
   network,
-  rowExpression,
   presentationActionRef,
   preview,
   editor,
@@ -574,6 +576,11 @@ export const ConstructionWorkspace = ({
   readonly onSelectFamily: (family: ConstructionOperationFamily) => void;
   readonly history?: ConstructionHistoryProps;
   readonly rowSetup?: React.ReactNode;
+  readonly navigation?: React.ReactNode;
+  /** Mounted outside disclosures so controller-owned portals remain available. */
+  readonly controllers?: React.ReactNode;
+  /** Internal comparison variant; both use identical slots and handlers. */
+  readonly composition?: 'inspector-right' | 'inspector-below';
   readonly network?: React.ReactNode;
   readonly rowExpression?: React.ReactNode;
   readonly presentationActionRef?: { current: ((view: 'both' | 'network' | 'row') => void) | undefined };
@@ -587,9 +594,8 @@ export const ConstructionWorkspace = ({
   readonly draftVersion: number;
   readonly draftDigest: string;
 }) => {
-  const [recipeView, setRecipeView] = useState<'both' | 'network' | 'row'>('both');
   const editorFocusRef = useRef<HTMLDivElement>(null);
-  if (presentationActionRef) presentationActionRef.current = (view) => { setRecipeView(view); editorFocusRef.current?.focus(); };
+  if (presentationActionRef) presentationActionRef.current = () => { editorFocusRef.current?.focus(); };
   const viewportRef = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
     const measure = () => {
@@ -626,33 +632,26 @@ export const ConstructionWorkspace = ({
         onDeleteTable={onDeleteTable}
         onRenameTable={onRenameTable}
       />
-      {(history || !editor) ? <div className="construction-query-toolbar flex min-w-0 flex-col items-stretch gap-2 py-2">
-        {!editor ? <div className="ml-auto shrink-0" role="group" aria-label="Configure table">
-        <ConstructionActionBar
-          activeFamily={activeFamily}
-          disabled={actionsDisabled}
-          addColumnsDisabled={addColumnsDisabled}
-          combineDisabled={combineDisabled}
-          calculateAvailable={calculateAvailable}
-          calculateUnavailableReason={calculateUnavailableReason}
-          onSelect={onSelectFamily}
-        />
-        </div> : null}
-        {history ? <div className="min-w-0"><ConstructionHistory {...history} sourceControl={rowSetup} /></div> : null}
-      </div> : null}
-      <div data-has-editor={editor || inspection ? 'true' : undefined} data-has-network={network ? 'true' : undefined} className={`construction-result-region min-w-0 ${network ? 'grid gap-2 xl:grid-cols-[minmax(21rem,0.8fr)_minmax(0,1.5fr)]' : ''}`}>
-        {network || rowExpression ? <section aria-label="Recipe editors" className="construction-recipe-editors min-w-0">
-          <nav aria-label="Recipe presentation" className="sticky top-0 z-10 flex gap-1 border-b bg-white p-1">
-            {([['network', 'Record network'], ['row', 'Define a row'], ['both', 'Both editors']] as const).map(([view, label]) => <button
-              key={view} type="button" aria-pressed={recipeView === view} className="rounded border px-2 py-1 text-xs"
-              onClick={() => { setRecipeView(view); editorFocusRef.current?.focus(); }}>{label}</button>)}
-          </nav>
-          <div ref={editorFocusRef} tabIndex={-1} data-recipe-view={recipeView} className="construction-recipe-editor-views">
-            <div hidden={recipeView === 'row'}>{network}</div>
-            <div hidden={recipeView === 'network'}>{rowExpression}</div>
-          </div>
+      <div className="construction-controller-host">{controllers}</div>
+      <div data-composition={composition} data-has-editor={editor || inspection ? 'true' : undefined}
+        data-has-network={network ? 'true' : undefined} className="construction-result-region">
+        <aside aria-label="Recipe navigation" className="construction-scope-navigation">
+          <div className="construction-source-controls">{rowSetup}{history?.sourceSteps}</div>
+          {navigation ?? (!editor ? <ConstructionActionBar
+            activeFamily={activeFamily} disabled={actionsDisabled}
+            addColumnsDisabled={addColumnsDisabled} combineDisabled={combineDisabled}
+            calculateAvailable={calculateAvailable} calculateUnavailableReason={calculateUnavailableReason}
+            onSelect={onSelectFamily}
+          /> : null)}
+          {history && !navigation ? <details className="construction-history-disclosure">
+            <summary>Ordered operation history ({history.steps.length})</summary>
+            <ConstructionHistory {...history} sourceSteps={undefined} sourceControl={undefined} />
+          </details> : null}
+        </aside>
+        {network ? <section aria-label="Authored traversal" className="construction-authored-region">
+          <div ref={editorFocusRef} tabIndex={-1} className="construction-authored-content">{network}</div>
         </section> : null}
-        {editor ? <section aria-label="Change editor" className="construction-active-editor min-w-0">{editor}</section>
+        {editor ? <section aria-label="Change editor" className="construction-active-editor min-h-0 min-w-0">{editor}</section>
           : inspection ? <div aria-label="Recipe fact inspector" className="construction-active-editor h-full min-h-0 min-w-0">{inspection}</div> : null}
         <section
           aria-label="Table result"
@@ -663,7 +662,7 @@ export const ConstructionWorkspace = ({
           data-preview-proposal-id={proposalId ?? ''}
           data-current-draft-version={draftVersion}
           data-current-draft-digest={draftDigest}
-          className="min-w-0 bg-white"
+          className="construction-result-preview min-w-0 bg-white"
         >
           <p className="border-b bg-slate-50 px-2 py-1 text-xs font-semibold" data-testid="recipe-result-identity">{proposalId ? 'Proposed recipe result' : 'Saved recipe result'}</p>
           {preview}

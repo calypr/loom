@@ -1,0 +1,2 @@
+{"resourceType":"ResearchStudy","id":"study-one","status":"active","title":"One study","identifier":[{"system":"https://example.invalid/id/study_id","value":"STUDY_ID_ONE"}],"extension":[{"url":"https://example.invalid/ext/study_note","valueString":"STUDY_EXT_ONE"}]}
+{"resourceType":"ResearchStudy","id":"study-many","status":"active","title":"Many study"}

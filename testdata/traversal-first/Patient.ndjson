@@ -1,0 +1,4 @@
+{"resourceType":"Patient","id":"p-zero","active":true}
+{"resourceType":"Patient","id":"p-one","active":true,"gender":"female","identifier":[{"system":"https://example.invalid/id/patient_id","value":"PAT_ID_ONE"}],"extension":[{"url":"https://example.invalid/ext/patient_note","valueString":"PAT_EXT_ONE"}]}
+{"resourceType":"Patient","id":"p-many","active":true,"gender":"male"}
+{"resourceType":"Patient","id":"p-performer","active":false,"gender":"other"}

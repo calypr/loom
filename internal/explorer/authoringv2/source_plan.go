@@ -14,7 +14,13 @@ const maxImportedSourcePlanIDBytes = maxImportedSourcePlanSteps * 32
 // ImportedSourcePlan describes editable or inspectable stages of one pinned
 // native recipe output. Recipe expressions stay on the server; clients persist
 // only stable stage identities and bounded overrides.
+type ImportedSourceFieldBinding struct {
+	FieldID  string `json:"fieldId"`
+	ColumnID string `json:"columnId"`
+}
+
 type ImportedSourcePlan struct {
+	FieldBindings []ImportedSourceFieldBinding `json:"fieldBindings,omitempty"`
 	Steps         []ImportedSourceStep         `json:"steps"`
 	Relationships *ImportedRelationshipOverlay `json:"relationships,omitempty"`
 }
@@ -22,18 +28,19 @@ type ImportedSourcePlan struct {
 // ImportedSourceStep identifies one source-plan stage. ParentID preserves the
 // owning traversal without flattening its fields into unrelated operations.
 type ImportedSourceStep struct {
-	ID           string         `json:"id"`
-	SourceKey    string         `json:"sourceKey,omitempty"`
-	OccurrenceID string         `json:"occurrenceId,omitempty"`
-	MatchMode    RouteMatchMode `json:"matchMode,omitempty"`
-	ParentID     string         `json:"parentId,omitempty"`
-	Kind         string         `json:"kind"`
-	Title        string         `json:"title"`
-	Summary      string         `json:"summary"`
-	Enabled      bool           `json:"enabled"`
-	Editable     bool           `json:"editable"`
-	MaxColumns   *int           `json:"maxColumns,omitempty"`
-	ValueMode    string         `json:"valueMode,omitempty"`
+	Parameters   *ImportedSourceParameters `json:"parameters,omitempty"`
+	ID           string                    `json:"id"`
+	SourceKey    string                    `json:"sourceKey,omitempty"`
+	OccurrenceID string                    `json:"occurrenceId,omitempty"`
+	MatchMode    RouteMatchMode            `json:"matchMode,omitempty"`
+	ParentID     string                    `json:"parentId,omitempty"`
+	Kind         string                    `json:"kind"`
+	Title        string                    `json:"title"`
+	Summary      string                    `json:"summary"`
+	Enabled      bool                      `json:"enabled"`
+	Editable     bool                      `json:"editable"`
+	MaxColumns   *int                      `json:"maxColumns,omitempty"`
+	ValueMode    string                    `json:"valueMode,omitempty"`
 }
 
 // Validate checks the durable shape of the source plan. ApplySourcePlan also
@@ -44,6 +51,20 @@ func (p ImportedSourcePlan) Validate() error {
 			return err
 		}
 	}
+	seenFields, seenColumns := map[string]bool{}, map[string]bool{}
+	for _, binding := range p.FieldBindings {
+		if err := validateImportedSourcePlanText("fieldBindings.fieldId", binding.FieldID, maxImportedSourcePlanIDBytes); err != nil {
+			return err
+		}
+		if err := validateImportedSourcePlanText("fieldBindings.columnId", binding.ColumnID, 256); err != nil {
+			return err
+		}
+		if seenFields[binding.FieldID] || seenColumns[binding.ColumnID] {
+			return fmt.Errorf("source field bindings require unique field and column identities")
+		}
+		seenFields[binding.FieldID] = true
+		seenColumns[binding.ColumnID] = true
+	}
 	if len(p.Steps) > maxImportedSourcePlanSteps {
 		return fmt.Errorf("imported source plan has more than %d steps", maxImportedSourcePlanSteps)
 	}
@@ -51,6 +72,9 @@ func (p ImportedSourcePlan) Validate() error {
 	seen := make(map[string]struct{}, len(p.Steps))
 	for index, step := range p.Steps {
 		path := fmt.Sprintf("steps[%d]", index)
+		if err := step.Parameters.Validate(step.Kind); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		if err := validateImportedSourcePlanText(path+".id", step.ID, maxImportedSourcePlanIDBytes); err != nil {
 			return err
 		}
