@@ -1190,7 +1190,7 @@ func TestAuditPublishVisibilityForeignFixtureActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("connect to test service: %v", err)
 	}
-	defer admin.Close()
+	t.Cleanup(admin.Close)
 
 	foreign := fmt.Sprintf("verify_pubvisx_it_%d_%s", time.Now().UnixNano(), randomHex())
 	if _, err := admin.Exec(ctx, `CREATE DATABASE "`+foreign+`"`); err != nil {
