@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -76,13 +77,38 @@ func TestScratchLiveUploadProbe(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+	stderrDir := os.Getenv("LOOM_BENCH_SCRATCH_STDERR_DIR")
+	if stderrDir == "" {
+		stderrDir = t.TempDir()
+	}
+	// The server resolves its graph schema relative to the CWD, and go test
+	// runs in the package directory, so pin the repository root explicitly.
+	workDir := os.Getenv("LOOM_BENCH_SCRATCH_WORKDIR")
+	if workDir == "" {
+		dir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("workdir: %v", err)
+		}
+		for {
+			if _, err := os.Stat(dir + "/schemas/graph-fhir.json"); err == nil {
+				workDir = dir
+				break
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				t.Fatal("no schemas/graph-fhir.json found walking up from cwd; set LOOM_BENCH_SCRATCH_WORKDIR")
+			}
+			dir = parent
+		}
+	}
 	spec := benchmark.ServerSpec{
 		BinaryPath: binary,
 		Backend:    "postgres",
 		ConfigYAML: cfgYAML,
 		ReadyURL:   "http://" + listen + "/readyz",
 		Timeout:    60 * time.Second,
-		StderrDir:  t.TempDir(),
+		StderrDir:  stderrDir,
+		WorkDir:    workDir,
 	}
 	proc, err := benchmark.SpawnServer(ctx, spec, nil, listen)
 	if err != nil {
@@ -91,8 +117,11 @@ func TestScratchLiveUploadProbe(t *testing.T) {
 	defer proc.Stop()
 
 	arm := &benchmark.Arm{Backend: "postgres", BaseURL: "http://" + listen, Client: &http.Client{Timeout: 60 * time.Second}}
-	files := map[string]string{"samples.ndjson": "{\"sample_id\":\"s1\"}\n"}
-	uploadErr := arm.UploadGeneration(ctx, token, "loom-bench", "bench-probe-1", files, path)
+	fixtures, fixtureErr := benchmark.GenerateFiles(benchmark.DatasetParams{Preset: benchmark.PresetTiny, Seed: 1})
+	if fixtureErr != nil {
+		t.Fatalf("fixtures: %v", fixtureErr)
+	}
+	uploadErr := arm.UploadGeneration(ctx, token, "loom-bench", "bench-probe-1", fixtures.Files, path)
 	t.Logf("upload outcome: %v (fence requests=%d)", uploadErr, fence.Requests())
 
 	// Store-level surface on the same database.

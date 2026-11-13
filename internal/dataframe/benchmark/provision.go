@@ -33,6 +33,11 @@ type ServerSpec struct {
 	ReadyHeaders map[string]string
 	Timeout      time.Duration // spawn+ready budget; 0 uses 60s
 	StderrDir    string        // where arm logs are written (must be a scratch dir)
+	// WorkDir, when set, is the arm process's working directory. The server
+	// resolves its graph schema (--schema, default schemas/graph-fhir.json)
+	// relative to the CWD, so a spawner outside the repository root must
+	// pin it explicitly instead of inheriting a stale directory.
+	WorkDir string
 }
 
 // ServerProcess is a running arm.
@@ -84,6 +89,12 @@ func (p *ServerProcess) start(ctx context.Context) error {
 	args := []string{"--config", cfgPath, "--listen", p.listenAddr}
 	cmd := exec.CommandContext(ctx, p.spec.BinaryPath, args...)
 	cmd.Env = append(os.Environ(), p.spec.Env...)
+	if p.spec.WorkDir != "" {
+		if _, err := os.Stat(p.spec.WorkDir); err != nil {
+			return fmt.Errorf("benchmark: arm work dir: %w", err)
+		}
+		cmd.Dir = p.spec.WorkDir
+	}
 	cmd.Stdout = p.scrubWriter()
 	cmd.Stderr = p.scrubWriter()
 	if err := cmd.Start(); err != nil {
