@@ -690,6 +690,13 @@ func TestActivateRepositoryGenerationUsesCompositeGuardsAgainstPostgreSQL(t *tes
 		{"candidate-wrong-generation", func(revision *explorer.Revision) {
 			revision.SourceGeneration = "pgact_other_gen"
 		}, nil},
+		{"prior-pointer-failed-candidate-revival-is-no-bypass", nil, func(f *pgactFixture, w *pgactWorld) {
+			if _, err := w.store.FailRevisionFrom(f.ctx, w.priorID, explorer.RevisionActive,
+				[]explorer.Diagnostic{{Severity: "ERROR", Code: "GENERATION_ACTIVATION_FAILED",
+					Message: "injected prior failure", Retryable: false}}); err != nil {
+				f.fail("fail prior before FAILED-prior strict probe", err)
+			}
+		}},
 	}
 	for _, tc := range guardCases {
 		t.Run(tc.name, func(t *testing.T) {
