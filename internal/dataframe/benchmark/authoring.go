@@ -263,8 +263,10 @@ func BuildWorkspace(workloadID string) ([]byte, error) {
 		}, nil, nil), nil
 	case WorkloadDeriveAgeBand:
 		// No acceptance precedent for value transformations in the workspace
-		// wire shape: authored best-effort, decoder verdict decides; on
-		// rejection the workload ships planned/not_run with this reason.
+		// wire shape, and the authored approximation cannot pass its own
+		// oracle (raw distinct values vs band labels): LiveBatteryExclusions
+		// ships this workload planned/not_run with the named defect until
+		// the ClickHouse lane rehearses a proven derivation.
 		return patientWorkspace(OutputIDFor(workloadID), []wsColumnDef{
 			aggregateCol("observation_id", "Observation id", "string", "observation", "DISTINCT_VALUES",
 				"id", "code.coding[].code", ObservationCodeAge, 0),
@@ -317,13 +319,52 @@ func AuthoringVerification() map[string]AuthoringStatus {
 
 // unverifiedWorkloads lists shapes without acceptance-fixture precedent;
 // rehearsal classifies them and the outcome is recorded in the report.
+// Anything not proven ships planned/not_run (live battery law below), so
+// the live legs can never fail a gate a shape could not pass by
+// construction (review r4559430560).
 var unverifiedWorkloads = map[string]bool{
-	WorkloadFilterActiveGender: true,  // fixedFilters over a boolean field column
-	WorkloadDistinctFamily:     true,  // DISTINCT_VALUES at the root occurrence
-	WorkloadDeriveAgeBand:      true,  // transformation intent approximated
-	WorkloadStudyCorrelation:   true,  // extensionByUrl returning a reference string
-	WorkloadStageCounts:        true,  // DISTINCT_VALUES + COUNT pair at one occurrence (per-row grain expectation)
-	WorkloadSortLimitTopN:      false, // field-only columns: proven shape
+	WorkloadFilterActiveGender: true, // fixedFilters over a boolean field column
+	WorkloadDistinctFamily:     true, // DISTINCT_VALUES at the root occurrence
+	WorkloadDeriveAgeBand:      true, // transformation intent approximated
+	WorkloadStudyCorrelation:   true, // extensionByUrl returning a reference string
+	WorkloadStageCounts:        true, // DISTINCT_VALUES + COUNT pair at one occurrence (per-row grain expectation)
+	WorkloadSortLimitTopN:      true, // VALUE over multi-valued name[].family: row expansion unproven (review r4559430560)
+}
+
+// workloadNotRunReasons names why each not-proven workload is excluded
+// from live legs. Every non-proven verdict must carry an entry: an
+// exclusion without a named reason is a silent coverage hole, which is
+// the exact deception class the report verifier exists to refuse.
+var workloadNotRunReasons = map[string]string{
+	WorkloadFilterActiveGender: "shape has no acceptance-fixture precedent: fixedFilters over a boolean field column; live rehearsal (ClickHouse lane) must prove the oracle/output agreement before this leg runs",
+	WorkloadDistinctFamily:     "shape has no acceptance-fixture precedent: DISTINCT_VALUES at the root occurrence; live rehearsal must prove the oracle/output agreement before this leg runs",
+	WorkloadDeriveAgeBand:      "oracle/output agreement disproven in source: the workspace authors age_band as DISTINCT_VALUES over raw valueQuantity.value while the oracle emits band labels, and fixture ages [1000,10000) make the young/middle branches dead; needs a proven case/if derivation (see AgeBandYoungUnder/AgeBandMiddleUnder) or an oracle re-model, rehearsed in the ClickHouse lane",
+	WorkloadStudyCorrelation:   "shape has no acceptance-fixture precedent: extensionByUrl returning a reference string; live rehearsal must prove the oracle/output agreement before this leg runs",
+	WorkloadStageCounts:        "shape has no acceptance-fixture precedent: DISTINCT_VALUES + COUNT pair at one occurrence with a per-row grain expectation; live rehearsal must prove the oracle/output agreement before this leg runs",
+	WorkloadSortLimitTopN:      "oracle/output agreement unproven: VALUE columns over multi-valued name[].family with a second family entry on every 4th patient; the oracle assumes first-only while preview row expansion (first-only vs row-per-value) has no acceptance precedent; live rehearsal must pin the scalarization contract",
+}
+
+// LiveBatteryExclusions returns the workloads that may not run in a live
+// leg and the named reason for each: anything the decoder rejects, and
+// anything without an acceptance-proven shape or disproven oracle/output
+// agreement. The driver skips authoring, publication, preview, and timing
+// for these; the report verifier requires one disclosure row per excluded
+// workload per running leg and refuses any timing evidence for them.
+func LiveBatteryExclusions() map[string]string {
+	out := map[string]string{}
+	for workloadID, status := range AuthoringVerification() {
+		if status == AuthoringProven {
+			continue
+		}
+		reason := workloadNotRunReasons[workloadID]
+		if reason == "" {
+			// Fail closed in the disclosure itself: an unproven verdict
+			// with no reason is a bug, not a licence to run silently.
+			reason = "verdict " + string(status) + " without a named reason (harness bug; refusing to run it)"
+		}
+		out[workloadID] = reason
+	}
+	return out
 }
 
 // BuildAllWorkspaces returns every battery workspace keyed by workload id.

@@ -28,7 +28,14 @@ func excludedPlan(scope string) RunPlan {
 		plan.PlannedNotRun[i].Reason = "leg not run: " + plan.Legs[0].Capability
 	}
 	plan.PlannedNotRun = append(plan.PlannedNotRun, PublicationDisclosures(plan.Legs, PublicationCapabilityCH)...)
+	AppendWorkloadDisclosures(&plan, LiveBatteryExclusions())
 	return plan
+}
+
+func excludedGates(plan RunPlan) []WorkloadGateReport {
+	return ApplyExcludedWorkloadGateReports(
+		PublicationGateReports(plan.Legs, PublicationCapabilityCH),
+		ExcludedWorkloadGateReports(plan.Legs, LiveBatteryExclusions()))
 }
 
 func excludedIdentity(runID string) RunIdentity {
@@ -48,8 +55,7 @@ func TestExcludedChainReportIsHonestAndVerifies(t *testing.T) {
 	identity := excludedIdentity("bench-excl-a")
 	identity.ArangoVersion = "3.12.x-fake"
 	identity.PostgresVersion = "PostgreSQL 18.x-fake"
-	report, err := BuildReport(identity, plan, ControlRuns{},
-		PublicationGateReports(plan.Legs, PublicationCapabilityCH), nil)
+	report, err := BuildReport(identity, plan, ControlRuns{}, excludedGates(plan), nil)
 	if err != nil {
 		t.Fatalf("honest excluded-chain report must build: %v", err)
 	}
@@ -57,18 +63,31 @@ func TestExcludedChainReportIsHonestAndVerifies(t *testing.T) {
 		t.Fatalf("excluded chain must carry zero timing evidence: %d samples, %d summaries, %d claims",
 			len(report.Samples), len(report.Summaries), len(report.Claims))
 	}
+	liveExcluded := LiveBatteryExclusions()
 	for _, gate := range report.GateReports {
+		_, isExcludedWorkload := liveExcluded[gate.WorkloadID]
 		for _, arm := range []BackendResult{gate.Arango, gate.Postgres} {
 			if arm.Outcome != OutcomeLabelBlocked {
 				t.Fatalf("%s/%s must be blocked, got %s", gate.WorkloadID, arm.Backend, arm.Outcome)
+			}
+			if isExcludedWorkload {
+				// Both exclusions are true; the row must name the
+				// workload reason and carry the live-battery marker.
+				if !strings.Contains(arm.Detail, WorkloadNotRunReason) {
+					t.Fatalf("%s/%s detail must name the workload exclusion: %q", gate.WorkloadID, arm.Backend, arm.Detail)
+				}
+				if !strings.HasPrefix(gate.ExclusionReason, LiveBatteryExclusionMarker) {
+					t.Fatalf("%s must carry the live-battery marker: %q", gate.WorkloadID, gate.ExclusionReason)
+				}
+				continue
 			}
 			if !strings.Contains(arm.Detail, PublicationCapabilityCH) {
 				t.Fatalf("%s/%s detail must name the capability: %q", gate.WorkloadID, arm.Backend, arm.Detail)
 			}
 		}
 	}
-	if want := 2 * len(Battery); len(report.Plan.PlannedNotRun) != want {
-		t.Fatalf("both running legs must each disclose the whole battery: %d rows want %d", len(report.Plan.PlannedNotRun), want)
+	if want := 2*len(Battery) + 2*len(liveExcluded); len(report.Plan.PlannedNotRun) != want {
+		t.Fatalf("both running legs must each disclose the whole battery plus the exclusions: %d rows want %d", len(report.Plan.PlannedNotRun), want)
 	}
 	// The artifact must survive marshal + LoadReport verification.
 	if _, err := LoadReport(mustMarshal(t, report)); err != nil {
@@ -82,8 +101,7 @@ func TestExcludedChainForgeryPaths(t *testing.T) {
 		plan := excludedPlan(RunScopePostgresOnly)
 		identity := excludedIdentity("bench-excl-forge")
 		identity.PostgresVersion = "PostgreSQL 18.x-fake"
-		report, err := BuildReport(identity, plan, ControlRuns{},
-			PublicationGateReports(plan.Legs, PublicationCapabilityCH), nil)
+		report, err := BuildReport(identity, plan, ControlRuns{}, excludedGates(plan), nil)
 		if err != nil {
 			t.Fatalf("baseline excluded report: %v", err)
 		}
@@ -107,11 +125,22 @@ func TestExcludedChainForgeryPaths(t *testing.T) {
 			r.Controls.SelfRatioPostgres = 1.0
 		}, "control values claimed although the publication chain was excluded"},
 		{"samples fabricated into an excluded run", func(t *testing.T, r *Report) {
-			r.Samples = append(r.Samples, sample(BackendPostgres, WorkloadFilterActiveGender, OutcomePassed, 10, false))
+			r.Samples = append(r.Samples, sample(BackendPostgres, primaryTiming(), OutcomePassed, 10, false))
 		}, "timing evidence claimed although the publication chain was excluded"},
 		{"one disclosure row quietly dropped", func(t *testing.T, r *Report) {
-			// drop a postgres publication-chain row (the last leg's block)
-			r.Plan.PlannedNotRun = r.Plan.PlannedNotRun[:len(r.Plan.PlannedNotRun)-1]
+			// drop the last postgres publication-chain row
+			drop, kept := -1, make([]PlannedNotRun, 0, len(r.Plan.PlannedNotRun))
+			for i, row := range r.Plan.PlannedNotRun {
+				if drop < 0 && row.Backend == BackendPostgres && strings.HasPrefix(row.Reason, PublicationChainReason) {
+					drop = i
+					continue
+				}
+				kept = append(kept, row)
+			}
+			if drop < 0 {
+				t.Fatal("baseline lacks a postgres publication disclosure row")
+			}
+			r.Plan.PlannedNotRun = kept
 		}, "without a disclosure row"},
 		{"one gate arm flipped to passed", func(t *testing.T, r *Report) {
 			r.GateReports[0].Postgres.Outcome = OutcomeLabelPassed

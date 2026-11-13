@@ -316,14 +316,31 @@ func VerifyReport(report *Report) error {
 	// A not-run leg must be disclosed per workload and honest in the gates:
 	// blocked arm, zero samples, zero claims. Anything else is a forgery
 	// path ("silently measured nothing and claimed it anyway").
+	// Live battery exclusions: workloads whose oracle/output agreement is
+	// disproven or unproven may never run on a live leg. The registry is
+	// deterministic (decoder verdicts only); VerifyReport is what ties
+	// every claim of exclusion back to it.
+	liveExcluded := LiveBatteryExclusions()
 	disclosed := map[string]bool{}
+	wlDisclosed := map[string]bool{}
 	for _, row := range report.Plan.PlannedNotRun {
 		if _, absent := notRun[row.Backend]; !absent {
 			// A disclosure row on a ran leg is only honest when it
 			// declares the excluded publication chain under an excluding
-			// plan; any other row on a ran leg is a forgery path.
+			// plan, or a registry-excluded workload under its exact
+			// named reason; any other row on a ran leg is a forgery
+			// path.
 			if publicationExcluded && strings.HasPrefix(row.Reason, PublicationChainReason) {
 				pubDisclosed[row.WorkloadID+"|"+row.Backend] = true
+				continue
+			}
+			if reason, excludedWorkload := liveExcluded[row.WorkloadID]; excludedWorkload &&
+				strings.HasPrefix(row.Reason, WorkloadNotRunReason) {
+				if row.Reason != WorkloadNotRunReason+reason {
+					return fmt.Errorf("benchmark report: %s/%s workload-not_run disclosure does not match the exclusion registry",
+						row.WorkloadID, row.Backend)
+				}
+				wlDisclosed[row.WorkloadID+"|"+row.Backend] = true
 				continue
 			}
 			return fmt.Errorf("benchmark report: planned/not_run row for %s/%s but its leg ran", row.WorkloadID, row.Backend)
@@ -344,6 +361,58 @@ func VerifyReport(report *Report) error {
 						spec.ID, leg.Backend)
 				}
 			}
+		}
+	}
+	// Live battery law: every battery workload must appear in the gate
+	// reports of every ran leg (a silently shrunk live matrix is the same
+	// deception as a silently passed one). Excluded workloads must be
+	// blocked, marker-carrying, disclosure-backed, and sample-free; the
+	// marker may never sit on a workload the harness was allowed to run.
+	liveGate := map[string]WorkloadGateReport{}
+	for _, gate := range report.GateReports {
+		if _, dup := liveGate[gate.WorkloadID]; dup {
+			return fmt.Errorf("benchmark report: duplicate gate report for %s", gate.WorkloadID)
+		}
+		liveGate[gate.WorkloadID] = gate
+	}
+	for _, leg := range report.Plan.Legs {
+		if leg.Mode != "run" {
+			continue
+		}
+		for _, spec := range Battery {
+			gate, ok := liveGate[spec.ID]
+			if !ok {
+				return fmt.Errorf("benchmark report: %s leg ran without a gate report for %s", leg.Backend, spec.ID)
+			}
+			arm := gate.Arango
+			if leg.Backend == BackendPostgres {
+				arm = gate.Postgres
+			}
+			if _, excludedWorkload := liveExcluded[spec.ID]; excludedWorkload {
+				if arm.Outcome != OutcomeLabelBlocked {
+					return fmt.Errorf("benchmark report: %s/%s shows %s although the workload is excluded from live legs",
+						spec.ID, leg.Backend, arm.Outcome)
+				}
+				if !strings.HasPrefix(gate.ExclusionReason, LiveBatteryExclusionMarker) {
+					return fmt.Errorf("benchmark report: excluded workload %s on %s without the live-battery exclusion marker",
+						spec.ID, leg.Backend)
+				}
+				if !wlDisclosed[spec.ID+"|"+leg.Backend] {
+					return fmt.Errorf("benchmark report: %s/%s excluded from live legs without a disclosure row",
+						spec.ID, leg.Backend)
+				}
+				continue
+			}
+			if strings.HasPrefix(gate.ExclusionReason, LiveBatteryExclusionMarker) {
+				return fmt.Errorf("benchmark report: %s carries the live-battery exclusion marker but is not an excluded workload",
+					spec.ID)
+			}
+		}
+	}
+	for _, s := range report.Samples {
+		if _, excludedWorkload := liveExcluded[s.WorkloadID]; excludedWorkload {
+			return fmt.Errorf("benchmark report: timing samples exist for %s although it is excluded from live legs",
+				s.WorkloadID)
 		}
 	}
 	for _, gate := range report.GateReports {

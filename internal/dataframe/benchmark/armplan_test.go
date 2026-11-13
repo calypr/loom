@@ -48,13 +48,22 @@ func validPostgresOnlyReport(t *testing.T) *Report {
 	for i := range plan.PlannedNotRun {
 		plan.PlannedNotRun[i].Reason = "leg not run: " + testArangoCapability
 	}
-	gate := postgresOnlyGate(WorkloadFilterActiveGender, strings.Repeat("c", 64))
+	liveExcluded := LiveBatteryExclusions()
+	var gates []WorkloadGateReport
 	var samples []Sample
-	samples = append(samples, sample(BackendPostgres, WorkloadFilterActiveGender, OutcomePassed, 5, true))
-	for i := 0; i < 4; i++ {
-		samples = append(samples, sample(BackendPostgres, WorkloadFilterActiveGender, OutcomePassed, 10+float64(i), false))
+	for _, spec := range Battery {
+		if _, excluded := liveExcluded[spec.ID]; excluded {
+			continue
+		}
+		gates = append(gates, postgresOnlyGate(spec.ID, strings.Repeat("c", 64)))
+		samples = append(samples, sample(BackendPostgres, spec.ID, OutcomePassed, 5, true))
+		for i := 0; i < 4; i++ {
+			samples = append(samples, sample(BackendPostgres, spec.ID, OutcomePassed, 10+float64(i), false))
+		}
 	}
-	report, err := BuildReport(identity, plan, controls, []WorkloadGateReport{gate}, samples)
+	gates = ApplyExcludedWorkloadGateReports(gates, ExcludedWorkloadGateReports(plan.Legs, liveExcluded))
+	AppendWorkloadDisclosures(&plan, liveExcluded)
+	report, err := BuildReport(identity, plan, controls, gates, samples)
 	if err != nil {
 		t.Fatalf("honest postgres-only report must build: %v", err)
 	}
@@ -132,10 +141,10 @@ func TestPostgresOnlyForgerySuite(t *testing.T) {
 			r.GateReports[0].Arango.Outcome = OutcomeLabelPassed
 		},
 		"arango-samples-smuggled": func(r *Report) {
-			r.Samples = append(r.Samples, sample(BackendArango, WorkloadFilterActiveGender, OutcomePassed, 20, false))
+			r.Samples = append(r.Samples, sample(BackendArango, primaryTiming(), OutcomePassed, 20, false))
 			r.Summaries = append(r.Summaries, SummaryRow{
-				WorkloadID: WorkloadFilterActiveGender, Backend: BackendArango, Cache: CacheWarm,
-				Summary: Summarize([]Sample{sample(BackendArango, WorkloadFilterActiveGender, OutcomePassed, 20, false)}),
+				WorkloadID: primaryTiming(), Backend: BackendArango, Cache: CacheWarm,
+				Summary: Summarize([]Sample{sample(BackendArango, primaryTiming(), OutcomePassed, 20, false)}),
 			})
 		},
 		"disclosure-rows-dropped": func(r *Report) {
@@ -152,9 +161,9 @@ func TestPostgresOnlyForgerySuite(t *testing.T) {
 		},
 		"speed-claim-injected-without-arango": func(r *Report) {
 			r.Claims = append(r.Claims, Claim{
-				WorkloadID: WorkloadFilterActiveGender,
-				Arango:     Summarize([]Sample{sample(BackendArango, WorkloadFilterActiveGender, OutcomePassed, 40, false)}),
-				Postgres:   Summarize([]Sample{sample(BackendPostgres, WorkloadFilterActiveGender, OutcomePassed, 10, false)}),
+				WorkloadID: primaryTiming(),
+				Arango:     Summarize([]Sample{sample(BackendArango, primaryTiming(), OutcomePassed, 40, false)}),
+				Postgres:   Summarize([]Sample{sample(BackendPostgres, primaryTiming(), OutcomePassed, 10, false)}),
 				Ratio:      SpeedRatio{ArangoOverPostgres: 4.0},
 			})
 		},
@@ -170,7 +179,7 @@ func TestPostgresOnlyForgerySuite(t *testing.T) {
 	}
 	// The converse: disclosure rows for a leg that DID run are lies too.
 	t.Run("disclosure-for-ran-leg", forgeWith(t, validReport, func(r *Report) {
-		r.Plan.PlannedNotRun = []PlannedNotRun{{WorkloadID: WorkloadFilterActiveGender, Backend: BackendArango, Reason: "pretend we skipped it"}}
+		r.Plan.PlannedNotRun = []PlannedNotRun{{WorkloadID: primaryTiming(), Backend: BackendArango, Reason: WorkloadNotRunReason + LiveBatteryExclusions()[WorkloadDeriveAgeBand]}}
 	}))
 }
 

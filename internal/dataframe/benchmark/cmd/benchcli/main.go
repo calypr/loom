@@ -218,6 +218,9 @@ func runLive() {
 	default:
 		preflight("unknown --publication %q (want excluded | run)", f.publication)
 	}
+	// Live battery law: registry-excluded workloads ride along as
+	// disclosed planned/not_run rows on every ran leg.
+	benchmark.AppendWorkloadDisclosures(&plan, benchmark.LiveBatteryExclusions())
 	if !planNotRunMatchesBattery(plan) {
 		fmt.Fprintln(os.Stderr, "benchcli run: internal plan inconsistency")
 		os.Exit(1)
@@ -376,17 +379,41 @@ func planNotRunMatchesBattery(plan benchmark.RunPlan) bool {
 	for _, leg := range plan.Legs {
 		mode[leg.Backend] = leg.Mode
 	}
+	liveExcluded := benchmark.LiveBatteryExclusions()
 	counts := map[string]int{}
 	for _, row := range plan.PlannedNotRun {
-		if mode[row.Backend] == "run" && !strings.HasPrefix(row.Reason, benchmark.PublicationChainReason) {
-			return false // only publication-chain disclosures may sit on a ran leg
+		switch {
+		case mode[row.Backend] != "run":
+			// Not-run legs disclose exactly their leg capability.
+			if !strings.HasPrefix(row.Reason, "leg not run") {
+				return false
+			}
+		case strings.HasPrefix(row.Reason, benchmark.PublicationChainReason):
+			if !plan.PublicationExcluded() {
+				return false
+			}
+		case strings.HasPrefix(row.Reason, benchmark.WorkloadNotRunReason):
+			// Only registry-excluded workloads may sit on a ran leg,
+			// under their exact named reason.
+			reason, ok := liveExcluded[row.WorkloadID]
+			if !ok || row.Reason != benchmark.WorkloadNotRunReason+reason {
+				return false
+			}
+		default:
+			return false // only the three honest classes above
 		}
 		counts[row.Backend]++
 	}
 	for _, leg := range plan.Legs {
 		want := 0
-		if leg.Mode == "not_run" || plan.PublicationExcluded() {
+		switch leg.Mode {
+		case "not_run":
 			want = len(benchmark.Battery)
+		default:
+			if plan.PublicationExcluded() {
+				want += len(benchmark.Battery)
+			}
+			want += len(liveExcluded)
 		}
 		if counts[leg.Backend] != want {
 			return false

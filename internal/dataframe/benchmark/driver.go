@@ -116,6 +116,10 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 	} else if opts.Plan.Publication != nil && opts.Plan.Publication.Run && !opts.ClickHouseEnabled {
 		return nil, nil, fmt.Errorf("benchmark: the publication chain is ClickHouse-backed end to end; refusing to claim it ran without ClickHouseEnabled")
 	}
+	// Live battery law: workloads whose oracle/output agreement is
+	// disproven or unproven are never authored, previewed, or timed on a
+	// live leg; they ship as disclosed blocked rows with named reasons.
+	excludedWorkloads := LiveBatteryExclusions()
 	if err := opts.Config.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -214,8 +218,13 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 				identity.PostgresVersion = version
 			}
 		}
-		report, err := BuildReport(identity, opts.Plan, ControlRuns{},
-			PublicationGateReports(opts.Plan.Legs, opts.Plan.Publication.Capability), nil)
+		plan := opts.Plan
+		plan.PlannedNotRun = append([]PlannedNotRun(nil), opts.Plan.PlannedNotRun...)
+		AppendWorkloadDisclosures(&plan, excludedWorkloads)
+		report, err := BuildReport(identity, plan, ControlRuns{},
+			ApplyExcludedWorkloadGateReports(
+				PublicationGateReports(opts.Plan.Legs, opts.Plan.Publication.Capability),
+				ExcludedWorkloadGateReports(opts.Plan.Legs, excludedWorkloads)), nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("benchmark: excluded-publication report would not verify (refusing to emit): %w", err)
 		}
@@ -238,6 +247,9 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		outputIDs[p.backend] = map[string]string{}
 	}
 	for _, spec := range Battery {
+		if _, skip := excludedWorkloads[spec.ID]; skip {
+			continue // disclosed absence: never authored, never timed
+		}
 		workspace, err := BuildWorkspace(spec.ID)
 		if err != nil {
 			return nil, nil, err
@@ -283,8 +295,11 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 
 	// Pre-timing authorization gate (ruling iii). If the scoped principal
 	// sees anything it was not granted, timings are meaningless: abort
-	// before producing any artifact.
-	authWorkload := WorkloadFilterActiveGender
+	// before producing any artifact. The gate runs on a live-battery
+	// (authoring-proven) workload: an excluded workload is never authored,
+	// so it cannot host the control. Any authored workload exercises the
+	// same fence — the whole fixture set uploads under one auth path.
+	authWorkload := WorkloadGroupCountByPatient
 	baseOpts := RunOptions{
 		Project: opts.Params.Project, Generation: opts.Params.Generation,
 		AuthResourcePath:  opts.Params.AuthResourcePath,
@@ -331,6 +346,9 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		}
 	}
 	for _, spec := range Battery {
+		if _, skip := excludedWorkloads[spec.ID]; skip {
+			continue // disclosed absence: never authored, never timed
+		}
 		ra := RunOptions{Project: baseOpts.Project, Generation: baseOpts.Generation, AuthResourcePath: baseOpts.AuthResourcePath, UnrestrictedToken: baseOpts.UnrestrictedToken, ScopedToken: baseOpts.ScopedToken, PreviewLimit: baseOpts.PreviewLimit, Config: baseOpts.Config, SourceCommit: baseOpts.SourceCommit,
 			Explorer: explorerIDByWorkload[spec.ID]}
 		rc := map[string]string{}
@@ -380,6 +398,9 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		}
 		gateReports = append(gateReports, report)
 	}
+	// Registry-excluded workloads appear as disclosed blocked rows, never
+	// as missing rows: the report says exactly what did not run and why.
+	gateReports = append(gateReports, ExcludedWorkloadGateReports(opts.Plan.Legs, excludedWorkloads)...)
 
 	// Control runs.
 	controls := ControlRuns{
@@ -438,7 +459,10 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 		}
 	}
 
-	report, err := BuildReport(identity, opts.Plan, controls, gateReports, allSamples)
+	plan := opts.Plan
+	plan.PlannedNotRun = append([]PlannedNotRun(nil), opts.Plan.PlannedNotRun...)
+	AppendWorkloadDisclosures(&plan, excludedWorkloads)
+	report, err := BuildReport(identity, plan, controls, gateReports, allSamples)
 	if err != nil {
 		return nil, nil, fmt.Errorf("benchmark: report would not verify (refusing to emit): %w", err)
 	}

@@ -153,6 +153,8 @@ func TestPlanNotRunMatchesBatteryBothWays(t *testing.T) {
 	}
 	only := benchmark.PostgresOnlyPlan("cap a")
 	only.PlannedNotRun = benchmark.PlannedNotRunForBackends(only.NotRunBackends())
+	// the ran leg must also carry one disclosure row per excluded workload
+	benchmark.AppendWorkloadDisclosures(&only, benchmark.LiveBatteryExclusions())
 	if !planNotRunMatchesBattery(only) {
 		t.Fatal("complete postgres-only disclosure rejected")
 	}
@@ -163,6 +165,19 @@ func TestPlanNotRunMatchesBatteryBothWays(t *testing.T) {
 	only.PlannedNotRun = append(only.PlannedNotRun, benchmark.PlannedNotRun{WorkloadID: "filter-active-gender", Backend: benchmark.BackendPostgres, Reason: "extra"})
 	if planNotRunMatchesBattery(only) {
 		t.Fatal("disclosure row for a ran leg accepted")
+	}
+	// a ran-leg workload row must match the registry exactly
+	forged := benchmark.PostgresOnlyPlan("cap a")
+	forged.PlannedNotRun = benchmark.PlannedNotRunForBackends(forged.NotRunBackends())
+	benchmark.AppendWorkloadDisclosures(&forged, benchmark.LiveBatteryExclusions())
+	for i := range forged.PlannedNotRun {
+		if strings.HasPrefix(forged.PlannedNotRun[i].Reason, benchmark.WorkloadNotRunReason) {
+			forged.PlannedNotRun[i].Reason = benchmark.WorkloadNotRunReason + "because I said so"
+			break
+		}
+	}
+	if planNotRunMatchesBattery(forged) {
+		t.Fatal("registry-mismatched workload disclosure accepted")
 	}
 }
 

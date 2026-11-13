@@ -84,6 +84,24 @@ type PublicationPlan struct {
 	Capability string `json:"capability,omitempty"`
 }
 
+// ApplyExcludedWorkloadGateReports replaces any gate report for an
+// excluded workload with its disclosed blocked row, so no construction
+// path can leave a marker-less (or worse, claiming) row for a workload
+// that was never allowed to run.
+func ApplyExcludedWorkloadGateReports(gates, excludedReports []WorkloadGateReport) []WorkloadGateReport {
+	excludedIDs := map[string]bool{}
+	for _, g := range excludedReports {
+		excludedIDs[g.WorkloadID] = true
+	}
+	out := make([]WorkloadGateReport, 0, len(gates)+len(excludedReports))
+	for _, g := range gates {
+		if !excludedIDs[g.WorkloadID] {
+			out = append(out, g)
+		}
+	}
+	return append(out, excludedReports...)
+}
+
 // PublicationExcluded reports whether the plan declares the publication
 // chain not run. A nil plan means the field predates the exclusion model
 // and is treated as run for leg/scope checks; VerifyReport still rejects a
@@ -95,6 +113,90 @@ func (p RunPlan) PublicationExcluded() bool {
 // PublicationChainReason prefixes disclosure rows created by excluding
 // the publication chain; VerifyReport recognizes the exclusion by it.
 const PublicationChainReason = "publication chain not run: "
+
+// WorkloadNotRunReason prefixes disclosure rows for a single workload
+// excluded from live legs (disproven or unproven oracle/output agreement);
+// VerifyReport recognizes the exclusion by it.
+const WorkloadNotRunReason = "workload not run: "
+
+// LegNotRunReason prefixes disclosure rows and blocked-arm details for a
+// leg that did not execute at all.
+const LegNotRunReason = "leg not run: "
+
+// LiveBatteryExclusionMarker prefixes the ExclusionReason of gate reports
+// built by ExcludedWorkloadGateReports. RunStatusScoped skips these rows
+// (they are disclosed absences, not failures); VerifyReport is what ties
+// the marker back to LiveBatteryExclusions() so it cannot be forged onto
+// a workload the harness could have run.
+const LiveBatteryExclusionMarker = "live battery exclusion: "
+
+// AppendWorkloadDisclosures adds the disclosure rows for excluded
+// workloads on every running leg, skipping rows already present. Both
+// benchcli (preflight) and the driver (final plan copy) call it, so it
+// must be idempotent.
+func AppendWorkloadDisclosures(plan *RunPlan, excluded map[string]string) {
+	seen := map[string]bool{}
+	for _, row := range plan.PlannedNotRun {
+		seen[row.WorkloadID+"|"+row.Backend+"|"+row.Reason] = true
+	}
+	for _, row := range WorkloadDisclosures(plan.Legs, excluded) {
+		if !seen[row.WorkloadID+"|"+row.Backend+"|"+row.Reason] {
+			plan.PlannedNotRun = append(plan.PlannedNotRun, row)
+		}
+	}
+}
+
+// WorkloadDisclosures expands the per-workload exclusions across every
+// running leg, so an excluded workload cannot quietly keep gate or timing
+// rows on a leg that was never allowed to run it.
+func WorkloadDisclosures(legs []LegPlan, excluded map[string]string) []PlannedNotRun {
+	var rows []PlannedNotRun
+	for _, leg := range legs {
+		if leg.Mode != "run" {
+			continue
+		}
+		for _, spec := range Battery {
+			if reason, ok := excluded[spec.ID]; ok {
+				rows = append(rows, PlannedNotRun{
+					WorkloadID: spec.ID, Backend: leg.Backend,
+					Reason: WorkloadNotRunReason + reason,
+				})
+			}
+		}
+	}
+	return rows
+}
+
+// ExcludedWorkloadGateReports builds the blocked gate reports for
+// excluded workloads: running legs blocked by the workload reason,
+// not-run legs by their leg capability. Claimable stays false.
+func ExcludedWorkloadGateReports(legs []LegPlan, excluded map[string]string) []WorkloadGateReport {
+	legCapability := map[string]string{}
+	for _, leg := range legs {
+		if leg.Mode != "run" {
+			legCapability[leg.Backend] = leg.Capability
+		}
+	}
+	detail := func(backend, workloadID string) string {
+		if cap, blocked := legCapability[backend]; blocked {
+			return LegNotRunReason + cap
+		}
+		return WorkloadNotRunReason + excluded[workloadID]
+	}
+	var reports []WorkloadGateReport
+	for _, spec := range Battery {
+		if _, ok := excluded[spec.ID]; !ok {
+			continue
+		}
+		reports = append(reports, WorkloadGateReport{
+			WorkloadID:      spec.ID,
+			Arango:          BackendResult{Backend: BackendArango, Outcome: OutcomeLabelBlocked, Detail: detail(BackendArango, spec.ID)},
+			Postgres:        BackendResult{Backend: BackendPostgres, Outcome: OutcomeLabelBlocked, Detail: detail(BackendPostgres, spec.ID)},
+			ExclusionReason: LiveBatteryExclusionMarker + detail(BackendArango, spec.ID) + " | " + detail(BackendPostgres, spec.ID),
+		})
+	}
+	return reports
+}
 
 // PublicationDisclosures expands the publication-chain exclusion across
 // every battery workload of every running leg, so "publish excluded"
@@ -130,7 +232,7 @@ func PublicationGateReports(legs []LegPlan, capability string) []WorkloadGateRep
 	}
 	detail := func(backend string) string {
 		if cap, blocked := legCapability[backend]; blocked {
-			return "leg not run: " + cap
+			return LegNotRunReason + cap
 		}
 		return PublicationChainReason + capability
 	}
@@ -231,7 +333,7 @@ func PlannedGateReports(legs []LegPlan) []WorkloadGateReport {
 	for _, leg := range legs {
 		capability[leg.Backend] = leg.Capability
 	}
-	detail := func(backend string) string { return "leg not run: " + capability[backend] }
+	detail := func(backend string) string { return LegNotRunReason + capability[backend] }
 	var reports []WorkloadGateReport
 	for _, spec := range Battery {
 		reports = append(reports, WorkloadGateReport{
@@ -327,7 +429,7 @@ func (p RunPlan) NotRunBackends() []string {
 // did not run, so gates can distinguish "expectedly absent" from "failed".
 func ExpectedOutcomeForScope(leg LegPlan) (WorkloadOutcome, string) {
 	if leg.Mode == "not_run" {
-		return OutcomeLabelBlocked, "leg not run: " + leg.Capability
+		return OutcomeLabelBlocked, LegNotRunReason + leg.Capability
 	}
 	return "", ""
 }
@@ -364,6 +466,15 @@ func RunStatusScoped(reports []WorkloadGateReport, scope string) (string, []stri
 				continue
 			}
 			armOutcomes = []WorkloadOutcome{report.Postgres.Outcome}
+		}
+		if strings.HasPrefix(report.ExclusionReason, LiveBatteryExclusionMarker) {
+			// A disclosed live-battery exclusion is neither a pass nor
+			// a failure: it is a named absence. VerifyReport ties the
+			// marker to LiveBatteryExclusions() and requires the
+			// blocked posture, a disclosure row, and zero samples for
+			// every such row; a marker on anything else is refused
+			// there, so skipping here cannot launder a blocked run.
+			continue
 		}
 		blocked := false
 		for _, outcome := range armOutcomes {

@@ -102,3 +102,46 @@ func TestAuthoringVerificationNoneRejected(t *testing.T) {
 		}
 	}
 }
+
+// TestLiveBatteryExclusionsRegistry pins the live battery law from review
+// r4559430560: a live leg runs exactly the authoring-proven workloads,
+// and every exclusion carries a named reason. A silent exclusion is the
+// same deception class the report verifier exists to refuse.
+func TestLiveBatteryExclusionsRegistry(t *testing.T) {
+	exclusions := LiveBatteryExclusions()
+	statuses := AuthoringVerification()
+	live := 0
+	for _, spec := range Battery {
+		reason, excluded := exclusions[spec.ID]
+		if statuses[spec.ID] == AuthoringProven && !unverifiedWorkloads[spec.ID] {
+			if excluded {
+				t.Errorf("%s: proven workload excluded from live legs: %q", spec.ID, reason)
+			}
+			live++
+			continue
+		}
+		if !excluded {
+			t.Errorf("%s: unproven verdict %q not excluded from live legs", spec.ID, statuses[spec.ID])
+			continue
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("%s: exclusion without a named reason", spec.ID)
+		}
+	}
+	if live == 0 {
+		t.Fatal("live battery is empty: nothing would ever be timed")
+	}
+	if live == len(Battery) {
+		t.Fatal("nothing is excluded: the disproven oracle rows must stay out of live legs")
+	}
+	// The two review findings must be named in the registry with their
+	// actual defects, not generic prose.
+	if r := exclusions[WorkloadDeriveAgeBand]; !strings.Contains(r, "DISTINCT_VALUES") ||
+		!strings.Contains(r, "band labels") || !strings.Contains(r, "valueQuantity.value") {
+		t.Errorf("derive-age-band exclusion must name the oracle/workspace defect: %q", r)
+	}
+	if r := exclusions[WorkloadSortLimitTopN]; !strings.Contains(r, "name[].family") ||
+		!strings.Contains(r, "first-only") {
+		t.Errorf("sort-limit-topn exclusion must name the multi-family risk: %q", r)
+	}
+}

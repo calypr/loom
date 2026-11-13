@@ -100,13 +100,24 @@ func TestDriverBothArmsProtocol(t *testing.T) {
 	if len(evidence) != 2 || evidence[0].Backend != BackendArango {
 		t.Fatalf("evidence: %+v", evidence)
 	}
-	// both arms must have uploaded the dataset and authored every workload
+	// both arms must have uploaded the dataset and authored every
+	// live-battery (proven) workload; registry-excluded workloads are
+	// never authored (review r4559430560)
+	live := 0
+	for _, spec := range Battery {
+		if _, excluded := LiveBatteryExclusions()[spec.ID]; !excluded {
+			live++
+		}
+	}
+	if live == 0 || live == len(Battery) {
+		t.Fatalf("expected a partially excluded live battery, got %d of %d", live, len(Battery))
+	}
 	for name, f := range map[string]*fakeArm{"arango": fa, "postgres": fp} {
 		if f.uploads != 1 {
 			t.Fatalf("%s: uploads=%d want 1", name, f.uploads)
 		}
-		if f.publish != len(Battery)+1 { // + empty floor
-			t.Fatalf("%s: publish=%d want %d", name, f.publish, len(Battery)+1)
+		if f.publish != live+1 { // + empty floor
+			t.Fatalf("%s: publish=%d want %d", name, f.publish, live+1)
 		}
 	}
 	// round-trip the artifact
