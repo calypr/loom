@@ -86,7 +86,27 @@ export function readReportSummary(path) {
     legs: (raw.plan?.legs ?? []).map((leg) => `${leg.backend}:${leg.mode}${leg.capability ? `(${leg.capability})` : ''}`),
     plannedNotRun: (raw.plan?.plannedNotRun ?? []).length,
     claims: (raw.claims ?? []).length,
+    samples: (raw.samples ?? []).length,
+    summaries: (raw.summaries ?? []).length,
   };
+}
+
+// Skip-capture discipline: a planned disclosure artifact must carry zero
+// measurement evidence — any sample, summary row, or claim that escaped a
+// not_run leg is a FAIL, never a disclosure. Null for non-planned reports;
+// the Go verifier stays the authority that the disclosure is consistent.
+export function classifyPlannedDisclosure(summary) {
+  if (summary.scope !== 'planned') return null;
+  if (!summary.legs.every((leg) => leg.includes(':not_run'))) {
+    return { status: 'fail', disclosure: 'planned artifact declares a leg that ran' };
+  }
+  if (summary.claims !== 0 || summary.samples !== 0 || summary.summaries !== 0) {
+    return {
+      status: 'fail',
+      disclosure: `planned artifact captured measurement evidence (samples=${summary.samples}, summaries=${summary.summaries}, claims=${summary.claims})`,
+    };
+  }
+  return { status: 'not_run', disclosure: `planned artifact disclosed: ${summary.legs.length} not_run legs, zero timing captured` };
 }
 
 export function run(flags, deps = {}) {
@@ -107,6 +127,27 @@ export function run(flags, deps = {}) {
     const outcome = classifyRunExit(result.status);
     log(formatCheckLine('live-run', outcome.status, outcome.disclosure ?? undefined));
     if (outcome.status === 'not_run') {
+      const reportPath = `${flags.out}/report.json`;
+      if (existsSync(reportPath)) {
+        // A planned run writes its disclosure artifact and still exits 3.
+        // Classify it here and let the Go verifier keep authority.
+        const summary = readReportSummary(reportPath);
+        const planned = classifyPlannedDisclosure(summary);
+        if (planned && planned.status === 'fail') {
+          log(formatCheckLine(CHECK_LIVE, 'fail', planned.disclosure));
+          failures += 1;
+          return failures;
+        }
+        const verify = live(buildVerifyInvocation({ ...flags, report: reportPath }));
+        const verified = classifyVerifyExit(verify.status);
+        log(formatCheckLine(CHECK_LIVE, 'not_run',
+          `${(planned ?? { disclosure: 'disclosure artifact produced without preflight' }).disclosure}; go verify ${verified.status}`));
+        if (verified.status !== 'pass') {
+          log(formatCheckLine(CHECK_LIVE, 'fail', verified.disclosure));
+          failures += 1;
+        }
+        return failures;
+      }
       log(formatCheckLine(CHECK_LIVE, 'not_run', 'no artifact produced; run stays planned/not_run until the granted window'));
       return failures; // a refused preflight is disclosed, not a failure
     }

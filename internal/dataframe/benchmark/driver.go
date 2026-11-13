@@ -97,6 +97,11 @@ func RunBenchmark(ctx context.Context, opts DriverOptions) (*Report, []ArmEviden
 	if err := ValidateLegPlan(opts.Plan.Scope, opts.Plan.Legs); err != nil {
 		return nil, nil, err
 	}
+	if opts.Plan.Scope == RunScopePlanned {
+		// The live driver spawns, authoring-runs, and times; a planned run
+		// is built through BuildReport+PlannedGateReports, never here.
+		return nil, nil, fmt.Errorf("benchmark: the live driver refuses planned scope; build the planned report directly")
+	}
 	if err := opts.Config.Validate(); err != nil {
 		return nil, nil, err
 	}

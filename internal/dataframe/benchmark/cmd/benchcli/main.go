@@ -61,36 +61,46 @@ func runVerify() {
 }
 
 type runFlags struct {
-	scope             string
-	preset            string
-	seed              uint64
-	project           string
-	generation        string
-	authResourcePath  string
-	warmup            int
-	iterations        int
-	rounds            int
-	concurrency       int
-	previewLimit      int
-	binary            string
-	stderrDir         string
-	postgresAttachURL string
-	postgresDSN       string
-	arangoAttachURL   string
-	arangoDSN         string
-	tokenUnrestricted string
-	tokenScoped       string
-	out               string
-	runID             string
-	sourceCommit      string
-	windowNote        string
-	emptyFloorIters   int
+	scope              string
+	preset             string
+	seed               uint64
+	project            string
+	generation         string
+	authResourcePath   string
+	warmup             int
+	iterations         int
+	rounds             int
+	concurrency        int
+	previewLimit       int
+	binary             string
+	stderrDir          string
+	postgresAttachURL  string
+	postgresDSN        string
+	arangoAttachURL    string
+	arangoDSN          string
+	tokenUnrestricted  string
+	tokenScoped        string
+	out                string
+	runID              string
+	sourceCommit       string
+	windowNote         string
+	emptyFloorIters    int
+	arangoCapability   string
+	postgresCapability string
 }
+
+// Default capabilities cited by planned not_run legs. The postgres one
+// names the blocking finding so the artifact itself carries the reason a
+// live leg was impossible.
+const (
+	defaultArangoCapability   = "no ArangoDB service in this execution environment; go-arango CI lane targets this leg"
+	defaultPostgresCapability = "blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS: the scoped calypr lane cannot ingest datasets on postgres; the catalog read lane refuses the all-generations auth-path listing that AuthorizeWrite's project binding requires (see pg-pg-auth-path-discovery-allgens-evidence.md)"
+)
 
 func runLive() {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	var f runFlags
-	fs.StringVar(&f.scope, "scope", benchmark.RunScopePostgresOnly, "both-arms | postgres-only")
+	fs.StringVar(&f.scope, "scope", benchmark.RunScopePostgresOnly, "both-arms | postgres-only | planned")
 	fs.StringVar(&f.preset, "preset", benchmark.PresetTiny, "dataset preset: tiny | small | representative")
 	fs.Uint64Var(&f.seed, "seed", 7, "deterministic dataset seed")
 	fs.StringVar(&f.project, "project", "loom-bench", "benchmark project namespace")
@@ -114,6 +124,8 @@ func runLive() {
 	fs.StringVar(&f.sourceCommit, "source-commit", "", "full 40-hex SHA the arms were built from")
 	fs.StringVar(&f.windowNote, "window-note", "", "who granted the exclusive window and when (recorded in arms.json)")
 	fs.IntVar(&f.emptyFloorIters, "empty-floor-iterations", 5, "iterations for the empty-result floor control")
+	fs.StringVar(&f.arangoCapability, "arango-capability", defaultArangoCapability, "capability cited by the arango not_run legs (planned scope)")
+	fs.StringVar(&f.postgresCapability, "postgres-capability", defaultPostgresCapability, "capability cited by the postgres not_run legs (planned scope)")
 	_ = fs.Parse(os.Args[2:])
 
 	// Fail-closed preflight (exit 3: refused to run; exit 1: ran and failed).
@@ -121,14 +133,18 @@ func runLive() {
 		fmt.Fprintf(os.Stderr, "benchcli run: BLOCKED — "+format+"\n", args...)
 		os.Exit(3)
 	}
+	if !benchmark.ValidScope(f.scope) {
+		preflight("unknown scope %q", f.scope)
+	}
+	if f.scope == benchmark.RunScopePlanned {
+		runPlanned(f, preflight)
+		return
+	}
 	if os.Getenv("LOOM_BENCH_LIVE") != "1" {
 		preflight("live runs require the exclusive window granted by the coordinator (LOOM_BENCH_LIVE=1)")
 	}
 	if strings.TrimSpace(f.windowNote) == "" {
 		preflight("--window-note must record the granted window (granter + time) before any live run")
-	}
-	if !benchmark.ValidScope(f.scope) {
-		preflight("unknown scope %q", f.scope)
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(f.sourceCommit) {
 		preflight("--source-commit must be the full 40-hex SHA of the built source")
@@ -224,30 +240,116 @@ func runLive() {
 	}
 
 	// Artifacts: report.json, report.md, arms.json (operational evidence).
+	manifest := map[string]any{"runId": f.runID, "windowNote": f.windowNote, "arms": evidence}
+	if d.fence != nil {
+		manifest["fenceRequests"] = d.fence.Requests()
+	}
+	writeRunArtifacts(f.out, report, manifest)
+	fmt.Printf("benchcli run: OK run=%s scope=%s status=%s claims=%d out=%s\n",
+		report.Identity.RunID, report.Plan.Scope, report.Status, len(report.Claims), f.out)
+}
+
+// writeRunArtifacts emits the canonical three-file artifact set. Every
+// report the CLI produces goes through here so verify sees identical bytes
+// shape from live and planned runs.
+func writeRunArtifacts(out string, report *benchmark.Report, manifest map[string]any) {
 	reportJSON, err := benchmark.MarshalReport(report)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "benchcli run: marshal: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(filepath.Join(f.out, "report.json"), reportJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(out, "report.json"), reportJSON, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "benchcli run: write report: %v\n", err)
 		os.Exit(1)
 	}
-	if err := os.WriteFile(filepath.Join(f.out, "report.md"), []byte(benchmark.RenderMarkdown(report)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(out, "report.md"), []byte(benchmark.RenderMarkdown(report)), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "benchcli run: write markdown: %v\n", err)
 		os.Exit(1)
 	}
-	manifest := map[string]any{"runId": f.runID, "windowNote": f.windowNote, "arms": evidence}
-	if d.fence != nil {
-		manifest["fenceRequests"] = d.fence.Requests()
-	}
 	manifestJSON, _ := json.MarshalIndent(manifest, "", " ")
-	if err := os.WriteFile(filepath.Join(f.out, "arms.json"), manifestJSON, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(out, "arms.json"), manifestJSON, 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "benchcli run: write arms manifest: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("benchcli run: OK run=%s scope=%s status=%s claims=%d out=%s\n",
-		report.Identity.RunID, report.Plan.Scope, report.Status, len(report.Claims), f.out)
+}
+
+// runPlanned emits the fully-disclosed pre-window artifact: both legs
+// not_run with named capabilities, every workload blocked in the gates,
+// zero controls, zero samples, zero claims. It touches no service, so no
+// live window is needed; it refuses every live flag so it can never
+// masquerade as a live run. Exit 3 = disclosed not_run, never a pass.
+func runPlanned(f runFlags, preflight func(string, ...any)) {
+	live := []struct {
+		name  string
+		value string
+	}{
+		{"binary", f.binary}, {"stderr-dir", f.stderrDir},
+		{"postgres-url", f.postgresAttachURL}, {"postgres-dsn", f.postgresDSN},
+		{"arango-url", f.arangoAttachURL}, {"arango-dsn", f.arangoDSN},
+		{"token-unrestricted", f.tokenUnrestricted}, {"token-scoped", f.tokenScoped},
+		{"window-note", f.windowNote},
+	}
+	for _, l := range live {
+		if strings.TrimSpace(l.value) != "" {
+			preflight("planned scope refuses --%s: nothing may run in a planned run", l.name)
+		}
+	}
+	if strings.TrimSpace(f.arangoCapability) == "" || strings.TrimSpace(f.postgresCapability) == "" {
+		preflight("planned scope must name a capability for each not_run leg")
+	}
+	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(f.sourceCommit) {
+		preflight("--source-commit must be the full 40-hex SHA of the built source")
+	}
+	if _, err := os.Stat(filepath.Join(f.out, "report.json")); err == nil {
+		preflight("%s/report.json already exists; use a fresh --out directory", f.out)
+	}
+	if f.runID == "" {
+		f.runID = fmt.Sprintf("bench-%s-%s", time.Now().UTC().Format("20060102T150405Z"), randomRunIDSuffix())
+	}
+	if f.generation == "" {
+		f.generation = f.runID
+	}
+	if err := os.MkdirAll(f.out, 0o755); err != nil {
+		preflight("cannot create --out: %v", err)
+	}
+	params := benchmark.DatasetParams{Preset: f.preset, Seed: f.seed, Project: f.project,
+		Generation: f.generation, AuthResourcePath: f.authResourcePath}
+	files, err := benchmark.GenerateFiles(params)
+	if err != nil {
+		preflight("planned report needs the deterministic fixture digest: %v", err)
+	}
+	plan := benchmark.PlannedPlan(f.arangoCapability, f.postgresCapability)
+	plan.PlannedNotRun = benchmark.PlannedNotRunForBackends(plan.NotRunBackends())
+	capability := map[string]string{}
+	for _, leg := range plan.Legs {
+		capability[leg.Backend] = leg.Capability
+	}
+	for i := range plan.PlannedNotRun {
+		plan.PlannedNotRun[i].Reason = "leg not run: " + capability[plan.PlannedNotRun[i].Backend]
+	}
+	if !planNotRunMatchesBattery(plan) {
+		fmt.Fprintln(os.Stderr, "benchcli run: internal plan inconsistency")
+		os.Exit(1)
+	}
+	identity := benchmark.RunIdentity{
+		RunID: f.runID, StartedAt: time.Now().UTC(), Preset: f.preset,
+		SourceCommit: f.sourceCommit, DatasetDigest: files.Digest,
+		ClickHouseDisabled: true,
+		Config:             benchmark.RunConfig{Warmup: f.warmup, Iterations: f.iterations, Concurrency: f.concurrency, Rounds: f.rounds},
+	}
+	report, err := benchmark.BuildReport(identity, plan, benchmark.ControlRuns{}, benchmark.PlannedGateReports(plan.Legs), nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "benchcli run: planned report: %v\n", err)
+		os.Exit(1)
+	}
+	manifest := map[string]any{
+		"runId": f.runID, "planned": true, "arms": []any{},
+		"capabilities": map[string]string{benchmark.BackendArango: f.arangoCapability, benchmark.BackendPostgres: f.postgresCapability},
+	}
+	writeRunArtifacts(f.out, report, manifest)
+	fmt.Printf("benchcli run: PLANNED run=%s scope=planned status=%s claims=0 out=%s (nothing measured; exit 3 = disclosed not_run)\n",
+		report.Identity.RunID, report.Status, f.out)
+	os.Exit(3)
 }
 
 func planNotRunMatchesBattery(plan benchmark.RunPlan) bool {

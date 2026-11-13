@@ -15,10 +15,17 @@ import (
 const (
 	RunScopeBothArms     = "both-arms"
 	RunScopePostgresOnly = "postgres-only"
+	// RunScopePlanned is the fully-disclosed pre-window artifact: no leg
+	// ran, every leg is not_run with its missing capability named, and the
+	// report can carry no claims. It exists so a blocked session (e.g.
+	// PG-PG-AUTH-PATH-DISCOVERY-ALLGENS) publishes an honest planned
+	// report instead of staying silent or dressing an empty matrix up as
+	// a pass.
+	RunScopePlanned = "planned"
 )
 
 func ValidScope(scope string) bool {
-	return scope == RunScopeBothArms || scope == RunScopePostgresOnly
+	return scope == RunScopeBothArms || scope == RunScopePostgresOnly || scope == RunScopePlanned
 }
 
 // LegPlan declares one backend arm's participation in the run.
@@ -71,6 +78,20 @@ func PostgresOnlyPlan(arangoCapability string) RunPlan {
 	}
 }
 
+// PlannedPlan is the pre-window disclosure plan: both legs not_run, each
+// with its missing capability named verbatim (finding ids welcome, e.g.
+// "blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS: ..."). A planned run
+// measures nothing and claims nothing; VerifyReport enforces that.
+func PlannedPlan(arangoCapability, postgresCapability string) RunPlan {
+	return RunPlan{
+		Scope: RunScopePlanned,
+		Legs: []LegPlan{
+			{Backend: BackendArango, Mode: "not_run", Capability: arangoCapability},
+			{Backend: BackendPostgres, Mode: "not_run", Capability: postgresCapability},
+		},
+	}
+}
+
 // PlannedNotRunForBackends expands one disclosure reason across every
 // battery workload for each not-run leg, so no row can be quietly dropped.
 func PlannedNotRunForBackends(backends []string) []PlannedNotRun {
@@ -81,6 +102,29 @@ func PlannedNotRunForBackends(backends []string) []PlannedNotRun {
 		}
 	}
 	return rows
+}
+
+// PlannedGateReports builds the honest per-workload gate reports for a
+// planned run: every arm blocked with its leg capability in the detail,
+// nothing claimable. VerifyReport's not-run rules (blocked arm, disclosure
+// row, zero samples/claims) then bind the artifact.
+func PlannedGateReports(legs []LegPlan) []WorkloadGateReport {
+	capability := map[string]string{}
+	for _, leg := range legs {
+		capability[leg.Backend] = leg.Capability
+	}
+	detail := func(backend string) string { return "leg not run: " + capability[backend] }
+	var reports []WorkloadGateReport
+	for _, spec := range Battery {
+		reports = append(reports, WorkloadGateReport{
+			WorkloadID: spec.ID,
+			Arango:     BackendResult{Backend: BackendArango, Outcome: OutcomeLabelBlocked, Detail: detail(BackendArango)},
+			Postgres:   BackendResult{Backend: BackendPostgres, Outcome: OutcomeLabelBlocked, Detail: detail(BackendPostgres)},
+			// Claimable stays false: a planned run measured nothing.
+			ExclusionReason: "planned run: " + detail(BackendArango) + " | " + detail(BackendPostgres),
+		})
+	}
+	return reports
 }
 
 // ValidateLegPlan checks the plan is total, closed, and honest.
@@ -110,6 +154,12 @@ func ValidateLegPlan(scope string, legs []LegPlan) error {
 		}
 	}
 	switch scope {
+	case RunScopePlanned:
+		for _, backend := range []string{BackendArango, BackendPostgres} {
+			if byBackend[backend].Mode != "not_run" || strings.TrimSpace(byBackend[backend].Capability) == "" {
+				return fmt.Errorf("benchmark: planned scope requires %s not_run WITH a named capability", backend)
+			}
+		}
 	case RunScopePostgresOnly:
 		if byBackend[BackendPostgres].Mode != "run" {
 			return fmt.Errorf("benchmark: postgres-only scope requires the postgres leg to run")
@@ -177,6 +227,16 @@ func RunStatusScoped(reports []WorkloadGateReport, scope string) (string, []stri
 	sort.Slice(byID, func(i, j int) bool { return byID[i].WorkloadID < byID[j].WorkloadID })
 	var reasons []string
 	for _, report := range byID {
+		if scope == RunScopePlanned {
+			// Nothing ran. Both arms must carry the expected blocked
+			// posture with their capability in the detail; anything else
+			// (a passed arm, a measured-looking row) is a forgery signal.
+			if report.Arango.Outcome != OutcomeLabelBlocked || report.Postgres.Outcome != OutcomeLabelBlocked {
+				reasons = append(reasons, fmt.Sprintf("%s: planned run must show both arms blocked, got arango=%s postgres=%s",
+					report.WorkloadID, report.Arango.Outcome, report.Postgres.Outcome))
+			}
+			continue
+		}
 		armOutcomes := []WorkloadOutcome{report.Arango.Outcome, report.Postgres.Outcome}
 		if scope == RunScopePostgresOnly {
 			// Only the PostgreSQL arm decides; the Arango arm must be the

@@ -197,14 +197,8 @@ func VerifyReport(report *Report) error {
 	if !sha256HexRe.MatchString(report.Identity.DatasetDigest) {
 		return fmt.Errorf("benchmark report: dataset digest is not sha256 hex")
 	}
-	// Controls must have been run.
-	if report.Controls.StabilityCVLimit <= 0 || report.Controls.RatioPolicy == "" {
-		return fmt.Errorf("benchmark report: measurement controls were not run (missing stability limit or ratio policy)")
-	}
-	if report.Controls.EmptyFloorMillis <= 0 {
-		return fmt.Errorf("benchmark report: empty-result floor control was not run")
-	}
-	// The leg plan must be total, closed, and scope-consistent.
+	// The leg plan must be total, closed, and scope-consistent. This runs
+	// first because the control rules below branch on how many legs ran.
 	if err := ValidateLegPlan(report.Plan.Scope, report.Plan.Legs); err != nil {
 		return fmt.Errorf("benchmark report: %w", err)
 	}
@@ -212,9 +206,29 @@ func VerifyReport(report *Report) error {
 		return fmt.Errorf("benchmark report: %w", err)
 	}
 	notRun := map[string]string{}
+	runLegs := 0
 	for _, leg := range report.Plan.Legs {
 		if leg.Mode == "not_run" {
 			notRun[leg.Backend] = leg.Capability
+		} else {
+			runLegs++
+		}
+	}
+	if runLegs > 0 {
+		// A run that measured anything must show the controls ran.
+		if report.Controls.StabilityCVLimit <= 0 || report.Controls.RatioPolicy == "" {
+			return fmt.Errorf("benchmark report: measurement controls were not run (missing stability limit or ratio policy)")
+		}
+		if report.Controls.EmptyFloorMillis <= 0 {
+			return fmt.Errorf("benchmark report: empty-result floor control was not run")
+		}
+	} else {
+		// Planned report: nothing ran, so a control that claims to have run
+		// is a forgery path (stolen limits, borrowed floors, ratio cover).
+		c := report.Controls
+		if c.StabilityCVLimit != 0 || c.EmptyFloorMillis != 0 || c.SelfRatioArango != 0 ||
+			c.SelfRatioPostgres != 0 || c.RatioPolicy != "" || len(c.UnstableCells) != 0 {
+			return fmt.Errorf("benchmark report: control values claimed although no leg ran")
 		}
 	}
 	// Live versions: a run leg must carry one; a not-run leg may not claim

@@ -195,3 +195,117 @@ func TestRenderMarkdown(t *testing.T) {
 		t.Fatal("postgres-only markdown must not contain a claims table")
 	}
 }
+
+// The planned scope is the pre-window disclosure artifact: nothing ran, so
+// nothing may be claimed — not a sample, not a summary, not a control, not
+// a version. These tests pin the honest shape and every deception path.
+
+func plannedValidReport(t *testing.T) *Report {
+	t.Helper()
+	identity := RunIdentity{
+		RunID: "bench-planned-a", StartedAt: time.Unix(1700000000, 0).UTC(),
+		Preset: PresetTiny, SourceCommit: strings.Repeat("a", 40),
+		DatasetDigest:      strings.Repeat("b", 64),
+		ClickHouseDisabled: true,
+		Config:             RunConfig{Warmup: 1, Iterations: 4, Concurrency: 1, Rounds: 2},
+	}
+	plan := PlannedPlan(
+		"no ArangoDB service in this execution environment; go-arango CI lane targets this leg",
+		"blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS: the scoped calypr lane cannot ingest on postgres")
+	plan.PlannedNotRun = PlannedNotRunForBackends(plan.NotRunBackends())
+	report, err := BuildReport(identity, plan, ControlRuns{}, PlannedGateReports(plan.Legs), nil)
+	if err != nil {
+		t.Fatalf("valid planned report build failed: %v", err)
+	}
+	if report.Status != "failed" || len(report.Claims) != 0 {
+		t.Fatalf("planned report must be failed with zero claims, got %s / %d claims", report.Status, len(report.Claims))
+	}
+	if want := 2 * len(Battery); len(report.Plan.PlannedNotRun) != want || len(report.GateReports) != len(Battery) {
+		t.Fatalf("planned disclosure must cover the whole battery both legs: %d rows, %d gates, want %d/%d",
+			len(report.Plan.PlannedNotRun), len(report.GateReports), want, len(Battery))
+	}
+	return report
+}
+
+func TestPlannedReportRoundTrips(t *testing.T) {
+	loaded := roundTrip(t, plannedValidReport(t))
+	if loaded.Plan.Scope != RunScopePlanned || loaded.Status != "failed" || len(loaded.Claims) != 0 {
+		t.Fatalf("planned round trip drifted: %+v", loaded.Plan)
+	}
+	if strings.Contains(RenderMarkdown(loaded), "arango/postgres |") {
+		t.Fatal("planned markdown must not contain a claims table")
+	}
+}
+
+func forgePlanned(t *testing.T, mutate func(*Report)) func(*testing.T) {
+	return func(t *testing.T) {
+		t.Helper()
+		report := plannedValidReport(t)
+		mutate(report)
+		data, err := json.Marshal(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadReport(data); err == nil {
+			t.Fatal("forged planned report survived verification")
+		}
+	}
+}
+
+func TestPlannedForgerySuite(t *testing.T) {
+	cases := map[string]func(*Report){
+		"planned-leg-marked-run":     func(r *Report) { r.Plan.Legs[1].Mode = "run" },
+		"planned-capability-blanked": func(r *Report) { r.Plan.Legs[1].Capability = " " },
+		"planned-arm-shown-passed": func(r *Report) {
+			r.GateReports[0].Postgres.Outcome = OutcomeLabelPassed
+			r.GateReports[0].Postgres.RowCount = 5
+			r.GateReports[0].Claimable = true
+			r.Status = "passed"
+			r.StatusReasons = nil
+		},
+		"planned-status-flipped-passed": func(r *Report) { r.Status = "passed" },
+		"planned-stolen-control-limits": func(r *Report) { r.Controls.StabilityCVLimit = StabilityCVLimit },
+		"planned-stolen-empty-floor":    func(r *Report) { r.Controls.EmptyFloorMillis = 0.4 },
+		"planned-forged-self-ratio":     func(r *Report) { r.Controls.SelfRatioPostgres = 1.0 },
+		"planned-forged-ratio-policy":   func(r *Report) { r.Controls.RatioPolicy = "ratio-only-both-passed" },
+		"planned-samples-injected": func(r *Report) {
+			r.Samples = append(r.Samples, sample(BackendPostgres, r.GateReports[0].WorkloadID, OutcomePassed, 10, false))
+		},
+		"planned-summaries-injected": func(r *Report) {
+			r.Summaries = append(r.Summaries, SummaryRow{WorkloadID: r.GateReports[0].WorkloadID, Backend: BackendPostgres, Cache: CacheWarm, Summary: Summary{Count: 4, MedianMillis: 9}})
+		},
+		"planned-claim-injected": func(r *Report) {
+			r.Claims = append(r.Claims, Claim{WorkloadID: r.GateReports[0].WorkloadID, Ratio: SpeedRatio{ArangoOverPostgres: 2.0}})
+		},
+		"planned-disclosure-row-dropped": func(r *Report) { r.Plan.PlannedNotRun = r.Plan.PlannedNotRun[1:] },
+		"planned-version-claimed":        func(r *Report) { r.Identity.PostgresVersion = "PostgreSQL 18.x" },
+		"planned-arango-version-claimed": func(r *Report) { r.Identity.ArangoVersion = "3.12.x" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, forgePlanned(t, mutate))
+	}
+}
+
+func TestPlannedLegPlanValidation(t *testing.T) {
+	plan := PlannedPlan("capability a", "capability b")
+	if err := ValidateLegPlan(plan.Scope, plan.Legs); err != nil {
+		t.Fatalf("valid planned plan refused: %v", err)
+	}
+	if err := ValidateLegPlan(RunScopePlanned, []LegPlan{
+		{Backend: BackendArango, Mode: "not_run", Capability: "a"},
+		{Backend: BackendPostgres, Mode: "run"},
+	}); err == nil {
+		t.Fatal("planned scope accepted a run leg")
+	}
+	if err := ValidateLegPlan(RunScopePlanned, []LegPlan{
+		{Backend: BackendArango, Mode: "not_run", Capability: "a"},
+		{Backend: BackendPostgres, Mode: "not_run"},
+	}); err == nil {
+		t.Fatal("planned scope accepted an unnamed capability")
+	}
+	// The live driver must refuse to run a planned scope at all.
+	if _, _, err := RunBenchmark(nil, DriverOptions{Plan: PlannedPlan("a", "b")}); err == nil ||
+		!strings.Contains(err.Error(), "planned scope") {
+		t.Fatalf("driver must refuse planned scope, got %v", err)
+	}
+}

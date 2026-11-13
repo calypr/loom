@@ -121,3 +121,72 @@ test('formatCheckLine is a stable single line', () => {
   assert.equal(formatCheckLine('x', 'pass', 'ok'), 'check x: pass ok');
   assert.equal(formatCheckLine('x', 'fail'), 'check x: fail');
 });
+
+import { classifyPlannedDisclosure } from './benchmark-backends.mjs';
+
+function plannedSummary(overrides = {}) {
+  return {
+    runId: 'bench-planned-a', scope: 'planned', status: 'failed',
+    legs: ['arango:not_run(no ArangoDB service)', 'postgres:not_run(blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS)'],
+    plannedNotRun: 20, claims: 0, samples: 0, summaries: 0,
+    ...overrides,
+  };
+}
+
+test('planned disclosure: clean artifact is not_run, captured timing is fail', () => {
+  const clean = classifyPlannedDisclosure(plannedSummary());
+  assert.equal(clean.status, 'not_run');
+  assert.match(clean.disclosure, /zero timing captured/);
+  for (const bad of [{ samples: 1 }, { summaries: 1 }, { claims: 1 },
+    { legs: ['arango:not_run(x)', 'postgres:run'] }]) {
+    assert.equal(classifyPlannedDisclosure(plannedSummary(bad)).status, 'fail', `skip-capture must refuse ${JSON.stringify(bad)}`);
+  }
+  assert.equal(classifyPlannedDisclosure(plannedSummary({ scope: 'postgres-only' })), null);
+});
+
+test('exit-3 planned artifact is verified by Go and disclosed not_run, never pass', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bench-planned-'));
+  await writeFile(join(dir, 'report.json'), JSON.stringify({
+    identity: { runId: 'bench-planned-a' }, status: 'failed',
+    plan: {
+      scope: 'planned',
+      legs: [{ backend: 'arango', mode: 'not_run', capability: 'no service' },
+        { backend: 'postgres', mode: 'not_run', capability: 'blocked by PG-PG-AUTH-PATH-DISCOVERY-ALLGENS' }],
+      plannedNotRun: [],
+    },
+    claims: [], samples: [], summaries: [],
+  }));
+  const lines = [];
+  const calls = [];
+  const failures = run(parseArgs(['--run', '--out', dir, '--', '--scope', 'planned']), {
+    log: (line) => lines.push(line),
+    exec: (cmd, args) => { calls.push(args); return { status: args.includes('verify') ? 0 : 3 }; },
+  });
+  assert.equal(failures, 0);
+  assert.equal(calls.length, 2, 'planned artifact still goes through Go verify');
+  assert.ok(lines.some((l) => l.includes(`check ${CHECK_LIVE}: not_run`) && l.includes('zero timing captured')));
+  assert.ok(!lines.some((l) => l.includes(': pass')));
+});
+
+test('planned artifact with escaped samples fails the check', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bench-planned-bad-'));
+  await writeFile(join(dir, 'report.json'), JSON.stringify({
+    identity: { runId: 'bench-planned-bad' }, status: 'failed',
+    plan: {
+      scope: 'planned',
+      legs: [{ backend: 'arango', mode: 'not_run', capability: 'no service' },
+        { backend: 'postgres', mode: 'not_run', capability: 'blocked' }],
+      plannedNotRun: [],
+    },
+    claims: [], samples: [{ backend: 'postgres', millis: 12 }], summaries: [],
+  }));
+  const lines = [];
+  const calls = [];
+  const failures = run(parseArgs(['--run', '--out', dir, '--', '--scope', 'planned']), {
+    log: (line) => lines.push(line),
+    exec: (cmd, args) => { calls.push(args); return { status: 3 }; },
+  });
+  assert.equal(failures, 1, 'captured timing in a planned artifact is a failure');
+  assert.equal(calls.length, 1, 'a failing disclosure is not verified green');
+  assert.ok(lines.some((l) => l.includes(`check ${CHECK_LIVE}: fail`) && l.includes('measurement evidence')));
+});
