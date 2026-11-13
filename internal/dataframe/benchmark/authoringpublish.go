@@ -145,8 +145,8 @@ func (a *Arm) PublishReceipt(ctx context.Context, token, project, explorer, rece
 // Timestamps are excluded on purpose; digests are content-derived, so
 // cross-arm equality is the setup-equivalence proof.
 type ExplorerActiveState struct {
-	DraftDigest      string `json:"draftDigest"`
-	ActiveRevisionID string `json:"activeRevisionId"`
+	DraftDigest      string
+	ActiveRevisionID string
 }
 
 // FetchExplorerActiveState reads the explorer's active runtime projection
@@ -163,11 +163,20 @@ func (a *Arm) FetchExplorerActiveState(ctx context.Context, token, project, expl
 		return ExplorerActiveState{}, fmt.Errorf("benchmark: explorer readback on %s: %w", a.Backend, err)
 	}
 	raw, _ := json.Marshal(value)
-	var state ExplorerActiveState
-	if err := json.Unmarshal(raw, &state); err != nil {
+	// The route answers ExplorerStateV1: the draft digest is at
+	// draft.digest and the revision identity at active.revisionId.
+	var wire struct {
+		Draft struct {
+			Digest string `json:"digest"`
+		} `json:"draft"`
+		Active struct {
+			RevisionID string `json:"revisionId"`
+		} `json:"active"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
 		return ExplorerActiveState{}, fmt.Errorf("benchmark: explorer readback shape on %s: %w", a.Backend, err)
 	}
-	return state, nil
+	return ExplorerActiveState{DraftDigest: wire.Draft.Digest, ActiveRevisionID: wire.Active.RevisionID}, nil
 }
 
 // SetupProof is everything the pre-timing matched-state proof compares for

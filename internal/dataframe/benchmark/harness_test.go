@@ -14,6 +14,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	loomexplorer "github.com/calypr/loom/internal/explorer"
 )
 
 // fakeArm serves the public routes the harness uses, with scripted rows per
@@ -43,7 +45,10 @@ type fakeArm struct {
 	publishNoOutputs bool // answers with an empty outputs array
 	activeDigest     string
 	activeRevision   string
-	activationBody   string // when set, publish/explorer-config answer 503 with this body
+	// forceEmptyActiveState serves the server-legal state whose draft
+	// digest is empty, so the fail-closed abort path is testable.
+	forceEmptyActiveState bool
+	activationBody        string // when set, publish/explorer-config answer 503 with this body
 }
 
 func (f *fakeArm) publishedBodies() [][]byte {
@@ -151,15 +156,31 @@ func newFakeArm(backend string) *fakeArm {
 			return
 		case r.Method == http.MethodGet && strings.Contains(path, "/explorers/") && !strings.Contains(path[strings.LastIndex(path, "/explorers/")+len("/explorers/"):], "/"):
 			f.mu.Lock()
-			digest, rev := f.activeDigest, f.activeRevision
+			digest, rev, forceEmpty := f.activeDigest, f.activeRevision, f.forceEmptyActiveState
 			f.mu.Unlock()
-			if digest == "" {
-				digest = "sha256:active-default"
+			if !forceEmpty {
+				if digest == "" {
+					digest = "sha256:active-default"
+				}
+				if rev == "" {
+					rev = "authoring-active-default"
+				}
 			}
-			if rev == "" {
-				rev = "authoring-active-default"
+			// The mock follows the server: it marshals the real
+			// ExplorerStateV1 the route actually answers, so the
+			// client and the mock cannot share a wrong shape.
+			id := path[strings.LastIndex(path, "/explorers/")+len("/explorers/"):]
+			state := loomexplorer.ExplorerStateV1{
+				APIVersion: loomexplorer.ExplorerStateV1APIVersion,
+				Kind:       loomexplorer.ExplorerStateV1Kind,
+				Project:    "proj",
+				ExplorerID: id,
+				Management: loomexplorer.ManagementInteractive,
+				Draft:      loomexplorer.ExplorerStateV1Draft{Version: 1, Digest: digest},
+				Active:     loomexplorer.ExplorerStateV1Active{RevisionID: rev, Status: "PUBLISHED"},
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"draftDigest": digest, "activeRevisionId": rev})
+			state.ActiveURL = "/api/v1/projects/proj/explorers/" + id
+			_ = json.NewEncoder(w).Encode(state)
 			return
 		case strings.Contains(path, "/authoring/v2/preview"):
 			var body map[string]any
