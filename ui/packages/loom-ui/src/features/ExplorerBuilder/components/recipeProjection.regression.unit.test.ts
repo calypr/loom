@@ -1,6 +1,6 @@
 import type { DraftTable } from '../authoring/model';
 import { authoredStages } from './authoredTraversal';
-import { columnPolicy, operationExpression } from './rowRecipeExpression';
+import { columnPolicy, operationExpression } from './rowRecipeProjection';
 const table: DraftTable = { outputId:'subjects',tabId:'subjects',title:'Subjects',document:{kind:'ExplorerBuilderDocument',output:{id:'subjects',title:'Subjects'},rootResourceType:'ResearchSubject',route:{occurrenceId:'base',resourceType:'ResearchSubject'},rows:{kind:'RECORDS',records:{}},columns:[{columnId:'gender_id',column:'subject_gender',label:'Gender',occurrenceId:'base',source:{kind:'field',field:{path:'gender',projectionMode:'VALUE'}}}],construction:{version:1,steps:[{id:'g',inputs:[{kind:'SOURCE_PROJECTION'}],operation:{kind:'GROUP',group:{constructionId:'g',keys:[{inputColumnId:'gender_id',outputColumnId:'g_gender'}]}},outputs:[{id:'g_gender',name:'gender',label:'Gender'}]}]}}};
 it('preserves a stable source column ID in the Group label',()=>{expect(authoredStages(table)[0].title).toBe('Group by Gender');});
 it('reports the same Group missing policy in both editor projections',()=>{const step=table.document.construction!.steps[0];const row=operationExpression(step,new Map([['gender_id','Gender']]));expect(row.clauses[0]).toBe('Missing keys: keep a missing-key group');expect(authoredStages(table)[0].missingPolicy).toBe('GROUP');});
