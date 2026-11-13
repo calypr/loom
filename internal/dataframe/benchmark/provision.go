@@ -329,12 +329,15 @@ func MakeBearerToken(issuer, sub string) string {
 // BuildServerConfigYAML renders the arm config: ClickHouse disabled on both
 // arms (matched reader path ruling), scoped calypr auth against the mock
 // fence, backend wiring passed in verbatim from the caller.
-func BuildServerConfigYAML(listen, backend, backendYAML, fenceURL string) string {
+func BuildServerConfigYAML(listen, backend, backendYAML, fenceURL, cursorSecret string) string {
 	var b bytes.Buffer
 	b.WriteString("server:\n")
 	fmt.Fprintf(&b, "  listen: %q\n", listen)
 	fmt.Fprintf(&b, "  backend: %q\n", backend)
 	b.WriteString("  clickhouse:\n    enabled: false\n")
+	// The server refuses to configure without a >=16-char signing secret;
+	// callers generate one per run and scrub it from arm logs.
+	fmt.Fprintf(&b, "  population_mapping_cursor_secret: %q\n", cursorSecret)
 	b.WriteString(backendYAML)
 	b.WriteString("auth:\n  mode: calypr\n  calypr:\n")
 	fmt.Fprintf(&b, "    trusted_issuer: %q\n", fenceURL)

@@ -402,7 +402,7 @@ func TestScrubWriterRedactsSecrets(t *testing.T) {
 
 func TestBuildServerConfigYAMLDisablesClickHouseBothArms(t *testing.T) {
 	for _, backend := range []string{BackendArango, BackendPostgres} {
-		yaml := BuildServerConfigYAML(":18080", backend, "  url: http://127.0.0.1:8529\n", "http://127.0.0.1:9999")
+		yaml := BuildServerConfigYAML(":18080", backend, "  url: http://127.0.0.1:8529\n", "http://127.0.0.1:9999", "bench-cursor-secret-0123456789ab")
 		if !strings.Contains(yaml, "clickhouse:") || !strings.Contains(yaml, "enabled: false") {
 			t.Fatalf("%s arm config must disable ClickHouse: %s", backend, yaml)
 		}

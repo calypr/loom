@@ -89,6 +89,8 @@ func (d *deployer) prepare(ctx context.Context) error {
 		if strings.TrimSpace(l.dsn) == "" {
 			return fmt.Errorf("spawned %s arm requires --%s-dsn", l.backend, l.backend)
 		}
+		// One signing secret per arm run; scrubbed from arm logs.
+		cursorSecret := randomRunIDSuffix() + randomRunIDSuffix()
 		var backendYAML string
 		switch l.backend {
 		case benchmark.BackendPostgres:
@@ -106,8 +108,8 @@ func (d *deployer) prepare(ctx context.Context) error {
 		}
 		*l.arm = benchmark.ArmConfig{
 			BinaryPath:   f.binary,
-			ConfigYAML:   benchmark.BuildServerConfigYAML("127.0.0.1:0", l.backend, backendYAML, fence.URL()),
-			ScrubSecrets: []string{l.dsn},
+			ConfigYAML:   benchmark.BuildServerConfigYAML("127.0.0.1:0", l.backend, backendYAML, fence.URL(), cursorSecret),
+			ScrubSecrets: []string{l.dsn, cursorSecret},
 		}
 	}
 	return nil
