@@ -17,129 +17,37 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	pubpublication "github.com/calypr/loom/internal/dataframe/publication"
-	pubarango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
 
-// Candidate finding F-B16 (registered Round 11, FINDINGS). REPAIRED in Repair-1
-// (Round 26): PublishExecution now commits both legs inside ONE Arango
-// transaction (bundle_registry.go WithTransaction over
-// executions+pointers+leases), so the PRODUCT can no longer produce the
-// two-answers split; durable post-fix proof lives in
-// internal/dataframe/publication/arango/publish_atomicity_e2e_test.go (arms
-// A/B: split observable only when the legs are separate requests; repaired
-// publish rolls back wholly). Historical pre-fix FAILED-ON-PURPOSE evidence is
-// preserved in FINDINGS.md Round 11 and the archived parent runs (artifact
-// md5 4ef560d6 at dc9016bc). THIS ARTIFACT NOW SERVES AS A LABELED FAULT
-// CONTROL for the same harm class applied to fabricated or legacy
-// (pre-repair) rows: it fabricates the split by bypassing the repaired
-// production PublishExecution (the wrapper runs the pre-repair legs itself),
-// and asserts the consequences an operator would see for such a row —
-// selector serves the orphan, the bulk-load gate refuses it, and the
-// idempotent replay does not repair the pointer (documented residual property;
-// the counterfactual sweep/replay fixes in PublishPartialPointer.tla remain
-// unimplemented on purpose). If those products ever land, this artifact's
-// VERDICT fails loudly so the fault-control semantics are re-derived, not
-// silently weakened.
-//
-// Verified source facts (re-read and quoted at runtime by
-// pppQuoteVerifiedSource, which fails this test if any anchor drifts):
-//
-//   - Registry.PublishExecution (internal/dataframe/publication/arango/
-//     bundle_registry.go) contains the execution UPDATE
-//     (`UPDATE execution WITH @execution IN @@executions`) and the
-//     visibility pointer UPSERT in the SAME statement, now executed inside
-//     one WithTransaction (Repair-1, Round 26); at dc9016bc the same
-//     statement ran non-transactionally and a server-side abort between the
-//     legs left the execution PUBLISHED while the pointer was never written
-//     -- the fault this artifact injects by re-running those legs manually.
-//   - The commit-fallback closes the tx uncertain on inconsistent metadata
-//     (bundle_store.go:818-821 `t.closed = true // Prevent the runner from
-//     deleting possibly published tables.`; confirmCommit :858
-//     "publication metadata is inconsistent").
-//   - An idempotent replay never repairs the pointer: beginBundle treats a
-//     published/ready execution as idempotent (:137-140) and Commit returns
-//     ExistingPublishedOutputs without touching the catalog (:762-764);
-//     publication.Publish returns early on tx.Idempotent() (runner.go:45-46).
-//   - Reconcile EXCLUDES PUBLISHED:
-//     `states := []publication.BundleState{publication.BundleRunning,
-//     publication.BundleValidating, publication.BundleFailed}`
-//     (bundle_store.go:1043).
-//   - The bulk-load activation gate refuses non-pointer executions
-//     (internal/api/bulk/load/service.go:199-204 "is no longer active",
-//     and the GetPointer error branch :200-202).
-//   - The name-latest selector has no pointer filter
-//     (bundle_registry.go:174-182 `SORT doc.publishedAt DESC ... LIMIT 1`
-//     never reads the pointers collection).
-//
-// Experiment (real Arango + real ClickHouse, production entry points):
-//
-// CONTROL   publish exec CONTROL fully through production
-//           publication.Publish (the entry internal/server/recipe_publication.go:143
-//           uses) against the real ClickHouse client and real Registry.
-// FAULT-INJECTION a catalog wrapper that passes every BundleCatalog call
-//           through to the real Registry EXCEPT PublishExecution, which —
-//           POST-R26 — can no longer split on its own, so the wrapper
-//           fabricates the pre-fix split itself: it applies ONLY the exec
-//           UPDATE leg (same LET/FILTER prelude and the verbatim
-//           `UPDATE execution WITH @execution IN @@executions` via
-//           client.QueryRows with the same binds) and then returns a
-//           write-conflict-style error BEFORE the pointer UPSERT leg. This
-//           models a fabricated or legacy (pre-repair) row, not product
-//           behavior.
-// REPLAY    the SAME production publish entry is called again with the same
-//           identity; the documented residual property asserts an idempotent
-//           success that leaves the pointer unwritten (counterfactual repair
-//           unimplemented; if a product ever ships replay-then-heal, this
-//           assertion fails so the fault control is re-derived, not weakened).
-// PROBES    FindExecutionBySelector (name-latest) and a verbatim replication
-//           of the bulk-load gate service.go:199-204 against real GetPointer.
-//
-// Opt-in (SKIP-clean without LOOM_TEST_ARANGO_URL + LOOM_CLICKHOUSE_URL):
-//
-//	docker exec loom-dev-qwen-current-loom-api-1 sh -c \
-//	  'cd /workspace && LOOM_TEST_ARANGO_URL=http://arangodb:8529 \
-//	   LOOM_CLICKHOUSE_URL=http://clickhouse:8123 LOOM_CLICKHOUSE_DATABASE=loom_dev \
-//	   LOOM_CLICKHOUSE_USERNAME=loom_dev LOOM_CLICKHOUSE_PASSWORD=loom_dev_password \
-//	   go test -count=1 -run TestPublishPartialPointer -v ./internal/dataframe/publication/clickhouse/'
-
 const pppDatabasePrefix = "loom_verify_ppp_"
 
-// pppChOwnedPrefix owns this suite's ClickHouse residue marker. The canary
-// table exercises the same DropTable path the cleanup uses for the
-// production-created loom_bundle_* staging tables (whose names are
-// loom_bundle_<executionID>_<output>, bundle_store.go:908-910, so they are
-// tracked by exact name rather than by prefix).
 const pppChOwnedPrefix = "ch_ppp"
-
-// ---------------------------------------------------------------------------
-// catalog wrapper: passes every call through except the faulted publish
-// ---------------------------------------------------------------------------
 
 type pppPublishCall struct {
 	PointerName    string
 	Expected       string
 	ExecutionID    string
-	Delegated      bool // true = ran the real Registry.PublishExecution verbatim
-	LegOneApplied  bool // exec UPDATE leg applied (faulted call only)
-	LegTwoExecuted bool // pointer UPSERT leg ever executed on this call
+	Delegated      bool
+	LegOneApplied  bool
+	LegTwoExecuted bool
 	InjectedError  string
 }
 
 type pppCatalog struct {
-	*pubarango.Registry
-	client *storearango.Client
+	*arangofactory.PublishedRegistry
+	client *arangofactory.Client
 
 	mu         sync.Mutex
 	faultArmed bool
 	calls      []pppPublishCall
 }
 
-func newPPPCatalog(registry *pubarango.Registry, client *storearango.Client) *pppCatalog {
-	return &pppCatalog{Registry: registry, client: client}
+func newPPPCatalog(registry *arangofactory.PublishedRegistry, client *arangofactory.Client) *pppCatalog {
+	return &pppCatalog{PublishedRegistry: registry, client: client}
 }
 
 func (c *pppCatalog) armFault() {
@@ -154,16 +62,6 @@ func (c *pppCatalog) snapshotCalls() []pppPublishCall {
 	return append([]pppPublishCall(nil), c.calls...)
 }
 
-// pppLegOneAQL is the PRE-FIX (dc9016bc) production PublishExecution AQL
-// deconstructed into its two verified legs; this string keeps ONLY leg one:
-// the LET/FILTER prelude (:284-291 @ dc9016bc) and the execution UPDATE
-// (:292). The pointer UPSERT (:293-296) is deliberately absent on the
-// faulted call -- fault-injection only: the repaired production publish runs
-// both legs inside one WithTransaction and cannot be split this way without
-// bypassing it. @name and @updatedAt are bound verbatim like production
-// (:298-301) and merely parked in LET bindings because Arango rejects bind
-// parameters no query text declares and only the skipped pointer-UPSERT leg
-// references them.
 const pppLegOneAQL = `LET pointer = DOCUMENT(@@pointers, @pointerKey)
 LET execution = DOCUMENT(@@executions, @executionKey)
 LET lease = DOCUMENT(@@leases, @leaseKey)
@@ -177,19 +75,11 @@ FILTER execution != null
 UPDATE execution WITH @execution IN @@executions
 RETURN {updated: true}`
 
-// pppPointerDocumentKey mirrors pubarango pointerDocumentKey (bundle_registry.go:
-// 473-476): hex(sha256(pointerName)). Reproduced because the production helper
-// is unexported and this harness must hand the faulted leg the same @pointerKey
-// bind the real query would use.
 func pppPointerDocumentKey(name string) string {
 	sum := sha256.Sum256([]byte(name))
 	return hex.EncodeToString(sum[:])
 }
 
-// PublishExecution delegates verbatim while disarmed. When armed it executes
-// ONLY the exec UPDATE leg of the real query (same binds) and returns a
-// write-conflict-style error BEFORE the pointer UPSERT leg, simulating the
-// server-side partial application of the one non-transactional AQL.
 func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string, execution pubpublication.BundleExecution) error {
 	data, err := json.Marshal(execution)
 	if err != nil {
@@ -207,9 +97,9 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 
 	if !armed {
 		call.Delegated = true
-		err = c.Registry.PublishExecution(ctx, name, expected, execution)
+		err = c.PublishedRegistry.PublishExecution(ctx, name, expected, execution)
 		if err == nil {
-			call.LegTwoExecuted = true // the real single-AQL publish covers both legs
+			call.LegTwoExecuted = true
 		}
 		c.mu.Lock()
 		c.calls = append(c.calls, call)
@@ -217,12 +107,11 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 		return err
 	}
 
-	// Leg ONE only: the exec UPDATE, same binds as bundle_registry.go:298-301.
 	updated := false
 	err = c.client.QueryRows(ctx, pppLegOneAQL, 32, map[string]interface{}{
-		"@pointers":    pubarango.BundlePointersCollection,
-		"@executions":  pubarango.BundleExecutionsCollection,
-		"@leases":      pubarango.BundleLeasesCollection,
+		"@pointers":    arangofactory.BundlePointersCollection,
+		"@executions":  arangofactory.BundleExecutionsCollection,
+		"@leases":      arangofactory.BundleLeasesCollection,
 		"pointerKey":   pppPointerDocumentKey(name),
 		"executionKey": execution.ID,
 		"leaseKey":     execution.Key,
@@ -246,10 +135,6 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 	if !updated {
 		return errors.New("ppp fault precondition: the exec UPDATE leg was filtered out; execution/lease/pointer guards did not hold")
 	}
-	// Leg TWO (pointer UPSERT, bundle_registry.go:293-296) is deliberately
-	// NOT executed. Return a write-conflict-style error, which is NOT
-	// publication.ErrBundlePointerConflict, so Commit takes the confirmCommit
-	// fallback at bundle_store.go:813-822 rather than the conflict branch.
 	injected := errors.New("write conflict: document revision conflict while applying visibility pointer UPSERT (injected partial-application fault)")
 	c.mu.Lock()
 	c.calls[len(c.calls)-1].InjectedError = injected.Error()
@@ -257,14 +142,10 @@ func (c *pppCatalog) PublishExecution(ctx context.Context, name, expected string
 	return injected
 }
 
-// ---------------------------------------------------------------------------
-// owned-database + owned-ClickHouse harness (SKIP-clean opt-in)
-// ---------------------------------------------------------------------------
-
 type pppHarness struct {
 	ctx      context.Context
-	client   *storearango.Client
-	registry *pubarango.Registry
+	client   *arangofactory.Client
+	registry *arangofactory.PublishedRegistry
 	catalog  *pppCatalog
 	ch       *clickhouse.Client
 	database string
@@ -299,22 +180,21 @@ func pppOpen(t *testing.T) *pppHarness {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	t.Cleanup(cancel)
-	client, err := storearango.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open %s: %v", database, err)
 	}
+	client := arangoBackend.Client
 	t.Logf("PPP_DATABASE=%s", database)
-	// Registered FIRST so it runs LAST: ClickHouse artifacts must be dropped
-	// before the Arango database disappearance (LIFO cleanup order).
 	t.Cleanup(func() {
 		_ = client.Close(context.Background())
 		pppDropDatabase(t, endpoint, database)
 	})
-	registry, err := pubarango.New(client)
+	registry, err := arangofactory.NewPublishedRegistry(client)
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	if err := client.Bootstrap(ctx, pubarango.BootstrapSpec()); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.PublishedBootstrapSpec()); err != nil {
 		t.Fatalf("bootstrap bundle collections: %v", err)
 	}
 	ch, err := clickhouse.New(clickhouse.Options{
@@ -339,14 +219,9 @@ func pppOpen(t *testing.T) *pppHarness {
 		database: database,
 		suffix:   database[len(pppDatabasePrefix):],
 	}
-	// Registered second: drops every tracked ClickHouse table (production
-	// staging tables by exact name plus the owned-prefix canary) and asserts
-	// residue emptiness before LIFO continues to the Arango database removal.
 	t.Cleanup(func() {
 		harness.dropAndVerifyClickHouse(t)
 	})
-	// Owned-prefix canary: proves the cleanup's DropTable path works and the
-	// system.tables residue gate on the owned prefix is live.
 	harness.canaryTable = pppChOwnedPrefix + "_canary_" + harness.suffix
 	if err := ch.CreateTable(ctx, harness.canaryTable, []clickhouse.Column{{Name: "__loom_row_id", Type: "UInt64"}}); err != nil {
 		t.Fatalf("create canary table %s: %v", harness.canaryTable, err)
@@ -420,18 +295,13 @@ func pppDropDatabase(t *testing.T, endpoint, database string) {
 	t.Logf("PPP_DATABASE_REMOVED=%s", database)
 }
 
-// ---------------------------------------------------------------------------
-// fixtures
-// ---------------------------------------------------------------------------
-
 type pppPublication struct {
 	identity  pubpublication.PublicationIdentity
 	key       string
 	pointer   string
 	outputs   []pubpublication.OutputStream
-	tableName string // set from the execution record once published
-	// row values carried by every output.
-	rows int
+	tableName string
+	rows      int
 }
 
 func pppNewPublication(label, project string, h *pppHarness) pppPublication {
@@ -468,22 +338,14 @@ func (p pppPublication) selector() pubpublication.DataframeSelector {
 	return pubpublication.DataframeSelector{Recipe: p.identity.Name, TranslationVersion: p.identity.TranslationVersion, Output: p.identity.OutputName}
 }
 
-// ---------------------------------------------------------------------------
-// production-path publish entry (same call recipe_publication.go:143 uses)
-// ---------------------------------------------------------------------------
-
 func pppProductionPublish(ctx context.Context, store *ClickHouseBundleStore, p pppPublication) (pubpublication.Result, error) {
 	return pubpublication.Publish(ctx, store, p.identity, p.outputs, pubpublication.Limits{})
 }
 
-// ---------------------------------------------------------------------------
-// direct fact readers
-// ---------------------------------------------------------------------------
-
-func pppRawExecutionRow(t *testing.T, client *storearango.Client, ctx context.Context, execID string) (state, errField string) {
+func pppRawExecutionRow(t *testing.T, client *arangofactory.Client, ctx context.Context, execID string) (state, errField string) {
 	t.Helper()
 	err := client.QueryRows(ctx, `RETURN DOCUMENT(@@collection, @key)`, 32, map[string]interface{}{
-		"@collection": pubarango.BundleExecutionsCollection, "key": execID,
+		"@collection": arangofactory.BundleExecutionsCollection, "key": execID,
 	}, func(row map[string]any) error {
 		data, err := json.Marshal(row)
 		if err != nil {
@@ -556,50 +418,40 @@ func pppTableRows(t *testing.T, ch *clickhouse.Client, ctx context.Context, tabl
 	return count
 }
 
-// ---------------------------------------------------------------------------
-// verbatim replication of the bulk-load activation gate
-// (internal/api/bulk/load/service.go activateGeneration :187-205, the part
-// that consults GetExecution, the publication predicates, and GetPointer).
-// ---------------------------------------------------------------------------
-
 type pppReleaseStore interface {
 	GetExecution(context.Context, string) (pubpublication.BundleExecution, error)
 	GetPointer(context.Context, string) (pubpublication.BundlePointer, error)
 }
 
 func pppBulkGateCheck(ctx context.Context, store pppReleaseStore, project, generation, executionID string) (string, error) {
-	execution, err := store.GetExecution(ctx, executionID) // service.go:187
+	execution, err := store.GetExecution(ctx, executionID)
 	if err != nil {
 		return "service.go:188-190", fmt.Errorf("load dataframe release %q: %w", executionID, err)
 	}
-	if execution.Project != project || execution.DatasetGeneration != generation || !execution.State.Successful() || len(execution.Outputs) == 0 { // service.go:191
+	if execution.Project != project || execution.DatasetGeneration != generation || !execution.State.Successful() || len(execution.Outputs) == 0 {
 		return "service.go:191-193", fmt.Errorf("dataframe release %q is not a published bundle for %s/%s", executionID, project, generation)
 	}
-	for _, output := range execution.Outputs { // service.go:194-197
+	for _, output := range execution.Outputs {
 		if !output.State.Successful() {
 			return "service.go:195-197", fmt.Errorf("dataframe release %q output %q is not published", executionID, output.Name)
 		}
 	}
-	pointer, err := store.GetPointer(ctx, execution.PointerName()) // service.go:199
-	if err != nil {                                                // service.go:200-202
+	pointer, err := store.GetPointer(ctx, execution.PointerName())
+	if err != nil {
 		return "service.go:200-202", fmt.Errorf("resolve dataframe release pointer: %w", err)
 	}
-	if pointer.ExecutionID != execution.ID { // service.go:203-204
+	if pointer.ExecutionID != execution.ID {
 		return "service.go:203-204", fmt.Errorf("dataframe release %q is no longer active", executionID)
 	}
 	return "service.go:205 (gate passed)", nil
 }
-
-// ---------------------------------------------------------------------------
-// drift-proof source citations: the claim dies if production moves the lines
-// ---------------------------------------------------------------------------
 
 var pppRequiredQuotations = []struct {
 	file    string
 	needles []string
 }{
 	{
-		file: "internal/dataframe/publication/arango/bundle_registry.go",
+		file: "internal/backends/arango/internal/publication/bundle_registry.go",
 		needles: []string{
 			"UPDATE execution WITH @execution IN @@executions",
 			"UPSERT {_key: @pointerKey}",
@@ -675,10 +527,6 @@ func pppQuoteVerifiedSource(t *testing.T) string {
 	return builder.String()
 }
 
-// ---------------------------------------------------------------------------
-// the reproduction
-// ---------------------------------------------------------------------------
-
 func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	quotations := pppQuoteVerifiedSource(t)
 	t.Logf("OBSERVED STEP 0 quoted verified source (anchor lines located live; drift fails the test):\n%s", quotations)
@@ -690,10 +538,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 		t.Fatalf("NewBundleStore: %v", err)
 	}
 
-	// =========================================================================
-	// STEP 1 — CONTROL: production publication.Publish publishes exec CONTROL
-	// fully through the real ClickHouse client and real Registry.
-	// =========================================================================
 	t.Logf("PRE-STATED EXPECT (control): publication.Publish leaves the pointer naming exec CONTROL, state PUBLISHED, and the physical ClickHouse table present")
 	control := pppNewPublication("control", "ppp-control-project", h)
 	controlResult, controlErr := pppProductionPublish(ctx, store, control)
@@ -726,10 +570,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	}
 	t.Logf("OBSERVED STEP 1 CONTROL: production publication.Publish published exec %q state=%q pointer->%q physical table %q present with %d rows via real ClickHouse", controlID, controlExec.State, controlPointer.ExecutionID, controlTable, pppTableRows(t, h.ch, ctx, controlTable))
 
-	// =========================================================================
-	// STEP 2 — FAULT: the wrapper applies ONLY the exec UPDATE leg and fails
-	// before the pointer UPSERT leg; a real Commit runs through it.
-	// =========================================================================
 	t.Logf("PRE-STATED EXPECT (fault-injection control): Commit returns ErrBundleCommitUncertain (errors.Is) and the tx is closed; the execution remains queryable PUBLISHED (FindExecutionByKey/GetExecution) while GetPointer -> ErrBundleNotFound")
 	faulty := pppNewPublication("fault", "ppp-fault-project", h)
 	h.catalog.armFault()
@@ -767,9 +607,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	if !errors.Is(pointerErr, pubpublication.ErrBundleNotFound) {
 		t.Fatalf("fault precondition: pointer under a partial application must be missing; GetPointer returned pointer=%+v err=%v", faultPointer, pointerErr)
 	}
-	// Behavioral fingerprint of t.closed=true at bundle_store.go:819: the
-	// runner's Abort path (publication.Publish fail -> tx.Abort) refused to
-	// delete the staging table and never demoted the row.
 	if !pppTablePresent(t, h.ch, ctx, faultTable) {
 		t.Fatalf("fault precondition: the possibly-published table %q was deleted despite the uncertain-commit closed flag (bundle_store.go:819 comment)", faultTable)
 	}
@@ -780,9 +617,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	t.Logf("OBSERVED STEP 2 FAULT: Commit path returned errors.Is(err, ErrBundleCommitUncertain)=true errChain=[%s]; exec UPDATE leg applied=%v pointer UPSERT leg executed=%v; exec %q queryable PUBLISHED via GetExecution and FindExecutionByKey (raw state=%q); GetPointer(%q) -> ErrBundleNotFound; possibly-published table %q preserved (%d rows) -> t.closed=true at bundle_store.go:819 held",
 		errChain(faultErr), calls[1].LegOneApplied, calls[1].LegTwoExecuted, faultID, rawState, faulty.pointer, faultTable, pppTableRows(t, h.ch, ctx, faultTable))
 
-	// =========================================================================
-	// STEP 3 — REPAIR ATTEMPT: same production publish entry, same identity.
-	// =========================================================================
 	t.Logf("PRE-STATED EXPECT (fault-injection residual property): the identical retry succeeds idempotently (Result from ExistingPublishedOutputs) yet the pointer STILL does not name the fabricated split row; the counterfactual replay-heal (PublishPartialPointer.tla RepairOnIdempotent) is unimplemented, so non-repair is the CURRENT correct behavior for fabricated/legacy rows; the repair-then-verify step lives in publish_atomicity_e2e_test.go")
 	repairResult, repairErr := pppProductionPublish(ctx, store, faulty)
 	if repairErr != nil {
@@ -800,9 +634,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	t.Logf("OBSERVED STEP 3 REPAIR: identical retry published.Result={Outputs:%+v} err=%v; PublishExecution invocations still %d (idempotent path never publishes); GetPointer after retry -> pointer=%+v err=%v; repaired=%v",
 		repairResult.Outputs, repairErr, len(calls), pointerAfterRetry, pointerAfterErr, repaired)
 
-	// =========================================================================
-	// STEP 4 — CONSEQUENCE probes on the orphan (real production functions).
-	// =========================================================================
 	selectorExec, selectorOutput, selectorErr := h.registry.FindExecutionBySelector(ctx, faulty.identity.Project, faulty.identity.DatasetGeneration, faulty.selector())
 	t.Logf("OBSERVED STEP 4a name-latest selector (bundle_registry.go:174-182 has no pointer filter): FindExecutionBySelector=%q state=%q output=%q physicalTable=%q err=%v (matches orphan %v) while GetPointer for the same namespace errors=%v (repaired=%v)",
 		selectorExec.ID, selectorExec.State, selectorOutput.Name, selectorOutput.PhysicalTable, selectorErr, selectorExec.ID == faultID, pointerAfterErr, repaired)
@@ -820,9 +651,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 		t.Fatalf("STEP 4b broken: the bulk-load gate accepted an execution the pointer never named; branch=%q", orphanBranch)
 	}
 
-	// =========================================================================
-	// VERDICT
-	// =========================================================================
 	if repaired {
 		t.Fatalf("VERDICT CHANGE REQUIRED: the identical production replay repaired the pointer for a fabricated split row — the counterfactual replay-heal (PublishPartialPointer.tla RepairOnIdempotent/SweepPublished) has shipped; re-derive this fault control against the new product promise instead of deleting it")
 	}
@@ -835,8 +663,6 @@ func TestPublishPartialPointerNeverAdvertisedAgainstArango(t *testing.T) {
 	quoting.WriteString(fmt.Sprintf("and the retry's PublishExecution call log: %+v", h.catalog.snapshotCalls()))
 	t.Logf("FAULT-CONTROL QUOTE RECORD: split legs + replay call log (pointer %q unwritten by replay; executionId=%q):\n%s", faulty.pointer, pointerAfterRetry.ExecutionID, quoting.String())
 }
-
-// helpers --------------------------------------------------------------------------------
 
 func mustGetExecution(t *testing.T, h *pppHarness, ctx context.Context, idOrKey, via string) pubpublication.BundleExecution {
 	t.Helper()

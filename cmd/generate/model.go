@@ -16,7 +16,6 @@ func getGoType(prop *Property, isField bool) string {
 		return "*" + name
 	}
 
-	// Check for fhir_comments which is anyOf [string, array of string]
 	if prop.Type == nil && prop.Items == nil && prop.Ref == "" {
 		return "FHIRComments"
 	}
@@ -93,10 +92,6 @@ func generateModel(schema *Schema, path string) error {
 				jsonTag += ",omitempty"
 			}
 
-			// gqlgen uses this explicit tag to preserve FHIR primitive-extension
-			// names such as _birthDate, whose Go field is XBirthDate. Keeping
-			// the tag on every field makes autobinding deterministic while the
-			// JSON tag remains the storage contract.
 			sb.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\" gqlgen:\"%s\"`\n", goName, goType, jsonTag, pk))
 		}
 		sb.WriteString("}\n\n")

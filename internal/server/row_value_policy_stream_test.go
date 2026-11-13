@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -17,8 +18,14 @@ func TestValidateReceiptFullStreamScansPastPreviewCapAndOnlySelectedOutput(t *te
 	rowsVisited := 0
 	queries := 0
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			queries++
 			if queries != 1 {
 				return fmt.Errorf("unrelated receipt output was streamed")

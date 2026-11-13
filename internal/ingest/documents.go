@@ -1,7 +1,3 @@
-// The upstream jsonschemagraph module exposes these document contracts only
-// from an unpublished package path. Keeping the adapter here makes the Loom
-// server build reproducibly from the public module graph while preserving the
-// existing vertex/edge wire shape.
 package ingest
 
 import (
@@ -134,4 +130,16 @@ func targetTypeFromLabel(label string) (string, error) {
 
 func collectionID(resourceType, id string) string {
 	return SanitizeKey(resourceType) + "/" + SanitizeKey(id)
+}
+
+func SplitCollectionID(value string) (resourceType, logicalID string, ok bool) {
+	resourceType, logicalID, found := strings.Cut(strings.TrimSpace(value), "/")
+	if !found {
+		return "", "", false
+	}
+	if strings.TrimSpace(resourceType) == "" || strings.TrimSpace(logicalID) == "" ||
+		strings.Contains(logicalID, "/") {
+		return "", "", false
+	}
+	return resourceType, logicalID, true
 }

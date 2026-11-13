@@ -15,7 +15,6 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	compilerprobe "github.com/calypr/loom/internal/dataframe/compiler/capability"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/spec"
@@ -47,8 +46,6 @@ const (
 	fieldPresentationReplacementLimit = 100
 )
 
-// FieldPresentationRequest scopes one bounded batch of raw candidates to an
-// exact current output, draft, source node, and saved route occurrence.
 type FieldPresentationRequest struct {
 	ExpectedDraftVersion int64
 	ExpectedDraftDigest  string
@@ -354,9 +351,6 @@ func (s *Service) BrowseSemanticInventory(ctx context.Context, req BrowseSemanti
 		req.ResourceType = frame.Source.ResourceType
 		bindingFilter = frame.Source.BindingID
 		if isPriorPrimaryOnlySemanticFrameFamily(frame.Source) {
-			// The current inventory uses semantic-binding/v2 IDs. Query the
-			// authorized resource page without the obsolete v1 filter, then require
-			// an exact reconstructed v1 identity in semanticEntryForFrameFamily.
 			bindingFilter = ""
 		}
 		result.FrameID, result.FrameSource = frame.ID, frame
@@ -638,10 +632,10 @@ func (s *Service) semanticInventoryPresentationForOutput(
 	if build.BuildID == "" || build.SourceKind == "" {
 		return choices, fieldPresentationUnavailable(FieldPresentationCoverageUnavailable), nil
 	}
-	coveragePaths := make([]catalogarango.SemanticCoverageCandidatePath, 0, len(current.candidates))
+	coveragePaths := make([]catalog.SemanticCoverageCandidatePath, 0, len(current.candidates))
 	coveragePathKeys := make(map[string]struct{}, len(current.candidates))
 	for _, candidate := range current.candidates {
-		path := catalogarango.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}
+		path := catalog.SemanticCoverageCandidatePath{ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath}
 		key := semanticCoverageCandidatePathKey(path)
 		if _, exists := coveragePathKeys[key]; exists {
 			continue
@@ -650,7 +644,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		coveragePaths = append(coveragePaths, path)
 	}
 	unrestricted := authorized.Scope.Mode == authscope.ReadScopeUnrestricted
-	lookup, err := s.config.SemanticCoverage(ctx, catalogarango.SemanticCoverageLookupOptions{
+	lookup, err := s.config.SemanticCoverage(ctx, catalog.SemanticCoverageLookupOptions{
 		Project: projectid.Legacy(snapshot.Identity.Project), DatasetGeneration: snapshot.Identity.Generation,
 		BuildID: build.BuildID, SchemaIdentity: snapshot.Identity.SchemaDigest, SourceKind: build.SourceKind,
 		AuthResourcePaths:             append([]string(nil), authorized.Scope.AuthResourcePaths...),
@@ -662,16 +656,16 @@ func (s *Service) semanticInventoryPresentationForOutput(
 		}
 		return nil, nil, internal("catalog", "FIELD_PRESENTATION_LOOKUP_FAILED", "semantic field coverage could not be read", err)
 	}
-	if lookup.State != catalogarango.SemanticCoverageBuildComplete && lookup.State != catalogarango.SemanticCoverageBuildPartial {
+	if lookup.State != catalog.SemanticCoverageBuildComplete && lookup.State != catalog.SemanticCoverageBuildPartial {
 		reason := FieldPresentationCoverageUnavailable
-		if lookup.State == catalogarango.SemanticCoverageBuildBuilding || lookup.State == catalogarango.SemanticCoverageBuildFailed {
+		if lookup.State == catalog.SemanticCoverageBuildBuilding || lookup.State == catalog.SemanticCoverageBuildFailed {
 			reason = FieldPresentationIncompleteCoverage
 		}
 		return choices, fieldPresentationUnavailable(reason), nil
 	}
-	coverageByPath := make(map[string]catalogarango.SemanticCoverageCandidateResult, len(lookup.Candidates))
+	coverageByPath := make(map[string]catalog.SemanticCoverageCandidateResult, len(lookup.Candidates))
 	for _, candidate := range lookup.Candidates {
-		key := semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+		key := semanticCoverageCandidatePathKey(catalog.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.CanonicalPath,
 		})
 		if _, duplicate := coverageByPath[key]; duplicate {
@@ -716,25 +710,25 @@ func (s *Service) semanticInventoryPresentationForOutput(
 			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationCandidateNotAddable})
 			continue
 		}
-		coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+		coverage := coverageByPath[semanticCoverageCandidatePathKey(catalog.SemanticCoverageCandidatePath{
 			ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 		})]
-		if coverage.ResourceState != catalogarango.SemanticCoverageBuildComplete {
+		if coverage.ResourceState != catalog.SemanticCoverageBuildComplete {
 			decisions = append(decisions, FieldPresentationKeepRaw{
 				Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage,
 			})
 			continue
 		}
 		switch coverage.Status {
-		case catalogarango.SemanticCoverageCandidateKeepRaw:
+		case catalog.SemanticCoverageCandidateKeepRaw:
 			reason, ok := fieldPresentationCoverageReason(string(coverage.Reason))
 			if !ok {
 				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
 			}
 			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: reason})
-		case catalogarango.SemanticCoverageCandidateUnavailable:
+		case catalog.SemanticCoverageCandidateUnavailable:
 			decisions = append(decisions, FieldPresentationKeepRaw{Kind: FieldPresentationDecisionKeepRaw, CandidateID: candidate.ID, Reason: FieldPresentationIncompleteCoverage})
-		case catalogarango.SemanticCoverageCandidateGroupable:
+		case catalog.SemanticCoverageCandidateGroupable:
 			if strings.TrimSpace(coverage.CoverageID) == "" || len(coverage.References) == 0 {
 				return choices, fieldPresentationUnavailable(FieldPresentationIncompleteCoverage), nil
 			}
@@ -801,7 +795,7 @@ func (s *Service) semanticInventoryPresentationForOutput(
 				identities = append(identities, reference.identity)
 			}
 			if available {
-				coverage := coverageByPath[semanticCoverageCandidatePathKey(catalogarango.SemanticCoverageCandidatePath{
+				coverage := coverageByPath[semanticCoverageCandidatePathKey(catalog.SemanticCoverageCandidatePath{
 					ResourceType: candidate.ResourceType, CanonicalPath: candidate.FieldPath,
 				})]
 				decisions[decisionIndex] = FieldPresentationGroupUnderSemantic{
@@ -915,7 +909,7 @@ func fieldPresentationUnavailable(reason FieldPresentationReason) fieldPresentat
 	return FieldPresentationUnavailable{Kind: FieldPresentationResultUnavailable, Reason: reason}
 }
 
-func semanticCoverageCandidatePathKey(path catalogarango.SemanticCoverageCandidatePath) string {
+func semanticCoverageCandidatePathKey(path catalog.SemanticCoverageCandidatePath) string {
 	return path.ResourceType + "\x00" + path.CanonicalPath
 }
 
@@ -1292,10 +1286,6 @@ type semanticCandidateRouteProof struct {
 	ok        bool
 }
 
-// semanticInventoryChoicesForOutput keeps table applicability separate from
-// global semantic inventory. Routes are planned once per distinct candidate
-// node; repeated entries reuse the exact candidate+route compiler proof, while
-// each semantic binding still gets its own choice ID.
 func semanticInventoryChoicesForOutput(
 	ctx context.Context,
 	authorized AuthorizedCapability,
@@ -1438,10 +1428,6 @@ func semanticInventoryChoicesForOutput(
 	return choices, nil
 }
 
-// semanticInventoryReachableNodes uses the authorized snapshot graph only as
-// a negative prefilter. Every retained route is still reauthorized and
-// compiler-probed below; disconnected resource nodes never trigger a full
-// alternate-route search.
 func semanticInventoryReachableNodes(snapshot capability.Snapshot, rootResourceType string) map[string]bool {
 	adjacency := make(map[string][]string)
 	for _, edge := range snapshot.Edges {
@@ -1488,9 +1474,6 @@ func semanticInventoryConstructionChoice(snapshot capability.Snapshot, contextTo
 func semanticInventoryConstructionChoiceForRoute(snapshot capability.Snapshot, contextToken, buildID string, route []capability.ConstructionRouteStep, entry catalog.SemanticInventoryEntry, candidate capability.Candidate, ownerRecordsProved bool) (capability.ConstructionChoice, error) {
 	observation := entry.Observation
 	if observation.RuleHint == catalog.SemanticRuleHintCodedConceptV1 {
-		// Owner-record output is defined over the enclosing semantic owner. A
-		// standalone Coding choice must stay attached to the exact matched
-		// Coding, so expose only the compiler-proved scalar/list choices.
 		ownerRecordsProved = false
 	}
 	logicalType := observation.LogicalType
@@ -1682,11 +1665,6 @@ func semanticFrameFamilyMatchesPinnedPrior(current, pinned capability.SemanticFr
 		current.LogicalType == pinned.LogicalType && reflect.DeepEqual(current.ChoiceArms, pinned.ChoiceArms)
 }
 
-// semanticEntryForFrameFamily projects a current inventory observation back
-// to the exact value binding pinned by a saved frame. The only supported
-// transition is the immediately preceding semantic build, whose new behavior
-// adds fallback selectors. A legacy frame without fallbacks keeps its primary
-// selector and cannot silently acquire the new fallback behavior.
 func semanticEntryForFrameFamily(
 	entry catalog.SemanticInventoryEntry,
 	family capability.SemanticFrameFamily,
@@ -1856,9 +1834,6 @@ func semanticCandidateWithFallback(snapshot capability.Snapshot, observation cat
 	return combined, true
 }
 
-// Coded-value observations keep key and value selectors relative to the object
-// that owns their correlation. Capability candidates address the scalar from
-// the resource root, so the owning scope is restored only at this boundary.
 func semanticObservationValuePath(observation catalog.SemanticObservation) string {
 	valuePath := canonicalInventoryPath(observation.Value.Selector)
 	ownerPath := canonicalInventoryPath(observation.OwningScope)

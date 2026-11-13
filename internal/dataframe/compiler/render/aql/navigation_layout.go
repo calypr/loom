@@ -91,17 +91,12 @@ rootPredicates:
 			if keysetSeen {
 				pageExpressionLets = append(pageExpressionLets, operation)
 			}
-			// Compiler-owned expression LETs may establish a typed value for a
-			// root predicate. Keep them in the pre-window block so the value is
-			// computed once per root and before SORT/LIMIT.
 			layout.rootPredicates = append(layout.rootPredicates, operation)
 			index++
 		case ir.PhysicalSortOp:
 			break rootPredicates
 		case ir.PhysicalSetOp:
 			if !keysetSeen {
-				// Preserve the ordinary post-window set path for plans without a
-				// root-page cursor predicate.
 				break rootPredicates
 			}
 			if hasUnusedRootPageSet(pageSets, usedPageSets) {
@@ -134,10 +129,6 @@ rootPredicates:
 			}
 		}
 	}
-	// UNNEST is a cardinality boundary. It is kept after root predicates and
-	// before the execution window so a row-grain-aware compiler can put a
-	// database-side LIMIT after expansion. This remains a canonical physical
-	// operation; the slice only captures the validated renderer layout.
 	for index < last && plan.Operations[index].Kind == ir.PhysicalUnnestOp {
 		if plan.Operations[index].Unnest == nil {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("unnest at operation %d is missing payload", index)
@@ -206,7 +197,7 @@ rootPredicates:
 		if operation.Kind != ir.PhysicalTraversalOp {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("generic navigation renderer expected TRAVERSAL at operation %d, got %s", index, operation.Kind)
 		}
-		const traversalScopeLength = 6 // edge + target project/generation, then auth LET/filter
+		const traversalScopeLength = 6
 		if index+traversalScopeLength >= last {
 			return physicalNavigationRenderLayout{}, fmt.Errorf("traversal at operation %d is missing its project/auth scope block", index)
 		}
@@ -281,8 +272,6 @@ func validateRootPageRelatedSet(operation ir.PhysicalOperation, rootVariable str
 				return fmt.Errorf("must use one traversal directly from the root")
 			}
 		case ir.PhysicalFilterOp, ir.PhysicalDerivedLetOp, ir.PhysicalExpressionLetOp:
-			// These retain the child's typed project, generation, authorization,
-			// and authored filter scopes inside the correlated set.
 		default:
 			return fmt.Errorf("contains unsupported subplan operation %s", operation.Kind)
 		}
@@ -473,11 +462,6 @@ func validateGenericNavigationRootLimit(operation ir.PhysicalOperation) error {
 	return nil
 }
 
-// validateGenericNavigationScopeBlock accepts the exact generation-safe scope
-// operations emitted by appendProjectScope, appendDatasetGenerationScope, and
-// appendAuthScope. The standalone
-// scope verifier is intentionally more flexible; rendering is stricter so it
-// can relocate the whole block safely into a LET subquery.
 func validateGenericNavigationScopeBlock(operations []ir.PhysicalOperation, resourceVariable, edgeVariable, targetVariable string) (string, error) {
 	expectedProjectVariables := []string{resourceVariable}
 	expectedGenerationVariables := []string{resourceVariable}

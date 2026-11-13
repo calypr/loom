@@ -13,6 +13,7 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -95,8 +96,14 @@ func TestPopulationMappingRouteUsesReceiptBoundAuthoredFilterConstruction(t *tes
 	}
 	var mappingCalls, queryCalls int
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			queryCalls++
 			if !strings.Contains(query, "FILTER") {
 				return fmt.Errorf("population mapping query omitted the authored filter: %s", query)

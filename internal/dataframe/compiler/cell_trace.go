@@ -1,24 +1,23 @@
 package compiler
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/spec"
 )
 
 const MaxCellTraceContributions = 100
 const traceReshapeRowID = "__loom_row_id"
 
-// CompiledCellTraceQuery is a specialized terminal over one canonical output
-// plan. It retains the exact final value expression and stable row identity;
-// only the contributor page is diagnostic-only.
 type CompiledCellTraceQuery struct {
-	Query                  string
-	BindVars               map[string]any
+	Command                command.CompiledCommand
 	ValueColumn            string
 	ContributionsColumn    string
 	StatusColumn           string
@@ -26,8 +25,6 @@ type CompiledCellTraceQuery struct {
 	OmissionColumn         string
 	IdentityPartsColumn    string
 	ExplicitIdentityColumn string
-	// ExplicitIdentityObject is set only when construction lowering proves the
-	// final explicit identity is a required compiler-owned object column.
 	ExplicitIdentityObject bool
 	RowIdentity            *spec.RowIdentity
 	ContributionOffset     int
@@ -35,26 +32,31 @@ type CompiledCellTraceQuery struct {
 	Diagnostics            ir.CompilerPlanDiagnostics
 }
 
-func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledCellTraceQuery, error) {
-	column = strings.TrimSpace(column)
-	if column == "" {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace column is required")
+func cellTraceCommand(rendered aql.RenderedPhysicalPlan) (command.CompiledCommand, error) {
+	compiledCommand, err := command.NewAQLCommand(rendered.Query, rendered.BindVars)
+	if err != nil {
+		return command.CompiledCommand{}, fmt.Errorf("tag cell trace command: %w", err)
 	}
-	if output.RowIdentity == nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace requires a row identity")
+	return compiledCommand, nil
+}
+
+func CompileCellTraceOutput(target Target, output lower.CompiledRecipeOutput, column string, offset, limit int, policy ir.PhysicalOptimizationPolicy) (CompiledCellTraceQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledCellTraceQuery{}, err
 	}
-	if offset < 0 {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace offset cannot be negative")
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compileCellTracePostgreSQL(target, output, column, offset, limit)
 	}
-	if limit <= 0 {
-		limit = 25
+	if err := target.rejectPostgreSQL("cell trace compilation"); err != nil {
+		return CompiledCellTraceQuery{}, err
 	}
-	if limit > MaxCellTraceContributions {
-		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace contribution limit exceeds %d", MaxCellTraceContributions)
+	column, offset, limit, err := normalizeCellTracePage(output, column, offset, limit)
+	if err != nil {
+		return CompiledCellTraceQuery{}, err
 	}
 	physical := ir.ClonePhysicalPlan(output.Plan)
-	_ = policy // The trace deliberately uses the canonical pre-optimization plan.
-	physical, err := withGenericPhysicalExecutionWindow(physical, 0)
+	_ = policy
+	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("apply cell trace execution window: %w", err)
 	}
@@ -64,17 +66,57 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 	if len(physical.Operations) == 1 && physical.Operations[0].Kind == ir.PhysicalGroupRowsOp && physical.Operations[0].GroupRows != nil {
 		return compileGroupRowsCellTrace(output, &physical, column, offset, limit)
 	}
-	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
+	prepared, facts, err := prepareCellTracePhysicalPlan(physical, output, column, offset, limit)
 	if err != nil {
 		return CompiledCellTraceQuery{}, err
+	}
+	rendered, err := aql.RenderPhysicalPlan(prepared)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
+	}
+	compiledCommand, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
+	return cellTraceQuery(compiledCommand, output, prepared, facts, offset, limit), nil
+}
+
+func normalizeCellTracePage(output lower.CompiledRecipeOutput, column string, offset, limit int) (string, int, int, error) {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		return "", 0, 0, fmt.Errorf("cell trace column is required")
+	}
+	if output.RowIdentity == nil {
+		return "", 0, 0, fmt.Errorf("cell trace requires a row identity")
+	}
+	if offset < 0 {
+		return "", 0, 0, fmt.Errorf("cell trace offset cannot be negative")
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	if limit > MaxCellTraceContributions {
+		return "", 0, 0, fmt.Errorf("cell trace contribution limit exceeds %d", MaxCellTraceContributions)
+	}
+	return column, offset, limit, nil
+}
+
+type cellTraceTerminalFacts struct {
+	explicitIdentity *ir.PhysicalExpression
+}
+
+func prepareCellTracePhysicalPlan(physical ir.PhysicalPlan, output lower.CompiledRecipeOutput, column string, offset, limit int) (ir.PhysicalPlan, cellTraceTerminalFacts, error) {
+	terminalIndex, identityParts, explicitIdentity, err := finalPopulationMappingIdentity(physical, output.RowIdentity)
+	if err != nil {
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, err
 	}
 	projection, err := traceProjection(physical.Operations[terminalIndex].Return, column)
 	if err != nil {
-		return CompiledCellTraceQuery{}, err
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, err
 	}
 	value, err := physicalProjectionExpression(projection)
 	if err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("trace column %q: %w", column, err)
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, fmt.Errorf("trace column %q: %w", column, err)
 	}
 	contribution := traceContributionForProjection(physical, value)
 	const offsetBind, limitBind, fetchLimitBind = "cell_trace_offset", "cell_trace_limit", "cell_trace_fetch_limit"
@@ -90,28 +132,57 @@ func CompileCellTraceOutputWithPolicy(output lower.CompiledRecipeOutput, column 
 		},
 	}
 	if err := physical.Validate(); err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("validate cell trace physical plan: %w", err)
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, fmt.Errorf("validate cell trace physical plan: %w", err)
 	}
 	if err := ir.ValidateGenericPhysicalPlanScope(physical); err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("verify cell trace physical scope: %w", err)
+		return ir.PhysicalPlan{}, cellTraceTerminalFacts{}, fmt.Errorf("verify cell trace physical scope: %w", err)
 	}
-	rendered, err := aql.RenderPhysicalPlan(physical)
-	if err != nil {
-		return CompiledCellTraceQuery{}, fmt.Errorf("render cell trace physical plan: %w", err)
-	}
+	return physical, cellTraceTerminalFacts{explicitIdentity: explicitIdentity}, nil
+}
+
+func cellTraceQuery(compiledCommand command.CompiledCommand, output lower.CompiledRecipeOutput, prepared ir.PhysicalPlan, facts cellTraceTerminalFacts, offset, limit int) CompiledCellTraceQuery {
 	query := CompiledCellTraceQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),
-		ContributionOffset: offset, ContributionLimit: limit, Diagnostics: physicalPlanDiagnostics(physical),
+		ContributionOffset: offset, ContributionLimit: limit, Diagnostics: physicalPlanDiagnostics(prepared),
 	}
-	if explicitIdentity != nil {
+	if facts.explicitIdentity != nil {
 		query.ExplicitIdentityColumn = ir.PhysicalCellTraceExplicitIdentityField
 	} else {
 		query.IdentityPartsColumn = ir.PhysicalCellTraceIdentityPartsField
 	}
-	return query, nil
+	return query
+}
+
+func compileCellTracePostgreSQL(target Target, output lower.CompiledRecipeOutput, column string, offset, limit int) (CompiledCellTraceQuery, error) {
+	column, offset, limit, err := normalizeCellTracePage(output, column, offset, limit)
+	if err != nil {
+		return CompiledCellTraceQuery{}, err
+	}
+	physical, err := withGenericPhysicalExecutionWindow(ir.ClonePhysicalPlan(output.Plan), 0)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace compilation is unsupported on the PostgreSQL compile target: %w",
+			errors.Join(fmt.Errorf("apply cell trace execution window: %w", err), postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	if physical.StageSequence != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("composed construction cell trace is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
+	}
+	if len(physical.Operations) == 1 && physical.Operations[0].Kind == ir.PhysicalGroupRowsOp && physical.Operations[0].GroupRows != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("explicit group rows cell trace is unsupported on the PostgreSQL compile target: %w", postgresrender.ErrUnsupportedPostgresPlan)
+	}
+	prepared, facts, err := prepareCellTracePhysicalPlan(physical, output, column, offset, limit)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace compilation is unsupported on the PostgreSQL compile target: %w",
+			errors.Join(err, postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	compiledCommand, _, err := target.renderPostgreSQLFinalPlan(prepared)
+	if err != nil {
+		return CompiledCellTraceQuery{}, fmt.Errorf("cell trace compilation is unsupported on the PostgreSQL compile target: %w",
+			errors.Join(err, postgresrender.ErrUnsupportedPostgresPlan))
+	}
+	return cellTraceQuery(compiledCommand, output, prepared, facts, offset, limit), nil
 }
 
 func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.PhysicalPlan, column string, offset, limit int) (CompiledCellTraceQuery, error) {
@@ -144,8 +215,12 @@ func compileGroupRowsCellTrace(output lower.CompiledRecipeOutput, physical *ir.P
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render group-row cell trace physical plan: %w", err)
 	}
+	compiledCommand, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
 	return CompiledCellTraceQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, ExplicitIdentityColumn: ir.PhysicalCellTraceExplicitIdentityField,
@@ -180,8 +255,12 @@ func compileConstructionCellTrace(output lower.CompiledRecipeOutput, physical *i
 	if err != nil {
 		return CompiledCellTraceQuery{}, fmt.Errorf("render construction cell trace physical plan: %w", err)
 	}
+	compiledCommand, commandErr := cellTraceCommand(rendered)
+	if commandErr != nil {
+		return CompiledCellTraceQuery{}, commandErr
+	}
 	query := CompiledCellTraceQuery{
-		Query: rendered.Query, BindVars: rendered.BindVars,
+		Command:     compiledCommand,
 		ValueColumn: ir.PhysicalCellTraceValueField, ContributionsColumn: ir.PhysicalCellTraceContributionsField,
 		StatusColumn: ir.PhysicalCellTraceStatusField, HasMoreColumn: ir.PhysicalCellTraceHasMoreField,
 		OmissionColumn: ir.PhysicalCellTraceOmissionField, RowIdentity: output.RowIdentity.Clone(),

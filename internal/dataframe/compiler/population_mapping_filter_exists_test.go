@@ -38,7 +38,7 @@ func TestCompilePopulationMappingFilterExistsUsesPinnedRootKey(t *testing.T) {
 		t.Fatalf("compiled construction stages = %#v, want the authored FILTER EXISTS stage", compiledOutput.Plan.StageSequence.Stages)
 	}
 
-	mapping, err := CompilePopulationMappingOutputWithPolicy(compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy())
+	mapping, err := CompilePopulationMappingOutput(ArangoTarget(), compiledOutput, populationMappingTestBindings(), ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile population mapping for FILTER EXISTS: %v", err)
 	}
@@ -48,9 +48,9 @@ func TestCompilePopulationMappingFilterExistsUsesPinnedRootKey(t *testing.T) {
 	if mapping.IdentityPartsColumn != ir.PhysicalPopulationMappingIdentityPartsField || mapping.ExplicitIdentityColumn != "" {
 		t.Fatalf("mapping witness identity columns = (%q, %q)", mapping.IdentityPartsColumn, mapping.ExplicitIdentityColumn)
 	}
-	filterAt := strings.Index(mapping.Query, "FILTER __loom_construction_input_1.observation_id != null")
-	witnessAt := strings.Index(mapping.Query, "FOR __loom_physical_construction_population_mapping_source_row")
+	filterAt := strings.Index(testAQLText(t, mapping.Command), "FILTER __loom_construction_input_1.observation_id != null")
+	witnessAt := strings.Index(testAQLText(t, mapping.Command), "FOR __loom_physical_construction_population_mapping_source_row")
 	if filterAt < 0 || witnessAt < 0 || filterAt >= witnessAt {
-		t.Fatalf("population mapping did not run the authored filter before its final-row witness terminal:\n%s", mapping.Query)
+		t.Fatalf("population mapping did not run the authored filter before its final-row witness terminal:\n%s", testAQLText(t, mapping.Command))
 	}
 }

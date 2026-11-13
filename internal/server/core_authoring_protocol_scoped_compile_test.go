@@ -1,38 +1,10 @@
 package server
 
-// TestCoreAuthoringProtocolOutputScopedCompilation is the SERVER half of plan
-// row C06 (docs/verification/CORE_PROTOCOL_VERIFICATION_PLAN.md:375).
-//
-// Derivation note (required by the plan's "independent literal output and
-// dependency membership and schemas" requirement): every expected member,
-// public column id, label, and logical type asserted below was hand-written
-// from the workspace construction inputs in scopedCompileTestWorkspace at the
-// top of this file. No expectation is read back from a compiler result first;
-// if the compiler disagrees with the by-hand contract the test fails.
-//
-// Honest accommodation of the compiler's actual dependency mechanism (report,
-// plus in-file accommodation): the workspace-output dependency the production
-// code enforces is a construction step input with
-// Kind == authoringv2.ConstructionInputWorkspaceOutput. It is consumed only by
-// the terminal Combine form (recipe.Construction.validateTerminalCombine),
-// which mandates at least two distinct immutable inputs
-// ("steps[0].inputs must contain at least two exact inputs"), and the second
-// alternative input kind (TABLE_REVISION) needs the published-input schema
-// resolver that this fixture deliberately leaves nil (compileExplorerReceipt
-// errors with "exact published input schema resolver is required"). A
-// encounters output therefore cannot depend on patients alone, and it cannot
-// take conditions as its second input without conditions joining encounters'
-// required closure (destroying the "unrelated output" half of C06). The
-// workspace adds one extra patient-grain sibling (visits) so encounters'
-// terminal APPEND combine is compiler-legal while conditions stays in NO
-// dependency relationship with encounters: reconciling encounters compiles
-// patients + visits + encounters and never conditions; reconciling conditions
-// compiles conditions alone.
-
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"reflect"
 	"sort"
@@ -50,9 +22,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// Hand-written workspace identities. These literals are the single hand
-// source of truth: scopedCompileTestWorkspace builds the persisted draft from
-// them and the assertions below compare compiler receipts against them.
 const (
 	scopedCompileProject   = "project-a"
 	scopedCompileExplorer  = "core-protocol"
@@ -90,14 +59,6 @@ const (
 	scopedUnknownOutputID = "core-protocol-ghost-output"
 )
 
-// scopedCompileTestWorkspace builds the persisted draft inputs:
-//   - patients  : root Patient, one authored field column (candidate Patient.id).
-//   - visits    : independent patient-grain sibling used only as the second
-//     compiler-mandated input of encounters' terminal APPEND combine.
-//   - encounters: derived output whose single terminal combine step declares
-//     WORKSPACE_OUTPUT inputs on patients and visits.
-//   - conditions: UNRELATED independent root; nothing references it and it
-//     references nothing.
 func scopedCompileTestWorkspace() authoringv2.Workspace {
 	fieldColumn := func(columnID, column, label string) authoringv2.Column {
 		return authoringv2.Column{
@@ -154,13 +115,6 @@ func scopedCompileTestWorkspace() authoringv2.Workspace {
 	}
 }
 
-// scopedLiteralColumn is one hand-written public contract expectation for one
-// output: identity, label, and type as declared in the workspace above.
-// Cardinality and nullability are additionally fixed for the combine output,
-// whose declared stage column (Type string, Nullable true) is the by-hand
-// source; the field-backed columns' nullability comes from the shared test
-// capability snapshot and is intentionally not restated here as authored
-// intent.
 type scopedLiteralColumn struct {
 	public      string
 	label       string
@@ -179,9 +133,6 @@ var scopedLiteralColumns = map[string][]scopedLiteralColumn{
 	scopedOutputEncounters: {{public: scopedEncounterColumn, label: scopedEncounterLabel, logicalType: scopedLogicalTypeString, nullable: scopedBool(true), cardinality: scopedString(scopedCombineEmissionCard)}},
 }
 
-// Hand-written closure membership, sorted for order-independent comparison.
-// scopedCompileTestWorkspace declares documents [patients, encounters, visits,
-// conditions] with encounters' terminal combine depending on patients+visits.
 var (
 	scopedClosureEncounters = []string{scopedOutputEncounters, scopedOutputPatients, scopedOutputVisits}
 	scopedClosureConditions = []string{scopedOutputConditions}
@@ -222,8 +173,15 @@ func newScopedCompileFixture(t *testing.T) *scopedCompileFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows})
+	queryRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		command := request.Command
+		_, _, deriveErr := command.AQLParameters()
+		if deriveErr != nil {
+			return deriveErr
+		}
+		return nil
+	}
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: queryRows, PreviewSourceRows: queryRows})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,9 +231,6 @@ func (f *scopedCompileFixture) reconcile(outputID, requestID string) testHTTPRes
 	return response
 }
 
-// scopedCompileDecodeReceipt decodes a successful reconcile through the strict
-// response contract and returns the receipt identity, the receipt-adjacent
-// outputs list, the returned builder workspace, and the persisted receipt.
 func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response testHTTPResponse, stage string) (loomapi.CompileResponse, authoringv2.Workspace, *explorer.CompilationReceipt) {
 	t.Helper()
 	if response.StatusCode != http.StatusOK {
@@ -301,9 +256,6 @@ func (f *scopedCompileFixture) scopedCompileDecodeReceipt(t *testing.T, response
 	return compiled, decoded.Builder, &persisted
 }
 
-// scopedExpectCompleteWorkspace asserts the reconcile response returned the
-// coherent complete validated workspace: every document and tab of the saved
-// head with the exact persisted head digest.
 func scopedExpectCompleteWorkspace(t *testing.T, stage string, builder authoringv2.Workspace, initialDigest string) {
 	t.Helper()
 	if responseDigest, err := builder.Digest(); err != nil || responseDigest != initialDigest {
@@ -340,8 +292,6 @@ func scopedExpectStrings(t *testing.T, stage, component string, got, want []stri
 	}
 }
 
-// scopedExpectReceipt asserts membership and schemas of one persisted receipt
-// against the hand-written literals for the requested closure.
 func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.CompilationReceipt, wantOutputs, absentTokens []string) {
 	t.Helper()
 	bundleNames := make([]string, 0, len(receipt.Bundle.Outputs))
@@ -477,8 +427,6 @@ func scopedExpectReceipt(t *testing.T, stage string, receipt *explorer.Compilati
 	}
 }
 
-// scopedExpectCombineRecipe asserts the encounters recipe entry against the
-// hand-written dependency declaration above.
 func scopedExpectCombineRecipe(t *testing.T, stage string, output recipe.Output) {
 	t.Helper()
 	if output.Construction == nil || len(output.Construction.Steps) != 1 {
@@ -507,20 +455,9 @@ func scopedExpectCombineRecipe(t *testing.T, stage string, output recipe.Output)
 	}
 }
 
-// TestCoreAuthoringProtocolOutputScopedCompilation reconciles the dependent
-// output, the unrelated output, and the complete workspace through the
-// production strict reconcile route (fixture pattern of
-// core_authoring_protocol_test.go), asserting per case that the persisted
-// receipt contains exactly the requested closure's recipe/emission/contract
-// members while the response keeps returning the full validated workspace.
 func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 	fixture := newScopedCompileFixture(t)
 
-	// Case 1: output-scoped reconcile of the dependent output compiles its
-	// required closure only. patients-side artifacts the contract includes
-	// (patients+visits recipe outputs, emissions, fingerprints, compiled
-	// schemas and contracts) accompany the encounters entry; no conditions
-	// receipt/recipe entry may exist anywhere in the receipt.
 	first := fixture.reconcile(scopedOutputEncounters, "c06-scoped-encounters")
 	compiledEncounters, builderEncounters, receiptEncounters := fixture.scopedCompileDecodeReceipt(t, first, "output-scoped encounters reconcile")
 	scopedExpectReceipt(t, "output-scoped encounters reconcile", receiptEncounters, scopedClosureEncounters, []string{scopedOutputConditions})
@@ -534,10 +471,6 @@ func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 		t.Fatalf("output-scoped encounters reconcile persisted %d receipts, want exactly 1", len(fixture.store.receipts))
 	}
 
-	// Case 3 (run before the full reconcile so the unrelated output is proven
-	// independent of the encounters dependency chain): reconciling conditions
-	// compiles conditions alone, excluding every encounters dependency-chain
-	// artifact (patients, visits, and the encounters step itself).
 	second := fixture.reconcile(scopedOutputConditions, "c06-scoped-conditions")
 	compiledConditions, builderConditions, receiptConditions := fixture.scopedCompileDecodeReceipt(t, second, "output-scoped conditions reconcile")
 	scopedExpectReceipt(t, "output-scoped conditions reconcile", receiptConditions, scopedClosureConditions, []string{scopedOutputEncounters, scopedOutputPatients, scopedOutputVisits})
@@ -552,9 +485,6 @@ func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 		t.Fatalf("output-scoped conditions reconcile persisted %d receipts, want exactly 2", len(fixture.store.receipts))
 	}
 
-	// Case 2: the complete-workspace reconcile covers all outputs, each with
-	// its literal contract, and the response workspace is the coherent full
-	// validated head.
 	full := fixture.reconcile("", "c06-full-workspace")
 	compiledFull, builderFull, receiptFull := fixture.scopedCompileDecodeReceipt(t, full, "complete workspace reconcile")
 	scopedExpectReceipt(t, "complete workspace reconcile", receiptFull, scopedClosureFull, nil)
@@ -562,23 +492,16 @@ func TestCoreAuthoringProtocolOutputScopedCompilation(t *testing.T) {
 	if compiledFull.ReceiptId == compiledEncounters.ReceiptId || compiledFull.ReceiptId == compiledConditions.ReceiptId {
 		t.Fatal("the complete workspace reconcile reused a scoped receipt identity")
 	}
-	// The complete workspace compile is a different intent than either scoped
-	// compile (IntentDigest is the compiled-identity of the whole workspace,
-	// not the raw CAS draft digest: lifecycle compiles the presentation-
-	// normalized workspace).
 	if receiptFull.IntentDigest == receiptEncounters.IntentDigest || receiptFull.IntentDigest == receiptConditions.IntentDigest {
 		t.Fatal("the complete workspace reconcile reused a scoped compile intent")
 	}
 	if len(fixture.store.receipts) != 3 {
 		t.Fatalf("the three successful reconciles persisted %d receipts, want exactly 3", len(fixture.store.receipts))
 	}
-	// A scoped compile is never the full compile: intents differ even where
-	// the requested closure equals the whole workspace minus nothing.
 	if receiptFull.RecipeDigest == receiptEncounters.RecipeDigest {
 		t.Fatal("the complete workspace recipe digest matches the scoped encounters recipe digest")
 	}
 
-	// Case 4: an unknown outputId is a typed rejection with nothing persisted.
 	receiptsBefore := len(fixture.store.receipts)
 	unknown := fixture.reconcile(scopedUnknownOutputID, "c06-scoped-unknown")
 	coreProtocolBoundaryFailure(t, unknown, "output-scoped reconcile of unknown outputId", http.StatusUnprocessableEntity, "INVALID_OUTPUT_SCOPE", "reconcile", scopedUnknownOutputID)

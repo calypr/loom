@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -115,8 +116,16 @@ func TestConstructionProposalFromZeroColumnPopulationAppliesRelatedExpansion(t *
 		t.Fatal(err)
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		QueryRows:    func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 		RootPageRows: 100,
 	})
 	if err != nil {

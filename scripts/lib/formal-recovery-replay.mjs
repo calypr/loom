@@ -21,7 +21,6 @@ const allowedActions = new Set(['AwaitRecovery', 'ChangeExplorer', 'EditWorkspac
 const source = file => readFileSync(join(root, file), 'utf8');
 const tsModule = text => `data:text/javascript;base64,${Buffer.from(stripTypeScriptTypes(text, { mode: 'strip' })).toString('base64')}`;
 
-/** Extract one actual production callback; do not duplicate its async branches. */
 export function extractReconcileCallback(text) {
     const anchor = '  const reconcileCurrent = useCallback(';
     assert.equal(text.split(anchor).length, 2, 'Expected one production reconcile callback');
@@ -46,8 +45,6 @@ export async function loadRecoveryImplementation({ workspaceSource = source(work
     const accepted = await import(`data:text/javascript;base64,${Buffer.from(acceptanceJS).toString('base64')}`);
     const callback = extractReconcileCallback(workspaceSource);
     const names = ['latestState', 'workspaceAttached', 'compileGeneration', 'activeCompile', 'projectId', 'authResourcePath', 'dispatch', 'reconcileBuilder', 'refetchBuilder', 'syncBuilderData', 'setMessage', 'diagnosticsFromError', 'window', 'intentFingerprint', 'workspaceFromState', 'reconcileResultIsCurrent', 'reconcileRecoveryAction', 'reconcileAcceptance'];
-    // No surrounding component code is evaluated. Missing exercised free variables
-    // throw rather than falling back to a test reimplementation.
     const factory = new Function(...names, `"use strict"; return (${callback});`);
     return dependencies => factory(...names.map(name => name in dependencies ? dependencies[name] : ({ ...recovery, ...authoring, ...accepted })[name]));
 }
@@ -86,7 +83,6 @@ export function validateRecoveryState(value) {
     if (value.refreshKind === 'backoff') assert.equal(value.hasData, false, 'Backoff has no builder DTO');
 }
 
-/** Run an actual suspended production callback through a concrete modeled path. */
 export async function replayRecoverySchedule(schedule, { workspaceSource, implementation, automatic = false, rename = false } = {}) {
     assert.ok(workspaceSource === undefined || typeof workspaceSource === 'string' && workspaceSource.trim(), 'Recovery source override must be nonempty');
     assert.ok(implementation === undefined || typeof implementation === 'function', 'Invalid recovery implementation');
@@ -157,7 +153,6 @@ export async function replayRecoverySchedule(schedule, { workspaceSource, implem
     return { status: 'property-held', expected: contract, actual, returnedReceipt: value !== undefined, requests: requests.length };
 }
 
-/** The adapter rejects action/state drift before scheduling the production callback. */
 export function validateRecoveryTransition(from, action, to, { brokenResume = false } = {}) {
     validateRecoveryState(from); validateRecoveryState(to);
     const next = { ...from };

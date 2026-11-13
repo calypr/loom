@@ -13,6 +13,7 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
@@ -92,7 +93,6 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 		nil,
 	)
 
-	// Use the same production catalog projection that emits signed choice IDs.
 	catalog := authoringV2Catalog(snapshot, explorerID)
 	var choiceID string
 	for _, candidate := range catalog.Candidates {
@@ -141,11 +141,14 @@ func TestPatientOneChoiceProposalRouteRefusesOneAndRepairsWithAll(t *testing.T) 
 	candidatePublicColumn := ""
 	previewQueryCalls := 0
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
-		// QueryRows stands in for Arango at the database boundary; the renderer test
-		// checks the generated assertion, while this route test supplies the two
-		// literal IDs from the retained raw fixture as the query result oracle.
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, ScopeDigest: recipeScopeDigest,
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			previewQueryCalls++
 			if !strings.Contains(query, "root.payload.id") {
 				return fmt.Errorf("Patient.id chooser query did not read the raw source id: %s", query)

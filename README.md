@@ -337,7 +337,7 @@ without rebuilding the server image.
 | [`internal/dataframe/recipe`](internal/dataframe/recipe) | Recipe contract, validation, schema resolution, execution, and control services. |
 | [`internal/dataframe/publication`](internal/dataframe/publication) | Backend-neutral bounded streaming publication contract. |
 | [`internal/dataframe/published`](internal/dataframe/published) | Safe single-project published-data reads and aggregates. |
-| [`internal/store/arango`](internal/store/arango) | ArangoDB boundary. |
+| [`internal/backends/arango`](internal/backends/arango) | ArangoDB backend factory; adapters under its `internal/` tree. |
 | [`internal/store/clickhouse`](internal/store/clickhouse) | Typed ClickHouse driver boundary and DDL/DML. |
 | [`internal/api/graphql/graph`](internal/api/graphql/graph) | GraphQL HTTP transport and error presentation. |
 | [`internal/api/graphql/graph/query`](internal/api/graphql/graph/query) | Arango graph and FHIR dataframe API services. |

@@ -10,17 +10,13 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
-// This exercises standalone explicit-cohort row lineage against the same
-// pinned membership documents used by GROUP_ROWS rendering. It intentionally
-// uses a restricted scope so a revoked member cannot be confused with a
-// missing source resource.
 func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
 	const (
@@ -34,17 +30,15 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		revisionsCollection, selectionsCollection, definitionsCollection,
 		membershipsCollection, selectionMembersCollection,
 	}
-	specs := make([]store.CollectionSpec, 0, len(collections))
+	specs := make([]arangofactory.CollectionSpec, 0, len(collections))
 	for _, collection := range collections {
-		specs = append(specs, store.CollectionSpec{Name: collection})
+		specs = append(specs, arangofactory.CollectionSpec{Name: collection})
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
 
 	project := "loom_cohort_lineage_" + uuid.NewString()
-	// Production selection/group metadata uses canonical project identity;
-	// resource documents retain the legacy storage alias.
 	selectionProject := projectid.Canonical(project)
 	if selectionProject == project {
 		t.Fatal("fixture must exercise distinct selection and resource project identities")
@@ -119,8 +113,6 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		map[string]any{"_key": project + "_resource_" + revokedID, "id": revokedID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/revoked", "payload": map[string]any{"id": revokedID}},
 		map[string]any{"_key": project + "_resource_" + unassignedID, "id": unassignedID, "project": project, "dataset_generation": generation, "resourceType": "Observation", "auth_resource_path": "/allowed", "payload": map[string]any{"id": unassignedID}},
 	)
-	// missing-c has a verified selection and assigned membership but no current
-	// resource document. GROUP_ROWS preserves that identity with a null payload.
 
 	bindings := recipe.RuntimeBindings{
 		Project: project, SelectionProject: selectionProject, DatasetGeneration: generation,
@@ -141,7 +133,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		query, err := CompileRowLineageOutput(compiled, string(rowID), offset, limit, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRowLineageOutput(ArangoTarget(), compiled, string(rowID), offset, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile standalone cohort lineage page for %s at %d: %v", groupID, offset, err)
 		}
@@ -185,10 +177,7 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	unassigned := executeRowLineageOracleQuery(t, ctx, client, compilePage("__loom_unassigned__", 0, 2))
 	assertPage(unassigned, []string{unassignedID}, []string{project + "_selected_" + unassignedID}, true, false)
 
-	// Compare these identities with canonical GROUP_ROWS materialization so
-	// revoked members are filtered and a missing current resource remains an
-	// identity-only contributor in both renderers.
-	groupRowsQuery, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	groupRowsQuery, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile canonical standalone GROUP_ROWS fixture: %v", err)
 	}
@@ -224,14 +213,12 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged, err := CompileRowLineageOutput(compiled, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	forged, err := CompileRowLineageOutput(ArangoTarget(), compiled, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile forged cross-revision row identity: %v", err)
 	}
 	assertPage(executeRowLineageOracleQuery(t, ctx, client, forged), nil, nil, false, false)
 
-	// A stale source membership digest must fail the same guard used by the
-	// canonical GROUP_ROWS renderer, before any contributor page is returned.
 	insert(revisionsCollection, map[string]any{
 		"_key": staleRevisionID, "state": "COMPLETE", "project": selectionProject, "generation": generation,
 		"resourceType": "Observation", "sourceSelectionRevisionId": staleSelectionID,
@@ -250,11 +237,11 @@ func TestStandaloneExplicitGroupRowLineagePagesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleQuery, err := CompileRowLineageOutput(staleCompiled, string(staleRowID), 0, 1, ir.DefaultPhysicalOptimizationPolicy())
+	staleQuery, err := CompileRowLineageOutput(ArangoTarget(), staleCompiled, string(staleRowID), 0, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile stale standalone cohort row lineage: %v", err)
 	}
-	queryErr := client.QueryRows(ctx, staleQuery.Query, 32, staleQuery.BindVars, func(map[string]any) error { return nil })
+	queryErr := client.QueryRows(ctx, testAQLText(t, staleQuery.Command), 32, testAQLBinds(t, staleQuery.Command), func(map[string]any) error { return nil })
 	if queryErr == nil || !strings.Contains(queryErr.Error(), "EXPLICIT_GROUP_SOURCE_STALE") {
 		t.Fatalf("source membership digest mismatch error = %v, want EXPLICIT_GROUP_SOURCE_STALE", queryErr)
 	}

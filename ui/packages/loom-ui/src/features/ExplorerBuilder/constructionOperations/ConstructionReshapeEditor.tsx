@@ -380,11 +380,6 @@ type PendingPivotDiscovery = {
   readonly owner: PivotDiscoveryRequestOwner;
 };
 type ScheduledPivotDiscovery = PendingPivotDiscovery & { readonly timer: number };
-// Editor-owned view of "a discovery for this exact request identity has been asked
-// for and no result was adopted yet". Hosts may lag or omit status:'loading', so the
-// in-progress UI cannot depend on props.pivotDiscovery alone. `seen` is the host state
-// already acknowledged when the request was issued; a newer host object ends the
-// in-flight window even for a terminal status.
 type AwaitingPivotDiscovery = PendingPivotDiscovery & {
   readonly contextKey: string;
   readonly seen: ConstructionReshapePivotDiscovery | undefined;
@@ -2221,10 +2216,6 @@ export const ConstructionReshapeEditor = (props: ConstructionReshapeEditorProps)
     ? pivotSupport
     : { supported: false, reason: pivotSupport.supported ? 'Stage-scoped category discovery is not available yet.' : pivotSupport.reason };
   const pivotDiscovery = formContextKey === contextKey ? props.pivotDiscovery : undefined;
-  // A host-published loading state stays handled by PivotEditor's own check. Beyond
-  // that, an editor-issued request counts as in flight until the host publishes
-  // something newer for the current key or a result for its exact identity is
-  // adopted, because hosts may lag or omit status:'loading' entirely.
   const pivotDiscoveryInFlight = ((): boolean => {
     const owner = props.onDiscoverCategories;
     if (!owner || disabled || form.kind !== 'pivot' || !pivotDiscoveryRootMounted.current) return false;
@@ -4964,12 +4955,6 @@ const UnpivotEditor = (props: {
       ? 'Rows with missing values stay in the table.'
       : 'Rows with missing values are left out.'}`;
 
-  // ROW-SOURCE-06 audit: the source-level explanation is a property of the
-  // signed source state, not of any input row, so it renders (and is derived)
-  // independently of the selected input rows, including with zero inputs.
-  // Visibility-aware (ROUND-2 contract): the lane's sole binding is excluded
-  // while it renders in a row's picker, so a field bound by the only melt row
-  // stays selectable and unexplained instead of being falsely told to remove it.
   const laneUnpivotBindings = props.form.unpivotSources ?? [];
   const laneOnlyUnpivotBinding = laneUnpivotBindings.length === 1 ? laneUnpivotBindings[0] : undefined;
   const unpivotSourceEmptiness = classifySourcePickerEmptiness(

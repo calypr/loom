@@ -12,24 +12,19 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
-// This fixture independently enumerates membership roots and each authored
-// relationship stage in raw AQL, then asks CompileRowLineageOutput to resolve
-// those canonical row IDs. It emits the same Specimen at authored stages one
-// and three: repeated paths collapse within each stage, while both authored
-// occurrences remain distinct contributors.
 func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstArango(t *testing.T) {
 	if os.Getenv("LOOM_TEST_ARANGO_URL") == "" || os.Getenv("LOOM_TEST_ARANGO_DATABASE") == "" {
 		t.Skip("LOOM_TEST_ARANGO_URL and LOOM_TEST_ARANGO_DATABASE must point to the supplied Docker Arango service")
 	}
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Specimen"}, {Name: "Observation"},
 		{Name: "fhir_edge", Edge: true}, {Name: "loom_explorer_selection_members"},
 	}}); err != nil {
@@ -102,9 +97,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		insertResource("Observation", id, "Observation", "/allowed", project, generation, nil)
 	}
 
-	// Membership contains two allowed roots plus one denied root. p3 has a
-	// complete valid route but is not a member; p_bridge is an allowed route
-	// bridge but is neither selected nor authored as a terminal source record.
 	members := make([]json.RawMessage, 0, 3)
 	for _, id := range []string{"p1", "p2", "p_denied"} {
 		doc, err := json.Marshal(map[string]any{
@@ -120,9 +112,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		t.Fatalf("insert selected-root membership: %v", err)
 	}
 
-	// Authored stage one uses the generated Patient|subject_Patient|Specimen
-	// tuple. Duplicate paths to s1 collapse within this stage. The old-generation
-	// edge is the only route to s_stale and cannot admit that target.
 	insertEdge("p1_s1_a", "Specimen", "s1", "Patient", "p1", "subject_Patient", project, generation, "/allowed")
 	insertEdge("p1_s1_b", "Specimen", "s1", "Patient", "p1", "subject_Patient", project, generation, "/allowed")
 	insertEdge("p1_s_empty", "Specimen", "s_empty", "Patient", "p1", "subject_Patient", project, generation, "/allowed")
@@ -130,11 +119,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	insertEdge("p3_s3", "Specimen", "s3", "Patient", "p3", "subject_Patient", project, generation, "/allowed")
 	insertEdge("p1_s_stale", "Specimen", "s_stale", "Patient", "p1", "subject_Patient", project, "old-generation", "/allowed")
 
-	// Authored stage two is the generated two-hop route Specimen -> Patient ->
-	// Observation. p_bridge is a bridge-only resource; two paths to o1 should
-	// still yield one authored terminal. The selected p2 row reaches an
-	// unauthorized bridge with a valid, visible Observation and Specimen beyond
-	// it; the bridge auth check is what must preserve the Specimen parent as empty.
 	insertEdge("s1_bridge_a", "Specimen", "s1", "Patient", "p_bridge", "subject_Patient", project, generation, "/allowed")
 	insertEdge("s1_bridge_b", "Specimen", "s1", "Patient", "p_bridge", "subject_Patient", project, generation, "/allowed")
 	insertEdge("o1_bridge_a", "Observation", "o1", "Patient", "p_bridge", "subject_Patient", project, generation, "/allowed")
@@ -144,9 +128,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	insertEdge("o3_decoy_bridge", "Observation", "o3", "Patient", "p3", "subject_Patient", project, generation, "/allowed")
 	insertEdge("s3_decoy_bridge", "Specimen", "s3", "Patient", "p3", "subject_Patient", project, generation, "/allowed")
 
-	// Authored stage three returns to s1 using the supported Observation to
-	// Specimen reference. Duplicate edge witnesses again collapse within the
-	// stage, while s1 remains present a second time after stage one.
 	insertEdge("o1_s1_a", "Observation", "o1", "Specimen", "s1", "specimen_Specimen", project, generation, "/allowed")
 	insertEdge("o1_s1_b", "Observation", "o1", "Specimen", "s1", "specimen_Specimen", project, generation, "/allowed")
 	insertEdge("o2_s2", "Observation", "o2", "Specimen", "s2", "specimen_Specimen", project, generation, "/allowed")
@@ -161,7 +142,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	if capability := RowLineageCapabilityForOutput(output); !capability.Available {
 		t.Fatalf("composed related expansion row lineage capability = %#v", capability)
 	}
-	previewQuery, err := CompileRecipeOutputWithPolicy(output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	previewQuery, err := CompileRecipeOutput(ArangoTarget(), output, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,9 +183,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		t.Fatalf("independent oracle rows = %#v, want p1/s1, p1/s_empty, p2/s2, excluding denied and nonmember roots", oracleRows)
 	}
 
-	// The full row includes Patient/p1, Specimen/s1, Observation/o1, and the
-	// same Specimen/s1 emitted again. limit=2 checks stage order, limit+1
-	// hasMore, continuation, and past-end behavior.
 	var fullRowID string
 	for rowID, oracle := range oracleByRowID {
 		if oracle["root_id"] == "p1" && oracle["specimen_id"] == "s1" && oracle["observation_id"] == "o1" && oracle["returned_specimen_id"] == "s1" {
@@ -216,7 +194,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 	}
 	page := func(offset int) map[string]any {
 		t.Helper()
-		compiled, compileErr := CompileRowLineageOutput(output, fullRowID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), output, fullRowID, offset, 2, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile composed row lineage at offset %d: %v", offset, compileErr)
 		}
@@ -243,8 +221,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		}
 	}
 
-	// A later preserved empty emits no null/bridge contributor. This exercises
-	// both no matching route and a route whose only bridge is denied by scope.
 	for rowID, oracle := range oracleByRowID {
 		if (oracle["root_id"] != "p1" || oracle["specimen_id"] != "s_empty") &&
 			(oracle["root_id"] != "p2" || oracle["specimen_id"] != "s2") {
@@ -253,7 +229,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		if oracle["observation_id"] != nil || oracle["returned_specimen_id"] != nil {
 			t.Fatalf("empty oracle row unexpectedly has related terminals: %#v", oracle)
 		}
-		compiled, compileErr := CompileRowLineageOutput(output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), output, rowID, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile preserved-empty composed lineage: %v", compileErr)
 		}
@@ -266,8 +242,6 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		}
 	}
 
-	// Validly shaped identities for a nonmember root, a denied bridge terminal,
-	// a forged stage-two terminal, and malformed JSON all fail closed.
 	stage1ID, stage2ID, stage3ID := stepIDs["expand_specimens"], stepIDs["expand_observations"], stepIDs["return_specimen"]
 	s2Parent := relatedExpandRowID(t, key("p2"), stage1ID, "Specimen/"+key("s2"))
 	forgedRows := []string{
@@ -277,7 +251,7 @@ func TestComposedRelatedExpandLineageMatchesIndependentMembershipOracleAgainstAr
 		"not-json",
 	}
 	for _, forged := range forgedRows {
-		compiled, compileErr := CompileRowLineageOutput(output, forged, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
+		compiled, compileErr := CompileRowLineageOutput(ArangoTarget(), output, forged, 0, 10, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile fail-closed composed identity %q: %v", forged, compileErr)
 		}
@@ -377,11 +351,8 @@ func composedRelatedExpandConstructionIDs(t *testing.T, output lower.CompiledRec
 	return ids
 }
 
-func executeComposedRelatedExpandOracle(t *testing.T, ctx context.Context, client *store.Client, project, generation, selectionID string) []map[string]any {
+func executeComposedRelatedExpandOracle(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation, selectionID string) []map[string]any {
 	t.Helper()
-	// This is a source-side oracle, independent from construction compilation:
-	// it spells out membership, every typed route hop, every edge label, and all
-	// project/generation/auth guards before deduplicating per authored stage.
 	query := `
 FOR member IN loom_explorer_selection_members
   FILTER member.selectionId == @selection_id AND member.project == @project AND member.generation == @generation AND member.resourceType == "Patient"

@@ -22,8 +22,6 @@ func NewShapePlanCacheWithLimits(maxPlans, maxBytes int) *ShapePlanCache {
 	return &ShapePlanCache{plans: make(map[string]*shapePlan), maxPlans: maxPlans, maxBytes: maxBytes, budget: newRetentionBudget(maxBytes)}
 }
 
-// NewProfilerForGenerationWithLimits constructs a profiler with explicit
-// bounds for every write-side catalog structure.
 func NewProfilerForGenerationWithLimits(project, datasetGeneration, authResourcePath, resourceType string, cache *ShapePlanCache, limits ProfileLimits) *Profiler {
 	limits = limits.normalized()
 	if cache == nil {
@@ -47,15 +45,10 @@ func (p *Profiler) ObservePayload(payload map[string]any, timings map[string]flo
 	return p.observePayload(payload, timings, "", nil, nil, "", nil)
 }
 
-// ObservePayloadWithInventory profiles a source record and emits each semantic
-// observation through the same extractor used by the bounded field summary.
 func (p *Profiler) ObservePayloadWithInventory(payload map[string]any, timings map[string]float64, sourceID string, sink SemanticInventoryObservationSink) error {
 	return p.observePayload(payload, timings, sourceID, sink, nil, "", nil)
 }
 
-// ObservePayloadWithCoverage profiles one source record, emits semantic
-// observations and ephemeral concrete-owner evidence, then writes exactly one
-// aggregated source coverage contribution through coverageSink.
 func (p *Profiler) ObservePayloadWithCoverage(
 	payload map[string]any,
 	timings map[string]float64,
@@ -142,10 +135,6 @@ func (p *Profiler) observePayload(
 	return semanticErr
 }
 
-// ErrProfilerIdentityMismatch reports an attempted merge between independently
-// scoped catalog profilers. Combining those stats would let one project,
-// generation, authorization path, or resource type claim observations from
-// another scope.
 var ErrProfilerIdentityMismatch = errors.New("catalog profiler identity mismatch")
 
 type profilerIdentity struct {
@@ -164,10 +153,6 @@ func (p *Profiler) normalizedIdentity() profilerIdentity {
 	}
 }
 
-// Merge aggregates worker-local observations only when both profilers describe
-// the same persisted catalog namespace. It validates every identity component
-// before changing any statistics so a rejected merge is observationally a
-// no-op for the destination profiler.
 func (p *Profiler) Merge(other *Profiler) error {
 	if p == nil || other == nil {
 		return fmt.Errorf("%w: nil profiler", ErrProfilerIdentityMismatch)
@@ -221,6 +206,9 @@ func (p *Profiler) Merge(other *Profiler) error {
 				pivotItemSource:       otherStat.pivotItemSource,
 				pivotItemResourceType: otherStat.pivotItemResourceType,
 				pivotValueSelectors:   append([]string(nil), otherStat.pivotValueSelectors...),
+				pivotColumnArms:       cloneStringSet(otherStat.pivotColumnArms),
+				pivotValueArms:        cloneStringSet(otherStat.pivotValueArms),
+				pivotSpecApplied:      otherStat.pivotSpecApplied,
 				distinctSet:           make(map[string]struct{}),
 				pivotColumnSet:        make(map[string]struct{}),
 				extensionValueSet:     make(map[string]struct{}),
@@ -231,6 +219,7 @@ func (p *Profiler) Merge(other *Profiler) error {
 		stat.docCount += otherStat.docCount
 		stat.maxItems = max(stat.maxItems, otherStat.maxItems)
 		stat.distinctTruncated = stat.distinctTruncated || otherStat.distinctTruncated
+		stat.convergePivotEvidence(otherStat)
 		stat.setPivotDefaults(otherStat.pivotFamily, otherStat.pivotColumnSelect, otherStat.pivotValueSelect)
 		stat.setPivotScope(otherStat.pivotItemSource, otherStat.pivotItemResourceType, otherStat.pivotValueSelectors)
 		for _, value := range otherStat.distinctValues {
@@ -307,6 +296,14 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			}
 			return extensionValues[i].ValuePath < extensionValues[j].ValuePath
 		})
+		pivotColumnSelect := stat.pivotColumnSelect
+		if len(stat.pivotColumnArms) > 0 {
+			pivotColumnSelect = deriveObservedPivotSelector(stat.pivotColumnArms, observationPivotColumnArmPrecedence)
+		}
+		pivotValueSelect := stat.pivotValueSelect
+		if len(stat.pivotValueArms) > 0 {
+			pivotValueSelect = deriveObservedPivotSelector(stat.pivotValueArms, observationPivotValueArmPrecedence)
+		}
 		out = append(out, FieldCatalogDocument{
 			Key:                   fieldCatalogKeyForGeneration(p.project, datasetGeneration, p.authResourcePath, p.resourceType, stat.path),
 			Project:               p.project,
@@ -326,8 +323,8 @@ func (p *Profiler) Documents() []FieldCatalogDocument {
 			PivotKind:             stat.pivotKind,
 			PivotColumns:          pivotColumns,
 			PivotFamily:           stat.pivotFamily,
-			PivotColumnSelect:     stat.pivotColumnSelect,
-			PivotValueSelect:      stat.pivotValueSelect,
+			PivotColumnSelect:     pivotColumnSelect,
+			PivotValueSelect:      pivotValueSelect,
 			PivotItemSource:       stat.pivotItemSource,
 			PivotItemResourceType: stat.pivotItemResourceType,
 			PivotValueSelectors:   append([]string(nil), stat.pivotValueSelectors...),
@@ -390,6 +387,9 @@ func maxLength(nodes []any, field string) int {
 
 func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 	if stat, ok := p.stats[field.Path]; ok {
+		if pivotStatNeedsUpgrade(stat, field) {
+			p.upgradePivotStat(stat, field)
+		}
 		return stat
 	}
 	if p.limits.MaxFields > 0 && len(p.stats) >= p.limits.MaxFields {
@@ -412,17 +412,89 @@ func (p *Profiler) ensureStat(field *fieldPlan) *fieldCatalogStats {
 		extensionValueSet: make(map[string]struct{}),
 	}
 	if field.PivotCandidate {
-		if spec, ok := fhirschema.DefaultPivotSpec(p.resourceType, field.Path, ""); ok {
-			stat.pivotFamily = spec.Family
-			stat.pivotColumnSelect = fhirschema.SelectorExpression(spec.ColumnSelector)
-			stat.pivotValueSelect = fhirschema.SelectorExpression(spec.ValueSelector)
-			stat.pivotItemSource = spec.ItemSourcePath
-			stat.pivotItemResourceType = spec.ItemResourceType
-			stat.pivotValueSelectors = selectorExpressions(spec.ValueSelectors)
-		}
+		p.applyDefaultPivotSpec(stat)
 	}
 	p.stats[field.Path] = stat
 	return stat
+}
+
+func pivotStatNeedsUpgrade(stat *fieldCatalogStats, field *fieldPlan) bool {
+	if kindUpgrade(stat.kind, field.Kind) != "" {
+		return true
+	}
+	if !field.PivotCandidate {
+		return false
+	}
+	return !stat.pivotCandidate || stat.pivotKind == "" || !stat.pivotSpecApplied
+}
+
+func kindUpgradeRank(kind string) int {
+	switch kind {
+	case fieldKindCodeableConcept:
+		return 3
+	case fieldKindCoding:
+		return 2
+	case fieldKindObject:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func kindUpgrade(current string, incoming string) string {
+	if kindUpgradeRank(current) < kindUpgradeRank(fieldKindObject) {
+		return ""
+	}
+	if kindUpgradeRank(incoming) < kindUpgradeRank(fieldKindCoding) {
+		return ""
+	}
+	if kindUpgradeRank(incoming) <= kindUpgradeRank(current) {
+		return ""
+	}
+	return incoming
+}
+
+func (p *Profiler) upgradePivotStat(stat *fieldCatalogStats, field *fieldPlan) {
+	if upgraded := kindUpgrade(stat.kind, field.Kind); upgraded != "" {
+		stat.kind = upgraded
+	}
+	if !field.PivotCandidate {
+		return
+	}
+	stat.pivotCandidate = true
+	if stat.pivotKind == "" {
+		stat.pivotKind = field.PivotKind
+	}
+	p.applyDefaultPivotSpec(stat)
+}
+
+func (p *Profiler) applyDefaultPivotSpec(stat *fieldCatalogStats) {
+	if stat.pivotSpecApplied {
+		return
+	}
+	stat.pivotSpecApplied = true
+	spec, ok := fhirschema.DefaultPivotSpec(p.resourceType, stat.path, "")
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(stat.pivotFamily) == "" {
+		stat.pivotFamily = spec.Family
+	}
+	if strings.TrimSpace(stat.pivotColumnSelect) == "" {
+		stat.pivotColumnSelect = fhirschema.SelectorExpression(spec.ColumnSelector)
+	}
+	if strings.TrimSpace(stat.pivotValueSelect) == "" {
+		stat.pivotValueSelect = fhirschema.SelectorExpression(spec.ValueSelector)
+	}
+	if strings.TrimSpace(stat.pivotItemSource) == "" {
+		stat.pivotItemSource = spec.ItemSourcePath
+	}
+	if strings.TrimSpace(stat.pivotItemResourceType) == "" {
+		stat.pivotItemResourceType = spec.ItemResourceType
+	}
+	if len(stat.pivotValueSelectors) == 0 {
+		stat.pivotValueSelectors = selectorExpressions(spec.ValueSelectors)
+	}
 }
 
 func (p *Profiler) RetentionBytes() int {
@@ -673,8 +745,6 @@ func (p *Profiler) ensureExtensionURLStat(path string) *fieldCatalogStats {
 }
 
 func extensionValueMapping(path string, value any) (string, string) {
-	// FHIR complex value[x] payloads and arrays require lossless JSON fallback;
-	// an empty value path is the resolver's explicit canonical-JSON marker.
 	switch value.(type) {
 	case map[string]any, []any:
 		return "", "string"
@@ -703,12 +773,115 @@ func (s *fieldCatalogStats) setPivotDefaults(family string, columnSelector strin
 	if strings.TrimSpace(family) != "" {
 		s.pivotFamily = family
 	}
-	if strings.TrimSpace(columnSelector) != "" {
+	if strings.TrimSpace(columnSelector) != "" && len(s.pivotColumnArms) == 0 {
 		s.pivotColumnSelect = columnSelector
 	}
-	if strings.TrimSpace(valueSelector) != "" {
+	if strings.TrimSpace(valueSelector) != "" && len(s.pivotValueArms) == 0 {
 		s.pivotValueSelect = valueSelector
 	}
+}
+
+func (s *fieldCatalogStats) observePivotArms(columnSelector string, valueSelector string) {
+	if value := strings.TrimSpace(columnSelector); value != "" {
+		if s.pivotColumnArms == nil {
+			s.pivotColumnArms = make(map[string]struct{})
+		}
+		s.pivotColumnArms[value] = struct{}{}
+	}
+	if value := strings.TrimSpace(valueSelector); value != "" {
+		if s.pivotValueArms == nil {
+			s.pivotValueArms = make(map[string]struct{})
+		}
+		s.pivotValueArms[value] = struct{}{}
+	}
+}
+
+func (s *fieldCatalogStats) mergePivotArmsFrom(other *fieldCatalogStats) {
+	for value := range other.pivotColumnArms {
+		if s.pivotColumnArms == nil {
+			s.pivotColumnArms = make(map[string]struct{})
+		}
+		s.pivotColumnArms[value] = struct{}{}
+	}
+	for value := range other.pivotValueArms {
+		if s.pivotValueArms == nil {
+			s.pivotValueArms = make(map[string]struct{})
+		}
+		s.pivotValueArms[value] = struct{}{}
+	}
+}
+
+func (s *fieldCatalogStats) convergePivotEvidence(other *fieldCatalogStats) {
+	s.mergePivotArmsFrom(other)
+	if upgraded := kindUpgrade(s.kind, other.kind); upgraded != "" {
+		s.kind = upgraded
+	}
+	if other.pivotCandidate {
+		s.pivotCandidate = true
+	}
+	if pivotKindRank(other.pivotKind) > pivotKindRank(s.pivotKind) {
+		s.pivotKind = other.pivotKind
+	}
+	s.pivotSpecApplied = s.pivotSpecApplied || other.pivotSpecApplied
+}
+
+func pivotKindRank(kind string) int {
+	switch kind {
+	case pivotKindObservation:
+		return 2
+	case pivotKindCodeableConcept:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func cloneStringSet(set map[string]struct{}) map[string]struct{} {
+	if len(set) == 0 {
+		return nil
+	}
+	clone := make(map[string]struct{}, len(set))
+	for value := range set {
+		clone[value] = struct{}{}
+	}
+	return clone
+}
+
+var observationPivotColumnArmPrecedence = []string{"code.text", "code.coding[].display"}
+
+var observationPivotValueArmPrecedence = []string{
+	"valueQuantity.value",
+	"valueCodeableConcept.text",
+	"valueCodeableConcept.coding[].display",
+	"valueString",
+	"valueInteger",
+	"valueBoolean",
+	"valueDecimal",
+	"valueDateTime",
+	"valueTime",
+	"valuePeriod.start",
+	"valuePeriod.end",
+	"valueRange.low.value",
+	"valueRange.high.value",
+	"valueRatio.numerator.value",
+	"valueRatio.denominator.value",
+}
+
+func deriveObservedPivotSelector(arms map[string]struct{}, precedence []string) string {
+	for _, candidate := range precedence {
+		if _, ok := arms[candidate]; ok {
+			return candidate
+		}
+	}
+	remaining := make([]string, 0, len(arms))
+	for arm := range arms {
+		remaining = append(remaining, arm)
+	}
+	slices.Sort(remaining)
+	if len(remaining) == 0 {
+		return ""
+	}
+	return remaining[0]
 }
 
 func (s *fieldCatalogStats) setPivotScope(itemSource, itemResourceType string, valueSelectors []string) {
@@ -847,15 +1020,17 @@ func isLoomMetadataField(path string) bool {
 
 func addFieldPlan(fieldMap map[string]*fieldPlan, path string, accessor []pathStep, kind string, pivotCandidate bool, pivotKind string) {
 	if existing, ok := fieldMap[path]; ok {
-		if existing.Kind == fieldKindObject && (kind == fieldKindCodeableConcept || kind == fieldKindCoding) {
-			existing.Kind = kind
+		if upgraded := kindUpgrade(existing.Kind, kind); upgraded != "" {
+			existing.Kind = upgraded
 		}
 		if existing.Kind == fieldKindArray && kind != fieldKindArray {
 			return
 		}
 		if pivotCandidate {
 			existing.PivotCandidate = true
-			existing.PivotKind = pivotKind
+			if pivotKindRank(pivotKind) > pivotKindRank(existing.PivotKind) {
+				existing.PivotKind = pivotKind
+			}
 		}
 		return
 	}
@@ -928,11 +1103,13 @@ func (p *Profiler) observeObservationCodePivot(payload map[string]any) {
 	}
 	stat.pivotCandidate = true
 	stat.pivotKind = pivotKindObservation
+	stat.pivotFamily = fhirschema.PivotFamilyObservationCodeValue
+	p.applyDefaultPivotSpec(stat)
 	columnSelector := "code.coding[].display"
 	if _, hasText := codeValue["text"]; hasText {
 		columnSelector = "code.text"
 	}
-	stat.setPivotDefaults(fhirschema.PivotFamilyObservationCodeValue, columnSelector, valueSelector)
+	stat.observePivotArms(columnSelector, valueSelector)
 	for _, col := range codeableConceptColumns(codeValue) {
 		p.addPivotColumnWithLimits(stat, col)
 	}

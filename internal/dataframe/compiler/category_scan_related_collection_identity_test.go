@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	store "github.com/calypr/loom/internal/store/arango"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/google/uuid"
 )
 
@@ -20,7 +20,7 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Specimen"}, {Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -80,9 +80,6 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 	insertEdge("canonical_root_patient", "Specimen", canonicalRoot, "Patient", canonicalPatient, "Specimen", "Patient")
 	insertEdge("canonical_observation_patient", "Observation", canonicalObservation, "Patient", canonicalPatient, "Observation", "Patient")
 
-	// Keep a scoped cross-collection endpoint claiming Patient in the fixture:
-	// current lookup semantics accept it because its declared type and scope
-	// match the route, regardless of its actual collection.
 	foreignRoot := insertDocument("Specimen", "Specimen", "root_foreign_collection", nil)
 	foreignPatient := insertDocument("Observation", "Patient", "patient_stored_as_observation", nil)
 	foreignObservation := insertDocument("Observation", "Observation", "observation_foreign_collection", "cross-collection-category")
@@ -93,7 +90,7 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 	insertEdge("missing_target", "Observation", missingTargetObservation, "Patient", key("patient_missing"), "Observation", "Patient")
 
 	_, _, scanned := compileRelatedCategoryRuntimeScans(t, relatedCategoryScanOutput(relatedCategoryScanOptions{}), project, generation, MaxCategoryScanValues)
-	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Query: scanned.Query, BindVars: scanned.BindVars})
+	rows := executeReshapeOracleQuery(t, ctx, client, CompiledQuery{Command: scanned.Command})
 	got := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		present, ok := row[scanned.PresentColumn].(bool)
@@ -107,6 +104,6 @@ func TestRelatedCategoryReverseLookupPreservesCrossCollectionResourceTypeMatchAg
 		relatedCategoryValueKey(true, "cross-collection-category"): {},
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("related categories = %v, want canonical plus the scoped cross-collection Patient claim and no missing-target category %v; query:\n%s", got, want, scanned.Query)
+		t.Fatalf("related categories = %v, want canonical plus the scoped cross-collection Patient claim and no missing-target category %v; query:\n%s", got, want, testAQLText(t, scanned.Command))
 	}
 }

@@ -54,9 +54,6 @@ type PhysicalCombineOutputColumn struct {
 	Repeated       bool
 }
 
-// PhysicalClickHouseCombine is the closed semantic/physical contract for a
-// constructed-table operation. Published table names and authorization are
-// request scoped and are attached only after exact revision resolution.
 type PhysicalClickHouseCombine struct {
 	Kind             PhysicalCombineKind
 	Inputs           []PhysicalCombineInputRef
@@ -72,22 +69,14 @@ func (combine PhysicalClickHouseCombine) Validate() error {
 	return combine.validate(false, false)
 }
 
-// ValidateWithPrivateStage is used only by a typed composite physical plan.
-// Standalone combines continue to require exact published table revisions.
 func (combine PhysicalClickHouseCombine) ValidateWithPrivateStage() error {
 	return combine.validate(true, false)
 }
 
-// ValidateForWorkspaceCompilation accepts typed sibling-output refs after the
-// workspace resolver has supplied their schemas. It does not authorize
-// execution; ordinary Validate deliberately rejects those unresolved refs.
 func (combine PhysicalClickHouseCombine) ValidateForWorkspaceCompilation() error {
 	return combine.validate(false, true)
 }
 
-// ValidateWithWorkspaceArtifacts validates a typed terminal Combine that will
-// resolve same-bundle workspace references through server-owned artifacts.
-// Standard Validate deliberately continues to reject unresolved references.
 func (combine PhysicalClickHouseCombine) ValidateWithWorkspaceArtifacts() error {
 	if err := combine.validate(false, true); err != nil {
 		return fmt.Errorf("validate workspace artifact combine: %w", err)
@@ -257,11 +246,24 @@ func (combine PhysicalClickHouseCombine) validate(allowPrivateStage, allowWorksp
 	return nil
 }
 
-// PhysicalClickHousePrefix binds a terminal ClickHouse Combine input to the
-// exact last typed AQL stage. A restricted prefix is supported only for one
-// immutable authorization path; the renderer emits that bound path as hidden
-// row metadata instead of guessing it from result rows.
+type PhysicalPrefixSourceBackend string
+
+const (
+	PhysicalPrefixSourceAQL        PhysicalPrefixSourceBackend = "AQL"
+	PhysicalPrefixSourcePostgreSQL PhysicalPrefixSourceBackend = "POSTGRESQL"
+)
+
+func (backend PhysicalPrefixSourceBackend) Validate() error {
+	switch backend {
+	case PhysicalPrefixSourceAQL, PhysicalPrefixSourcePostgreSQL:
+		return nil
+	default:
+		return fmt.Errorf("private ClickHouse prefix requires an explicit supported source backend, got %q", string(backend))
+	}
+}
+
 type PhysicalClickHousePrefix struct {
+	SourceBackend           PhysicalPrefixSourceBackend
 	StageID                 string
 	AuthScopeMode           string
 	AuthResourcePaths       []string
@@ -270,8 +272,40 @@ type PhysicalClickHousePrefix struct {
 }
 
 func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	switch prefix.SourceBackend {
+	case PhysicalPrefixSourceAQL:
+		return prefix.validateSourceAQL(sequence, bindVars)
+	case PhysicalPrefixSourcePostgreSQL:
+		return prefix.validateSourcePostgreSQL(sequence, bindVars)
+	default:
+		return prefix.SourceBackend.Validate()
+	}
+}
+
+func (prefix PhysicalClickHousePrefix) validateSourceAQL(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	if err := prefix.validateShared(sequence, bindVars, "AQL"); err != nil {
+		return err
+	}
+	if prefix.AuthResourcePathBindKey == "" {
+		return nil
+	}
+	value, ok := bindVars[prefix.AuthResourcePathBindKey].(string)
+	if !ok || value != prefix.AuthResourcePaths[0] {
+		return fmt.Errorf("private ClickHouse prefix authorization bind does not match its exact scope")
+	}
+	return nil
+}
+
+func (prefix PhysicalClickHousePrefix) validateSourcePostgreSQL(sequence *PhysicalStageSequence, bindVars map[string]any) error {
+	if prefix.AuthScopeMode != "unrestricted" {
+		return fmt.Errorf("restricted private ClickHouse prefixes are unsupported on the PostgreSQL source backend: the composed PostgreSQL renderer has no registered bound authorization path column")
+	}
+	return prefix.validateShared(sequence, bindVars, "PostgreSQL")
+}
+
+func (prefix PhysicalClickHousePrefix) validateShared(sequence *PhysicalStageSequence, bindVars map[string]any, backend string) error {
 	if sequence == nil || strings.TrimSpace(prefix.StageID) == "" || prefix.StageID != sequence.FinalStageID {
-		return fmt.Errorf("private ClickHouse prefix must reference the exact final AQL stage")
+		return fmt.Errorf("private ClickHouse prefix must reference the exact final %s construction stage", backend)
 	}
 	if sequence.CellTraceReturn != nil {
 		return fmt.Errorf("cell-trace plans cannot feed a private ClickHouse Combine")
@@ -286,7 +320,7 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 	unrestricted, unrestrictedOK := bindVars[physicalScopeAuthPathsUnrestrictedBind].(bool)
 	allowed, allowedOK := bindVars[physicalScopeAllowedBind].(bool)
 	if !pathsOK || !samePhysicalStrings(paths, prefix.AuthResourcePaths) || !unrestrictedOK || unrestricted != (prefix.AuthScopeMode == "unrestricted") || !allowedOK || !allowed {
-		return fmt.Errorf("private ClickHouse prefix scope differs from the AQL authorization bindings")
+		return fmt.Errorf("private ClickHouse prefix scope differs from the %s authorization bindings", backend)
 	}
 	for _, column := range sequence.FinalColumns {
 		if column.Name == "auth_resource_path" || column.Name == "project_id" {
@@ -297,13 +331,6 @@ func (prefix PhysicalClickHousePrefix) Validate(sequence *PhysicalStageSequence,
 		if stage.Kind == PhysicalStageGroupOp || stage.Kind == PhysicalStageCohortGroupOp {
 			return fmt.Errorf("%s prefixes cannot feed a private ClickHouse Combine until authorization scope is preserved by grouping", stage.Kind)
 		}
-	}
-	if prefix.AuthResourcePathBindKey == "" {
-		return nil
-	}
-	value, ok := bindVars[prefix.AuthResourcePathBindKey].(string)
-	if !ok || value != prefix.AuthResourcePaths[0] {
-		return fmt.Errorf("private ClickHouse prefix authorization bind does not match its exact scope")
 	}
 	return nil
 }
@@ -370,8 +397,6 @@ func validatePhysicalCombineKeys(keys []PhysicalCombineKey) error {
 	return nil
 }
 
-// ResolvedClickHouseTable is populated by the exact revision resolver after
-// project, output, schema, scope, and authorization checks succeed.
 type ResolvedClickHouseTable struct {
 	TableID             string
 	RevisionID          string
@@ -393,9 +418,6 @@ type ResolvedClickHouseTable struct {
 	ScopeEvidenceDigest string
 }
 
-// ClickHouseArtifactIdentity carries the exact identity used by the private
-// artifact writer. Expected and actual values are compared in full before the
-// artifact can become a ClickHouse input.
 type ClickHouseArtifactIdentity struct {
 	ExecutionID         string
 	OutputID            string

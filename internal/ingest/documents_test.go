@@ -33,3 +33,35 @@ func TestVertexFromFHIRWithExtraRejectsNonConcreteResourceTypes(t *testing.T) {
 		t.Fatal("backbone definition was accepted as a graph vertex")
 	}
 }
+
+func TestSplitCollectionIDInvertsCollectionEndpoints(t *testing.T) {
+	edge, err := EdgeFromGrip("project", " patient ", &model.Edge{Id: "edge-1", From: "patient-1", To: "specimen-1", Label: "subject_Specimen"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		value            string
+		wantType, wantID string
+	}{
+		{edge.From, "Patient", "patient-1"},
+		{edge.To, "Specimen", "specimen-1"},
+		{"Observation/obs.7@x", "Observation", "obs.7@x"},
+	} {
+		gotType, gotID, ok := SplitCollectionID(tc.value)
+		if !ok || gotType != tc.wantType || gotID != tc.wantID {
+			t.Errorf("SplitCollectionID(%q) = (%q, %q, %t), want (%q, %q, true)",
+				tc.value, gotType, gotID, ok, tc.wantType, tc.wantID)
+		}
+	}
+
+	for _, value := range []string{"", "  ", "Patient", "/patient-1", "Patient/", "Patient//x", "Patient/a/b", " /a", "a/ "} {
+		if gotType, gotID, ok := SplitCollectionID(value); ok {
+			t.Errorf("SplitCollectionID(%q) = (%q, %q, true), want refusal", value, gotType, gotID)
+		}
+	}
+
+	remade := collectionID("Patient", "patient-1")
+	if gotType, gotID, ok := SplitCollectionID(remade); !ok || gotType != "Patient" || gotID != "patient-1" {
+		t.Errorf("SplitCollectionID(collectionID(...)) = (%q, %q, %t), want (Patient, patient-1, true)", gotType, gotID, ok)
+	}
+}

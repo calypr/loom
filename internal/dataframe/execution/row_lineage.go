@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -38,7 +39,7 @@ func (e *Engine) RowLineage(ctx context.Context, resolved Resolved, request RowL
 	if request.Offset < 0 || request.Limit < 0 || request.Limit > compiler.MaxRowLineageContributors {
 		return RowLineageResult{}, fmt.Errorf("row lineage page is outside the supported range")
 	}
-	compiled, err := compileRowLineageOutput(resolved, request)
+	compiled, err := e.compileRowLineageOutput(resolved, request)
 	if err != nil {
 		return RowLineageResult{}, err
 	}
@@ -46,15 +47,23 @@ func (e *Engine) RowLineage(ctx context.Context, resolved Resolved, request RowL
 }
 
 func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.CompiledRowLineageQuery) (RowLineageResult, error) {
-	if e == nil || e.queryRows == nil {
+	if e == nil || e.sourceRows == nil {
 		return RowLineageResult{}, fmt.Errorf("row lineage query executor is required")
 	}
 	if compiled.FoundColumn == "" || compiled.ContributorsColumn == "" || compiled.HasMoreColumn == "" || compiled.Limit < 1 || compiled.Limit > compiler.MaxRowLineageContributors {
 		return RowLineageResult{}, fmt.Errorf("row lineage query is missing its bounded result contract")
 	}
+	declaredColumns := []string{compiled.FoundColumn, compiled.ContributorsColumn, compiled.HasMoreColumn}
+	for i := range declaredColumns {
+		for j := i + 1; j < len(declaredColumns); j++ {
+			if declaredColumns[i] == declaredColumns[j] {
+				return RowLineageResult{}, fmt.Errorf("row lineage query is missing its bounded result contract")
+			}
+		}
+	}
 	var result RowLineageResult
 	found := false
-	if err := e.queryRows(ctx, compiled.Query, e.batchSize, compiled.BindVars, func(row map[string]any) error {
+	if err := e.sourceRows(ctx, RowsRequest{Command: compiled.Command, DeclaredColumns: declaredColumns, BatchSize: e.batchSize}, func(row map[string]any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -66,9 +75,9 @@ func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.Compi
 			return nil
 		}
 		found = true
-		contributors, ok := row[compiled.ContributorsColumn].([]any)
-		if !ok {
-			return fmt.Errorf("row lineage query returned an invalid contributor page")
+		contributors, err := rowLineageContributors(row[compiled.ContributorsColumn])
+		if err != nil {
+			return err
 		}
 		if len(contributors) > compiled.Limit {
 			return fmt.Errorf("row lineage query exceeded the requested contributor page size")
@@ -109,6 +118,28 @@ func (e *Engine) rowLineageCompiled(ctx context.Context, compiled compiler.Compi
 	return result, nil
 }
 
+func rowLineageContributors(value any) ([]any, error) {
+	switch typed := value.(type) {
+	case []any:
+		return typed, nil
+	case json.RawMessage:
+		if len(typed) == 0 || !json.Valid(typed) {
+			return nil, fmt.Errorf("row lineage query returned an invalid contributor page")
+		}
+		var decoded any
+		if err := json.Unmarshal(typed, &decoded); err != nil {
+			return nil, fmt.Errorf("row lineage query returned an invalid contributor page: %w", err)
+		}
+		items, ok := decoded.([]any)
+		if !ok {
+			return nil, fmt.Errorf("row lineage query returned an invalid contributor page")
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("row lineage query returned an invalid contributor page")
+	}
+}
+
 func rowLineageString(value any) (string, bool) {
 	text, ok := value.(string)
 	if !ok {
@@ -118,10 +149,10 @@ func rowLineageString(value any) (string, bool) {
 	return text, text != ""
 }
 
-func compileRowLineageOutput(resolved Resolved, request RowLineageRequest) (compiler.CompiledRowLineageQuery, error) {
+func (e *Engine) compileRowLineageOutput(resolved Resolved, request RowLineageRequest) (compiler.CompiledRowLineageQuery, error) {
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
-			return compiler.CompileRowLineageOutput(output, request.RowID, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
+			return compiler.CompileRowLineageOutput(e.compileTarget, output, request.RowID, request.Offset, request.Limit, ir.DefaultPhysicalOptimizationPolicy())
 		}
 	}
 	return compiler.CompiledRowLineageQuery{}, fmt.Errorf("row lineage output %q was not found", request.Output)

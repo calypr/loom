@@ -158,7 +158,7 @@ func TestCompileRecipeOutputPreservesMixedChildDependencyOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	compiled, err := CompileRecipeOutputWithPolicy(lower.CompiledRecipeOutput{
+	compiled, err := CompileRecipeOutput(ArangoTarget(), lower.CompiledRecipeOutput{
 		Name:             "patients",
 		RootResourceType: "Patient",
 		RowGrain:         "patient",
@@ -168,10 +168,10 @@ func TestCompileRecipeOutputPreservesMixedChildDependencyOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	parentSet := strings.Index(compiled.Query, "LET child_set_1 =")
-	nestedTraversal := strings.Index(compiled.Query, "FOR __loom_physical_parent_1 IN child_set_1")
+	parentSet := strings.Index(testAQLText(t, compiled.Command), "LET child_set_1 =")
+	nestedTraversal := strings.Index(testAQLText(t, compiled.Command), "FOR __loom_physical_parent_1 IN child_set_1")
 	if parentSet < 0 || nestedTraversal < 0 || parentSet >= nestedTraversal {
-		t.Fatalf("mixed child dependencies rendered out of order:\n%s", compiled.Query)
+		t.Fatalf("mixed child dependencies rendered out of order:\n%s", testAQLText(t, compiled.Command))
 	}
 }
 

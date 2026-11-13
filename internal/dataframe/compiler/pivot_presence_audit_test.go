@@ -12,8 +12,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// TestPivotPresenceAudit is a diagnostic matrix, not a regression gate. Run it
-// with LOOM_PIVOT_PRESENCE_AUDIT=1 when changing category discovery support.
 func TestPivotPresenceAudit(t *testing.T) {
 	if os.Getenv("LOOM_PIVOT_PRESENCE_AUDIT") == "" {
 		t.Skip("set LOOM_PIVOT_PRESENCE_AUDIT=1 to print the Pivot category presence matrix")
@@ -53,11 +51,11 @@ func TestPivotPresenceAudit(t *testing.T) {
 				}
 				audited := appendPresenceAuditPivot(fixture.output, stage, category, *value)
 				compiled := compilePopulationMappingOutput(t, audited)
-				result := auditCategoryAtStage(compiled, stage, category)
+				result := auditCategoryAtStage(t, compiled, stage, category)
 				if fixture.name == "unpivot" && stage.ID == "unpivot" && (category.Name == "amount" || category.Name == "measure") {
-					scanned, err := CompileCategoryScanStageWithPolicy(compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+					scanned, err := CompileCategoryScanStage(ArangoTarget(), compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 					if err == nil {
-						for _, line := range strings.Split(scanned.Query, "\n") {
+						for _, line := range strings.Split(testAQLText(t, scanned.Command), "\n") {
 							if strings.Contains(line, "__loom_category_scan_presence") {
 								t.Logf("MARKER %s/%s: %s", stage.ID, category.Name, strings.TrimSpace(line))
 							}
@@ -96,13 +94,13 @@ func eligibleCategoryColumns(columns []lower.CompiledOutputColumn) []lower.Compi
 	return eligible
 }
 
-func auditCategoryAtStage(output lower.CompiledRecipeOutput, stage lower.CompiledStageDescriptor, category lower.CompiledOutputColumn) categoryAuditResult {
+func auditCategoryAtStage(t *testing.T, output lower.CompiledRecipeOutput, stage lower.CompiledStageDescriptor, category lower.CompiledOutputColumn) categoryAuditResult {
 	lastCode := ""
 	for _, value := range eligibleCategoryColumns(stage.Columns) {
 		if value.ID == category.ID {
 			continue
 		}
-		scanned, err := CompileCategoryScanStageWithPolicy(output, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+		scanned, err := CompileCategoryScanStage(ArangoTarget(), output, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			if code, ok := CategoryScanRefusalCodeOf(err); ok {
 				lastCode = string(code)
@@ -113,8 +111,8 @@ func auditCategoryAtStage(output lower.CompiledRecipeOutput, stage lower.Compile
 		}
 		return categoryAuditResult{
 			status:   "SUPPORTED",
-			queryLen: len(scanned.Query),
-			forLoops: strings.Count(scanned.Query, "FOR "),
+			queryLen: len(testAQLText(t, scanned.Command)),
+			forLoops: strings.Count(testAQLText(t, scanned.Command), "FOR "),
 			presence: scanned.Proof.PresenceTracked,
 			indexed:  scanned.CategoryIndex != nil || scanned.PreviewCoveringIndex != nil,
 			witness:  scanned.OverflowWitness != nil,

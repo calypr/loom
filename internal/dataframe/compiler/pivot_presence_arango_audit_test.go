@@ -10,17 +10,14 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
-// TestPivotPresenceArangoAudit executes the presence matrix against real AQL and
-// reports which offered columns would reach MISSING_UNSUPPORTED when the source
-// contains absent or explicit-null values. It is diagnostic and env-gated.
 func TestPivotPresenceArangoAudit(t *testing.T) {
 	url, database := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE")
 	if url == "" || database == "" {
@@ -28,12 +25,17 @@ func TestPivotPresenceArangoAudit(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}}}); err != nil {
+	client := arangoBackend.Client
+	t.Cleanup(func() {
+		if err := client.Close(context.Background()); err != nil {
+			t.Errorf("close presence audit client: %v", err)
+		}
+	})
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}, {Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -83,12 +85,12 @@ FOR document IN %s
 				}
 				audited := appendPresenceAuditPivot(fixture.output, stage, category, *value)
 				compiled := compilePresenceAuditOutput(t, audited, project, generation, []string{allowedPath})
-				scanned, err := CompileCategoryScanStageWithPolicy(compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
+				scanned, err := CompileCategoryScanStage(ArangoTarget(), compiled, stage.ID, category.ID, value.ID, MaxCategoryScanValues, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Logf("%s\t%s\t%s\tCOMPILE_REFUSED\t%v", fixture.name, stage.ID, category.Name, err)
 					continue
 				}
-				presentFalse, missing, conclusive, rows, err := executePresenceAuditScan(ctx, client, scanned)
+				presentFalse, missing, conclusive, rows, err := executePresenceAuditScan(t, ctx, client, scanned)
 				if err != nil {
 					t.Logf("%s\t%s\t%s\tEXECUTION_ERROR\t%v", fixture.name, stage.ID, category.Name, err)
 					continue
@@ -167,11 +169,11 @@ func compilePresenceAuditOutput(t *testing.T, output recipe.Output, project, gen
 	return compiled.Outputs[0]
 }
 
-func executePresenceAuditScan(ctx context.Context, client *store.Client, scanned CompiledCategoryScanQuery) (presentFalse int, missing, conclusive bool, rows int, err error) {
+func executePresenceAuditScan(t *testing.T, ctx context.Context, client *arangofactory.Client, scanned CompiledCategoryScanQuery) (presentFalse int, missing, conclusive bool, rows int, err error) {
 	if witness := scanned.OverflowWitness; witness != nil {
 		witnessRows := 0
 		witnessMissing := false
-		if err := client.QueryRows(ctx, witness.Query, 100, witness.BindVars, func(row map[string]any) error {
+		if err := client.QueryRows(ctx, testAQLText(t, witness.Command), 100, testAQLBinds(t, witness.Command), func(row map[string]any) error {
 			present, ok := row[scanned.PresentColumn].(bool)
 			if !ok {
 				return fmt.Errorf("overflow witness has invalid presence marker")
@@ -189,7 +191,7 @@ func executePresenceAuditScan(ctx context.Context, client *store.Client, scanned
 			return 0, true, true, witnessRows, nil
 		}
 	}
-	err = client.QueryRows(ctx, scanned.Query, 100, scanned.BindVars, func(row map[string]any) error {
+	err = client.QueryRows(ctx, testAQLText(t, scanned.Command), 100, testAQLBinds(t, scanned.Command), func(row map[string]any) error {
 		present, ok := row[scanned.PresentColumn].(bool)
 		if !ok {
 			return fmt.Errorf("category scan row has invalid presence marker")
@@ -206,7 +208,7 @@ func executePresenceAuditScan(ctx context.Context, client *store.Client, scanned
 	return presentFalse, presentFalse > 0, false, rows, nil
 }
 
-func seedPresenceAuditDocuments(t *testing.T, ctx context.Context, client *store.Client, project, generation, authPath string) {
+func seedPresenceAuditDocuments(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation, authPath string) {
 	t.Helper()
 	base := func(key, resourceType string) map[string]any {
 		return map[string]any{
@@ -419,7 +421,7 @@ func seedPresenceAuditDocuments(t *testing.T, ctx context.Context, client *store
 	insertPresenceAuditBatch(t, ctx, client, "Patient", patients)
 }
 
-func insertPresenceAuditBatch(t *testing.T, ctx context.Context, client *store.Client, collection string, rows []map[string]any) {
+func insertPresenceAuditBatch(t *testing.T, ctx context.Context, client *arangofactory.Client, collection string, rows []map[string]any) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(rows))
 	for _, row := range rows {

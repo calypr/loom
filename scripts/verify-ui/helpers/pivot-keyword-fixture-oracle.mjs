@@ -1,16 +1,3 @@
-// Fixture-internal expectations for the keyword-named pivot journey
-// (verify-explorer-pivot-keyword-names.mjs). Authority:
-// testdata/devloop-fixture/Observation.ndjson ONLY — six rows, one distinct
-// status group (null), categories subject.reference (two patients) plus the
-// MISSING sentinel, summed over valueQuantity.value. Recomputed from the
-// fixture bytes at runtime; the literals below pin the last audited values
-// so silent fixture edits fail loudly (same convention as
-// basic-unpivot-pivot-fixture-oracle.mjs).
-// NOT live-stack ground truth: the served Arango dataset diverges (its status
-// values include 'final', per the 2026-11-03 manual-pivot probe), so the
-// journey asserts keyword rendering and non-zero numeric cells there, never
-// the fixture absolutes below. The keyword pair is the contract this helper
-// exists to pin: AQL reserved words typed verbatim through the UI.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

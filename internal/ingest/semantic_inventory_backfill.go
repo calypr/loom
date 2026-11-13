@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	publication "github.com/calypr/loom/internal/dataset"
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
@@ -63,7 +62,7 @@ type SemanticInventoryBackfillReport struct {
 
 type semanticInventoryBackfillBackend interface {
 	PrepareSemanticInventoryBackfill(context.Context) error
-	ReadRetainedSemanticInventoryPage(context.Context, string, string, string, string, int) (catalogarango.RetainedSemanticInventoryPage, error)
+	ReadRetainedSemanticInventoryPage(context.Context, string, string, string, string, int) (catalog.RetainedSemanticInventoryPage, error)
 	ClaimSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, time.Duration) (catalog.SemanticInventoryBuild, bool, error)
 	AdvanceSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, catalog.SemanticInventoryCheckpoint, catalog.SemanticInventoryCheckpoint, int64, time.Duration) (catalog.SemanticInventoryBuild, error)
 	CompleteSemanticInventoryBackfill(context.Context, catalog.SemanticInventoryBuild, string, catalog.SemanticInventoryCheckpoint, int64) (catalog.SemanticInventoryBuild, error)
@@ -72,9 +71,6 @@ type semanticInventoryBackfillBackend interface {
 	EnsureSemanticInventoryEntries(context.Context, catalog.SemanticInventoryBuild) (catalog.SemanticInventoryBuild, error)
 }
 
-// BackfillSemanticInventory reconstructs the inventory from retained immutable
-// generation vertices. Source rows are read in bounded pages; contribution
-// batches are replaced by deterministic keys before the typed checkpoint moves.
 func BackfillSemanticInventory(ctx context.Context, backend semanticInventoryBackfillBackend, manifest publication.Manifest, opts SemanticInventoryBackfillOptions) (SemanticInventoryBackfillReport, error) {
 	started := time.Now()
 	if backend == nil {
@@ -292,7 +288,7 @@ func validateSemanticInventoryBackfillRequest(manifest publication.Manifest, opt
 	return nil
 }
 
-func retainedSemanticPayload(source catalogarango.RetainedSemanticInventoryRow, resourceType string) (map[string]any, error) {
+func retainedSemanticPayload(source catalog.RetainedSemanticInventoryRow, resourceType string) (map[string]any, error) {
 	if source.Key == "" || len(source.Payload) == 0 || string(source.Payload) == "null" {
 		return nil, fmt.Errorf("retained %s/%s source is missing payload", resourceType, source.Key)
 	}

@@ -1,17 +1,13 @@
 package execution
 
-import (
-	"context"
-)
-
 type ServiceConfig struct {
-	QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+	SourceRows SourceRows
 }
 
 type Service struct {
-	queryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+	sourceRows SourceRows
 }
 
 func NewService(cfg ServiceConfig) *Service {
-	return &Service{queryRows: cfg.QueryRows}
+	return &Service{sourceRows: cfg.SourceRows}
 }

@@ -57,7 +57,6 @@ const validateScope = ({ page, project, explorer, apiOrigin }) => {
   return { page, project, explorer, origin };
 };
 
-/** Extract the one output's authoritative saved snapshot/draft identity from a Builder response. */
 export const builderCapabilitiesIdentityFromState = (state, { outputId } = {}) => {
   if (!state || typeof state !== 'object' || typeof outputId !== 'string' || !outputId) {
     throw new TypeError('Saved Builder identity requires a response object and exact output ID.');
@@ -80,7 +79,6 @@ export const builderCapabilitiesIdentityFromState = (state, { outputId } = {}) =
   return identity;
 };
 
-/** Observe only the exact post-Apply capabilities request and its Playwright response/terminal events. */
 export const watchConstructionCapabilitiesReadiness = (scopeInput) => {
   const scope = validateScope(scopeInput);
   const recordsByRequest = new Map();
@@ -198,7 +196,6 @@ export const watchConstructionCapabilitiesReadiness = (scopeInput) => {
   };
 };
 
-/** Read the authoritative saved draft identity used to match a browser capabilities request. */
 export const readBuilderCapabilitiesIdentity = async ({
   apiOrigin, project, explorer, outputId, timeoutMs, fetchImpl = globalThis.fetch,
 } = {}) => {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
@@ -101,8 +102,15 @@ func TestCompileExplorerReceiptReconcilesAuthoredDerivedOutput(t *testing.T) {
 		},
 	}}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -226,8 +234,15 @@ func TestCompileExplorerReceiptPersistsCompilerConstructionStages(t *testing.T) 
 		t.Fatalf("validate typed construction workspace: %v", err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -403,8 +418,15 @@ func TestCompileExplorerReceiptReconcilesCodedGroupProposalOutputsAndLineage(t *
 		t.Fatalf("validate CODED_GROUP proposal workspace: %v", err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -630,8 +652,15 @@ func TestCompileExplorerReceiptReconcilesTypedConstructionOutputs(t *testing.T) 
 		t.Fatalf("validate typed derived construction: %v", err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1606,8 +1635,15 @@ func TestCompileExplorerReceiptBindsRowDefinitionProposalBeforeIdentity(t *testi
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1669,8 +1705,15 @@ func TestCompileExplorerReceiptBindsTableShapeProposalBeforeIdentity(t *testing.
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1717,8 +1760,14 @@ func TestCompileExplorerReceiptBindsTableShapeProposalBeforeIdentity(t *testing.
 
 func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return nil
 		},
 	})
@@ -1758,8 +1807,6 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 		OutputFingerprints:     fingerprints,
 		OutputColumnProvenance: provenance,
 		EmittedColumns: []explorer.EmittedColumn{
-			// Presentation order is intentionally different from compiler field
-			// order. It must not invalidate an otherwise identical receipt.
 			{OutputID: "patients", PublicColumn: "patient_gender"},
 			{OutputID: "patients", PublicColumn: "patient_id"},
 			{OutputID: "specimens", PublicColumn: "specimen_id"},
@@ -1780,7 +1827,14 @@ func TestCompileValidatedReceiptResolutionChecksAllOutputsForScopedPreview(t *te
 }
 
 func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(t *testing.T) {
-	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1827,8 +1881,14 @@ func TestCompileValidatedReceiptResolutionSurvivesCompilerMetadataJSONRoundTrip(
 
 func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return nil
 		},
 	})
@@ -1902,7 +1962,14 @@ func TestCompileValidatedReceiptResolutionSurvivesCohortConstructionRoundTrip(t 
 }
 
 func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) {
-	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1943,7 +2010,14 @@ func TestPersistValidatedReceiptRejectsRuntimeMismatchBeforeStore(t *testing.T) 
 }
 
 func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *testing.T) {
-	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }})
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1991,8 +2065,15 @@ func TestResolvedOutputFingerprintExcludesOptimizerAndTransientProvenance(t *tes
 
 func TestPreviewSourceIdentityDoesNotChangeReceiptArtifacts(t *testing.T) {
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2045,10 +2126,16 @@ func TestPreviewSourceIdentityDoesNotChangeReceiptArtifacts(t *testing.T) {
 
 func TestPreviewSourceIdentityDoesNotChangeUnpivotReceiptArtifacts(t *testing.T) {
 	var renderedQuery string
-	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, _ func(map[string]any) error) error {
-		renderedQuery = query
-		return nil
-	}})
+	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			query, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
+			renderedQuery = query
+			return nil
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2474,8 +2561,15 @@ func TestCompileExplorerReceiptAllowsEmptyConstructionTargetWithSiblingOutputs(t
 	}
 
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2608,8 +2702,15 @@ func TestCompileExplorerReceiptReconcilesSparsePublishedAppendWithExactSourceSch
 	}
 
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -1,8 +1,5 @@
 package catalog
 
-// RelationshipRebuildOptions describes the explicit repair path. Normal
-// discovery never uses this scan; operators call it after an old dataset was
-// loaded before the relationship catalog existed or after a repair.
 type RelationshipRebuildOptions struct {
 	Project                       string
 	DatasetGeneration             string
@@ -22,9 +19,6 @@ type RelationshipRebuildSummary struct {
 	Seconds           float64 `json:"seconds"`
 }
 
-// RelationshipAuditOptions identifies the immutable edge namespace to audit.
-// The audit is read-only and is intentionally separate from catalog rebuild so
-// operators can inspect malformed historical data before choosing a repair.
 type RelationshipAuditOptions struct {
 	Project                       string
 	DatasetGeneration             string

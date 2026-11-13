@@ -25,10 +25,6 @@ import (
 	"github.com/calypr/loom/internal/projectid"
 )
 
-// compileConstructionSourceStage runs the normal semantic and physical
-// compiler for a source-only capability probe. The empty document never
-// becomes a receipt or public output; only the compiler-derived source schema,
-// row identity, and operation reasons are returned to lifecycle discovery.
 func compileConstructionSourceStage(ctx context.Context, request lifecycle.ConstructionSourceStageRequest, recipeEngine *dataframeexecution.Engine) (explorer.ReceiptConstructionStage, error) {
 	if recipeEngine == nil {
 		return explorer.ReceiptConstructionStage{}, fmt.Errorf("recipe engine is required")
@@ -314,9 +310,6 @@ func classifyReceiptRecipeError(err error) error {
 	return err
 }
 
-// persistValidatedReceipt proves that the execution engine can reproduce the
-// complete immutable receipt before the receipt store sees it. A receipt that
-// fails this check must never become an executable immutable artifact.
 func persistValidatedReceipt(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, persist func(context.Context, explorer.CompilationReceipt) (*explorer.CompilationReceipt, error)) (*explorer.CompilationReceipt, error) {
 	if _, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings); err != nil {
 		id := ""
@@ -498,10 +491,6 @@ func firstNonEmptyWorkspaceTitle(values ...string) string {
 	return "Explorer"
 }
 
-// validateReceiptResolution proves that deterministic runtime lowering still
-// describes the exact resolved semantic artifact frozen in the receipt. It
-// intentionally compares no AQL or physical IR because those are
-// request-scoped implementation details.
 func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *dataframeexecution.Resolved) error {
 	if receipt == nil {
 		return fmt.Errorf("compilation receipt is required")
@@ -564,10 +553,6 @@ func validateReceiptResolution(receipt *explorer.CompilationReceipt, resolved *d
 	return nil
 }
 
-// receiptCompiledOutputSchemas freezes the lowerer's finalized public and
-// internal projection schema for every output. The capability response later
-// filters internal columns and derives compatibility keys from these exact
-// compiler values; no workspace presentation rows are used as schema input.
 func receiptCompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[string][]explorer.ReceiptCompiledOutputColumn, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("resolved compilation is required")
@@ -595,9 +580,6 @@ func receiptCompiledOutputSchemas(resolved *dataframeexecution.Resolved) (map[st
 	return schemas, nil
 }
 
-// receiptConstructionStages freezes the compiler's exact stage schemas and
-// capabilities into the receipt identity. The implicit source projection is
-// represented with an empty operation because it is not an authored step.
 func receiptConstructionStages(resolved *dataframeexecution.Resolved) (map[string][]explorer.ReceiptConstructionStage, error) {
 	if resolved == nil {
 		return nil, fmt.Errorf("resolved compilation is required")
@@ -723,10 +705,6 @@ func receiptConstructionStageFromDescriptor(descriptor lower.CompiledStageDescri
 	return stage, nil
 }
 
-// compileValidatedReceiptResolution validates the complete immutable receipt
-// even when the caller intends to execute only one output. OutputNames is an
-// execution selector: allowing it to narrow compilation here would compare a
-// partial fingerprint and column set with the receipt's full contract.
 func compileValidatedReceiptResolution(ctx context.Context, recipeEngine *dataframeexecution.Engine, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) (dataframeexecution.Resolved, error) {
 	validationBindings := bindings
 	validationBindings.OutputNames = nil

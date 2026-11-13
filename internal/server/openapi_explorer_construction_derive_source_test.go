@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -136,8 +137,16 @@ func TestConstructionDeriveSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -328,8 +337,6 @@ func TestConstructionDeriveSourceHTTPContractPreservesCapabilitiesAndProposals(t
 		t.Fatalf("forged deriveSources token did not reach choice validation: %s", forgedTokenHTTP.Body)
 	}
 
-	// The boolean active choice is not advertised as a derive source; a token
-	// forged from the filter capability surface must not compile as an operand.
 	nonNumericHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
 		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":"derive_step","candidateConstruction":%s,"deriveSources":[{"choiceId":%q,"columnId":%q}]}`,
 		snapshot.Token, digest, candidateJSON, choiceID+"x", projectionColumnID,

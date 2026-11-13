@@ -20,8 +20,6 @@ const constructionRowID = "__loom_row_id"
 const sourceExpansionIdentity = "__loom_expansion_identity"
 const rootContributorSetColumn = "__loom_root_contributor_keys"
 
-// CompiledStageDescriptor is the compiler-owned schema and capability view
-// for one exact stage reference. Columns describe the stage output.
 type CompiledStageDescriptor struct {
 	ID                      string
 	InputStageID            string
@@ -35,8 +33,6 @@ type CompiledStageDescriptor struct {
 	GroupFieldSourceContext *CompiledGroupFieldSourceContext
 }
 
-// CompiledGroupFieldSourceContext is the compiler-owned, immutable source
-// shape offered to Group capability discovery and rechecked during lowering.
 type CompiledGroupFieldSourceContext struct {
 	SourceStageID        string
 	SourceShapeID        string
@@ -118,11 +114,6 @@ type StageOperationCapability struct {
 	Reason     string
 }
 
-// DescribeConstructionSourceStage returns the compiler-owned capability view
-// for the exact resolved source schema. It is also used by capability-only
-// discovery for a new, zero-column table: the physical compiler has still
-// resolved row identity and source columns, but the result is never treated
-// as an executable public output.
 func DescribeConstructionSourceStage(schema []CompiledOutputColumn, rootResourceType string, sourcePlan *ir.PhysicalPlan) (CompiledStageDescriptor, error) {
 	identity := constructionSourceIdentity(schema)
 	if identity == "" {
@@ -350,10 +341,6 @@ func appendRecipeConstructionStages(plan *ir.PhysicalPlan, outputName, rootResou
 	retainRootContributors := retainForLaterOperations || retainForPopulation
 	if retainForPopulation && !retainForLaterOperations && (constructionTerminalCodingGroupRequeriesExpandedPreimage(construction.Steps, plan, sourceIdentity, rootResourceType) ||
 		constructionTerminalRelatedCodingGroupRequeriesPreimage(construction.Steps, plan, sourceIdentity, rootResourceType)) {
-		// The terminal expanded CODING_IDENTITY Group's exact occurrence preimage
-		// is re-queried for row lineage. Its typed root key remains in the source
-		// schema, while a per-group contributor array would defeat streaming and
-		// duplicate the exact preimage lookup.
 		retainRootContributors = false
 	}
 	priorSchema, priorIdentity := resolvedSource, sourceIdentity
@@ -574,10 +561,6 @@ func constructionCohortAnchorIndex(construction recipe.Construction, cohort *coh
 	return -1, fmt.Errorf("cohort afterStepId %q does not name a construction step", cohort.AfterStepID)
 }
 
-// constructionOperationCanDropRows identifies successful construction stages
-// that can remove an input row. Cohort missing-member preservation follows
-// this typed operation policy: a missing source resource cannot satisfy a
-// row-dropping stage before the cohort.
 func constructionOperationCanDropRows(operation recipe.ConstructionOperation) bool {
 	switch operation.Kind {
 	case recipe.ConstructionFilterOp, recipe.ConstructionRelatedEligibilityOp:
@@ -589,8 +572,6 @@ func constructionOperationCanDropRows(operation recipe.ConstructionOperation) bo
 	case recipe.ConstructionGroupOp:
 		return operation.Group != nil && operation.Group.MissingKeyPolicy.Normalized() == recipe.ConstructionGroupMissingKeyExclude
 	default:
-		// ERROR policies abort the whole candidate. They do not successfully
-		// filter rows; ordinary and coded Pivot have no supported row-drop policy.
 		return false
 	}
 }
@@ -859,8 +840,6 @@ func constructionRootIDPivotSourceEligible(plan *ir.PhysicalPlan, rootResourceTy
 				return false
 			}
 		default:
-			// Traversals, expansions, and other row-shaping operations must
-			// remain ahead of any source limit.
 			return false
 		}
 	}
@@ -873,8 +852,6 @@ func groupedPivotHasDirectRootIDKey(plan *ir.PhysicalPlan, keys []ir.PhysicalGro
 		if !ok || column.Internal || column.Kind != string(expression.KindString) || column.Cardinality == string(expression.Many) {
 			continue
 		}
-		// The lowered source projection is authoritative. Catalog fieldRef values
-		// can give a direct FHIR id an opaque semantic identity.
 		if constructionPreviewProjectionIsRootID(plan, column.Name, rootResourceType) {
 			return true
 		}
@@ -1018,9 +995,6 @@ func constructionPivotCategoryColumnIDs(construction recipe.Construction) map[st
 	ids := make(map[string]bool)
 	for _, step := range construction.Steps {
 		if step.Operation.Kind == recipe.ConstructionPivotOp && step.Operation.Pivot != nil {
-			// Discovery compiles a temporary single-string Pivot before the user
-			// has selected category keys. Preserve exact source presence for every
-			// future Pivot category so that this probe can safely offer MISSING.
 			ids[step.Operation.Pivot.CategoryColumnID] = true
 		}
 	}
@@ -1117,8 +1091,6 @@ func carryConstructionPresenceCompanions(input, output []CompiledOutputColumn, p
 			Name: companionName, Hidden: true,
 			Value: ir.PhysicalValue{Variable: inputRow, Path: []string{companionName}},
 		}
-		// Expand already emits its generated row identity projection; keep the
-		// presence projection before it so schema and projection order stay aligned.
 		if hasPhysicalProjectionName(projections, constructionRowID) {
 			projections = insertProjectionBeforeIdentity(projections, presenceProjection, constructionRowID)
 		} else {
@@ -1964,6 +1936,7 @@ func reconcileConstructionUnpivotSchema(declarations []recipe.StageColumn, compu
 	}
 	for _, column := range computed {
 		if column.Internal && column.Name != constructionRowID {
+			column.Identity = false
 			result = append(result, column)
 		}
 	}

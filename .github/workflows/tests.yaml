@@ -18,6 +18,8 @@ jobs:
       - name: Install UI dependencies
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: No-code-comments gate
+        run: python3 scripts/check_no_code_comments.py --all-tracked
       - name: Check reviewed UI source checkpoint
         run: python3 scripts/verify_ui_contract_inventory.py --source-only
       - name: Check UI boundaries
@@ -51,6 +53,34 @@ jobs:
         with:
           go-version: 1.26.5
           cache: true
+      - name: Install ripgrep for the boundary check
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ripgrep
+          fi
+          rg --version | head -1
+      - name: Run Go package boundary check
+        run: bash scripts/check_dataframe_package_boundaries.sh
+      - name: Backend ownership guard named gates
+        run: |
+          set -o pipefail
+          go test -json -count=1 -timeout=600s ./internal/dataframe/compiler \
+            -run '^(TestBackendOwnershipGuardContract|TestCompilerProductionFilesNeverImportBackendsOrDrivers)$' \
+            | node scripts/lib/check-go-test-events.mjs \
+                TestBackendOwnershipGuardContract \
+                TestBackendOwnershipGuardContract/compiler_backends_and_drivers \
+                TestBackendOwnershipGuardContract/neutral_domain_backend_import \
+                TestBackendOwnershipGuardContract/renderer_runtime_import \
+                TestBackendOwnershipGuardContract/legitimate_adapter_domain_import \
+                TestBackendOwnershipGuardContract/actual_relocated_adapter_import \
+                TestBackendOwnershipGuardContract/missing_or_malformed_input_is_error \
+                TestBackendOwnershipGuardContract/facade_law_control_plane \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_named_victims_bleed \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_fires_on_a_real_postgres_adapter \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_fires_on_a_real_arango_adapter \
+                TestCompilerProductionFilesNeverImportBackendsOrDrivers/non_vacuity_malformed_input_is_verification_failure
       - name: Run all ordinary Go packages and catalog witnesses
         run: |
           package_list=$(go list . ./internal/... ./cmd/... ./generated/... ./conformance/...)
@@ -217,6 +247,251 @@ jobs:
           ./internal/dataframe/published
           ./internal/store/clickhouse
 
+  pg-fixture:
+    name: PostgreSQL 18 opt-in fixture runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_test
+          POSTGRES_USER: loom_test
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_test:loom_ci_test_only@127.0.0.1:5432/loom_test?sslmode=disable
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Run fixture runner coverage without any service
+        run: timeout 180s node --test scripts/run-postgres-integration.test.mjs
+      - name: Run owned-namespace real PostgreSQL acceptance
+        run: timeout 540s node scripts/run-postgres-integration.mjs --out "$RUNNER_TEMP/pg-fixture"
+      - name: Run the post-window live reducer leg on PostgreSQL 18
+        run: |
+          set -euo pipefail
+          go test -timeout=240s -count=1 -v \
+            -run 'TestPostWindowLive' \
+            ./internal/dataframe/compiler/render/postgres \
+            | tee "$RUNNER_TEMP/pg-post-window-live.log"
+      - name: Assert the post-window live leg executed and never skipped
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pg-post-window-live.log"
+          grep -q -- '--- PASS: TestPostWindowLiveReducersExecuteWithPredicates' "$log"
+          if grep -q -- '--- SKIP: TestPostWindowLiveReducersExecuteWithPredicates' "$log"; then
+            echo '::error/post-window live reducer leg skipped despite the PostgreSQL 18 service being configured'
+            exit 1
+          fi
+      - name: Preserve fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-fixture
+          path: ${{ runner.temp }}/pg-fixture
+          if-no-files-found: warn
+
+  pg-repository-publish:
+    name: PostgreSQL repository-publish spine across PostgreSQL 18 and ClickHouse
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_test
+          POSTGRES_USER: loom_test
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3
+        env:
+          CLICKHOUSE_DB: loom_test
+          CLICKHOUSE_USER: loom_ci
+          CLICKHOUSE_PASSWORD: loom_ci_password
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 9000:9000
+          - 8123:8123
+        options: >-
+          --health-cmd "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_test:loom_ci_test_only@127.0.0.1:5432/loom_test?sslmode=disable
+      LOOM_CLICKHOUSE_URL: clickhouse://127.0.0.1:9000
+      LOOM_CLICKHOUSE_DATABASE: loom_test
+      LOOM_CLICKHOUSE_USERNAME: loom_ci
+      LOOM_CLICKHOUSE_PASSWORD: loom_ci_password
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Run the pgComp battery with the repository-publish spine leg
+        run: |
+          set -euo pipefail
+          go test -timeout=8m -count=1 -v \
+            -run 'TestPostgresRuntime|TestPostgreSQL|TestHealthWiringPerCompositionArm|TestBackendCompositionContract|TestZZPgCompZeroLeftoverFixtures' \
+            ./internal/server \
+            | tee "$RUNNER_TEMP/pg-repository-publish.log"
+      - name: Assert the spine leg executed and never skipped
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/pg-repository-publish.log"
+          grep -q -- '--- PASS: TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip' "$log"
+          if grep -q -- '--- SKIP: TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip' "$log"; then
+            echo '::error/repository-publish spine leg skipped despite both live services being configured'
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives' "$log"
+          if grep -q -- '--- SKIP: TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives' "$log"; then
+            echo '::error/repository-publish retry-revival leg skipped despite both live services being configured'
+            exit 1
+          fi
+      - name: Preserve spine evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-repository-publish
+          path: ${{ runner.temp }}/pg-repository-publish.log
+          if-no-files-found: warn
+
+  backend-conformance:
+    name: Backend architecture conformance across Arango and PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      arangodb:
+        image: arangodb:3.12
+        env:
+          ARANGO_NO_AUTH: '1'
+        ports:
+          - 8529:8529
+        options: >-
+          --health-cmd "wget --quiet --tries=1 --spider http://127.0.0.1:8529/_api/version"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+      postgres18:
+        image: postgres:18
+        env:
+          POSTGRES_DB: loom_test
+          POSTGRES_USER: loom_test
+          POSTGRES_PASSWORD: loom_ci_test_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U loom_test -d loom_test"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 40
+    env:
+      LOOM_TEST_ARANGO_URL: http://127.0.0.1:8529
+      LOOM_TEST_POSTGRES_URL: postgresql://loom_test:loom_ci_test_only@127.0.0.1:5432/loom_test?sslmode=disable
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26.5
+          cache: true
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+      - name: Verify the offline skip-set capture against the frozen allowlist
+        run: env -u LOOM_TEST_ARANGO_URL -u LOOM_TEST_POSTGRES_URL node scripts/backend-conformance-skipset-verify.mjs
+      - name: Run both conformance arms against the actual services
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/backend-conformance"
+          status=0
+          timeout 480s go test -json -count=1 -timeout=420s ./internal/server \
+            -run '^TestBackendArchitectureConformance$' \
+            > "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
+          node scripts/lib/check-go-test-events.mjs \
+              TestBackendArchitectureConformance \
+              TestBackendArchitectureConformance/arangodb \
+              TestBackendArchitectureConformance/arangodb/scalarQueryServesLiteralScalars \
+              TestBackendArchitectureConformance/arangodb/repeatedRelatedOccurrenceStaysDistinct \
+              TestBackendArchitectureConformance/arangodb/nullAndMissingSemanticsPreserved \
+              TestBackendArchitectureConformance/arangodb/explicitScopeServesAuthorizedAndExcludesUnauthorized \
+              TestBackendArchitectureConformance/arangodb/restrictedEmptyScopeServesNothing \
+              TestBackendArchitectureConformance/arangodb/unrestrictedSeesEverything \
+              TestBackendArchitectureConformance/arangodb/generationIsolationServesActiveOnly \
+              TestBackendArchitectureConformance/arangodb/stablePagingIsDeterministic \
+              TestBackendArchitectureConformance/arangodb/explorerDraftCASOneWinnerExactPreimage \
+              TestBackendArchitectureConformance/arangodb/publicationControlFenceRejectsStaleOwner \
+              TestBackendArchitectureConformance/arangodb/cancellationTypedFailureNoFallback \
+              TestBackendArchitectureConformance/arangodb/backendUnavailableAndWrongTagNoFallback \
+              TestBackendArchitectureConformance/arangodb/upgradeFromPinnedPreRefactorReopensSafely \
+              TestBackendArchitectureConformance/postgresql \
+              TestBackendArchitectureConformance/postgresql/scalarQueryServesLiteralScalars \
+              TestBackendArchitectureConformance/postgresql/repeatedRelatedOccurrenceStaysDistinct \
+              TestBackendArchitectureConformance/postgresql/nullAndMissingSemanticsPreserved \
+              TestBackendArchitectureConformance/postgresql/explicitScopeServesAuthorizedAndExcludesUnauthorized \
+              TestBackendArchitectureConformance/postgresql/restrictedEmptyScopeServesNothing \
+              TestBackendArchitectureConformance/postgresql/unrestrictedSeesEverything \
+              TestBackendArchitectureConformance/postgresql/generationIsolationServesActiveOnly \
+              TestBackendArchitectureConformance/postgresql/stablePagingIsDeterministic \
+              TestBackendArchitectureConformance/postgresql/explorerDraftCASOneWinnerExactPreimage \
+              TestBackendArchitectureConformance/postgresql/publicationControlFenceRejectsStaleOwner \
+              TestBackendArchitectureConformance/postgresql/cancellationTypedFailureNoFallback \
+              TestBackendArchitectureConformance/postgresql/backendUnavailableAndWrongTagNoFallback \
+              TestBackendArchitectureConformance/postgresql/upgradeFromPinnedPreRefactorReopensSafely \
+              TestBackendArchitectureConformance/crossBackendCandidateIdentityParity \
+              < "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || status=$?
+          # The gate fails closed on events alone; surface the failing tests'
+          # own output so a red lane is diagnosable from this step's log.
+          node -e '
+            const fs = require("node:fs");
+            const events = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map(JSON.parse);
+            const outputs = new Map();
+            const failed = [];
+            for (const e of events) {
+              if (e.Test && e.Action === "output") outputs.set(e.Test, [...(outputs.get(e.Test) ?? []), e.Output]);
+              if (e.Action === "fail" && e.Test) failed.push(e.Test);
+            }
+            for (const name of failed) for (const line of outputs.get(name) ?? []) process.stdout.write(line);
+            if (failed.length === 0 && events.some(e => e.Action === "fail")) console.error("package-level failure with no named failing test; see conformance.jsonl artifact");
+          ' "$RUNNER_TEMP/backend-conformance/conformance.jsonl" || true
+          exit $status
+      - name: Preserve conformance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-conformance
+          path: ${{ runner.temp }}/backend-conformance
+          if-no-files-found: warn
+
   node-unit:
     name: Node unit tests
     runs-on: ubuntu-latest
@@ -239,9 +514,6 @@ jobs:
         working-directory: ui
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Record executable routes and fail on a broken retained closure
-        # --out writes the document only after the full inventory succeeds, via an
-        # atomic rename, so a broken retained dependency closure fails without
-        # leaving a truncated or stale file for the always() upload to publish.
         run: node scripts/verify-builder-formal-core.mjs --phase inventory --out "$RUNNER_TEMP"
       - name: Preserve verification inventory
         if: always()
@@ -281,8 +553,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run retained Python tests
         run: |
+          export LOOM_TYPESCRIPT_DIR="$GITHUB_WORKSPACE/ui/node_modules/typescript"
           python3 -m unittest discover -s scripts/tests
           python3 -m unittest scripts.test_validate_architecture_plan
 

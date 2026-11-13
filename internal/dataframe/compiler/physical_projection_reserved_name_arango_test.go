@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -19,10 +19,11 @@ func TestGroupedPivotReservedPhysicalOutputNameAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	t.Cleanup(func() {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer closeCancel()
@@ -30,7 +31,7 @@ func TestGroupedPivotReservedPhysicalOutputNameAgainstArango(t *testing.T) {
 			t.Errorf("close reserved-name pivot fixture client: %v", err)
 		}
 	})
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 

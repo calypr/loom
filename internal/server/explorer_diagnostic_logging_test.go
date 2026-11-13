@@ -36,9 +36,14 @@ func TestConfiguredAQLQueryRowsLogsSafeRequestCorrelatedRecords(t *testing.T) {
 			query := "FOR d IN patients FILTER d.id == @secret RETURN d"
 			bindVars := map[string]any{"secret": "private-bind-value"}
 			failure := errors.New("arangodb unavailable: connection refused; query=RETURN @secret auth_token=private-auth-value")
-			gotErr := configuredAQLQueryRows(logger, phase, func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+			gotErr := configuredAQLSourceRows(logger, phase, func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+				_, _, deriveErr := request.Command.AQLParameters()
+				if deriveErr != nil {
+					return deriveErr
+				}
+
 				return failure
-			})(ctx, query, 16, bindVars, func(map[string]any) error { return nil })
+			})(ctx, dataframeexecution.RowsRequest{Command: testAQLCommand(t, query, bindVars), BatchSize: 16}, func(map[string]any) error { return nil })
 			if gotErr != failure {
 				t.Fatalf("callback error = %v, want original error", gotErr)
 			}
@@ -252,7 +257,12 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 
 	var queryDeadline time.Time
 	var queryRuntime time.Duration
-	queryRows := func(ctx context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	queryRows := func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+		_, _, deriveErr := request.Command.AQLParameters()
+		if deriveErr != nil {
+			return deriveErr
+		}
+
 		var ok bool
 		queryDeadline, ok = ctx.Deadline()
 		if !ok {
@@ -261,8 +271,8 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 		queryRuntime = previewQueryMaxRuntime(ctx)
 		return visit(map[string]any{"present": true, "value": "patient-1"})
 	}
-	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, QueryRows: queryRows, PreviewQueryRows: queryRows,
+	scanEngine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(),
+		Registry: compilerTestRegistry{}, SourceRows: queryRows, PreviewSourceRows: queryRows,
 	})
 	if err != nil {
 		t.Fatalf("create category scan engine: %v", err)
@@ -291,8 +301,14 @@ func TestConfiguredCategoryScannerUsesPivotTimeoutAndPreservesBackendErrors(t *t
 
 	backendFailure := errors.New("synthetic category backend failure")
 	failingEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return backendFailure
 		},
 	})
@@ -392,8 +408,14 @@ func diagnosticCompileFixture(t *testing.T, compileRole string) (lifecycle.Compi
 		t.Fatal(err)
 	}
 	engine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{},
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			_, _, deriveErr := request.Command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
 			return visit(map[string]any{"present": true, "value": "patient-1"})
 		},
 	})

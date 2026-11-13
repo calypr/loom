@@ -45,8 +45,14 @@ func TestOutputStreamStripsCompilerOnlyColumnsAfterIdentity(t *testing.T) {
 		Name:        "DocumentReference",
 		Columns:     []string{"id"},
 		RowIdentity: &spec.RowIdentity{Fields: []string{"_key"}},
-		bindVars:    map[string]any{"project": "P1"},
-		stream: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		command:     mustAQLCommand("FOR root IN DocumentReference RETURN root", map[string]any{"project": "P1"}),
+		sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			return visit(map[string]any{
 				"_key":                        "internal-key",
 				"__loom_population_members":   []any{"file-a", "file-b"},

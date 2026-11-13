@@ -7,9 +7,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 )
 
-// RenderPhysicalGroupRowsLineage returns a bounded page of members for one
-// exact row from the standalone explicit-group source. Requested identity
-// fields are supplied separately after compiler-side canonical JSON parsing.
 func RenderPhysicalGroupRowsLineage(
 	plan ir.PhysicalPlan,
 	requestedRevisionID, requestedGroupID string,
@@ -28,9 +25,6 @@ func RenderPhysicalGroupRowsLineage(
 	return renderPhysicalGroupRowsLineage(plan, *plan.Operations[0].GroupRows, nil, requestedRevisionID, requestedGroupID, offset, limit)
 }
 
-// RenderPhysicalCohortGroupRowsLineage traces a composed cohort row through its
-// identity-preserving scalar FILTER suffix, then pages pinned membership
-// occurrences only when that exact final row still exists.
 func RenderPhysicalCohortGroupRowsLineage(
 	plan ir.PhysicalPlan,
 	groupStage ir.PhysicalConstructionStage,

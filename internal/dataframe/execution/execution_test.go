@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"testing"
 
@@ -33,7 +34,13 @@ func TestFlattenPivotFieldsCreatesStableFlattenedKeys(t *testing.T) {
 
 func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			for _, row := range []map[string]any{
 				{"_key": "first", "pivot": map[string]any{"zeta": "z", "alpha": "a"}},
 				{"_key": "second", "pivot": map[string]any{"beta": "b"}},
@@ -46,8 +53,8 @@ func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 		},
 	})
 
-	result, err := svc.runQuery(context.Background(), CompiledQuery{
-		Query:       "RETURN []",
+	result, err := svc.runQuery(context.Background(), compiler.CompiledQuery{
+		Command:     mustAQLCommand("RETURN []", nil),
 		Columns:     []string{"_key", "pivot"},
 		PivotFields: []string{"pivot"},
 		Limit:       2,
@@ -66,7 +73,13 @@ func TestRunQueryAppendsDynamicColumnsInStableOrder(t *testing.T) {
 
 func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			for _, row := range []map[string]any{
 				{"_key": "first", "pivot": map[string]any{"zeta": "z", "alpha": "a"}},
 				{"_key": "second", "pivot": map[string]any{"beta": "b"}},
@@ -80,8 +93,8 @@ func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.
 	})
 
 	gotRows := []map[string]any{}
-	result, err := svc.streamQuery(context.Background(), CompiledQuery{
-		Query:       "RETURN []",
+	result, err := svc.streamQuery(context.Background(), compiler.CompiledQuery{
+		Command:     mustAQLCommand("RETURN []", nil),
 		Columns:     []string{"_key", "pivot"},
 		PivotFields: []string{"pivot"},
 		Limit:       2,
@@ -110,7 +123,13 @@ func TestStreamQueryDeliversFlattenedRowsWithoutCollectingResultRows(t *testing.
 
 func TestStreamQueryReturnsPartialProgressWhenVisitorStops(t *testing.T) {
 	svc := NewService(ServiceConfig{
-		QueryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if err := visit(map[string]any{"_key": "first"}); err != nil {
 				return err
 			}
@@ -118,7 +137,7 @@ func TestStreamQueryReturnsPartialProgressWhenVisitorStops(t *testing.T) {
 		},
 	})
 	stop := assertError("stop")
-	result, err := svc.streamQuery(context.Background(), CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}}, func(map[string]any) error {
+	result, err := svc.streamQuery(context.Background(), compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}}, func(map[string]any) error {
 		return stop
 	})
 	if err != stop {
@@ -129,10 +148,6 @@ func TestStreamQueryReturnsPartialProgressWhenVisitorStops(t *testing.T) {
 	}
 }
 
-// compiledQueryAdapter is the test-owned backend seam for the generic
-// compiled-query path. It records each invocation so a test can prove no query
-// is issued for an abandoned request, and it keeps visiting rows after the
-// caller cancels the way a lagging driver cursor does.
 type compiledQueryAdapter struct {
 	calls       int
 	rows        []map[string]any
@@ -156,9 +171,9 @@ func TestRunCompiledAbandonsCanceledRequestWithoutQueryingBackend(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	adapter := &compiledQueryAdapter{rows: []map[string]any{{"_key": "first"}}}
-	svc := NewService(ServiceConfig{QueryRows: adapter.queryRows})
+	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
 
-	result, err := svc.RunCompiled(ctx, CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}})
+	result, err := svc.RunCompiled(ctx, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunCompiled() error = %v, want context.Canceled", err)
 	}
@@ -179,19 +194,15 @@ func TestStreamQueryStopsDeliveryAfterCancellationDuringCallback(t *testing.T) {
 	defer cancel()
 	visited := []any{}
 	adapter := &compiledQueryAdapter{
-		rows: []map[string]any{{"_key": "first"}, {"_key": "second"}},
-		// Cancellation lands after the first row is delivered. A missing check
-		// would hand the second row to the public visitor and report success.
+		rows:        []map[string]any{{"_key": "first"}, {"_key": "second"}},
 		afterCancel: cancel,
 	}
-	svc := NewService(ServiceConfig{QueryRows: adapter.queryRows})
+	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
 
-	result, err := svc.streamQuery(ctx, CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}}, func(row map[string]any) error {
+	result, err := svc.streamQuery(ctx, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}}, func(row map[string]any) error {
 		visited = append(visited, row["_key"])
 		return nil
 	})
-	// The boundary reports the caller's own context error, wrapped as a typed
-	// user error, rather than inventing a fresh sentinel.
 	if !errors.Is(err, ctx.Err()) {
 		t.Fatalf("streamQuery() error = %v, want the caller context error %v", err, ctx.Err())
 	}
@@ -214,9 +225,9 @@ func TestRunCompiledRejectsNilAdapterErrorAfterCancellation(t *testing.T) {
 		rows:        []map[string]any{{"_key": "first"}},
 		afterCancel: cancel,
 	}
-	svc := NewService(ServiceConfig{QueryRows: adapter.queryRows})
+	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
 
-	result, err := svc.RunCompiled(ctx, CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}})
+	result, err := svc.RunCompiled(ctx, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunCompiled() error = %v, want context.Canceled when the adapter returns nil", err)
 	}
@@ -227,9 +238,9 @@ func TestRunCompiledRejectsNilAdapterErrorAfterCancellation(t *testing.T) {
 
 func TestRunCompiledCompletesZeroRowsWhileContextIsLive(t *testing.T) {
 	adapter := &compiledQueryAdapter{}
-	svc := NewService(ServiceConfig{QueryRows: adapter.queryRows})
+	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
 
-	result, err := svc.RunCompiled(context.Background(), CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}})
+	result, err := svc.RunCompiled(context.Background(), compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}})
 	if err != nil {
 		t.Fatalf("RunCompiled() error = %v, want success for a legitimate empty result", err)
 	}
@@ -245,9 +256,9 @@ func TestStreamQueryReportsExpiredDeadlineInsteadOfSuccess(t *testing.T) {
 	expired, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
 	adapter := &compiledQueryAdapter{rows: []map[string]any{{"_key": "first"}}}
-	svc := NewService(ServiceConfig{QueryRows: adapter.queryRows})
+	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
 
-	if _, err := svc.streamQuery(expired, CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}}, func(map[string]any) error {
+	if _, err := svc.streamQuery(expired, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}}, func(map[string]any) error {
 		t.Fatal("visitor must not run for an expired request")
 		return nil
 	}); !errors.Is(err, context.DeadlineExceeded) {
@@ -263,13 +274,19 @@ func TestStreamQueryPreservesBackendErrorOverCancellation(t *testing.T) {
 	defer cancel()
 	backendErr := assertError("arango cursor failed")
 	svc := NewService(ServiceConfig{
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error {
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			cancel()
 			return backendErr
 		},
 	})
 
-	if _, err := svc.streamQuery(ctx, CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}}, func(map[string]any) error {
+	if _, err := svc.streamQuery(ctx, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}}, func(map[string]any) error {
 		t.Fatal("visitor must not run when the adapter delivers no row")
 		return nil
 	}); !errors.Is(err, backendErr) {
@@ -283,12 +300,10 @@ func TestStreamQueryKeepsVisitorErrorWhenItCancelsMidStream(t *testing.T) {
 	stop := assertError("stop")
 	visited := []any{}
 	adapter := &compiledQueryAdapter{rows: []map[string]any{{"_key": "first"}, {"_key": "second"}}}
-	svc := NewService(ServiceConfig{QueryRows: adapter.queryRows})
+	svc := NewService(ServiceConfig{SourceRows: aqlRows(adapter.queryRows)})
 
-	result, err := svc.streamQuery(ctx, CompiledQuery{Query: "RETURN []", Columns: []string{"_key"}}, func(row map[string]any) error {
+	result, err := svc.streamQuery(ctx, compiler.CompiledQuery{Command: mustAQLCommand("RETURN []", nil), Columns: []string{"_key"}}, func(row map[string]any) error {
 		visited = append(visited, row["_key"])
-		// The consumer abandons the stream and cancels the request in the same
-		// step; its own error stays authoritative over the new cancellation.
 		cancel()
 		return stop
 	})

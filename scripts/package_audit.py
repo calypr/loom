@@ -28,8 +28,6 @@ EXCLUDED_PARTS = {
     "data.broken.20260706-full-load",
 }
 
-# These sentences are deliberately curated. The generator refuses to emit a row
-# without one so a directory listing cannot masquerade as a semantic inventory.
 RESPONSIBILITIES = {
     ".": "Start the default Loom server process through the internal server composition root.",
     "cmd/arango-fhir-proto": "Provide operator commands for FHIR loading, catalog diagnostics, generation repair, and activation.",
@@ -40,6 +38,7 @@ RESPONSIBILITIES = {
     "cmd/generate": "Generate FHIR models, schema metadata, validation, extraction, and GraphQL artifacts from source schemas.",
     "cmd/gqlgenfix": "Post-process gqlgen output to enforce Loom-specific generated-code invariants.",
     "cmd/loom-acceptance": "Run the locked real-data acceptance scenario and emit machine-readable verification artifacts.",
+    "cmd/loom-data": "Load one immutable generation into the backend chosen only by an explicit arango or postgres tag, routing to the Arango loader or the PostgreSQL lifecycle loader without inference or fallback.",
     "cmd/loom-repository": "Preflight a repository checkout and launch Loom against its META and CONFIG data with an owned Compose project.",
     "cmd/preview-covering-index-artifact": "Recreate a captured Builder proposal offline and emit the exact compiler artifact for index-coverage analysis.",
     "conformance/compiler": "Load and exercise the canonical dataframe compiler oracle corpus for conformance and performance checks.",
@@ -48,6 +47,9 @@ RESPONSIBILITIES = {
     "generated/graphql/graph/executor": "Provide gqlgen-generated GraphQL executable schema and execution plumbing.",
     "generated/graphql/graph/model": "Provide gqlgen-generated GraphQL transport model types.",
     "generated/loomapi": "Provide OpenAPI-generated HTTP request, response, and strict-server contracts.",
+    "internal/backends/postgres": "Own the PostgreSQL 18 factory: a single Open validates explicit config, opens exactly one readiness-gated pool with own-prefix connection tagging, composes the control runtime, and returns the typed runtime carrying the SourceRows and PlanJSON data-plane ports over tagged compiled commands through the typed Querier bridge; the sole legal importer of the private rows adapter, and no re-export surface - control-plane consumers import internal/backends/postgres/control directly (arch-backend-09 deleted aliases.go).",
+    "internal/backends/postgres/control": "Own the cycle-free public control plane of the PostgreSQL backend as its single definition: configuration and series-assignment validation, the bare-pool client and store-owned batch vocabulary, the dataset manifest lifecycle and catalog evidence port assembly, and the structural query surface; production consumers and backend-adjacent witnesses import it directly for control-plane symbols, and it must never reach the factory root, the private rows adapter, or dataframe/execution (machine-enforced by scripts/packagepolicy).",
+    "internal/backends/postgres/internal/redact": "Scrub DSN passwords and secret parameter values from pool-open diagnostics so credential material never reaches rendered error text while the cause chain stays intact.",
     "internal/api/bulk/load": "Adapt multipart HTTP generation uploads and activation requests to ingest and dataset services.",
     "internal/api/graphql/graph": "Own GraphQL HTTP handler construction, error presentation, and generated executor binding.",
     "internal/api/graphql/graph/dataframe": "Adapt published ClickHouse dataframe discovery, row, aggregate, and export operations to GraphQL.",
@@ -60,58 +62,69 @@ RESPONSIBILITIES = {
     "internal/acceptance": "Fetch and cache the locked FHIR fixture, drive the real-data acceptance scenario, and verify its outputs and performance evidence.",
     "internal/authscope": "Represent request principals and resolve authorized project, generation, and resource scopes.",
     "internal/catalog": "Own persistence-neutral observed FHIR field, pivot, relationship, and capability facts.",
-    "internal/catalog/arango": "Persist and retrieve catalog facts in ArangoDB.",
+    "internal/backends/arango/internal/catalog": "Persist and retrieve catalog facts in ArangoDB.",
+    "internal/backends/postgres/internal/catalog": "Persist and retrieve catalog facts in PostgreSQL 18: publish-last generation-scoped resource inventory builds, bounded field-profile records with completeness and truncation metadata, leased compare-and-swap-guarded semantic inventory build state, deterministic semantic-inventory contribution rows with content-addressed replay and conflict classification, byte-order-stable keyset pages over retained resources, and authorization-scoped semantic-inventory pages and selection resolution served directly from contribution aggregates.",
     "internal/ci": "Exercise repository-wide Go formatting and vet gates, including injected fault detection.",
     "internal/dataframe/columntransform": "Define closed, backend-neutral transformations over one selected output column value.",
     "internal/dataframe/compiler": "Orchestrate semantic planning, physical lowering, optimization, rendering, and compiled-query assembly.",
     "internal/dataframe/compiler/capability": "Probe which dataframe language capabilities the compiler can prove and support.",
+    "internal/dataframe/compiler/command": "Own the closed dispatch-tagged executable command types, rendered PostgreSQL plan validation, and constructor guarantees shared by compilers and row adapters.",
     "internal/dataframe/compiler/ir": "Define typed physical operations, values, scope proofs, policies, and validation.",
     "internal/dataframe/compiler/lower": "Lower logical FHIR dataframe plans into storage-aware physical IR.",
     "internal/dataframe/compiler/optimize": "Apply explainable semantics-preserving rewrites to validated physical IR.",
     "internal/dataframe/compiler/render/aql": "Render validated physical IR as deterministic parameterized AQL.",
+    "internal/dataframe/compiler/render/postgres": "Render the supported physical IR read spine and typed selector extractions with two-valued JSONB path-presence evidence onto allowlisted PostgreSQL storage bindings as deterministic parameterized SQL with ordered typed arguments, failing closed on every unsupported plan shape.",
     "internal/dataframe/compiler/render/clickhouse": "Render typed Combine plans and resolved published or private table inputs as deterministic ClickHouse SQL.",
     "internal/dataframe/errors": "Define and normalize stable structured dataframe errors for transport presentation.",
     "internal/dataframe/execution": "Prepare, authorize, execute, explain, and post-process compiled dataframe requests.",
     "internal/dataframe/execution/chartifact": "Manage private ClickHouse staging tables and leases used to cross execution boundaries without publishing outputs.",
-    "internal/dataframe/execution/chartifact/arango": "Persist private ClickHouse artifact manifests and leases in a dedicated Arango collection.",
+    "internal/backends/arango/internal/chartifact": "Persist private ClickHouse artifact manifests and leases in a dedicated Arango collection.",
+    "internal/backends/postgres/internal/chartifact": "Persist private ClickHouse artifact manifests and cleanup leases in the PostgreSQL 18 control plane with CAS progress writes, bounded expired scans, and one-winner cleanup claims while physical tables stay in ClickHouse.",
     "internal/dataframe/lineage": "Define stable identities and provenance for columns expanded from one authored source slot.",
     "internal/dataframe/expression": "Define and validate the typed backend-neutral expression AST used by recipes.",
+    "internal/backends/postgres/internal/rows": "Stream typed rows from tagged compiled PostgreSQL commands over pgx connections, preserving bound-value integrity and three-state typed decoding, enforcing output column contracts, and classifying cancellation, visitor stops, contract violations, and driver failures with identifiable wrapped causes.",
     "internal/dataframe/publication": "Own backend-neutral dataframe publication contracts, bundles, and publication orchestration.",
-    "internal/dataframe/publication/arango": "Persist dataframe publication registry and bundle metadata in ArangoDB.",
+    "internal/backends/arango/internal/publication": "Persist dataframe publication registry and bundle metadata in ArangoDB.",
     "internal/dataframe/publication/clickhouse": "Materialize and inspect published dataframe bundles in ClickHouse.",
+    "internal/backends/postgres/internal/publication": "Persist dataframe publication execution metadata, exact logical pointers, fenced bundle leases, owner-conditional execution checkpoints, read retention pins arbitrated against cleanup claims on a shared retention anchor, and page-scoped stale execution reconciliation with owner-conditional cleanup claims, plus the single-transaction publish commit of PUBLISHED state with its reader pointer, in the PostgreSQL 18 control plane while ClickHouse remains the row store.",
     "internal/dataframe/published": "Read, page, aggregate, and export authorized published ClickHouse dataframes.",
     "internal/dataframe/recipe": "Define, canonicalize, expand, encode, and validate persistence-neutral recipe documents.",
     "internal/dataframe/recipe/exec": "Define durable recipe-version storage contracts and immutable registration behavior.",
-    "internal/dataframe/recipe/exec/arango": "Persist recipe versions and execution-use records in ArangoDB.",
+    "internal/backends/arango/internal/recipeexec": "Persist recipe versions and execution-use records in ArangoDB.",
+    "internal/backends/postgres/internal/recipeexec": "Persist immutable recipe registrations and fenced execution-occurrence usage markers in the PostgreSQL 18 control plane.",
+    "internal/backends/postgres/internal/recipes": "Persist project recipe revision chains with CAS head tracking in the PostgreSQL 18 control plane.",
     "internal/dataframe/recipe/schema": "Resolve catalog-backed recipe declarations into concrete validated schemas.",
     "internal/dataframe/semantic": "Convert validated dataframe requests and recipes into backend-neutral logical FHIR plans.",
     "internal/dataframe/spec": "Define the backend-independent dataframe request, filter, grain, relationship, and selector language.",
     "internal/dataframe/unit": "Define unit identity, dimensional compatibility, and approved conversion rules for quantity values.",
     "internal/dataset": "Define immutable dataset generation manifests, releases, active pointers, and lifecycle validation.",
-    "internal/dataset/arango": "Persist immutable dataset generation lifecycle state in ArangoDB.",
+    "internal/backends/arango/internal/dataset": "Persist immutable dataset generation lifecycle state in ArangoDB.",
+    "internal/backends/postgres/internal/dataset": "Persist dataset generation manifests, the active-generation compare-and-swap pointer, and immutable project release candidates with the active-release compare-and-swap pointer in PostgreSQL 18.",
     "internal/explorer": "Define Explorer aggregate identities, configs, revisions, receipts, output contracts, stores, and core service operations.",
-    "internal/explorer/arango": "Persist Explorer drafts, revisions, receipts, publications, capabilities, and repository state in ArangoDB.",
+    "internal/backends/arango/internal/explorer": "Persist Explorer drafts, revisions, receipts, publications, capabilities, and repository state in ArangoDB.",
     "internal/explorer/artifactfs": "Persist and serve immutable Explorer training artifacts from a dedicated filesystem root.",
     "internal/explorer/authoringv2": "Define, validate, canonicalize, and mutate the V2 Explorer Builder authoring workspace.",
     "internal/explorer/capability": "Build the immutable compiler-backed capability contract exposed to Explorer Builder.",
     "internal/explorer/compilation": "Translate validated Explorer authoring intent into native recipe and compilation artifacts.",
     "internal/explorer/lifecycle": "Coordinate transport-neutral Explorer authoring, preview, publication, query, and policy operations.",
+    "internal/backends/postgres/internal/explorer": "Persist Explorer owner records, draft saves with atomic version/digest CAS and exact preimage history, insert-once compilation receipts, immutable Explorer revisions, create-once immutable capability snapshots and table-shape capability receipts, project-scoped interpretation libraries advancing heads over immutable content-addressed revisions by transactional parent CAS, the staged selection lifecycle with project-scoped idempotency, an expiring writer owner, and insert-once membership staged in bounded idempotent batches with the digest/count finalized under the current writer fence and bounded cancellation-aware keyset membership paging, atomic publish authoring that commits a verified compilation receipt, the immutable Explorer revision, the active Explorer owner pointer, and the project release activation CAS in one PostgreSQL transaction, and staging explicit-group revision headers with ordered definition rows and insert-once group membership (one row per revision/group/reference so an overlap is several rows, bounded keyset paging, and a fenced digest/count-verified STAGING to COMPLETE transition) under guarded writer-lease, abort, and expired-cleanup lifecycle in PostgreSQL 18 with unique project/Explorer identity, typed columns, lossless JSONB payloads, DB-enforced row freezing and content-digest collision checks, guard-triggered immutability, and CAS-guarded revision lifecycle on the shared pg-store pool and migration runner.",
     "internal/explorer/tableshapecap": "Define immutable table-shape capability and resolution artifacts plus their create-once repository contract.",
     "internal/fhir/schema": "Add handwritten selector, traversal, pivot, and compiler semantics to generated FHIR metadata.",
     "internal/fhir/semantic": "Walk generated FHIR definition indexes to enumerate typed referenced datatype occurrences.",
-    "internal/ingest": "Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts.",
+    "internal/ingest": "Preflight and load FHIR NDJSON into generation-scoped Arango vertices, edges, and catalog facts, and commit built resource-row and built-edge-occurrence batches to the PostgreSQL source store through the ledgered batch writer with scope verification, canonical payload encoding, and payload-backed path/ordinal recovery for repeated references.",
     "internal/projectid": "Define canonical and legacy-compatible public project identity normalization.",
     "internal/repositoryseed": "Validate repository metadata and configuration, produce a source manifest, and refuse unmaterialized inputs before launch.",
     "internal/server": "Compose storage, domain services, generated OpenAPI handlers, GraphQL adapters, and HTTP routes.",
-    "internal/store/arango": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
+    "internal/source": "Define the backend-neutral logical source identity, payload, and authorization-scope contracts shared by ingestion and store read/write paths, free of any storage or driver detail.",
+    "internal/backends/arango": "Expose the only public entry to the ArangoDB 3.12 backend: a single Open factory validates explicit config, owns exactly one lifecycle client with the required collection bootstrap policy, and returns the typed runtime carrying the catalog, dataset lifecycle, Explorer, recipe registry/revisions, and published-dataframe ports assembled from the private implementation tree, with alias re-exports for witness-side reassembly.",
+    "internal/backends/arango/internal/store": "Provide the low-level typed ArangoDB client, query streaming, profiling, and Explain assessment boundary.",
     "internal/store/clickhouse": "Provide the low-level typed ClickHouse connection and database-management boundary.",
+    "internal/backends/postgres/internal/store": "Provide the bounded pgx/v5-backed PostgreSQL 18 source store: readiness-pinged pool, advisory-lock serialized migration runner, scoped FHIR resource repository that accepts the logical internal/source contract on writes and answers reads with its store-owned physical row under the server-assigned keyset sequence, scoped typed edge-occurrence repository, publish-last inventory repository, scoped bounded field-profile record persistence, the ledgered idempotent COPY batch writer for resource and edge rows, and resource-only and edge-only batch facades over that writer.",
     "scripts": "Hold repository developer, verification, migration, and release utilities that are not part of the Go module runtime packages.",
+    "scripts/check-boundaries": "Run the authoritative package-boundary policy over the repository and prove it can go RED: the --self-test negative fixtures plant forbidden imports, removed facades, re-exports, cycle leaks, and vacuous scans, each failing closed, with removal converging to green (arch-backend-09).",
+    "scripts/packagepolicy": "Hold the single authoritative parsed-import ownership policy table, scanner, identifier-absence and no-re-export checks shared by the check-boundaries CLI, the shell entrypoint, and the compiler guard tests, separating import findings from verification failures and refusing vacuous scans.",
 }
 
-# Completed decisions are deliberately curated rather than inferred from the
-# current source tree. Removed-package records preserve the evidence needed to
-# understand why a source disappeared; keep records pin the reviewed boundary
-# to a live package.
 COMPLETED_DECISIONS = (
     {
         "source": "internal/api/graphql",
@@ -192,7 +205,12 @@ def package_kind(location: str, generated_files: list[str], production_file_coun
         return "conformance"
     if location.startswith("internal/api/"):
         return "transport adapter"
-    if location.endswith("/arango") or location.endswith("/clickhouse") or location.startswith("internal/store/"):
+    if (
+        location.endswith("/arango")
+        or location.endswith("/clickhouse")
+        or location.endswith("/postgres")
+        or location.startswith("internal/store/")
+    ):
         return "storage adapter"
     return "domain/library"
 
@@ -238,7 +256,7 @@ def decision_evidence(row: dict[str, object]) -> str:
         evidence.append(
             f"mixed handwritten/generated package ({len(row['generated_files_raw'])} generated file(s)); preserve regeneration boundary"
         )
-    if location in {"internal/dataframe/errors", "internal/projectid"}:
+    if location in {"internal/dataframe/errors", "internal/projectid", "internal/source"}:
         evidence.append("small shared semantic contract; compare direct callers before inlining")
     if row["runtime_signals"] != "—":
         evidence.append("runtime/build signals present; static importer counts are insufficient for deletion")

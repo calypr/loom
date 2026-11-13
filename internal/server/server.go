@@ -2,13 +2,12 @@ package server
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -17,42 +16,27 @@ import (
 	"syscall"
 	"time"
 
-	shared "github.com/arangodb/go-driver/v2/arangodb/shared"
 	loadapi "github.com/calypr/loom/internal/api/bulk/load"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
 	graphresolver "github.com/calypr/loom/internal/api/graphql/graph/resolver"
 	httpapi "github.com/calypr/loom/internal/api/http"
-	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
+	"github.com/calypr/loom/internal/backends/postgres/control"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
-	"github.com/calypr/loom/internal/dataframe/compiler/lower"
+	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
-	chartifactarango "github.com/calypr/loom/internal/dataframe/execution/chartifact/arango"
 	publication "github.com/calypr/loom/internal/dataframe/publication"
-	bundlearango "github.com/calypr/loom/internal/dataframe/publication/arango"
-	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
-	"github.com/calypr/loom/internal/dataframe/published"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	"github.com/calypr/loom/internal/dataframe/recipe/exec"
-	recipearango "github.com/calypr/loom/internal/dataframe/recipe/exec/arango"
+	"github.com/calypr/loom/internal/dataframe/semantic"
 	publicationcontract "github.com/calypr/loom/internal/dataset"
-	publicationarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
-	"github.com/calypr/loom/internal/explorer/artifactfs"
-	"github.com/calypr/loom/internal/explorer/capability"
 	explorercompilation "github.com/calypr/loom/internal/explorer/compilation"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 	"github.com/calypr/loom/internal/ingest"
-	arangostore "github.com/calypr/loom/internal/store/arango"
-	clickhousestore "github.com/calypr/loom/internal/store/clickhouse"
 )
 
-// Run starts the Loom HTTP server using the process command-line flags.
 func Run() {
 	options, err := parseServerOptions(os.Args[1:], flag.ContinueOnError)
 	if err != nil {
@@ -82,81 +66,7 @@ func recordDegradation(logger *slog.Logger, current error, stage string, cause e
 	return errors.Join(current, fmt.Errorf("%s: %w", stage, cause))
 }
 
-func classifyDataframeQueryError(err error) error {
-	if err == nil {
-		return err
-	}
-	switch {
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotCellCardinality)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotCellCardinality, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTablePivotUnlistedCategory)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTablePivotUnlistedCategory, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionRowValueMultipleValues)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionRowValueMultipleValues, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeConstructionExpansionEmpty)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeConstructionExpansionEmpty, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeExplicitGroupUnassignedMember)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeExplicitGroupUnassignedMember, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeRelationshipCardinalityViolation)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeRelationshipCardinalityViolation, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalAnchorInvalid)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalAnchorInvalid, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalPrecisionUnsupported)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalPrecisionUnsupported, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeTemporalTieAmbiguous)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeTemporalTieAmbiguous, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitIdentityUnknown)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitIdentityUnknown, "")
-	case arangostore.IsQueryUserAssertion(err, string(dataframeerrors.CodeUnitDimensionIncompatible)):
-		return dataframeerrors.Wrap(err, dataframeerrors.CodeUnitDimensionIncompatible, "")
-	case arangostore.IsQueryMemoryLimitExceeded(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryMemoryLimitExceeded,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query_memory"}),
-		)
-	case arangostore.IsQueryResourceLimitExceeded(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryResourceLimitExceeded,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "query"}),
-		)
-	case arangostore.IsQueryOutOfMemory(err):
-		return dataframeerrors.Wrap(
-			err,
-			dataframeerrors.CodeQueryBackendOutOfMemory,
-			"",
-			dataframeerrors.WithDetails(map[string]any{"backend": "arangodb", "resource": "memory"}),
-		)
-	default:
-		return err
-	}
-}
-
-func configuredAQLQueryRows(logger *slog.Logger, phase string, execute dataframeexecution.QueryRows) dataframeexecution.QueryRows {
-	return func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-		started := time.Now()
-		digest := sha256.Sum256([]byte(query))
-		queryHash := hex.EncodeToString(digest[:])
-		if logger != nil {
-			logger.Info("dataframe AQL started", "request_id", requestIDFromContext(ctx), "phase", phase+"_start",
-				"query_hash", queryHash, "query_bytes", len(query), "bind_vars", len(bindVars), "cursor_batch_size", batchSize)
-		}
-		err := preserveConfiguredQueryError(execute(ctx, query, batchSize, bindVars, visit))
-		level := slog.LevelInfo
-		if err != nil {
-			level = slog.LevelError
-		}
-		logServerDiagnostic(logger, level, "dataframe AQL execution", requestIDFromContext(ctx), phase, time.Since(started), err,
-			"query_hash", queryHash)
-		return err
-	}
-}
-
 func preserveConfiguredQueryError(err error) error {
-	err = classifyDataframeQueryError(err)
 	if err == nil || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
@@ -234,13 +144,8 @@ func diagnosticErrorCauseValue(err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "operation deadline exceeded"
 	}
-	var arangoErr shared.ArangoError
-	if errors.As(err, &arangoErr) {
-		return arangoDiagnosticCause(arangoErr)
-	}
-	var arangoErrPointer *shared.ArangoError
-	if errors.As(err, &arangoErrPointer) && arangoErrPointer != nil {
-		return arangoDiagnosticCause(*arangoErrPointer)
+	if cause, ok := arangofactory.DiagnosticCause(err); ok {
+		return cause
 	}
 	return err.Error()
 }
@@ -252,14 +157,6 @@ func capDiagnosticCause(cause string) string {
 		return cause
 	}
 	return strings.ToValidUTF8(cause[:maxDiagnosticCauseBytes-3], "") + "..."
-}
-
-func arangoDiagnosticCause(err shared.ArangoError) string {
-	cause := fmt.Sprintf("ArangoDB error number %d (HTTP %d)", err.ErrorNum, err.Code)
-	if err.ErrorMessage != "" {
-		cause += ": " + err.ErrorMessage
-	}
-	return cause
 }
 
 var (
@@ -346,7 +243,6 @@ func previewQueryMaxRuntime(ctx context.Context) time.Duration {
 
 func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecution.Engine) lifecycle.CategoryScanner {
 	return func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CategoryScanRequest) (dataframeexecution.CategoryScanResult, error) {
-		// Category discovery is Pivot-only and uses the extended query runtime limit.
 		scanCtx, cancel := context.WithTimeout(ctx, pivotCategoryScanTimeout)
 		defer cancel()
 		scanCtx = withPivotPreviewQueryBudget(scanCtx)
@@ -376,51 +272,13 @@ func configuredCategoryScanner(logger *slog.Logger, recipeEngine *dataframeexecu
 	}
 }
 
-// newExplorerReleaseActivator builds the dataset release activation hook for
-// the repository publish path (lifecycle repository_publish.go ActivateRelease).
-// It reads the live release revision and submits it as the store's
-// compare-and-swap input, so a concurrent winning publication makes the
-// store's own guard reject: internal/dataset/arango/release_store.go
-// activateReleaseAQL compares it with `FILTER currentRevision ==
-// @expected_revision OR alreadyActive`, and the emptied result becomes
-// dataset.ErrReleaseActivationConflict (release_store.go:99-100), which the
-// lifecycle types as the repair-34 409 repository_publish
-// PUBLICATION_ACTIVATION_CONFLICT with the prior revision retained.
-//
-// devReleaseCASFault is the dev-only repository sibling of the
-// prepareExplorerRelease fault (LOOM_DEV_ACTIVATION_CONFLICT_ONCE) below: it
-// is armed only through applyDevFaultOverrides, therefore only under the
-// local no-auth mode. Consumed exactly once, it corrupts the expected-revision
-// CAS input after a successful Active read so the release CAS legitimately
-// loses while the retained candidate release stays durable. The seam sits
-// above the store on purpose: the second, Explorer-side activation leg
-// (internal/explorer/arango/activation.go compositeActivationReadAQL guards
-// plus activateRevisionAndOwner) never yields dataset.ErrReleaseActivationConflict
-// — every guard on that leg produces only explorer.ErrDraftConflict or plain
-// faults — so the sentinel this contract classifies can only come from the
-// release CAS input computed here. A rival document could not be activated
-// instead: activateReleaseAQL's alreadyActive guard makes same-content
-// re-activation a zero-write no-op, so bumping the pointer revision would
-// require minting a competing release document that no publish flow created
-// (invented state) and would itself leave the dataset pointer on the rival
-// while the Explorer pointer stayed on the prior revision (split-brain).
-// The fault therefore corrupts one number instead: the store still decides
-// the outcome, zero writes happen on the loss, and no successful activation
-// is ever hidden behind a synthetic error.
 func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseService, devReleaseCASFault *atomic.Bool) func(context.Context, string, string, []publicationcontract.DataframeSelector) error {
 	return func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) error {
 		expectedRevision := int64(0)
-		// Consume the one-shot arm at request entry, never conditionally: an
-		// armed request whose Active read has no pointer to corrupt must not
-		// leave the fault live to silently hijack a LATER publish request.
 		devFaultArmed := devReleaseCASFault != nil && devReleaseCASFault.CompareAndSwap(true, false)
 		active, err := releaseService.Active(ctx, project)
 		if err == nil {
 			expectedRevision = active.Revision
-			// Feed a stale expected revision so the real
-			// store CAS loses exactly once. Corrupt only after a successful
-			// Active read: with no prior pointer the store rejects on the
-			// missing-pointer precondition instead of the compare-and-swap.
 			if devFaultArmed {
 				expectedRevision++
 			}
@@ -435,524 +293,320 @@ func newExplorerReleaseActivator(releaseService *publicationcontract.ReleaseServ
 	}
 }
 
+var ErrPostgreSQLRuntimeNotWired = errors.New("server.backend postgres is configured, but the PostgreSQL source runtime is not wired yet; refusing to start on the ArangoDB backend")
+
+func RunWithConfig(ctx context.Context, serverConfig Config) error {
+	return run(ctx, serverConfig)
+}
+
 func run(ctx context.Context, serverConfig Config) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{}))
-	connOpts := arangostore.ConnectionOptions{
-		URL:      serverConfig.Server.URL,
-		Database: serverConfig.Server.Database,
+	backend, err := normalizeSourceBackend(serverConfig.Server.Backend)
+	if err != nil {
+		return err
 	}
+	if backend == sourceBackendPostgres {
+		if _, _, err := postgresRuntimeAssignment(serverConfig.Server.PostgreSQL); err == nil {
+			return runPostgreSQLFullRuntime(ctx, serverConfig, logger)
+		}
+		return runPostgreSQLFirstQueryRoute(ctx, serverConfig, logger)
+	}
+	return runArangoRuntime(ctx, serverConfig, logger)
+}
 
-	lifecycleClient, err := arangostore.Open(ctx, connOpts.URL, connOpts.Database)
+const postgreSQLFirstQueryRouteAcquireTimeout = 30 * time.Second
+
+func postgreSQLFirstQueryRouteWiringError(operation, enablingTicket string) error {
+	return dataframeerrors.NewError(dataframeerrors.CodeBackendUnavailable,
+		operation+" is not served by the PostgreSQL first query route; it belongs to "+enablingTicket,
+		dataframeerrors.WithRetryable(false),
+		dataframeerrors.WithDetails(map[string]any{"backend": "postgresql", "stage": "wiring", "enablingTicket": enablingTicket}))
+}
+
+func postgresFirstQueryRouteAssignment(pg PostgreSQLConfig) (control.SeriesSchemas, string, string, error) {
+	source, hasSource := pg.Schemas[string(control.SeriesSource)]
+	manifest, hasManifest := pg.Schemas[string(control.SeriesDatasetRelease)]
+	source, manifest = strings.TrimSpace(source), strings.TrimSpace(manifest)
+	if !hasSource || !hasManifest || source == "" || manifest == "" || source == manifest || len(pg.Schemas) != 2 {
+		return nil, "", "", ErrPostgreSQLRuntimeNotWired
+	}
+	return control.SeriesSchemas{
+		control.SeriesSource:         source,
+		control.SeriesDatasetRelease: manifest,
+	}, source, manifest, nil
+}
+
+func postgresFirstQueryRouteDSN(pg PostgreSQLConfig) string {
+	u := &url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(pg.User, pg.Password),
+		Host:     fmt.Sprintf("%s:%d", pg.Host, pg.Port),
+		Path:     "/" + pg.Database,
+		RawQuery: "sslmode=" + url.QueryEscape(strings.ToLower(strings.TrimSpace(pg.SSLMode))),
+	}
+	return u.String()
+}
+
+type redactedRouteError struct {
+	msg   string
+	cause error
+}
+
+func (e *redactedRouteError) Error() string { return e.msg }
+func (e *redactedRouteError) Unwrap() error { return e.cause }
+
+func postgresFirstQueryRouteError(err error, pg PostgreSQLConfig, dsn string) error {
+	if err == nil {
+		return nil
+	}
+	text := err.Error()
+	queryEscaped := url.QueryEscape(pg.Password)
+	pathEscaped := url.PathEscape(pg.Password)
+	secrets := []string{
+		dsn,
+		pg.Password,
+		pg.User + ":" + pg.Password,
+		queryEscaped,
+		pathEscaped,
+		pg.User + ":" + queryEscaped,
+		pg.User + ":" + pathEscaped,
+	}
+	for _, secret := range secrets {
+		if secret != "" {
+			text = strings.ReplaceAll(text, secret, "<redacted>")
+		}
+	}
+	if text == err.Error() {
+		return err
+	}
+	return &redactedRouteError{msg: text, cause: err}
+}
+
+const (
+	pgReadinessStateClosed           = "runtime_closed"
+	pgReadinessStateConnectivityDown = "connectivity_down"
+	pgReadinessStateUnsupportedVer   = "unsupported_version"
+	pgReadinessStateSchemaMissing    = "schema_missing"
+	pgReadinessStateSchemaUnmigrated = "schema_unmigrated"
+	pgReadinessStateSchemaMismatch   = "schema_mismatch"
+	pgReadinessStateUnknown          = "core_state_unknown"
+)
+
+func postgreSQLCoreReadinessState(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, control.ErrRuntimeClosed):
+		return pgReadinessStateClosed
+	case errors.Is(err, control.ErrConnect):
+		return pgReadinessStateConnectivityDown
+	case errors.Is(err, control.ErrUnsupportedVersion):
+		return pgReadinessStateUnsupportedVer
+	case errors.Is(err, control.ErrInvalidSchemaName):
+		return pgReadinessStateSchemaMissing
+	case errors.Is(err, control.ErrMigrationPending):
+		return pgReadinessStateSchemaUnmigrated
+	case errors.Is(err, control.ErrMigrationChecksumMismatch),
+		errors.Is(err, control.ErrFutureSchemaVersion),
+		errors.Is(err, control.ErrMigrationMissing),
+		errors.Is(err, control.ErrMigrationOutOfOrder):
+		return pgReadinessStateSchemaMismatch
+	default:
+		return pgReadinessStateUnknown
+	}
+}
+
+type postgreSQLGenerationStatusReader struct {
+	manifests publicationcontract.ManifestLifecycle
+}
+
+func (r postgreSQLGenerationStatusReader) ReadManifest(ctx context.Context, ref publicationcontract.Ref) (publicationcontract.Manifest, error) {
+	if r.manifests == nil {
+		return publicationcontract.Manifest{}, postgreSQLFirstQueryRouteWiringError("Generation status reads", "pg-runtime-server-composition")
+	}
+	return r.manifests.ReadManifest(ctx, ref)
+}
+
+func (r postgreSQLGenerationStatusReader) Activate(context.Context, publicationcontract.Manifest) error {
+	return postgreSQLFirstQueryRouteWiringError("Server-side generation activation", "pg-runtime-server-composition")
+}
+
+type postgreSQLFirstQueryRecipeControl struct {
+	dataframeexecution.Control
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Validate(ctx context.Context, name string, bindings recipe.RuntimeBindings) (dataframeexecution.Validation, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.Validation{}, postgreSQLFirstQueryRouteWiringError("Recipe validation", "pg-runtime-server-composition")
+	}
+	return c.Control.Validate(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Explain(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.RecipePlanExplanation, error) {
+	if c.Control.Engine == nil {
+		return semantic.RecipePlanExplanation{}, postgreSQLFirstQueryRouteWiringError("Recipe explain", "pg-runtime-server-composition")
+	}
+	return c.Control.Explain(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) ExplainPhysical(ctx context.Context, name string, bindings recipe.RuntimeBindings, live bool) (dataframeexecution.PhysicalExplanation, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.PhysicalExplanation{}, postgreSQLFirstQueryRouteWiringError("Recipe physical explain", "pg-runtime-server-composition")
+	}
+	return c.Control.ExplainPhysical(ctx, name, bindings, live)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Resolve(ctx context.Context, name string, bindings recipe.RuntimeBindings) (semantic.ResolvedRecipePlan, error) {
+	if c.Control.Engine == nil {
+		return semantic.ResolvedRecipePlan{}, postgreSQLFirstQueryRouteWiringError("Recipe resolution", "pg-runtime-server-composition")
+	}
+	return c.Control.Resolve(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Preview(ctx context.Context, name string, bindings recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.Preview{}, postgreSQLFirstQueryRouteWiringError("Recipe preview", "pg-runtime-server-composition")
+	}
+	return c.Control.Preview(ctx, name, bindings)
+}
+
+func (c postgreSQLFirstQueryRecipeControl) Run(ctx context.Context, name string, bindings recipe.RuntimeBindings) (dataframeexecution.Preview, error) {
+	if c.Control.Engine == nil {
+		return dataframeexecution.Preview{}, postgreSQLFirstQueryRouteWiringError("Recipe run", "pg-runtime-server-composition")
+	}
+	return c.Control.Run(ctx, name, bindings)
+}
+
+type postgreSQLFirstQueryDataframeReleases struct{}
+
+func (postgreSQLFirstQueryDataframeReleases) GetExecution(context.Context, string) (publication.BundleExecution, error) {
+	return publication.BundleExecution{}, postgreSQLFirstQueryRouteWiringError("Dataframe release reads", "pg-runtime-server-composition")
+}
+
+func (postgreSQLFirstQueryDataframeReleases) GetPointer(context.Context, string) (publication.BundlePointer, error) {
+	return publication.BundlePointer{}, postgreSQLFirstQueryRouteWiringError("Dataframe release pointer reads", "pg-runtime-server-composition")
+}
+
+func composePostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) (server *httpapi.HTTPServer, closeRuntime func() error, err error) {
+	assignment, sourceSchema, _, err := postgresFirstQueryRouteAssignment(serverConfig.Server.PostgreSQL)
 	if err != nil {
-		return fmt.Errorf("open dataset lifecycle store: %w", err)
+		return nil, nil, err
 	}
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
-		defer cancel()
-		_ = lifecycleClient.Close(closeCtx)
-	}()
-	if err := lifecycleClient.Bootstrap(ctx, publicationarango.BootstrapSpec()); err != nil {
-		return fmt.Errorf("bootstrap dataset lifecycle store: %w", err)
-	}
-	var degradation error
-	if err := lifecycleClient.Bootstrap(ctx, recipearango.BootstrapSpec()); err != nil {
-		degradation = recordDegradation(logger, degradation, "bootstrap recipe registry", err)
-	}
-	if err := lifecycleClient.Bootstrap(ctx, recipearango.RevisionBootstrapSpec()); err != nil {
-		degradation = recordDegradation(logger, degradation, "bootstrap recipe revision registry", err)
-	}
-	if err := lifecycleClient.Bootstrap(ctx, explorerarango.BootstrapSpec()); err != nil {
-		return fmt.Errorf("bootstrap Explorer store: %w", err)
-	}
-	recipeRegistry, err := recipearango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create recipe registry: %w", err)
+	pg := serverConfig.Server.PostgreSQL
+	if err := pg.validate(); err != nil {
+		return nil, nil, err
 	}
 	if serverConfig.Server.ClickHouse.Enabled {
-		data, err := os.ReadFile(serverConfig.Server.Dataframer.Recipe)
-		if err != nil {
-			return fmt.Errorf("read dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
-		}
-		defaultBundle, err := recipe.Parse(data)
-		if err != nil {
-			return fmt.Errorf("parse dataframer recipe %q: %w", serverConfig.Server.Dataframer.Recipe, err)
-		}
-		if _, err := (exec.PersistentRegistry{Store: recipeRegistry}).RegisterVersion(ctx, defaultBundle); err != nil {
-			degradation = recordDegradation(logger, degradation, "register default dataframe recipe", err)
-		}
+		return nil, nil, errors.New("server.clickhouse.enabled cannot be combined with server.backend postgres in this slice; the PostgreSQL publication composition belongs to pg-runtime-server-composition")
 	}
-	lifecycleStore, err := publicationarango.New(lifecycleClient)
+
+	var cleanups []func() error
+	defer func() {
+		if err == nil {
+			return
+		}
+		_ = runRuntimeCloseSteps(cleanups)
+	}()
+	dsn := postgresFirstQueryRouteDSN(pg)
+	runtime, err := openPostgresBackend(ctx, control.Config{
+		DSN:            dsn,
+		MaxConns:       int32(pg.MaxOpenConns),
+		MinConns:       int32(pg.MaxIdleConns),
+		AcquireTimeout: postgreSQLFirstQueryRouteAcquireTimeout,
+		Schemas:        assignment,
+		Setup:          control.SetupNone,
+	})
 	if err != nil {
-		return fmt.Errorf("create dataset lifecycle store: %w", err)
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("open PostgreSQL source runtime: %w", err), pg, dsn)
 	}
-	activeManifestResolver := publicationcontract.ActiveResolver(lifecycleStore)
+	cleanups = append(cleanups, func() error {
+		return postgresFirstQueryRouteError(runtime.Close(), pg, dsn)
+	})
+	closeRuntime = func() error { return runRuntimeCloseSteps(cleanups) }
+
+	binding, err := ir.NewPostgresStorageBinding(sourceSchema)
+	if err != nil {
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("bind PostgreSQL storage placement: %w", err), pg, dsn)
+	}
+	sourceCompileTarget, err := compiler.PostgreSQLTarget(binding)
+	if err != nil {
+		return nil, nil, postgresFirstQueryRouteError(fmt.Errorf("select PostgreSQL compile target: %w", err), pg, dsn)
+	}
+
+	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{
+		SourceRows: configuredPostgreSQLSourceRows(logger, "query_rows", runtime.SourceRows),
+	})
 
 	discoveryCache := catalog.NewCache()
-	catalogStore, err := catalogarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create catalog store: %w", err)
-	}
-	discoverFields := discoveryCache.DiscoverFields(catalogStore.DiscoverFields)
-	discoverReferences := discoveryCache.DiscoverReferences(catalogStore.DiscoverReferences)
+	discoverFields := discoveryCache.DiscoverFields(runtime.DiscoverFields)
 
-	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, catalogStore.DiscoverExistingAuthResourcePaths)
+	auth, err := wireAuth(serverConfig, serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated, runtime.DiscoverExistingAuthResourcePaths)
 	if err != nil {
-		return fmt.Errorf("configure authentication: %w", err)
+		return nil, nil, fmt.Errorf("configure authentication: %w", err)
 	}
 	authenticator, authorizer, scopeResolver := auth.authenticator, auth.authorizer, auth.scopeResolver
 
-	dataframes := dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: func(ctx context.Context, query string, batch int, binds map[string]any, visit func(map[string]any) error) error {
-		return classifyDataframeQueryError(lifecycleClient.QueryRows(ctx, query, batch, binds, visit))
-	}})
-	// The lifecycle client already owns this Arango database. Reusing it avoids
-	// a second connection that can fail independently during optional startup.
-	publishedRegistry, err := bundlearango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create published dataframe registry: %w", err)
-	}
-	publicationReady := true
-	if err := lifecycleClient.Bootstrap(ctx, bundlearango.BootstrapSpec()); err != nil {
-		degradation = recordDegradation(logger, degradation, "bootstrap dataframe registry", err)
-		publicationReady = false
-	}
-	var clickhouse *clickhousestore.Client
-	var materializationReader *published.Reader
-	var privateClickHouseArtifacts *chartifact.Manager
-	if serverConfig.Server.ClickHouse.Enabled {
-		clickhouse, err = clickhousestore.New(clickhousestore.Options{URL: serverConfig.Server.ClickHouse.URL, Database: serverConfig.Server.ClickHouse.Database, Username: serverConfig.Server.ClickHouse.Username, Password: serverConfig.Server.ClickHouse.Password})
-		if err != nil {
-			return fmt.Errorf("create ClickHouse client: %w", err)
-		}
-		defer clickhouse.Close()
-		// The Arango-backed dataframe loader publishes into this database. Create
-		// it during server startup so a fresh ClickHouse instance does not require
-		// an operator to run a separate DDL/API step before materialization.
-		if err := clickhouse.EnsureDatabase(ctx); err != nil {
-			degradation = recordDegradation(logger, degradation, "ClickHouse database", err)
-			publicationReady = false
-		}
-		if err := lifecycleClient.Bootstrap(ctx, chartifactarango.BootstrapSpec()); err != nil {
-			return fmt.Errorf("bootstrap private dataframe artifact catalog: %w", err)
-		}
-		privateArtifactCatalog, err := chartifactarango.NewCatalog(lifecycleClient)
-		if err != nil {
-			return fmt.Errorf("create private dataframe artifact catalog: %w", err)
-		}
-		privateClickHouseArtifacts, err = chartifact.New(chartifact.Config{
-			Catalog: privateArtifactCatalog, ClickHouse: clickhouse,
-			BatchRows: serverConfig.Server.RecipeBatchRows, BatchBytes: serverConfig.Server.RecipeBatchBytes,
-		})
-		if err != nil {
-			return fmt.Errorf("create private ClickHouse artifact manager: %w", err)
-		}
-		materializationReader = &published.Reader{ClickHouse: clickhouse, Catalog: publishedRegistry, Logger: logger, MaxPage: 1000, ActiveManifestResolver: activeManifestResolver, ActiveReleaseResolver: lifecycleStore}
-	}
-	recipeRevisions, err := recipearango.NewRevisionRegistry(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create recipe revision registry: %w", err)
-	}
-	var clickHouseQueryRows dataframeexecution.ClickHouseQueryRows
-	if clickhouse != nil {
-		clickHouseQueryRows = clickhouse.QueryRowsArgsVisit
-	}
-	var resolveClickHouseInputs dataframeexecution.ResolveClickHouseInputs
-	var withExecutionReadPins dataframeexecution.WithExecutionReadPins
-	if materializationReader != nil {
-		resolver := clickHouseCombineInputResolver{reader: materializationReader, scopes: scopeResolver}
-		resolveClickHouseInputs = resolver.resolve
-		withExecutionReadPins = materializationReader.WithExecutionReadPins
-	}
-	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:      recipeRegistry,
-		Revisions:     recipeRevisions,
-		ResolveBundle: recipeSchemaResolver(catalogStore.DiscoverFields, discoveryCache),
-		PreparePreviewIndex: loggedPreviewIndexPreparation(logger, func(ctx context.Context, spec compiler.PreviewCoveringIndexSpec) error {
-			var err error
-			if len(spec.StoredValues) != 0 {
-				if spec.Supersedes != nil {
-					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValuesReplacing(
-						ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues,
-						spec.Supersedes.Name, spec.Supersedes.Fields, spec.Supersedes.StoredValues,
-					)
-				} else {
-					err = lifecycleClient.EnsurePreviewCoveringIndexWithStoredValues(ctx, spec.Collection, spec.Name, spec.Fields, spec.StoredValues)
-				}
-			} else if spec.Supersedes != nil {
-				err = lifecycleClient.EnsurePreviewCoveringIndexReplacing(ctx, spec.Collection, spec.Name, spec.Fields, spec.Supersedes.Name, spec.Supersedes.Fields)
-			} else {
-				err = lifecycleClient.EnsurePreviewCoveringIndex(ctx, spec.Collection, spec.Name, spec.Fields)
-			}
-			return err
-		}),
-		PreviewCoveringIndexes:    lifecycleClient.ListPreviewCoveringIndexes,
-		PreviewCollectionRevision: lifecycleClient.CollectionRevision,
-		PreviewExplainQuery: func(ctx context.Context, query string, bindVars map[string]any) (arangostore.ExplainResult, error) {
-			return lifecycleClient.Explain(ctx, arangostore.ExplainRequest{Query: query, BindVars: bindVars})
-		},
-		PreviewCollectionCount: lifecycleClient.CollectionCount,
-		ClickHouseQueryRows:    clickHouseQueryRows,
-		PreviewQueryRows: configuredAQLQueryRows(logger, "preview_query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			return lifecycleClient.QueryRowsWithMaxRuntime(ctx, query, batchSize, bindVars, previewQueryMaxRuntime(ctx), arangostore.RowVisitor(visit))
-		}),
-		ResolveClickHouseInputs:    resolveClickHouseInputs,
-		WithExecutionReadPins:      withExecutionReadPins,
-		PrivateClickHouseArtifacts: privateClickHouseArtifacts,
-		QueryRows: configuredAQLQueryRows(logger, "query_rows", func(ctx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-			return lifecycleClient.QueryRows(ctx, query, batchSize, bindVars, arangostore.RowVisitor(visit))
-		}),
-		ScopeDigest:  recipeScopeDigest,
-		RootPageRows: serverConfig.Server.RecipeQueryPageRows,
-	})
-	if err != nil {
-		return fmt.Errorf("create dataframe recipe engine: %w", err)
-	}
-	var bundleTarget publication.Target
-	if serverConfig.Server.ClickHouse.Enabled && publicationReady {
-		bundleStore, err := publicationclickhouse.NewBundleStore(clickhouse, publishedRegistry)
-		if err != nil {
-			return fmt.Errorf("create dataframe bundle store: %w", err)
-		}
-		bundleStore.SetActiveReleaseReader(lifecycleStore)
-		if err := bundleStore.Reconcile(ctx, time.Now().UTC().Add(-2*time.Minute)); err != nil {
-			degradation = recordDegradation(logger, degradation, "dataframe publication reconciliation", err)
-			publicationReady = false
-		}
-		if publicationReady {
-			bundleTarget = bundleStore
-		}
-	}
-	verificationStore := publicationVerificationStore{executions: publishedRegistry}
-	releaseService := &publicationcontract.ReleaseService{Manifests: lifecycleStore, Releases: lifecycleStore, Verifier: verificationStore, Required: serverConfig.Server.RequiredDataframeSelectors}
-	var activationConflictOnce atomic.Bool
-	activationConflictOnce.Store(serverConfig.Server.DevActivationConflictOnce)
-	var repositoryActivationConflictOnce atomic.Bool
-	repositoryActivationConflictOnce.Store(serverConfig.Server.DevRepositoryActivationConflictOnce)
-	activateExplorerRelease := newExplorerReleaseActivator(releaseService, &repositoryActivationConflictOnce)
-	prepareExplorerRelease := func(ctx context.Context, project, generation string, selectors []publicationcontract.DataframeSelector) (publicationcontract.ProjectRelease, int64, error) {
-		expectedRevision := int64(0)
-		active, err := releaseService.Active(ctx, project)
-		if err == nil {
-			expectedRevision = active.Revision
-		} else if !errors.Is(err, publicationcontract.ErrNoActiveRelease) {
-			return publicationcontract.ProjectRelease{}, 0, err
-		}
-		release, err := releaseService.Create(ctx, publicationcontract.ActivationRequest{
-			Project: project, Generation: generation, GitCommit: generation,
-			OptionalSelectors: selectors,
-		})
-		// Return a deliberately stale CAS revision exactly once in the isolated
-		// dev fault scenario. The candidate remains retained for audit, while
-		// PublishAuthoring's atomic activation fails without moving the prior
-		// active release pointer or exposing candidate rows.
-		if err == nil && activationConflictOnce.CompareAndSwap(true, false) {
-			expectedRevision++
-		}
-		return release, expectedRevision, err
-	}
-	validateExplorerReleaseGeneration := func(ctx context.Context, project, generation string) error {
-		return releaseService.ValidateGeneration(ctx, project, generation)
-	}
-	explorerStore, err := explorerarango.New(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer store: %w", err)
-	}
-	if err := explorerStore.MigrateLegacyRepositoryConfigs(ctx); err != nil {
-		return fmt.Errorf("migrate legacy Explorer repository configs: %w", err)
-	}
-	capabilitySnapshots, err := explorerarango.NewCapabilitySnapshotStore(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("create Explorer capability snapshot store: %w", err)
-	}
-	capabilityResolver, err := newExplorerCapabilityResolver(catalogStore, scopeResolver, activeManifestResolver, capabilitySnapshots)
-	if err != nil {
-		return fmt.Errorf("create Explorer capability resolver: %w", err)
-	}
-	explorerService, err := explorer.NewService(explorerStore)
-	if err != nil {
-		return fmt.Errorf("create Explorer service: %w", err)
-	}
-	artifactStore, err := artifactfs.New(serverConfig.Server.ArtifactDirectory)
-	if err != nil {
-		return fmt.Errorf("create Explorer artifact store: %w", err)
-	}
 	resolver := graphresolver.NewResolver(graphresolver.ResolverConfig{
 		DataframeQuery: queryapi.Config{
-			DiscoverReferences:     discoverReferences,
+			CompileTarget:          sourceCompileTarget,
+			DiscoverReferences:     nil,
 			DiscoverFields:         discoverFields,
 			Dataframes:             dataframes,
 			ScopeResolver:          scopeResolver,
-			ActiveManifestResolver: activeManifestResolver,
-			Explain: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) error {
-				_, err := explainCompiledQuery(ctx, lifecycleClient, compiled)
-				return err
-			},
+			ActiveManifestResolver: runtime.Manifests,
+			Explain:                nil,
 		},
-		MaterializationReader: materializationReader,
+		MaterializationReader: nil,
 		Logger:                logger,
-		RecipeControl: dataframeexecution.Control{Engine: recipeEngine, ExplainConnection: func(ctx context.Context, compiled dataframeexecution.CompiledQuery) (dataframeexecution.ExplainAssessment, error) {
-			return explainCompiledQuery(ctx, lifecycleClient, compiled)
+		RecipeControl: postgreSQLFirstQueryRecipeControl{Control: dataframeexecution.Control{
+			ExplainPostgreSQLConnection: func(ctx context.Context, compiled compiler.CompiledQuery) (dataframeexecution.PostgreSQLPlanAssessment, error) {
+				return explainPostgreSQLCompiledQuery(ctx, runtime.PlanJSON, compiled)
+			},
 		}},
 		RecipeAuthorizer: recipeAuthorization{resolver: scopeResolver},
-		RecipeRevisions:  recipeRevisions,
-		RecipeExecutions: graphresolver.NewAuthorizedRecipeExecutionReader(publishedRegistry, scopeResolver),
+		RecipeRevisions:  nil,
+		RecipeExecutions: nil,
 	})
-	ingestRunner := loadapi.IngestRunner{BaseOptions: ingest.LoadOptions{
-		ConnectionOptions: connOpts,
-		Schema:            serverConfig.Server.Schema,
-	}}
-	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
-		LoadGeneration:      ingestRunner.RunGeneration,
-		GenerationActivator: lifecycleStore,
-		DataframeReleases:   publishedRegistry,
-		Logger:              logger,
-		OnSuccess: func(project string) {
-			discoveryCache.InvalidateProject(project)
-			if scopeResolver != nil {
-				scopeResolver.InvalidateProject(project)
-			}
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("create generation load service: %w", err)
-	}
-	compileReceipt := func(ctx context.Context, request lifecycle.CompileReceiptRequest) (*explorer.CompilationReceipt, error) {
-		var resolveCombineSchemas combineInputSchemaResolver
-		if materializationReader != nil {
-			resolveCombineSchemas = func(ctx context.Context, output lower.CompiledRecipeOutput, bindings recipe.RuntimeBindings) (resolvedCombineInputSchema, error) {
-				return exactPublishedCombineInputSchemas(ctx, output, bindings, materializationReader, materializationReader.WithExecutionReadPins, scopeResolver)
-			}
-		}
-		return compileExplorerReceipt(ctx, request, capabilityResolver, recipeEngine, explorerService, logger, resolveCombineSchemas)
-	}
-	persistPublishedWorkspace, err := localWorkspaceWriter(serverConfig.Server.LocalWorkspaceWriteback, serverConfig.Server.LocalWorkspaceProject)
-	if err != nil {
-		return fmt.Errorf("configure local workspace writeback: %w", err)
-	}
-	populationMappingCursorCodec, err := lifecycle.NewHMACPopulationMappingCursorCodec(serverConfig.Server.PopulationMappingCursorSecret)
-	if err != nil {
-		return fmt.Errorf("configure population mapping cursor signing: %w", err)
-	}
-	var artifactPublishedReader lifecycle.ArtifactPublishedReader
-	if materializationReader != nil {
-		artifactPublishedReader = materializationReader
-		if serverConfig.Server.DevArtifactRowDelay > 0 {
-			artifactPublishedReader = artifactDelayReader{next: artifactPublishedReader, delay: serverConfig.Server.DevArtifactRowDelay}
-		}
-	}
-	schemaIndex, err := fhirschema.GeneratedIndex()
-	if err != nil {
-		return fmt.Errorf("load generated schema index for row choices: %w", err)
-	}
-	rowChoiceResolver, err := lifecycle.NewSchemaRowChoiceResolver(schemaIndex)
-	if err != nil {
-		return fmt.Errorf("configure row-choice schema resolver: %w", err)
-	}
-	explicitGroupResolver, err := lifecycle.NewRepositoryExplicitGroupRevisionResolver(explorerStore)
-	if err != nil {
-		return fmt.Errorf("configure explicit group revision resolver: %w", err)
-	}
-	tableShapeCapabilities, err := explorerarango.NewTableShapeCapabilityRepository(lifecycleClient)
-	if err != nil {
-		return fmt.Errorf("configure table-shape capability repository: %w", err)
-	}
-	lifecycleConfig := lifecycle.Config{
-		SemanticInventory:                  catalogStore.PageSemanticInventory,
-		ResolveSemanticInventorySelections: catalogStore.ResolveSemanticInventorySelections,
-		SelectionMembersCollection:         explorerarango.SelectionMembersCollection,
-		InterpretationRepository:           explorerStore,
-		PopulationMappingCursorCodec:       populationMappingCursorCodec,
-		SelectionSourceResolver:            published.SelectionSourceAdapter{Reader: materializationReader},
-		SelectionReferenceValidator:        explorerStore.ValidateSelectionReferences,
-		RowChoiceResolver:                  rowChoiceResolver,
-		RowChoicePlanner:                   rowChoiceResolver,
-		ExplicitGroupResolver:              explicitGroupResolver,
-		ExplicitGroupRepository:            explorerStore,
-		TableShapeCapabilities:             tableShapeCapabilities,
-		ScanCategories:                     configuredCategoryScanner(logger, recipeEngine),
-		CompileReceipt:                     compileReceipt,
-		ConstructionSourceStage: func(ctx context.Context, request lifecycle.ConstructionSourceStageRequest) (explorer.ReceiptConstructionStage, error) {
-			return compileConstructionSourceStage(ctx, request, recipeEngine)
-		},
-		Capability: lifecycle.CapabilityResolver{
-			Current: func(ctx context.Context, project, _ string, generation string) (capability.Snapshot, error) {
-				return capabilityResolver.Resolve(ctx, project, generation)
-			},
-			Token:          capabilityResolver.ResolveToken,
-			ForCompilation: capabilityResolver.ResolveForCompilation,
-			ForExecution:   capabilityResolver.ResolveForExecution,
-			Catalog:        authoringV2Catalog,
-		},
-		ReceiptLookup: func(ctx context.Context, project, explorerID, receiptID string) (*explorer.CompilationReceipt, error) {
-			return explorerService.CompilationReceiptForExplorer(ctx, project, explorerID, receiptID)
-		},
-		ArtifactStore:    artifactStore,
-		PublishedReader:  artifactPublishedReader,
-		ArtifactTTL:      serverConfig.Server.ArtifactTTL,
-		ArtifactMaxRows:  serverConfig.Server.ArtifactMaxRows,
-		ArtifactMaxBytes: serverConfig.Server.ArtifactMaxBytes,
-		PreviewReceipt: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, visit func(map[string]any) error) (dataframeexecution.PreviewSummary, error) {
-			if receipt == nil {
-				return dataframeexecution.PreviewSummary{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt preview resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.PreviewSummary{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			output := ""
-			if len(bindings.OutputNames) > 0 {
-				output = bindings.OutputNames[0]
-			}
-			summary, previewErr := recipeEngine.PreviewOutput(ctx, resolved, dataframeexecution.PreviewRequest{Output: output, Limit: bindings.PreviewLimit, IncludeRowIdentity: bindings.IncludeRowIdentity}, visit)
-			if previewErr != nil {
-				logReceiptPreviewContractFailure(logger, requestIDFromContext(ctx), receipt.ID, output, previewErr)
-			}
-			return summary, previewErr
-		},
-		ValidateReceiptStream: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings) error {
-			err := validateReceiptFullStream(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer row-value policy full-stream validation failed", "receipt_id", receipt.ID, "error", err)
-			}
-			return err
-		},
-		PopulationMapping: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, output string, memberIDs []string, after string, limit int) (dataframeexecution.PopulationMappingResult, error) {
-			if receipt == nil {
-				return dataframeexecution.PopulationMappingResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt population mapping resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.PopulationMappingResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			reader := dataframeexecution.PopulationMemberReaderFunc(func(_ context.Context, visit func(string) error) error {
-				for _, id := range memberIDs {
-					if err := visit(id); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-			return recipeEngine.PopulationMapping(ctx, resolved, dataframeexecution.PopulationMappingRequest{Output: output, AfterMemberID: after, MaxUnmapped: limit}, reader)
-		},
-		CellTrace: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.CellTraceRequest) (dataframeexecution.CellTraceResult, error) {
-			if receipt == nil {
-				return dataframeexecution.CellTraceResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt cell trace resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.CellTraceResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.CellTrace(ctx, resolved, request)
-		},
-		RowLineage: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.RowLineageRequest) (dataframeexecution.RowLineageResult, error) {
-			if receipt == nil {
-				return dataframeexecution.RowLineageResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt row lineage resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.RowLineageResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.RowLineage(ctx, resolved, request)
-		},
-		TableShapeExclusions: func(ctx context.Context, receipt *explorer.CompilationReceipt, bindings recipe.RuntimeBindings, request dataframeexecution.TableShapeExclusionRequest) (dataframeexecution.TableShapeExclusionResult, error) {
-			if receipt == nil {
-				return dataframeexecution.TableShapeExclusionResult{}, fmt.Errorf("compilation receipt is required")
-			}
-			resolved, err := compileValidatedReceiptResolution(ctx, recipeEngine, receipt, bindings)
-			if err != nil {
-				logger.Error("Explorer receipt table-shape exclusion resolution failed", "receipt_id", receipt.ID, "error", err)
-				return dataframeexecution.TableShapeExclusionResult{}, classifyReceiptPreviewResolutionError(receipt.ID, err)
-			}
-			return recipeEngine.TableShapeExclusions(ctx, resolved, request)
-		},
-		MaterializeReceipt: explorerReceiptMaterializer(
-			recipeEngine, bundleTarget, publishedRegistry, degradation, logger,
-			serverConfig.Server.RecipeBatchRows, serverConfig.Server.RecipeBatchBytes,
-			serverConfig.Server.RecipeQualityMaxRows, serverConfig.Server.RecipeQualityMaxDistinctKeys,
-		),
-		ValidateReleaseGeneration: validateExplorerReleaseGeneration,
-		ActivateRelease:           activateExplorerRelease,
-		PrepareRelease:            prepareExplorerRelease,
-		PersistPublishedWorkspace: persistPublishedWorkspace,
-	}
-	server, err := httpapi.NewHTTPServer(httpapi.HTTPConfig{Authenticator: authenticator, Authorizer: authorizer, Logger: logger,
-		CoreReadyCheck: func(ctx context.Context) error {
-			return lifecycleClient.QueryRows(ctx, "RETURN {ready: true}", 1, nil, func(map[string]any) error { return nil })
-		},
-		ClickHouseReadyCheck: func(ctx context.Context) error {
-			if degradation != nil {
-				return degradation
-			}
-			if clickhouse == nil {
-				return nil
-			}
-			return clickhouse.Ping(ctx)
-		}, ClickHouseEnabled: serverConfig.Server.ClickHouse.Enabled})
-	if err != nil {
-		return fmt.Errorf("create HTTP server: %w", err)
-	}
-	explorerHandlers := newExplorerHTTPHandlers(authorizer, func(ctx context.Context, principal *authscope.Principal, project string) error {
-		if scopeResolver == nil {
-			return nil
-		}
-		return scopeResolver.AuthorizeReadProject(ctx, principal, project)
-	}, explorerService, lifecycleConfig)
-	explorerHandlers.constructionInputs = constructionInputsCatalog{
-		reader: materializationReader, catalog: publishedRegistry, capabilities: lifecycleConfig.Capability,
-		scopes: scopeResolver, explorers: explorerService, revisions: explorerService,
-	}
-	if err := registerRoutes(server, generationService, authorizer, resolver, explorerHandlers, publishedRegistry, scopeResolver); err != nil {
-		return fmt.Errorf("register HTTP routes: %w", err)
-	}
-	if privateClickHouseArtifacts != nil {
-		reconcileCtx, cancelReconciler := context.WithCancel(ctx)
-		reconcilerDone := startPrivateArtifactReconciler(reconcileCtx, privateClickHouseArtifacts, logger)
-		defer func() {
-			cancelReconciler()
-			timer := time.NewTimer(cleanupTimeout)
-			defer timer.Stop()
-			select {
-			case <-reconcilerDone:
-			case <-timer.C:
-				logger.Error("private ClickHouse artifact reconciler did not stop before shutdown deadline")
-			}
-		}()
-	}
-	if artifactStore != nil {
-		artifactReconcileCtx, cancelArtifactReconciler := context.WithCancel(ctx)
-		artifactReconcilerDone := startArtifactFSReconciler(artifactReconcileCtx, artifactStore, logger)
-		defer func() {
-			cancelArtifactReconciler()
-			timer := time.NewTimer(cleanupTimeout)
-			defer timer.Stop()
-			select {
-			case <-artifactReconcilerDone:
-			case <-timer.C:
-				logger.Error("filesystem artifact reconciler did not stop before shutdown deadline")
-			}
-		}()
-	}
-	errCh := make(chan error, 1)
-	go func() {
-		logger.Info("starting HTTP server", "listen", serverConfig.Server.Listen, "database", serverConfig.Server.Database, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
-		errCh <- server.App().Listen(serverConfig.Server.Listen)
-	}()
 
-	select {
-	case err := <-errCh:
-		if err != nil {
-			return fmt.Errorf("server stopped: %w", err)
-		}
-	case <-ctx.Done():
-		logger.Info("shutting down HTTP server", "reason", ctx.Err())
-		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
-		defer cancel()
-		if err := server.App().ShutdownWithContext(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown failed: %w", err)
-		}
+	generationService, err := loadapi.NewService(loadapi.ServiceConfig{
+		LoadGeneration: func(context.Context, loadapi.GenerationLoadRequest, ingest.EventSink) (ingest.LoadSummary, error) {
+			return ingest.LoadSummary{}, postgreSQLFirstQueryRouteWiringError("Server-side PostgreSQL generation load", "pg-runtime-server-composition (the loom-data CLI drives the production ingest path today)")
+		},
+		GenerationActivator: postgreSQLGenerationStatusReader{manifests: runtime.Manifests},
+		DataframeReleases:   postgreSQLFirstQueryDataframeReleases{},
+		Logger:              logger,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("create generation load service: %w", err)
 	}
-	return nil
+
+	server, err = httpapi.NewHTTPServer(httpapi.HTTPConfig{
+		Authenticator: authenticator,
+		Authorizer:    authorizer,
+		Logger:        logger,
+		CoreReadyCheck: func(ctx context.Context) error {
+			return runtime.Readiness(ctx)
+		},
+		CoreState:            postgreSQLCoreReadinessState,
+		ClickHouseReadyCheck: nil,
+		ClickHouseEnabled:    false,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("create HTTP server: %w", err)
+	}
+	if err := registerRoutes(server, generationService, authorizer, resolver, nil, routeDependencies{scopes: auth.scopePolicy}); err != nil {
+		return nil, nil, fmt.Errorf("register HTTP routes: %w", err)
+	}
+	return server, closeRuntime, nil
+}
+
+func runPostgreSQLFirstQueryRoute(ctx context.Context, serverConfig Config, logger *slog.Logger) error {
+	server, closeRuntime, err := composePostgreSQLFirstQueryRoute(ctx, serverConfig, logger)
+	if err != nil {
+		return err
+	}
+	_, startSourceSchema, _, _ := postgresFirstQueryRouteAssignment(serverConfig.Server.PostgreSQL)
+	return serveRuntime(ctx, server, serverConfig.Server.Listen, closeRuntime, "close PostgreSQL source runtime", logger,
+		"listen", serverConfig.Server.Listen, "backend", serverConfig.Server.Backend,
+		"source_schema", startSourceSchema, "no_auth", serverConfig.Server.AllowUnauthenticated || serverConfig.Auth.AllowUnauthenticated)
 }

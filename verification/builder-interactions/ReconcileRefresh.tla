@@ -1,13 +1,6 @@
 --------------------------- MODULE ReconcileRefresh ---------------------------
 EXTENDS Naturals, TLC
 
-(* BuilderWorkspace.reconcileCurrent recovery, from a refetchBuilder or retry-delay await *)
-(* to synchronous syncBuilderData/continue. The call submitted A/F0/g0.      *)
-(* AwaitRecovery captures a pending refresh or retry wait; other actions can *)
-(* change current identity while its JavaScript continuation is suspended.  *)
-(* ResumeRecovery describes the intended current-request gate after await. *)
-(* The response is a valid builder DTO for the submitted Explorer; no API,  *)
-(* response-content or later reconcile/preview behavior is modeled here.     *)
 Owners == {"A", "B"}
 Fingerprints == {"F0", "F1"}
 Generations == 0..2

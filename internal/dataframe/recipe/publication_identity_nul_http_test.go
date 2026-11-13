@@ -8,28 +8,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// F-B21-http durable regression control (Repair-5 shipped). An
-// HTTP-authoring document (transport = encoding/json on the production
-// Bundle type, the shape the Explorer compiler receives) CAN still carry NUL
-// bytes through the recipe validation gate (document_validation.go:36-41
-// still checks only non-emptiness for $.name and $.translationVersion while
-// output/column names pass validateRecipeName's ^[A-Za-z_][A-Za-z0-9_]*$
-// regex) — the boundary this artifact originally watched stayed open at the
-// VALIDATOR. Repair-5 closed the collision at the root instead: production
-// BundleIdentity.PointerName() is length-prefix-encoded, so the two
-// HTTP-decodable distinct documents below get DISTINCT visibility pointers.
-// Natural PASS is now the repaired expectation; the REGRESSION direction
-// keeps the archived CONFIRMED reachability message if the pointer encoding
-// ever re-opens the fold. The validator-side observation remains a t.Errorf:
-// if control characters stop surviving JSON decode, or a control-char gate
-// lands in Validate(), flip/re-point this artifact deliberately.
-//
-// Scope honesty: no live HTTP server is driven here (GraphQL/OpenAPI handlers
-// decode JSON via encoding/json, so transport fidelity is asserted at the
-// decoder the handler itself uses). Live Arango and ClickHouse acceptance of
-// NUL-bearing names is parent-verified by
-// internal/dataframe/publication/clickhouse/pointer_name_nul_ambiguity_e2e_test.go.
-
 func decodeDocument(t *testing.T, wire string) Bundle {
 	t.Helper()
 	var b Bundle
@@ -52,9 +30,6 @@ func identityOf(b Bundle, outputName string) publication.BundleIdentity {
 }
 
 func TestPublicationPointerNULFromHTTPDecodedDocuments(t *testing.T) {
-	// Two DISTINCT author-facing documents, both minimal-valid except that a
-	// pointer component embeds NUL. Wire form uses the \u0000 escape exactly as
-	// an HTTP client would send it.
 	docA := `{"recipeSchemaVersion":` + itoa(CurrentSchemaVersion) + `,"name":"p\u0000q","translationVersion":"r","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient"}]}`
 	docB := `{"recipeSchemaVersion":` + itoa(CurrentSchemaVersion) + `,"name":"p","translationVersion":"q\u0000r","outputs":[{"name":"patients","rootResourceType":"Patient","rowGrain":"patient"}]}`
 
@@ -66,12 +41,6 @@ func TestPublicationPointerNULFromHTTPDecodedDocuments(t *testing.T) {
 	}
 	t.Logf("FB21-http GATE | nul-survives-json-decode | decoded $.name=%q preserves the U+0000 the HTTP body carried", a.Name)
 
-	// Defense-in-depth OBSERVATION (not a failing assertion): Repair-5 closed
-	// the F-B21 harm at the root (injective PointerName encoding), so
-	// Validate() accepting control characters in $.name/$.translationVersion
-	// no longer enables a namespace hijack. This line documents that the
-	// validator-side gate is still open; if a control-char gate lands in
-	// Validate(), flip this note to an expectation of rejection.
 	errA := a.Validate()
 	errB := b.Validate()
 	if errA == nil && errB == nil {
@@ -80,9 +49,6 @@ func TestPublicationPointerNULFromHTTPDecodedDocuments(t *testing.T) {
 		t.Logf("FB21-http note: Validate rejected A=%v B=%v — validator-side gate now covers pointer components", errA, errB)
 	}
 
-	// Production wiring (server/recipe_publication.go publishResolvedRecipe):
-	// identity Name/TranslationVersion come straight from the bundle; OutputName
-	// is the (regex-validated, shared) output name.
 	ia := identityOf(a, "patients")
 	ib := identityOf(b, "patients")
 

@@ -15,7 +15,6 @@ async function verifyEntry(directory, key) {
   assert.ok(names.includes('app.js') && names.includes('app.css'));
   assert.equal(new Set(names).size, names.length);
   assert.ok(names.every(validName));
-  // Read the bytes we hash, so later writes copy exactly what was verified.
   return Promise.all(manifest.files.map(async file => {
     const bytes = await readFile(join(directory, key, file.name));
     assert.equal(digest(bytes), file.sha256, `Corrupt cached asset ${file.name}`);
@@ -31,9 +30,6 @@ export async function restoreArtifacts({ directory, key, destination }) {
     verified = await verifyEntry(directory, key);
   } catch (error) {
     const status = error.code === 'ENOENT' ? 'miss' : 'invalid';
-    // A key is content-addressed, so a non-verifying entry is never legitimate.
-    // Remove it so the rebuild's publish can commit instead of looping on
-    // ENOTEMPTY forever. Best effort: publish re-verifies and repairs too.
     if (status === 'invalid') await rm(entry, { recursive: true, force: true }).catch(() => {});
     return { status, reason: error.message };
   }
@@ -60,9 +56,9 @@ export async function publishArtifacts({ directory, key, source }) {
       try { await rename(staging, entry); break; }
       catch (error) {
         if (!['EEXIST', 'ENOTEMPTY'].includes(error.code)) throw error;
-        try { await verifyEntry(directory, key); break; } // A concurrent publisher committed a valid entry.
+        try { await verifyEntry(directory, key); break; }
         catch { if (attempt >= 3) throw error; }
-        await rm(entry, { recursive: true, force: true }); // Stale or corrupt: the fresh staging replaces it.
+        await rm(entry, { recursive: true, force: true });
       }
     }
   } finally { await rm(staging, { recursive: true, force: true }); }

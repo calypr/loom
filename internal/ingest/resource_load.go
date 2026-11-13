@@ -7,15 +7,10 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
 )
 
-// LoadIncompleteError means row-level validation, generation, or edge
-// construction failures were observed while the mutable resource load ran with
-// FailFast disabled. The collections may hold partial documents, so the load
-// must never report success. It mirrors GenerationLoadIncompleteError for the
-// unversioned project/resourceType path that has no dataset generation.
 type LoadIncompleteError struct {
 	ValidationErrors int
 	GenerationErrors int
@@ -34,9 +29,6 @@ func (e *LoadIncompleteError) Error() string {
 	)
 }
 
-// loadIncompleteError returns the typed incomplete-load error when any
-// row-level failure counter is nonzero, mirroring the generation loader so a
-// partial mutable load cannot exit 0. It returns nil for a clean summary.
 func loadIncompleteError(summary LoadSummary) error {
 	if summary.ValidationErrors != 0 || summary.GenerationErrors != 0 || summary.EdgeErrors != 0 {
 		return &LoadIncompleteError{
@@ -48,9 +40,6 @@ func loadIncompleteError(summary LoadSummary) error {
 	return nil
 }
 
-// loadResource preserves the unversioned, overwrite/upsert contract used by
-// the project/resourceType endpoint. It deliberately does not create or
-// activate a dataset generation.
 func loadResource(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 	opts = normalizeLoadOptions(opts)
 	start := time.Now()
@@ -102,12 +91,13 @@ func loadResource(ctx context.Context, opts LoadOptions) (LoadSummary, error) {
 		"database": opts.Database,
 	})
 	connectStart := time.Now()
-	client, err := openBackend(ctx, opts.ConnectionOptions)
+	backend, err := openBackend(ctx, opts.ConnectionOptions)
 	if err != nil {
 		return summary, err
 	}
-	defer func() { _ = client.Close(context.WithoutCancel(ctx)) }()
-	catalogStore, err := catalogarango.New(client)
+	client := backend.Client
+	defer func() { _ = backend.Close(context.WithoutCancel(ctx)) }()
+	catalogStore, err := arangofactory.NewCatalogStore(client)
 	if err != nil {
 		return summary, err
 	}

@@ -38,11 +38,6 @@ func (r *physicalPlanRenderer) renderExtract(expression ir.PhysicalExpression) (
 		return "", err
 	}
 	setSource := extract.Source.Variable != "" && r.setVariables[extract.Source.Variable] != ""
-	// A set-valued source is a collection of resource documents.  Its
-	// PhysicalValue may carry the document payload path from semantic lowering,
-	// but that path cannot be applied to the collection itself (`set.payload`
-	// is null in AQL).  The selector renderer already projects each set item
-	// through `item.payload`, so pass the collection variable as the loop source.
 	if setSource {
 		source = extract.Source.Variable
 	}
@@ -161,10 +156,6 @@ func rebindPhysicalExtractSource(extract *ir.PhysicalExtract, source ir.Physical
 	}
 }
 
-// renderUnitNormalizedExtract converts each contributing measurement before
-// the owning aggregate reduces it. The source system/code selectors are
-// matched exactly against compiler-pinned rule identities; display labels are
-// deliberately not part of this expression.
 func (r *physicalPlanRenderer) renderUnitNormalizedExtract(expression ir.PhysicalExpression) (string, error) {
 	extract := expression.Extract
 	if extract == nil || extract.UnitNormalization == nil {

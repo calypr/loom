@@ -34,9 +34,6 @@ const (
 	QualityFailed QualityVerdict = "FAILED"
 )
 
-// QualityPolicy bounds the state retained while the publication stream is
-// checked. An empty Version disables reporting for compatibility callers;
-// Explorer publication always supplies an explicit versioned policy.
 type QualityPolicy struct {
 	Version               string
 	MaxRows               int64
@@ -63,10 +60,6 @@ type ColumnQuality struct {
 
 const relatedSourceAllMatchesBasis = "ALL_MATCHES_NO_FILTER_OR_WINDOW"
 
-// RelatedSourcePopulation records exact row and list-entry counts for one
-// compiler-identified RELATED_SOURCE column. Null entries may also represent
-// an absent source field because the published list does not retain that
-// distinction.
 type RelatedSourcePopulation struct {
 	Basis                         string `json:"basis"`
 	OutputRows                    int64  `json:"outputRows"`
@@ -78,17 +71,11 @@ type RelatedSourcePopulation struct {
 	UnknownRows                   int64  `json:"unknownRows"`
 }
 
-// QualityLimits records the exact bounds under which the full-population
-// report was produced. A complete report is meaningful only together with
-// the limits that could have stopped its scan.
 type QualityLimits struct {
 	MaxRows         int64 `json:"maxRows"`
 	MaxDistinctKeys int64 `json:"maxDistinctKeys"`
 }
 
-// QualityIssues counts data-dependent failures enforced by the same stream
-// that materializes the candidate publication. Successful reports therefore
-// contain explicit zeroes instead of leaving these checks implicit.
 type QualityIssues struct {
 	Ambiguous        int64 `json:"ambiguous"`
 	InvalidType      int64 `json:"invalidType"`
@@ -101,9 +88,6 @@ type KeyIntegrity struct {
 	Duplicate int64 `json:"duplicate"`
 }
 
-// QualityReport is immutable evidence about one fully consumed output stream.
-// Its identity is derived only after the receipt already exists, so it can
-// never participate in receipt identity.
 type QualityReport struct {
 	ID                string              `json:"id"`
 	ReceiptID         string              `json:"receiptId"`
@@ -132,8 +116,6 @@ type QualityFailedError struct{ Reports []QualityReport }
 func (e *QualityFailedError) Error() string { return ErrQualityFailed.Error() }
 func (e *QualityFailedError) Unwrap() error { return ErrQualityFailed }
 
-// CloneQualityReports prevents callers from mutating evidence held by a
-// durable publication execution.
 func CloneQualityReports(reports []QualityReport) []QualityReport {
 	cloned := make([]QualityReport, len(reports))
 	for index, report := range reports {
@@ -150,8 +132,6 @@ func CloneQualityReports(reports []QualityReport) []QualityReport {
 	return cloned
 }
 
-// ValidateQualityReports enforces the activation-grade relationship between
-// evidence and the durable publication it describes.
 func ValidateQualityReports(identity BundleIdentity, outputs []BundleOutputRecord, reports []QualityReport) error {
 	if err := ValidateQualityReportBindings(identity, outputs, reports); err != nil {
 		return err
@@ -170,10 +150,6 @@ func ValidateQualityReports(identity BundleIdentity, outputs []BundleOutputRecor
 	return nil
 }
 
-// ValidateQualityReportBindings permits partial or failed evidence to be
-// retained on a failed candidate execution while still proving that every
-// report belongs to that exact publication attempt. Activation uses the
-// stricter ValidateQualityReports contract above.
 func ValidateQualityReportBindings(identity BundleIdentity, outputs []BundleOutputRecord, reports []QualityReport) error {
 	known := make(map[string]struct{}, len(outputs))
 	for _, output := range outputs {
@@ -244,9 +220,6 @@ func newQualityAccumulator(identity PublicationIdentity, output OutputStream, po
 	return accumulator
 }
 
-// fail finalizes evidence for a stream that did not reach natural exhaustion.
-// Known semantic failures are complete negative findings; cancellation and
-// infrastructure failures are incomplete because absence was not proven.
 func (a *qualityAccumulator) fail(cause error) (QualityReport, error) {
 	if a == nil {
 		return QualityReport{}, nil

@@ -173,12 +173,6 @@ export function createScope001SyntheticBearer(issuer, subject = 'scope-001-local
   return `${header}.${claims}.`;
 }
 
-/**
- * Start the local Fence `/user` endpoint used only by the isolated auth target.
- * It exposes one exact read/write grant and accepts only the matching in-memory
- * bearer. The app's Calypr path consumes this grant; this helper does not test
- * JWT signatures or external identity/ACL services.
- */
 export async function startScope001FenceStub({
   bindAddress = '0.0.0.0',
   containerHostname = 'host.docker.internal',
@@ -331,7 +325,6 @@ function scope001MutationBindVars(target) {
   };
 }
 
-/** Seed the isolated generation, move only the blocked target document to its sibling path, and prove both rows remain loaded. */
 export async function seedAndScopeScope001Fixture({ target, bearer, fetchImpl = globalThis.fetch, execFileSyncImpl = execFileSync } = {}) {
   assert(target && target.project === 'loom_dev_scope001-auth' && target.generation === 'scope001-auth-v1',
     'restricted-auth seeding requires the exact owned project and generation');

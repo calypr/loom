@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -140,7 +140,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 	}
 	output := constructionCodedGroupTestOutput()
 	compiled := lowerConstructionOutput(t, output, bindings)
-	preview, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	preview, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 	}
 	compilePage := func(rowID string, offset int) CompiledRowLineageQuery {
 		t.Helper()
-		query, compileErr := CompileRowLineageOutput(compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
+		query, compileErr := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, offset, 1, ir.DefaultPhysicalOptimizationPolicy())
 		if compileErr != nil {
 			t.Fatalf("compile CODED_GROUP row-lineage page at %d: %v", offset, compileErr)
 		}
@@ -176,8 +176,8 @@ func TestConstructionCodedGroupRowLineagePagesScopedContributorsAgainstArango(t 
 			"root.project == @project", "root.dataset_generation == @dataset_generation",
 			"root.auth_resource_path IN @auth_resource_paths",
 		} {
-			if !strings.Contains(query.Query, want) {
-				t.Errorf("CODED_GROUP row-lineage query lost source scope %q:\n%s", want, query.Query)
+			if !strings.Contains(testAQLText(t, query.Command), want) {
+				t.Errorf("CODED_GROUP row-lineage query lost source scope %q:\n%s", want, testAQLText(t, query.Command))
 			}
 		}
 		return query
@@ -235,7 +235,7 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	project, generation := "loom_coded_group_inline_"+suffix, "generation-coded-group-inline"
 	fixtureCollection := "loom_coded_group_inline_roots_" + suffix
 	populationCollection := "loom_coded_group_inline_members_" + suffix
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: fixtureCollection}, {Name: populationCollection},
 	}}); err != nil {
 		t.Fatal(err)
@@ -252,11 +252,11 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	}
 	allOutput := constructionCodedGroupTestOutput()
 	allCompiled := lowerConstructionOutput(t, allOutput, bindings)
-	allQuery, err := CompileRecipeOutputWithPolicy(allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	allQuery, err := CompileRecipeOutput(ArangoTarget(), allCompiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	allQuery.BindVars["@root_collection"] = fixtureCollection
+	testAQLBinds(t, allQuery.Command)["@root_collection"] = fixtureCollection
 	allSourceIDs := codedGroupSourceProjectionIDs(t, ctx, client, allCompiled, fixtureCollection)
 	allRows := executeReshapeOracleQuery(t, ctx, client, allQuery)
 	assertCodedGroupSourceIDsMatchCodes(t, allRows, allSourceIDs)
@@ -272,18 +272,18 @@ func TestConstructionCodedGroupInliningMatchesAuthorizedAndPopulationSourceRowsA
 	selectedBindings.SelectionProject = project
 	selectedBindings.SelectionMembersCollection = populationCollection
 	selectedCompiled := lowerConstructionOutput(t, selectedOutput, selectedBindings)
-	selectedQuery, err := CompileRecipeOutputWithPolicy(selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	selectedQuery, err := CompileRecipeOutput(ArangoTarget(), selectedCompiled, selectedBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	selectedQuery.BindVars["@root_collection"] = fixtureCollection
-	selectedQuery.BindVars["@population_source_collection"] = fixtureCollection
+	testAQLBinds(t, selectedQuery.Command)["@root_collection"] = fixtureCollection
+	testAQLBinds(t, selectedQuery.Command)["@population_source_collection"] = fixtureCollection
 	selectedSourceIDs := codedGroupSourceProjectionIDs(t, ctx, client, selectedCompiled, fixtureCollection)
 	selectedRows := executeReshapeOracleQuery(t, ctx, client, selectedQuery)
 	assertCodedGroupSourceIDsMatchCodes(t, selectedRows, selectedSourceIDs)
 }
 
-func insertCodedGroupResources(t *testing.T, ctx context.Context, client *store.Client, collection, project, generation string, payloads []map[string]any) {
+func insertCodedGroupResources(t *testing.T, ctx context.Context, client *arangofactory.Client, collection, project, generation string, payloads []map[string]any) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(payloads))
 	for _, payload := range payloads {
@@ -309,7 +309,7 @@ func codedGroupComponent(code string) map[string]any {
 	}}}
 }
 
-func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client *store.Client, collection, selectionID, project, generation string, ids []string) {
+func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client *arangofactory.Client, collection, selectionID, project, generation string, ids []string) {
 	t.Helper()
 	documents := make([]json.RawMessage, 0, len(ids))
 	for _, id := range ids {
@@ -327,7 +327,7 @@ func insertCodedGroupPopulationMembers(t *testing.T, ctx context.Context, client
 	}
 }
 
-func codedGroupSourceProjectionIDs(t *testing.T, ctx context.Context, client *store.Client, compiled lower.CompiledRecipeOutput, collection string) []string {
+func codedGroupSourceProjectionIDs(t *testing.T, ctx context.Context, client *arangofactory.Client, compiled lower.CompiledRecipeOutput, collection string) []string {
 	t.Helper()
 	plan := ir.ClonePhysicalPlan(compiled.Plan)
 	plan.StageSequence = nil

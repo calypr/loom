@@ -1,6 +1,3 @@
-// dataframe-profile compiles one checked-in dataframe fixture and profiles
-// the exact rendered AQL directly against ArangoDB. It is intentionally a
-// diagnostic command: normal GraphQL execution never enables PROFILE.
 package main
 
 import (
@@ -19,11 +16,11 @@ import (
 	compilerfixture "github.com/calypr/loom/conformance/compiler"
 	"github.com/calypr/loom/generated/graphql/graph/model"
 	queryapi "github.com/calypr/loom/internal/api/graphql/graph/query"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 type profileReport struct {
@@ -54,23 +51,23 @@ type expectedReport struct {
 }
 
 type explainReport struct {
-	Plans               []arangostore.ExplainPlanEstimate   `json:"plans"`
-	FullCollectionScans []arangostore.ExplainCollectionScan `json:"full_collection_scans"`
-	Indexes             []arangostore.ExplainIndexSummary   `json:"indexes"`
-	OptimizerRules      []string                            `json:"optimizer_rules"`
-	Warnings            []arangostore.ExplainWarning        `json:"warnings"`
+	Plans               []arangofactory.ExplainPlanEstimate   `json:"plans"`
+	FullCollectionScans []arangofactory.ExplainCollectionScan `json:"full_collection_scans"`
+	Indexes             []arangofactory.ExplainIndexSummary   `json:"indexes"`
+	OptimizerRules      []string                              `json:"optimizer_rules"`
+	Warnings            []arangofactory.ExplainWarning        `json:"warnings"`
 }
 
 type profileReportDetails struct {
-	RuntimeSeconds     float64                          `json:"runtime_seconds_sum_of_nodes"`
-	ScannedFull        int                              `json:"scanned_full"`
-	ScannedIndex       int                              `json:"scanned_index"`
-	PeakMemory         uint64                           `json:"peak_memory_bytes"`
-	Phases             arangostore.ProfilePhases        `json:"phases"`
-	ByType             []arangostore.ProfileNodeGroup   `json:"by_node_type"`
-	TraversalNodes     []arangostore.ProfileNodeSummary `json:"traversal_nodes"`
-	EnumerateListNodes []arangostore.ProfileNodeSummary `json:"enumerate_list_nodes"`
-	TopNodes           []arangostore.ProfileNodeSummary `json:"top_nodes"`
+	RuntimeSeconds     float64                            `json:"runtime_seconds_sum_of_nodes"`
+	ScannedFull        int                                `json:"scanned_full"`
+	ScannedIndex       int                                `json:"scanned_index"`
+	PeakMemory         uint64                             `json:"peak_memory_bytes"`
+	Phases             arangofactory.ProfilePhases        `json:"phases"`
+	ByType             []arangofactory.ProfileNodeGroup   `json:"by_node_type"`
+	TraversalNodes     []arangofactory.ProfileNodeSummary `json:"traversal_nodes"`
+	EnumerateListNodes []arangofactory.ProfileNodeSummary `json:"enumerate_list_nodes"`
+	TopNodes           []arangofactory.ProfileNodeSummary `json:"top_nodes"`
 }
 
 func main() {
@@ -146,7 +143,7 @@ func main() {
 	if err != nil {
 		fatalf("resolve recipe plan %q: %v", label, err)
 	}
-	compiledQueries, err := compiler.CompileResolvedRecipePlanWithPolicy(resolved, *limit, ir.DefaultPhysicalOptimizationPolicy())
+	compiledQueries, err := compiler.CompileResolvedRecipePlan(compiler.ArangoTarget(), resolved, *limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		fatalf("compile GDC request %q: %v", label, err)
 	}
@@ -154,33 +151,38 @@ func main() {
 		fatalf("compile GDC request %q produced %d outputs; profiling requires exactly one", label, len(compiledQueries))
 	}
 	compiled := compiledQueries[0]
-	hash := sha256.Sum256([]byte(compiled.Query))
+	aqlText, compiledBinds, dispatchErr := compiled.Command.AQLParameters()
+	if dispatchErr != nil {
+		fatalf("dispatch GDC request %q to AQL profiling: %v", label, dispatchErr)
+	}
+	hash := sha256.Sum256([]byte(aqlText))
 	aqlHash := hex.EncodeToString(hash[:])
 	if *aqlPath == "" {
 		*aqlPath = filepath.Join("docs", "benchmarks", label+"-"+aqlHash[:16]+".aql")
 	}
-	if err := os.WriteFile(*aqlPath, []byte(compiled.Query+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(*aqlPath, []byte(aqlText+"\n"), 0o644); err != nil {
 		fatalf("write AQL %q: %v", *aqlPath, err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	client, err := arangostore.Open(ctx, *url, *database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: *url, Database: *database})
 	if err != nil {
 		fatalf("open Arango: %v", err)
 	}
-	defer client.Close(ctx)
-	explain, err := client.Explain(ctx, arangostore.ExplainRequest{Query: compiled.Query, BindVars: compiled.BindVars})
+	defer arangoBackend.Close(ctx)
+	client := arangoBackend.Client
+	explain, err := client.Explain(ctx, arangofactory.ExplainRequest{Query: aqlText, BindVars: compiledBinds})
 	if err != nil {
 		fatalf("EXPLAIN: %v", err)
 	}
 	started := time.Now()
-	profileRequest := arangostore.ProfileRequest{
-		Query:     compiled.Query,
-		BindVars:  compiled.BindVars,
+	profileRequest := arangofactory.ProfileRequest{
+		Query:     aqlText,
+		BindVars:  compiledBinds,
 		BatchSize: *batchSize,
 		Count:     true,
-		Options:   arangostore.ProfileOptions{Profile: *profile},
+		Options:   arangofactory.ProfileOptions{Profile: *profile},
 	}
 	_, err = client.Profile(ctx, profileRequest)
 	if err != nil {
@@ -194,9 +196,9 @@ func main() {
 	}
 	warmSeconds := time.Since(warmStarted).Seconds()
 
-	assessment := arangostore.AssessExplainResult(explain)
-	summary := arangostore.SummarizeProfile(profileResult)
-	topNodes := append([]arangostore.ProfileNodeSummary(nil), summary.Nodes...)
+	assessment := arangofactory.AssessExplainResult(explain)
+	summary := arangofactory.SummarizeProfile(profileResult)
+	topNodes := append([]arangofactory.ProfileNodeSummary(nil), summary.Nodes...)
 	if len(topNodes) > 20 {
 		topNodes = topNodes[:20]
 	}
@@ -208,7 +210,7 @@ func main() {
 		Fixture:         label,
 		AQLSHA256:       aqlHash,
 		ResultSHA256:    canonicalResultHash(profileResult.Result),
-		BindVars:        compiled.BindVars,
+		BindVars:        compiledBinds,
 		Rows:            profileResult.Count,
 		Explain: explainReport{
 			Plans:               assessment.Plans,
@@ -255,8 +257,8 @@ func main() {
 	fmt.Println(string(encoded))
 }
 
-func filterProfileNodes(nodes []arangostore.ProfileNodeSummary, typ string) []arangostore.ProfileNodeSummary {
-	filtered := make([]arangostore.ProfileNodeSummary, 0)
+func filterProfileNodes(nodes []arangofactory.ProfileNodeSummary, typ string) []arangofactory.ProfileNodeSummary {
+	filtered := make([]arangofactory.ProfileNodeSummary, 0)
 	for _, node := range nodes {
 		if node.Type == typ {
 			filtered = append(filtered, node)

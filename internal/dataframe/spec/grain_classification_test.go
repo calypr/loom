@@ -6,10 +6,6 @@ import (
 	dataframeerrors "github.com/calypr/loom/internal/dataframe/errors"
 )
 
-// The explorer row-source boundary (explorer/lifecycle source_row.go) calls
-// these validators without a prior schema gate, so their rejections are
-// directly user-facing and must arrive typed and non-retryable.
-
 func assertTypedUserFault(t *testing.T, err error, wantMessage string) {
 	t.Helper()
 	if err == nil {

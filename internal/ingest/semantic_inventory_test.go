@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/bmeg/jsonschemagraph/graph"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/catalog"
-	catalogarango "github.com/calypr/loom/internal/catalog/arango"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
@@ -35,8 +34,8 @@ func TestLoadFilePersistsSemanticInventoryFromSharedEmitter(t *testing.T) {
 	var inventoryDocs []json.RawMessage
 	var inventoryOverwrite []bool
 	result, err := loadFile(context.Background(), opts, nil, schema, file, "generation-1", false, time.Now(), 0, 0,
-		func(_ context.Context, _ *arangostore.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
-			if collection == catalogarango.SemanticCoverageCollection {
+		func(_ context.Context, _ *arangofactory.Client, collection string, docs []json.RawMessage, overwrite bool, _ string) error {
+			if collection == arangofactory.CatalogSemanticCoverageCollection {
 				t.Fatalf("normal generation load wrote optional semantic coverage collection %q", collection)
 			}
 			if collection == catalog.SemanticInventoryCollection {

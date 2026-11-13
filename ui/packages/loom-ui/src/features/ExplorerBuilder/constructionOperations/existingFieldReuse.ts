@@ -1,13 +1,3 @@
-// ROW-SOURCE-07: when a signed source choice's authoritative field is already
-// projected as a table column, the pickers should offer that existing column
-// instead of inviting a duplicate signed choice that the server would refuse
-// on the named collision. Identity is proven only through server-owned state:
-// the construction's sourceProjections (columnId ↔ fieldPath) for private
-// source lanes, and the caller-supplied public carriers for ordinary PUBLIC
-// columns, whose identity is authored as authoringv2 Column.Source.Field and
-// compiled separately from sourceProjections. Labels are never matched, saved
-// selections are never rewritten, and an ambiguous or stale identity falls
-// back to the current signed-choice flow untouched.
 
 import type { Construction } from '../../../types';
 
@@ -27,18 +17,8 @@ export type PublicFieldCarrier = {
   readonly fieldPath: string;
 };
 
-// Mirrors the server's canonicalRowPath: the root occurrence is implicit, so a
-// "root."-prefixed authored path names the same field as the bare path.
 const canonicalFieldPath = (fieldPath: string): string => fieldPath.trim().replace(/^root\./, '');
 
-// Returns the single existing column that already carries this exact field
-// path, or undefined when reuse is not unambiguously safe: the field is carried
-// zero times (plain signed choice), a carrier column is no longer on this stage
-// (stale: column removed or step pruned), or more than one live column carries
-// the same field path (independent private ownership must stay distinct, so no
-// silent pick). Public carriers are caller-supplied server-signed identity for
-// ordinary public columns, which never appear in sourceProjections; without
-// them a public column stays invisible to reuse.
 export const existingColumnForFieldPath = (args: {
   readonly sourceProjections: Construction['sourceProjections'];
   readonly columns: ReadonlyArray<ReusableColumn>;

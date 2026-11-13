@@ -146,8 +146,6 @@ async function trial(engine, index, concurrency, phase = 'confirm', existingPool
       sample(); profiler = setInterval(sample, 500);
     }
     if (options.mode === 'throughput') {
-      // Warm each reused context/cache identically. Blank startup and shader/cache
-      // warmup are outside steady time, but inside the complete batch duration.
       result.warmupMs = existingPool ? 0 : await warmPool(pool);
       const before = performance.now(), cpu = process.cpuUsage(), beforeWorkRequests = { ...served };
       result.cases = await runJobs(jobs, pool.workers, (job, worker) => executeJob(job, worker, phase, index, concurrency));
@@ -157,8 +155,6 @@ async function trial(engine, index, concurrency, phase = 'confirm', existingPool
       result.driverCoreUtilization = result.driverCpuMs / result.steadyMs;
       result.workRequests = requestDelta(beforeWorkRequests);
     } else {
-      // Native compatibility obligations retain fresh contexts and all original
-      // visibility, typing and pointer checks. They are not semantic throughput.
       await bounded(pool.workers[0].context.close(), 'release unused worker context');
       for (const job of jobs) {
         const browser = pool.workers[0].browser;
@@ -291,8 +287,6 @@ try {
       }
       finalized.push({ engine, pool, group });
     }
-    // Close every pool before persisting receipts. A full/read-only evidence
-    // volume must not strand another engine's live workers.
     for (const { engine, pool, group } of finalized) {
       for (const result of group)
         await writeFile(join(out, `confirm-${result.concurrency}-${result.index}-${engine}.json`), JSON.stringify(result, null, 2) + '\n');

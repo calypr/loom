@@ -638,7 +638,6 @@ func TestAssessRowChangePrefersTheAuthoredInverseAmongDifferentRelationships(t *
 		t.Fatalf("rebased route=%#v err=%v, want Observation → Patient on the authored subject relationship", rebased.Route, err)
 	}
 
-	// An explicit user choice still takes priority over the inferred inverse.
 	assessment, err = AssessRowChange(workspace, catalog, RowChangeRequest{
 		OutputID: "patients", RootNodeID: "observation", RootOccurrenceID: "observation",
 		RouteRebase: []RouteRebaseChoice{{OccurrenceID: RootOccurrenceID, EdgeID: "observation-patient-focus"}},

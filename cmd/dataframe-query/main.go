@@ -1,10 +1,3 @@
-// dataframe-query executes a checked-in GraphQL dataframe request and prints
-// the response with wall-clock timing. It is deliberately a small developer
-// tool: benchmark loops belong in Go benchmarks, while this command makes one
-// human-readable dataframe request easy to inspect end to end.
-//
-// A GraphQL operation error is a command failure even when the server answers
-// with HTTP 200, so automation cannot mistake a failed query for an empty one.
 package main
 
 import (
@@ -38,15 +31,12 @@ func main() {
 	code := 1
 	var usage usageError
 	if errors.As(err, &usage) {
-		// Preserve the historical exit status for malformed flags.
 		code = 2
 	}
 	fmt.Fprintf(os.Stderr, "dataframe-query: %v\n", err)
 	os.Exit(code)
 }
 
-// usageError marks flag parsing failures so main can keep the exit status the
-// standard flag package used while the rest of the command reports status 1.
 type usageError struct{ err error }
 
 func (e usageError) Error() string { return e.err.Error() }
@@ -113,7 +103,7 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 	fmt.Fprintf(stdout, "Response: rows=%d  bytes=%d  rows/sec=%.1f\n\n", responseMetrics.Rows, responseMetrics.Bytes, responseMetrics.RowsPerSecond)
 	if responseMetrics.Diagnostics != nil {
 		d := responseMetrics.Diagnostics
-		fmt.Fprintf(stdout, "Server stages (ms): input_resolution=%.3f  request_preparation=%.3f  compilation=%.3f  arango_query=%.3f  row_materialization=%.3f  result_assembly=%.3f  dataframe_service_total=%.3f\n", d.InputResolutionMs, d.RequestPreparationMs, d.CompilationMs, d.ArangoQueryMs, d.RowMaterializationMs, d.ResultAssemblyMs, d.TotalMs)
+		fmt.Fprintf(stdout, "Server stages (ms): input_resolution=%.3f  request_preparation=%.3f  compilation=%.3f  source_query=%.3f  row_materialization=%.3f  result_assembly=%.3f  dataframe_service_total=%.3f\n", d.InputResolutionMs, d.RequestPreparationMs, d.CompilationMs, d.sourceQueryMs(), d.RowMaterializationMs, d.ResultAssemblyMs, d.TotalMs)
 		fmt.Fprintf(stdout, "Outside dataframe service (GraphQL serialization + HTTP): %.3f ms\n\n", durationMinusMillis(durations[len(durations)-1], d.TotalMs))
 		fmt.Fprintf(stdout, "Compiler plan: traversal_sets=%d  shared_traversals=%d  required_match_reuse=%d  scope_safe_sharing_groups=%d  scope_safe_sharing_sets=%d  potential_sharing_groups=%d  potential_sharing_sets=%d\n", d.Plan.TraversalSets, d.Plan.SharedTraversalCount, d.Plan.RequiredMatchReuseCount, d.Plan.ScopedSharingCandidateGroups, d.Plan.ScopedSharingCandidateSets, d.Plan.PotentialSharingOpportunityGroups, d.Plan.PotentialSharingOpportunitySets)
 		for _, reuse := range d.Plan.RichSourceReuse {
@@ -130,9 +120,6 @@ func run(args []string, clientFor func(time.Duration) *http.Client, stdout, stde
 	return nil
 }
 
-// requestSequence issues the repeat loop and inspects every response, not only
-// the last one, so an operation error in any request fails the command with its
-// request index. A failing request stops the loop.
 func requestSequence(client *http.Client, url string, payload []byte, repeat int, stderr io.Writer) ([]time.Duration, []byte, dataframeResponseMetrics, error) {
 	durations := make([]time.Duration, 0, repeat)
 	var responseBody []byte
@@ -145,8 +132,6 @@ func requestSequence(client *http.Client, url string, payload []byte, repeat int
 			return nil, nil, dataframeResponseMetrics{}, fmt.Errorf("request %d/%d: %w", run, repeat, err)
 		}
 		if err := classifyGraphQLEnvelope(body); err != nil {
-			// Keep the payload visible even with -print-response=false: a
-			// rejected envelope is exactly what the caller needs to see.
 			printEnvelopeForDiagnosis(stderr, body)
 			return nil, nil, dataframeResponseMetrics{}, fmt.Errorf("request %d/%d: %w", run, repeat, err)
 		}
@@ -157,8 +142,6 @@ func requestSequence(client *http.Client, url string, payload []byte, repeat int
 	return durations, responseBody, responseMetrics, nil
 }
 
-// printEnvelopeForDiagnosis writes the raw response payload for a rejected
-// envelope, pretty-printing it when possible.
 func printEnvelopeForDiagnosis(writer io.Writer, body []byte) {
 	fmt.Fprintf(writer, "dataframe-query: response preserved for diagnosis (%d bytes):\n", len(body))
 	if err := prettyPrint(writer, body); err != nil {
@@ -166,10 +149,6 @@ func printEnvelopeForDiagnosis(writer io.Writer, body []byte) {
 	}
 }
 
-// dataframeResponseMetrics is intentionally derived from the GraphQL response
-// rather than server internals. Servers that select the diagnostics field also
-// return service-stage timings; older Loom servers remain compatible but omit
-// that optional measurement block.
 type dataframeResponseMetrics struct {
 	Rows          int
 	Bytes         int
@@ -181,11 +160,22 @@ type dataframeDiagnostics struct {
 	InputResolutionMs    float64                          `json:"inputResolutionMs"`
 	RequestPreparationMs float64                          `json:"requestPreparationMs"`
 	CompilationMs        float64                          `json:"compilationMs"`
-	ArangoQueryMs        float64                          `json:"arangoQueryMs"`
+	SourceQueryMs        *float64                         `json:"sourceQueryMs"`
+	ArangoQueryMs        *float64                         `json:"arangoQueryMs"`
 	RowMaterializationMs float64                          `json:"rowMaterializationMs"`
 	ResultAssemblyMs     float64                          `json:"resultAssemblyMs"`
 	TotalMs              float64                          `json:"totalMs"`
 	Plan                 dataframeCompilerPlanDiagnostics `json:"plan"`
+}
+
+func (d dataframeDiagnostics) sourceQueryMs() float64 {
+	if d.SourceQueryMs != nil {
+		return *d.SourceQueryMs
+	}
+	if d.ArangoQueryMs != nil {
+		return *d.ArangoQueryMs
+	}
+	return 0
 }
 
 type dataframeCompilerPlanDiagnostics struct {
@@ -232,11 +222,6 @@ func inspectDataframeResponse(body []byte, duration time.Duration) dataframeResp
 	return metrics
 }
 
-// graphqlResponseError explains why a response that arrived with a successful
-// HTTP status must not be reported as a complete dataframe result. GraphQL
-// servers routinely answer operation failures with HTTP 200 plus an "errors"
-// array, and a dataframe CLI that ignores them tells its caller "0 rows" when
-// the query never ran.
 type graphqlResponseError struct {
 	Kind   string
 	Reason string
@@ -301,11 +286,6 @@ func graphqlPathString(path []any) string {
 	return strings.Join(segments, ".")
 }
 
-// classifyGraphQLEnvelope returns nil only for a GraphQL response the command
-// may report as complete: no operation errors and a runFhirDataframe payload.
-// Data mixed with errors is rejected rather than silently reported as rows.
-// Each envelope field is decoded on its own so one malformed field cannot hide
-// the others.
 func classifyGraphQLEnvelope(body []byte) error {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -360,9 +340,6 @@ func graphQLErrors(raw json.RawMessage) ([]string, error) {
 	return rendered, nil
 }
 
-// graphqlDataframePayload reports whether "data" carries a runFhirDataframe
-// object. A missing or null data, or a null field, means the operation did not
-// produce a usable result.
 func graphqlDataframePayload(data json.RawMessage) bool {
 	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
 		return false
@@ -387,16 +364,10 @@ func durationMinusMillis(duration time.Duration, milliseconds float64) float64 {
 	return remaining
 }
 
-// encodeGraphQLRequest builds the GraphQL POST body from the raw operation and
-// variables bytes so neither passes through a numeric decode.
 func encodeGraphQLRequest(query, variables []byte) ([]byte, error) {
 	return json.Marshal(graphqlRequest{Query: string(query), Variables: variables})
 }
 
-// withLimit replaces or adds the top-level limit field, leaving every other
-// byte of the variables document untouched. Fields are kept as RawMessage
-// because decoding into any would route numbers through float64, which silently
-// rewrites integers above 2^53 and reformats exponent and decimal literals.
 func withLimit(variables []byte, limit int) ([]byte, error) {
 	if limit <= 0 {
 		return variables, nil
@@ -405,7 +376,6 @@ func withLimit(variables []byte, limit int) ([]byte, error) {
 	if err := json.Unmarshal(variables, &fields); err != nil {
 		return nil, err
 	}
-	// json.Unmarshal accepts "null" into a nil map without an error.
 	if fields == nil {
 		return nil, fmt.Errorf("variables must be a JSON object")
 	}

@@ -16,6 +16,7 @@ import (
 	driver "github.com/arangodb/go-driver/v2/arangodb"
 	"github.com/arangodb/go-driver/v2/connection"
 	"github.com/arangodb/go-driver/v2/utils"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -24,7 +25,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
-	arangostore "github.com/calypr/loom/internal/store/arango"
 )
 
 func TestAcceptanceObservationContributorAQLAndBinds(t *testing.T) {
@@ -191,10 +191,11 @@ func executeAcceptanceObservationAQL(
 		collections = append(collections, collection)
 	}
 
-	store, err := arangostore.Open(ctx, endpoint, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: endpoint, Database: database})
 	if err != nil {
 		t.Fatalf("open configured ArangoDB through repository query helper: %v", err)
 	}
+	store := arangoBackend.Client
 	project, generation := "acceptance", "tcga-brca-locked"
 	vertices := map[string][]json.RawMessage{
 		patientCollection: {acceptanceRawDocument(t, map[string]any{
@@ -242,8 +243,6 @@ func executeAcceptanceObservationAQL(
 	edges := []json.RawMessage{
 		acceptanceRawDocument(t, acceptanceEdge("patient_condition", conditionCollection+"/c1", patientCollection+"/p1", "Condition", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_specimen", specimenCollection+"/s1", patientCollection+"/p1", "Specimen", "Patient", "subject_Patient", project, generation)),
-		// This deliberately inconsistent stored edge models the case scalar traversal rejects:
-		// its endpoint is a Specimen, but its discriminator claims Condition.
 		acceptanceRawDocument(t, acceptanceEdge("patient_specimen_wrong_edge_type", specimenCollection+"/s_wrong_edge_type", patientCollection+"/p1", "Condition", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_age", observationCollection+"/o_age", patientCollection+"/p1", "Observation", "Patient", "subject_Patient", project, generation)),
 		acceptanceRawDocument(t, acceptanceEdge("patient_method", observationCollection+"/o_method", patientCollection+"/p1", "Observation", "Patient", "subject_Patient", project, generation)),
@@ -304,37 +303,35 @@ func executeAcceptanceObservationAQL(
 		}
 	}
 
-	// Compare the direct renderer output with the canonical execution compiler
-	// and the selected-root page template used by production preview streams.
 	rawRows := execute("direct-render", query, cloneBinds(bindVars))
 	expectValues("direct-render", rawRows[0])
 	previewBindings := bindings.Clone()
 	previewBindings.PreviewLimit = 25
-	full, err := compiler.CompileRecipeOutputWithPolicy(output, previewBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	full, err := compiler.CompileRecipeOutput(compiler.ArangoTarget(), output, previewBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile production full-preview query: %v", err)
 	}
-	fullBindLog, err := json.Marshal(full.BindVars)
+	fullBindLog, err := json.Marshal(testAQLBinds(t, full.Command))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("production full-preview AQL:\n%s\nBINDVARS: %s", full.Query, fullBindLog)
-	fullRows := execute("production-full", full.Query, cloneBinds(full.BindVars))
+	t.Logf("production full-preview AQL:\n%s\nBINDVARS: %s", testAQLText(t, full.Command), fullBindLog)
+	fullRows := execute("production-full", testAQLText(t, full.Command), cloneBinds(testAQLBinds(t, full.Command)))
 	expectValues("production-full", fullRows[0])
-	page, err := compiler.CompileRecipeOutputPageWithPolicy(output, previewBindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := compiler.CompileRecipeOutputPage(compiler.ArangoTarget(), output, previewBindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile production selected-root page: %v", err)
 	}
-	pageRowsBindLog, err := json.Marshal(page.RowsBindVars)
+	pageRowsBindLog, err := json.Marshal(testAQLBinds(t, page.Rows))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("production selected-root page rows AQL:\n%s\nBINDVARS: %s", page.RowsQuery, pageRowsBindLog)
-	keyBinds := cloneBinds(page.RootKeysBindVars)
+	t.Logf("production selected-root page rows AQL:\n%s\nBINDVARS: %s", testAQLText(t, page.Rows), pageRowsBindLog)
+	keyBinds := cloneBinds(testAQLBinds(t, page.RootKeys))
 	keyBinds[compiler.RootPageAfterKeyBind] = ""
 	keyBinds = cloneBinds(keyBinds)
 	rootKeys := make([]string, 0, 1)
-	if err := store.QueryRows(ctx, page.RootKeysQuery, 10, keyBinds, func(row map[string]any) error {
+	if err := store.QueryRows(ctx, testAQLText(t, page.RootKeys), 10, keyBinds, func(row map[string]any) error {
 		key, ok := row["_key"].(string)
 		if !ok || key == "" {
 			return fmt.Errorf("root key page returned invalid _key %#v", row["_key"])
@@ -342,14 +339,14 @@ func executeAcceptanceObservationAQL(
 		rootKeys = append(rootKeys, key)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute production root-key page: %v\n%s", err, page.RootKeysQuery)
+		t.Fatalf("execute production root-key page: %v\n%s", err, testAQLText(t, page.RootKeys))
 	}
 	if len(rootKeys) != 1 || rootKeys[0] != "p1" {
 		t.Fatalf("production root-key page = %#v, want [p1]", rootKeys)
 	}
-	pageBinds := cloneBinds(page.RowsBindVars)
+	pageBinds := cloneBinds(testAQLBinds(t, page.Rows))
 	pageBinds[compiler.RootPageKeysBind] = rootKeys
-	pagedRows := execute("production-paged", page.RowsQuery, pageBinds)
+	pagedRows := execute("production-paged", testAQLText(t, page.Rows), pageBinds)
 	expectValues("production-paged", pagedRows[0])
 	for _, column := range []string{"age_at_diagnosis_days", "diagnostic_method", "days_to_death", "earliest_collection_day", "latest_collection_day"} {
 		if rawRows[0][column] != fullRows[0][column] || rawRows[0][column] != pagedRows[0][column] {

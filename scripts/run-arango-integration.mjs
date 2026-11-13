@@ -10,17 +10,164 @@ import { apiDoctor, apiSourceFingerprint } from './lib/formal-api.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceFingerprint = () => createHash('sha256').update(apiSourceFingerprint()).update(readFileSync(fileURLToPath(import.meta.url))).digest('hex');
-// These cases require a different fixture or are exercised by a separately
-// routed CI job. Their explicit skips remain visible in the proof summary.
 const formalReplay = new Set([
-    // Both tests run with generated fixtures in builder-formal.yml through
-    // scripts/lib/formal-core-protocol-replay.mjs.
     'TestCoreAuthoringProtocolModelReplay',
     'TestCoreAuthoringProtocolConcretePrefixReplay',
 ]);
 const dualStore = new Set([
-    // Runs as an explicit API proof in go-publication-rows, which owns both stores.
     'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse',
+]);
+const pgExecDispatch = new Set([
+    'TestPostgresEngineExecutesCompiledCommandThroughRealAdapter',
+    'TestPostgresEnginePreviewBoundsCompletionOnRealServer',
+    'TestPostgresEnginePreviewCancellationRealServer',
+    'TestPostgresEngineTwoRealConnectionRaceDistinctBackends',
+    'TestPostgresEngineParameterizedValuesCannotChangeShape',
+    'TestPostgresEngineCrossTagRefusedBeforeServer',
+    'TestPostgresEngineBackendKillConverges',
+    'TestZZZeroLeftoverExec02PostgresFixtures',
+    'TestVerifyArch01PostgreSQLDispatchZeroChurnRealServer',
+    'TestVerifyArch01PostgreSQLBoundaryRaceDistinctBackendsOverlapRounds',
+    'TestVerifyArch01PostgreSQLNamedRefusalsTouchNoServer',
+    'TestVerifyArch01PostgreSQLCrashBeforeDriverNeverReachesServer',
+    'TestPostgresExplainLivePG18IndexedAndSequentialPlans',
+    'TestPostgresExplainLivePG18PermissionAndAbsence',
+    'TestPostgresExplainLivePG18ConcurrentRounds',
+    'TestZZZeroLeftoverExec10PostgresFixtures',
+    'TestPostgresExplainWiringLivePG18SanitizedPlan',
+    'TestZZZeroLeftoverExec10WiringPostgresFixtures',
+]);
+const pgExecRootPaging = new Set([
+    'TestPostgresRootPagingMultisetAcrossPages',
+    'TestPostgresRootPagingTerminatesWithoutExtraQuery/short_final_page_stops_without_another_key_query',
+    'TestPostgresRootPagingTerminatesWithoutExtraQuery/empty_final_page_issues_no_row_query',
+    'TestPostgresRootPagingCancellation/cancellation_between_key_and_row_steps_prevents_the_row_step',
+    'TestPostgresRootPagingCancellation/control:_uncancelled_run_completes_on_the_same_fixture',
+    'TestPostgresRootPagingResultContractSabotage/duplicate_root_key_fails_the_typed_result_contract',
+    'TestPostgresRootPagingResultContractSabotage/row_outside_the_requested_page_fails_the_typed_result_contract',
+    'TestPostgresRootPagingResultContractSabotage/key_page_not_advancing_past_the_previous_tail_is_refused',
+    'TestPostgresRootPagingResultContractSabotage/control:_unsabotaged_run_proceeds_on_the_same_fixture',
+    'TestPostgresRootPagingExplainBoundedness',
+    'TestPostgresRootPagingWholeInputBypass/whole-input_PostgreSQL_output_cannot_reach_the_root-page_loop',
+    'TestPostgresRootPagingWholeInputBypass/control:_non-group_PostgreSQL_stream_never_carries_page_fields',
+    'TestZZPostgresRootPagingOwnershipAudit',
+]);
+const pgExec04Preview = new Set([
+    'TestPostgresPreviewTruncatedAtLimit',
+    'TestPostgresPreviewNaturalExhaustion',
+    'TestPostgresPreviewEmptyScopeNoLeak',
+    'TestPostgresPreviewCancellationNeverComplete',
+    'TestPostgresPreviewDeadlineNeverComplete',
+    'TestPostgresPreviewPublicColumnsCompiledOrder',
+    'TestPostgresPreviewRootPagePreviewPlanNeverCarries',
+    'TestPostgresPreviewMutationControls',
+    'TestPostgresPreviewRootPageLoopProductionRowContract',
+    'TestZZPostgresPreviewZeroLeftoverFixtures',
+    'TestZZPostgresPreviewRootPageZeroLeftoverFixtures',
+    'TestPostgresPreviewServerWiringFailClosesPGPlan',
+    'TestZZPostgresPreviewServerZeroLeftoverFixtures',
+]);
+const pgExec08RowLineage = new Set([
+    'TestPostgresRowLineageKnownRowExplainsContributors',
+    'TestPostgresRowLineageUnknownRowReturnsTypedNotFound',
+    'TestPostgresRowLineagePagingAdvancesWithoutDuplicatesAndStopsAtTerminalPage',
+    'TestPostgresRowLineageForeignWitnessesAreExcluded',
+    'TestPostgresRowLineageMalformedContributorIdentityIsContractError',
+    'TestPostgresRowLineageStaleReceiptRejectsBeforeExecution',
+]);
+export const pgExec09CellTrace = new Set([
+    'TestPostgresCellTracePreviewRoundTripServesEvidenceThroughThePort',
+    'TestPostgresCellTraceNullValueStatesStayDistinctFromAValue',
+    'TestPostgresCellTraceOffsetGateSkipsTheSoleCandidateWithoutChangingStatus',
+    'TestPostgresCellTraceAuthoredIdentityResolvesThroughTheExplicitIdentityColumn',
+    'TestPostgresCellTraceForgedIdentityIsTypedNotFoundAndRealIdentityResolves',
+    'TestPostgresCellTraceWitnessCapIsIncompleteNotAbsence',
+    'TestPostgresCellTraceForeignWitnessesAreExcluded',
+    'TestPostgresCellTraceArmAReducedSetPagesThroughThePublicSeam',
+    'TestPostgresCellTraceArmALossyFirstReadsAmbiguous',
+    'TestPostgresCellTraceStaleReceiptRejectsBeforeExecution',
+]);
+const pgExec07PopulationMapping = new Set([
+    'TestPostgresPopulationMappingLiveFlatExactMembership',
+    'TestPostgresPopulationMappingLiveGroupDedupe',
+    'TestPostgresPopulationMappingLiveCapAndCancellationAreIncomplete',
+    'TestPostgresPopulationMappingLivePortFailureIsHardError',
+    'TestPostgresPopulationMappingLiveStaleReceiptRejectsBeforeExecution',
+    'TestPostgresPopulationMappingLiveNamedGapRefusesAtZeroStatements',
+]);
+export const pgExec03PostQuery = new Set([
+    'TestPostgresPostQueryPreviewComputesNamedUUID5',
+    'TestPostgresPostQueryStreamComputesNamedUUID3',
+    'TestPostgresPostQueryNamedUUIDSemanticsParity',
+    'TestPostgresPostQueryNestedMarkersMaterialize',
+    'TestPostgresPostQueryMalformedMarkerFailsBeforeRow',
+    'TestPostgresPostQueryThreeStateValues',
+    'TestPostgresPostQueryCrossTargetJSONNullConvergence',
+    'TestPostgresPostQueryDynamicColumnsRefuseAndMarkersNeedNoDynamicSurface',
+    'TestPostgresPostQueryMutationControls',
+    'TestZZPostgresPostQueryZeroLeftoverFixtures',
+]);
+const pgExec06Category = new Set([
+    'TestPostgresCategoryExactValuesLivePG18',
+    'TestPostgresCategoryDeterministicRerunLivePG18',
+    'TestPostgresCategoryOverflowLivePG18',
+    'TestPostgresCategoryEmptyScopeNoLeakLivePG18',
+    'TestPostgresCategoryCancellationLivePG18',
+    'TestPostgresCategoryAuthScopeLivePG18',
+    'TestPostgresCategoryStageScanLivePG18',
+    'TestPostgresCategoryRefusalsZeroTouchLivePG18',
+    'TestZZPostgresCategoryZeroLeftoverFixtures',
+]);
+const pgQueryRoute = new Set([
+    'TestPostgreSQLQueryRouteExplorerAndRowOpsExplicitlyUnavailable',
+    'TestPostgreSQLQueryRouteServesExactScalarsThroughProductionHandler',
+    'TestPostgreSQLFirstQueryRouteDeadEndpointFailsBounded',
+    'TestPostgreSQLFirstQueryRouteLivenessAndReadiness',
+    'TestZZQRouteZeroLeftoverFixtures',
+]);
+const pgIr03PrefixSeam = new Set([
+    'TestCompileClickHousePrefixPostgreSQLExecutesExactRows',
+]);
+const pgRuntimeComposition = new Set([
+    'TestPostgresRuntimeFullLadderServesProductionReads',
+    'TestPostgresRuntimeServerLoadRouteServesEndToEnd',
+    'TestPostgresRuntimeHealthReadinessIsIndependentAndSchemaAware',
+    'TestPostgresRuntimeReadinessReportsNeverMigratedSchema',
+    'TestPostgresRuntimeReadinessReportsMissingSchema',
+    'TestPostgresRuntimeVerifySchemaIsReadOnly',
+    'TestPostgresRuntimeRepositoryPublishRouteActivatesThroughFinalFlip',
+    'TestPostgresRuntimeRepositoryPublishRetryAfterActivationFailureRevives',
+    'TestZZPgCompZeroLeftoverFixtures',
+]);
+const archBackend08Matrix = new Set([
+    'TestBackendCompositionContract/liveProductionCompose_ledgerHolds',
+]);
+const pgExec12Exclusions = new Set([
+    'TestPostgresExclusionsExactEvidenceLivePG18',
+    'TestPostgresExclusionsBoundedPagingLivePG18',
+    'TestPostgresExclusionsIdentityOmissionLivePG18',
+    'TestPostgresExclusionsCategoryThreeStateLivePG18',
+    'TestPostgresExclusionsCancellationLivePG18',
+    'TestPostgresExclusionsUnsupportedShapeLivePG18',
+    'TestPostgresExclusionsAuthScopeLivePG18',
+    'TestPostgresExclusionsNoPolicyStatusDistinctLivePG18',
+    'TestZZPostgresExclusionsZeroLeftoverFixtures',
+]);
+const pgExec11Capture = new Set([
+    'TestExec11lvLiveRestrictedCaptureFeedsCombine',
+    'TestExec11lvLiveCaptureRejectsForgedAuthPath',
+    'TestExec11lvLiveCaptureCancellationLeavesNothing',
+    'TestExec11lvLiveEvidenceFreeCaptureRefused',
+    'TestExec11lvLiveCombineExecutesAgainstClickHouse',
+    'TestZZPostgresCaptureZeroLeftoverFixtures',
+]);
+export const archBackend12Diagnostics = new Set([
+    'TestBackendNeutralDiagnosticsLivePostgreSQL',
+]);
+export const backendArchitectureConformance = new Set([
+    'TestBackendArchitectureConformance/postgresql',
+    'TestBackendArchitectureConformance/arangodb',
+    'TestBackendArchitectureConformance/crossBackendCandidateIdentityParity',
 ]);
 const external = new Set([
     'TestPivotPresenceAudit',
@@ -31,24 +178,45 @@ const external = new Set([
     'TestReceiptPreviewExplainAgainstArango',
     ...formalReplay,
     ...dualStore,
+    ...pgExecDispatch,
+    ...pgExecRootPaging,
+    ...pgExec04Preview,
+    ...pgExec08RowLineage,
+    ...pgExec07PopulationMapping,
+    ...pgExec09CellTrace,
+    ...pgExec03PostQuery,
+    ...pgExec06Category,
+    ...pgQueryRoute,
+    ...pgIr03PrefixSeam,
+    ...pgRuntimeComposition,
+    ...archBackend08Matrix,
+    ...pgExec12Exclusions,
+    ...pgExec11Capture,
+    ...archBackend12Diagnostics,
+    ...backendArchitectureConformance,
 ]);
 export const profiles = [
-    ['catalog', './internal/catalog/arango', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
+    ['factory', './internal/backends/arango', 'TestArangoFactoryOwnershipContract'],
+    ['catalog', './internal/backends/arango/internal/catalog', 'TestResourceInventoryPersistsAndScopesCountsAcrossStoreReopen'],
     ['compiler', './internal/dataframe/compiler', 'TestPivotPresenceArangoAudit'],
     ['execution', './internal/dataframe/execution', 'TestCohortPreviewWithSmallerRootPageKeepsAllMemberValuesAgainstArango'],
-    ['explorer', './internal/explorer/arango', 'TestSelectionStorageAgainstArango'],
-    ['store', './internal/store/arango', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
+    ['explorer', './internal/backends/arango/internal/explorer', 'TestSelectionStorageAgainstArango'],
+    ['store', './internal/backends/arango/internal/store', 'TestReceiptArangoStoreUsesImmutableTenantScopedQueries'],
     ['server', './internal/server', 'TestSavedRelatedRouteRowsAgainstArango'],
-    ['artifact', './internal/dataframe/execution/chartifact/arango', 'TestCatalogLeaseArbitrationAgainstArango'],
-    ['publication', './internal/dataframe/publication/arango', 'TestExecutionReadPinArbitrationAgainstArango'],
+    ['artifact', './internal/backends/arango/internal/chartifact', 'TestCatalogLeaseArbitrationAgainstArango'],
+    ['publication', './internal/backends/arango/internal/publication', 'TestExecutionReadPinArbitrationAgainstArango'],
     ['backfill', './internal/ingest', 'TestRetainedSemanticInventoryBackfillArangoIntegration'],
 ].map(([id, pkg, required]) => ({ id, package: pkg, required, ...(id === 'backfill' ? { run: required } : {}) }));
-// The store package's retained cases require external seeded data. Its ordinary
-// unit cases still run; compiler, execution and server supply real row witnesses.
 profiles.find(p => p.id === 'store').required = null;
-profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango'];
+profiles.find(p => p.id === 'server').alsoRequired = ['TestDerivedArithmeticPoliciesAgainstArango', 'TestBackendNeutralDiagnosticsAgainstArango',
+    'TestBackendArchitectureConformance', 'TestBackendArchitectureConformance/arangodb',
+    ...['scalarQueryServesLiteralScalars', 'repeatedRelatedOccurrenceStaysDistinct', 'nullAndMissingSemanticsPreserved',
+        'explicitScopeServesAuthorizedAndExcludesUnauthorized', 'restrictedEmptyScopeServesNothing', 'unrestrictedSeesEverything',
+        'generationIsolationServesActiveOnly', 'stablePagingIsDeterministic', 'explorerDraftCASOneWinnerExactPreimage',
+        'publicationControlFenceRejectsStaleOwner', 'cancellationTypedFailureNoFallback',
+        'backendUnavailableAndWrongTagNoFallback', 'upgradeFromPinnedPreRefactorReopensSafely']
+        .map(cell => 'TestBackendArchitectureConformance/arangodb/' + cell)];
 profiles.find(p => p.id === 'explorer').alsoRequired = ['TestDraftCASConcurrentWritersAgainstArango', 'TestDraftCASAfterWinnerCommitAgainstArango', 'TestDraftCASPublicApplyConflictClassAgainstArango', 'TestDraftCASUpdateFailureRollsBackHistoryAgainstArango'];
-// The assembled dual-store checkpoint has its own API/CI route with both services.
 profiles.find(p => p.id === 'server').skip = '^(TestPublicationRowsAndFreshViewerAgainstArangoClickHouse|TestCurrentDraftAppendRowsAgainstArangoClickHouse)$';
 export function checkEvents(stdout, profile) {
     const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -69,6 +237,23 @@ export async function ownDatabase(endpoint, name, owned, request = fetch) {
     assert.ok(response.ok, `Refusing existing/unavailable database ${name}: HTTP ${response.status}`);
     owned.push(name);
 }
+export async function cleanupOwnedDatabases(endpoint, owned, evidence, request = fetch) {
+    for (const name of owned) {
+        let response;
+        try {
+            response = await request(`${endpoint}/_api/database/${encodeURIComponent(name)}`, { method: 'DELETE', signal: AbortSignal.timeout(10000) });
+        } catch (error) {
+            evidence.cleanupAudit.push({ database: name, transportError: error.message });
+            console.warn(`[cleanup-audit] transient transport failure dropping ${name}: ${error.message}; run verdict unaffected`);
+            continue;
+        }
+        evidence.cleanup.push({ database: name, status: response.status });
+        if (!response.ok && response.status !== 404) {
+            evidence.status = 'failed';
+            evidence.cleanup.push({ database: name, error: `Database cleanup HTTP ${response.status}` });
+        }
+    }
+}
 export async function runArango(output) {
     const endpoint = new URL(process.env.LOOM_TEST_ARANGO_URL || '');
     assert.ok(['http:', 'https:'].includes(endpoint.protocol) && !endpoint.username && !endpoint.password && endpoint.pathname === '/', 'Use an explicit unauthenticated owned Arango origin');
@@ -76,7 +261,7 @@ export async function runArango(output) {
     assert.ok(!existsSync(directory) || readdirSync(directory).length === 0, 'Evidence directory must be empty');
     mkdirSync(directory, { recursive: true });
     const before = sourceFingerprint(), owned = [], deadline = performance.now() + 8 * 60 * 1000;
-    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse', feature: 'release-dangle-reconcile', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
+    const evidence = { tool, sourceBefore: before, profiles: [], cleanup: [], cleanupAudit: [], status: 'running', separatelyRouted: [{ test: 'TestPublicationRowsAndFreshViewerAgainstArangoClickHouse', feature: 'publication-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestCurrentDraftAppendRowsAgainstArangoClickHouse', feature: 'append-rows', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }, { test: 'TestReconcileDanglesActiveReleaseAgainstArangoClickHouse', feature: 'release-dangle-reconcile', ci: 'go-publication-rows', requires: ['Arango', 'ClickHouse'] }] };
     const database = `loom_test_restricted_starting_collection_${randomUUID()}`;
     const c01 = `loom_backend_c01_${randomUUID().replaceAll('-', '')}`;
     const sc02 = 'loom_qa_semantic_cov_resource_20261016';
@@ -107,19 +292,12 @@ export async function runArango(output) {
     };
     try {
         for (const name of [database, c01, sc02]) await ownDatabase(url, name, owned);
-        // Compilation is reported separately and never treated as test evidence.
         for (const profile of profiles) child(profile, true);
         for (const profile of profiles) child(profile, false);
         evidence.status = evidence.profiles.some(p => p.unverified?.length) ? 'passed-with-explicit-unverified-external-cases' : 'passed';
     } catch (error) { evidence.status = 'failed'; evidence.error = error.message; }
     finally {
-        for (const name of owned.reverse()) {
-            try {
-                const response = await fetch(`${url}/_api/database/${encodeURIComponent(name)}`, { method: 'DELETE', signal: AbortSignal.timeout(10000) });
-                evidence.cleanup.push({ database: name, status: response.status });
-                assert.ok(response.ok || response.status === 404, `Database cleanup HTTP ${response.status}`);
-            } catch (error) { evidence.status = 'failed'; evidence.cleanup.push({ database: name, error: error.message }); }
-        }
+        await cleanupOwnedDatabases(url, owned.reverse(), evidence);
         evidence.sourceAfter = sourceFingerprint();
         if (before !== evidence.sourceAfter) { evidence.status = 'failed'; evidence.error = 'Source changed during verification'; }
         writeFileSync(resolve(directory, 'summary.json'), JSON.stringify(evidence, null, 2) + '\n');

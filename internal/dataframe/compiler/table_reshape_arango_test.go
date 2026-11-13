@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -131,12 +131,13 @@ func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstAra
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Patient"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Patient"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -186,7 +187,7 @@ func TestConstructionTerminalPivotTwoScanPreviewMatchesCanonicalWindowAgainstAra
 		if err != nil {
 			t.Fatalf("resolve two-scan Pivot fixture plan: %v", err)
 		}
-		queries, err := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+		queries, err := CompileResolvedRecipePlan(ArangoTarget(), resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile two-scan Pivot fixture: %v", err)
 		}
@@ -214,12 +215,13 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -281,7 +283,7 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 		}
 		compile := func(limit int) CompiledQuery {
 			t.Helper()
-			queries, compileErr := CompileResolvedRecipePlanWithPolicy(resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
+			queries, compileErr := CompileResolvedRecipePlan(ArangoTarget(), resolved, limit, ir.DefaultPhysicalOptimizationPolicy())
 			if compileErr != nil {
 				t.Fatalf("compile %s Pivot preview: %v", policy, compileErr)
 			}
@@ -289,8 +291,8 @@ func TestDynamicConstructionPivotPreviewMatchesReducersAndNullCategoriesAgainstA
 		}
 		staticRows := executeReshapeOracleQuery(t, ctx, client, compile(0))
 		preview := compile(10)
-		if !strings.Contains(preview.Query, "reshape_category_specs") {
-			t.Fatalf("%s preview did not use dynamic category specs:\n%s", policy, preview.Query)
+		if !strings.Contains(testAQLText(t, preview.Command), "reshape_category_specs") {
+			t.Fatalf("%s preview did not use dynamic category specs:\n%s", policy, testAQLText(t, preview.Command))
 		}
 		previewRows := executeReshapeOracleQuery(t, ctx, client, preview)
 		if !reflect.DeepEqual(previewRows, staticRows) {
@@ -375,18 +377,18 @@ FOR document IN Observation
 	if pivot == nil {
 		t.Fatal("compiled output has no grouped Pivot")
 	}
-	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") ||
-		!strings.Contains(query.Query, "FIRST([root.payload.valueQuantity])") ||
-		!strings.Contains(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)") {
-		t.Fatalf("eligible direct-scalar Pivot did not emit the shared source-parent projection and streaming aggregate:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "COLLECT ") || !strings.Contains(testAQLText(t, query.Command), " AGGREGATE ") ||
+		!strings.Contains(testAQLText(t, query.Command), "FIRST([root.payload.valueQuantity])") ||
+		!strings.Contains(testAQLText(t, query.Command), "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)") {
+		t.Fatalf("eligible direct-scalar Pivot did not emit the shared source-parent projection and streaming aggregate:\n%s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "LET "+pivot.InputRowVariable+" = {") || strings.Contains(query.Query, pivot.InputRowVariable+"[@") {
-		t.Fatalf("eligible direct-scalar Pivot retained its per-row input object or repeated bound reads:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "LET "+pivot.InputRowVariable+" = {") || strings.Contains(testAQLText(t, query.Command), pivot.InputRowVariable+"[@") {
+		t.Fatalf("eligible direct-scalar Pivot retained its per-row input object or repeated bound reads:\n%s", testAQLText(t, query.Command))
 	}
-	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
-	amountValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.value")
+	categoryValue := streamingTestDirectScalarVariable(testAQLText(t, query.Command), "__loom_physical_construction_reshape_stream_source_parent.code")
+	amountValue := streamingTestDirectScalarVariable(testAQLText(t, query.Command), "__loom_physical_construction_reshape_stream_source_parent.value")
 	if categoryValue == "" || amountValue == "" {
-		t.Fatalf("direct category/value scalar expressions are missing: category=%q amount=%q\n%s", categoryValue, amountValue, query.Query)
+		t.Fatalf("direct category/value scalar expressions are missing: category=%q amount=%q\n%s", categoryValue, amountValue, testAQLText(t, query.Command))
 	}
 
 	rows := executeReshapeOracleQuery(t, ctx, client, query)
@@ -432,13 +434,11 @@ FOR document IN Observation
 			errorOutput.Filters = []recipe.Filter{{Select: "root.status", Operator: recipe.FilterIn, Values: []recipe.FilterValue{reshapeOracleStringFilter(test.status)}}}
 			errorOutput.Construction.Steps[0].Operation.Pivot.DuplicatePolicy = test.duplicate
 			errorQuery := compileConstructionOutputQueryWithBindings(t, errorOutput, project, generation, recipe.RuntimeBindings{})
-			if !strings.Contains(errorQuery.Query, "FIRST([root.payload.valueQuantity])") || strings.Contains(errorQuery.Query, "LET "+pivot.InputRowVariable+" = {") {
-				t.Fatalf("error case did not retain the direct-scalar streaming path:\n%s", errorQuery.Query)
+			if !strings.Contains(testAQLText(t, errorQuery.Command), "FIRST([root.payload.valueQuantity])") || strings.Contains(testAQLText(t, errorQuery.Command), "LET "+pivot.InputRowVariable+" = {") {
+				t.Fatalf("error case did not retain the direct-scalar streaming path:\n%s", testAQLText(t, errorQuery.Command))
 			}
-			err := client.QueryRows(ctx, errorQuery.Query, 500, errorQuery.BindVars, func(map[string]any) error { return nil })
-			if err == nil || !strings.Contains(err.Error(), test.wantErrorCode) {
-				t.Fatalf("direct-scalar Pivot error = %v, want %s", err, test.wantErrorCode)
-			}
+			err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 500, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil })
+			requireStableRuntimeCode(t, err, test.wantErrorCode)
 		})
 	}
 }
@@ -543,12 +543,13 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -612,8 +613,8 @@ func TestS04TableReshapeOracleAgainstArango(t *testing.T) {
 	if !directIDFastPath {
 		t.Fatal("direct root-ID pivot did not lower with its one-input-per-group proof")
 	}
-	if strings.Contains(directIDQuery.Query, "COLLECT") || strings.Contains(directIDQuery.Query, "FOR __loom_physical_reshape_cell_") {
-		t.Fatalf("direct root-ID pivot retained group materialization or per-category scans:\n%s", directIDQuery.Query)
+	if strings.Contains(testAQLText(t, directIDQuery.Command), "COLLECT") || strings.Contains(testAQLText(t, directIDQuery.Command), "FOR __loom_physical_reshape_cell_") {
+		t.Fatalf("direct root-ID pivot retained group materialization or per-category scans:\n%s", testAQLText(t, directIDQuery.Command))
 	}
 	directIDRows := executeReshapeOracleQuery(t, ctx, client, directIDQuery)
 	if len(directIDRows) != len(reshapeOracleSourceRows) {
@@ -735,12 +736,13 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -808,7 +810,7 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 		t.Fatal(err)
 	}
 	compiledOutput := compiled.Outputs[0]
-	query, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile auth-scoped grouped pivot: %v", err)
 	}
@@ -819,12 +821,12 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 	}
 	assertAuthScopedPivotRows(t, executeReshapeOracleQuery(t, ctx, client, query))
 
-	page, err := CompileRecipeOutputPageWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile auth-scoped grouped pivot materialization page: %v", err)
 	}
 	rootKeys := make([]string, 0, len(fixtures))
-	if err := client.QueryRows(ctx, page.RootKeysQuery, 500, page.RootKeysBindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.RootKeys), 500, testAQLBinds(t, page.RootKeys), func(row map[string]any) error {
 		key, ok := row["_key"].(string)
 		if !ok || key == "" {
 			return fmt.Errorf("root-key page returned invalid _key %v", row["_key"])
@@ -832,22 +834,22 @@ func TestS04GroupedPivotMaterializationPreservesAuthResourcePathAgainstArango(t 
 		rootKeys = append(rootKeys, key)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute auth-scoped root-key page: %v\n%s", err, page.RootKeysQuery)
+		t.Fatalf("execute auth-scoped root-key page: %v\n%s", err, testAQLText(t, page.RootKeys))
 	}
 	if len(rootKeys) != len(fixtures) {
 		t.Fatalf("root-key page returned %d keys, want %d", len(rootKeys), len(fixtures))
 	}
-	rowBindVars := make(map[string]any, len(page.RowsBindVars)+1)
-	for key, value := range page.RowsBindVars {
+	rowBindVars := make(map[string]any, len(testAQLBinds(t, page.Rows))+1)
+	for key, value := range testAQLBinds(t, page.Rows) {
 		rowBindVars[key] = value
 	}
 	rowBindVars[RootPageKeysBind] = rootKeys
 	rows := make([]map[string]any, 0, 2)
-	if err := client.QueryRows(ctx, page.RowsQuery, 500, rowBindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, page.Rows), 500, rowBindVars, func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute auth-scoped grouped pivot materialization page: %v\n%s", err, page.RowsQuery)
+		t.Fatalf("execute auth-scoped grouped pivot materialization page: %v\n%s", err, testAQLText(t, page.Rows))
 	}
 	assertAuthScopedPivotRows(t, rows)
 }
@@ -892,7 +894,7 @@ func assertAuthScopedPivotRows(t *testing.T, rows []map[string]any) {
 	}
 }
 
-func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	fixtures := []struct {
 		id      string
@@ -995,8 +997,8 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 			missingNullFastPath = operation.GroupedPivot.OneInputRowPerGroup
 		}
 	}
-	if !missingNullFastPath || strings.Contains(missingNullQuery.Query, "COLLECT") {
-		t.Fatalf("missing/null oracle did not use direct-ID renderer:\n%s", missingNullQuery.Query)
+	if !missingNullFastPath || strings.Contains(testAQLText(t, missingNullQuery.Command), "COLLECT") {
+		t.Fatalf("missing/null oracle did not use direct-ID renderer:\n%s", testAQLText(t, missingNullQuery.Command))
 	}
 	missingNullRows := executeReshapeOracleQuery(t, ctx, client, missingNullQuery)
 	if len(missingNullRows) != 2 {
@@ -1086,22 +1088,22 @@ func assertReshapeOracleExclusions(t *testing.T, ctx context.Context, client *st
 	t.Logf("literal exclusions: string=%v; boolean false=%v; integer zero=%v; MISSING present=false vs NULL present=true", summarizeReshapeOracleExclusions(stringRows), summarizeReshapeOracleExclusions(booleanRows), summarizeReshapeOracleExclusions(zeroRows))
 }
 
-func runReshapeOracleExclusionQuery(t *testing.T, ctx context.Context, client *store.Client, project, generation string, output recipe.Output) []map[string]any {
+func runReshapeOracleExclusionQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string, output recipe.Output) []map[string]any {
 	t.Helper()
 	compiled, _, err := compileReshapeOracle(output, project, generation, 100)
 	if err != nil {
 		t.Fatalf("compile exclusion oracle output: %v", err)
 	}
-	query, err := CompileTableShapeExclusionsWithPolicy(compiled, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileTableShapeExclusions(ArangoTarget(), compiled, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile exact table-shape exclusions: %v", err)
 	}
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute exact table-shape exclusions: %v\n%s", err, query.Query)
+		t.Fatalf("execute exact table-shape exclusions: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	return rows
 }
@@ -1203,21 +1205,21 @@ func compileReshapeOracle(output recipe.Output, project, generation string, limi
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return lower.CompiledRecipeOutput{}, CompiledQuery{}, err
 	}
 	return compiled.Outputs[0], query, nil
 }
 
-func executeReshapeOracleQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) []map[string]any {
+func executeReshapeOracleQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledQuery) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute compiler-generated reshape query: %v\n%s", err, query.Query)
+		t.Fatalf("execute compiler-generated reshape query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	return rows
 }
@@ -1231,7 +1233,7 @@ func outputColumn(columns []lower.CompiledOutputColumn, name string) any {
 	return nil
 }
 
-func assertReshapeOracleRepeatedIdentities(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery, first []map[string]any) {
+func assertReshapeOracleRepeatedIdentities(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledQuery, first []map[string]any) {
 	t.Helper()
 	second := executeReshapeOracleQuery(t, ctx, client, query)
 	firstIDs, secondIDs := reshapeOracleIdentities(first), reshapeOracleIdentities(second)
@@ -1249,7 +1251,7 @@ func reshapeOracleIdentities(rows []map[string]any) []string {
 	return identities
 }
 
-func assertReshapeOraclePivotWindow(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string) {
+func assertReshapeOraclePivotWindow(t *testing.T, ctx context.Context, client *arangofactory.Client, output recipe.Output, project, generation string) {
 	t.Helper()
 	_, query, err := compileReshapeOracle(output, project, generation, 2)
 	if err != nil {
@@ -1274,7 +1276,7 @@ func assertReshapeOraclePivotWindow(t *testing.T, ctx context.Context, client *s
 	}
 }
 
-func assertReshapeOraclePivotReducers(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOraclePivotReducers(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	tests := []struct {
 		policy recipe.PivotDuplicatePolicy
@@ -1336,7 +1338,7 @@ func assertReshapeOraclePivotReducers(t *testing.T, ctx context.Context, client 
 	}
 }
 
-func assertReshapeOracleNumericCategories(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOracleNumericCategories(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	output := reshapeOracleOutput("numeric_categories", &recipe.TableReshape{
 		Kind: recipe.TableReshapeGroupedPivot,
@@ -1378,7 +1380,7 @@ func assertReshapeOracleNumericCategories(t *testing.T, ctx context.Context, cli
 	}
 }
 
-func assertReshapeOracleBooleanValues(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOracleBooleanValues(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	output := reshapeOracleOutput("boolean_values", &recipe.TableReshape{
 		Kind: recipe.TableReshapeGroupedPivot,
@@ -1420,7 +1422,7 @@ func assertReshapeOracleBooleanValues(t *testing.T, ctx context.Context, client 
 	}
 }
 
-func assertReshapeOracleEmptyStringValue(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOracleEmptyStringValue(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	output := reshapeOracleOutput("empty_string_value", &recipe.TableReshape{
 		Kind: recipe.TableReshapeGroupedPivot,
@@ -1451,7 +1453,7 @@ func assertReshapeOracleEmptyStringValue(t *testing.T, ctx context.Context, clie
 	}
 }
 
-func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	tests := []struct {
 		name      string
@@ -1500,15 +1502,13 @@ func assertReshapeOraclePivotErrors(t *testing.T, ctx context.Context, client *s
 			if err != nil {
 				t.Fatalf("compile error case: %v", err)
 			}
-			_, err = queryReshapeOracle(ctx, client, query)
-			if err == nil || !strings.Contains(err.Error(), test.stableErr) {
-				t.Fatalf("runtime error = %v, want stable code %s", err, test.stableErr)
-			}
+			_, err = queryReshapeOracle(t, ctx, client, query)
+			requireStableRuntimeCode(t, err, test.stableErr)
 		})
 	}
 }
 
-func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	output := reshapeOracleUnpivotOutput(recipe.UnpivotNullPreserve, "s04-unpivot")
 	output.Filters = []recipe.Filter{{Select: "root.id", Operator: recipe.FilterIn, Values: []recipe.FilterValue{reshapeOracleStringFilter("alpha-a"), reshapeOracleStringFilter("empty-and-null")}}}
@@ -1580,7 +1580,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 	if err != nil {
 		t.Fatalf("render unwindowed compiler plan: %v", err)
 	}
-	rawRows, err := queryReshapeOracle(ctx, client, CompiledQuery{Query: rendered.Query, BindVars: rendered.BindVars})
+	rawRows, err := queryReshapeOracle(t, ctx, client, CompiledQuery{Command: testAQLCommand(rendered.Query, rendered.BindVars)})
 	if err != nil {
 		t.Fatalf("execute unwindowed compiler plan: %v\n%s", err, rendered.Query)
 	}
@@ -1598,7 +1598,7 @@ func assertReshapeOracleUnpivot(t *testing.T, ctx context.Context, client *store
 	}
 }
 
-func assertReshapeOracleUnpivotCellTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, project string) {
+func assertReshapeOracleUnpivotCellTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput, project string) {
 	t.Helper()
 	_, amount := executeReshapeOracleTrace(t, ctx, client, output, "amount")
 	alphaID := reshapeOracleUnpivotID(project, "s04-unpivot", "alpha-a", "a-decimal")
@@ -1686,18 +1686,18 @@ func assertReshapeOracleUnpivotRejectsIncompatibleInputs(t *testing.T, project, 
 	}
 }
 
-func queryReshapeOracle(ctx context.Context, client *store.Client, query CompiledQuery) ([]map[string]any, error) {
+func queryReshapeOracle(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledQuery) ([]map[string]any, error) {
 	rows := make([]map[string]any, 0)
-	err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
+	err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	})
 	return rows, err
 }
 
-func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
+func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
-	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := CompileCellTraceOutput(ArangoTarget(), output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}
@@ -1705,11 +1705,11 @@ func executeReshapeOracleTrace(t *testing.T, ctx context.Context, client *store.
 		t.Fatalf("reshaped %s trace has no explicit output-row identity", column)
 	}
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, trace.Query, 500, trace.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, trace.Command), 500, testAQLBinds(t, trace.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute %s cell trace: %v\n%s", column, err, trace.Query)
+		t.Fatalf("execute %s cell trace: %v\n%s", column, err, testAQLText(t, trace.Command))
 	}
 	results := make(map[string]operatorOracleTraceResult, len(rows))
 	for _, row := range rows {
@@ -1753,7 +1753,7 @@ func reshapeOracleContributors(values ...any) []operatorOracleContributor {
 	return contributors
 }
 
-func assertReshapeOraclePivotCellTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) {
+func assertReshapeOraclePivotCellTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput) {
 	t.Helper()
 	rowID := reshapeOraclePivotSumWant[0].RowID
 	_, alpha := executeReshapeOracleTrace(t, ctx, client, output, "alpha")
@@ -1766,7 +1766,7 @@ func assertReshapeOraclePivotCellTrace(t *testing.T, ctx context.Context, client
 	assertReshapeTraceResult(t, group[rowID], "final", "VALUE", reshapeOracleContributors("alpha-a", "final", "alpha-b", "final", "beta", "final", "unlisted", "final", "zero", "final"), "")
 }
 
-func assertReshapeOraclePivotReducerTrace(t *testing.T, ctx context.Context, client *store.Client, output recipe.Output, project, generation string, policy recipe.PivotDuplicatePolicy) {
+func assertReshapeOraclePivotReducerTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, output recipe.Output, project, generation string, policy recipe.PivotDuplicatePolicy) {
 	t.Helper()
 	compiled, _, err := compileReshapeOracle(output, project, generation, 100)
 	if err != nil {
@@ -1789,7 +1789,7 @@ func assertReshapeOraclePivotReducerTrace(t *testing.T, ctx context.Context, cli
 	assertReshapeTraceResult(t, cells[rowID], value, "VALUE", contributors, "")
 }
 
-func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, client *store.Client, project, generation string) {
+func assertReshapeOraclePivotErrorTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation string) {
 	t.Helper()
 	output := reshapeOracleOutput("pivot_error_trace", &recipe.TableReshape{
 		Kind: recipe.TableReshapeGroupedPivot,

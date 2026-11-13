@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"reflect"
 	"sort"
@@ -13,25 +14,21 @@ import (
 
 	loomapi "github.com/calypr/loom/generated/loomapi"
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	"github.com/gofiber/fiber/v3"
 )
 
-// Recovers the deleted saved-route journey's command/identity guarantees at the
-// real public HTTP/service/compiler boundary. Preview execution is deliberately
-// empty: this does not pretend a stubbed preview proves graph-row semantics.
 func TestSavedRelatedRouteProposalApplyRestoreAndFreshRead(t *testing.T) {
 	savedRelatedRouteRoundtrip(t, nil)
 }
 
-func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
+func savedRelatedRouteRoundtrip(t *testing.T, rowClient *arangofactory.Client) {
 	t.Helper()
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	for _, resource := range []string{"Observation", "Group", "Specimen"} {
@@ -91,10 +88,10 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	}
 	var store explorer.Store = newTestExplorerStore()
 	if rowClient != nil {
-		if err := rowClient.Bootstrap(context.Background(), explorerarango.BootstrapSpec()); err != nil {
+		if err := rowClient.Bootstrap(context.Background(), arangofactory.ExplorerBootstrapSpec()); err != nil {
 			t.Fatal(err)
 		}
-		store, err = explorerarango.New(rowClient)
+		store, err = arangofactory.NewExplorerStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -110,13 +107,20 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	queryRows := func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }
+	queryRows := func(context.Context, dataframeexecution.RowsRequest, dataframeexecution.RowVisitor) error { return nil }
 	if rowClient != nil {
-		queryRows = func(ctx context.Context, query string, batch int, variables map[string]any, visit func(map[string]any) error) error {
-			return rowClient.QueryRows(ctx, query, batch, variables, storearango.RowVisitor(visit))
+		queryRows = func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			batch := request.BatchSize
+			query, variables, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
+			return rowClient.QueryRows(ctx, query, batch, variables, arangofactory.RowVisitor(visit))
 		}
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: queryRows})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: queryRows})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,22 +254,21 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if proposed.ProposalId == nil || proposed.Preview == nil || proposed.Preview.ReceiptId != *proposed.ProposalId {
 		t.Fatalf("proposal missing reviewed preview: %#v", proposed)
 	}
-	// Cancel is client-local: merely reviewing a proposal must not mutate the draft.
 	canceled := load()
 	raw, _ := canceled.Workspace.CanonicalJSON()
 	if canceled.Version != 3 || canceled.Digest != digest || !bytes.Equal(raw, original) {
 		t.Fatal("unapplied proposal changed saved draft")
 	}
-	command := func(id string, version int64, expected string, commands string) string {
+	compiledCommand := func(id string, version int64, expected string, commands string) string {
 		return fmt.Sprintf(`{"commandId":%q,"semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":%d,"expectedDraftDigest":%q,"commands":%s}`, id, authoringv2.CurrentSemanticsVersion, snapshot.Token, version, expected, commands)
 	}
 	apply := fmt.Sprintf(`[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"patients","proposalId":%q}]`, *proposed.ProposalId)
-	rejected := requestJSON(t, app, http.MethodPost, base+"/commands", command("stale-route-apply", 2, digest, apply))
+	rejected := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("stale-route-apply", 2, digest, apply))
 	if rejected.StatusCode != http.StatusConflict {
 		t.Fatalf("stale Apply status=%d body=%s", rejected.StatusCode, rejected.Body)
 	}
 	assertRoute(load(), routeA)
-	appliedHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", command("apply-route-b", 3, digest, apply))
+	appliedHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("apply-route-b", 3, digest, apply))
 	if appliedHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Apply status=%d body=%s", appliedHTTP.StatusCode, appliedHTTP.Body)
 	}
@@ -277,14 +280,14 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if rowClient != nil {
 		assertRows(reconcile(applied.Version, applied.Digest), []string{"p1/o2"})
 	}
-	replay := requestJSON(t, app, http.MethodPost, base+"/commands", command("apply-route-b", 3, digest, apply))
+	replay := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("apply-route-b", 3, digest, apply))
 	if replay.StatusCode != http.StatusOK {
 		t.Fatalf("duplicate Apply status=%d body=%s", replay.StatusCode, replay.Body)
 	}
 	if got := load(); got.Version != applied.Version || got.Digest != applied.Digest {
 		t.Fatal("duplicate Apply mutated saved draft")
 	}
-	restoredHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", command("restore-route-a", applied.Version, applied.Digest, fmt.Sprintf(`[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]`, applied.Previous)))
+	restoredHTTP := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("restore-route-a", applied.Version, applied.Digest, fmt.Sprintf(`[{"type":"RESTORE_DRAFT_REVISION","draftRevisionId":%q}]`, applied.Previous)))
 	if restoredHTTP.StatusCode != http.StatusOK {
 		t.Fatalf("Restore status=%d body=%s", restoredHTTP.StatusCode, restoredHTTP.Body)
 	}
@@ -294,7 +297,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 	if restored.Version != 5 || restored.Digest != digest || !bytes.Equal(restoredRaw, original) {
 		t.Fatalf("restore did not recover exact route-A workspace/version: %#v", restored)
 	}
-	lateApply := requestJSON(t, app, http.MethodPost, base+"/commands", command("late-route-b", 3, digest, apply))
+	lateApply := requestJSON(t, app, http.MethodPost, base+"/commands", compiledCommand("late-route-b", 3, digest, apply))
 	if lateApply.StatusCode != http.StatusConflict {
 		t.Fatalf("late Apply after restore status=%d body=%s", lateApply.StatusCode, lateApply.Body)
 	}
@@ -311,9 +314,7 @@ func savedRelatedRouteRoundtrip(t *testing.T, rowClient *storearango.Client) {
 		t.Fatal("draft roundtrip changed published revision")
 	}
 	if rowClient != nil {
-		// A fresh repository instance reads persisted bytes rather than the service's
-		// response or the in-memory fixture used by the fast structural case.
-		fresh, err := explorerarango.New(rowClient)
+		fresh, err := arangofactory.NewExplorerStore(rowClient)
 		if err != nil {
 			t.Fatal(err)
 		}

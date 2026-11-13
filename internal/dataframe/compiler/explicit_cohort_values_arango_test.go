@@ -10,23 +10,23 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
 func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
-	collections := []store.CollectionSpec{
+	collections := []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 		{Name: "loom_explorer_explicit_group_revisions"}, {Name: "loom_explorer_selections"},
 		{Name: "loom_explorer_explicit_group_definitions"}, {Name: "loom_explorer_explicit_group_memberships"},
 		{Name: "loom_explorer_selection_members"},
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: collections}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: collections}); err != nil {
 		t.Fatal(err)
 	}
 	project := "LOOM_COHORT/related-append-" + uuid.NewString()
@@ -202,7 +202,7 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 	execute := func(output recipe.Output) []map[string]any {
 		t.Helper()
 		compiled := lowerConstructionOutput(t, output, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile cohort output %q: %v", output.Name, err)
 		}
@@ -361,11 +361,11 @@ func TestRelatedCountAppendPreservesExplicitCohortMembersAgainstArango(t *testin
 func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	ctx, client := openConstructionReshapeArango(t)
 	collections := []string{"Patient", "loom_explorer_explicit_group_revisions", "loom_explorer_selections", "loom_explorer_explicit_group_definitions", "loom_explorer_explicit_group_memberships", "loom_explorer_selection_members"}
-	specs := make([]store.CollectionSpec, 0, len(collections))
+	specs := make([]arangofactory.CollectionSpec, 0, len(collections))
 	for _, name := range collections {
-		specs = append(specs, store.CollectionSpec{Name: name})
+		specs = append(specs, arangofactory.CollectionSpec{Name: name})
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
 	project := "LOOM_COHORT/member-values-" + uuid.NewString()
@@ -421,7 +421,6 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 				"payload": map[string]any{"id": id, "gender": "female", "identifier": []any{map[string]any{"value": "shared"}, map[string]any{"value": fmt.Sprintf("value-%d", index)}}}})
 		}
 	}
-	// Same FHIR ID outside either dataset boundary must never supply member values.
 	for index, scope := range []map[string]any{{"project": "another-project", "dataset_generation": generation}, {"project": resourceProject, "dataset_generation": "another-generation"}} {
 		scope["_key"], scope["id"], scope["resourceType"], scope["auth_resource_path"] = keyPrefix+fmt.Sprintf("_outside_%d", index), "a", "Patient", "/allowed"
 		scope["payload"] = map[string]any{"id": "leaked", "gender": "male"}
@@ -433,7 +432,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 	}
 	bindings := recipe.RuntimeBindings{Project: resourceProject, SelectionProject: project, DatasetGeneration: generation, AuthScopeMode: authscope.ReadScopeRestricted, AuthResourcePaths: []string{"/allowed"}, IncludeRowIdentity: true}
 	compiled := lowerConstructionOutput(t, output, bindings)
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +489,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			Outputs: []recipe.StageColumn{{ID: "ids", Name: "ids", Type: "string"}, {ID: "gender", Name: "gender", Type: "string"}, {ID: "identifiers", Name: "identifiers", Type: "string"}},
 		}}}
 		compiled := lowerConstructionOutput(t, filtered, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -534,7 +533,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			},
 		}}}
 		compiled := lowerConstructionOutput(t, filtered, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -568,11 +567,11 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		groups.RowValues = []recipe.GroupRowValuePolicy{{ColumnID: "ids", Policy: recipe.ConstructionRowValueOne}}
 		one.GroupRows = &groups
 		compiled := lowerConstructionOutput(t, one, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = client.ExecuteAQL(ctx, query.Query, query.BindVars)
+		err = client.ExecuteAQL(ctx, testAQLText(t, query.Command), testAQLBinds(t, query.Command))
 		if err == nil || !strings.Contains(err.Error(), "CONSTRUCTION_ROW_VALUE_MULTIPLE_VALUES") {
 			t.Fatalf("ONE disagreement must preserve its typed repair error: %v", err)
 		}
@@ -599,7 +598,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 				recoded.GroupRows = &groups
 				recoded.ColumnTransformations = []recipe.ColumnTransformation{{Column: "ids", Transformation: transformation}}
 				compiled := lowerConstructionOutput(t, recoded, bindings)
-				query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+				query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 				if err != nil {
 					t.Fatalf("compile transformed cohort member values: %v", err)
 				}
@@ -648,11 +647,11 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			},
 		}}}
 		compiled := lowerConstructionOutput(t, recoded, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := client.ExecuteAQL(ctx, query.Query, query.BindVars); err == nil || !strings.Contains(err.Error(), "CATEGORY_RECODE_UNKNOWN_VALUE") {
+		if err := client.ExecuteAQL(ctx, testAQLText(t, query.Command), testAQLBinds(t, query.Command)); err == nil || !strings.Contains(err.Error(), "CATEGORY_RECODE_UNKNOWN_VALUE") {
 			t.Fatalf("unknown non-null cohort member must retain the transformation error: %v", err)
 		}
 	})
@@ -660,7 +659,7 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 		denyAll := bindings
 		denyAll.AuthResourcePaths = nil
 		compiled := lowerConstructionOutput(t, output, denyAll)
-		query, err := CompileRecipeOutputWithPolicy(compiled, denyAll, 25, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, denyAll, 25, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -668,8 +667,6 @@ func TestExplicitCohortMemberValuesAgainstArango(t *testing.T) {
 			if !reflect.DeepEqual(row["ids"], []any{}) || row["gender"] != nil || !reflect.DeepEqual(row["identifiers"], []any{}) {
 				t.Fatalf("restricted-empty authorization leaked cohort member data: %#v", row)
 			}
-			// A verified pinned selection may retain the old null-payload identity
-			// for a resource that no longer exists; it cannot carry field values.
 			for _, rawMember := range row["members"].([]any) {
 				member := rawMember.(map[string]any)
 				identity := member["source_identity"].(map[string]any)

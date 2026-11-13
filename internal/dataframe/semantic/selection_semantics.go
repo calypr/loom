@@ -9,10 +9,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// PrimarySelector derives the schema selector used by the physical compiler
-// from the checked primary expression. Semantic plans keep expressions as
-// their single source of truth so diagnostics, type information, and
-// lowering cannot observe different selector values.
 func (field SemanticField) PrimarySelector() (spec.Selector, error) {
 	if field.Expr.Expression.Selector == nil {
 		return spec.Selector{}, fmt.Errorf("field %q expression is not a selector", field.Name)
@@ -24,10 +20,6 @@ func (field SemanticField) PrimarySelector() (spec.Selector, error) {
 	return selector, nil
 }
 
-// FallbackSelectors derives the ordered selector fallback chain from checked
-// semantic expressions. Fallbacks are selector-only in the current recipe
-// contract; rejecting anything else here keeps that constraint at the
-// semantic/physical boundary instead of relying on a parallel selector list.
 func (field SemanticField) FallbackSelectors() ([]spec.Selector, error) {
 	selectors := make([]spec.Selector, 0, len(field.Fallbacks))
 	for index, fallback := range field.Fallbacks {
@@ -43,8 +35,6 @@ func (field SemanticField) FallbackSelectors() ([]spec.Selector, error) {
 	return selectors, nil
 }
 
-// SelectionSemanticSpec is the compiler-ready meaning of one field selection.
-// It deliberately contains selectors and schema facts, not rendered AQL.
 type SelectionSemanticSpec struct {
 	Alias         string
 	NodeAlias     string
@@ -58,7 +48,6 @@ type SelectionSemanticSpec struct {
 	RepeatedPaths []string
 }
 
-// ResolveSemanticField resolves a single field and all fallback selectors.
 func ResolveSemanticField(resourceType, nodeAlias string, index int, field SemanticField) (SelectionSemanticSpec, error) {
 	if !fhirschema.DefinitionExists(resourceType) {
 		return SelectionSemanticSpec{}, fmt.Errorf("field %q: FHIR definition %q is not in the active schema", field.Name, resourceType)
@@ -91,9 +80,6 @@ func ResolveSemanticField(resourceType, nodeAlias string, index int, field Seman
 	projection := field.Projection
 	legacyAuto := false
 	if projection == "" {
-		// Direct semantic graph callers may omit Projection. Preserve the
-		// historical AUTO behavior for that transport-neutral input while
-		// recipe plans record the resolved projection explicitly.
 		projection, legacyAuto, err = projectionForValueMode("", cardinality)
 		if err != nil {
 			return SelectionSemanticSpec{}, fmt.Errorf("field %q: %w", field.Name, err)
@@ -121,8 +107,6 @@ func projectionForValueMode(valueMode string, cardinality spec.Cardinality) (spe
 	switch strings.ToUpper(strings.TrimSpace(valueMode)) {
 	case "", "AUTO":
 		if cardinality.AllowsMany() {
-			// Legacy AUTO selected FIRST for an array-bearing selector. Preserve
-			// that behavior as an explicit semantic decision, not compiler magic.
 			return spec.ProjectionFirst, true, nil
 		}
 		return spec.ProjectionScalar, true, nil

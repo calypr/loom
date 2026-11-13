@@ -1,15 +1,5 @@
 package server
 
-// Wire-level contract for the server-signed EXPAND source lane over HTTP.
-// The lane signs ConstructionExpand.ExpandedField from resolved root primitive
-// array facts; the capabilities DTO once dropped that field entirely (only a
-// browser journey caught it). These assertions parse the RAW HTTP body, which
-// is sound precisely because the handlers marshal through the generated
-// loomapi DTOs (getConstructionCapabilitiesDirect / construction-proposal
-// return typed loomapi responses via directAuthoringJSON); if a refactor ever
-// returned raw authoring JSON directly, the DTO-drop class would be
-// structurally impossible but this comment's premise must be re-verified.
-
 import (
 	"bytes"
 	"context"
@@ -20,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -54,11 +45,6 @@ type expandSourceHTTPInputProbe struct {
 	Choices    []expandSourceHTTPChoiceProbe `json:"choices"`
 }
 
-// expandSourceHTTPProcedureSnapshot is the authorized catalog for a
-// Procedure-rooted table. Procedure.instantiatesUri[] is the generated
-// primitive direct-root array (canonical instantiatesUri[], ARRAY/MANY,
-// FHIRType string, non-reference) that the generated schema admits for the
-// signed EXPAND lane; Patient admits none.
 func expandSourceHTTPProcedureSnapshot() capability.Snapshot {
 	snapshot := testAuthoringV2CapabilitySnapshot()
 	snapshot.Nodes = append(snapshot.Nodes, capability.Node{
@@ -86,12 +72,6 @@ func expandSourceHTTPProcedureSnapshot() capability.Snapshot {
 	return snapshot
 }
 
-// expandSourceHTTPProcedureWorkspace mirrors baselineExplorerWorkspaceV2 for a
-// Procedure root with one saved output column; the construction prefix stays
-// empty so the EXPAND step arrives as the first proposed step over HTTP.
-// The signed EXPAND lane only accepts a direct-root primitive many-cardinality
-// non-reference array, which the generated schema admits for Procedure via
-// instantiatesUri[].
 func expandSourceHTTPProcedureWorkspace() []byte {
 	visible, order := true, 0
 	workspace := authoringv2.Workspace{APIVersion: authoringv2.APIVersion, Kind: authoringv2.WorkspaceKind, Explorer: authoringv2.ExplorerMetadata{Title: "Procedures"}, Documents: []authoringv2.Document{{Kind: authoringv2.Kind, Output: authoringv2.Output{ID: "procedures", Title: "Procedures", RowLabel: "Procedures"}, RootResourceType: "Procedure", Route: authoringv2.RouteNode{OccurrenceID: "base", ResourceType: "Procedure"}, Columns: []authoringv2.Column{{Column: "procedure_id", Label: "Procedure ID", LogicalType: "string", OccurrenceID: "base", Source: authoringv2.ColumnSource{Kind: authoringv2.SourceField, Field: &authoringv2.FieldSource{Path: "id", ProjectionMode: "FIRST"}}, Table: &authoringv2.TablePresentation{Visible: &visible, Order: &order}}}}}, Tabs: []authoringv2.Tab{{ID: "procedures-tab", Title: "Procedures", OutputID: "procedures", Order: 0, Visible: true}}}
@@ -120,12 +100,6 @@ func expandSourceHTTPDecodedInput(t *testing.T, body string) (map[string]json.Ra
 	return keys, &input
 }
 
-// expandSourceHTTPSignedField walks the RAW wire construction JSON down to
-// steps[0].operation.expand and returns both the raw expand subtree and the
-// server-signed expandedField parsed as a string map. Nothing here decodes
-// into generated loomapi DTOs: a DTO that silently drops expandedField must
-// fail this helper, which is the exact regression the browser journey used to
-// be the only witness for.
 func expandSourceHTTPSignedField(t *testing.T, rawConstruction []byte, contextText string) (json.RawMessage, map[string]string) {
 	t.Helper()
 	var construction map[string]json.RawMessage
@@ -228,8 +202,16 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +257,6 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 	registerGeneratedExplorerTestRoutes(app, authscope.AllowAllAuthorizer{}, func(context.Context, *authscope.Principal, string) error { return nil }, service, config)
 	basePath := "/api/v1/projects/project-a/explorers/custom/authoring/v2"
 
-	// --- 1. capabilities advertises the signed EXPAND source lane on raw wire ---
 	capabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
 		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"procedures","stageId":"source_projection"}`,
 		snapshot.Token, digest,
@@ -340,7 +321,6 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 	}
 	choiceID := *choice.ChoiceID
 
-	// --- 2. propose with a forged expandedField: the server signs over it ---
 	candidateConstruction := authoringv2.Construction{Version: authoringv2.ConstructionVersion, Steps: []authoringv2.ConstructionStep{{
 		ID:     expandSourceHTTPStep,
 		Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputSourceProjection}},
@@ -425,7 +405,6 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		t.Fatalf("expand-source proposal mutated the stored draft: before=%#v after=%#v", storedBefore, storedUntouched)
 	}
 
-	// --- 3. negative: garbage expandSources choiceId is refused by code ---
 	garbageChoiceHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-proposals", fmt.Sprintf(
 		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"procedures","changedStepId":%q,"candidateConstruction":%s,"expandSources":[{"choiceId":%q,"columnId":%q}]}`,
 		snapshot.Token, digest, expandSourceHTTPStep, candidateJSON, "forged-choice", expandSourceHTTPInput,
@@ -437,7 +416,6 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		t.Fatalf("garbage expandSources choiceId did not reach choice validation: %s", garbageChoiceHTTP.Body)
 	}
 
-	// --- 4. apply advances the draft; the persisted signed lane is durable ---
 	applyHTTP := requestJSON(t, app, http.MethodPost, basePath+"/commands", fmt.Sprintf(
 		`{"commandId":"expand-source-apply","semanticsVersion":%d,"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"commands":[{"type":"APPLY_CONSTRUCTION_PROPOSAL","outputId":"procedures","proposalId":%q}]}`,
 		authoringv2.CurrentSemanticsVersion, snapshot.Token, digest, proposal.ProposalID,
@@ -456,9 +434,6 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		t.Fatalf("expand-source apply did not advance the draft: %#v body=%s", applied, applyHTTP.Body)
 	}
 
-	// --- 5. PARITY GUARD: after the draft advanced, capabilities must still
-	// carry the server-signed expandedField on the RAW wire. This is the wire
-	// contract the capabilities DTO once silently dropped. ---
 	advancedCapabilitiesHTTP := requestJSON(t, app, http.MethodPost, basePath+"/construction-capabilities", fmt.Sprintf(
 		`{"snapshotToken":%q,"expectedDraftVersion":2,"expectedDraftDigest":%q,"outputId":"procedures","stageId":"source_projection"}`,
 		snapshot.Token, applied.DraftDigest,
@@ -496,9 +471,6 @@ func TestConstructionExpandSourceHTTPContractSignsAndPersistsExpandedField(t *te
 		t.Fatalf("durable baseConstruction sourceProjections = %#v, want the expand-owned %q projection: %s", baseProjections.SourceProjections, expandSourceHTTPInput, baseConstructionRaw)
 	}
 
-	// The lane restores the durable materialized column into the advertised
-	// choice only while the owner step still carries the coherent signed
-	// payload — the same state the parity guard just proved is persisted.
 	_, advancedInput := expandSourceHTTPDecodedInput(t, advancedCapabilitiesHTTP.Body)
 	if len(advancedInput.Choices) != 1 || advancedInput.Choices[0].ColumnID == nil || *advancedInput.Choices[0].ColumnID != expandSourceHTTPInput {
 		t.Fatalf("post-apply expandSourceInput.choices = %#v, want the owned materialized columnId %q", advancedInput.Choices, expandSourceHTTPInput)

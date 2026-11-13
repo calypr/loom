@@ -33,8 +33,6 @@ type aggregateTransformNode struct {
 	rowRootEligible bool
 }
 
-// AggregateTransformationCapabilitiesForCatalog derives choices from the
-// resolved catalog candidates and generated FHIR schema.
 func AggregateTransformationCapabilitiesForCatalog(catalog CatalogSnapshot, candidateID string) AggregateTransformationCapabilities {
 	nodes := make([]aggregateTransformNode, 0, len(catalog.Nodes))
 	for _, node := range catalog.Nodes {
@@ -61,8 +59,6 @@ func AggregateTransformationCapabilitiesForCatalog(catalog CatalogSnapshot, cand
 	return aggregateTransformationCapabilities(nodes, candidates, candidateID)
 }
 
-// AggregateTransformationCapabilitiesForCapability derives choices from the
-// capability snapshot used at compilation time.
 func AggregateTransformationCapabilitiesForCapability(snapshot capability.Snapshot, candidateID string) AggregateTransformationCapabilities {
 	nodes := make([]aggregateTransformNode, 0, len(snapshot.Nodes))
 	for _, node := range snapshot.Nodes {
@@ -142,12 +138,10 @@ func aggregateTransformationCapabilities(nodes []aggregateTransformNode, candida
 	return result
 }
 
-// SupportsTimestamp reports whether the exact scalar timestamp is advertised.
 func (c TemporalReductionCapabilities) SupportsTimestamp(resourceType, fieldPath string) bool {
 	return temporalFieldAvailable(c.TimestampFields, resourceType, fieldPath)
 }
 
-// SupportsAnchor reports whether the exact root-row anchor is advertised.
 func (c TemporalReductionCapabilities) SupportsAnchor(resourceType, fieldPath string) bool {
 	return temporalFieldAvailable(c.AnchorFields, resourceType, fieldPath)
 }

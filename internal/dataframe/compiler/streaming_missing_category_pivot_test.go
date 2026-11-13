@@ -54,7 +54,7 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		t.Fatal("full scoped terminal MISSING-category Pivot did not pass the streaming eligibility proof")
 	}
 
-	query, err := CompileRecipeOutputWithPolicy(compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,18 +68,18 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		!reflect.DeepEqual(index.Supersedes.Fields, wantLegacyFields) || !reflect.DeepEqual(index.Supersedes.StoredValues, wantStoredValues) {
 		t.Fatalf("streaming missing-category Pivot did not augment its exact stored-parent index: index=%+v supersedes=%+v wantFields=%v wantLegacy=%v", index, index.Supersedes, wantFields, wantLegacyFields)
 	}
-	if !strings.Contains(query.Query, "COLLECT ") || !strings.Contains(query.Query, " AGGREGATE ") {
-		t.Fatalf("query does not stream grouped values through COLLECT AGGREGATE:\n%s", query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), "COLLECT ") || !strings.Contains(testAQLText(t, query.Command), " AGGREGATE ") {
+		t.Fatalf("query does not stream grouped values through COLLECT AGGREGATE:\n%s", testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "INTO __loom_reshape_pivot_group_rows_") {
-		t.Fatalf("query materializes a full group-row array:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "INTO __loom_reshape_pivot_group_rows_") {
+		t.Fatalf("query materializes a full group-row array:\n%s", testAQLText(t, query.Command))
 	}
-	collectAt := strings.Index(query.Query, "COLLECT ")
-	assertAt := strings.Index(query.Query, "FILTER ASSERT(")
-	sortAt := strings.Index(query.Query, "SORT ")
-	limitAt := strings.Index(query.Query, "LIMIT @limit")
+	collectAt := strings.Index(testAQLText(t, query.Command), "COLLECT ")
+	assertAt := strings.Index(testAQLText(t, query.Command), "FILTER ASSERT(")
+	sortAt := strings.Index(testAQLText(t, query.Command), "SORT ")
+	limitAt := strings.Index(testAQLText(t, query.Command), "LIMIT @limit")
 	if collectAt < 0 || assertAt < collectAt || sortAt < assertAt || limitAt < sortAt {
-		t.Fatalf("full-population Pivot assertions/window are out of order: collect=%d assert=%d sort=%d limit=%d\n%s", collectAt, assertAt, sortAt, limitAt, query.Query)
+		t.Fatalf("full-population Pivot assertions/window are out of order: collect=%d assert=%d sort=%d limit=%d\n%s", collectAt, assertAt, sortAt, limitAt, testAQLText(t, query.Command))
 	}
 	for _, required := range []string{
 		"FILTER root.project == @project",
@@ -87,40 +87,35 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 		"FILTER root_scope_allowed == @scope_allowed",
 		"TABLE_PIVOT_UNLISTED_CATEGORY",
 	} {
-		if !strings.Contains(query.Query, required) {
-			t.Fatalf("query lost required full-scope or typed-category clause %q:\n%s", required, query.Query)
+		if !strings.Contains(testAQLText(t, query.Command), required) {
+			t.Fatalf("query lost required full-scope or typed-category clause %q:\n%s", required, testAQLText(t, query.Command))
 		}
 	}
 	pivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
-	if streamingTestBindKey(query.BindVars, "reshape_category_column", pivot.CategoryColumn) != "" ||
-		streamingTestBindKey(query.BindVars, "reshape_category_presence_column", pivot.CategoryPresenceColumn) != "" {
-		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", query.BindVars)
+	if streamingTestBindKey(testAQLBinds(t, query.Command), "reshape_category_column", pivot.CategoryColumn) != "" ||
+		streamingTestBindKey(testAQLBinds(t, query.Command), "reshape_category_presence_column", pivot.CategoryPresenceColumn) != "" {
+		t.Fatalf("direct scalar Pivot retained field-name binds: %#v", testAQLBinds(t, query.Command))
 	}
-	categoryValue := streamingTestDirectScalarVariable(query.Query, "__loom_physical_construction_reshape_stream_source_parent.code")
-	presenceValue := streamingTestDirectScalarVariable(query.Query, "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
+	categoryValue := streamingTestDirectScalarVariable(testAQLText(t, query.Command), "__loom_physical_construction_reshape_stream_source_parent.code")
+	presenceValue := streamingTestDirectScalarVariable(testAQLText(t, query.Command), "IS_OBJECT(__loom_physical_construction_reshape_stream_source_parent)")
 	if categoryValue == "" || presenceValue == "" {
-		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, query.Query)
+		t.Fatalf("direct scalar category or presence projection missing: category=%q presence=%q\n%s", categoryValue, presenceValue, testAQLText(t, query.Command))
 	}
 	missingMatch := fmt.Sprintf("NOT (%s == true)", presenceValue)
 	nullMatch := fmt.Sprintf("(%s == true AND %s == null)", presenceValue, categoryValue)
-	if !strings.Contains(query.Query, missingMatch) || !strings.Contains(query.Query, nullMatch) {
-		t.Fatalf("MISSING and explicit NULL categories are not distinguished by the presence sidecar: missing=%q null=%q\n%s", missingMatch, nullMatch, query.Query)
+	if !strings.Contains(testAQLText(t, query.Command), missingMatch) || !strings.Contains(testAQLText(t, query.Command), nullMatch) {
+		t.Fatalf("MISSING and explicit NULL categories are not distinguished by the presence sidecar: missing=%q null=%q\n%s", missingMatch, nullMatch, testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "LET "+pivot.InputRowVariable+" = {") || strings.Contains(query.Query, pivot.InputRowVariable+"[@") {
-		t.Fatalf("direct scalar Pivot retained its temporary input row object or field reads:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "LET "+pivot.InputRowVariable+" = {") || strings.Contains(testAQLText(t, query.Command), pivot.InputRowVariable+"[@") {
+		t.Fatalf("direct scalar Pivot retained its temporary input row object or field reads:\n%s", testAQLText(t, query.Command))
 	}
 
-	// The renderer must not rewrite the validated canonical stage while it
-	// rebinds the clone to direct root projections for this preview query.
 	canonicalPivot := compiled.Outputs[0].Plan.StageSequence.Stages[0].GroupedPivot
 	if canonicalPivot == nil || len(canonicalPivot.InputProjections) == 0 ||
 		canonicalPivot.InputProjections[0].Value.Variable != compiled.Outputs[0].Plan.StageSequence.Stages[0].InputRowVariable {
 		t.Fatal("streaming render mutated the canonical Pivot input projections")
 	}
 
-	// Construction previews always request source identity. A Pivot has
-	// composite source metadata and must not gain a single root ID, so this
-	// production-shaped ERROR case remains eligible for streaming.
 	identityOutput := streamingMissingCategoryPivotTestOutput()
 	id := recipe.StageColumn{ID: "id_id", Name: "id", Type: "string", Nullable: true}
 	identityOutput.Fields = append([]recipe.Field{{Name: "id", ColumnID: id.ID, Expr: recipe.Expression{Select: "root.id"}}}, identityOutput.Fields...)
@@ -158,42 +153,42 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	}
 	identityBindings := bindings
 	identityBindings.IncludeSourceIdentity = true
-	identityQuery, err := CompileRecipeOutputWithPolicy(identityCompiled.Outputs[0], identityBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	identityQuery, err := CompileRecipeOutput(ArangoTarget(), identityCompiled.Outputs[0], identityBindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(identityQuery.Query, " AGGREGATE ") || strings.Contains(identityQuery.Query, "INTO __loom_reshape_pivot_group_rows_") {
-		t.Fatalf("composite-source ERROR Pivot did not use full-population streaming aggregation:\n%s", identityQuery.Query)
+	if !strings.Contains(testAQLText(t, identityQuery.Command), " AGGREGATE ") || strings.Contains(testAQLText(t, identityQuery.Command), "INTO __loom_reshape_pivot_group_rows_") {
+		t.Fatalf("composite-source ERROR Pivot did not use full-population streaming aggregation:\n%s", testAQLText(t, identityQuery.Command))
 	}
 	for _, required := range []string{
 		"FILTER root.project == @project",
 		"FILTER root.dataset_generation == @dataset_generation",
 		"FILTER root_scope_allowed == @scope_allowed",
 	} {
-		if !strings.Contains(identityQuery.Query, required) {
-			t.Fatalf("identity-enabled streaming Pivot lost scoped source predicate %q:\n%s", required, identityQuery.Query)
+		if !strings.Contains(testAQLText(t, identityQuery.Command), required) {
+			t.Fatalf("identity-enabled streaming Pivot lost scoped source predicate %q:\n%s", required, testAQLText(t, identityQuery.Command))
 		}
 	}
-	if strings.Contains(identityQuery.Query, ir.PreviewSourceResourceIDColumn) {
-		t.Fatalf("composite-source Pivot acquired a single-root source ID:\n%s", identityQuery.Query)
+	if strings.Contains(testAQLText(t, identityQuery.Command), ir.PreviewSourceResourceIDColumn) {
+		t.Fatalf("composite-source Pivot acquired a single-root source ID:\n%s", testAQLText(t, identityQuery.Command))
 	}
 	for _, column := range identityQuery.OutputSchema {
 		if column.Name == ir.PreviewSourceResourceIDColumn {
 			t.Fatalf("composite-source Pivot added internal root-ID schema column: %#v", column)
 		}
 	}
-	errorLimitAt := strings.Index(identityQuery.Query, "LIMIT @limit")
+	errorLimitAt := strings.Index(testAQLText(t, identityQuery.Command), "LIMIT @limit")
 	for _, code := range []string{"TABLE_PIVOT_CELL_CARDINALITY", "TABLE_PIVOT_UNLISTED_CATEGORY"} {
-		assertAt := strings.Index(identityQuery.Query, code)
+		assertAt := strings.Index(testAQLText(t, identityQuery.Command), code)
 		if assertAt < 0 || errorLimitAt < 0 || assertAt >= errorLimitAt {
-			t.Fatalf("streaming Pivot lost full-population %s check before the preview window: assertion=%d limit=%d\n%s", code, assertAt, errorLimitAt, identityQuery.Query)
+			t.Fatalf("streaming Pivot lost full-population %s check before the preview window: assertion=%d limit=%d\n%s", code, assertAt, errorLimitAt, testAQLText(t, identityQuery.Command))
 		}
 	}
-	ordinaryIdentityQuery, err := CompileRecipeOutputWithPolicy(identityCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	ordinaryIdentityQuery, err := CompileRecipeOutput(ArangoTarget(), identityCompiled.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identityQuery.Query != ordinaryIdentityQuery.Query || !reflect.DeepEqual(identityQuery.BindVars, ordinaryIdentityQuery.BindVars) || !reflect.DeepEqual(identityQuery.OutputSchema, ordinaryIdentityQuery.OutputSchema) || !reflect.DeepEqual(identityQuery.RowIdentity, ordinaryIdentityQuery.RowIdentity) {
+	if testAQLText(t, identityQuery.Command) != testAQLText(t, ordinaryIdentityQuery.Command) || !reflect.DeepEqual(testAQLBinds(t, identityQuery.Command), testAQLBinds(t, ordinaryIdentityQuery.Command)) || !reflect.DeepEqual(identityQuery.OutputSchema, ordinaryIdentityQuery.OutputSchema) || !reflect.DeepEqual(identityQuery.RowIdentity, ordinaryIdentityQuery.RowIdentity) {
 		t.Fatal("requesting composite source metadata changed the Pivot query, schema, binds, or stable group identity")
 	}
 
@@ -219,15 +214,15 @@ func TestStreamingMissingCategoryPivotPreviewKeepsFullScopedPopulation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertionQuery, err := CompileRecipeOutputWithPolicy(assertionOutputs.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	assertionQuery, err := CompileRecipeOutput(ArangoTarget(), assertionOutputs.Outputs[0], bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertionLimit := strings.Index(assertionQuery.Query, "LIMIT @limit")
+	assertionLimit := strings.Index(testAQLText(t, assertionQuery.Command), "LIMIT @limit")
 	for _, code := range []string{"TABLE_PIVOT_CELL_MISSING", "TABLE_PIVOT_CELL_CARDINALITY", "TABLE_PIVOT_UNLISTED_CATEGORY"} {
-		assertion := strings.Index(assertionQuery.Query, code)
+		assertion := strings.Index(testAQLText(t, assertionQuery.Command), code)
 		if assertion < 0 || assertionLimit < 0 || assertion >= assertionLimit {
-			t.Fatalf("full-population %s assertion does not precede preview LIMIT: assertion=%d limit=%d\n%s", code, assertion, assertionLimit, assertionQuery.Query)
+			t.Fatalf("full-population %s assertion does not precede preview LIMIT: assertion=%d limit=%d\n%s", code, assertion, assertionLimit, testAQLText(t, assertionQuery.Command))
 		}
 	}
 }

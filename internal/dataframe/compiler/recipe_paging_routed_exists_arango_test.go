@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -42,13 +42,13 @@ func TestRootPageRoutedExistsKeepsEligibleRootsAcrossCursorAgainstArango(t *test
 	if err != nil {
 		t.Fatalf("lower routed root-page recipe: %v", err)
 	}
-	page, err := CompileRecipeOutputPageWithPolicy(compiled.Outputs[0], bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
+	page, err := CompileRecipeOutputPage(ArangoTarget(), compiled.Outputs[0], bindings, 1, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile routed EXISTS root page: %v", err)
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Observation"}, {Name: "Patient"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatalf("bootstrap routed root-page fixture collections: %v", err)
@@ -130,13 +130,13 @@ func TestRootPageRoutedExistsKeepsEligibleRootsAcrossCursorAgainstArango(t *test
 	}
 	readPage := func(after string) readResult {
 		t.Helper()
-		keyBinds := make(map[string]any, len(page.RootKeysBindVars))
-		for key, value := range page.RootKeysBindVars {
+		keyBinds := make(map[string]any, len(testAQLBinds(t, page.RootKeys)))
+		for key, value := range testAQLBinds(t, page.RootKeys) {
 			keyBinds[key] = value
 		}
 		keyBinds[RootPageAfterKeyBind] = after
 		result := readResult{keys: make([]string, 0, 1)}
-		if err := client.QueryRows(ctx, page.RootKeysQuery, 10, keyBinds, func(row map[string]any) error {
+		if err := client.QueryRows(ctx, testAQLText(t, page.RootKeys), 10, keyBinds, func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok {
 				t.Fatalf("routed EXISTS root-key query returned invalid _key %#v", row["_key"])
@@ -144,7 +144,7 @@ func TestRootPageRoutedExistsKeepsEligibleRootsAcrossCursorAgainstArango(t *test
 			result.keys = append(result.keys, key)
 			return nil
 		}); err != nil {
-			t.Fatalf("execute routed EXISTS root-key query after %q:\n%s\n%v", after, page.RootKeysQuery, err)
+			t.Fatalf("execute routed EXISTS root-key query after %q:\n%s\n%v", after, testAQLText(t, page.RootKeys), err)
 		}
 		if len(result.keys) > 1 {
 			t.Fatalf("routed EXISTS root-key page after %q returned %#v, want at most one key", after, result.keys)
@@ -153,28 +153,28 @@ func TestRootPageRoutedExistsKeepsEligibleRootsAcrossCursorAgainstArango(t *test
 			return result
 		}
 
-		rowBinds := make(map[string]any, len(page.RowsBindVars)+1)
-		for key, value := range page.RowsBindVars {
+		rowBinds := make(map[string]any, len(testAQLBinds(t, page.Rows))+1)
+		for key, value := range testAQLBinds(t, page.Rows) {
 			rowBinds[key] = value
 		}
 		rowBinds[RootPageKeysBind] = result.keys
 		result.rows = make([]map[string]any, 0, 1)
-		if err := client.QueryRows(ctx, page.RowsQuery, 10, rowBinds, func(row map[string]any) error {
+		if err := client.QueryRows(ctx, testAQLText(t, page.Rows), 10, rowBinds, func(row map[string]any) error {
 			result.rows = append(result.rows, row)
 			return nil
 		}); err != nil {
-			t.Fatalf("execute routed EXISTS selected-root query after %q:\n%s\n%v", after, page.RowsQuery, err)
+			t.Fatalf("execute routed EXISTS selected-root query after %q:\n%s\n%v", after, testAQLText(t, page.Rows), err)
 		}
 		return result
 	}
 
 	firstPage := readPage("")
 	if !reflect.DeepEqual(firstPage.keys, []string{firstMatchKey}) {
-		t.Fatalf("first routed EXISTS root-key page = %#v, want only %q\n%s", firstPage.keys, firstMatchKey, page.RootKeysQuery)
+		t.Fatalf("first routed EXISTS root-key page = %#v, want only %q\n%s", firstPage.keys, firstMatchKey, testAQLText(t, page.RootKeys))
 	}
 	secondPage := readPage(firstPage.keys[0])
 	if !reflect.DeepEqual(secondPage.keys, []string{secondMatchKey}) {
-		t.Fatalf("next routed EXISTS root-key page = %#v, want only %q\n%s", secondPage.keys, secondMatchKey, page.RootKeysQuery)
+		t.Fatalf("next routed EXISTS root-key page = %#v, want only %q\n%s", secondPage.keys, secondMatchKey, testAQLText(t, page.RootKeys))
 	}
 	thirdPage := readPage(secondPage.keys[0])
 	if len(thirdPage.keys) != 0 || len(thirdPage.rows) != 0 {

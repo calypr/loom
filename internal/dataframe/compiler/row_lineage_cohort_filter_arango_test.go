@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/projectid"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -29,17 +29,15 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 		revisionsCollection, selectionsCollection, definitionsCollection,
 		membershipsCollection, selectionMembersCollection, "Observation",
 	}
-	specs := make([]store.CollectionSpec, 0, len(collections))
+	specs := make([]arangofactory.CollectionSpec, 0, len(collections))
 	for _, collection := range collections {
-		specs = append(specs, store.CollectionSpec{Name: collection})
+		specs = append(specs, arangofactory.CollectionSpec{Name: collection})
 	}
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: specs}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: specs}); err != nil {
 		t.Fatal(err)
 	}
 
 	project := "loom_cohort_filter_lineage_" + uuid.NewString()
-	// Production selection/group metadata uses canonical project identity;
-	// resource documents retain the legacy storage alias.
 	selectionProject := projectid.Canonical(project)
 	if selectionProject == project {
 		t.Fatal("fixture must exercise distinct selection and resource project identities")
@@ -142,7 +140,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if capability := RowLineageCapabilityForOutput(compiledOutput); !capability.Available {
 		t.Fatalf("composed cohort FILTER lineage capability = %#v", capability)
 	}
-	previewQuery, err := CompileRecipeOutputWithPolicy(compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	previewQuery, err := CompileRecipeOutput(ArangoTarget(), compiledOutput, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile filtered cohort preview: %v", err)
 	}
@@ -154,7 +152,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lineage, err := CompileRowLineageOutput(compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	lineage, err := CompileRowLineageOutput(ArangoTarget(), compiledOutput, string(rowID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile final filtered cohort row lineage: %v", err)
 	}
@@ -187,7 +185,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filteredOut, err := CompileRowLineageOutput(compiledOutput, string(filteredOutID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	filteredOut, err := CompileRowLineageOutput(ArangoTarget(), compiledOutput, string(filteredOutID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile filtered-out cohort row lineage: %v", err)
 	}
@@ -197,7 +195,7 @@ func TestComposedCohortFilterLineageAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forged, err := CompileRowLineageOutput(compiledOutput, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
+	forged, err := CompileRowLineageOutput(ArangoTarget(), compiledOutput, string(forgedID), 0, 5, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile forged cohort row lineage: %v", err)
 	}

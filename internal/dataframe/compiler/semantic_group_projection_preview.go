@@ -1,30 +1,25 @@
 package compiler
 
 import (
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
 )
 
-// RenderPreviewGroupProjectionFactorization renders the exact semantic Group
-// alternative after the runtime has selected its root scan. An empty indexName
-// leaves the planner choice unchanged; disableIndex requests a full scan.
-func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (string, map[string]any, error) {
+func RenderPreviewGroupProjectionFactorization(plan ir.PhysicalPlan, indexName string, disableIndex bool) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionFactorization(plan, indexName, disableIndex)
 	if err != nil {
-		return "", nil, err
+		return command.CompiledCommand{}, err
 	}
-	return rendered.Query, rendered.BindVars, nil
+	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
-// RenderPreviewGroupProjectionAssessment returns bounded metadata about the
-// exact complete Coding-array projections seen under the plan's source scope.
-// Its result contains no source values.
-func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (string, map[string]any, error) {
+func RenderPreviewGroupProjectionAssessment(plan ir.PhysicalPlan, indexName string, disableIndex bool) (command.CompiledCommand, error) {
 	rendered, err := aql.RenderPhysicalPlanWithSemanticGroupProjectionAssessment(plan, indexName, disableIndex)
 	if err != nil {
-		return "", nil, err
+		return command.CompiledCommand{}, err
 	}
-	return rendered.Query, rendered.BindVars, nil
+	return command.NewAQLCommand(rendered.Query, rendered.BindVars)
 }
 
 func previewGroupProjectionSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionSpec {
@@ -40,9 +35,12 @@ func previewGroupProjectionSpec(plan ir.PhysicalPlan) *PreviewGroupProjectionSpe
 	if err != nil || scopeCount.Query == "" {
 		return nil
 	}
-	binds := ir.ClonePhysicalPlan(ir.PhysicalPlan{BindVars: scopeCount.BindVars}).BindVars
+	scopeCountCommand, err := command.NewAQLCommand(scopeCount.Query, scopeCount.BindVars)
+	if err != nil {
+		return nil
+	}
 	return &PreviewGroupProjectionSpec{
-		Collection: collection, ScopeCountQuery: scopeCount.Query, ScopeCountBindVars: binds,
+		Collection: collection, ScopeCount: scopeCountCommand,
 		ReadOnlyIndex: previewGroupProjectionIndexSpec(plan),
 	}
 }

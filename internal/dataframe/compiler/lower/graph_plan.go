@@ -14,9 +14,6 @@ const (
 	graphLookaheadBindKey         = "graph_limit"
 )
 
-// BuildGraphPhysicalPlan lowers an explicit graph frontend onto the same
-// scoped root/traversal lowering used by dataframe recipes. Each route gets
-// its own path set, so sibling branches form independent unions.
 func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.ExecutionContext, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if limit < 1 || limit > 10000 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph limit must be between 1 and 10000")
@@ -73,11 +70,6 @@ func BuildGraphPhysicalPlan(output semantic.OutputPlan, context semantic.Executi
 		}},
 	})
 
-	// A root-only path is useful when the request has only OPTIONAL branches:
-	// an optional miss leaves the root eligible and contributes no synthetic
-	// child. Once any REQUIRED route is declared, however, returning the root
-	// itself would leak a path the caller did not ask for; required semi-joins
-	// below still gate root membership.
 	pathSets := make([]string, 0, countGraphTraversals(output.Root)+1)
 	if !graphHasRequiredTraversal(output.Root) {
 		pathSets = append(pathSets, "path_root")
@@ -156,10 +148,6 @@ func normalizeGraphMatchModes(node semantic.SemanticNode) semantic.SemanticNode 
 	return copy
 }
 
-// graphRequiredSemiJoinRoot keeps REQUIRED membership proofs for routes that
-// are reachable from the root through required ancestors. A required child
-// below an OPTIONAL branch cannot disqualify the root when that branch is
-// absent; its path set simply contributes no rows.
 func graphRequiredSemiJoinRoot(node semantic.SemanticNode) semantic.SemanticNode {
 	copy := node
 	copy.Children = make([]semantic.SemanticNode, len(node.Children))
@@ -182,10 +170,6 @@ func graphRequiredSemiJoinNode(node semantic.SemanticNode, ancestorsRequired boo
 	return copy
 }
 
-// CompileResolvedGraphPlan selects the single graph output from the resolved
-// recipe boundary and lowers it to graph/path IR. The graph frontend creates
-// one output deliberately; accepting multiple outputs here would make path
-// union and lookahead-limit semantics ambiguous.
 func CompileResolvedGraphPlan(resolved semantic.ResolvedRecipePlan, limit int, policy ir.PhysicalOptimizationPolicy) (ir.PhysicalPlan, error) {
 	if len(resolved.SemanticPlan.Outputs) != 1 {
 		return ir.PhysicalPlan{}, fmt.Errorf("graph query requires exactly one output, got %d", len(resolved.SemanticPlan.Outputs))

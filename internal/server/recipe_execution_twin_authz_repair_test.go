@@ -10,13 +10,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/publication"
 )
 
-// TestRecipeExecutionTwinRefusesForeignProjectPrincipal is the durable F-B20
-// REST-sibling regression check. An authenticated principal whose project
-// allowlist excludes the execution's project must receive the same concealed
-// not-found envelope as a missing id, even when no scope resolver is wired:
-// the project gate is unconditional, matching the dataframe and explorer
-// capability authorizers. The anonymous (principal-less) deployment posture
-// remains disclosure-by-design and the same-project member path keeps working.
 func TestRecipeExecutionTwinRefusesForeignProjectPrincipal(t *testing.T) {
 	foreign := publication.BundleExecution{
 		ID: "execution-foreign",

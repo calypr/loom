@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"strings"
 	"testing"
@@ -45,7 +46,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 	var pinCalls, resolveCalls int
 	var privateQueryCalls int
 	var queries []string
-	engine := &Engine{
+	engine := &Engine{compileTarget: compiler.ArangoTarget(),
 		privateClickHouseArtifacts: manager,
 		withExecutionReadPins: func(_ context.Context, revisions []string, visit func(context.Context) error) error {
 			if !reflect.DeepEqual(revisions, []string{"revision_a", "revision_b"}) &&
@@ -85,9 +86,9 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 			}
 			if strings.Contains(query, "loom_private_") {
 				privateQueryCalls++
-				want := 3 // the nested output's writer is live while its two inputs are queried.
+				want := 3
 				if privateQueryCalls%2 == 0 {
-					want = 2 // the terminal query sees its two completed source captures.
+					want = 2
 				}
 				if len(catalog.items) != want {
 					return fmt.Errorf("private query %d sees %d live captures, want %d", privateQueryCalls, len(catalog.items), want)
@@ -104,7 +105,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		Semantic:           semantic.ResolvedRecipePlan{SemanticPlan: semantic.RecipePlan{Bindings: bindings}},
 		Compiled:           lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{terminal}, WorkspaceDependencies: []lower.CompiledRecipeOutput{inner, leafA, leafB}},
 	}
-	stream, _, err := engine.streamForOutput(resolved, "terminal", 3)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		t.Fatalf("nested execution leaked %d private artifact manifests", len(catalog.items))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "terminal", 3)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +151,7 @@ func TestEngineStreamsNestedWorkspaceCombinesWithOnlyTerminalLimit(t *testing.T)
 		t.Fatalf("nested execution leaked %d private artifact manifests after consumer cancellation", len(catalog.items))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "terminal", 3)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "terminal", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,8 +256,15 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	var failedSourceTable string
 	cleanupFailure := errors.New("injected source artifact cleanup failure")
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-		QueryRows: func(_ context.Context, query string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			query, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			if strings.Contains(query, " LIMIT ") {
 				return fmt.Errorf("group or Pivot dependency received a preview limit")
 			}
@@ -313,7 +321,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 			}
 			wantLiveCaptures := 2
 			if failSourceCleanup {
-				wantLiveCaptures++ // the terminal writer is already live while its rows stream.
+				wantLiveCaptures++
 			}
 			if len(catalog.items) != wantLiveCaptures {
 				return fmt.Errorf("terminal Combine sees %d private captures, want %d", len(catalog.items), wantLiveCaptures)
@@ -322,7 +330,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 			for _, manifest := range catalog.items {
 				identity := manifest.Identity
 				if identity.OutputID == "joined" {
-					continue // the terminal writer is still filling its table in this callback.
+					continue
 				}
 				if identity.Project != bindings.Project || identity.DatasetGeneration != bindings.DatasetGeneration || identity.AuthScopeMode != authscope.ReadScopeUnrestricted || identity.ScopeMode != chartifact.ScopeModeWhole || identity.ScopeEvidenceDigest == "" {
 					return fmt.Errorf("group/Pivot artifact lost whole-scope identity: %#v", identity)
@@ -349,7 +357,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile Group/Pivot workspace fixture: %v", err)
 	}
-	stream, _, err := engine.streamForOutput(resolved, "joined", 2)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, "joined", 2)
 	if err != nil {
 		t.Fatalf("build Group/Pivot workspace stream: %v", err)
 	}
@@ -376,7 +384,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("Group/Pivot source calls or cleanup = %d AQL calls, %d manifests, %d tables", aqlCalls, len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build Group/Pivot cancellation capture: %v", err)
 	}
@@ -397,7 +405,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("terminal query cancellation leaked %d manifests and %d ClickHouse tables", len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build Group/Pivot terminal failure capture: %v", err)
 	}
@@ -412,7 +420,7 @@ func TestEngineCapturesCompilerGroupAndPivotWorkspaceOutputs(t *testing.T) {
 		t.Fatalf("terminal query failure leaked %d manifests and %d ClickHouse tables", len(catalog.items), len(ch.rows))
 	}
 
-	stream, _, err = engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err = engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatalf("build unbounded Group/Pivot capture stream: %v", err)
 	}
@@ -471,8 +479,15 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			}
 			var sourceCalls, combineCalls int
 			engine, err := New(Config{
-				Registry: invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
-				QueryRows: func(_ context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+				CompileTarget: compiler.ArangoTarget(),
+				Registry:      invalidRecipeRegistry{}, PrivateClickHouseArtifacts: manager,
+				SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+					command := request.Command
+					query, bindVars, dispatchErr := command.AQLParameters()
+					if dispatchErr != nil {
+						return dispatchErr
+					}
+
 					if !strings.Contains(query, "auth_resource_path IN @auth_resource_paths") || strings.Contains(query, " LIMIT ") {
 						return fmt.Errorf("restricted source query omitted its exact scope filter or received a limit: %s", query)
 					}
@@ -564,7 +579,7 @@ func TestEngineCapturesRestrictedWorkspaceRowsWithExactAuthPaths(t *testing.T) {
 			resolved.Compiled.Outputs = []lower.CompiledRecipeOutput{joined}
 			resolved.Compiled.WorkspaceDependencies = dependencies
 
-			stream, _, err := engine.streamForOutput(resolved, "joined", 1)
+			stream, _, err := engine.streamForOutput(context.Background(), resolved, "joined", 1)
 			if err != nil {
 				t.Fatalf("build restricted workspace Combine: %v", err)
 			}
@@ -624,8 +639,15 @@ func TestOrdinaryRestrictedPreviewDoesNotRequirePrivateCaptureProof(t *testing.T
 	}
 	var queryCalls int
 	engine, err := New(Config{
-		Registry: invalidRecipeRegistry{},
-		QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+			command := request.Command
+			_, bindVars, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+
 			queryCalls++
 			if bindVars["auth_resource_paths_unrestricted"] != false || !reflect.DeepEqual(bindVars["auth_resource_paths"], []string{"/programs/a"}) {
 				return fmt.Errorf("ordinary preview lost its exact restricted source scope: %#v", bindVars)
@@ -645,8 +667,6 @@ func TestOrdinaryRestrictedPreviewDoesNotRequirePrivateCaptureProof(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Model a valid typed source plan for which the stronger private-capture
-	// issuer declines a whole-source proof. Public preview must stay available.
 	resolved.Compiled.Outputs[0].ScopeEvidence = nil
 	resolved.Compiled.Outputs[0].ScopeEvidenceIdentity = nil
 	rows := []map[string]any{}
@@ -708,8 +728,16 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		published("table-right", "revision-right", "right", "right-key", "right_private", false)
 	var pinned []string
 	engine, err := New(Config{
-		Registry:  invalidRecipeRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      invalidRecipeRegistry{},
+		SourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+			command := request.Command
+			_, _, dispatchErr := command.AQLParameters()
+			if dispatchErr != nil {
+				return dispatchErr
+			}
+			return nil
+		},
 		WithExecutionReadPins: func(_ context.Context, revisions []string, visit func(context.Context) error) error {
 			pinned = append([]string(nil), revisions...)
 			return visit(context.Background())
@@ -734,7 +762,7 @@ func TestPublishedOnlyKeyJoinStreamsRepeatedOutput(t *testing.T) {
 		Semantic: semantic.ResolvedRecipePlan{SemanticPlan: semantic.RecipePlan{Bindings: bindings}},
 		Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}},
 	}
-	stream, _, err := engine.streamForOutput(resolved, "joined", 0)
+	stream, _, err := engine.streamForOutput(context.Background(), resolved, "joined", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

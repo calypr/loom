@@ -10,23 +10,25 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
 
-// ComposeClickHouseCombine adds a terminal typed Combine to an already lowered
-// AQL construction prefix. Recipe authoring still decides which mixed plans
-// are reachable; this internal compiler seam accepts only an exact typed stage
-// reference and one supported authorization scope.
-func ComposeClickHouseCombine(prefix ir.PhysicalPlan, combine ir.PhysicalClickHouseCombine, bindings recipe.RuntimeBindings) (ir.PhysicalPlan, error) {
+func ComposeClickHouseCombine(prefix ir.PhysicalPlan, combine ir.PhysicalClickHouseCombine, sourceBackend ir.PhysicalPrefixSourceBackend, bindings recipe.RuntimeBindings) (ir.PhysicalPlan, error) {
+	if err := sourceBackend.Validate(); err != nil {
+		return ir.PhysicalPlan{}, err
+	}
+	if sourceBackend == ir.PhysicalPrefixSourcePostgreSQL && bindings.AuthScopeMode == authscope.ReadScopeRestricted {
+		return ir.PhysicalPlan{}, fmt.Errorf("restricted private ClickHouse prefixes are unsupported on the PostgreSQL source backend: the composed PostgreSQL renderer has no registered bound authorization path column")
+	}
 	if prefix.Engine == ir.PhysicalEngineClickHouse || prefix.ClickHouseCombine != nil || prefix.ClickHousePrefix != nil {
-		return ir.PhysicalPlan{}, fmt.Errorf("ClickHouse prefix must be a standalone AQL physical plan")
+		return ir.PhysicalPlan{}, fmt.Errorf("ClickHouse prefix must be a standalone construction physical plan")
 	}
 	if prefix.StageSequence == nil {
-		return ir.PhysicalPlan{}, fmt.Errorf("ClickHouse prefix requires a typed AQL construction stage sequence")
+		return ir.PhysicalPlan{}, fmt.Errorf("ClickHouse prefix requires a typed construction stage sequence")
 	}
 	if prefix.StageSequence.PreviewLimitBindKey != "" {
 		return ir.PhysicalPlan{}, fmt.Errorf("bounded preview cannot feed a private ClickHouse artifact")
 	}
 	for _, operation := range prefix.Operations {
 		if operation.Kind == ir.PhysicalLimitOp {
-			return ir.PhysicalPlan{}, fmt.Errorf("bounded AQL prefix cannot feed a private ClickHouse artifact")
+			return ir.PhysicalPlan{}, fmt.Errorf("bounded prefix cannot feed a private ClickHouse artifact")
 		}
 	}
 	for _, stage := range prefix.StageSequence.Stages {
@@ -55,6 +57,7 @@ func ComposeClickHouseCombine(prefix ir.PhysicalPlan, combine ir.PhysicalClickHo
 
 	composite := ir.ClonePhysicalPlan(prefix)
 	prefixContract := &ir.PhysicalClickHousePrefix{
+		SourceBackend:     sourceBackend,
 		StageID:           prefix.StageSequence.FinalStageID,
 		AuthScopeMode:     string(bindings.AuthScopeMode),
 		AuthResourcePaths: append([]string(nil), bindings.AuthResourcePaths...),

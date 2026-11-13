@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer/capability"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,7 +26,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	for _, codingEmptyPolicy := range []string{"GROUP", "EXCLUDE", "ERROR"} {
 		output := connectedGroupOutputFromJSON(t, source, codingEmptyPolicy)
 		compiled := lowerConstructionOutput(t, output, bindings)
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile connected Coding Group with coding-empty %s policy: %v", codingEmptyPolicy, err)
 		}
@@ -34,7 +34,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Specimen"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -205,7 +205,7 @@ func TestConstructionGroupRelatedOccurrenceCodingFieldSourceAgainstArango(t *tes
 		t.Fatalf("connected EXCLUDE changed the absent-route Patient C identity: GROUP=%#v EXCLUDE=%#v", cMissingRoute, cExcluded)
 	}
 	errorQuery := queries["ERROR"]
-	if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil {
+	if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil {
 		t.Fatal("connected ERROR Coding-empty policy accepted the matched B-empty target")
 	}
 	removeDocument := func(collection, key string) {
@@ -462,10 +462,10 @@ func connectedCodingWithoutSystem(version, code, display string) map[string]any 
 	return map[string]any{"version": version, "code": code, "display": display}
 }
 
-func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store.Client, query CompiledQuery) []map[string]any {
+func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, query CompiledQuery) []map[string]any {
 	t.Helper()
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, query.Query, 500, query.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, query.Command), 500, testAQLBinds(t, query.Command), func(row map[string]any) error {
 		raw, err := json.Marshal(row)
 		if err != nil {
 			return fmt.Errorf("snapshot connected Group result row: %w", err)
@@ -477,7 +477,7 @@ func executeConnectedGroupQuery(t *testing.T, ctx context.Context, client *store
 		rows = append(rows, copy)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute connected Group query: %v\n%s", err, query.Query)
+		t.Fatalf("execute connected Group query: %v\n%s", err, testAQLText(t, query.Command))
 	}
 	return rows
 }
@@ -615,7 +615,7 @@ func assertConnectedGroupIdentity(t *testing.T, row map[string]any, patient stri
 func assertConnectedGroupLineage(
 	t *testing.T,
 	ctx context.Context,
-	client *store.Client,
+	client *arangofactory.Client,
 	compiled lower.CompiledRecipeOutput,
 	row map[string]any,
 	project, patientKey string,
@@ -625,7 +625,7 @@ func assertConnectedGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile connected Group lineage for row %#v: %v", row, err)
 	}

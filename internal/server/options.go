@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,37 +23,31 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen                        string                      `yaml:"listen"`
-	URL                           string                      `yaml:"url"`
-	Database                      string                      `yaml:"database"`
-	Schema                        string                      `yaml:"schema"`
-	ClickHouse                    ClickHouseConfig            `yaml:"clickhouse"`
-	Dataframer                    DataframerConfig            `yaml:"dataframer"`
-	RecipeBatchRows               int                         `yaml:"recipe_batch_rows"`
-	RecipeBatchBytes              int                         `yaml:"recipe_batch_bytes"`
-	RecipeQueryPageRows           int                         `yaml:"recipe_query_page_rows"`
-	RecipeQualityMaxRows          int64                       `yaml:"recipe_quality_max_rows"`
-	RecipeQualityMaxDistinctKeys  int64                       `yaml:"recipe_quality_max_distinct_keys"`
-	ArtifactDirectory             string                      `yaml:"artifact_directory"`
-	ArtifactTTL                   time.Duration               `yaml:"artifact_ttl"`
-	ArtifactMaxRows               int64                       `yaml:"artifact_max_rows"`
-	ArtifactMaxBytes              int64                       `yaml:"artifact_max_bytes"`
-	PopulationMappingCursorSecret string                      `yaml:"population_mapping_cursor_secret"`
-	AllowUnauthenticated          bool                        `yaml:"allow_unauthenticated"`
-	RequiredDataframeSelectors    []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
-	LocalWorkspaceWriteback       string                      `yaml:"local_workspace_writeback"`
-	LocalWorkspaceProject         string                      `yaml:"local_workspace_project"`
-	// DevActivationConflictOnce is intentionally not configurable through YAML.
-	// It is a one-shot fault injector for the isolated, --no-auth development
-	// stack and is ignored unless both server and auth are unauthenticated.
-	DevActivationConflictOnce bool `yaml:"-"`
-	// DevRepositoryActivationConflictOnce is the repository-publish sibling of
-	// DevActivationConflictOnce. It is intentionally not configurable through
-	// YAML, arms the one-shot corrupted-compare fault on the repository
-	// activation leg, and is honored only under the same local no-auth mode
-	// gate as the other dev fault switches.
-	DevRepositoryActivationConflictOnce bool          `yaml:"-"`
-	DevArtifactRowDelay                 time.Duration `yaml:"-"`
+	Listen                              string                      `yaml:"listen"`
+	Backend                             string                      `yaml:"backend"`
+	URL                                 string                      `yaml:"url"`
+	Database                            string                      `yaml:"database"`
+	Schema                              string                      `yaml:"schema"`
+	PostgreSQL                          PostgreSQLConfig            `yaml:"postgresql"`
+	ClickHouse                          ClickHouseConfig            `yaml:"clickhouse"`
+	Dataframer                          DataframerConfig            `yaml:"dataframer"`
+	RecipeBatchRows                     int                         `yaml:"recipe_batch_rows"`
+	RecipeBatchBytes                    int                         `yaml:"recipe_batch_bytes"`
+	RecipeQueryPageRows                 int                         `yaml:"recipe_query_page_rows"`
+	RecipeQualityMaxRows                int64                       `yaml:"recipe_quality_max_rows"`
+	RecipeQualityMaxDistinctKeys        int64                       `yaml:"recipe_quality_max_distinct_keys"`
+	ArtifactDirectory                   string                      `yaml:"artifact_directory"`
+	ArtifactTTL                         time.Duration               `yaml:"artifact_ttl"`
+	ArtifactMaxRows                     int64                       `yaml:"artifact_max_rows"`
+	ArtifactMaxBytes                    int64                       `yaml:"artifact_max_bytes"`
+	PopulationMappingCursorSecret       string                      `yaml:"population_mapping_cursor_secret"`
+	AllowUnauthenticated                bool                        `yaml:"allow_unauthenticated"`
+	RequiredDataframeSelectors          []dataset.DataframeSelector `yaml:"required_dataframe_selectors"`
+	LocalWorkspaceWriteback             string                      `yaml:"local_workspace_writeback"`
+	LocalWorkspaceProject               string                      `yaml:"local_workspace_project"`
+	DevActivationConflictOnce           bool                        `yaml:"-"`
+	DevRepositoryActivationConflictOnce bool                        `yaml:"-"`
+	DevArtifactRowDelay                 time.Duration               `yaml:"-"`
 }
 
 type ClickHouseConfig struct {
@@ -61,6 +56,40 @@ type ClickHouseConfig struct {
 	Database string `yaml:"database"`
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
+}
+
+type PostgreSQLConfig struct {
+	Host            string            `yaml:"host"`
+	Port            int               `yaml:"port"`
+	Database        string            `yaml:"database"`
+	User            string            `yaml:"user"`
+	Password        string            `yaml:"password"`
+	SSLMode         string            `yaml:"sslmode"`
+	MaxOpenConns    int               `yaml:"max_open_conns"`
+	MaxIdleConns    int               `yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration     `yaml:"conn_max_lifetime"`
+	Schemas         map[string]string `yaml:"schemas"`
+}
+
+const (
+	sourceBackendArango   = "arango"
+	sourceBackendPostgres = "postgres"
+
+	defaultServerURL      = "http://127.0.0.1:8529"
+	defaultServerDatabase = "fhir_proto"
+
+	defaultPostgresPort            = 5432
+	defaultPostgresSSLMode         = "prefer"
+	defaultPostgresMaxOpenConns    = 10
+	defaultPostgresMaxIdleConns    = 5
+	defaultPostgresConnMaxLifetime = 30 * time.Minute
+)
+
+var postgresSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
+var postgresCLIFlagNames = []string{
+	"pg-host", "pg-port", "pg-database", "pg-user", "pg-password", "pg-sslmode",
+	"pg-max-open-conns", "pg-max-idle-conns", "pg-conn-max-lifetime",
 }
 
 type DataframerConfig struct {
@@ -90,8 +119,14 @@ const defaultRecipeQueryPageRows = 250
 func DefaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
-			Listen: ":8080", URL: "http://127.0.0.1:8529", Database: "fhir_proto",
-			Schema: "schemas/graph-fhir.json", ClickHouse: ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
+			Listen: ":8080", Backend: sourceBackendArango, URL: defaultServerURL, Database: defaultServerDatabase,
+			Schema: "schemas/graph-fhir.json",
+			PostgreSQL: PostgreSQLConfig{
+				Port: defaultPostgresPort, SSLMode: defaultPostgresSSLMode,
+				MaxOpenConns: defaultPostgresMaxOpenConns, MaxIdleConns: defaultPostgresMaxIdleConns,
+				ConnMaxLifetime: defaultPostgresConnMaxLifetime,
+			},
+			ClickHouse:      ClickHouseConfig{Enabled: true, URL: "clickhouse://127.0.0.1:9000", Database: "loom", Username: "default"},
 			RecipeBatchRows: 1000, RecipeBatchBytes: 4 << 20, RecipeQueryPageRows: defaultRecipeQueryPageRows,
 			RecipeQualityMaxRows: 1_000_000, RecipeQualityMaxDistinctKeys: 1_000_000,
 			ArtifactDirectory: "/tmp/loom-artifacts", ArtifactTTL: 24 * time.Hour,
@@ -106,9 +141,19 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		configPath              string
 		listen                  string
 		noAuth                  bool
+		backend                 string
 		url                     string
 		database                string
 		schema                  string
+		pgHost                  string
+		pgPort                  int
+		pgDatabase              string
+		pgUser                  string
+		pgPassword              string
+		pgSSLMode               string
+		pgMaxOpenConns          int
+		pgMaxIdleConns          int
+		pgConnMaxLifetime       time.Duration
 		clickhouseURL           string
 		clickhouseDatabase      string
 		clickhouseUsername      string
@@ -126,9 +171,19 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	fs.StringVar(&configPath, "config", "", "YAML server configuration file")
 	fs.StringVar(&listen, "listen", ":8080", "HTTP listen address")
 	fs.BoolVar(&noAuth, "no-auth", false, "disable scoped authorization for local development")
-	fs.StringVar(&url, "url", "http://127.0.0.1:8529", "ArangoDB URL")
-	fs.StringVar(&database, "database", "fhir_proto", "ArangoDB database")
+	fs.StringVar(&backend, "backend", sourceBackendArango, "source graph/catalog backend: arango or postgres")
+	fs.StringVar(&url, "url", defaultServerURL, "ArangoDB URL (ArangoDB backend only)")
+	fs.StringVar(&database, "database", defaultServerDatabase, "ArangoDB database (ArangoDB backend only)")
 	fs.StringVar(&schema, "schema", "schemas/graph-fhir.json", "FHIR graph schema path for imports")
+	fs.StringVar(&pgHost, "pg-host", "", "PostgreSQL host (required with --backend postgres)")
+	fs.IntVar(&pgPort, "pg-port", defaultPostgresPort, "PostgreSQL port")
+	fs.StringVar(&pgDatabase, "pg-database", "", "PostgreSQL database (required with --backend postgres)")
+	fs.StringVar(&pgUser, "pg-user", "", "PostgreSQL user (required with --backend postgres)")
+	fs.StringVar(&pgPassword, "pg-password", "", "PostgreSQL password; never rendered or logged")
+	fs.StringVar(&pgSSLMode, "pg-sslmode", defaultPostgresSSLMode, "PostgreSQL TLS mode: disable, allow, prefer, require, verify-ca, or verify-full")
+	fs.IntVar(&pgMaxOpenConns, "pg-max-open-conns", defaultPostgresMaxOpenConns, "PostgreSQL maximum open pool connections")
+	fs.IntVar(&pgMaxIdleConns, "pg-max-idle-conns", defaultPostgresMaxIdleConns, "PostgreSQL maximum idle pool connections; must not exceed --pg-max-open-conns")
+	fs.DurationVar(&pgConnMaxLifetime, "pg-conn-max-lifetime", defaultPostgresConnMaxLifetime, "PostgreSQL maximum connection lifetime; zero disables expiry")
 	fs.StringVar(&clickhouseURL, "clickhouse-url", "clickhouse://127.0.0.1:9000", "ClickHouse native URL for published dataframe reads")
 	fs.StringVar(&clickhouseDatabase, "clickhouse-database", "loom", "ClickHouse database for published dataframe reads")
 	fs.StringVar(&clickhouseUsername, "clickhouse-username", "default", "ClickHouse username for published dataframe reads")
@@ -144,16 +199,14 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
 	}
+	explicitFlags := make(map[string]bool, fs.NFlag())
+	fs.Visit(func(f *flag.Flag) { explicitFlags[f.Name] = true })
 
 	if strings.TrimSpace(configPath) != "" {
 		cfg, err := LoadConfig(configPath)
 		if err != nil {
 			return Config{}, err
 		}
-		// --no-auth is an explicit local-development override. Keep the
-		// configuration file authoritative for normal server settings, but honor
-		// this flag even when the server is started with --config (as the Helm
-		// local-development path does).
 		if noAuth {
 			cfg.Server.AllowUnauthenticated = true
 			cfg.Auth.AllowUnauthenticated = true
@@ -164,6 +217,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		if strings.TrimSpace(localWorkspaceWriteback) != "" {
 			cfg.Server.LocalWorkspaceWriteback = localWorkspaceWriteback
 			cfg.Server.LocalWorkspaceProject = localWorkspaceProject
+		}
+		if err := checkSourceBackendConflicts(&cfg, explicitFlags, true); err != nil {
+			return Config{}, fmt.Errorf("invalid server config: %w", err)
 		}
 		if err := cfg.Validate(); err != nil {
 			return Config{}, fmt.Errorf("invalid server config: %w", err)
@@ -176,9 +232,21 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 		return Config{}, err
 	}
 	cfg.Server.Listen = listen
+	cfg.Server.Backend = backend
 	cfg.Server.URL = url
 	cfg.Server.Database = database
 	cfg.Server.Schema = schema
+	cfg.Server.PostgreSQL = PostgreSQLConfig{
+		Host:            pgHost,
+		Port:            pgPort,
+		Database:        pgDatabase,
+		User:            pgUser,
+		Password:        pgPassword,
+		SSLMode:         pgSSLMode,
+		MaxOpenConns:    pgMaxOpenConns,
+		MaxIdleConns:    pgMaxIdleConns,
+		ConnMaxLifetime: pgConnMaxLifetime,
+	}
 	cfg.Server.ClickHouse.URL = clickhouseURL
 	cfg.Server.ClickHouse.Database = clickhouseDatabase
 	cfg.Server.ClickHouse.Username = clickhouseUsername
@@ -197,6 +265,9 @@ func parseServerOptions(args []string, handling flag.ErrorHandling) (Config, err
 	}
 	if err := applyDevFaultOverrides(&cfg); err != nil {
 		return Config{}, err
+	}
+	if err := checkSourceBackendConflicts(&cfg, explicitFlags, false); err != nil {
+		return Config{}, fmt.Errorf("invalid server config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("invalid server config: %w", err)
@@ -245,9 +316,6 @@ func applyEnvironment(cfg Config) (Config, error) {
 	return cfg, nil
 }
 
-// applyDevFaultOverrides is deliberately gated by the local no-auth mode.
-// These switches provide deterministic fault scenarios for the isolated dev
-// Compose stack without creating a production request or OpenAPI surface.
 func applyDevFaultOverrides(cfg *Config) error {
 	if cfg == nil || !cfg.Server.AllowUnauthenticated || !cfg.Auth.AllowUnauthenticated {
 		return nil
@@ -297,6 +365,170 @@ func applyDevFaultOverrides(cfg *Config) error {
 	return nil
 }
 
+func normalizeSourceBackend(value string) (string, error) {
+	backend := strings.ToLower(strings.TrimSpace(value))
+	if backend == "" {
+		return sourceBackendArango, nil
+	}
+	switch backend {
+	case sourceBackendArango, sourceBackendPostgres:
+		return backend, nil
+	default:
+		return "", fmt.Errorf("server.backend must be %s or %s, got %q", sourceBackendArango, sourceBackendPostgres, backend)
+	}
+}
+
+func checkSourceBackendConflicts(cfg *Config, explicitFlags map[string]bool, usingConfigFile bool) error {
+	backend, err := normalizeSourceBackend(cfg.Server.Backend)
+	if err != nil {
+		return err
+	}
+	cfg.Server.Backend = backend
+	if usingConfigFile {
+		if explicitFlags["backend"] {
+			return fmt.Errorf("server.backend is owned by the --config file; remove the explicit --backend override")
+		}
+		var pgFlags []string
+		for _, name := range postgresCLIFlagNames {
+			if explicitFlags[name] {
+				pgFlags = append(pgFlags, "--"+name)
+			}
+		}
+		if len(pgFlags) > 0 {
+			return fmt.Errorf("server.postgresql settings are owned by the --config file; remove the explicit %s override", strings.Join(pgFlags, ", "))
+		}
+	}
+	if backend != sourceBackendPostgres {
+		return nil
+	}
+	var conflicting []string
+	if explicitFlags["url"] {
+		conflicting = append(conflicting, "--url")
+	}
+	if explicitFlags["database"] {
+		conflicting = append(conflicting, "--database")
+	}
+	if len(conflicting) > 0 {
+		return fmt.Errorf("server.backend %s conflicts with explicitly set ArangoDB settings %s; remove them when selecting postgres", sourceBackendPostgres, strings.Join(conflicting, " and "))
+	}
+	return nil
+}
+
+func (p PostgreSQLConfig) validate() error {
+	if strings.TrimSpace(p.Host) == "" {
+		return errors.New("server.postgresql.host is required when server.backend is postgres")
+	}
+	if p.Port < 1 || p.Port > 65535 {
+		return fmt.Errorf("server.postgresql.port must be between 1 and 65535, got %d", p.Port)
+	}
+	if strings.TrimSpace(p.Database) == "" {
+		return errors.New("server.postgresql.database is required when server.backend is postgres")
+	}
+	if strings.TrimSpace(p.User) == "" {
+		return errors.New("server.postgresql.user is required when server.backend is postgres")
+	}
+	sslMode := strings.ToLower(strings.TrimSpace(p.SSLMode))
+	known := false
+	for _, mode := range postgresSSLModes {
+		if sslMode == mode {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return fmt.Errorf("server.postgresql.sslmode must be one of %s, got %q", strings.Join(postgresSSLModes, ", "), p.SSLMode)
+	}
+	if p.MaxOpenConns <= 0 {
+		return fmt.Errorf("server.postgresql.max_open_conns must be positive, got %d", p.MaxOpenConns)
+	}
+	if p.MaxIdleConns < 0 || p.MaxIdleConns > p.MaxOpenConns {
+		return fmt.Errorf("server.postgresql.max_idle_conns must be between 0 and server.postgresql.max_open_conns (%d), got %d", p.MaxOpenConns, p.MaxIdleConns)
+	}
+	if p.ConnMaxLifetime < 0 {
+		return errors.New("server.postgresql.conn_max_lifetime cannot be negative")
+	}
+	if len(p.Schemas) == 0 {
+		return nil
+	}
+	const (
+		seriesSource               = "source"
+		seriesExplorerControl      = "explorer_control"
+		seriesPublicationControl   = "publication_control"
+		seriesDatasetRelease       = "dataset_release"
+		seriesRecipeChains         = "recipe_chains"
+		seriesRecipeExecRegistries = "recipe_exec_registries"
+	)
+	ladder := []string{seriesSource, seriesExplorerControl, seriesPublicationControl, seriesDatasetRelease, seriesRecipeChains, seriesRecipeExecRegistries}
+	_, hasSource := p.Schemas[seriesSource]
+	_, hasDatasetRelease := p.Schemas[seriesDatasetRelease]
+	firstQueryPair := len(p.Schemas) == 2 && hasSource && hasDatasetRelease
+	fullLadder := len(p.Schemas) == len(ladder)
+	for _, series := range ladder {
+		if _, assigned := p.Schemas[series]; !assigned && fullLadder {
+			fullLadder = false
+			break
+		}
+	}
+	for series := range p.Schemas {
+		known := false
+		for _, candidate := range ladder {
+			if series == candidate {
+				known = true
+				break
+			}
+		}
+		if !known {
+			return fmt.Errorf("server.postgresql.schemas: series %q is not consumed by any production factory; the consumable shapes are the exact first-query-route pair (source and dataset_release) or the complete six-series ladder", series)
+		}
+	}
+	if !firstQueryPair && !fullLadder {
+		return fmt.Errorf("server.postgresql.schemas: the consumable shapes are the exact first-query-route pair (source and dataset_release) or the complete six-series ladder (source, explorer_control, publication_control, dataset_release, recipe_chains, recipe_exec_registries); got %d entries", len(p.Schemas))
+	}
+	for series, schema := range p.Schemas {
+		if strings.TrimSpace(schema) == "" {
+			return fmt.Errorf("server.postgresql.schemas: the %s entry cannot be blank", series)
+		}
+	}
+	trimmed := make(map[string]string, len(p.Schemas))
+	for series, schema := range p.Schemas {
+		name := strings.TrimSpace(schema)
+		if other, clash := trimmed[name]; clash {
+			return fmt.Errorf("server.postgresql.schemas: %s and %s must name distinct schemas; their pinned migration ledgers disagree, and the shared-schema refusal stays authoritative at storepostgres.ValidateAssignment", series, other)
+		}
+		trimmed[name] = series
+	}
+	return nil
+}
+
+const redactedConfigSecret = "[redacted]"
+
+func redactedConfigSecretFor(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return redactedConfigSecret
+}
+
+var configURLCredentials = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@`)
+
+func redactConfigURL(value string) string {
+	return configURLCredentials.ReplaceAllString(value, "${1}[redacted]@")
+}
+
+func (c Config) String() string {
+	return fmt.Sprintf(
+		"server{listen=%q backend=%q url=%q database=%q schema=%q postgresql{host=%q port=%d database=%q user=%q password=%q sslmode=%q max_open_conns=%d max_idle_conns=%d conn_max_lifetime=%s} clickhouse{enabled=%t url=%q database=%q username=%q password=%q} artifact_directory=%q population_mapping_cursor_secret=%q} auth{mode=%q basic{username=%q password=%q}}",
+		c.Server.Listen, c.Server.Backend, redactConfigURL(c.Server.URL), c.Server.Database, c.Server.Schema,
+		c.Server.PostgreSQL.Host, c.Server.PostgreSQL.Port, c.Server.PostgreSQL.Database, c.Server.PostgreSQL.User,
+		redactedConfigSecretFor(c.Server.PostgreSQL.Password), c.Server.PostgreSQL.SSLMode,
+		c.Server.PostgreSQL.MaxOpenConns, c.Server.PostgreSQL.MaxIdleConns, c.Server.PostgreSQL.ConnMaxLifetime,
+		c.Server.ClickHouse.Enabled, redactConfigURL(c.Server.ClickHouse.URL), c.Server.ClickHouse.Database,
+		c.Server.ClickHouse.Username, redactedConfigSecretFor(c.Server.ClickHouse.Password),
+		c.Server.ArtifactDirectory, redactedConfigSecretFor(c.Server.PopulationMappingCursorSecret),
+		c.Auth.Mode, c.Auth.Basic.Username, redactedConfigSecretFor(c.Auth.Basic.Password),
+	)
+}
+
 func (c Config) Validate() error {
 	cfg := c
 	if cfg.Server.RecipeQueryPageRows < 0 {
@@ -307,6 +539,18 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(cfg.Server.ArtifactDirectory) == "" || cfg.Server.ArtifactTTL <= 0 || cfg.Server.ArtifactMaxRows <= 0 || cfg.Server.ArtifactMaxBytes <= 0 {
 		return errors.New("server artifact directory, TTL, row limit, and byte limit must be configured")
+	}
+	backend, err := normalizeSourceBackend(cfg.Server.Backend)
+	if err != nil {
+		return err
+	}
+	if backend == sourceBackendPostgres {
+		if strings.TrimSpace(cfg.Server.URL) != defaultServerURL || strings.TrimSpace(cfg.Server.Database) != defaultServerDatabase {
+			return errors.New("server.url and server.database are ArangoDB settings and cannot be customized while server.backend is postgres")
+		}
+		if err := cfg.Server.PostgreSQL.validate(); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(cfg.Server.LocalWorkspaceWriteback) != "" && !(cfg.Server.AllowUnauthenticated || cfg.Auth.AllowUnauthenticated) {
 		return errors.New("server.local_workspace_writeback requires unauthenticated local-development mode")

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -154,8 +155,16 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -380,10 +389,6 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 		`{"snapshotToken":%q,"expectedDraftVersion":1,"expectedDraftDigest":%q,"outputId":"patients","changedStepId":"unpivot_step","candidateConstruction":%s,"unpivotSources":[{"choiceId":%q,"columnId":%q}]}`,
 		snapshot.Token, digest,
 		func() string {
-			// Melt a string-valued identity column together with the signed
-			// integer slot: the joint kind set is outside the compiler's melt
-			// rule (tableScalarKindsCompatible), so the lifecycle lane must
-			// refuse before the candidate reaches the compiler.
 			incompatibleMelt := authoringv2.ConstructionStep{
 				ID:     "unpivot_step",
 				Inputs: []authoringv2.ConstructionInputRef{{Kind: authoringv2.ConstructionInputStepOutput, StepID: "derive_step"}},
@@ -439,12 +444,6 @@ func TestConstructionUnpivotSourceHTTPContractPreservesCapabilitiesAndProposals(
 	}
 }
 
-// --- F-A durable: melt-first signed UNPIVOT at the shipped handler boundary ---
-// (Journaled defect F-A, authority /tmp/opencode/fa-report.md §1-§4; durable
-// port of the reviewer's /tmp/opencode/fa-repro/fa_melt_first_overlay_test.go,
-// renamed to the lane family. Same harness as the shipped contract test:
-// fiber + real compileExplorerReceipt + recipe engine.)
-
 type unpivotMeltFirstEnv struct {
 	t         *testing.T
 	app       *fiber.App
@@ -496,8 +495,16 @@ func newUnpivotMeltFirstEnvWithCandidates(t *testing.T, extra ...capability.Cand
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry:  compilerTestRegistry{},
-		QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{},
+		SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -567,10 +574,6 @@ func (e *unpivotMeltFirstEnv) meltFirstSignedChoice(t *testing.T, fieldPath stri
 	return ""
 }
 
-// meltFirstCompiledColumnID returns the COMPILED source_projection stage
-// column id for an authored name; the melt reads stage columns, not authored
-// column ids, and using an authored id short-circuits to NEEDS_REPAIR before
-// compile+reconcile, masking F-A.
 func (e *unpivotMeltFirstEnv) meltFirstCompiledColumnID(t *testing.T, authorName string) string {
 	t.Helper()
 	var envelope struct {
@@ -633,13 +636,6 @@ func unpivotMeltFirstConstruction(publicColumnID, stepID, signedColumnID string,
 	}}}
 }
 
-// F-A regression: the compiler legitimately seeds the melt-signed projection
-// into SOURCE_PROJECTION (compilation/construction.go -> sourceColumns ->
-// lower/recipe_construction.go resolveConstructionSourceSchema), so the melt
-// as FIRST step is a legit compiled state with no possible authored carrier:
-// reconcile must never answer the catch-all 500
-// CONSTRUCTION_RECEIPT_CONTRACT_INVALID. RED pre-fix (500), GREEN post-fix
-// (honest 200 preview; reviewer cross-check /tmp/opencode/fa-repro).
 func TestConstructionUnpivotSourceMeltFirstSignedIsNotContractInvalid(t *testing.T) {
 	env := newUnpivotMeltFirstEnv(t)
 	choiceID := env.meltFirstSignedChoice(t, "gender")
@@ -665,8 +661,6 @@ func TestConstructionUnpivotSourceMeltFirstSignedIsNotContractInvalid(t *testing
 	}
 }
 
-// Control, isolating F-A to the signed-melt-first gap: the same first-step
-// melt without a signed binding stays a clean 200 preview pre- and post-fix.
 func TestConstructionUnpivotSourceMeltFirstPublicOnlyStaysGreen(t *testing.T) {
 	env := newUnpivotMeltFirstEnv(t)
 	const stepID = "unpivot_public_first"
@@ -689,13 +683,6 @@ func TestConstructionUnpivotSourceMeltFirstPublicOnlyStaysGreen(t *testing.T) {
 	}
 }
 
-// --- dated date-family melt refusal (operator decision #4) ---
-// A signed date or date_time melt through the shipped proposal handler must
-// return the named 422 refusal, discovery must hide the date-family choices,
-// and the permitted STRING class must stay a clean 200 preview. Pre-fix, the
-// signed effectiveDateTime melt reached a 200 decorated preview on the
-// accepted binary (authority /tmp/opencode/jrev/probe-date-melt-dp4.log).
-
 func unpivotDateRejectCandidates() []capability.Candidate {
 	return []capability.Candidate{
 		{
@@ -715,10 +702,6 @@ func unpivotDateRejectCandidates() []capability.Candidate {
 	}
 }
 
-// The date family is hidden from discovery by the refusal, so the request
-// token is minted through the RowChoicePlanner directly (same authority the
-// lifecycle boundary tests use), proving discovery and admission fail closed
-// together.
 func unpivotPlannerSignedChoice(t *testing.T, snapshot capability.Snapshot, path string) string {
 	t.Helper()
 	index, err := fhirschema.GeneratedIndex()

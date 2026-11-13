@@ -9,9 +9,6 @@ import (
 	"strings"
 )
 
-// TableReshape is a document-level row operation over the finalized authored
-// output columns. It is distinct from Pivot, which projects correlated values
-// from one FHIR row.
 type TableReshape struct {
 	Kind         TableReshapeKind `json:"kind"`
 	GroupedPivot *GroupedPivot    `json:"groupedPivot,omitempty"`

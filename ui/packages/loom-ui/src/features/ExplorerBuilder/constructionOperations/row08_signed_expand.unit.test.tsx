@@ -21,7 +21,6 @@ const baseStage: ConstructionReshapeEditorProps['capabilities']['selectedStage']
     { kind: 'PIVOT', supported: false, reason: 'not needed' },
     { kind: 'UNPIVOT', supported: false, reason: 'not needed' },
     { kind: 'GROUP', supported: true },
-    // Server gate closed: the signed lane must still open on its own.
     { kind: 'EXPAND', supported: false, reason: 'no public array columns' },
   ],
 };
@@ -116,7 +115,6 @@ describe('signed EXPAND source lane', () => {
     expect(step?.operation.kind).toBe('EXPAND');
     if (step?.operation.kind !== 'EXPAND') throw new Error('expected expand step');
     expect(step.operation.expand.inputColumnId).toBe(intent?.expandSources?.[0]?.columnId);
-    // The client never authors the trusted payload; the server signs it.
     expect(step.operation.expand.expandedField).toBeUndefined();
   });
 

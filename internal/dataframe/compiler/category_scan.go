@@ -10,10 +10,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
 	"github.com/calypr/loom/internal/dataframe/compiler/render/aql"
+	postgresrender "github.com/calypr/loom/internal/dataframe/compiler/render/postgres"
 	"github.com/calypr/loom/internal/dataframe/expression"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 )
@@ -57,9 +59,6 @@ func CategoryScanRefusalCodeOf(err error) (CategoryScanRefusalCode, bool) {
 	return refusal.Code, true
 }
 
-// CategoryScanProof binds a scan to the exact finalized output contract and
-// executable query. It is immutable compiler output, suitable for inclusion
-// in a later signed receipt without reconstructing either plan or schema.
 type CategoryScanProof struct {
 	Version                    int
 	Output                     string
@@ -79,13 +78,11 @@ type CategoryScanProof struct {
 }
 
 type CategoryOverflowWitness struct {
-	Query    string
-	BindVars map[string]any
+	Command command.CompiledCommand
 }
 
 type CompiledCategoryScanQuery struct {
-	Query                string
-	BindVars             map[string]any
+	Command              command.CompiledCommand
 	PresentColumn        string
 	ValueColumn          string
 	Proof                CategoryScanProof
@@ -95,20 +92,25 @@ type CompiledCategoryScanQuery struct {
 	OverflowWitness      *CategoryOverflowWitness
 }
 
-func CompileCategoryScanOutputWithPolicy(output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func CompileCategoryScanOutput(target Target, output lower.CompiledRecipeOutput, columnName string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
 	columnName = strings.TrimSpace(columnName)
 	column, err := categoryScanColumn(output.OutputSchema, columnName)
 	if err != nil {
 		return CompiledCategoryScanQuery{}, err
 	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePostgreSQLCategoryScan(target, output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy)
+	}
 	return compileCategoryScan(output, output.OutputSchema, column, lower.CompiledOutputColumn{}, "", "", "", maxValues, policy)
 }
 
-// CompileCategoryScanStageWithPolicy compiles the exact prefix ending at a
-// compiler-owned construction stage and binds the proof to the selected
-// category and value columns. The value column is not read by the scan, but is
-// included in the proof so a result cannot be reused for another pivot pair.
-func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+func CompileCategoryScanStage(target Target, output lower.CompiledRecipeOutput, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if err := target.validate(); err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
 	stage, found := compiledStageByID(output.Stages, stageID)
 	if !found {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
@@ -159,6 +161,9 @@ func CompileCategoryScanStageWithPolicy(output lower.CompiledRecipeOutput, stage
 		}
 	} else if stageID != recipe.ConstructionSourceProjectionID {
 		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanStageUnknown, Column: stageID}
+	}
+	if target.backend == command.CompiledBackendPostgreSQL {
+		return compilePostgreSQLCategoryScan(target, stageOutput, stageOutput.OutputSchema, category, value, stageID, category.ID, value.ID, maxValues, policy)
 	}
 	return compileCategoryScan(stageOutput, stageOutput.OutputSchema, category, value, stageID, category.ID, value.ID, maxValues, policy)
 }
@@ -213,10 +218,6 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 			categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
 			(stageID == "" && categoryScanDirectRootSource(physical, column))
 		if sourceProjectionEquivalent {
-			// The proof remains bound to the requested terminal stage, while the
-			// category query uses the cheaper source projection after proving that
-			// every row in the stage prefix still represents a source parent and
-			// carries this exact root category unchanged.
 			physical.StageSequence = nil
 			physical = narrowSourceCategoryScanProjection(physical, column.Name)
 		} else {
@@ -298,13 +299,15 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 				witnessBinds := cloneCategoryScanBinds(witness.BindVars)
 				witnessBinds[categoryColumnBind] = column.Name
 				witnessBinds[categoryLimitBind] = maxValues + 1
-				overflowWitness = &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}
+				witnessCommand, witnessCommandErr := command.NewAQLCommand(witnessQuery, witnessBinds)
+				if witnessCommandErr != nil {
+					return CompiledCategoryScanQuery{}, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
+				}
+				overflowWitness = &CategoryOverflowWitness{Command: witnessCommand}
 			}
 		}
 	}
 	if categoryIndex != nil && len(categoryIndex.StoredValues) != 0 {
-		// The category index is also the direct-root Pivot index for this path;
-		// do not schedule the older field-only source prewarm alongside it.
 		previewCoveringIndex = nil
 	}
 
@@ -324,7 +327,11 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 		QueryFingerprint: queryDigest, PresenceTracked: column.PresenceCompanionName != "" || relatedEligible || categoryScanDirectRootSource(physical, column),
 	}
 	if overflowWitness != nil {
-		proof.OverflowWitnessFingerprint, err = categoryQueryFingerprint(overflowWitness.Query, overflowWitness.BindVars)
+		witnessText, witnessBinds, witnessDispatchErr := overflowWitness.Command.AQLParameters()
+		if witnessDispatchErr != nil {
+			return CompiledCategoryScanQuery{}, fmt.Errorf("dispatch category overflow witness to AQL fingerprinting: %w", witnessDispatchErr)
+		}
+		proof.OverflowWitnessFingerprint, err = categoryQueryFingerprint(witnessText, witnessBinds)
 		if err != nil {
 			return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category overflow witness: %w", err)
 		}
@@ -339,17 +346,83 @@ func compileCategoryScan(output lower.CompiledRecipeOutput, schema []lower.Compi
 	if err != nil {
 		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan proof: %w", err)
 	}
+	compiledCommand, commandErr := command.NewAQLCommand(query, bindVars)
+	if commandErr != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("tag category scan command: %w", commandErr)
+	}
 	return CompiledCategoryScanQuery{
-		Query: query, BindVars: bindVars, PresentColumn: "present", ValueColumn: "value",
+		Command: compiledCommand, PresentColumn: "present", ValueColumn: "value",
 		Proof: proof, Diagnostics: diagnostics, CategoryIndex: categoryIndex,
 		PreviewCoveringIndex: previewCoveringIndex, OverflowWitness: overflowWitness,
 	}, nil
 }
 
-// categoryScanPreservesSourceCategories proves that complete distinct values
-// at a construction stage equal the values on its source parents. It only
-// accepts a direct scalar source projection and a contiguous prefix made of
-// parent-preserving RELATED_EXPAND and row-preserving RELATED_FIELD stages.
+func compilePostgreSQLCategoryScan(target Target, output lower.CompiledRecipeOutput, schema []lower.CompiledOutputColumn, column, valueColumn lower.CompiledOutputColumn, stageID, categoryColumnID, valueColumnID string, maxValues int, policy ir.PhysicalOptimizationPolicy) (CompiledCategoryScanQuery, error) {
+	if maxValues < 1 || maxValues > MaxCategoryScanValues {
+		return CompiledCategoryScanQuery{}, &CategoryScanRefusal{Code: CategoryScanInvalidLimit, Column: column.Name}
+	}
+	physical, err := categoryScanPhysicalPlan(output, policy)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, err
+	}
+	presenceMarkerColumn := categoryScanPresenceMarkerColumn(physical, schema)
+	if physical.StageSequence != nil {
+		sourceProjectionEquivalent := stageID == recipe.ConstructionSourceProjectionID ||
+			categoryScanPreservesSourceCategories(physical, stageID, categoryColumnID, column) ||
+			(stageID == "" && categoryScanDirectRootSource(physical, column))
+		if !sourceProjectionEquivalent {
+			return CompiledCategoryScanQuery{}, fmt.Errorf(
+				"category scan of construction stage %q needs a composed stage-sequence read, which has no registered PostgreSQL category terminal: %w",
+				stageID, postgresrender.ErrUnsupportedPostgresPlan)
+		}
+		physical.StageSequence = nil
+		physical = narrowSourceCategoryScanProjection(physical, column.Name)
+	}
+	physical, err = withGenericPhysicalExecutionWindow(physical, 0)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("apply category scan execution window: %w", err)
+	}
+	if physical.StageSequence == nil {
+		physical = withoutCategoryScanRootIdentitySort(physical)
+	}
+	rendered, err := postgresrender.RenderCategoryScan(physical, target.postgres, column.Name, presenceMarkerColumn, maxValues)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("render postgresql category scan: %w", err)
+	}
+	compiledCommand, commandErr := command.NewPostgreSQLCommand(rendered.Values.SQL, rendered.Values.Args)
+	if commandErr != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("tag category scan command: %w", commandErr)
+	}
+
+	diagnostics := physicalPlanDiagnostics(physical)
+	schemaDigest, err := categoryHash(schema)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan schema: %w", err)
+	}
+	proof := CategoryScanProof{
+		Version: 1, Output: output.Name, Column: column.Name, Kind: column.Kind,
+		Cardinality: column.Cardinality, MaxValues: maxValues,
+		OutputSchemaDigest: schemaDigest, PlanFingerprint: diagnostics.Fingerprint,
+		QueryFingerprint: postgreSQLPlanFingerprint(rendered.Values.SQL, rendered.Values.Args, rendered.Values.OutputColumns),
+		PresenceTracked:  true,
+	}
+	if stageID != "" {
+		proof.Version = 2
+		proof.StageID = stageID
+		proof.ColumnID = categoryColumnID
+		proof.ValueColumnID = valueColumnID
+	}
+	proof.Fingerprint, err = categoryHash(proof)
+	if err != nil {
+		return CompiledCategoryScanQuery{}, fmt.Errorf("fingerprint category scan proof: %w", err)
+	}
+	return CompiledCategoryScanQuery{
+		Command:       compiledCommand,
+		PresentColumn: rendered.PresentColumn, ValueColumn: rendered.ValueColumn,
+		Proof: proof, Diagnostics: diagnostics,
+	}, nil
+}
+
 func categoryScanPreservesSourceCategories(plan ir.PhysicalPlan, stageID, categoryColumnID string, category lower.CompiledOutputColumn) bool {
 	sequence := plan.StageSequence
 	if sequence == nil || stageID == "" || stageID == sequence.SourceStageID || sequence.FinalStageID != stageID ||
@@ -521,8 +594,6 @@ func categoryScanRootProjectionSource(plan ir.PhysicalPlan) (*ir.PhysicalRootSca
 				correlatedVariables[set.Prepared.Variable] = struct{}{}
 			}
 		default:
-			// Top-level traversals and unnests change row grain; only nested
-			// correlated sets are safe before a direct root projection.
 			return nil, nil, false
 		}
 	}
@@ -727,7 +798,11 @@ func categoryScanIndexedRootQueries(plan ir.PhysicalPlan, category lower.Compile
 	delete(witnessBinds, categoryLimitBind)
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+	witnessCommand, witnessCommandErr := command.NewAQLCommand(witnessQuery, witnessBinds)
+	if witnessCommandErr != nil {
+		return "", nil, nil, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
+	}
+	return query, bindVars, &CategoryOverflowWitness{Command: witnessCommand}, nil
 }
 
 func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootScan, valueExpression string, valuePath []string, bindVars map[string]any, maxValues int) (string, map[string]any, *CategoryOverflowWitness, error) {
@@ -768,7 +843,11 @@ func categoryScanStoredQuantityParentQuery(prefix string, root *ir.PhysicalRootS
 	delete(witnessBinds, categoryLimitBind)
 	bindVars = categoryScanPruneBindVars(bindVars, query)
 	witnessBinds = categoryScanPruneBindVars(witnessBinds, witnessQuery)
-	return query, bindVars, &CategoryOverflowWitness{Query: witnessQuery, BindVars: witnessBinds}, nil
+	witnessCommand, witnessCommandErr := command.NewAQLCommand(witnessQuery, witnessBinds)
+	if witnessCommandErr != nil {
+		return "", nil, nil, fmt.Errorf("tag category overflow witness command: %w", witnessCommandErr)
+	}
+	return query, bindVars, &CategoryOverflowWitness{Command: witnessCommand}, nil
 }
 
 func categoryScanUsesStoredQuantityParent(index *PreviewCoveringIndexSpec, valuePath []string) bool {

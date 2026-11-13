@@ -8,13 +8,11 @@ import (
 	"strings"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
 )
 
-// MaterializeClickHouseArtifact streams a complete AQL output into a private,
-// typed ClickHouse artifact. The artifact remains leased after this call and
-// must be released after the ClickHouse stage finishes reading it.
 func (s OutputStream) MaterializeClickHouseArtifact(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*chartifact.Artifact, error) {
 	capture, err := s.materializeClickHouseArtifact(ctx, manager, executionID, stageID, columns)
 	if err != nil {
@@ -30,11 +28,19 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if s.captureExecutionID != "" && executionID != s.captureExecutionID {
 		return nil, fmt.Errorf("private artifact execution ID differs from its owning workspace capture")
 	}
-	aqlSource := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.stream != nil
+	sourceStream := s.physicalEngine != ir.PhysicalEngineClickHouse && s.clickHouseCombine == nil && s.sourceRows != nil
+	pgSource := sourceStream && s.command.Backend() == command.CompiledBackendPostgreSQL &&
+		s.expectedBackend == command.CompiledBackendPostgreSQL && len(s.commandColumns) > 0
+	aqlSource := sourceStream && !pgSource && s.command.Backend() != command.CompiledBackendPostgreSQL
 	clickHouseSource := s.physicalEngine == ir.PhysicalEngineClickHouse && s.clickHouseCombine != nil && s.clickHouseQueryRows != nil && s.compiledOutput
-	if !aqlSource && !clickHouseSource {
-		return nil, fmt.Errorf("private artifact requires a compiler-resolved streamable AQL or ClickHouse output")
+	if !aqlSource && !pgSource && !clickHouseSource {
+		return nil, fmt.Errorf("private artifact requires a compiler-resolved streamable AQL, PostgreSQL, or ClickHouse output")
 	}
+	sourceLabel := "AQL"
+	if pgSource {
+		sourceLabel = "PostgreSQL"
+	}
+	sourceNeedsEvidence := aqlSource || pgSource
 	if s.queryLimit != 0 {
 		return nil, fmt.Errorf("private AQL artifact cannot be built from a bounded preview")
 	}
@@ -57,23 +63,23 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	if err != nil {
 		return nil, fmt.Errorf("private artifact authorization scope: %w", err)
 	}
-	if aqlSource && (s.scopeEvidence == nil || s.scopeEvidenceIdentity == nil || !s.scopeEvidence.Matches(s.physicalPlan, *s.scopeEvidenceIdentity)) {
-		return nil, fmt.Errorf("private AQL artifact requires opaque evidence for its exact complete source plan")
+	if sourceNeedsEvidence && (s.scopeEvidence == nil || s.scopeEvidenceIdentity == nil || !s.scopeEvidence.Matches(s.physicalPlan, *s.scopeEvidenceIdentity)) {
+		return nil, fmt.Errorf("private %s artifact requires opaque evidence for its exact complete source plan", sourceLabel)
 	}
-	if aqlSource && s.artifactScopeMode == "" {
+	if sourceNeedsEvidence && s.artifactScopeMode == "" {
 		s.artifactScopeMode = chartifact.ScopeModeRows
 	}
 	if s.artifactScopeMode != "" && s.artifactScopeMode != chartifact.ScopeModeRows && s.artifactScopeMode != chartifact.ScopeModeWhole {
 		return nil, fmt.Errorf("private artifact requires a supported compiler output scope mode")
 	}
-	if aqlSource && s.artifactScopeMode == chartifact.ScopeModeWhole && (!s.compiledOutput || strings.TrimSpace(s.artifactScopeEvidence) == "") {
+	if sourceNeedsEvidence && s.artifactScopeMode == chartifact.ScopeModeWhole && (!s.compiledOutput || strings.TrimSpace(s.artifactScopeEvidence) == "") {
 		return nil, fmt.Errorf("whole-scope private artifact requires compiler-issued scope evidence")
 	}
-	if aqlSource && s.artifactScopeMode == chartifact.ScopeModeRows && s.artifactScopeEvidence != "" {
+	if sourceNeedsEvidence && s.artifactScopeMode == chartifact.ScopeModeRows && s.artifactScopeEvidence != "" {
 		return nil, fmt.Errorf("row-scoped private artifact cannot carry whole-scope evidence")
 	}
-	if aqlSource && authMode == authscope.ReadScopeRestricted && s.artifactScopeMode == chartifact.ScopeModeRows && !s.bindings.IncludeAuthResourcePath {
-		return nil, fmt.Errorf("restricted AQL artifact requires a row-level authorization path projection")
+	if sourceNeedsEvidence && authMode == authscope.ReadScopeRestricted && s.artifactScopeMode == chartifact.ScopeModeRows && !s.bindings.IncludeAuthResourcePath {
+		return nil, fmt.Errorf("restricted %s artifact requires a row-level authorization path projection", sourceLabel)
 	}
 
 	normalized, err := chartifact.NormalizeSchema(columns)
@@ -110,14 +116,14 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	}
 	writer, err := manager.Begin(ctx, identity, normalized)
 	if err != nil {
-		return nil, fmt.Errorf("begin private AQL artifact: %w", err)
+		return nil, fmt.Errorf("begin private %s artifact: %w", sourceLabel, err)
 	}
 	streamResult, err := s.Stream(ctx, func(row map[string]any) error {
 		return writer.Write(ctx, row)
 	})
 	if err != nil {
 		abortErr := writer.Abort(context.WithoutCancel(ctx))
-		return nil, errors.Join(fmt.Errorf("stream AQL prefix into private ClickHouse artifact: %w", err), abortErr)
+		return nil, errors.Join(fmt.Errorf("stream %s prefix into private ClickHouse artifact: %w", sourceLabel, err), abortErr)
 	}
 	artifact, err := writer.Finalize(ctx)
 	if err != nil {
@@ -135,9 +141,6 @@ func (s OutputStream) materializeClickHouseArtifact(ctx context.Context, manager
 	}, nil
 }
 
-// materializePreparedClickHouse resolves every exact input and composes the
-// query's scope evidence before opening a writer. Dependency leases remain
-// owned by withPreparedClickHouse until the complete source query is consumed.
 func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager *chartifact.Manager, executionID, stageID string, columns []chartifact.Column) (*materializedClickHouseCapture, error) {
 	var capture *materializedClickHouseCapture
 	captureStream := s
@@ -208,8 +211,6 @@ func (s OutputStream) materializePreparedClickHouse(ctx context.Context, manager
 	return capture, nil
 }
 
-// PrivateClickHouseArtifactSource identifies one exact resolved workspace
-// output to capture before a terminal ClickHouse operation.
 type PrivateClickHouseArtifactSource struct {
 	OutputID         string
 	Stream           OutputStream
@@ -217,8 +218,6 @@ type PrivateClickHouseArtifactSource struct {
 	ExpectedIdentity ir.ClickHouseArtifactIdentity
 }
 
-// PrivateClickHouseArtifactInput preserves the caller's source order when the
-// completed private captures are handed to the ClickHouse consumer.
 type PrivateClickHouseArtifactInput struct {
 	OutputID         string
 	Artifact         *chartifact.Artifact
@@ -228,10 +227,6 @@ type PrivateClickHouseArtifactInput struct {
 	ScopeEvidence    ir.WholeRelationScopeEvidence
 }
 
-// WithPrivateClickHouseArtifacts pins any published inputs, captures each
-// workspace output in order, invokes consume while every capture lease and
-// published pin is live, then releases every capture before returning. A
-// zero-length publishedRevisions list is valid for an all-workspace Combine.
 func WithPrivateClickHouseArtifacts(
 	ctx context.Context,
 	manager *chartifact.Manager,

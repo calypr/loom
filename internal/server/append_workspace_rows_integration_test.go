@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"net/http"
 	"os"
 	"reflect"
@@ -14,11 +15,10 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	execution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/execution/chartifact"
-	chartifactarango "github.com/calypr/loom/internal/dataframe/execution/chartifact/arango"
 	"github.com/calypr/loom/internal/dataframe/recipe"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/google/uuid"
 )
@@ -128,10 +128,11 @@ func TestCurrentDraftAppendRowsAgainstArangoClickHouse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	database := "loom_append_rows_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	graph, err := storearango.Open(ctx, arangoURL, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: arangoURL, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	graph := arangoBackend.Client
 	t.Cleanup(func() {
 		graph.Close(context.Background())
 		request, _ := http.NewRequest(http.MethodDelete, strings.TrimRight(arangoURL, "/")+"/_api/database/"+database, nil)
@@ -145,7 +146,7 @@ func TestCurrentDraftAppendRowsAgainstArangoClickHouse(t *testing.T) {
 			t.Errorf("private database cleanup HTTP%d", response.StatusCode)
 		}
 	})
-	for _, spec := range []storearango.BootstrapSpec{chartifactarango.BootstrapSpec(), {Collections: []storearango.CollectionSpec{{Name: "Patient"}}}} {
+	for _, spec := range []arangofactory.BootstrapSpec{arangofactory.ArtifactBootstrapSpec(), {Collections: []arangofactory.CollectionSpec{{Name: "Patient"}}}} {
 		if err = graph.Bootstrap(ctx, spec); err != nil {
 			t.Fatal(err)
 		}
@@ -167,7 +168,7 @@ func TestCurrentDraftAppendRowsAgainstArangoClickHouse(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	catalog, err := chartifactarango.NewCatalog(graph)
+	catalog, err := arangofactory.NewArtifactCatalog(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +176,15 @@ func TestCurrentDraftAppendRowsAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := execution.New(execution.Config{Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, query string, batch int, vars map[string]any, visit func(map[string]any) error) error {
-		return graph.QueryRows(ctx, query, batch, vars, storearango.RowVisitor(visit))
+	engine, err := execution.New(execution.Config{CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request execution.RowsRequest, visit execution.RowVisitor) error {
+		command := request.Command
+		batch := request.BatchSize
+		query, vars, deriveErr := command.AQLParameters()
+		if deriveErr != nil {
+			return deriveErr
+		}
+
+		return graph.QueryRows(ctx, query, batch, vars, arangofactory.RowVisitor(visit))
 	}, ClickHouseQueryRows: ch.QueryRowsArgsVisit, PrivateClickHouseArtifacts: manager})
 	if err != nil {
 		t.Fatal(err)
@@ -236,7 +244,7 @@ func TestCurrentDraftAppendRowsAgainstArangoClickHouse(t *testing.T) {
 		sortAppendCurrentDraftRows(actual)
 		sortAppendCurrentDraftRows(step.expected)
 		var manifests int
-		if e = graph.QueryRows(ctx, "FOR d IN @@c RETURN d", 10, map[string]any{"@c": chartifactarango.PrivateArtifactsCollection}, func(map[string]any) error { manifests++; return nil }); e != nil || manifests != 0 {
+		if e = graph.QueryRows(ctx, "FOR d IN @@c RETURN d", 10, map[string]any{"@c": arangofactory.PrivateArtifactsCollection}, func(map[string]any) error { manifests++; return nil }); e != nil || manifests != 0 {
 			t.Fatalf("capture cleanup: manifests=%d err=%v", manifests, e)
 		}
 		if !reflect.DeepEqual(actual, step.expected) {

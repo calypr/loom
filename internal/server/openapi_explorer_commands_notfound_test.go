@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/calypr/loom/internal/authscope"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/explorer"
@@ -19,11 +20,6 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-// countingExplorerStore wraps testExplorerStore and instruments the single
-// Get method the Explorer Service reaches through for owner reads. faultGetOn
-// (1-based within the current apply request) returns an identity-mismatched
-// owner that loadConstructionBase classifies as typed notFound
-// EXPLORER_NOT_FOUND (internal/explorer/lifecycle/construction_proposal.go:1451-1453).
 type countingExplorerStore struct {
 	*testExplorerStore
 	getCalls   int
@@ -51,12 +47,6 @@ type groupFieldSourceProposalFixture struct {
 	store    *countingExplorerStore
 }
 
-// newGroupFieldSourceProposalFixture builds, through the real routes, a saved
-// GROUP construction proposal whose candidate receipt carries compiled Group
-// field sources (BINDING keys). That is the precondition for
-// prepareConstructionProposal's group-field-source branch
-// (internal/explorer/lifecycle/construction_proposal.go:1637-1638), which is
-// the only apply-path branch that reaches loadConstructionBase.
 func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalFixture {
 	t.Helper()
 	scope := authscope.ReadScope{Mode: authscope.ReadScopeUnrestricted}
@@ -144,7 +134,15 @@ func newGroupFieldSourceProposalFixture(t *testing.T) *groupFieldSourceProposalF
 		t.Fatal(err)
 	}
 	recipeEngine, err := dataframeexecution.New(dataframeexecution.Config{
-		Registry: compilerTestRegistry{}, QueryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil },
+		CompileTarget: compiler.ArangoTarget(),
+		Registry:      compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			_, _, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -283,19 +281,6 @@ func (f *groupFieldSourceProposalFixture) apply(t *testing.T, commandID string) 
 	))
 }
 
-// TestApplyConstructionProposalOwnerVanishReturnsTypedNotFound is a RED
-// reproduction: applying an APPLY_CONSTRUCTION_PROPOSAL command whose saved
-// candidate carries a compiled Group field source, while the owner read in
-// loadConstructionBase (internal/explorer/lifecycle/construction_proposal.go:1447-1453)
-// returns an identity-mismatched Explorer, must surface the typed lifecycle
-// notFound EXPLORER_NOT_FOUND as HTTP 404 via the route's 404 arm
-// (internal/server/openapi_explorer_routes.go). Before the AuthoringNotFound
-// response was declared on this operation, the same fault produced
-// HTTP 500 "applyExplorerBuilderCommands returned undocumented HTTP status 404".
-// The control subtest proves the fixture reaches the group-field-source prepare
-// path (200 with >=2 store.Get calls during apply: the applyWorkspaceCommands
-// owner read plus the loadConstructionBase read); removing the 404 arm turns
-// this test back red with that 500 signature.
 func TestApplyConstructionProposalOwnerVanishReturnsTypedNotFound(t *testing.T) {
 	controlApplyGetCalls := 0
 

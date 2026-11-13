@@ -37,15 +37,29 @@ func assertCellTraceMissingRowUserFault(t *testing.T, err error, wantRowID, want
 }
 
 func TestEngineCellTraceCompiledMissingRowIsUserFault(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
+	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+		return nil
+	}}
 	_, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-does-not-exist", Column: "gender"})
 	assertCellTraceMissingRowUserFault(t, err, "row-does-not-exist", "patients")
 }
 
 func TestEngineCellTraceMissingPublishedRowIsUserFault(t *testing.T) {
 	output := compileComposedCohortIdentityOutput(t)
-	engine := &Engine{queryRows: func(context.Context, string, int, map[string]any, func(map[string]any) error) error { return nil }}
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, _ RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+		return nil
+	}}
 	resolved := Resolved{Compiled: lower.CompiledRecipe{Outputs: []lower.CompiledRecipeOutput{output}}}
 	rowID := `{"group_id":"cohort-absent","group_revision_id":"grouprev_absent"}`
 	_, err := engine.CellTrace(context.Background(), resolved, CellTraceRequest{Output: output.Name, RowID: rowID, Column: "group_label", Limit: 10})
@@ -53,8 +67,14 @@ func TestEngineCellTraceMissingPublishedRowIsUserFault(t *testing.T) {
 }
 
 func TestEngineCellTraceKnownRowNeverTakesTheNotFoundArm(t *testing.T) {
-	query := compiler.CompiledCellTraceQuery{Query: "trace", ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
-	engine := &Engine{queryRows: func(_ context.Context, _ string, _ int, _ map[string]any, visit func(map[string]any) error) error {
+	query := compiler.CompiledCellTraceQuery{Command: mustAQLCommand("trace", nil), ValueColumn: "value", ContributionsColumn: "contributors", StatusColumn: "status", HasMoreColumn: "hasMore", OmissionColumn: "omission", ExplicitIdentityColumn: "identity"}
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), sourceRows: func(_ context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		_, _, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
 		return visit(map[string]any{"identity": "row-7", "value": nil, "status": "NO_MATCH", "contributors": []any{}, "hasMore": false})
 	}}
 	result, err := engine.CellTraceCompiled(context.Background(), query, CellTraceRequest{Output: "patients", RowID: "row-7", Column: "condition"})

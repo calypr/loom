@@ -1,7 +1,3 @@
-// Package execution is Loom's production recipe execution seam. It owns
-// recipe resolution, scoped discovery, canonical compiler orchestration, and
-// streaming row execution; transport adapters do not interpret recipes or
-// construct AQL.
 package execution
 
 import (
@@ -17,6 +13,7 @@ import (
 
 	"github.com/calypr/loom/internal/authscope"
 	"github.com/calypr/loom/internal/dataframe/compiler"
+	"github.com/calypr/loom/internal/dataframe/compiler/command"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/compiler/optimize"
@@ -28,15 +25,19 @@ import (
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/spec"
 	"github.com/calypr/loom/internal/projectid"
-	"github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
-type QueryRows func(context.Context, string, int, map[string]any, func(map[string]any) error) error
+type RowVisitor func(map[string]any) error
 
-// ClickHouseQueryRows executes a typed ClickHouse result query with a fixed
-// result column contract and positional values. SQL fragments never come from
-// recipe or request data.
+type RowsRequest struct {
+	Command         command.CompiledCommand
+	DeclaredColumns []string
+	BatchSize       int
+}
+
+type SourceRows func(context.Context, RowsRequest, RowVisitor) error
+
 type ClickHouseQueryRows func(context.Context, string, []string, func(map[string]any) error, ...any) error
 
 type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine, recipe.RuntimeBindings) ([]ir.ResolvedClickHouseTable, error)
@@ -44,41 +45,30 @@ type ResolveClickHouseInputs func(context.Context, ir.PhysicalClickHouseCombine,
 type WithExecutionReadPins func(context.Context, []string, func(context.Context) error) error
 
 const (
-	// DefaultPreviewLimit is used when a preview request omits its limit.
 	DefaultPreviewLimit = 25
-	// MaxPreviewLimit bounds rows accumulated by one output preview.
-	MaxPreviewLimit    = 1000
-	previewPlanMode    = "physical"
-	previewPlanProfile = "generic_fhir_graph_recipe"
+	MaxPreviewLimit     = 1000
+	previewPlanMode     = "physical"
+	previewPlanProfile  = "generic_fhir_graph_recipe"
 )
 
-// PreviewRequest selects one compiled output and bounds its preview rows.
 type PreviewRequest struct {
 	Output             string
 	Limit              int
 	IncludeRowIdentity bool
 }
 
-// PreviewSummary is safe execution metadata for one preview output. It does
-// not contain AQL, bind variables, or physical plan contents.
 type PreviewSummary struct {
-	Output           string
-	Columns          []string
-	RowCount         int
-	PlanMode         string
-	PlanProfile      string
-	PlanFingerprint  string
-	TraversalCount   int
-	LoweringDuration time.Duration
-	QueryDuration    time.Duration
-	// Complete is true only when the execution naturally exhausted before
-	// reaching its configured row limit. Truncated is explicit when the
-	// bounded preview stopped at errPreviewLimit; callers must not infer full
-	// population facts from a bounded result.
-	Complete  bool
-	Truncated bool
-	// PartialValidation marks compiler-bounded construction previews that
-	// validate only the displayed deterministic sample of complete groups.
+	Output               string
+	Columns              []string
+	RowCount             int
+	PlanMode             string
+	PlanProfile          string
+	PlanFingerprint      string
+	TraversalCount       int
+	LoweringDuration     time.Duration
+	SourceQueryDuration  time.Duration
+	Complete             bool
+	Truncated            bool
 	PartialValidation    bool
 	RowLineageCapability compiler.RowLineageCapability
 }
@@ -87,12 +77,13 @@ type Config struct {
 	Registry                   exec.Reader
 	Revisions                  recipe.RevisionStore
 	ResolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	QueryRows                  QueryRows
-	PreviewQueryRows           QueryRows
+	CompileTarget              compiler.Target
+	SourceRows                 SourceRows
+	PreviewSourceRows          SourceRows
 	PreparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	PreviewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
+	PreviewCoveringIndexes     func(context.Context, string) ([]PreviewCollectionIndex, error)
 	PreviewCollectionRevision  func(context.Context, string) (string, error)
-	PreviewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	PreviewCollectionScans     PreviewCollectionScans
 	PreviewCollectionCount     func(context.Context, string) (int64, error)
 	ClickHouseQueryRows        ClickHouseQueryRows
 	ResolveClickHouseInputs    ResolveClickHouseInputs
@@ -100,21 +91,20 @@ type Config struct {
 	PrivateClickHouseArtifacts *chartifact.Manager
 	ScopeDigest                func(recipe.RuntimeBindings) string
 	BatchSize                  int
-	// RootPageRows bounds the number of root documents evaluated by one wide
-	// output query. Zero keeps the legacy single-query execution path.
-	RootPageRows int
+	RootPageRows               int
 }
 
 type Engine struct {
 	registry                   exec.Reader
 	revisions                  recipe.RevisionStore
 	resolveBundle              func(context.Context, recipe.Bundle, recipe.RuntimeBindings) (recipe.Bundle, error)
-	queryRows                  QueryRows
-	previewQueryRows           QueryRows
+	compileTarget              compiler.Target
+	sourceRows                 SourceRows
+	previewSourceRows          SourceRows
 	preparePreviewIndex        func(context.Context, compiler.PreviewCoveringIndexSpec) error
-	previewCoveringIndexes     func(context.Context, string) ([]arango.PreviewCoveringIndex, error)
+	previewCoveringIndexes     func(context.Context, string) ([]PreviewCollectionIndex, error)
 	previewCollectionRevision  func(context.Context, string) (string, error)
-	previewExplainQuery        func(context.Context, string, map[string]any) (arango.ExplainResult, error)
+	previewCollectionScans     PreviewCollectionScans
 	previewCollectionCount     func(context.Context, string) (int64, error)
 	groupPreviewRowsCache      groupPreviewRowsCache
 	clickHouseQueryRows        ClickHouseQueryRows
@@ -126,11 +116,6 @@ type Engine struct {
 	rootPageRows               int
 }
 
-// Resolved contains the immutable recipe after schema discovery, semantic
-// discovery provenance, and canonical physical plans per output. Bundle is the
-// fully resolved recipe that may be passed back through CompileResolvedBundle
-// after a receipt or other durable boundary. Compiled remains request-scoped
-// runtime state; callers must not persist it.
 type Resolved struct {
 	Bundle               recipe.Bundle
 	Semantic             semantic.ResolvedRecipePlan
@@ -139,9 +124,6 @@ type Resolved struct {
 	ResolvedSchemaDigest string
 }
 
-// ResolutionError marks failures while compiling a recipe before publication
-// starts. Transport adapters can expose these as actionable recipe errors;
-// publication and backend failures remain opaque internal errors.
 type ResolutionError struct{ Err error }
 
 func (e *ResolutionError) Error() string {
@@ -158,19 +140,38 @@ func (e *ResolutionError) Unwrap() error {
 	return e.Err
 }
 
+var ErrPostgreSQLRootPageSteps = errors.New("postgresql root page steps are invalid")
+
+var ErrPostgreSQLResultContract = errors.New("postgresql root page result contract violation")
+
+type PostgreSQLRootPageSteps struct {
+	RootKeys         command.CompiledCommand
+	Rows             command.CompiledCommand
+	RootKeyColumn    string
+	RowRootKeyColumn string
+	CursorArgIndex   int
+	PageSizeArgIndex int
+	PageKeysArgIndex int
+	PageSize         int
+}
+
+const maxPostgreSQLRootPageSize = 1 << 20
+
 type OutputStream struct {
 	Name                     string
 	Columns                  []string
 	sourceIdentityMode       string
 	RowIdentity              *spec.RowIdentity
 	DynamicChecks            map[string]map[string]DynamicColumnCheck
-	query                    string
-	bindVars                 map[string]any
-	stream                   QueryRows
+	command                  command.CompiledCommand
+	expectedBackend          command.CompiledBackend
+	commandColumns           []string
+	sourceRows               SourceRows
 	batchSize                int
 	rootPageRows             int
 	initialRootPageRows      int
 	page                     *compiler.CompiledOutputPage
+	pgRootPage               *PostgreSQLRootPageSteps
 	physicalEngine           ir.PhysicalEngine
 	clickHouseCombine        *ir.PhysicalClickHouseCombine
 	project                  string
@@ -197,10 +198,6 @@ type OutputStream struct {
 	physicalPlan             ir.PhysicalPlan
 }
 
-// preparedClickHouseQuery is the immutable result of resolving every exact
-// published input and capturing every same-workspace dependency. Its identity
-// and opaque scope evidence are complete before a private artifact writer is
-// opened.
 type preparedClickHouseQuery struct {
 	Query         string
 	Columns       []string
@@ -211,9 +208,6 @@ type preparedClickHouseQuery struct {
 	ScopeEvidence ir.WholeRelationScopeEvidence
 }
 
-// materializedClickHouseCapture carries the source proof beside the live
-// artifact lease. The proof remains in memory for recursive workspace-output
-// composition; only its digest is persisted for whole-scope artifacts.
 type materializedClickHouseCapture struct {
 	Artifact      *chartifact.Artifact
 	Identity      ir.ClickHouseArtifactIdentity
@@ -239,8 +233,15 @@ func New(cfg Config) (*Engine, error) {
 	if cfg.Registry == nil {
 		return nil, fmt.Errorf("recipe registry is required")
 	}
-	if cfg.QueryRows == nil {
-		return nil, fmt.Errorf("recipe query executor is required")
+	if !cfg.CompileTarget.Valid() {
+		return nil, fmt.Errorf("compile target is required: %w", compiler.ErrTargetNotSelected)
+	}
+	if cfg.SourceRows == nil {
+		return nil, fmt.Errorf("source row port is required: composition must install the row adapter for the selected compile target")
+	}
+	previewRows := cfg.PreviewSourceRows
+	if previewRows == nil {
+		previewRows = cfg.SourceRows
 	}
 	batch := cfg.BatchSize
 	if batch <= 0 {
@@ -251,20 +252,18 @@ func New(cfg Config) (*Engine, error) {
 	}
 	return &Engine{
 		registry: cfg.Registry, revisions: cfg.Revisions, resolveBundle: cfg.ResolveBundle,
-		queryRows: cfg.QueryRows, previewQueryRows: cfg.PreviewQueryRows, preparePreviewIndex: cfg.PreparePreviewIndex,
+		compileTarget: cfg.CompileTarget,
+		sourceRows:    cfg.SourceRows, previewSourceRows: previewRows, preparePreviewIndex: cfg.PreparePreviewIndex,
 		previewCoveringIndexes:    cfg.PreviewCoveringIndexes,
-		previewCollectionRevision: cfg.PreviewCollectionRevision, previewExplainQuery: cfg.PreviewExplainQuery,
-		previewCollectionCount: cfg.PreviewCollectionCount, clickHouseQueryRows: cfg.ClickHouseQueryRows,
+		previewCollectionRevision: cfg.PreviewCollectionRevision, previewCollectionScans: cfg.PreviewCollectionScans,
+		previewCollectionCount:  cfg.PreviewCollectionCount,
+		clickHouseQueryRows:     cfg.ClickHouseQueryRows,
 		resolveClickHouseInputs: cfg.ResolveClickHouseInputs, withExecutionReadPins: cfg.WithExecutionReadPins,
 		privateClickHouseArtifacts: cfg.PrivateClickHouseArtifacts,
 		scopeDigest:                cfg.ScopeDigest, batchSize: batch, rootPageRows: cfg.RootPageRows,
 	}, nil
 }
 
-// entry loads the addressed recipe revision when the bindings carry a
-// recipeDigest, otherwise the named default entry. Every control and run
-// surface must address recipes through this seam so a digest-addressed
-// request behaves identically across preview, run, explain, and validate.
 func (e *Engine) entry(ctx context.Context, name string, bindings recipe.RuntimeBindings) (exec.Entry, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return exec.Entry{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -287,8 +286,6 @@ func (e *Engine) Resolve(ctx context.Context, name string, bindings recipe.Runti
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-// ResolveVersion loads an exact immutable recipe version. New publication
-// workflows must use this method; Resolve is the deprecated default alias.
 func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion string, bindings recipe.RuntimeBindings) (Resolved, error) {
 	entry, err := e.registry.LoadRecipeVersion(ctx, name, translationVersion)
 	if err != nil {
@@ -297,10 +294,6 @@ func (e *Engine) ResolveVersion(ctx context.Context, name, translationVersion st
 	return e.resolveEntry(ctx, entry, bindings)
 }
 
-// ResolveBundle runs an unregistered immutable bundle through the identical
-// schema, semantic, optimization, and lowering pipeline as a registry entry.
-// Explorer uses this to avoid creating recipe drafts/revisions for authored UI
-// intent.
 func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -312,11 +305,11 @@ func (e *Engine) ResolveBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.resolveEntry(ctx, exec.Entry{Bundle: bundle, Digest: digest}, bindings)
 }
 
-// CompileResolvedBundle validates and compiles a bundle that has already been
-// resolved by schema discovery. It never invokes Config.ResolveBundle and
-// therefore performs no catalog or schema discovery. Dynamic declarations
-// with nil Columns are rejected by the semantic boundary; a non-nil empty
-// Columns slice is an explicitly resolved, zero-column family and is valid.
+func (e *Engine) CombinePortsConfigured() bool {
+	return e.clickHouseQueryRows != nil && e.resolveClickHouseInputs != nil &&
+		e.withExecutionReadPins != nil && e.privateClickHouseArtifacts != nil
+}
+
 func (e *Engine) CompileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -336,8 +329,6 @@ func (e *Engine) PreviewBundle(ctx context.Context, bundle recipe.Bundle, bindin
 	return e.Preview(ctx, resolved, bindings.PreviewLimit)
 }
 
-// PreviewResolvedBundle compiles an already schema-resolved bundle without
-// catalog discovery, then executes its request-scoped preview.
 func (e *Engine) PreviewResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings) (map[string][]map[string]any, error) {
 	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
 	if err != nil {
@@ -359,9 +350,6 @@ func (e *Engine) MaterializeBundle(ctx context.Context, bundle recipe.Bundle, bi
 	return resolved, nil
 }
 
-// MaterializeResolvedBundle compiles an already schema-resolved bundle
-// without catalog discovery and hands the resulting request-scoped plan to
-// the publisher.
 func (e *Engine) MaterializeResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.CompileResolvedBundle(ctx, bundle, bindings)
 	if err != nil {
@@ -393,9 +381,6 @@ func (e *Engine) resolveEntry(ctx context.Context, entry exec.Entry, bindings re
 	return e.compileResolvedBundle(ctx, bundle, bindings, storedRecipeDigest)
 }
 
-// compileResolvedBundle is the shared post-discovery compiler. Keeping this
-// helper separate from resolveEntry makes it impossible for receipt-backed
-// callers to accidentally rediscover catalog fields during compilation.
 func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle, bindings recipe.RuntimeBindings, storedRecipeDigest string) (Resolved, error) {
 	if strings.TrimSpace(bindings.Project) == "" {
 		return Resolved{}, dataframeerrors.NewError(dataframeerrors.CodeProjectRequired, "")
@@ -411,9 +396,6 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, err
 	}
-	// The public recipe identity is the registered document digest. The
-	// resolved schema digest below captures catalog-derived fields and scope so
-	// materializations cannot collide when one recipe resolves differently.
 	semanticPlan.RecipeDigest = storedRecipeDigest
 	scope := ""
 	if e.scopeDigest != nil {
@@ -427,9 +409,6 @@ func (e *Engine) compileResolvedBundle(ctx context.Context, bundle recipe.Bundle
 	if err != nil {
 		return Resolved{}, err
 	}
-	// Lowering and AQL optimization are request-scoped work. ClickHouse plans
-	// have no AQL traversal rewrites; validate and cache their exact typed plan.
-	// Preview/materialization streams then only clone, window, and render it.
 	policy := ir.DefaultPhysicalOptimizationPolicy()
 	for index := range compiled.Outputs {
 		plan := compiled.Outputs[index].Plan
@@ -485,8 +464,6 @@ func resolvedBundleSchemaDigest(storedDigest string, bundle recipe.Bundle, bindi
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// Materialize resolves a recipe once and hands the complete resolved plan to
-// the publisher. Resolve and compile therefore share one discovery snapshot.
 func (e *Engine) Materialize(ctx context.Context, name string, bindings recipe.RuntimeBindings, publish func(context.Context, Resolved) error) (Resolved, error) {
 	resolved, err := e.Resolve(ctx, name, bindings)
 	if err != nil {
@@ -517,9 +494,6 @@ func (e *Engine) Streams(ctx context.Context, resolved Resolved) ([]OutputStream
 	return e.streamsWithLimit(ctx, resolved, 0)
 }
 
-// Run consumes every row from every selected output. Unlike Preview, this
-// deliberately compiles without an execution LIMIT and is intended for
-// callers that explicitly requested the complete dataframe in memory.
 func (e *Engine) Run(ctx context.Context, resolved Resolved) (map[string][]map[string]any, error) {
 	streams, err := e.Streams(ctx, resolved)
 	if err != nil {
@@ -540,7 +514,7 @@ func (e *Engine) Run(ctx context.Context, resolved Resolved) (map[string][]map[s
 	return result, nil
 }
 
-func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit int) ([]OutputStream, error) {
+func (e *Engine) streamsWithLimit(ctx context.Context, resolved Resolved, limit int) ([]OutputStream, error) {
 	streams := make([]OutputStream, 0, len(resolved.Compiled.Outputs))
 	selected := selectedOutputNames(resolved.Semantic.SemanticPlan.Bindings.OutputNames, resolved.Compiled.Outputs)
 	for _, name := range resolved.Semantic.SemanticPlan.Bindings.OutputNames {
@@ -552,7 +526,7 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 		if selected != nil && !selected[output.Name] {
 			continue
 		}
-		stream, _, err := e.streamForOutput(resolved, output.Name, limit)
+		stream, _, err := e.streamForOutput(ctx, resolved, output.Name, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -561,21 +535,21 @@ func (e *Engine) streamsWithLimit(_ context.Context, resolved Resolved, limit in
 	return streams, nil
 }
 
-func (e *Engine) streamForOutput(resolved Resolved, name string, limit int) (OutputStream, compiler.CompiledQuery, error) {
+func (e *Engine) streamForOutput(ctx context.Context, resolved Resolved, name string, limit int) (OutputStream, compiler.CompiledQuery, error) {
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name != name {
 			continue
 		}
-		return e.streamForCompiledOutput(resolved, output, limit)
+		return e.streamForCompiledOutput(ctx, resolved, output, limit)
 	}
 	return OutputStream{}, compiler.CompiledQuery{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "requested preview output is not available", map[string]any{"output": name})
 }
 
-func (e *Engine) streamForCompiledOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int) (OutputStream, compiler.CompiledQuery, error) {
-	return e.buildCompiledOutputStream(resolved, output, limit, make(map[string]bool), false)
+func (e *Engine) streamForCompiledOutput(ctx context.Context, resolved Resolved, output lower.CompiledRecipeOutput, limit int) (OutputStream, compiler.CompiledQuery, error) {
+	return e.buildCompiledOutputStream(ctx, resolved, output, limit, make(map[string]bool), false)
 }
 
-func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
+func (e *Engine) buildCompiledOutputStream(ctx context.Context, resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
 	if building[output.Name] {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("workspace output dependency cycle includes %q", output.Name)
 	}
@@ -583,21 +557,26 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	defer delete(building, output.Name)
 	bindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 	if privateArtifactCapture && requiresRestrictedRowAuthPathCapture(output, bindings) {
-		// Private row-scoped artifacts need the source path on each row so the
-		// downstream Combine can reapply the exact authorization scope. Keep this
-		// projection request-local; it does not change preview bindings/schema.
 		bindings.IncludeAuthResourcePath = true
 	}
 	switch output.Plan.Engine {
 	case ir.PhysicalEngineClickHouse:
-		return e.clickHouseStreamForOutput(resolved, output, limit, building, bindings)
+		return e.clickHouseStreamForOutput(ctx, resolved, output, limit, building, bindings)
 	case "", ir.PhysicalEngineAQL:
 	default:
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q has unsupported physical engine %q", output.Name, output.Plan.Engine)
 	}
-	query, err := compiler.CompileRecipeOutputWithPolicy(output, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
+	if e.compileTarget.Backend() == command.CompiledBackendPostgreSQL {
+		if output.Plan.ClickHouseCombine != nil {
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
+		}
+	}
+	query, err := compiler.CompileRecipeOutput(e.compileTarget, output, bindings, limit, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: %w", output.Name, err)
+	}
+	if query.Command.Backend() == command.CompiledBackendPostgreSQL {
+		return e.postgreSQLStreamForOutput(resolved, output, limit, bindings, query, privateArtifactCapture)
 	}
 	rootPageRows := e.rootPageRows
 	if limit > 0 && limit < rootPageRows {
@@ -605,8 +584,8 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	}
 	stream := OutputStream{
 		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...), sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: query.RowIdentity.Clone(),
-		DynamicChecks: dynamicChecks(output.DynamicColumns), query: query.Query, bindVars: query.BindVars,
-		stream: e.queryRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
+		DynamicChecks: dynamicChecks(output.DynamicColumns), command: query.Command, expectedBackend: e.compileTarget.Backend(),
+		sourceRows: e.sourceRows, batchSize: e.batchSize, rootPageRows: rootPageRows,
 		queryLimit: limit, recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
 		bindings: bindings,
 		stageID:  compiledOutputFinalStageID(output), outputSchema: lower.CloneCompiledOutputSchema(output.OutputSchema), compiledOutput: true,
@@ -620,7 +599,6 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
 		stream.artifactScopeEvidence = scopeEvidence.Digest()
 	}
-	// Aggregation must see the full input before the output row limit applies.
 	wholeInput := len(output.Plan.Operations) == 1 &&
 		output.Plan.Operations[0].Kind == ir.PhysicalGroupRowsOp && output.Plan.Operations[0].GroupRows != nil
 	for _, operation := range output.Plan.Operations {
@@ -645,7 +623,7 @@ func (e *Engine) buildCompiledOutputStream(resolved Resolved, output lower.Compi
 	if rootPageRows > 0 && !wholeInput {
 		pageBindings := resolved.Semantic.SemanticPlan.Bindings.Clone()
 		pageBindings.PreviewLimit = limit
-		page, pageErr := compiler.CompileRecipeOutputPageWithPolicy(output, pageBindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
+		page, pageErr := compiler.CompileRecipeOutputPage(e.compileTarget, output, pageBindings, rootPageRows, ir.DefaultPhysicalOptimizationPolicy())
 		if pageErr != nil {
 			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q paging: %w", output.Name, pageErr)
 		}
@@ -676,7 +654,7 @@ func compiledFinalStageID(plan ir.PhysicalPlan) string {
 	return recipe.ConstructionSourceProjectionID
 }
 
-func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, compiler.CompiledQuery, error) {
+func (e *Engine) clickHouseStreamForOutput(ctx context.Context, resolved Resolved, output lower.CompiledRecipeOutput, limit int, building map[string]bool, bindings recipe.RuntimeBindings) (OutputStream, compiler.CompiledQuery, error) {
 	physicalPlan := output.Plan
 	if output.OptimizedPlan != nil {
 		physicalPlan = ir.ClonePhysicalPlan(*output.OptimizedPlan)
@@ -742,7 +720,7 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 			if !ok {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q is missing compiled workspace dependency %q", output.Name, input.WorkspaceOutputID)
 			}
-			dependencyStream, _, err := e.buildCompiledOutputStream(resolved, dependency, 0, building, true)
+			dependencyStream, _, err := e.buildCompiledOutputStream(ctx, resolved, dependency, 0, building, true)
 			if err != nil {
 				return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q dependency %q: %w", output.Name, input.WorkspaceOutputID, err)
 			}
@@ -753,6 +731,48 @@ func (e *Engine) clickHouseStreamForOutput(resolved Resolved, output lower.Compi
 			stream.workspaceArtifactSources = append(stream.workspaceArtifactSources, PrivateClickHouseArtifactSource{
 				OutputID: input.WorkspaceOutputID, Stream: dependencyStream, Columns: columns,
 			})
+		}
+	}
+	return stream, query, nil
+}
+
+func (e *Engine) postgreSQLStreamForOutput(resolved Resolved, output lower.CompiledRecipeOutput, limit int, bindings recipe.RuntimeBindings, query compiler.CompiledQuery, privateArtifactCapture bool) (OutputStream, compiler.CompiledQuery, error) {
+	if output.Plan.ClickHouseCombine != nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL-served output cannot carry a ClickHouse combine payload", output.Name)
+	}
+	if e.sourceRows == nil {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("%w: output %q selected a PostgreSQL command but no source row port serves it; PostgreSQL requests never fall back to AQL",
+			command.ErrCompiledCommandBackendNotRegistered, output.Name)
+	}
+	if len(query.Columns) == 0 {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: PostgreSQL command requires a non-empty declared result column contract", output.Name)
+	}
+	if len(output.OutputSchema) > 0 && len(query.PublicColumns) == 0 {
+		return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q: every declared PostgreSQL result column is an internal projection; refusing to publish internal columns in the public row", output.Name)
+	}
+	stream := OutputStream{
+		Name: output.Name, Columns: append([]string(nil), query.PublicColumns...),
+		sourceIdentityMode: previewSourceIdentityMode(output, query.OutputSchema), RowIdentity: output.RowIdentity.Clone(),
+		DynamicChecks: dynamicChecks(output.DynamicColumns),
+		batchSize:     e.batchSize, queryLimit: limit,
+		recipeDigest: resolved.StoredRecipeDigest, planFingerprint: query.PlanDiagnostics.Fingerprint,
+		bindings: bindings, stageID: compiledOutputFinalStageID(output),
+		outputSchema:    lower.CloneCompiledOutputSchema(query.OutputSchema),
+		compiledOutput:  true,
+		physicalPlan:    query.PhysicalPlan,
+		sourceRows:      e.sourceRows,
+		command:         query.Command,
+		expectedBackend: command.CompiledBackendPostgreSQL,
+		commandColumns:  append([]string(nil), query.Columns...),
+	}
+	if privateArtifactCapture {
+		scopeMode, scopeEvidence, scopeIdentity, err := compiledArtifactScope(output, bindings, query.PhysicalPlan)
+		if err != nil {
+			return OutputStream{}, compiler.CompiledQuery{}, fmt.Errorf("output %q artifact scope: %w", output.Name, err)
+		}
+		stream.artifactScopeMode, stream.scopeEvidence, stream.scopeEvidenceIdentity = scopeMode, scopeEvidence, scopeIdentity
+		if scopeMode == chartifact.ScopeModeWhole && scopeEvidence != nil {
+			stream.artifactScopeEvidence = scopeEvidence.Digest()
 		}
 	}
 	return stream, query, nil
@@ -793,9 +813,6 @@ func compiledArtifactScope(output lower.CompiledRecipeOutput, bindings recipe.Ru
 		if outputUsesWholeRelationScope(output.Plan) {
 			mode = chartifact.ScopeModeWhole
 		}
-		// A preview query is intentionally bounded and therefore cannot carry
-		// whole-relation capture evidence. The complete lowered plan remains
-		// compiler-attested; private capture recompiles it without this window.
 		return mode, nil, nil, nil
 	}
 	optimizedEvidence, err := ir.NewWholeRelationScopeEvidence(actualPlan, identity)
@@ -859,9 +876,6 @@ func sameExecutionStrings(left, right []string) bool {
 	return true
 }
 
-// streamExecutionAuthScopeMode uses compiler-issued evidence or an exact typed
-// plan bind as the authority. An empty runtime mode by itself never grants
-// unrestricted access; when paths are present it remains restricted.
 func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode, error) {
 	if identity := stream.scopeEvidenceIdentity; identity != nil {
 		if identity.Project != stream.bindings.Project || identity.DatasetGeneration != stream.bindings.DatasetGeneration ||
@@ -881,8 +895,6 @@ func streamExecutionAuthScopeMode(stream OutputStream) (authscope.ReadScopeMode,
 		return stream.bindings.AuthScopeMode, nil
 	}
 	if len(stream.bindings.AuthResourcePaths) != 0 {
-		// Legacy callers that supply paths without a mode are restricted; the
-		// empty path-list case still requires a typed bind or opaque evidence.
 		return authscope.ReadScopeRestricted, nil
 	}
 	if unrestricted, ok := stream.physicalPlan.BindVars["auth_resource_paths_unrestricted"].(bool); ok {
@@ -1017,9 +1029,6 @@ func hasCompiledOutput(resolved Resolved, name string) bool {
 	return false
 }
 
-// PreviewOutput executes exactly one selected output and exposes only the
-// public output schema. Physical query text, bind variables, and internal
-// projections never cross this boundary.
 func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request PreviewRequest, visit func(map[string]any) error) (PreviewSummary, error) {
 	if err := contextError(ctx); err != nil {
 		return PreviewSummary{}, err
@@ -1035,7 +1044,7 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		return PreviewSummary{}, previewAdmissionError(dataframeerrors.CodeInvalidRequest, "preview visitor is required", nil)
 	}
 	loweringStarted := time.Now()
-	stream, query, err := e.streamForOutput(resolved, request.Output, limit)
+	stream, query, err := e.streamForOutput(ctx, resolved, request.Output, limit)
 	if err != nil {
 		if _, ok := dataframeerrors.AsUserError(err); ok {
 			return PreviewSummary{}, err
@@ -1048,7 +1057,8 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	if err := validatePreviewPlan(query, limit, stream.physicalEngine); err != nil {
 		return PreviewSummary{}, err
 	}
-	if query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
+	postgreSQLPreview := stream.command.Backend() == command.CompiledBackendPostgreSQL
+	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && !query.PreviewCoveringIndex.PrepareAfterPreview && e.preparePreviewIndex != nil {
 		prepareCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		_ = e.preparePreviewIndex(prepareCtx, *query.PreviewCoveringIndex)
 		cancel()
@@ -1056,8 +1066,8 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			return PreviewSummary{}, err
 		}
 	}
-	if stream.physicalEngine != ir.PhysicalEngineClickHouse && e.previewQueryRows != nil {
-		stream.stream = e.previewQueryRows
+	if stream.physicalEngine != ir.PhysicalEngineClickHouse {
+		stream.sourceRows = e.previewSourceRows
 	}
 	if err := e.chooseGroupPreviewScan(ctx, &query, &stream); err != nil {
 		return PreviewSummary{}, err
@@ -1067,13 +1077,13 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 	var previewCacheKeyWeight int
 	var previewCacheEnabled bool
 	var previewCacheHitRows []map[string]any
-	if query.PreviewCoveringIndex != nil && (query.PreviewCoveringIndex.PrepareAfterPreview || query.PreviewGroupScan != nil) && e.previewCollectionRevision != nil {
+	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && (query.PreviewCoveringIndex.PrepareAfterPreview || query.PreviewGroupScan != nil) && e.previewCollectionRevision != nil {
 		revision, revisionErr := e.previewCollectionRevision(ctx, query.PreviewCoveringIndex.Collection)
 		if err := contextError(ctx); err != nil {
 			return PreviewSummary{}, err
 		}
 		if revisionErr == nil {
-			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Query, query.BindVars, query.PreviewCoveringIndex.Collection, revision, limit)
+			key, keyWeight, keyOK := newGroupPreviewRowsKey(query.Command, query.PreviewCoveringIndex.Collection, revision, limit)
 			if keyOK {
 				previewCacheKey = key
 				previewCacheKeyWeight = keyWeight
@@ -1088,16 +1098,29 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			}
 		}
 	}
-	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: query.PlanDiagnostics.Fingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
+	planFingerprint := previewPlanFingerprint(query, stream)
+	if err := requireProjectedPlanFingerprint(stream.Name, planFingerprint); err != nil {
+		return PreviewSummary{}, err
+	}
+	summary := PreviewSummary{Output: stream.Name, Columns: append([]string(nil), stream.Columns...), PlanMode: query.PlanMode, PlanProfile: query.PlanProfile, PlanFingerprint: planFingerprint, TraversalCount: query.TraversalCount, LoweringDuration: loweringDuration, Complete: true, PartialValidation: query.PartialValidation}
 	for _, output := range resolved.Compiled.Outputs {
 		if output.Name == request.Output {
 			summary.RowLineageCapability = compiler.RowLineageCapabilityForOutput(output)
 			break
 		}
 	}
+	var previewIdentityBinds map[string]any
+	if query.Command.Backend() == command.CompiledBackendAQL {
+		_, binds, dispatchErr := query.Command.AQLParameters()
+		if dispatchErr != nil {
+			return PreviewSummary{}, dispatchErr
+		}
+		previewIdentityBinds = binds
+	}
 	count := 0
 	var visitorErr error
-	queryStarted := time.Now()
+	var rowMaterialization time.Duration
+	queryStarted := now()
 	consumeRow := func(row map[string]any) error {
 		if err := contextError(ctx); err != nil {
 			return err
@@ -1105,13 +1128,15 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		if count >= limit {
 			return errPreviewLimit
 		}
+		rowStarted := now()
+		defer func() { rowMaterialization += now().Sub(rowStarted) }()
 		resolvedRow, err := materializePostQueryRowWithChecks(row, stream.DynamicChecks)
 		if err != nil {
 			return err
 		}
 		includeRowIdentity := request.IncludeRowIdentity || resolved.Semantic.SemanticPlan.Bindings.IncludeRowIdentity
 		if includeRowIdentity {
-			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, query.BindVars); err != nil {
+			if err := ensureStableRowIdentity(resolvedRow, stream.RowIdentity, previewIdentityBinds); err != nil {
 				return err
 			}
 		}
@@ -1155,12 +1180,23 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		})
 	}
 	summary.RowCount = count
-	summary.QueryDuration = time.Since(queryStarted)
+	summary.SourceQueryDuration = now().Sub(queryStarted) - rowMaterialization
+	if summary.SourceQueryDuration < 0 {
+		summary.SourceQueryDuration = 0
+	}
 	if visitorErr != nil {
+		if postgreSQLPreview {
+			summary.Complete = false
+			summary.Truncated = false
+		}
 		return summary, normalizePreviewError(visitorErr, false)
 	}
 	if queryErr != nil && !errors.Is(queryErr, errPreviewLimit) {
 		e.rejectGroupProjectionDecisionAfterResourceLimit(stream, queryErr)
+		if postgreSQLPreview {
+			summary.Complete = false
+			summary.Truncated = false
+		}
 		return summary, normalizePreviewError(queryErr, true)
 	}
 	if errors.Is(queryErr, errPreviewLimit) {
@@ -1168,6 +1204,10 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 		summary.Truncated = true
 	}
 	if err := contextError(ctx); err != nil {
+		if postgreSQLPreview {
+			summary.Complete = false
+			summary.Truncated = false
+		}
 		return summary, err
 	}
 	if err := e.confirmGroupProjectionDecision(ctx, stream); err != nil {
@@ -1183,14 +1223,27 @@ func (e *Engine) PreviewOutput(ctx context.Context, resolved Resolved, request P
 			e.groupPreviewRowsCache.put(previewCacheKey, capture.rows)
 		}
 	}
-	if query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
+	if !postgreSQLPreview && query.PreviewCoveringIndex != nil && query.PreviewCoveringIndex.PrepareAfterPreview {
 		schedulePreviewIndexPrewarm(ctx, e, *query.PreviewCoveringIndex)
 	}
 	return summary, nil
 }
 
+func isQueryResourceLimitError(err error) bool {
+	userErr, ok := dataframeerrors.AsUserError(err)
+	if !ok {
+		return false
+	}
+	switch dataframeerrors.ErrorCode(userErr.Code()) {
+	case dataframeerrors.CodeQueryResourceLimitExceeded, dataframeerrors.CodeQueryMemoryLimitExceeded:
+		return true
+	default:
+		return false
+	}
+}
+
 func (e *Engine) rejectGroupProjectionDecisionAfterResourceLimit(stream OutputStream, queryErr error) {
-	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !arango.IsQueryResourceLimitExceeded(queryErr) {
+	if queryErr == nil || stream.projectionDecisionKey == nil || stream.projectionDecision == nil || !isQueryResourceLimitError(queryErr) {
 		return
 	}
 	decision := *stream.projectionDecision
@@ -1335,9 +1388,25 @@ func publicPreviewRow(row map[string]any, columns []string, includeRowIdentity b
 
 var errPreviewLimit = fmt.Errorf("preview limit reached")
 
-func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) error) (StreamResult, error) {
+func (s OutputStream) Stream(ctx context.Context, visit RowVisitor) (StreamResult, error) {
 	if visit == nil {
 		return StreamResult{}, fmt.Errorf("row visitor is required")
+	}
+	var identityBinds map[string]any
+	switch s.command.Backend() {
+	case command.CompiledBackendAQL:
+		_, binds, dispatchErr := s.command.AQLParameters()
+		if dispatchErr != nil {
+			return StreamResult{}, dispatchErr
+		}
+		identityBinds = binds
+	case command.CompiledBackendPostgreSQL:
+		identityBinds = map[string]any{}
+		for _, bindKey := range []string{"project", "dataset_generation"} {
+			if value, ok := s.physicalPlan.BindVars[bindKey].(string); ok {
+				identityBinds[bindKey] = value
+			}
+		}
 	}
 	count := 0
 	err := s.streamRaw(ctx, func(row map[string]any) error {
@@ -1345,7 +1414,7 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 		if err != nil {
 			return err
 		}
-		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.bindVars); err != nil {
+		if err := ensureStableRowIdentity(resolved, s.RowIdentity, identityBinds); err != nil {
 			return err
 		}
 		resolved = publicStreamRow(resolved, s.Columns)
@@ -1355,11 +1424,7 @@ func (s OutputStream) Stream(ctx context.Context, visit func(map[string]any) err
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
 }
 
-// streamPreparedClickHouse consumes an already resolved query while its input
-// pins and private artifact leases remain owned by the preparation callback.
-// It applies the same row identity and post-query projection contract as
-// OutputStream.Stream without resolving or acquiring inputs a second time.
-func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit func(map[string]any) error) (StreamResult, error) {
+func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared preparedClickHouseQuery, visit RowVisitor) (StreamResult, error) {
 	if ctx == nil || visit == nil || s.clickHouseQueryRows == nil || strings.TrimSpace(prepared.Query) == "" {
 		return StreamResult{}, fmt.Errorf("prepared ClickHouse stream requires context, query executor, query, and visitor")
 	}
@@ -1372,7 +1437,7 @@ func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared pre
 		if err != nil {
 			return err
 		}
-		if err := ensureStableRowIdentity(resolved, s.RowIdentity, s.bindVars); err != nil {
+		if err := ensureStableRowIdentity(resolved, s.RowIdentity, nil); err != nil {
 			return err
 		}
 		resolved = publicStreamRow(resolved, s.Columns)
@@ -1382,17 +1447,41 @@ func (s OutputStream) streamPreparedClickHouse(ctx context.Context, prepared pre
 	return StreamResult{Output: s.Name, Columns: append([]string(nil), s.Columns...), RowCount: count}, err
 }
 
-func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) error) error {
-	if s.queryMemoryLimit > 0 {
-		ctx = arango.WithQueryMemoryLimit(ctx, s.queryMemoryLimit)
-	}
+func (s OutputStream) streamRaw(ctx context.Context, visit RowVisitor) error {
 	if s.physicalEngine == ir.PhysicalEngineClickHouse {
 		return s.withPreparedClickHouse(ctx, func(preparedCtx context.Context, prepared preparedClickHouseQuery) error {
 			return s.clickHouseQueryRows(preparedCtx, prepared.Query, prepared.Columns, visit, prepared.Args...)
 		})
 	}
-	if s.page == nil || s.rootPageRows == 0 {
-		return s.stream(ctx, s.query, s.batchSize, s.bindVars, visit)
+	if s.sourceRows == nil {
+		return fmt.Errorf("%w: stream %q has no source row port",
+			command.ErrCompiledCommandBackendNotRegistered, s.Name)
+	}
+	streamRequest := func(cmd command.CompiledCommand) RowsRequest {
+		return RowsRequest{Command: cmd, DeclaredColumns: append([]string(nil), s.commandColumns...), BatchSize: s.batchSize}
+	}
+	if s.command.Backend() == "" {
+		return fmt.Errorf("%w: stream %q carries an unregistered backend tag",
+			command.ErrCompiledCommandBackendNotRegistered, s.Name)
+	}
+	if s.expectedBackend != "" && s.command.Backend() != s.expectedBackend {
+		return fmt.Errorf("%w: stream %q command is tagged %q while the selected target serves %q",
+			command.ErrCompiledCommandBackendMismatch, s.Name, string(s.command.Backend()), string(s.expectedBackend))
+	}
+	if s.command.Backend() == command.CompiledBackendPostgreSQL && len(s.commandColumns) == 0 {
+		return fmt.Errorf("stream %q: PostgreSQL command requires a non-empty declared result column contract", s.Name)
+	}
+	if s.command.Backend() == command.CompiledBackendPostgreSQL && s.pgRootPage != nil {
+		return s.streamPostgreSQLRootPages(ctx, visit)
+	}
+	if s.command.Backend() != command.CompiledBackendAQL || s.page == nil || s.rootPageRows == 0 {
+		if s.command.Backend() == command.CompiledBackendAQL && s.queryMemoryLimit > 0 {
+			ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
+		}
+		return s.sourceRows(ctx, streamRequest(s.command), visit)
+	}
+	if s.queryMemoryLimit > 0 {
+		ctx = WithQueryMemoryBudget(ctx, s.queryMemoryLimit)
 	}
 	after := ""
 	pageRows := s.rootPageRows
@@ -1401,10 +1490,14 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 	}
 	for {
 		keys := make([]string, 0, pageRows)
-		keyBinds := cloneBindVars(s.page.RootKeysBindVars)
-		keyBinds[compiler.RootPageAfterKeyBind] = after
-		keyBinds[compiler.RootPageSizeBind] = pageRows
-		if err := s.stream(ctx, s.page.RootKeysQuery, s.batchSize, keyBinds, func(row map[string]any) error {
+		keyCommand, keyBindErr := s.page.RootKeys.WithAQLBinds(map[string]any{
+			compiler.RootPageAfterKeyBind: after,
+			compiler.RootPageSizeBind:     pageRows,
+		})
+		if keyBindErr != nil {
+			return keyBindErr
+		}
+		if err := s.sourceRows(ctx, streamRequest(keyCommand), func(row map[string]any) error {
 			key, ok := row["_key"].(string)
 			if !ok || key == "" {
 				return fmt.Errorf("root-key page returned an invalid _key")
@@ -1420,10 +1513,14 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 		if len(keys) == 0 {
 			return nil
 		}
-		rowBinds := cloneBindVars(s.page.RowsBindVars)
-		rowBinds[compiler.RootPageKeysBind] = keys
+		rowCommand, rowBindErr := s.page.Rows.WithAQLBinds(map[string]any{
+			compiler.RootPageKeysBind: keys,
+		})
+		if rowBindErr != nil {
+			return rowBindErr
+		}
 		emitted := 0
-		if err := s.stream(ctx, s.page.RowsQuery, s.batchSize, rowBinds, func(row map[string]any) error {
+		if err := s.sourceRows(ctx, streamRequest(rowCommand), func(row map[string]any) error {
 			emitted++
 			return visit(row)
 		}); err != nil {
@@ -1441,6 +1538,161 @@ func (s OutputStream) streamRaw(ctx context.Context, visit func(map[string]any) 
 			}
 		}
 	}
+}
+
+func (s OutputStream) streamPostgreSQLRootPages(ctx context.Context, visit RowVisitor) error {
+	steps := s.pgRootPage
+	if err := s.validatePostgreSQLRootPageSteps(); err != nil {
+		return err
+	}
+	after := ""
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		keyCommand, err := withPostgreSQLPageParameters(steps.RootKeys, []postgreSQLPageParameter{
+			{index: steps.CursorArgIndex, parameter: command.PostgreSQLParameter{Type: command.PostgreSQLParameterText, Value: after}},
+			{index: steps.PageSizeArgIndex, parameter: command.PostgreSQLParameter{Type: command.PostgreSQLParameterBigint, Value: int64(steps.PageSize)}},
+		})
+		if err != nil {
+			return err
+		}
+		keys := make([]string, 0, steps.PageSize)
+		if err := s.sourceRows(ctx, RowsRequest{Command: keyCommand, DeclaredColumns: []string{steps.RootKeyColumn}, BatchSize: s.batchSize}, func(row map[string]any) error {
+			key, ok := row[steps.RootKeyColumn].(string)
+			if !ok || key == "" {
+				return fmt.Errorf("%w: root-key page returned an invalid continuation identity in column %q", ErrPostgreSQLResultContract, steps.RootKeyColumn)
+			}
+			if after != "" && key <= after {
+				return fmt.Errorf("%w: root-key page does not advance past the previous page tail %q", ErrPostgreSQLResultContract, after)
+			}
+			if len(keys) != 0 && key <= keys[len(keys)-1] {
+				return fmt.Errorf("%w: root-key page is not strictly ordered", ErrPostgreSQLResultContract)
+			}
+			keys = append(keys, key)
+			return nil
+		}); err != nil {
+			return err
+		}
+		if len(keys) == 0 {
+			return nil
+		}
+		if len(keys) > steps.PageSize {
+			return fmt.Errorf("%w: root-key page returned %d keys for a requested page of %d", ErrPostgreSQLResultContract, len(keys), steps.PageSize)
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		keysJSON, err := json.Marshal(keys)
+		if err != nil {
+			return fmt.Errorf("%w: cannot encode the requested key page: %v", ErrPostgreSQLResultContract, err)
+		}
+		rowCommand, err := withPostgreSQLPageParameters(steps.Rows, []postgreSQLPageParameter{
+			{index: steps.PageKeysArgIndex, parameter: command.PostgreSQLParameter{Type: command.PostgreSQLParameterJSONB, Value: json.RawMessage(keysJSON)}},
+		})
+		if err != nil {
+			return err
+		}
+		requested := make(map[string]struct{}, len(keys))
+		for _, key := range keys {
+			requested[key] = struct{}{}
+		}
+		if err := s.sourceRows(ctx, RowsRequest{Command: rowCommand, DeclaredColumns: append([]string(nil), s.commandColumns...), BatchSize: s.batchSize}, func(row map[string]any) error {
+			root, ok := row[steps.RowRootKeyColumn].(string)
+			if !ok || root == "" {
+				return fmt.Errorf("%w: result row is missing its root continuation identity in column %q", ErrPostgreSQLResultContract, steps.RowRootKeyColumn)
+			}
+			if _, belongs := requested[root]; !belongs {
+				return fmt.Errorf("%w: result row carries a root continuation identity outside the requested key page", ErrPostgreSQLResultContract)
+			}
+			return visit(row)
+		}); err != nil {
+			return err
+		}
+		after = keys[len(keys)-1]
+		if len(keys) < steps.PageSize {
+			return nil
+		}
+	}
+}
+
+func (s OutputStream) validatePostgreSQLRootPageSteps() error {
+	steps := s.pgRootPage
+	if steps == nil {
+		return fmt.Errorf("%w: no steps were supplied", ErrPostgreSQLRootPageSteps)
+	}
+	if steps.PageSize < 1 {
+		return fmt.Errorf("%w: page size must be positive, got %d", ErrPostgreSQLRootPageSteps, steps.PageSize)
+	}
+	if steps.PageSize > maxPostgreSQLRootPageSize {
+		return fmt.Errorf("%w: page size %d exceeds the sanity bound %d", ErrPostgreSQLRootPageSteps, steps.PageSize, maxPostgreSQLRootPageSize)
+	}
+	if strings.TrimSpace(steps.RootKeyColumn) == "" {
+		return fmt.Errorf("%w: the root-key result column must be named", ErrPostgreSQLRootPageSteps)
+	}
+	if strings.TrimSpace(steps.RowRootKeyColumn) == "" {
+		return fmt.Errorf("%w: the row root key column must be named", ErrPostgreSQLRootPageSteps)
+	}
+	declared := false
+	for _, column := range s.commandColumns {
+		if column == steps.RowRootKeyColumn {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return fmt.Errorf("%w: row root key column %q is not part of the declared output contract", ErrPostgreSQLRootPageSteps, steps.RowRootKeyColumn)
+	}
+	if steps.CursorArgIndex == steps.PageSizeArgIndex {
+		return fmt.Errorf("%w: the cursor and page size must occupy distinct key-step parameter positions", ErrPostgreSQLRootPageSteps)
+	}
+	if err := checkPostgreSQLPageParameter(steps.RootKeys, steps.CursorArgIndex, command.PostgreSQLParameterText, "key-step cursor"); err != nil {
+		return err
+	}
+	if err := checkPostgreSQLPageParameter(steps.RootKeys, steps.PageSizeArgIndex, command.PostgreSQLParameterBigint, "key-step page size"); err != nil {
+		return err
+	}
+	if err := checkPostgreSQLPageParameter(steps.Rows, steps.PageKeysArgIndex, command.PostgreSQLParameterJSONB, "row-step key page"); err != nil {
+		return err
+	}
+	return nil
+}
+
+type postgreSQLPageParameter struct {
+	index     int
+	parameter command.PostgreSQLParameter
+}
+
+func checkPostgreSQLPageParameter(base command.CompiledCommand, index int, want command.PostgreSQLParameterType, name string) error {
+	_, args, err := base.PostgreSQLParameters()
+	if err != nil {
+		return err
+	}
+	if index < 0 || index >= len(args) {
+		return fmt.Errorf("%w: %s parameter index %d is outside the %d rendered statement arguments", ErrPostgreSQLRootPageSteps, name, index, len(args))
+	}
+	if args[index].Type != want {
+		return fmt.Errorf("%w: %s parameter %d is declared %q and cannot be rebound as %q", ErrPostgreSQLRootPageSteps, name, index+1, string(args[index].Type), string(want))
+	}
+	return nil
+}
+
+func withPostgreSQLPageParameters(base command.CompiledCommand, replacements []postgreSQLPageParameter) (command.CompiledCommand, error) {
+	sqlText, args, err := base.PostgreSQLParameters()
+	if err != nil {
+		return command.CompiledCommand{}, err
+	}
+	updated := append([]command.PostgreSQLParameter(nil), args...)
+	for _, replacement := range replacements {
+		if replacement.index < 0 || replacement.index >= len(args) {
+			return command.CompiledCommand{}, fmt.Errorf("%w: page parameter index %d is outside the %d rendered statement arguments", ErrPostgreSQLRootPageSteps, replacement.index, len(args))
+		}
+		if args[replacement.index].Type != replacement.parameter.Type {
+			return command.CompiledCommand{}, fmt.Errorf("%w: page parameter %d is declared %q and cannot be rebound as %q", ErrPostgreSQLRootPageSteps, replacement.index+1, string(args[replacement.index].Type), string(replacement.parameter.Type))
+		}
+		updated[replacement.index] = replacement.parameter
+	}
+	return command.NewPostgreSQLCommand(sqlText, updated)
 }
 
 func (s OutputStream) withPreparedClickHouse(ctx context.Context, consume func(context.Context, preparedClickHouseQuery) error) error {
@@ -1728,19 +1980,6 @@ func compiledOutputSchemaDigest(schema []lower.CompiledOutputColumn) (string, er
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func cloneBindVars(input map[string]any) map[string]any {
-	clone := make(map[string]any, len(input))
-	for key, value := range input {
-		clone[key] = value
-	}
-	return clone
-}
-
-// publicStreamRow removes compiler-only projections after they have served
-// post-query validation and row-identity derivation. auth_resource_path is the
-// one hidden projection retained for publication because it preserves the
-// source row's authorization scope when a materialization spans multiple
-// authorized paths.
 func publicStreamRow(row map[string]any, columns []string) map[string]any {
 	public := make(map[string]any, len(columns)+2)
 	for _, column := range columns {

@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -24,12 +24,13 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{{Name: "Observation"}}}); err != nil {
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{{Name: "Observation"}}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -73,16 +74,21 @@ func TestConstructionDerivedCellTraceReturnsValueAndStageLineageAgainstArango(t 
 		t.Fatal(err)
 	}
 	compiledOutput := compiled.Outputs[0]
-	trace, err := compiler.CompileCellTraceOutputWithPolicy(compiledOutput, "total", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := compiler.CompileCellTraceOutput(compiler.ArangoTarget(), compiledOutput, "total", 0, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := &Engine{batchSize: 100, queryRows: func(queryCtx context.Context, query string, batchSize int, bindVars map[string]any, visit func(map[string]any) error) error {
-		return client.QueryRows(queryCtx, query, batchSize, bindVars, visit)
+	engine := &Engine{compileTarget: compiler.ArangoTarget(), batchSize: 100, sourceRows: func(queryCtx context.Context, request RowsRequest, visit RowVisitor) error {
+		command := request.Command
+		batchSize := request.BatchSize
+		query, bindVars, dispatchErr := command.AQLParameters()
+		if dispatchErr != nil {
+			return dispatchErr
+		}
+
+		return client.QueryRows(queryCtx, query, batchSize, bindVars, arangofactory.RowVisitor(visit))
 	}}
 	for _, want := range wants {
-		// Source identities include both tenant scope and the inserted Arango key.
-		// Supplying only the first compiled field loses one of those parts.
 		identity := map[string]any{"project": project, "_key": project + "_" + want.id}
 		if err := ensureStableRowIdentity(identity, compiledOutput.RowIdentity, nil); err != nil {
 			t.Fatalf("build expected row identity for %q: %v", want.id, err)

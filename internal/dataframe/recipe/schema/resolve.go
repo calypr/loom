@@ -1,6 +1,3 @@
-// Package schema resolves catalog-backed recipe declarations into a
-// concrete, typed recipe before semantic compilation. It deliberately knows
-// nothing about AQL, Arango collections, or output-specific behavior.
 package schema
 
 import (
@@ -23,14 +20,11 @@ type Scope struct {
 }
 
 type FieldCandidate struct {
-	ResourceType      string
-	Path              string
-	Kind              string
-	DistinctValues    []string
-	DistinctTruncated bool
-	// ExtensionValues is optional profile-level correlation metadata. When
-	// present it preserves the URL/value[x] pairing that a flattened field
-	// catalog cannot represent with independent distinct-value lists.
+	ResourceType          string
+	Path                  string
+	Kind                  string
+	DistinctValues        []string
+	DistinctTruncated     bool
 	ExtensionValues       []ExtensionValueObservation
 	PivotCandidate        bool
 	PivotFamily           string
@@ -50,8 +44,6 @@ type ExtensionValueObservation struct {
 	URLPath    []string
 }
 
-// Discovery is the only backend-facing seam needed by recipe resolution. The
-// implementation in server adapts Loom's existing field catalog reader.
 type Discovery interface {
 	Fields(context.Context, Scope, string) ([]FieldCandidate, error)
 }
@@ -66,9 +58,6 @@ type Resolved struct {
 	SourceSnapshot       SourceSnapshot
 }
 
-// SourceSnapshot records the exact logical dataset namespace used during
-// discovery. An empty generation is the legacy-null namespace, not an
-// unscoped request.
 type SourceSnapshot struct {
 	Project           string
 	DatasetGeneration string
@@ -77,11 +66,6 @@ type SourceSnapshot struct {
 	AuthResourcePaths []string
 }
 
-// memoizedDiscovery keeps one immutable catalog snapshot per resource type for
-// the lifetime of a resolution. A recipe can have several projection sets,
-// pivots, and keyed maps on the same node; issuing the catalog query once per
-// declaration needlessly adds latency and can produce an internally
-// inconsistent schema if the catalog changes between reads.
 type memoizedDiscovery struct {
 	delegate Discovery
 	byType   map[string][]FieldCandidate

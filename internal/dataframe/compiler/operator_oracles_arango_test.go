@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/columntransform"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
@@ -17,7 +18,6 @@ import (
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/dataframe/unit"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -89,12 +89,13 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	client, err := store.Open(ctx, url, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: url, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client := arangoBackend.Client
 	defer client.Close(context.Background())
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "Observation"}, {Name: "fhir_edge", Edge: true},
 	}}); err != nil {
 		t.Fatal(err)
@@ -402,10 +403,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	windowMalformedTimeCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-window-malformed-time", TranslationVersion: "1", Outputs: []recipe.Output{windowedSummary},
 	}, projects["window-malformed-time"], generation)
-	windowMalformedTimeRows, windowMalformedTimeErr := queryOracleOutput(ctx, client, windowMalformedTimeCompiled.Outputs[0])
-	if windowMalformedTimeErr == nil || !strings.Contains(windowMalformedTimeErr.Error(), "TEMPORAL_PRECISION_UNSUPPORTED") {
-		t.Fatalf("windowed malformed-time query returned rows=%#v error=%v; want TEMPORAL_PRECISION_UNSUPPORTED", windowMalformedTimeRows, windowMalformedTimeErr)
-	}
+	_, windowMalformedTimeErr := queryOracleOutput(ctx, client, windowMalformedTimeCompiled.Outputs[0])
+	requireStableRuntimeCode(t, windowMalformedTimeErr, "TEMPORAL_PRECISION_UNSUPPORTED")
 	rows := executeOracleQuery(t, ctx, client, mainCompiled.Outputs[0])
 	if len(rows) != len(wants) {
 		t.Fatalf("summary rows = %#v, want %d patient rows", rows, len(wants))
@@ -599,10 +598,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	uniqueCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unique-tie", TranslationVersion: "1", Outputs: []recipe.Output{uniqueTemporal},
 	}, projects["main"], generation)
-	uniqueRows, uniqueErr := queryOracleOutput(ctx, client, uniqueCompiled.Outputs[0])
-	if uniqueErr == nil || !strings.Contains(uniqueErr.Error(), "TEMPORAL_TIE_AMBIGUOUS") {
-		t.Fatalf("REQUIRE_UNIQUE temporal query returned rows=%#v error=%v; want TEMPORAL_TIE_AMBIGUOUS", uniqueRows, uniqueErr)
-	}
+	_, uniqueErr := queryOracleOutput(ctx, client, uniqueCompiled.Outputs[0])
+	requireStableRuntimeCode(t, uniqueErr, "TEMPORAL_TIE_AMBIGUOUS")
 	uniqueWindowed := windowedSummary
 	uniqueWindowed.Name = "unique_windowed_temporal"
 	uniqueAggregate := windowedSummary.Traversals[0].Aggregates[6]
@@ -616,10 +613,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	uniqueWindowedCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unique-windowed-tie", TranslationVersion: "1", Outputs: []recipe.Output{uniqueWindowed},
 	}, projects["main"], generation)
-	uniqueWindowedRows, uniqueWindowedErr := queryOracleOutput(ctx, client, uniqueWindowedCompiled.Outputs[0])
-	if uniqueWindowedErr == nil || !strings.Contains(uniqueWindowedErr.Error(), "TEMPORAL_TIE_AMBIGUOUS") {
-		t.Fatalf("windowed REQUIRE_UNIQUE query returned rows=%#v error=%v; want TEMPORAL_TIE_AMBIGUOUS for the two eligible Jan 2 items", uniqueWindowedRows, uniqueWindowedErr)
-	}
+	_, uniqueWindowedErr := queryOracleOutput(ctx, client, uniqueWindowedCompiled.Outputs[0])
+	requireStableRuntimeCode(t, uniqueWindowedErr, "TEMPORAL_TIE_AMBIGUOUS")
 
 	unsupportedOutput := recipe.Output{
 		Name: "unsupported_unit", RootResourceType: "Patient", RowGrain: "patient",
@@ -630,10 +625,8 @@ func TestS04CompiledOperatorOraclesAgainstArango(t *testing.T) {
 	unsupportedCompiled := compileOracleBundle(t, recipe.Bundle{
 		RecipeSchemaVersion: recipe.CurrentSchemaVersion, Name: "s04-unsupported-unit", TranslationVersion: "1", Outputs: []recipe.Output{unsupportedOutput},
 	}, projects["unsupported"], generation)
-	unsupportedRows, unsupportedErr := queryOracleOutput(ctx, client, unsupportedCompiled.Outputs[0])
-	if unsupportedErr == nil || !strings.Contains(unsupportedErr.Error(), "UNIT_IDENTITY_UNKNOWN") {
-		t.Fatalf("unsupported-unit query returned rows=%#v error=%v; want UNIT_IDENTITY_UNKNOWN for UCUM furlong", unsupportedRows, unsupportedErr)
-	}
+	_, unsupportedErr := queryOracleOutput(ctx, client, unsupportedCompiled.Outputs[0])
+	requireStableRuntimeCode(t, unsupportedErr, "UNIT_IDENTITY_UNKNOWN")
 
 	missingTimeOutput := recipe.Output{
 		Name: "missing_time", RootResourceType: "Patient", RowGrain: "patient",
@@ -677,7 +670,7 @@ func compileOracleBundle(t *testing.T, bundle recipe.Bundle, project, generation
 	return compiled
 }
 
-func executeOracleQuery(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) []map[string]any {
+func executeOracleQuery(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput) []map[string]any {
 	t.Helper()
 	rows, err := queryOracleOutput(ctx, client, output)
 	if err != nil {
@@ -686,7 +679,7 @@ func executeOracleQuery(t *testing.T, ctx context.Context, client *store.Client,
 	return rows
 }
 
-func queryOracleOutput(ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput) ([]map[string]any, error) {
+func queryOracleOutput(ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput) ([]map[string]any, error) {
 	rendered, err := aql.RenderPhysicalPlan(output.Plan)
 	if err != nil {
 		return nil, err
@@ -702,7 +695,7 @@ func queryOracleOutput(ctx context.Context, client *store.Client, output lower.C
 	return rows, err
 }
 
-func executeOracleTrace(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) map[string][]operatorOracleContributor {
+func executeOracleTrace(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput, column string) map[string][]operatorOracleContributor {
 	t.Helper()
 	_, cells := executeOracleTraceResults(t, ctx, client, output, column)
 	contributors := make(map[string][]operatorOracleContributor, len(cells))
@@ -715,18 +708,18 @@ func executeOracleTrace(t *testing.T, ctx context.Context, client *store.Client,
 	return contributors
 }
 
-func executeOracleTraceResults(t *testing.T, ctx context.Context, client *store.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
+func executeOracleTraceResults(t *testing.T, ctx context.Context, client *arangofactory.Client, output lower.CompiledRecipeOutput, column string) (CompiledCellTraceQuery, map[string]operatorOracleTraceResult) {
 	t.Helper()
-	trace, err := CompileCellTraceOutputWithPolicy(output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
+	trace, err := CompileCellTraceOutput(ArangoTarget(), output, column, 0, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile %s cell trace: %v", column, err)
 	}
 	rows := make([]map[string]any, 0)
-	if err := client.QueryRows(ctx, trace.Query, 500, trace.BindVars, func(row map[string]any) error {
+	if err := client.QueryRows(ctx, testAQLText(t, trace.Command), 500, testAQLBinds(t, trace.Command), func(row map[string]any) error {
 		rows = append(rows, row)
 		return nil
 	}); err != nil {
-		t.Fatalf("execute %s cell trace: %v\n%s", column, err, trace.Query)
+		t.Fatalf("execute %s cell trace: %v\n%s", column, err, testAQLText(t, trace.Command))
 	}
 	project, _ := output.Plan.BindVars["project"].(string)
 	return trace, oracleTraceResultsByIdentity(t, rows, trace, project)

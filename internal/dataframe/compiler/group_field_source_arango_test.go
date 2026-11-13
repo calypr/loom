@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
 	"github.com/calypr/loom/internal/explorer/capability"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -63,7 +63,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 			compiled.Stages[0].GroupFieldSourceContext.SourceShapeID != sourceContext.SourceShapeID {
 			t.Fatalf("lowered source descriptor lost its exact pre-Group shape: %#v", compiled.Stages)
 		}
-		query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+		query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 		if err != nil {
 			t.Fatalf("compile expanded Coding Group with %s policy: %v", policy, err)
 		}
@@ -72,7 +72,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "fhir_edge", Edge: true}, {Name: "loom_explorer_selection_members"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -255,7 +255,7 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 			}
 		}
 		errorQuery := queryByPolicy[recipe.ConstructionGroupMissingKeyError]
-		if err := client.QueryRows(ctx, errorQuery.Query, 100, errorQuery.BindVars, func(map[string]any) error { return nil }); err == nil {
+		if err := client.QueryRows(ctx, testAQLText(t, errorQuery.Command), 100, testAQLBinds(t, errorQuery.Command), func(map[string]any) error { return nil }); err == nil {
 			t.Fatal("ERROR expanded Coding Group accepted missing and empty code occurrences")
 		}
 	})
@@ -277,8 +277,8 @@ func TestConstructionGroupExpandedCodingFieldSourceAgainstArango(t *testing.T) {
 					"id": "observation-b", "resourceType": "Observation", "status": "final",
 					"valueCodeableConcept": map[string]any{"coding": []any{test.coding}},
 				})
-				err := client.QueryRows(ctx, queryByPolicy[recipe.ConstructionGroupMissingKeyGroup].Query, 100,
-					queryByPolicy[recipe.ConstructionGroupMissingKeyGroup].BindVars, func(map[string]any) error { return nil })
+				err := client.QueryRows(ctx, testAQLText(t, queryByPolicy[recipe.ConstructionGroupMissingKeyGroup].Command), 100,
+					testAQLBinds(t, queryByPolicy[recipe.ConstructionGroupMissingKeyGroup].Command), func(map[string]any) error { return nil })
 				if err == nil || !strings.Contains(err.Error(), "GROUP_KEY_TYPE_MISMATCH") {
 					t.Fatalf("GROUP query with %s = %v, want GROUP_KEY_TYPE_MISMATCH", test.name, err)
 				}
@@ -372,7 +372,7 @@ func TestConstructionGroupAncestorRowValuesAgainstArango(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lower ancestor Coding Group with post-Group component RowValue: %v", err)
 	}
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 100, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile ancestor Coding Group with component RowValue: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestConstructionGroupAncestorRowValuesAgainstArango(t *testing.T) {
 	}
 
 	ctx, client := openConstructionReshapeArango(t)
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: "Patient"}, {Name: "fhir_edge", Edge: true}, {Name: "loom_explorer_selection_members"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -855,7 +855,7 @@ func assertExpandedCodingGroupUsesProjectedMembership(t *testing.T, compiled low
 		t.Fatalf("expanded Coding Group has incomplete input row or membership column: stage=%#v coding=%#v", stage, coding)
 	}
 	membershipBind := ""
-	for key, value := range query.BindVars {
+	for key, value := range testAQLBinds(t, query.Command) {
 		if value == coding.MembershipColumn && strings.Contains(key, "construction_group_coding_membership_column") {
 			if membershipBind != "" {
 				t.Fatalf("Coding membership column %q has multiple query binds %q and %q", coding.MembershipColumn, membershipBind, key)
@@ -867,15 +867,15 @@ func assertExpandedCodingGroupUsesProjectedMembership(t *testing.T, compiled low
 		t.Fatalf("compiled query has no bind for Coding membership column %q", coding.MembershipColumn)
 	}
 	read := fmt.Sprintf("%s[@%s]", stage.InputRowVariable, membershipBind)
-	readAt := strings.Index(query.Query, read)
+	readAt := strings.Index(testAQLText(t, query.Command), read)
 	if readAt < 0 {
-		t.Fatalf("Group query does not read projected Coding membership at %s:\n%s", read, query.Query)
+		t.Fatalf("Group query does not read projected Coding membership at %s:\n%s", read, testAQLText(t, query.Command))
 	}
-	collectAtRelative := strings.Index(query.Query[readAt+len(read):], "COLLECT ")
+	collectAtRelative := strings.Index(testAQLText(t, query.Command)[readAt+len(read):], "COLLECT ")
 	if collectAtRelative < 0 {
-		t.Fatalf("Group query does not collect after reading Coding membership:\n%s", query.Query)
+		t.Fatalf("Group query does not collect after reading Coding membership:\n%s", testAQLText(t, query.Command))
 	}
-	groupKeyRead := query.Query[readAt : readAt+len(read)+collectAtRelative]
+	groupKeyRead := testAQLText(t, query.Command)[readAt : readAt+len(read)+collectAtRelative]
 	if strings.Contains(groupKeyRead, "DOCUMENT(") || strings.Contains(groupKeyRead, ".payload") {
 		t.Fatalf("Group key evaluation re-scans or walks a root payload instead of using the projected Coding membership:\n%s", groupKeyRead)
 	}
@@ -969,7 +969,7 @@ func expandedCodingGroupObservation(id string, includeSharedDuplicates bool) map
 	}
 }
 
-func insertExpandedCodingGroupSelectionMember(t *testing.T, ctx context.Context, client *store.Client, project, generation, selectionID string) {
+func insertExpandedCodingGroupSelectionMember(t *testing.T, ctx context.Context, client *arangofactory.Client, project, generation, selectionID string) {
 	t.Helper()
 	document, err := json.Marshal(map[string]any{
 		"_key": selectionID + "_patient", "selectionId": selectionID,
@@ -983,7 +983,7 @@ func insertExpandedCodingGroupSelectionMember(t *testing.T, ctx context.Context,
 	}
 }
 
-func replaceExpandedCodingGroupObservation(t *testing.T, ctx context.Context, client *store.Client, key string, payload map[string]any) {
+func replaceExpandedCodingGroupObservation(t *testing.T, ctx context.Context, client *arangofactory.Client, key string, payload map[string]any) {
 	t.Helper()
 	err := client.ExecuteAQL(ctx,
 		"FOR document IN Observation FILTER document._key == @key UPDATE document WITH {payload: @payload} IN Observation",
@@ -994,7 +994,7 @@ func replaceExpandedCodingGroupObservation(t *testing.T, ctx context.Context, cl
 	}
 }
 
-func insertExpandedCodingGroupResource(t *testing.T, ctx context.Context, client *store.Client, collection, key, project, generation string, payload map[string]any) {
+func insertExpandedCodingGroupResource(t *testing.T, ctx context.Context, client *arangofactory.Client, collection, key, project, generation string, payload map[string]any) {
 	t.Helper()
 	document, err := json.Marshal(map[string]any{
 		"_key": key, "id": payload["id"], "project": project, "project_id": project,
@@ -1008,7 +1008,7 @@ func insertExpandedCodingGroupResource(t *testing.T, ctx context.Context, client
 	}
 }
 
-func insertExpandedCodingGroupEdge(t *testing.T, ctx context.Context, client *store.Client, key, observationKey, patientKey, project, generation string) {
+func insertExpandedCodingGroupEdge(t *testing.T, ctx context.Context, client *arangofactory.Client, key, observationKey, patientKey, project, generation string) {
 	t.Helper()
 	document, err := json.Marshal(map[string]any{
 		"_key": key, "_from": "Observation/" + observationKey, "_to": "Patient/" + patientKey,
@@ -1048,7 +1048,7 @@ func assertExpandedCodingGroupOwnerValues(t *testing.T, raw any, want []string) 
 func assertExpandedCodingGroupLineage(
 	t *testing.T,
 	ctx context.Context,
-	client *store.Client,
+	client *arangofactory.Client,
 	compiled lower.CompiledRecipeOutput,
 	row map[string]any,
 	project, patientKey string,
@@ -1058,7 +1058,7 @@ func assertExpandedCodingGroupLineage(
 ) {
 	t.Helper()
 	rowID, _ := row["__loom_row_id"].(string)
-	query, err := CompileRowLineageOutput(compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRowLineageOutput(ArangoTarget(), compiled, rowID, 0, 20, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatalf("compile expanded Coding Group lineage for %q: %v", row["coding"], err)
 	}

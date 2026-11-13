@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
 	"github.com/calypr/loom/internal/dataframe/compiler/ir"
 	"github.com/calypr/loom/internal/dataframe/compiler/lower"
 	"github.com/calypr/loom/internal/dataframe/recipe"
 	"github.com/calypr/loom/internal/dataframe/semantic"
-	store "github.com/calypr/loom/internal/store/arango"
 	"github.com/google/uuid"
 )
 
@@ -26,17 +26,18 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	t.Cleanup(cancel)
-	client, err := store.Open(ctx, os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_TEST_ARANGO_DATABASE"))
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: os.Getenv("LOOM_TEST_ARANGO_URL"), Database: os.Getenv("LOOM_TEST_ARANGO_DATABASE")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	t.Cleanup(func() { _ = arangoBackend.Close(context.Background()) })
+	client := arangoBackend.Client
 	suffix := strings.ReplaceAll(uuid.NewString(), "-", "")
 	observations := "loom_population_frontier_observations_" + suffix
 	patients := "loom_population_frontier_patients_" + suffix
 	edges := "loom_population_frontier_edges_" + suffix
 	members := "loom_population_frontier_members_" + suffix
-	if err := client.Bootstrap(ctx, store.BootstrapSpec{Collections: []store.CollectionSpec{
+	if err := client.Bootstrap(ctx, arangofactory.BootstrapSpec{Collections: []arangofactory.CollectionSpec{
 		{Name: observations}, {Name: patients}, {Name: edges, Edge: true}, {Name: members},
 	}}); err != nil {
 		t.Fatal(err)
@@ -103,8 +104,6 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		}
 	}
 
-	// Each bad resource is attached by correctly scoped edges. If the resource
-	// scope is dropped, it leads to an otherwise disconnected root observation.
 	for index, mismatch := range []resource{
 		{patients, "patient-wrong-project", "patient-wrong-project", "Patient", "other-" + project, generation, "/allowed"},
 		{patients, "patient-wrong-generation", "patient-wrong-generation", "Patient", project, "other-" + generation, "/allowed"},
@@ -117,8 +116,6 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		insertEdge("resource-scope-witness-"+mismatch.key, observationID, mismatch.key, allowed)
 	}
 
-	// Each bad edge is the only path from a selected source to its disconnected
-	// bridge. Its valid bridge edge makes an omitted edge-scope filter observable.
 	for index, mismatch := range []edgeScope{
 		{project: "other-" + project, generation: generation, authPath: "/allowed"},
 		{project: project, generation: "other-" + generation, authPath: "/allowed"},
@@ -191,28 +188,28 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 		t.Fatal(err)
 	}
 	output := compiledRecipe.Outputs[0]
-	compiled, err := CompilePopulationMappingOutputWithPolicy(output, bindings, ir.DefaultPhysicalOptimizationPolicy())
+	compiled, err := CompilePopulationMappingOutput(ArangoTarget(), output, bindings, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	compiled.BindVars["@root_collection"] = observations
-	compiled.BindVars["@population_source_collection"] = observations
-	compiled.BindVars["@population_members_collection"] = members
+	testAQLBinds(t, compiled.Command)["@root_collection"] = observations
+	testAQLBinds(t, compiled.Command)["@population_source_collection"] = observations
+	testAQLBinds(t, compiled.Command)["@population_members_collection"] = members
 	for index := range route {
-		compiled.BindVars[fmt.Sprintf("@population_root_route_%d_edge_collection", index)] = edges
+		testAQLBinds(t, compiled.Command)[fmt.Sprintf("@population_root_route_%d_edge_collection", index)] = edges
 	}
 
 	queryCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	profile, err := client.Profile(queryCtx, store.ProfileRequest{
-		Query: compiled.Query, BindVars: compiled.BindVars, BatchSize: 256,
-		Count: true, Options: store.ProfileOptions{Profile: 2},
+	profile, err := client.Profile(queryCtx, arangofactory.ProfileRequest{
+		Query: testAQLText(t, compiled.Command), BindVars: testAQLBinds(t, compiled.Command), BatchSize: 256,
+		Count: true, Options: arangofactory.ProfileOptions{Profile: 2},
 	})
 	if err != nil {
-		t.Fatalf("execute scoped 8-hop population mapping query: %v\n%s", err, compiled.Query)
+		t.Fatalf("execute scoped 8-hop population mapping query: %v\n%s", err, testAQLText(t, compiled.Command))
 	}
 	if profile.HasMore || profile.Count != 70 || len(profile.Result) != 70 {
-		t.Fatalf("scoped route returned count=%d rows=%d hasMore=%v stats=%#v binds=%#v, want 70 member/root witnesses:\n%s", profile.Count, len(profile.Result), profile.HasMore, profile.Extra.Stats, compiled.BindVars, compiled.Query)
+		t.Fatalf("scoped route returned count=%d rows=%d hasMore=%v stats=%#v binds=%#v, want 70 member/root witnesses:\n%s", profile.Count, len(profile.Result), profile.HasMore, profile.Extra.Stats, testAQLBinds(t, compiled.Command), testAQLText(t, compiled.Command))
 	}
 	wantRoots := make(map[string]struct{}, len(observationIDs))
 	for _, id := range observationIDs {
@@ -255,7 +252,7 @@ func TestPopulationMappingRepeatedRouteDeduplicatesScopedFrontiersAgainstArango(
 	if len(witnesses) != 2 {
 		t.Fatalf("mapped member count = %d, want two accessible selected members", len(witnesses))
 	}
-	stats := store.SummarizeProfile(profile)
+	stats := arangofactory.SummarizeProfile(profile)
 	t.Logf("8-hop overlapping-member query scanned index=%d full=%d peak=%d bytes (%.1f MiB) profile-runtime=%.3fs", stats.ScannedIndex, stats.ScannedFull, stats.PeakMemory, float64(stats.PeakMemory)/(1024*1024), stats.RuntimeSeconds)
 	scanned := stats.ScannedIndex + stats.ScannedFull
 	if scanned > 50000 {

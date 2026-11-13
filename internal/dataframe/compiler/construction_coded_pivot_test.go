@@ -15,18 +15,18 @@ func TestConstructionCodedPivotPreviewLimitsRootsBeforeCodedExtraction(t *testin
 		t.Fatal("direct-root CODED_PIVOT should allow an indexed source-root preview window")
 	}
 
-	query, err := CompileRecipeOutputWithPolicy(compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
+	query, err := CompileRecipeOutput(ArangoTarget(), compiled, bindings, 25, ir.DefaultPhysicalOptimizationPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	sortIndex := strings.Index(query.Query, "SORT root.id ASC")
-	limitIndex := strings.Index(query.Query, "LIMIT @limit")
-	ownerIndex := strings.Index(query.Query, "coded_pivot_owner")
+	sortIndex := strings.Index(testAQLText(t, query.Command), "SORT root.id ASC")
+	limitIndex := strings.Index(testAQLText(t, query.Command), "LIMIT @limit")
+	ownerIndex := strings.Index(testAQLText(t, query.Command), "coded_pivot_owner")
 	if sortIndex < 0 || limitIndex < 0 || ownerIndex < 0 || !(sortIndex < limitIndex && limitIndex < ownerIndex) {
-		t.Fatalf("preview must bound roots before running correlated category extraction (sort=%d limit=%d owner=%d):\n%s", sortIndex, limitIndex, ownerIndex, query.Query)
+		t.Fatalf("preview must bound roots before running correlated category extraction (sort=%d limit=%d owner=%d):\n%s", sortIndex, limitIndex, ownerIndex, testAQLText(t, query.Command))
 	}
-	if strings.Contains(query.Query, "__loom_construction_source_projection") || strings.Contains(query.Query, "COLLECT ") {
-		t.Fatalf("bounded coded preview must stream selected roots through the typed Pivot stage:\n%s", query.Query)
+	if strings.Contains(testAQLText(t, query.Command), "__loom_construction_source_projection") || strings.Contains(testAQLText(t, query.Command), "COLLECT ") {
+		t.Fatalf("bounded coded preview must stream selected roots through the typed Pivot stage:\n%s", testAQLText(t, query.Command))
 	}
 }
 

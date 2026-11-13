@@ -38,7 +38,9 @@ lifecycle or authoring types. Every HTTP method and path is defined in the
 canonical [`openapi/openapi.yaml`](../openapi/openapi.yaml) contract.
 
 Ownership map: `dataset` owns immutable FHIR generation lifecycle; `catalog`
-owns persistence-neutral observed facts; `catalog/arango` owns catalog
+owns persistence-neutral observed facts, the shared relationship-evidence
+projection, and the cross-backend catalog read contracts (retained-source
+keyset page, semantic coverage lookup); `catalog/arango` owns catalog
 persistence; `explorer` owns portable Explorer configs, editable drafts,
 immutable revisions, and publication state; `explorer/arango` owns its durable
 adapter; `dataframe/publication` owns dataframe publishing contracts and the
@@ -83,6 +85,60 @@ column must not require GraphQL regeneration or a Loom restart. Publication
 and published-data reads are ClickHouse-only; Loom has no Elasticsearch
 publication or reader fallback.
 
+## Backend composition and startup
+
+Server startup composes through one explicit seam. `run()` in
+`internal/server/server.go` validates and normalizes the configuration and
+then dispatches on `server.backend` only:
+
+- `arango` composes in `composeArangoRuntime` (`internal/server/compose.go`);
+- `postgres` with the complete six-series placement ladder composes the full
+  runtime in `composePostgreSQLFullRuntime` (`internal/server/runtime.go`);
+- every other `postgres` shape goes to the first-query route
+  (`composePostgreSQLFirstQueryRoute` in `server.go`), whose consumability
+  gate keeps the pinned startup refusal: a configuration that is not exactly
+  the `source` plus `dataset_release` pair receives `ErrPostgreSQLRuntimeNotWired`
+  before any dial and never falls through to the ArangoDB stores.
+
+Each arm opens its stores only through the three startup-only seams in
+`compose.go` (`openArangoBackend`, `openPostgresBackend`,
+`newClickHouseClient`). They are composition-private package variables read
+once per startup; no request handler can reach them, so they are not a
+service locator. `TestBackendCompositionContract`
+(`internal/server/backend_composition_contract_test.go`) spies them and
+pins the law that each selection opens exactly its own factories, once.
+
+Both ClickHouse-enabled arms build the identical publication plane through
+`newPublicationPlane`, and both release-bearing arms share
+`newReleaseHooks`, `buildLifecycleConfig` (the receipt-execution closures and
+the typed lifecycle lane ports), and `wireExplorerRoutes`, which installs
+routes through `registerRoutes` with typed `routeDependencies` and an
+explicit `routeScopePolicy` that is validated before any route is installed
+(a scoped policy without its resolver is a named refusal). The ClickHouse
+plane is an independent lane: with `server.clickhouse.enabled` false no
+ClickHouse client is constructed, and the first-query slice refuses the
+combination outright. When the dataframe recipe engine is combined with the
+publication plane, the `CombinePortsConfigured` guard runs immediately after
+engine construction (ticket #146).
+
+Cleanup ownership is uniform. Each compose body keeps exactly one deferred
+statement — the error-path sweep of a `cleanups` stack — and on success the
+same stack is returned as the caller's closer. `serveRuntime` (the one
+listen/shutdown loop in `compose.go`) owns that closer, so partial
+construction, normal shutdown, and listen failure share one owner per
+resource. `TestPostgresRuntimeComposeOwnsNoDeferredCleanup` witnesses both
+production composes.
+
+The two backend row ports are tag-guarded at their own boundary
+(`internal/server/row_sources.go`): the AQL lane serves AQL-tagged commands
+only and the PostgreSQL lane serves PostgreSQL-tagged commands only, each
+rejecting a cross-tagged command through the compiler's closed-dispatch
+sentinel before any driver call. `TestRowCoreCrossTagGuardsRefusePreDispatch`
+drives the guards directly.
+
+The shape is drawn in
+[`architecture/integrated-runtime.mmd`](architecture/integrated-runtime.mmd).
+
 ## Load and storage model
 
 `internal/ingest` reads an NDJSON directory, preflights it against the local
@@ -105,7 +161,7 @@ as a compiler-selected physical optimization with write/read ownership,
 generation scope, freshness policy, and Explain coverage; it must not be added
 as an unused bootstrap collection.
 
-Immutable loads use `internal/dataset` and `internal/dataset/arango`. Dataset
+Immutable loads use `internal/dataset` and `internal/backends/arango/internal/dataset`. Dataset
 owns schema identity and generation manifests; ingest owns the Arango vertex
 and edge document shapes it writes. Their manifest records project, generation,
 and schema identity; the active pointer selects one READY generation per

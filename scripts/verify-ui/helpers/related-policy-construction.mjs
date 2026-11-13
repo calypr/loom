@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict';
 
-// Build the only construction shape a saved RELATED_EXPAND policy edit may
-// produce when EXCLUDE changes to PRESERVE_PARENT: the authored policy changes,
-// and its stable related-record output becomes nullable at this step and every
-// downstream step that carries the same output column.
 export function expectedPreserveParentRelatedEdit(construction, stepIndex) {
   const expected = JSON.parse(JSON.stringify(construction));
   assert(Number.isInteger(stepIndex) && stepIndex >= 0 && stepIndex < expected.steps.length,

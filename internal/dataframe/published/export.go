@@ -29,11 +29,6 @@ type ExportRequest struct {
 	Filename string
 }
 
-// ExactExportRequest identifies the immutable published output that an
-// export is allowed to read. It deliberately contains no selector fallback:
-// the caller must supply the execution ID that was checked and shown to the
-// user. The authorization fields are the already-resolved effective scope;
-// the reader never discovers a broader scope while streaming.
 type ExactExportRequest struct {
 	ExecutionID        string
 	OutputID           string
@@ -48,21 +43,11 @@ type ExactExportRequest struct {
 	Unrestricted       bool
 	IncludeRowIdentity bool
 
-	// ReaderID is the durable owner of the export's execution read pin. It is
-	// supplied by the lifecycle operation so a retry or cancellation can be
-	// audited without exposing a generated UUID to the transport.
-	ReaderID string
-	// PinExpiresAt is the initial lease expiry. A zero value uses the standard
-	// reader lease. The adapter renews the lease while the bounded stream runs.
-	PinExpiresAt time.Time
-	// PinRenewalInterval is primarily useful to lifecycle callers with a
-	// shorter operation budget and deterministic tests. A zero value uses the
-	// standard reader renewal interval.
+	ReaderID           string
+	PinExpiresAt       time.Time
 	PinRenewalInterval time.Duration
 }
 
-// ExactExportResult is returned only as metadata. Rows are delivered one at a
-// time to the visitor, so the result never retains the exported dataset.
 type ExactExportResult struct {
 	ExecutionID     string
 	OutputID        string
@@ -72,13 +57,8 @@ type ExactExportResult struct {
 	Rows            int64
 }
 
-// ExactExportVisitor consumes one row from the exact published output. The
-// visitor must not assume that rows are retained after it returns.
 type ExactExportVisitor func(map[string]any) error
 
-// StreamExactExport resolves and streams one exact published execution while
-// holding a renewable read-retention pin. It never follows a project-current
-// pointer and never returns success after pin loss or a partial visitor read.
 func (r *Reader) StreamExactExport(ctx context.Context, request ExactExportRequest, visit ExactExportVisitor) (ExactExportResult, error) {
 	result := ExactExportResult{
 		ExecutionID: strings.TrimSpace(request.ExecutionID),

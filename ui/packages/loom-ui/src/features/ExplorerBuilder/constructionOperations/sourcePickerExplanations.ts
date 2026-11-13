@@ -1,8 +1,3 @@
-// ROW-SOURCE-06: the Filter, Derive, and Unpivot signed source pickers must
-// explain why zero choices remain. Every class here is derived only from
-// server-supplied choice data (isPopulated) and current local bindings; no
-// reason is ever invented. Lane-level refusal stays in the existing
-// source-unavailable notice, which this module intentionally does not replace.
 
 export type SourcePickerChoice = {
   readonly choiceId: string;
@@ -38,11 +33,6 @@ export const classifySourcePickerEmptiness = (
   return { emptyClass: 'none-populated', unpopulated: unbound, boundCount };
 };
 
-// Visibility-aware bound set (ROUND-2): a picker's own current binding is
-// excluded from the bound set only when it is the lane's sole binding AND it
-// renders in this picker (the user can still see/select it). Otherwise every
-// binding counts, so a picker whose options are all hidden still explains why
-// (contract: never leave a zero-eligible source picker unexplained).
 export const sourcePickerBoundSet = <T extends { readonly choiceId: string }>(args: {
   readonly bindings: ReadonlyArray<T>;
   readonly isOwn: (binding: T) => boolean;

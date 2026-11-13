@@ -2,6 +2,7 @@ package queryapi
 
 import (
 	"context"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 			t.Fatalf("catalog auth paths = %#v, want %#v", paths, []string{scopePath})
 		}
 	}
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ScopeResolver:          scopeResolver,
 		ActiveManifestResolver: active,
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
@@ -59,7 +60,12 @@ func TestProjectFormsShareOneShotCatalogAndIntrospectionIdentity(t *testing.T) {
 			return []catalog.PopulatedReference{}, nil
 		},
 		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{
-			QueryRows: func(_ context.Context, _ string, _ int, bindVars map[string]any, _ func(map[string]any) error) error {
+			SourceRows: func(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+				_, bindVars, deriveErr := request.Command.AQLParameters()
+				if deriveErr != nil {
+					return deriveErr
+				}
+
 				if unrestricted, ok := bindVars["auth_resource_paths_unrestricted"].(bool); !ok || unrestricted {
 					t.Fatalf("dataframe scope bypass = %#v, want false", bindVars["auth_resource_paths_unrestricted"])
 				}

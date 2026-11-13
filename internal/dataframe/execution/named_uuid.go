@@ -1,5 +1,3 @@
-// Package execution contains the exact named-UUID contract shared by
-// compiler-owned post-query execution and legacy differential tests.
 package execution
 
 import (
@@ -9,8 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// computeNamedUUID applies the legacy uuid3/uuid5 contract. A nil argument propagates
-// null so optional recipe expressions do not mint an ID from the text "<nil>".
 func computeNamedUUID(operation string, args []any) (any, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("%s requires a namespace and at least one name", operation)

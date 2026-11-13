@@ -1202,8 +1202,6 @@ func TestCoverageAuditVersionsStayOutsideInventoryBuildIdentity(t *testing.T) {
 	if currentBuildID != completedBuildID {
 		t.Fatalf("coverage-only versioning changed the semantic-v3 inventory build ID: got %q, want completed build %q", currentBuildID, completedBuildID)
 	}
-	// Coverage rule and storage versions remain explicit audit metadata. They
-	// intentionally do not participate in the semantic inventory identity.
 	if SemanticCoverageRuleVersion != 1 || SemanticCoverageStorageFormatVersion != 1 {
 		t.Fatalf("coverage audit versions = %d/%d, want separate v1 markers", SemanticCoverageRuleVersion, SemanticCoverageStorageFormatVersion)
 	}

@@ -12,26 +12,20 @@ import (
 	"time"
 
 	"github.com/calypr/loom/internal/authscope"
+	arangofactory "github.com/calypr/loom/internal/backends/arango"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	dataframeexecution "github.com/calypr/loom/internal/dataframe/execution"
-	publicationarango "github.com/calypr/loom/internal/dataframe/publication/arango"
 	publicationclickhouse "github.com/calypr/loom/internal/dataframe/publication/clickhouse"
 	"github.com/calypr/loom/internal/dataset"
-	datasetarango "github.com/calypr/loom/internal/dataset/arango"
 	"github.com/calypr/loom/internal/explorer"
-	explorerarango "github.com/calypr/loom/internal/explorer/arango"
 	"github.com/calypr/loom/internal/explorer/authoringv2"
 	"github.com/calypr/loom/internal/explorer/capability"
 	"github.com/calypr/loom/internal/explorer/lifecycle"
-	storearango "github.com/calypr/loom/internal/store/arango"
 	storeclickhouse "github.com/calypr/loom/internal/store/clickhouse"
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
 )
 
-// A bounded assembled publication checkpoint: actual AQL/compiler/stream,
-// ClickHouse materialization, registry and atomic Explorer/release activation.
-// Authorization/capability discovery are fixture-owned. Fresh clients prove
-// stored read-back, not database process restart or browser rendering.
 func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	arangoURL, clickhouseURL := os.Getenv("LOOM_TEST_ARANGO_URL"), os.Getenv("LOOM_CLICKHOUSE_URL")
 	if arangoURL == "" || clickhouseURL == "" {
@@ -40,10 +34,11 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	database := "loom_publication_rows_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	graph, err := storearango.Open(ctx, arangoURL, database)
+	arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: arangoURL, Database: database})
 	if err != nil {
 		t.Fatal(err)
 	}
+	graph := arangoBackend.Client
 	t.Cleanup(func() {
 		graph.Close(context.Background())
 		request, _ := http.NewRequest(http.MethodDelete, strings.TrimRight(arangoURL, "/")+"/_api/database/"+database, nil)
@@ -57,7 +52,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 			t.Errorf("owned graph cleanup: HTTP%d", response.StatusCode)
 		}
 	})
-	for _, spec := range []storearango.BootstrapSpec{explorerarango.BootstrapSpec(), publicationarango.BootstrapSpec(), datasetarango.BootstrapSpec(), {Collections: []storearango.CollectionSpec{{Name: "Patient"}}}} {
+	for _, spec := range []arangofactory.BootstrapSpec{arangofactory.ExplorerBootstrapSpec(), arangofactory.PublishedBootstrapSpec(), arangofactory.DatasetBootstrapSpec(), {Collections: []arangofactory.CollectionSpec{{Name: "Patient"}}}} {
 		if err := graph.Bootstrap(ctx, spec); err != nil {
 			t.Fatal(err)
 		}
@@ -79,7 +74,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	registry, err := publicationarango.New(graph)
+	registry, err := arangofactory.NewPublishedRegistry(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +103,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := explorerarango.New(graph)
+	store, err := arangofactory.NewExplorerStore(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,9 +115,17 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := dataframeexecution.New(dataframeexecution.Config{Registry: compilerTestRegistry{}, QueryRows: func(ctx context.Context, query string, batch int, vars map[string]any, visit func(map[string]any) error) error {
-		return graph.QueryRows(ctx, query, batch, vars, storearango.RowVisitor(visit))
-	}})
+	engine, err := dataframeexecution.New(dataframeexecution.Config{
+		CompileTarget: compiler.ArangoTarget(), Registry: compilerTestRegistry{}, SourceRows: func(ctx context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+			command := request.Command
+			batch := request.BatchSize
+			query, vars, deriveErr := command.AQLParameters()
+			if deriveErr != nil {
+				return deriveErr
+			}
+
+			return graph.QueryRows(ctx, query, batch, vars, arangofactory.RowVisitor(visit))
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +134,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	releases, err := datasetarango.New(graph)
+	releases, err := arangofactory.NewDatasetStore(graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +204,6 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 	if result.ReceiptID != receipt.ID || result.RevisionID == "" {
 		t.Fatalf("publication identity: %#v", result)
 	}
-	// Later draft/source edits must not change the already materialized revision.
 	workspace.Documents[0].Columns[0].Label = "Unpublished label"
 	laterRaw, err := workspace.CanonicalJSON()
 	if err != nil {
@@ -237,11 +239,12 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		t.Fatalf("repeat changed immutable publication: %#v", repeat)
 	}
 	for read := 0; read < 2; read++ {
-		freshGraph, err := storearango.Open(ctx, arangoURL, database)
+		arangoBackend, err := arangofactory.Open(ctx, arangofactory.Config{URL: arangoURL, Database: database})
 		if err != nil {
 			t.Fatal(err)
 		}
-		freshStore, err := explorerarango.New(freshGraph)
+		freshGraph := arangoBackend.Client
+		freshStore, err := arangofactory.NewExplorerStore(freshGraph)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -273,7 +276,7 @@ func TestPublicationRowsAndFreshViewerAgainstArangoClickHouse(t *testing.T) {
 		if output.OutputID != "patients" || output.Materialization == nil || output.Selector != (dataset.DataframeSelector{Recipe: receipt.Bundle.Name, TranslationVersion: receipt.Bundle.TranslationVersion, Output: "patients"}) || len(output.Columns) != 1 || output.Columns[0].Label != "Patient ID" {
 			t.Fatalf("Viewer output mismatch: %#v", output)
 		}
-		freshRegistry, err := publicationarango.New(freshGraph)
+		freshRegistry, err := arangofactory.NewPublishedRegistry(freshGraph)
 		if err != nil {
 			t.Fatal(err)
 		}

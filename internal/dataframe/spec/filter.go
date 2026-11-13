@@ -10,9 +10,6 @@ import (
 	fhirschema "github.com/calypr/loom/internal/fhir/schema"
 )
 
-// FilterOperator is the closed set of operations accepted by the typed filter
-// AST. Compilers must map these values to bound expressions rather than treat
-// them as query fragments.
 type FilterOperator string
 
 const (
@@ -48,8 +45,6 @@ const (
 	QuantifierNone ArrayQuantifier = "NONE"
 )
 
-// CodeValue preserves the terminology identity instead of filtering only on a
-// human-readable display string.
 type CodeValue struct {
 	System  string `json:"system,omitempty"`
 	Code    string `json:"code"`
@@ -57,8 +52,6 @@ type CodeValue struct {
 	Version string `json:"version,omitempty"`
 }
 
-// FilterValue is a tagged value. Exactly the member selected by Kind must be
-// populated. Pointer scalar fields preserve false, zero, and empty values.
 type FilterValue struct {
 	Kind     FilterValueKind `json:"kind"`
 	String   *string         `json:"string,omitempty"`
@@ -70,13 +63,8 @@ type FilterValue struct {
 	DateTime *string         `json:"dateTime,omitempty"`
 }
 
-// TypedFilter identifies a field through a stable reference. It deliberately
-// contains no AQL or selector expression supplied by the user.
 type TypedFilter struct {
-	FieldRef string `json:"fieldRef"`
-	// Selector is a resolved, canonical FHIR selector. Product callers should
-	// normally supply FieldRef and receive this selector from the semantic
-	// registry; the compiler requires it before physical lowering.
+	FieldRef    string                        `json:"fieldRef"`
 	Selector    string                        `json:"selector,omitempty"`
 	FieldKind   FilterValueKind               `json:"fieldKind"`
 	Repeated    bool                          `json:"repeated,omitempty"`
@@ -247,10 +235,6 @@ func (v FilterValue) validate(requireCode bool) error {
 	return nil
 }
 
-// Ordered comparison has point-in-time semantics, unlike exact FHIR temporal
-// matching which can legitimately use partial precision (for example, 2024).
-// Require full values before emitting DATE_TIMESTAMP so offsets are normalized
-// in AQL rather than compared lexically.
 func validateOrderedTemporalValue(operator FilterOperator, value FilterValue) error {
 	switch operator {
 	case FilterGreaterThan, FilterGreaterEq, FilterLessThan, FilterLessEq:

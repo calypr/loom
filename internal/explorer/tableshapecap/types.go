@@ -1,6 +1,3 @@
-// Package tableshapecap contains immutable, compiler-neutral capability
-// artifacts used to author table-shape proposals. It deliberately does not
-// depend on transport, FHIR schema, or persisted authoring-model packages.
 package tableshapecap
 
 import (
@@ -36,8 +33,6 @@ type Binding struct {
 	CompilerSchemaDigest     string `json:"compilerSchemaDigest"`
 }
 
-// CatalogLookup is the request-bound subset available before loading the
-// persisted base compilation receipt referenced by a catalog binding.
 type CatalogLookup struct {
 	Project            string `json:"project"`
 	ExplorerID         string `json:"explorerId"`
@@ -200,8 +195,6 @@ func (a RoleAvailability) Validate() error {
 	return nil
 }
 
-// Scalar is a strict tagged union. Pointer payloads preserve empty string,
-// zero, and false as values distinct from NULL and MISSING.
 type Scalar struct {
 	Kind    ScalarKind `json:"kind"`
 	String  *string    `json:"string,omitempty"`
@@ -287,9 +280,6 @@ type OperandKind string
 
 const OperandColumn OperandKind = "COLUMN"
 
-// OperandRef is the immutable server payload behind a catalog's opaque base
-// operand choice. Derived receipts reference its choice ID, never a client
-// supplied column key.
 type OperandRef struct {
 	Kind      OperandKind `json:"kind"`
 	ColumnKey string      `json:"columnKey"`
@@ -310,9 +300,6 @@ const (
 	ResolvedOperandLiteral       ResolvedOperandKind = "LITERAL"
 )
 
-// ResolvedOperand is an expression input frozen into a derived receipt. Base
-// columns remain opaque catalog choices, while prior derived outputs remain
-// explicit references to earlier child receipts.
 type ResolvedOperand struct {
 	Kind         ResolvedOperandKind `json:"kind"`
 	ChoiceID     string              `json:"choiceId,omitempty"`
@@ -511,8 +498,6 @@ type CategoryProof struct {
 	QueryProof        string `json:"queryProof"`
 }
 
-// DiscoveredCategory is a typed value made selectable by one complete,
-// compiler-owned scan receipt. Its ID is opaque and scoped to that receipt.
 type DiscoveredCategory struct {
 	ChoiceID string `json:"choiceId"`
 	Value    Scalar `json:"value"`
@@ -567,8 +552,6 @@ type PivotResolution struct {
 	UnlistedPolicyChoiceID  string                `json:"unlistedPolicyChoiceId"`
 }
 
-// PivotDerivedOperand describes a compiler-typed output that remains after
-// the pivot and can feed a subsequent derived construction.
 type PivotDerivedOperand struct {
 	ChoiceID     string   `json:"choiceId"`
 	OutputColumn string   `json:"outputColumn"`
@@ -586,8 +569,6 @@ type UnpivotResolution struct {
 	NullPolicyChoiceID   string                 `json:"nullPolicyChoiceId"`
 }
 
-// ResolvedUnpivotInput freezes the server-owned emitted key for a selected
-// source column. The browser selects only ChoiceID and cannot author Key.
 type ResolvedUnpivotInput struct {
 	ChoiceID string `json:"choiceId"`
 	Key      Scalar `json:"key"`

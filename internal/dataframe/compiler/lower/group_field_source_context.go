@@ -184,18 +184,12 @@ func groupFieldSourcePrefixIsRowPreserving(plan *ir.PhysicalPlan, root *ir.Physi
 				return false
 			}
 		default:
-			// Sets, traversals, windows, table reshapes and prior row changing
-			// stages cannot be silently treated as source occurrence context.
 			return false
 		}
 	}
 	return rootCount == 1 && unnestSeen == unnestCount && returns == 1
 }
 
-// Population roots are row-preserving because the typed root renderer groups
-// the selected root key before loading the root document. The context checks
-// only the source and identity structure; PhysicalPlan validation owns filter,
-// resource-scope, and authorization validation.
 func groupFieldSourcePopulationIsTyped(population *ir.PhysicalPopulationRootSource, rootVariable string) bool {
 	if population == nil {
 		return true
@@ -233,10 +227,6 @@ func groupFieldSourcePopulationIsTyped(population *ir.PhysicalPopulationRootSour
 	return population.RootKey.Variable == current && physicalPathEquals(population.RootKey.Path, "_key")
 }
 
-// A PhysicalSet is an array-valued LET, so a validated direct related-field
-// set preserves each outer row. Require its correlated traversal to remain
-// anchored at the physical root; sets from other source shapes are not proof
-// that root/active occurrence identity survived.
 func groupFieldSourceRowPreservingSet(operation ir.PhysicalOperation, rootVariable string) bool {
 	set := operation.Set
 	if operation.Kind != ir.PhysicalSetOp || set == nil || set.Variable == "" || rootVariable == "" ||

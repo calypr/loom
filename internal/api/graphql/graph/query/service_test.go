@@ -3,6 +3,7 @@ package queryapi
 import (
 	"context"
 	"errors"
+	"github.com/calypr/loom/internal/dataframe/compiler"
 	"reflect"
 	"sync"
 	"testing"
@@ -16,20 +17,10 @@ import (
 )
 
 const (
-	// queryapiBackendDelay is charged through the controlled Service clock, so
-	// it is huge without slowing the test.
 	queryapiBackendDelay = 90 * time.Second
-	// queryapiCursorDelay is charged by the synctest bubble clock: in a bubble,
-	// time only advances while every goroutine is durably blocked, so the held
-	// cursor is an exact virtual quantum billed to the query span, independent
-	// of machine speed.
-	queryapiCursorDelay = 9 * time.Second
+	queryapiCursorDelay  = 9 * time.Second
 )
 
-// controlledClock is the deterministic clock behind Service.now. Each read
-// moves the clock by one fixed step, so every Run-owned phase reports a fixed
-// non-zero duration without racing wall-clock speed; tests advance it
-// explicitly to charge a known delay to exactly one region.
 type controlledClock struct {
 	mu   sync.Mutex
 	time time.Time
@@ -53,12 +44,6 @@ func (c *controlledClock) advance(d time.Duration) {
 	c.time = c.time.Add(d)
 }
 
-// queryapiBackend is the single execution seam for these tests. It records the
-// compiled query it received and can hold the cursor open for a declared
-// quantum, so the query-region duration is a declared constant rather than a
-// measured race. fieldCalls proves a request reached request preparation even
-// when it later failed, so a backend call count of zero is a boundary claim,
-// not a tautology.
 type queryapiBackend struct {
 	mu          sync.Mutex
 	calls       int
@@ -72,10 +57,12 @@ type queryapiBackend struct {
 	enteredOnce sync.Once
 }
 
-// queryRows blocks for cursorDelay before producing any row, which is the
-// execution service's ArangoQuery span. Inside a synctest bubble that block is
-// an exact virtual quantum.
-func (b *queryapiBackend) queryRows(_ context.Context, query string, _ int, bindVars map[string]any, visit func(map[string]any) error) error {
+func (b *queryapiBackend) queryRows(_ context.Context, request dataframeexecution.RowsRequest, visit dataframeexecution.RowVisitor) error {
+	query, bindVars, deriveErr := request.Command.AQLParameters()
+	if deriveErr != nil {
+		return deriveErr
+	}
+
 	b.mu.Lock()
 	b.calls++
 	b.queries = append(b.queries, query)
@@ -102,9 +89,6 @@ func (b *queryapiBackend) queryRows(_ context.Context, query string, _ int, bind
 	return nil
 }
 
-// begin opens the entered signal. Call it inside a synctest bubble, before the
-// Run under test, so waiting on the cursor is a durably blocking bubble
-// operation rather than a wait on an outside channel.
 func (b *queryapiBackend) begin() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -112,8 +96,6 @@ func (b *queryapiBackend) begin() {
 	b.enteredOnce = sync.Once{}
 }
 
-// waitEntered blocks until the cursor has been entered, or fails the test if
-// Run finished without ever reaching the backend.
 func (b *queryapiBackend) waitEntered(t *testing.T, done <-chan runOutcome) {
 	t.Helper()
 	b.mu.Lock()
@@ -159,7 +141,7 @@ func queryapiGenderInput() model.FhirDataframeInput {
 
 func queryapiService(t *testing.T, backend *queryapiBackend, clock *controlledClock) *Service {
 	t.Helper()
-	service := NewService(Config{
+	service := NewService(Config{CompileTarget: compiler.ArangoTarget(),
 		ActiveManifestResolver: &builderActiveManifestResolver{manifest: builderReadyManifest(t, "P1", "generation-1")},
 		DiscoverFields: func(_ context.Context, options catalog.PopulatedFieldOptions) ([]catalog.PopulatedField, error) {
 			backend.mu.Lock()
@@ -172,7 +154,7 @@ func queryapiService(t *testing.T, backend *queryapiBackend, clock *controlledCl
 				return []catalog.PopulatedField{}, nil
 			}
 		},
-		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{QueryRows: backend.queryRows}),
+		Dataframes: dataframeexecution.NewService(dataframeexecution.ServiceConfig{SourceRows: backend.queryRows}),
 	})
 	if clock != nil {
 		service.now = clock.now
@@ -180,14 +162,11 @@ func queryapiService(t *testing.T, backend *queryapiBackend, clock *controlledCl
 	return service
 }
 
-// runOutcome carries a Run result across the goroutine boundary.
 type runOutcome struct {
 	result *dataframeexecution.Result
 	err    error
 }
 
-// runAsync starts Run on its own goroutine so the test goroutine can advance
-// the controlled clock while the cursor is held open.
 func runAsync(service *Service, input model.FhirDataframeInput) <-chan runOutcome {
 	done := make(chan runOutcome, 1)
 	go func() {
@@ -197,11 +176,6 @@ func runAsync(service *Service, input model.FhirDataframeInput) <-chan runOutcom
 	return done
 }
 
-// TestRunDoesNotChargeQueryExecutionToCompilation is the boundary gate. A
-// cursor held open for a declared quantum must be charged to the query and
-// total durations and never to Compilation. The cursor block runs inside a
-// synctest bubble, so its whole duration is an exact virtual quantum: the
-// assertions compare declared durations, never a wall-clock speed threshold.
 func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 	baselineBackend := &queryapiBackend{rows: queryapiGenderRows()}
 	baseline, err := queryapiService(t, baselineBackend, newControlledClock()).Run(context.Background(), queryapiGenderInput(), nil)
@@ -221,8 +195,6 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 		heldBackend.begin()
 		done := runAsync(heldService, queryapiGenderInput())
 		heldBackend.waitEntered(t, done)
-		// The compiler returned before the cursor was entered, so this advance
-		// charges the query region and the total, never the compile interval.
 		heldClock.advance(queryapiBackendDelay)
 
 		outcome := <-done
@@ -236,8 +208,6 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 		heldDiagnostics = outcome.result.Diagnostics
 		baselineDiagnostics := baseline.Diagnostics
 
-		// The compilation interval must be invariant to how long the cursor is
-		// held open, and non-zero so invariance cannot be met by dropping the phase.
 		if baselineDiagnostics.Compilation <= 0 {
 			t.Fatalf("baseline compilation = %v, want a non-zero compile interval", baselineDiagnostics.Compilation)
 		}
@@ -248,22 +218,16 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 			t.Fatalf("compilation %v still covers the %v backend hold", heldDiagnostics.Compilation, queryapiBackendDelay)
 		}
 
-		// The same hold must be visible to the separately measured query
-		// diagnostics: the bubble charged the whole cursor quantum there, and
-		// none of it moved into the per-row materialization span. The two spans
-		// must account for the quantum exactly, so a phase cannot both absorb
-		// and hide it.
-		if heldDiagnostics.ArangoQuery != queryapiCursorDelay {
-			t.Fatalf("held arango query = %v, want exactly the %v held cursor quantum", heldDiagnostics.ArangoQuery, queryapiCursorDelay)
+		if heldDiagnostics.SourceQuery != queryapiCursorDelay {
+			t.Fatalf("held arango query = %v, want exactly the %v held cursor quantum", heldDiagnostics.SourceQuery, queryapiCursorDelay)
 		}
-		if charged := heldDiagnostics.ArangoQuery + heldDiagnostics.RowMaterialization; charged != queryapiCursorDelay {
-			t.Fatalf("cursor quantum %v charged %v across query %v and materialization %v", queryapiCursorDelay, charged, heldDiagnostics.ArangoQuery, heldDiagnostics.RowMaterialization)
+		if charged := heldDiagnostics.SourceQuery + heldDiagnostics.RowMaterialization; charged != queryapiCursorDelay {
+			t.Fatalf("cursor quantum %v charged %v across query %v and materialization %v", queryapiCursorDelay, charged, heldDiagnostics.SourceQuery, heldDiagnostics.RowMaterialization)
 		}
-		if heldDiagnostics.ArangoQuery >= heldDiagnostics.Total {
-			t.Fatalf("held arango query %v is not bounded by total %v", heldDiagnostics.ArangoQuery, heldDiagnostics.Total)
+		if heldDiagnostics.SourceQuery >= heldDiagnostics.Total {
+			t.Fatalf("held arango query %v is not bounded by total %v", heldDiagnostics.SourceQuery, heldDiagnostics.Total)
 		}
 
-		// The same delay must land in the total.
 		if want := baselineDiagnostics.Total + queryapiBackendDelay; heldDiagnostics.Total != want {
 			t.Fatalf("held total = %v, want %v (baseline %v + cursor delay %v)", heldDiagnostics.Total, want, baselineDiagnostics.Total, queryapiBackendDelay)
 		}
@@ -276,7 +240,7 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 		if owned := diagnostics.InputResolution + diagnostics.RequestPreparation + diagnostics.Compilation; diagnostics.Total < owned {
 			t.Fatalf("total %v is below the sum %v of the Run-owned phases", diagnostics.Total, owned)
 		}
-		if diagnostics.ArangoQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
+		if diagnostics.SourceQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
 			t.Fatalf("negative backend diagnostics: %+v", diagnostics)
 		}
 	}
@@ -288,10 +252,6 @@ func TestRunDoesNotChargeQueryExecutionToCompilation(t *testing.T) {
 	}
 }
 
-// TestRunChargesCursorQuantumOnceAcrossRows pins the other half of the query
-// diagnostic: the held cursor is one span billed once to ArangoQuery, however
-// many rows it delivers, and it never leaks into the per-row materialization
-// span. The quantum is an exact bubble-time constant.
 func TestRunChargesCursorQuantumOnceAcrossRows(t *testing.T) {
 	backend := &queryapiBackend{
 		rows: []map[string]any{
@@ -318,8 +278,8 @@ func TestRunChargesCursorQuantumOnceAcrossRows(t *testing.T) {
 			t.Fatalf("row count = %d, want the 3 delivered rows", outcome.result.RowCount)
 		}
 		diagnostics := outcome.result.Diagnostics
-		if diagnostics.ArangoQuery != queryapiCursorDelay {
-			t.Fatalf("arango query = %v, want the single %v cursor quantum, not one per row", diagnostics.ArangoQuery, queryapiCursorDelay)
+		if diagnostics.SourceQuery != queryapiCursorDelay {
+			t.Fatalf("arango query = %v, want the single %v cursor quantum, not one per row", diagnostics.SourceQuery, queryapiCursorDelay)
 		}
 		if diagnostics.RowMaterialization >= queryapiCursorDelay {
 			t.Fatalf("row materialization = %v, want the cursor quantum charged only to the query span", diagnostics.RowMaterialization)
@@ -327,9 +287,6 @@ func TestRunChargesCursorQuantumOnceAcrossRows(t *testing.T) {
 	})
 }
 
-// TestRunPreservesResultAndSeparateDiagnostics confirms the boundary fix keeps
-// the public row shape and the separately reported query, materialization, and
-// plan diagnostics intact.
 func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 	backend := &queryapiBackend{rows: queryapiGenderRows()}
 	result, err := queryapiService(t, backend, newControlledClock()).Run(context.Background(), queryapiGenderInput(), nil)
@@ -352,7 +309,7 @@ func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 		t.Fatalf("backend generation bind = %#v, want generation-1", got)
 	}
 	diagnostics := result.Diagnostics
-	if diagnostics.ArangoQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
+	if diagnostics.SourceQuery < 0 || diagnostics.RowMaterialization < 0 || diagnostics.ResultAssembly < 0 {
 		t.Fatalf("negative backend diagnostics: %+v", diagnostics)
 	}
 	if diagnostics.Plan.Fingerprint == "" {
@@ -363,9 +320,6 @@ func TestRunPreservesResultAndSeparateDiagnostics(t *testing.T) {
 	}
 }
 
-// TestRunFailedCompileNeverInvokesBackend pins the compile boundary: a request
-// that reaches the compiler and fails there must not reach the backend, and the
-// error keeps its existing classification.
 func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -373,9 +327,6 @@ func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 		wantCode dataframeerrors.ErrorCode
 	}{
 		{
-			// The compiler, not the recipe validator, rejects this projection
-			// name; the failure is a compiler-internal fault under the current
-			// classification contract.
 			name: "compiler rejects reserved projection name",
 			input: model.FhirDataframeInput{
 				Project: "P1", RootResourceType: "Patient",
@@ -384,7 +335,6 @@ func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 			wantCode: dataframeerrors.CodeBackendUnavailable,
 		},
 		{
-			// The request-preparation boundary rejects this before compilation.
 			name: "preparation rejects cross-grain row grain",
 			input: func() model.FhirDataframeInput {
 				grain := "specimen"
@@ -404,8 +354,6 @@ func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 			if result != nil {
 				t.Fatalf("Run() result = %#v, want nil on failure", result)
 			}
-			// The request really reached catalog-backed preparation, so the zero
-			// backend count below is a boundary claim rather than an early exit.
 			if backend.catalogCallCount() == 0 {
 				t.Fatal("catalog discovery was never called, want a request that reached preparation")
 			}
@@ -423,8 +371,6 @@ func TestRunFailedCompileNeverInvokesBackend(t *testing.T) {
 	}
 }
 
-// TestRunBackendErrorKeepsClassification confirms the compiler-boundary change
-// did not absorb backend failures into the compile path.
 func TestRunBackendErrorKeepsClassification(t *testing.T) {
 	t.Run("unknown cause becomes retryable backend unavailable", func(t *testing.T) {
 		backend := &queryapiBackend{err: errors.New("cursor exploded")}
@@ -454,9 +400,6 @@ func TestRunBackendErrorKeepsClassification(t *testing.T) {
 	})
 }
 
-// TestQueryDiagnosticsFieldShape pins the diagnostic field set the public
-// response is rendered from, so closing the compile interval cannot smuggle in
-// a reporting expansion.
 func TestQueryDiagnosticsFieldShape(t *testing.T) {
 	structure := reflect.TypeOf(dataframeexecution.QueryDiagnostics{})
 	got := make([]string, 0, structure.NumField())
@@ -465,7 +408,7 @@ func TestQueryDiagnosticsFieldShape(t *testing.T) {
 	}
 	want := []string{
 		"InputResolution", "RequestPreparation", "Compilation",
-		"ArangoQuery", "RowMaterialization", "ResultAssembly", "Total", "Plan",
+		"SourceQuery", "SourceBackend", "RowMaterialization", "ResultAssembly", "Total", "Plan",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("QueryDiagnostics fields = %#v, want %#v", got, want)

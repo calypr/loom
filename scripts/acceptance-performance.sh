@@ -57,8 +57,6 @@ if ! git archive "$base_ref" | tar -x -C "$base_source"; then
   exit $?
 fi
 
-# Validate/fetch once on the host. Each Compose project mounts this same
-# content-addressed directory, so base/current variants do not refetch it.
 if [[ -n "${LOOM_ACCEPTANCE_GOCACHE:-}" ]]; then
   GOCACHE="$LOOM_ACCEPTANCE_GOCACHE" go run ./cmd/loom-acceptance --fixture-only --fixture-cache "$cache"
 else
@@ -113,8 +111,6 @@ run_variant() {
     acceptance_status=$?
   fi
 
-  # Only generated project names reach this cleanup. The canonical loom-demo
-  # project is never passed to demo-down by the performance driver.
   if LOOM_DEMO_COMPOSE_PROJECT="$project" "$repo_root/scripts/demo-down.sh" --volumes --remove-orphans \
     >"$variant_artifacts/compose-down.log" 2>&1; then
     active_project=""
