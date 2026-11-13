@@ -42,9 +42,9 @@ var danglingCitations = []danglingCitation{
 	{"internal/dataframe/published/current.go", 207, "if err != nil {"},
 	{"internal/dataframe/published/current.go", 208, "if !binding.Required && errors.Is(err, errReleaseBindingUnavailable) {"},
 	{"internal/dataframe/published/current.go", 211, "return nil, err"},
-	{"internal/dataset/release.go", 193, "return ProjectRelease{}, &ReleaseRequirementsError{Verifications: failed}"},
-	{"internal/dataset/release.go", 210, "prior.Stale = prior.Generation != ref.Generation"},
-	{"internal/dataset/release.go", 255, "return ReleasePublication{Selector: result.Selector, ExecutionID: result.ExecutionID, Generation: result.Generation, Required: required, Stale: result.Generation != generation, VerifiedAt: result.VerifiedAt}"},
+	{"internal/dataset/release.go", 185, "return ProjectRelease{}, &ReleaseRequirementsError{Verifications: failed}"},
+	{"internal/dataset/release.go", 202, "prior.Stale = prior.Generation != ref.Generation"},
+	{"internal/dataset/release.go", 247, "return ReleasePublication{Selector: result.Selector, ExecutionID: result.ExecutionID, Generation: result.Generation, Required: required, Stale: result.Generation != generation, VerifiedAt: result.VerifiedAt}"},
 	{"internal/api/graphql/graph/dataframe/rows.go", 25, "values, err := s.reader.CurrentProjectDatasets(ctx, legacyProjectID(projectID))"},
 	{"internal/api/graphql/graph/dataframe/rows.go", 27, "return nil, mapReaderError(err)"},
 }
